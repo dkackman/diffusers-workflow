@@ -1,4 +1,4 @@
-# diffuser_helper
+# diffusers-helper
 
 ## Introduction
 
