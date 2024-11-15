@@ -8,7 +8,7 @@
       "name": "test",
       "type": "debugpy",
       "request": "launch",
-      "module": "swarm.test",
+      "module": "dh.test",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
@@ -20,7 +20,7 @@
       "name": "img2video workflow",
       "type": "debugpy",
       "request": "launch",
-      "module": "swarm.test",
+      "module": "dh.test",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
@@ -31,7 +31,7 @@
       "name": "test-all",
       "type": "debugpy",
       "request": "launch",
-      "module": "swarm.test",
+      "module": "dh.test",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
@@ -43,7 +43,7 @@
       "name": "scratch",
       "type": "debugpy",
       "request": "launch",
-      "module": "swarm.test",
+      "module": "dh.test",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
