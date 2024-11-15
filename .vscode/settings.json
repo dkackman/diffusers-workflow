@@ -1,0 +1,22 @@
+{
+    "editor.formatOnSave": true,
+    "cSpell.words": [
+        "aiohttp",
+        "controlnet",
+        "cuda",
+        "dtype",
+        "exif",
+        "fullgraph",
+        "LANCZOS",
+        "Loras",
+        "Multistep",
+        "pretrained",
+        "qrcode",
+        "randn",
+        "safetensors",
+        "unet",
+        "upscaler",
+        "vram",
+        "xformers"
+    ]
+}

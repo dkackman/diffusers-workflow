@@ -1,0 +1,39 @@
+{
+    "id": "cogVideoX5bI2V",
+    "pipelines": [
+        {
+            "name": "main",
+            "configuration": {
+                "offload": "sequential",
+                "pipeline_type": "CogVideoXImageToVideoPipeline",
+                "vae": {
+                    "enable_slicing": true,
+                    "enable_tiling": true
+                }
+            },
+            "from_pretrained_arguments": {
+                "model_name": "THUDM/CogVideoX-5b-I2V",
+                "torch_dtype": "torch.bfloat16",
+                "use_safe_tensors": true
+            },
+            "iterations": [
+                {
+                    "result_properties": {
+                        "content_type": "video/mp4",
+                        "file_name": "owl.mp4"
+                    },
+                    "arguments": {
+                        "prompt": "The owl stares intently and blinks",
+                        "image": {
+                            "location": "https://pbs.twimg.com/media/Gcb4faUWgAABw3F?format=jpg&name=medium"
+                        },
+                        "num_videos_per_prompt": 1,
+                        "num_inference_steps": 50,
+                        "num_frames": 49,
+                        "guidance_scale": 6
+                    }
+                }
+            ]
+        }
+    ]
+}

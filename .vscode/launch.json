@@ -1,0 +1,54 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "test",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "swarm.test",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "./examples/tests.json",
+        "sdxl"
+      ]
+    },
+    {
+      "name": "img2video workflow",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "swarm.test",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "./examples/sd35.json"
+      ]
+    },
+    {
+      "name": "test-all",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "swarm.test",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "./examples/tests.json",
+        "*"
+      ]
+    },
+    {
+      "name": "scratch",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "swarm.test",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "./examples/scratch.json",
+      ]
+    },
+  ]
+}

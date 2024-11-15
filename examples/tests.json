@@ -1,0 +1,809 @@
+[
+    {
+        "id": "flux_controlnet",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "FluxControlNetPipeline",
+                    "offload": "sequential"
+                },
+                "controlnet": {
+                    "configuration": {
+                        "pipeline_type": "FluxControlNetModel"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "InstantX/FLUX.1-dev-Controlnet-Canny",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "prompt": "A girl in city, 25 years old, cool, futuristic",
+                            "num_inference_steps": 10,
+                            "controlnet_conditioning_scale": 0.6,
+                            "guidance_scale": 3.5,
+                            "control_image": {
+                                "location": "https://huggingface.co/InstantX/FLUX.1-dev-Controlnet-Canny/resolve/main/canny.jpg"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "sdxl",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "DiffusionPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-diffusion-xl-base-1.0",
+                    "torch_dtype": "torch.float16",
+                    "variant": "fp16",
+                    "use_safetensors": true
+                },
+                "shared_components": [
+                    "text_encoder_2",
+                    "vae"
+                ],
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "prompt": "A majestic lion jumping from a big stone at night",
+                            "num_inference_steps": 25,
+                            "denoising_end": 0.8,
+                            "output_type": "{latent}"
+                        },
+                        "capture_intermediate_results": {
+                            "base_image": "image"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "DiffusionPipeline"
+                },
+                "reused_components": [
+                    "text_encoder_2",
+                    "vae"
+                ],
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-diffusion-xl-refiner-1.0",
+                    "torch_dtype": "torch.float16",
+                    "variant": "fp16",
+                    "use_safetensors": true
+                },
+                "iterations": [
+                    {
+                        "intermediate_results": {
+                            "image": "{base_image}"
+                        },
+                        "arguments": {
+                            "prompt": "A majestic lion jumping from a big stone at night",
+                            "num_inference_steps": 25,
+                            "denoising_start": 0.8
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "cogview",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "CogView3PlusPipeline",
+                    "offload": "sequential",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "THUDM/CogView3-Plus-3B",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "prompt": "A vibrant cherry red sports car sits proudly under the gleaming sun, it's polished exterior smooth and flawless, casting a mirror-like reflection. The car features a low, aerodynamic body, angular headlights that gaze forward like predatory eyes, and a set of black, high-gloss racing rims that contrast starkly with the red. A subtle hint of chrome embellishes the grille and exhaust, while the tinted windows suggest a luxurious and private interior. The scene conveys a sense of speed and elegance, the car appearing as if it's about to burst into a sprint along a coastal road, with the ocean's azure waves crashing in the background.",
+                            "num_inference_steps": 25,
+                            "guidance_scale": 7.0,
+                            "width": 1024,
+                            "height": 1024
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "sd35",
+        "pipelines": [
+            {
+                "name": "main",
+                "transformer": {
+                    "configuration": {
+                        "pipeline_type": "SD3Transformer2DModel",
+                        "bits_and_bytes_configuration": {
+                            "load_in_4bit": true,
+                            "bnb_4bit_quant_type": "{nf4}",
+                            "bnb_4bit_compute_dtype": "torch.bfloat16"
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "stabilityai/stable-diffusion-3.5-large",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "configuration": {
+                    "pipeline_type": "StableDiffusion3Pipeline",
+                    "offload": "full"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-diffusion-3.5-large",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "prompt": "A whimsical and creative image depicting a hybrid creature that is a mix of a waffle and a marmot, basking in a river of melted butter amidst a breakfast-themed landscape. It features the distinctive, plump body shape of a marmot. However, instead of the usual brown fur, the creature's body resembles a golden-brown, crispy waffle fresh off the griddle. The fur is textured with the familiar grid pattern of a waffle, each square filled with a glistening sheen of syrup. The environment combines the natural habitat of a marmot with elements of a breakfast table setting, a river of warm, melted butter, with oversized utensils or plates peeking out from the lush, pancake-like foliage in the background, a towering pepper mill standing in for a tree.  As the sun rises in this fantastical world, it casts a warm, buttery glow over the scene. The creature, content in its butter river, lets out a yawn. Nearby, a flock of birds take flight",
+                            "num_inference_steps": 25,
+                            "guidance_scale": 4.5,
+                            "max_sequence_length": 512
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "sd15_scheduler",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "StableDiffusionPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "runwayml/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16"
+                },
+                "scheduler": {
+                    "configuration": {
+                        "scheduler_type": "EulerDiscreteScheduler"
+                    },
+                    "from_config_args": {
+                        "use_karras_sigmas": true
+                    }
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "prompt": "a billboard in NYC with a qrcode",
+                            "negative_prompt": "ugly, disfigured, low quality, blurry, nsfw",
+                            "guidance_scale": 20,
+                            "num_inference_steps": 25
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "sd15_qrcode",
+        "content_type": "image/jpeg",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "StableDiffusionControlNetImg2ImgPipeline"
+                },
+                "preprocessors": [
+                    {
+                        "name": "tile",
+                        "capture_intermediate_result": "condition_image",
+                        "image": {
+                            "location": "https://1.bp.blogspot.com/-dHN4KiD3dsU/XRxU5JRV7DI/AAAAAAAAAz4/u1ynpCMIuKwZMA642dHEoXFVKuHQbJvwgCEwYBhgL/s1600/qr-code.png"
+                        }
+                    },
+                    {
+                        "name": "tile",
+                        "capture_intermediate_result": "init_image",
+                        "image": {
+                            "location": "https://as1.ftcdn.net/v2/jpg/01/53/24/06/1000_F_153240633_iTL2FpCwzu5KJPdU4cotBAvObaovWWO4.jpg"
+                        }
+                    }
+                ],
+                "controlnet": {
+                    "configuration": {
+                        "pipeline_type": "ControlNetModel"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "DionTimmer/controlnet_qrcode-control_v1p_sd15",
+                        "torch_dtype": "torch.float16"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "runwayml/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16"
+                },
+                "iterations": [
+                    {
+                        "arguments": {
+                            "prompt": "a billboard in NYC with a qrcode",
+                            "negative_prompt": "ugly, disfigured, low quality, blurry, nsfw",
+                            "width": 768,
+                            "height": 768,
+                            "guidance_scale": 20,
+                            "controlnet_conditioning_scale": 1.5,
+                            "strength": 0.9,
+                            "num_inference_steps": 25
+                        },
+                        "intermediate_results": {
+                            "image": "{init_image}",
+                            "control_image": "{condition_image}"
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "sd-x2-latent-upscaler",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "StableDiffusionPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16"
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "prompt": "Stormtrooper's lecture in beautiful lecture hall",
+                            "num_inference_steps": 25,
+                            "output_type": "{latent}"
+                        },
+                        "capture_intermediate_results": {
+                            "low_res_latents": "image"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "upscale",
+                "configuration": {
+                    "pipeline_type": "StableDiffusionLatentUpscalePipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/sd-x2-latent-upscaler",
+                    "torch_dtype": "torch.float16"
+                },
+                "iterations": [
+                    {
+                        "arguments": {
+                            "prompt": "Stormtrooper's lecture in beautiful lecture hall"
+                        },
+                        "intermediate_results": {
+                            "image": "low_res_latents"
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "stable-diffusion-x4-upscaler",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "StableDiffusionPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16"
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "prompt": "Stormtrooper's lecture in beautiful lecture hall",
+                            "num_inference_steps": 25
+                        },
+                        "capture_intermediate_results": {
+                            "low_res_image": "image"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "upscale",
+                "configuration": {
+                    "pipeline_type": "StableDiffusionUpscalePipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-diffusion-x4-upscaler",
+                    "torch_dtype": "torch.float16"
+                },
+                "iterations": [
+                    {
+                        "arguments": {
+                            "prompt": "Stormtrooper's lecture in beautiful lecture hall"
+                        },
+                        "intermediate_results": {
+                            "image": "low_res_image"
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "sd15-controlnet",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "StableDiffusionControlNetPipeline"
+                },
+                "preprocessors": [
+                    {
+                        "name": "depth_estimator",
+                        "capture_intermediate_result": "depth_mask",
+                        "image": {
+                            "location": "https://huggingface.co/lllyasviel/control_v11p_sd15_depth/resolve/main/images/input.png"
+                        }
+                    }
+                ],
+                "controlnet": {
+                    "configuration": {
+                        "pipeline_type": "ControlNetModel"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "lllyasviel/control_v11f1p_sd15_depth",
+                        "torch_dtype": "torch.float16"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "runwayml/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16"
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "prompt": "Stormtrooper's lecture in beautiful lecture hall",
+                            "num_inference_steps": 25
+                        },
+                        "intermediate_results": {
+                            "image": "{depth_mask}"
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "sd14-lora",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "StableDiffusionPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "CompVis/stable-diffusion-v1-4",
+                    "torch_dtype": "torch.float16"
+                },
+                "loras": [
+                    {
+                        "lora_name": "sayakpaul/sd-model-finetuned-lora-t4",
+                        "lora_scale": 0.1
+                    }
+                ],
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "prompt": "A pokemon with blue eyes",
+                            "guidance_scale": 7.5,
+                            "num_inference_steps": 25
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "svd",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "StableVideoDiffusionPipeline",
+                    "unet": {
+                        "enable_forward_chunking": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-video-diffusion-img2vid",
+                    "torch_dtype": "torch.float16",
+                    "use_safe_tensors": true,
+                    "variant": "fp16"
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "video/mp4"
+                        },
+                        "arguments": {
+                            "image": {
+                                "location": "https://pbs.twimg.com/profile_images/1708153260853383168/s8DMOcLj_400x400.jpg"
+                            },
+                            "num_frames": 25,
+                            "decode_chunk_size": 2
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "cogVideoX5bI2V",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "THUDM/CogVideoX-5b-I2V",
+                    "torch_dtype": "torch.bfloat16",
+                    "use_safe_tensors": true
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "video/mp4"
+                        },
+                        "arguments": {
+                            "prompt": "A man laughing",
+                            "negative_prompt": "lowres, text, error, cropped, worst quality, low quality, weird, deformed",
+                            "image": {
+                                "location": "https://regmedia.co.uk/2021/07/03/gene_hoffman_photo.jpg"
+                            },
+                            "num_videos_per_prompt": 1,
+                            "num_inference_steps": 25,
+                            "num_frames": 49,
+                            "guidance_scale": 6
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "cogVideoX",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "CogVideoXPipeline",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "THUDM/CogVideoX-5b",
+                    "torch_dtype": "torch.bfloat16",
+                    "use_safe_tensors": true
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "video/mp4"
+                        },
+                        "arguments": {
+                            "prompt": "A marmot wearing a top hat, dancing on a mountainside.",
+                            "num_videos_per_prompt": 1,
+                            "num_inference_steps": 25,
+                            "num_frames": 49,
+                            "guidance_scale": 6
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "flux_fast",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "FluxPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-schnell",
+                    "torch_dtype": "torch.bfloat16",
+                    "use_safe_tensors": true
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "max_sequence_length": 256,
+                            "prompt": "A frog holding a sign that says 'onchain engagement farming'",
+                            "guidance_scale": 0,
+                            "num_inference_steps": 5,
+                            "num_images_per_prompt": 1
+                        }
+                    },
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "max_sequence_length": 256,
+                            "prompt": "A marmot holding a sign that says 'onchain engagement farming'",
+                            "guidance_scale": 0,
+                            "num_inference_steps": 5,
+                            "num_images_per_prompt": 1
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "flux_dev",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "FluxPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16",
+                    "use_safe_tensors": true
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "max_sequence_length": 512,
+                            "prompt": "A visually striking dark fantasy portrait of Cthulhu and The Flying Spaghetti Monster, raging oceanic landscape. The Cthulhu's slimy green skin is a stark contrast to the Spaghetti Monster's vivid, noodle-like appendages, which seems to be made of real spaghetti. The two are locked in battle, leaving glowing, leave a trail of lightning behind, while their intense, glistening eyes reflect a fierce, unbridled energy. The background features a haunting, stormy red sky filled with ominous lightning, adding to the overall sense of mystique and intrigue. This captivating image blends the mediums of photo, painting, and portrait photography to create a unique, conceptual art piece., painting, portrait photography, vibrant, photo, conceptual art, dark fantasy",
+                            "guidance_scale": 3.5,
+                            "num_inference_steps": 25,
+                            "num_images_per_prompt": 1,
+                            "height": 1024,
+                            "width": 1024
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "kandinsky_3",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "AutoPipelineForText2Image",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "kandinsky-community/kandinsky-3",
+                    "torch_dtype": "torch.bfloat16",
+                    "variant": "fp16",
+                    "use_safe_tensors": true
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/png"
+                        },
+                        "arguments": {
+                            "negative_prompt": "low quality, bad quality",
+                            "prompt": "A picture of Cthulhu, the god of the deep",
+                            "guidance_scale": 4.0,
+                            "num_inference_steps": 25,
+                            "num_images_per_prompt": 1
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "kandinsky_3_img2img",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "AutoPipelineForImage2Image",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "kandinsky-community/kandinsky-3",
+                    "torch_dtype": "torch.bfloat16",
+                    "variant": "fp16",
+                    "use_safe_tensors": true
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "negative_prompt": "low quality, bad quality",
+                            "prompt": "A painting of the inside of a subway train with tiny raccoons.",
+                            "image": {
+                                "location": "https://huggingface.co/datasets/hf-internal-testing/diffusers-images/resolve/main/kandinsky3/t2i.png"
+                            },
+                            "num_inference_steps": 25,
+                            "num_images_per_prompt": 1,
+                            "strength": 0.75
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "kandinsky_controlnet",
+        "pipelines": [
+            {
+                "name": "prior",
+                "configuration": {
+                    "pipeline_type": "KandinskyV22PriorPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "kandinsky-community/kandinsky-2-2-prior",
+                    "torch_dtype": "torch.float16"
+                },
+                "iterations": [
+                    {
+                        "arguments": {
+                            "negative_prompt": "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature",
+                            "prompt": "A robot, 4k photo"
+                        },
+                        "capture_intermediate_results": {
+                            "image_embeds": "image_embeds",
+                            "negative_image_embeds": "negative_image_embeds"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "KandinskyV22ControlnetPipeline"
+                },
+                "preprocessors": [
+                    {
+                        "result_properties": {
+                            "content_type": "image/jpeg"
+                        },
+                        "name": "depth_estimator_tensor",
+                        "capture_intermediate_result": "hint",
+                        "image": {
+                            "location": "https://huggingface.co/datasets/hf-internal-testing/diffusers-images/resolve/main/kandinskyv22/cat.png",
+                            "size": {
+                                "height": 768,
+                                "width": 768
+                            }
+                        }
+                    }
+                ],
+                "from_pretrained_arguments": {
+                    "model_name": "kandinsky-community/kandinsky-2-2-controlnet-depth",
+                    "torch_dtype": "torch.float16"
+                },
+                "iterations": [
+                    {
+                        "arguments": {
+                            "num_inference_steps": 25,
+                            "num_images_per_prompt": 1,
+                            "height": 768,
+                            "width": 768
+                        },
+                        "intermediate_results": {
+                            "hint": "hint",
+                            "image_embeds": "image_embeds",
+                            "negative_image_embeds": "negative_image_embeds"
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "stable-audio-open-1.0",
+        "pipelines": [
+            {
+                "name": "main",
+                "configuration": {
+                    "pipeline_type": "StableAudioPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-audio-open-1.0",
+                    "torch_dtype": "torch.float16"
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "audio/wav"
+                        },
+                        "arguments": {
+                            "prompt": "The sound of a hammer hitting a wooden surface.",
+                            "negative_prompt": "Low quality.",
+                            "num_inference_steps": 100,
+                            "audio_end_in_s": 10.0,
+                            "num_waveforms_per_prompt": 3
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+]
