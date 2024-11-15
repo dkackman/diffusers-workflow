@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This is a helper for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). It provides a command line interface and json input format for driving the diffuser library supporting the most common diffuser use cases.
+This is a helper for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). It provides a command line interface and json input format for driving the diffuser library supporting the most common diffuser use cases. It allows you to run new models without any code changes by referencing the pipeline types, module names, and arbitrary paramters as data.
 
 ## Installation
 
