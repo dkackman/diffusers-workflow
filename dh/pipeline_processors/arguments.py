@@ -29,7 +29,7 @@ def process_args(d):
                     process_args(item)
             elif (k.endswith("_type") or k.endswith("_dtype")) and k != "content_type":
                 # use {} to escape key value pairs that are not type references
-                if (isinstance(v, str) and v.startswith("{") and v.endswith("}")):
+                if isinstance(v, str) and v.startswith("{") and v.endswith("}"):
                     d[k] = v.strip("{}")
                 else:
                     d[k] = load_type_from_name(v)                  
@@ -37,6 +37,7 @@ def process_args(d):
     elif isinstance(d, list):
         for item in d:
             process_args(item)
+
 
 def process_image(image):
     # escape indicator for intermediate result references

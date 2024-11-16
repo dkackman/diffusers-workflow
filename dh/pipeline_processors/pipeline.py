@@ -135,14 +135,6 @@ def load_and_configure_pipeline(configuration, from_pretrained_arguments, device
     print(f"Loading pipeline {model_name}...")
 
     pipeline = pipeline_type.from_pretrained(model_name, **from_pretrained_arguments)
-            
-    # configure the pipeline
-    if (configuration.get("set_unet_memory_format", False)):
-        pipeline.unet.to(memory_format=torch.channels_last)
-    if (configuration.get("enable_vae_slicing", False)):
-        pipeline.enable_vae_slicing()
-    if (configuration.get("enable_vae_tiling", False)):
-        pipeline.enable_vae_tiling()
 
     offload = configuration.get("offload", None)
     if offload == "full":
@@ -155,12 +147,13 @@ def load_and_configure_pipeline(configuration, from_pretrained_arguments, device
     vae = configuration.get("vae", {})
     if vae.get("enable_slicing", False):
         pipeline.vae.enable_slicing()
-
     if vae.get("enable_tiling", False):
         pipeline.vae.enable_tiling()
 
     unet = configuration.get("unet", {})
     if unet.get("enable_forward_chunking", False):
         pipeline.unet.enable_forward_chunking()
+    if unet.get("set_memory_format", False):
+        pipeline.unet.to(memory_format=torch.channels_last)
 
     return pipeline
