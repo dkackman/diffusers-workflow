@@ -1,30 +1,18 @@
 {
     "id": "sd35",
-    "pipelines": [
+    "steps": [
         {
             "name": "image_generation",
-            "transformer": {
+            "pipeline": {
                 "configuration": {
-                    "pipeline_type": "SD3Transformer2DModel",
-                    "bits_and_bytes_configuration": {
-                        "load_in_4bit": true,
-                        "bnb_4bit_quant_type": "{nf4}",
-                        "bnb_4bit_compute_dtype": "torch.bfloat16"
-                    }
+                    "offload": "sequential",
+                    "pipeline_type": "FluxPipeline"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "stabilityai/stable-diffusion-3.5-large",
-                    "subfolder": "transformer",
-                    "torch_dtype": "torch.bfloat16"
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16",
+                    "use_safe_tensors": true
                 }
-            },
-            "configuration": {
-                "pipeline_type": "StableDiffusion3Pipeline",
-                "offload": "full"
-            },
-            "from_pretrained_arguments": {
-                "model_name": "stabilityai/stable-diffusion-3.5-large",
-                "torch_dtype": "torch.bfloat16"
             },
             "iterations": [
                 {
@@ -32,7 +20,7 @@
                         "content_type": "image/png"
                     },
                     "arguments": {
-                        "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of owl, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, assymetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
+                        "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of marmot, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, assymetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
                         "num_inference_steps": 25,
                         "guidance_scale": 4.5,
                         "max_sequence_length": 512
@@ -45,32 +33,34 @@
         },
         {
             "name": "image_to_video",
-            "configuration": {
-                "offload": "sequential",
-                "pipeline_type": "CogVideoXImageToVideoPipeline",
-                "vae": {
-                    "enable_slicing": true,
-                    "enable_tiling": true
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "THUDM/CogVideoX-5b-I2V",
+                    "torch_dtype": "torch.bfloat16",
+                    "use_safe_tensors": true
                 }
-            },
-            "from_pretrained_arguments": {
-                "model_name": "THUDM/CogVideoX-5b-I2V",
-                "torch_dtype": "torch.bfloat16",
-                "use_safe_tensors": true
             },
             "iterations": [
                 {
                     "result_properties": {
                         "content_type": "video/mp4",
-                        "file_name": "owl.mp4"
+                        "file_name": "marmot.mp4"
                     },
                     "intermediate_results": {
                         "image": "{base_image}"
                     },
                     "arguments": {
-                        "prompt": "The owl stares intently and blinks",
+                        "prompt": "The marmot stares intently and blinks",
                         "num_videos_per_prompt": 1,
-                        "num_inference_steps": 50,
+                        "num_inference_steps": 25,
                         "num_frames": 49,
                         "guidance_scale": 6
                     }

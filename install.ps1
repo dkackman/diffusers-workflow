@@ -70,7 +70,7 @@ python -m venv venv
 python.exe -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-pip3 install torch==2.4.1 diffusers[torch] transformers accelerate scipy ftfy safetensors controlnet_aux sentencepiece peft mediapipe --index-url https://download.pytorch.org/whl/cu124
+pip3 install torch==2.4.1 diffusers[torch] peft transformers accelerate safetensors controlnet_aux sentencepiece mediapipe torchsde bitsandbytes --index-url https://download.pytorch.org/whl/cu124
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 pip3 install aiohttp matplotlib moviepy opencv-python concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile

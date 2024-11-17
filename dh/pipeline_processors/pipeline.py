@@ -3,8 +3,12 @@ from diffusers import BitsAndBytesConfig
 from ..pre_processors.controlnet import preprocess_image
 from .result import Result
 
-def run_pipeline(pipeline_definition, device_identifier, intermediate_results, shared_components):
-    configuration, from_pretrained_arguments = validate_definition(pipeline_definition)
+def run_step(step_definition, device_identifier, intermediate_results, shared_components):
+    pipeline_definition = step_definition.get("pipeline", None)
+    if pipeline_definition is None:
+        raise Exception("pipeline is required for a step")
+    
+    configuration, from_pretrained_arguments = validate_pipeline_definition(pipeline_definition)
 
     # run all the prerpocessors first
     for preprocessor in pipeline_definition.get("preprocessors", []) :          
@@ -34,7 +38,7 @@ def run_pipeline(pipeline_definition, device_identifier, intermediate_results, s
     # load and configure any custom scheduler
     load_and_configure_scheduler(pipeline_definition.get("scheduler", None), pipeline)
     
-    # store any shared pipeline components for future use by other pipelines
+    # store any shared pipeline components for future use by other steps
     for shared_component_name in pipeline_definition.get("shared_components", []):
         shared_components[shared_component_name] = getattr(pipeline, shared_component_name)
 
@@ -49,19 +53,16 @@ def run_pipeline(pipeline_definition, device_identifier, intermediate_results, s
         pipeline.fuse_lora(lora_scale=lora_scale)
 
     # create a generator that will be used by each iteration if they don't set their own seed
-    seed = configuration["seed"] if "seed" in configuration else torch.seed()
+    seed = step_definition["seed"] if "seed" in step_definition else torch.seed()
     default_generator = torch.Generator(device_identifier).manual_seed(seed)
     results = []
 
     # prepare and run pipeline iterations
-    for iteration in pipeline_definition.get("iterations", []):
+    for iteration in step_definition.get("iterations", []):
         arguments = iteration.get("arguments", {})
 
         # each iteration can use its own seed
-        if "seed" in iteration:
-            arguments["generator"] = torch.Generator(device_identifier).manual_seed(iteration["seed"])
-        else:
-            arguments["generator"] = default_generator
+        arguments["generator"] = torch.Generator(device_identifier).manual_seed(iteration["seed"]) if "seed" in iteration else default_generator
 
         # if there are intermediate results requested, add them to the iteration
         intermediate_result_names = iteration.get("intermediate_results", {})
@@ -105,13 +106,13 @@ def load_and_configure_component(parent_definition, component_name, device_ident
     component_definition = parent_definition.get(component_name, None)
     if component_definition is not None:
         print(f"Loading {component_name}")
-        component_configuration, component_from_pretrained_arguments = validate_definition(component_definition)
+        component_configuration, component_from_pretrained_arguments = validate_pipeline_definition(component_definition)
         return load_and_configure_pipeline(component_configuration, component_from_pretrained_arguments, device_identifier)
 
     return None
 
 
-def validate_definition(pipeline_definition):
+def validate_pipeline_definition(pipeline_definition):
     configuration = pipeline_definition.get("configuration", None)
     if configuration is None:
         raise Exception("configuration is required for a pipeline")

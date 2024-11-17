@@ -13,7 +13,7 @@
       "justMyCode": true,
       "args": [
         "./examples/tests.json",
-        "sdxl"
+        "stable-audio-open-1.0"
       ]
     },
     {
