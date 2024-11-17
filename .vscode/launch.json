@@ -5,10 +5,10 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "test",
+      "name": "run",
       "type": "debugpy",
       "request": "launch",
-      "module": "dh.test",
+      "module": "dh.run",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
@@ -17,21 +17,21 @@
       ]
     },
     {
-      "name": "img2video workflow",
+      "name": "txt2img2vid",
       "type": "debugpy",
       "request": "launch",
-      "module": "dh.test",
+      "module": "dh.run",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/sd35.json"
+        "./examples/txt2img2vid.json"
       ]
     },
     {
-      "name": "test-all",
+      "name": "run-all",
       "type": "debugpy",
       "request": "launch",
-      "module": "dh.test",
+      "module": "dh.run",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
@@ -43,12 +43,43 @@
       "name": "scratch",
       "type": "debugpy",
       "request": "launch",
-      "module": "dh.test",
+      "module": "dh.run",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
         "./examples/scratch.json",
       ]
+    },
+    {
+      "name": "validate single file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dh.validate",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "./examples/scratch.json",
+      ]
+    },
+    {
+      "name": "validate tests file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dh.validate",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "./examples/tests.json",
+        "*"
+      ]
+    },
+    {
+      "name": "test",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dh.test",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true
     },
   ]
 }

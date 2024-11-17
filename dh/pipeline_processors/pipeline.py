@@ -5,11 +5,9 @@ from .result import Result
 
 def run_step(step_definition, device_identifier, intermediate_results, shared_components):
     pipeline_definition = step_definition.get("pipeline", None)
-    if pipeline_definition is None:
-        raise Exception("pipeline is required for a step")
+    configuration = pipeline_definition.get("configuration", None)
+    from_pretrained_arguments = pipeline_definition.get("from_pretrained_arguments", None)
     
-    configuration, from_pretrained_arguments = validate_pipeline_definition(pipeline_definition)
-
     # run all the prerpocessors first
     for preprocessor in pipeline_definition.get("preprocessors", []) :          
         preprocessed_image = preprocess_image(preprocessor["image"], preprocessor["name"], device_identifier)
@@ -94,10 +92,7 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
 def load_and_configure_scheduler(scheduler_definition, pipeline):
     if scheduler_definition is not None:
         print(f"Loading scheduler")
-        scheduler_configuration = scheduler_definition.get("configuration", None)
-        if scheduler_configuration is None:
-            raise Exception("configuration is required for a scheduler")
-        
+        scheduler_configuration = scheduler_definition.get("configuration", None)        
         scheduler_type = scheduler_configuration.get("scheduler_type", None)
         pipeline.scheduler = scheduler_type.from_config(pipeline.scheduler.config, **scheduler_configuration)
 
@@ -114,12 +109,7 @@ def load_and_configure_component(parent_definition, component_name, device_ident
 
 def validate_pipeline_definition(pipeline_definition):
     configuration = pipeline_definition.get("configuration", None)
-    if configuration is None:
-        raise Exception("configuration is required for a pipeline")
-    
     from_pretrained_arguments = pipeline_definition.get("from_pretrained_arguments", None)
-    if from_pretrained_arguments is None:
-        raise Exception("from_pretrained_arguments is required for a pipeline")
     
     return configuration, from_pretrained_arguments
     
