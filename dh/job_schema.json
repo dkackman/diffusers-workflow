@@ -290,6 +290,15 @@
                             "bnb_4bit_compute_dtype": {
                                 "type": "string"
                             }
+                        },
+                        "additionalProperties": {
+                            "type": [
+                                "string",
+                                "number",
+                                "object",
+                                "array",
+                                "boolean"
+                            ]
                         }
                     },
                     "required": [
