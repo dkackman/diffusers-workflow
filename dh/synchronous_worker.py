@@ -6,7 +6,7 @@ import json
 from .settings import (load_settings, resolve_path)
 from packaging import version
 from .log_setup import setup_logging
-from .pipeline_processors.pipeline import run_pipeline
+from .pipeline_processors.pipeline import run_step
 from .pipeline_processors.arguments import prepare_args
 from . import __version__
 
@@ -21,19 +21,18 @@ def do_work(input_job, output_dir):
     input_job["seed"] = default_seed
     job = prepare_args(input_job)
 
-    # collections that are passed between pipelines to share state
+    # collections that are passed between steps to share state
     results = []
     intermediate_results = {}
     shared_components = {}
-    for pipeline in job["pipelines"]:
-        name = pipeline["name"]
-        print(f"Running pipeline {name}")
+    for step in job["steps"]:
+        name = step["name"]
+        print(f"Running step {name}...")
 
         # if the pipeline's configuration doesn't have a seed use the default from above
-        configuration = pipeline["configuration"]
-        configuration["seed"] = configuration["seed"] if "seed" in configuration else default_seed
+        step["seed"] = step["seed"] if "seed" in step else default_seed
 
-        result = run_pipeline(pipeline, "cuda", intermediate_results, shared_components)
+        result = run_step(step, "cuda", intermediate_results, shared_components)
         if result is not None:
             results.extend(result)  
 

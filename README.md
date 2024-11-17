@@ -43,31 +43,34 @@ This example demonstrates a multiple step workflow including an image generation
 ```json
 {
     "id": "sd35 image to video",
-    "pipelines": [
+    "steps": [
         {
             "name": "image_generation",
-            "transformer": {
-                "configuration": {
-                    "pipeline_type": "SD3Transformer2DModel",
-                    "bits_and_bytes_configuration": {
-                        "load_in_4bit": true,
-                        "bnb_4bit_quant_type": "{nf4}",
-                        "bnb_4bit_compute_dtype": "torch.bfloat16"
+            "pipeline": 
+            {
+                "transformer": {
+                    "configuration": {
+                        "pipeline_type": "SD3Transformer2DModel",
+                        "bits_and_bytes_configuration": {
+                            "load_in_4bit": true,
+                            "bnb_4bit_quant_type": "{nf4}",
+                            "bnb_4bit_compute_dtype": "torch.bfloat16"
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "stabilityai/stable-diffusion-3.5-large",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
                     }
+                },
+                "configuration": {
+                    "pipeline_type": "StableDiffusion3Pipeline",
+                    "offload": "full"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-3.5-large",
-                    "subfolder": "transformer",
                     "torch_dtype": "torch.bfloat16"
                 }
-            },
-            "configuration": {
-                "pipeline_type": "StableDiffusion3Pipeline",
-                "offload": "full"
-            },
-            "from_pretrained_arguments": {
-                "model_name": "stabilityai/stable-diffusion-3.5-large",
-                "torch_dtype": "torch.bfloat16"
             },
             "iterations": [
                 {
@@ -88,18 +91,20 @@ This example demonstrates a multiple step workflow including an image generation
         },
         {
             "name": "image_to_video",
-            "configuration": {
-                "offload": "sequential",
-                "pipeline_type": "CogVideoXImageToVideoPipeline",
-                "vae": {
-                    "enable_slicing": true,
-                    "enable_tiling": true
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "THUDM/CogVideoX-5b-I2V",
+                    "torch_dtype": "torch.bfloat16",
+                    "use_safe_tensors": true
                 }
-            },
-            "from_pretrained_arguments": {
-                "model_name": "THUDM/CogVideoX-5b-I2V",
-                "torch_dtype": "torch.bfloat16",
-                "use_safe_tensors": true
             },
             "iterations": [
                 {

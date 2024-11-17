@@ -1,20 +1,22 @@
 {
     "id": "cogVideoX5bI2V",
-    "pipelines": [
+    "steps": [
         {
             "name": "main",
-            "configuration": {
-                "offload": "sequential",
-                "pipeline_type": "CogVideoXImageToVideoPipeline",
-                "vae": {
-                    "enable_slicing": true,
-                    "enable_tiling": true
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "THUDM/CogVideoX-5b-I2V",
+                    "torch_dtype": "torch.bfloat16",
+                    "use_safe_tensors": true
                 }
-            },
-            "from_pretrained_arguments": {
-                "model_name": "THUDM/CogVideoX-5b-I2V",
-                "torch_dtype": "torch.bfloat16",
-                "use_safe_tensors": true
             },
             "iterations": [
                 {
@@ -23,9 +25,9 @@
                         "file_name": "owl.mp4"
                     },
                     "arguments": {
-                        "prompt": "The owl stares intently and blinks",
+                        "prompt": "The monkey and cat cuddle",
                         "image": {
-                            "location": "https://pbs.twimg.com/media/Gcb4faUWgAABw3F?format=jpg&name=medium"
+                            "location": "https://pbs.twimg.com/media/GcmfyHba4AAg3sQ?format=jpg&name=small"
                         },
                         "num_videos_per_prompt": 1,
                         "num_inference_steps": 50,

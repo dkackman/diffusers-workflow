@@ -216,5 +216,5 @@ fi
 
 python -m pip install --upgrade pip
 
-pip install torch diffusers[torch] peft transformers accelerate safetensors controlnet_aux sentencepiece mediapipe bitsandbytes
+pip install torch diffusers[torch] peft transformers accelerate safetensors controlnet_aux sentencepiece mediapipe torchsde bitsandbytes
 pip install aiohttp matplotlib moviepy opencv-python concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile
