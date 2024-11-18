@@ -1,0 +1,37 @@
+{
+    "id": "scratch",
+    "steps": [
+        {
+            "name": "image_to_video",
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "CogVideoXPipeline",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "THUDM/CogVideoX-5b",
+                    "torch_dtype": "torch.bfloat16"
+                }
+            },
+            "iterations": [
+                {
+                    "result_properties": {
+                        "content_type": "video/mp4",
+                        "file_name": "CogVideoX-5b.mp4"
+                    },
+                    "arguments": {
+                        "prompt": "A marmot, dressed in a small, red jacket and a tiny hat, sits on a wooden stool in a serene boreal forest. The marmot's fluffy paws strum a miniature acoustic guitar, producing soft, melodic tunes. Nearby, a few other marmots gather, watching curiously and some clapping in rhythm. Sunlight filters through the tall trees, casting a gentle glow on the scene. The marmot's face is expressive, showing concentration and joy as it plays. The background includes a small, flowing stream and vibrant green foliage, enhancing the peaceful and magical atmosphere of this unique musical performance.",
+                        "num_videos_per_prompt": 1,
+                        "num_inference_steps": 35,
+                        "num_frames": 49,
+                        "guidance_scale": 6
+                    }
+                }
+            ]
+        }
+    ]
+}

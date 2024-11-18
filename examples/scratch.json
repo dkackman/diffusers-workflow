@@ -1,38 +1,31 @@
 {
-    "id": "scratch",
+    "id": "shuttle-ai",
     "steps": [
         {
-            "name": "image_to_video",
+            "name": "main",
             "pipeline": {
                 "configuration": {
-                    "offload": "sequential",
-                    "pipeline_type": "CogVideoXImageToVideoPipeline",
-                    "vae": {
-                        "enable_slicing": true,
-                        "enable_tiling": true
-                    }
+                    "pipeline_type": "DiffusionPipeline",
+                    "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "THUDM/CogVideoX-5b-I2V",
-                    "torch_dtype": "torch.bfloat16",
-                    "use_safe_tensors": true
+                    "model_name": "shuttleai/shuttle-3-diffusion",
+                    "torch_dtype": "torch.bfloat16"
                 }
             },
             "iterations": [
                 {
                     "result_properties": {
-                        "content_type": "video/mp4",
-                        "file_name": "marmot.mp4"
+                        "content_type": "image/jpeg",
+                        "file_name": "shuttle-ai.jpg"
                     },
                     "arguments": {
-                        "image": {
-                            "location": "https://assets.mainnet.mintgarden.io/thumbnails/b22bf9bc355d04f090308f2e82c97859d28f63067ea05ac794bfff47172229b9.webp"
-                        },
-                        "prompt": "rocket goes up",
-                        "num_videos_per_prompt": 1,
-                        "num_inference_steps": 35,
-                        "num_frames": 49,
-                        "guidance_scale": 6
+                        "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of marmot, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, assymetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
+                        "height": 1024,
+                        "width": 1024,
+                        "guidance_scale": 3.5,
+                        "num_inference_steps": 4,
+                        "max_sequence_length": 256
                     }
                 }
             ]

@@ -5,25 +5,26 @@
             "name": "image_generation",
             "pipeline": {
                 "configuration": {
-                    "offload": "sequential",
-                    "pipeline_type": "FluxPipeline"
+                    "pipeline_type": "DiffusionPipeline",
+                    "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "black-forest-labs/FLUX.1-dev",
-                    "torch_dtype": "torch.bfloat16",
-                    "use_safe_tensors": true
+                    "model_name": "shuttleai/shuttle-3-diffusion",
+                    "torch_dtype": "torch.bfloat16"
                 }
             },
             "iterations": [
                 {
                     "result_properties": {
-                        "content_type": "image/png"
+                        "content_type": "image/jpeg"
                     },
                     "arguments": {
                         "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of marmot, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, assymetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
-                        "num_inference_steps": 25,
-                        "guidance_scale": 4.5,
-                        "max_sequence_length": 512
+                        "height": 1024,
+                        "width": 1024,
+                        "guidance_scale": 3.5,
+                        "num_inference_steps": 4,
+                        "max_sequence_length": 256
                     },
                     "capture_intermediate_results": {
                         "base_image": "image"
