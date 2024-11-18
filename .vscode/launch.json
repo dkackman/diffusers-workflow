@@ -40,6 +40,18 @@
       ]
     },
     {
+      "name": "run-all-img2vid",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dh.run",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "./examples/img2vid.json",
+        "*"
+      ]
+    },
+    {
       "name": "scratch",
       "type": "debugpy",
       "request": "launch",
@@ -69,8 +81,7 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/tests.json",
-        "*"
+        "./examples/tests.json"
       ]
     },
     {

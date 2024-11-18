@@ -484,6 +484,80 @@
         ]
     },
     {
+        "id": "svdxt",
+        "steps": [
+            {
+                "name": "main",
+                "pipeline": {
+                    "configuration": {
+                        "offload": "sequential",
+                        "pipeline_type": "StableVideoDiffusionPipeline",
+                        "unet": {
+                            "enable_forward_chunking": true
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "stabilityai/stable-video-diffusion-img2vid-xt",
+                        "torch_dtype": "torch.float16",
+                        "use_safe_tensors": true,
+                        "variant": "fp16"
+                    }
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "video/mp4"
+                        },
+                        "arguments": {
+                            "image": {
+                                "location": "https://pbs.twimg.com/profile_images/1708153260853383168/s8DMOcLj_400x400.jpg"
+                            },
+                            "num_frames": 25,
+                            "decode_chunk_size": 2
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "id": "svdxt1-1",
+        "steps": [
+            {
+                "name": "main",
+                "pipeline": {
+                    "configuration": {
+                        "offload": "sequential",
+                        "pipeline_type": "StableVideoDiffusionPipeline",
+                        "unet": {
+                            "enable_forward_chunking": true
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "stabilityai/stable-video-diffusion-img2vid-xt-1-1",
+                        "torch_dtype": "torch.float16",
+                        "use_safe_tensors": true,
+                        "variant": "fp16"
+                    }
+                },
+                "iterations": [
+                    {
+                        "result_properties": {
+                            "content_type": "video/mp4"
+                        },
+                        "arguments": {
+                            "image": {
+                                "location": "https://pbs.twimg.com/profile_images/1708153260853383168/s8DMOcLj_400x400.jpg"
+                            },
+                            "num_frames": 25,
+                            "decode_chunk_size": 2
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
         "id": "svd",
         "steps": [
             {
