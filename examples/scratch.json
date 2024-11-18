@@ -1,50 +1,38 @@
 {
-    "id": "stable-diffusion-x4-upscaler",
+    "id": "scratch",
     "steps": [
         {
-            "name": "main",
+            "name": "image_to_video",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "StableDiffusionPipeline"
+                    "offload": "sequential",
+                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                    "torch_dtype": "torch.float16"
+                    "model_name": "THUDM/CogVideoX-5b-I2V",
+                    "torch_dtype": "torch.bfloat16",
+                    "use_safe_tensors": true
                 }
             },
             "iterations": [
                 {
                     "result_properties": {
-                        "content_type": "image/jpeg"
+                        "content_type": "video/mp4",
+                        "file_name": "marmot.mp4"
                     },
                     "arguments": {
-                        "prompt": "Stormtrooper's lecture in beautiful lecture hall",
-                        "num_inference_steps": 25
-                    },
-                    "capture_intermediate_results": {
-                        "low_res_image": "image"
-                    }
-                }
-            ]
-        },
-        {
-            "name": "upscale",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "StableDiffusionUpscalePipeline"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "stabilityai/stable-diffusion-x4-upscaler",
-                    "torch_dtype": "torch.float16"
-                }
-            },
-            "iterations": [
-                {
-                    "arguments": {
-                        "prompt": "Stormtrooper's lecture in beautiful lecture hall"
-                    },
-                    "intermediate_results": {
-                        "image": "low_res_image"
+                        "image": {
+                            "location": "https://pbs.twimg.com/media/GcnSunDWIAAF0jL?format=jpg&name=medium"
+                        },
+                        "prompt": "laughing",
+                        "num_videos_per_prompt": 1,
+                        "num_inference_steps": 25,
+                        "num_frames": 49,
+                        "guidance_scale": 6
                     }
                 }
             ]

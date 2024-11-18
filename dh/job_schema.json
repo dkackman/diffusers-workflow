@@ -133,7 +133,7 @@
                                     "type": "object",
                                     "properties": {
                                         "capture_key": {
-                                            "description": "The diambiguator of the intermediate result when there are multiple iterations.",
+                                            "description": "The disambiguator of the intermediate result when there are multiple iterations.",
                                             "type": "string"
                                         }
                                     },
