@@ -1,0 +1,41 @@
+{
+    "id": "scratch",
+    "steps": [
+        {
+            "name": "image_to_video",
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "THUDM/CogVideoX1.5-5B-I2V",
+                    "torch_dtype": "torch.bfloat16",
+                    "use_safe_tensors": true
+                }
+            },
+            "iterations": [
+                {
+                    "result_properties": {
+                        "content_type": "video/mp4",
+                        "file_name": "CogVideoX1.5-5B-I2V.mp4"
+                    },
+                    "arguments": {
+                        "image": {
+                            "location": "https://pbs.twimg.com/media/GcpCDN8asAA9V2U?format=jpg&name=medium"
+                        },
+                        "prompt": "the diamond spins",
+                        "num_videos_per_prompt": 1,
+                        "num_inference_steps": 35,
+                        "num_frames": 49,
+                        "guidance_scale": 6
+                    }
+                }
+            ]
+        }
+    ]
+}
