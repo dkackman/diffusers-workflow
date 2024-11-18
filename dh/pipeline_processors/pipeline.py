@@ -51,8 +51,7 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
         pipeline.fuse_lora(lora_scale=lora_scale)
 
     # create a generator that will be used by each iteration if they don't set their own seed
-    seed = step_definition["seed"] if "seed" in step_definition else torch.seed()
-    default_generator = torch.Generator(device_identifier).manual_seed(seed)
+    default_generator = torch.Generator(device_identifier).manual_seed(step_definition.get("seed", torch.seed()))
     results = []
 
     # prepare and run pipeline iterations
