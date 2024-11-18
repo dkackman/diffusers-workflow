@@ -1,7 +1,7 @@
 import argparse
 import os
 from .project import create_project, load_json_file
-
+from . import startup
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a workflow from a file.")
@@ -32,6 +32,7 @@ if __name__ == "__main__":
         exit(1)
 
     try:    
+        startup()
         project.run(args.job_id, args.output_dir)
     except Exception as e:
         print(f"Error running project: {e}")

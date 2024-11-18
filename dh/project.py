@@ -1,9 +1,7 @@
 import json
 import os
 from jsonschema import validate, ValidationError
-from .synchronous_worker import do_work, startup
-from .pipeline_processors.arguments import prepare_args
-
+from .job import Job
 
 def create_project(data):
     if isinstance(data, dict) and "jobs" in data:
@@ -29,43 +27,32 @@ class Project:
         self.data = data
 
     def validate(self):
-        status, message = validate_job(self.data, load_schema("project"))
+        status, message = validate_data(self.data, load_schema("project"))
         if not status:
             raise Exception(f"Validation error: {message}")
-        
-    def run(self, job_id = "*", output_dir = "./outputs"):
-        startup()
 
+    def run(self, job_id = "*", output_dir = "./outputs"):
+        jobs = []
         if job_id == "*":
             print("Running all jobs...")
             for job in self.data.get("jobs", []):
-                run_job(job, output_dir)
+                jobs.append(Job(job))        
 
         else:
-            job = None
+            print(f"Running all job {job_id}...")
             for item in self.data.get("jobs", []):
                 if item["id"] == job_id:
-                    job = item
+                    jobs.append(Job(item))
                     break
 
-            if job is not None:
-                run_job(job, output_dir)
-            else:
-                print("Job not found " + job_id)
+        if len(jobs) == 0:
+            raise Exception("No jobs found to run")
+
+        for job in jobs:
+            job.run(output_dir)
 
 
-def run_job(job, output_dir):
-    job_id = job["id"]
-    try:
-        do_work(job, output_dir)
-        print("ok")
-
-    except Exception as e:
-        print(f"Error running job {job_id}")
-        print(e)
-
-
-def validate_job(data, schema):
+def validate_data(data, schema):
     try:
         validate(instance=data, schema=schema)
         return True, "Validation successful"

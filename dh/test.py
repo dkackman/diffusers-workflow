@@ -1,26 +1,20 @@
 import os
-from .synchronous_worker import startup, do_work
-from .validator import validate_job, load_json_file, load_schema
-
-
-def run_job(job, schema, output_dir):
-    job_id = job["id"]
-    try:
-        status, msg = validate_job(job, schema)
-        if not status:
-            print(f"Validation error for job {job_id}: {msg}")
-        else:
-            do_work(job, output_dir)
-            print("ok")
-
-    except Exception as e:
-        print(f"Error running job {job_id}")
-        print(e)
-
+from .project import create_project, load_json_file
+from . import startup
 
 if __name__ == "__main__":
-    schema = load_schema()
     job = load_json_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_job.json"))
-    startup()
+    project = create_project(job)
 
-    run_job(job, schema, ".")
+    try:    
+        project.validate()
+    except Exception as e:
+        print(f"Error validating project: {e}")
+        exit(1)
+
+    try:            
+        startup()
+        project.run("*", ".")
+    except Exception as e:
+        print(f"Error running project: {e}")
+        exit(1)
