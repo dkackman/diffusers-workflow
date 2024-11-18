@@ -9,6 +9,19 @@
             "type": "integer",
             "format": "int64"
         },
+        "variables": {
+            "description": "Variables to be used in the project across jobs and steps.",
+            "additionalProperties": {
+                "type": [
+                    "string",
+                    "integer",
+                    "number",
+                    "object",
+                    "array",
+                    "boolean"
+                ]
+            }
+        },
         "jobs": {
             "type": "array",
             "items": {

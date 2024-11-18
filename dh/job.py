@@ -11,39 +11,36 @@ class Job:
 
     def run(self, output_dir):
         try:
-            do_work(self.data, output_dir)
+            job_id = self.data["id"]
+            print(f"Processing {job_id}")
+
+            job, default_seed = prepare_job(self.data)
+
+            # collections that are passed between steps to share state
+            results = []
+            intermediate_results = {}
+            shared_components = {}
+            for step in job["steps"]:
+                name = step["name"]
+                print(f"Running step {name}...")
+
+                step["seed"] = step.get("seed", default_seed)
+                result = run_step(step, "cuda", intermediate_results, shared_components)
+                if result is not None:
+                    results.extend(result)  
+
+            with open(os.path.join(output_dir, f"{job_id}.json"), 'w') as file:
+                json.dump(self.data, file, indent=4)
+
+            for i, result in enumerate(results):
+                default_name = f"{job_id}-{i}{result.guess_extension()}"
+                result.save(output_dir, default_name)        
+
             print("ok")
 
         except Exception as e:
             print(f"Error running job {self.data.get('id', 'unknown')}")
             print(e)
-
-
-def do_work(input_job, output_dir):
-    job_id = input_job["id"]
-    print(f"Processing {job_id}")
-
-    job, default_seed = prepare_job(input_job)
-
-    # collections that are passed between steps to share state
-    results = []
-    intermediate_results = {}
-    shared_components = {}
-    for step in job["steps"]:
-        name = step["name"]
-        print(f"Running step {name}...")
-
-        step["seed"] = step.get("seed", default_seed)
-        result = run_step(step, "cuda", intermediate_results, shared_components)
-        if result is not None:
-            results.extend(result)  
-
-    with open(os.path.join(output_dir, f"{job_id}.json"), 'w') as file:
-        json.dump(input_job, file, indent=4)
-
-    for i, result in enumerate(results):
-        default_name = f"{job_id}-{i}{result.guess_extension()}"
-        result.save(output_dir, default_name)        
 
 
 def prepare_job(input_job):

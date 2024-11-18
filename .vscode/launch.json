@@ -40,7 +40,7 @@
       ]
     },
     {
-      "name": "run-all-img2vid",
+      "name": "img2vid",
       "type": "debugpy",
       "request": "launch",
       "module": "dh.run",
@@ -63,14 +63,14 @@
       ]
     },
     {
-      "name": "validate single file",
+      "name": "validate file",
       "type": "debugpy",
       "request": "launch",
       "module": "dh.validate",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/scratch.json",
+        "./examples/img2vid.json",
       ]
     },
     {
