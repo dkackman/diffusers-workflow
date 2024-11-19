@@ -14,6 +14,8 @@ class Job:
             job_id = self.data["id"]
             print(f"Processing {job_id}")
 
+            # prepare the job by realizing the arguments
+            # ie fetching images, replacing type names with actual types etc
             job, default_seed = prepare_job(self.data)
 
             # collections that are passed between steps to share state

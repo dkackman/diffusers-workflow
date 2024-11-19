@@ -2,6 +2,7 @@ import json
 import os
 from jsonschema import validate, ValidationError
 from .job import Job
+from .pipeline_processors.variables import replace_variables, expand_template
 
 def create_project(data):
     if isinstance(data, dict) and "jobs" in data:
@@ -32,6 +33,7 @@ class Project:
             raise Exception(f"Validation error: {message}")
 
     def run(self, job_id = "*", output_dir = "./outputs"):
+        expand_template(self.data, self.data.get("template", None))
         replace_variables(self.data["jobs"], self.data.get("variables", None))
         jobs = []
 
@@ -46,23 +48,6 @@ class Project:
         for job in jobs:
             job.run(output_dir)
 
-def replace_variables(data, variables):
-    if variables is None:
-        return
-    
-    if isinstance(data, list):
-        for item in data:
-            replace_variables(item, variables)
-
-    elif isinstance(data, dict):
-        for k, v in data.items():
-            if isinstance(v, str) and v.startswith("$(") and v.endswith(")"):  
-                variable_name = v.strip("$()")
-                if not variable_name in variables:
-                    raise Exception(f"Variable {variable_name} not found")                
-                data[k] = variables[variable_name]     
-            else:
-                replace_variables(v, variables)
 
 def validate_data(data, schema):
     try:
