@@ -14,7 +14,7 @@ if __name__ == "__main__":
 
     try:            
         startup()
-        project.run("*", ".")
+        project.run(".")
     except Exception as e:
         print(f"Error running project: {e}")
         exit(1)

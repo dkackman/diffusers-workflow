@@ -8,7 +8,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "file_name", type=str, help="The filespec to of the workflow to run"
     )
-    parser.add_argument("job_id", type=str, nargs="?", default="*", help="Optional ID of the job to run")
     parser.add_argument(
         "output_dir",
         type=str,
@@ -33,7 +32,7 @@ if __name__ == "__main__":
 
     try:    
         startup()
-        project.run(args.job_id, args.output_dir)
+        project.run(args.output_dir)
     except Exception as e:
         print(f"Error running project: {e}")
         exit(1)

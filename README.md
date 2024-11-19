@@ -28,11 +28,10 @@ python -m dh.test
 
 ```bash
 python -m dh.run --help
-usage: run.py [-h] file_name [job_id] [output_dir]
+usage: run.py [-h] file_name [output_dir]
 ```
 
 - `file_name` is the name of the json file containing the diffuser job configuration
-- `job_id` is an optional job id to use for the diffuser job if the file contains multiple jobs
 - `output_dir` is an optional directory to write the diffuser job output to. defaults to `./output`
 
 

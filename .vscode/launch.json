@@ -5,18 +5,6 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "run",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "dh.run",
-      "cwd": "${workspaceFolder}/",
-      "justMyCode": true,
-      "args": [
-        "./examples/tests.json",
-        "stable-audio-open-1.0"
-      ]
-    },
-    {
       "name": "txt2img2vid",
       "type": "debugpy",
       "request": "launch",
@@ -35,8 +23,7 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/tests.json",
-        "*"
+        "./examples/tests.json"
       ]
     },
     {
@@ -47,8 +34,7 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/img2vid.json",
-        "*"
+        "./examples/img2vid.json"
       ]
     },
     {
@@ -59,7 +45,7 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/scratch.json",
+        "./examples/CogVideoX-5B-I2V.json",
       ]
     },
     {
