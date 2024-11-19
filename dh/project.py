@@ -32,15 +32,14 @@ class Project:
         if not status:
             raise Exception(f"Validation error: {message}")
 
-    def run(self, job_id = "*", output_dir = "./outputs"):
+    def run(self, output_dir = "./outputs"):
         expand_template(self.data, self.data.get("template", None))
         replace_variables(self.data["jobs"], self.data.get("variables", None))
         jobs = []
 
-        print(f"Running job {job_id}...")
+        print(f"Running  project...")
         for item in self.data.get("jobs", []):
-            if job_id == "*" or item["id"] == job_id:
-                jobs.append(Job(item))
+            jobs.append(Job(item))
 
         if len(jobs) == 0:
             raise Exception("No jobs found to run")
