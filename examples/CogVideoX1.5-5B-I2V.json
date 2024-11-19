@@ -1,5 +1,5 @@
 {
-    "id": "scratch",
+    "id": "CogVideoX1.5-5B-I2V",
     "steps": [
         {
             "name": "image_to_video",
@@ -21,8 +21,7 @@
             "iterations": [
                 {
                     "result_properties": {
-                        "content_type": "video/mp4",
-                        "file_name": "CogVideoX1.5-5B-I2V.mp4"
+                        "content_type": "video/mp4"
                     },
                     "arguments": {
                         "image": {

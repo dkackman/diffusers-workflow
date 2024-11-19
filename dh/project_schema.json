@@ -363,8 +363,8 @@
                             "description": "The content type of the result",
                             "type": "string"
                         },
-                        "file_name": {
-                            "description": "The name of the file to save the result to",
+                        "file_base_name": {
+                            "description": "The base name for saving result and metadata files. The file extension is determined by context and content_type.",
                             "type": "string"
                         },
                         "fps": {
@@ -433,6 +433,7 @@
             "type": "object",
             "properties": {
                 "applies_to": {
+                    "description": "The name of the pipeline step this template applies to",
                     "type": "string"
                 },
                 "variables": {

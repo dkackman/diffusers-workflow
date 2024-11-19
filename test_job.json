@@ -16,7 +16,7 @@
                 {
                     "result_properties": {
                         "content_type": "image/jpeg",
-                        "file_name": "test_image.jpg"
+                        "file_base_name": "test_image"
                     },
                     "arguments": {
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall",
