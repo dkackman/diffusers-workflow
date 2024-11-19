@@ -1,31 +1,26 @@
 {
-    "id": "shuttle-ai",
+    "id": "test_job",
     "steps": [
         {
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "DiffusionPipeline",
-                    "offload": "sequential"
+                    "pipeline_type": "StableDiffusionPipeline"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "shuttleai/shuttle-3-diffusion",
-                    "torch_dtype": "torch.bfloat16"
+                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16"
                 }
             },
             "iterations": [
                 {
                     "result_properties": {
                         "content_type": "image/jpeg",
-                        "file_name": "shuttle-ai.jpg"
+                        "file_base_name": "test_image"
                     },
                     "arguments": {
-                        "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of marmot, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, assymetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
-                        "height": 1024,
-                        "width": 1024,
-                        "guidance_scale": 3.5,
-                        "num_inference_steps": 4,
-                        "max_sequence_length": 256
+                        "prompt": "Stormtrooper's lecture in beautiful lecture hall",
+                        "num_inference_steps": 25
                     }
                 }
             ]

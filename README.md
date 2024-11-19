@@ -126,7 +126,7 @@ This example demonstrates a multiple step workflow including an image generation
                 {
                     "result_properties": {
                         "content_type": "video/mp4",
-                        "file_name": "owl.mp4"
+                        "file_base_name": "owl"
                     },
                     "intermediate_results": {
                         "image": "{base_image}"

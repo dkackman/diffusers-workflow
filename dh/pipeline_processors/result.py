@@ -32,8 +32,10 @@ class Result:
         
         return None
     
+    # This method is used to guess the extension of the output file based on the content type.
+    # It includes the leading "." in the extension.
     def guess_extension(self):
-        content_type = self.properties.get("content_type", None)
+        content_type = self.properties["content_type"]
         ext = mimetypes.guess_extension(content_type)
         if ext is not None:
             return ext
@@ -43,9 +45,10 @@ class Result:
         
         return ""
 
-    def save(self, output_dir, default_name):
-        file_name = self.properties.get("file_name", default_name)  
-        output_path = os.path.join(output_dir, file_name)
+    def save(self, output_dir, default_base_name):
+        file_base_name = self.properties.get("file_base_name", default_base_name)  
+        output_path = os.path.join(output_dir, f"{file_base_name}{self.guess_extension()}")
+        print(f"Saving result to {output_path}")
 
         output = self.get_output()
         content_type = self.properties.get("content_type", "")

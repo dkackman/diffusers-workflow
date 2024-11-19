@@ -53,7 +53,7 @@
                 {
                     "result_properties": {
                         "content_type": "video/mp4",
-                        "file_name": "marmot.mp4"
+                        "file_base_name": "marmot"
                     },
                     "intermediate_results": {
                         "image": "{base_image}"

@@ -1,4 +1,5 @@
 import copy
+
 """
 This module provides functions to process pipeline templates by expanding them with iterations and replacing variables.
 Functions:
@@ -28,16 +29,16 @@ Functions:
 
 def expand_template(project, template):
     if template is not None:    
+        # Find the step to which the template applies
         step = find_step_by_name(project["jobs"], template["applies_to"])
-        if step is None:
-            raise Exception(f"Template step <{template['applies_to']}> not found")
-        
+
         template_iteration = template["iteration"]
         iterations = []
+        # Expand the template with iterations
         for variable_list_name in template["variables"]:
             for variable in template["variables"][variable_list_name]:
                 new_iteration = copy.deepcopy(template_iteration)
-                
+                # Replace variables in the arguments of the new iteration
                 replace_variables(
                     new_iteration["arguments"], 
                     {
@@ -46,6 +47,7 @@ def expand_template(project, template):
                 )
                 iterations.append(new_iteration)
 
+        # Replace the step with the expanded iterations
         step["iterations"] = iterations
 
 
@@ -69,7 +71,7 @@ def replace_variables(data, variables):
 def find_step_by_name(jobs, step_name):
     for job in jobs:
         for step in job.get('steps', []):
-            if step.get('name') == step_name:
+            if step['name'] == step_name:
                 return step
             
-    return None
+    raise Exception(f"Template step <{step_name}> not found")
