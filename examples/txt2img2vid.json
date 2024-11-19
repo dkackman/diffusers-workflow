@@ -19,7 +19,7 @@
                         "content_type": "image/jpeg"
                     },
                     "arguments": {
-                        "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of marmot, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, assymetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
+                        "prompt": "A beautiful photo showcases a night waterfall in the jungle, illuminated with a subtle blue tint that adds an ethereal touch. Fireflies float delicately around, their gentle glow enhancing the magical ambiance of the scene.",
                         "height": 1024,
                         "width": 1024,
                         "guidance_scale": 3.5,
@@ -59,7 +59,7 @@
                         "image": "{base_image}"
                     },
                     "arguments": {
-                        "prompt": "The marmot stares intently and blinks",
+                        "prompt": "Fireflies float lazily by",
                         "num_videos_per_prompt": 1,
                         "num_inference_steps": 25,
                         "num_frames": 49,

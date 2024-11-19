@@ -96,87 +96,8 @@
                             },
                             "iterations": {
                                 "type": "array",
-                                "minItems": 1,
                                 "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "seed": {
-                                            "description": "The seed for this iteration",
-                                            "type": "integer",
-                                            "format": "int64"
-                                        },
-                                        "result_properties": {
-                                            "type": "object",
-                                            "properties": {
-                                                "content_type": {
-                                                    "description": "The content type of the result",
-                                                    "type": "string"
-                                                },
-                                                "file_name": {
-                                                    "description": "The name of the file to save the result to",
-                                                    "type": "string"
-                                                },
-                                                "fps": {
-                                                    "description": "Frames per second - only used when output is video",
-                                                    "type": "integer",
-                                                    "default": 8
-                                                },
-                                                "samplerate": {
-                                                    "description": "Audio sample rate - only used when output is audio",
-                                                    "type": "integer",
-                                                    "default": 44100
-                                                }
-                                            },
-                                            "required": [
-                                                "content_type"
-                                            ]
-                                        },
-                                        "arguments": {
-                                            "description": "The arguments to pass to the pipeline",
-                                            "type": "object",
-                                            "additionalProperties": {
-                                                "type": [
-                                                    "string",
-                                                    "integer",
-                                                    "number",
-                                                    "object",
-                                                    "array",
-                                                    "boolean"
-                                                ]
-                                            }
-                                        },
-                                        "capture_intermediate_results": {
-                                            "description": "Key value pairs to capture as intermediate results. If value is non-null it will capture the property of the pipiline output of that name. Otherwise it captures the content_type appropriate pipeline output object.",
-                                            "type": "object",
-                                            "properties": {
-                                                "capture_key": {
-                                                    "type": "string"
-                                                }
-                                            },
-                                            "additionalProperties": {
-                                                "type": [
-                                                    "string",
-                                                    "null"
-                                                ]
-                                            }
-                                        },
-                                        "intermediate_results": {
-                                            "description": "Key value pairs of intermediate results to use in this iteration. The key is the name of the intermediate result and the value is the argument name pass to the pipeline.",
-                                            "type": "object",
-                                            "properties": {
-                                                "capture_key": {
-                                                    "description": "The disambiguator of the intermediate result when there are multiple iterations.",
-                                                    "type": "string"
-                                                }
-                                            },
-                                            "additionalProperties": {
-                                                "type": "string"
-                                            }
-                                        }
-                                    },
-                                    "required": [
-                                        "arguments"
-                                    ]
+                                    "$ref": "#/$defs/iteration"
                                 }
                             }
                         },
@@ -425,6 +346,111 @@
             },
             "required": [
                 "model_name"
+            ]
+        },
+        "iteration": {
+            "type": "object",
+            "properties": {
+                "seed": {
+                    "description": "The seed for this iteration",
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "result_properties": {
+                    "type": "object",
+                    "properties": {
+                        "content_type": {
+                            "description": "The content type of the result",
+                            "type": "string"
+                        },
+                        "file_name": {
+                            "description": "The name of the file to save the result to",
+                            "type": "string"
+                        },
+                        "fps": {
+                            "description": "Frames per second - only used when output is video",
+                            "type": "integer",
+                            "default": 8
+                        },
+                        "samplerate": {
+                            "description": "Audio sample rate - only used when output is audio",
+                            "type": "integer",
+                            "default": 44100
+                        }
+                    },
+                    "required": [
+                        "content_type"
+                    ]
+                },
+                "arguments": {
+                    "description": "The arguments to pass to the pipeline",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "integer",
+                            "number",
+                            "object",
+                            "array",
+                            "boolean"
+                        ]
+                    }
+                },
+                "capture_intermediate_results": {
+                    "description": "Key value pairs to capture as intermediate results. If value is non-null it will capture the property of the pipiline output of that name. Otherwise it captures the content_type appropriate pipeline output object.",
+                    "type": "object",
+                    "properties": {
+                        "capture_key": {
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "intermediate_results": {
+                    "description": "Key value pairs of intermediate results to use in this iteration. The key is the name of the intermediate result and the value is the argument name pass to the pipeline.",
+                    "type": "object",
+                    "properties": {
+                        "capture_key": {
+                            "description": "The disambiguator of the intermediate result when there are multiple iterations.",
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            },
+            "required": [
+                "arguments"
+            ]
+        },
+        "template": {
+            "type": "object",
+            "properties": {
+                "applies_to": {
+                    "type": "string"
+                },
+                "variables": {
+                    "description": "Variables that will drive iterations",
+                    "additionalProperties": {
+                        "type": [
+                            "array"
+                        ]
+                    }
+                },
+                "iteration": {
+                    "$ref": "#/$defs/iteration"
+                }
+            },
+            "required": [
+                "applies_to",
+                "variables",
+                "iteration"
             ]
         }
     }

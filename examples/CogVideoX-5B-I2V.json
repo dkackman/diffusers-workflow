@@ -1,0 +1,52 @@
+{
+    "template": {
+        "applies_to": "image_to_video",
+        "variables": {
+            "image_locations": [
+                "https://assets.mainnet.mintgarden.io/thumbnails/616fa5a9941e864db349c3cc90f5af602c77acbb7401dae68c727f472a40b16c.webp",
+                "https://assets.mainnet.mintgarden.io/thumbnails/b73346fd992fca6f977b4de5de3dcf97ac9ca7aaadffeb11c8da908f2fad8e39.webp"
+            ]
+        },
+        "iteration": {
+            "result_properties": {
+                "content_type": "video/mp4"
+            },
+            "arguments": {
+                "image": {
+                    "location": "$(image_locations)"
+                },
+                "prompt": "the rocket goes up",
+                "num_videos_per_prompt": 1,
+                "num_inference_steps": 35,
+                "num_frames": 49,
+                "guidance_scale": 6
+            }
+        }
+    },
+    "jobs": [
+        {
+            "id": "scratch",
+            "steps": [
+                {
+                    "name": "image_to_video",
+                    "pipeline": {
+                        "configuration": {
+                            "offload": "sequential",
+                            "pipeline_type": "CogVideoXImageToVideoPipeline",
+                            "vae": {
+                                "enable_slicing": true,
+                                "enable_tiling": true
+                            }
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "THUDM/CogVideoX-5B-I2V",
+                            "torch_dtype": "torch.bfloat16",
+                            "use_safe_tensors": true
+                        }
+                    },
+                    "iterations": []
+                }
+            ]
+        }
+    ]
+}
