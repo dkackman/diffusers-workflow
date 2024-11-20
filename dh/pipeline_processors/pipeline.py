@@ -67,7 +67,7 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
             arguments[k] = intermediate_results[v]
 
         # run the pipeline
-        result = Result(pipeline(**arguments), iteration.get("result_properties", {"content_type": "image/png"}))
+        result = Result(pipeline(**arguments), iteration)
         results.append(result)
         #
         # the presence of this key indicates that the output should be

@@ -21,19 +21,7 @@
                     },
                     "arguments": {
                         "max_sequence_length": 256,
-                        "prompt": "A marmot holding a sign that says 'wen NFT?'",
-                        "guidance_scale": 0,
-                        "num_inference_steps": 5,
-                        "num_images_per_prompt": 1
-                    }
-                },
-                {
-                    "result_properties": {
-                        "content_type": "image/jpeg"
-                    },
-                    "arguments": {
-                        "max_sequence_length": 256,
-                        "prompt": "A marmot holding a sign that says 'onchain engagement farming'",
+                        "prompt": "A military marmot holding a sign that says 'kneel before us'",
                         "guidance_scale": 0,
                         "num_inference_steps": 5,
                         "num_images_per_prompt": 1
