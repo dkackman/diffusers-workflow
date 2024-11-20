@@ -3,8 +3,7 @@
         "applies_to": "text_to_video",
         "variables": {
             "prompts": [
-                "A marmot, dressed in a small, red jacket and a tiny hat, sits on a wooden stool in a serene boreal forest. The marmot's fluffy paws strum a miniature acoustic guitar, producing soft, melodic tunes. Nearby, a few other marmots gather, watching curiously and some clapping in rhythm. Sunlight filters through the tall trees, casting a gentle glow on the scene. The marmot's face is expressive, showing concentration and joy as it plays. The background includes a small, flowing stream and vibrant green foliage, enhancing the peaceful and magical atmosphere of this unique musical performance.",
-                "Illustrate “The Last Supper” by Leonardo da Vinci, but reimagine it with robots in a futuristic setting. Maintain the composition and dramatic lighting of the original painting, but replace the apostles with various types of androids and cyborgs. The table should be a long, sleek metal surface with holographic displays. In place of bread and wine, have the robots interfacing with glowing data streams."
+                "A marmot, dressed in a small, red jacket and a tiny hat, holding a sign that says 'soon'"
             ]
         },
         "iteration": {

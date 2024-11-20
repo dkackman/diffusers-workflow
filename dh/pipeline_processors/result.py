@@ -1,12 +1,14 @@
 import os
+import json 
 import soundfile
 import mimetypes
 from diffusers.utils import export_to_video
 
 class Result:
-    def __init__(self, result, properties={}):
+    def __init__(self, result, iteration):
         self.result = result
-        self.properties = properties
+        self.iteration = iteration
+        self.properties = iteration.get("result_properties", {"content_type": "image/png"})
 
     def __repr__(self):
         return f"Result({self.result})"
@@ -48,6 +50,7 @@ class Result:
     def save(self, output_dir, default_base_name):
         file_base_name = self.properties.get("file_base_name", default_base_name)  
         output_path = os.path.join(output_dir, f"{file_base_name}{self.guess_extension()}")
+                    
         print(f"Saving result to {output_path}")
 
         output = self.get_output()
