@@ -29,6 +29,21 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
     transformer = load_and_configure_component(pipeline_definition, "transformer", device_identifier)
     if transformer is not None:
         from_pretrained_arguments["transformer"] = transformer
+    
+    # load the vae if specified
+    vae = load_and_configure_component(pipeline_definition, "vae", device_identifier)
+    if vae is not None:
+        from_pretrained_arguments["vae"] = vae
+
+    # load the vae if specified
+    unet = load_and_configure_component(pipeline_definition, "unet", device_identifier)
+    if unet is not None:
+        from_pretrained_arguments["unet"] = unet
+
+    # load the text_encoder if specified
+    text_encoder = load_and_configure_component(pipeline_definition, "text_encoder", device_identifier)
+    if text_encoder is not None:
+        from_pretrained_arguments["text_encoder"] = unet
 
     # load and configure the pipeline
     pipeline = load_and_configure_pipeline(configuration, from_pretrained_arguments, device_identifier)

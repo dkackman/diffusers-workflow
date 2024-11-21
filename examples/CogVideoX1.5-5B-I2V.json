@@ -14,8 +14,37 @@
                 },
                 "from_pretrained_arguments": {
                     "model_name": "THUDM/CogVideoX1.5-5B-I2V",
-                    "torch_dtype": "torch.bfloat16",
-                    "use_safe_tensors": true
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "transformer": {
+                    "configuration": {
+                        "pipeline_type": "CogVideoXTransformer3DModel"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "THUDM/CogVideoX1.5-5B-I2V",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "vae": {
+                    "configuration": {
+                        "pipeline_type": "AutoencoderKLCogVideoX"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "THUDM/CogVideoX1.5-5B-I2V",
+                        "subfolder": "vae",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "pipeline_type": "T5EncoderModel"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "THUDM/CogVideoX1.5-5B-I2V",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
                 }
             },
             "iterations": [
