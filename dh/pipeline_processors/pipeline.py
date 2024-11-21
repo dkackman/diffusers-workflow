@@ -1,5 +1,6 @@
 import torch
 from diffusers import BitsAndBytesConfig
+from torchao.quantization import quantize_
 from ..pre_processors.controlnet import preprocess_image
 from .result import Result
 
@@ -21,27 +22,27 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
         from_pretrained_arguments[reused_component_name] = shared_components[reused_component_name]
 
     # load the controlnet if specified
-    controlnet = load_and_configure_component(pipeline_definition, "controlnet", device_identifier)
+    controlnet = load_and_configure_component(pipeline_definition.get("controlnet", None), "controlnet", device_identifier)
     if controlnet is not None:
         from_pretrained_arguments["controlnet"] = controlnet
 
     # load the transformer if specified
-    transformer = load_and_configure_component(pipeline_definition, "transformer", device_identifier)
+    transformer = load_and_configure_component(pipeline_definition.get("transformer", None), "transformer", device_identifier)
     if transformer is not None:
         from_pretrained_arguments["transformer"] = transformer
     
     # load the vae if specified
-    vae = load_and_configure_component(pipeline_definition, "vae", device_identifier)
+    vae = load_and_configure_component(pipeline_definition.get("vae", None), "vae", device_identifier)
     if vae is not None:
         from_pretrained_arguments["vae"] = vae
 
-    # load the vae if specified
-    unet = load_and_configure_component(pipeline_definition, "unet", device_identifier)
+    # load the unet if specified
+    unet = load_and_configure_component(pipeline_definition.get("unet", None), "unet", device_identifier)
     if unet is not None:
         from_pretrained_arguments["unet"] = unet
 
     # load the text_encoder if specified
-    text_encoder = load_and_configure_component(pipeline_definition, "text_encoder", device_identifier)
+    text_encoder = load_and_configure_component(pipeline_definition.get("text_encoder", None), "text_encoder", device_identifier)
     if text_encoder is not None:
         from_pretrained_arguments["text_encoder"] = unet
 
@@ -111,22 +112,19 @@ def load_and_configure_scheduler(scheduler_definition, pipeline):
         pipeline.scheduler = scheduler_type.from_config(pipeline.scheduler.config, **scheduler_configuration)
 
 
-def load_and_configure_component(parent_definition, component_name, device_identifier):
-    component_definition = parent_definition.get(component_name, None)
+def load_and_configure_component(component_definition, component_name, device_identifier):
     if component_definition is not None:
         print(f"Loading {component_name}")
-        component_configuration, component_from_pretrained_arguments = validate_pipeline_definition(component_definition)
-        return load_and_configure_pipeline(component_configuration, component_from_pretrained_arguments, device_identifier)
+        component_configuration = component_definition["configuration"]
+        component = load_and_configure_pipeline(component_configuration, component_definition["from_pretrained_arguments"], device_identifier)
+        torachao_quantization_type = component_configuration.get("torchao_quantization_type", None)
+        if torachao_quantization_type is not None:
+            quantize_(component, torachao_quantization_type)
 
+        return component
+    
     return None
 
-
-def validate_pipeline_definition(pipeline_definition):
-    configuration = pipeline_definition.get("configuration", None)
-    from_pretrained_arguments = pipeline_definition.get("from_pretrained_arguments", None)
-    
-    return configuration, from_pretrained_arguments
-    
 
 def load_and_configure_pipeline(configuration, from_pretrained_arguments, device_identifier):
     bits_and_bytes_configuration = configuration.get("bits_and_bytes_configuration", None)

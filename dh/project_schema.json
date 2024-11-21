@@ -246,6 +246,10 @@
                         "pipeline_type": {
                             "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
                             "type": "string"
+                        },
+                        "torachao_quantization_type": {
+                            "description": "The quantization type to use for torachao. Also triggers the torachao quantization.",
+                            "type": "string"
                         }
                     },
                     "bits_and_bytes_configuration": {
@@ -292,6 +296,10 @@
                     "properties": {
                         "pipeline_type": {
                             "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
+                            "type": "string"
+                        },
+                        "torachao_quantization_type": {
+                            "description": "The quantization type to use for torachao. Also triggers the torachao quantization.",
                             "type": "string"
                         }
                     },
@@ -340,6 +348,10 @@
                     "properties": {
                         "pipeline_type": {
                             "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
+                            "type": "string"
+                        },
+                        "torachao_quantization_type": {
+                            "description": "The quantization type to use for torachao. Also triggers the torachao quantization.",
                             "type": "string"
                         }
                     },

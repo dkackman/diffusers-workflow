@@ -18,7 +18,8 @@
                 },
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "CogVideoXTransformer3DModel"
+                        "pipeline_type": "CogVideoXTransformer3DModel",
+                        "torachao_quantization_type": "torchao.quantization.int8_weight_only"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "THUDM/CogVideoX1.5-5B-I2V",
@@ -28,7 +29,8 @@
                 },
                 "vae": {
                     "configuration": {
-                        "pipeline_type": "AutoencoderKLCogVideoX"
+                        "pipeline_type": "AutoencoderKLCogVideoX",
+                        "torachao_quantization_type": "torchao.quantization.int8_weight_only"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "THUDM/CogVideoX1.5-5B-I2V",
@@ -38,7 +40,8 @@
                 },
                 "text_encoder": {
                     "configuration": {
-                        "pipeline_type": "T5EncoderModel"
+                        "pipeline_type": "transformers.T5EncoderModel",
+                        "torachao_quantization_type": "torchao.quantization.int8_weight_only"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "THUDM/CogVideoX1.5-5B-I2V",
