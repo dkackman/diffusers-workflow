@@ -48,64 +48,7 @@
                     "type": "array",
                     "minItems": 1,
                     "items": {
-                        "type": "object",
-                        "properties": {
-                            "name": {
-                                "type": "string"
-                            },
-                            "seed": {
-                                "description": "Default seed for the entire step",
-                                "type": "integer",
-                                "format": "int64"
-                            },
-                            "pipeline": {
-                                "type": "object",
-                                "properties": {
-                                    "configuration": {
-                                        "$ref": "#/$defs/pipeline_configuration"
-                                    },
-                                    "scheduler": {
-                                        "$ref": "#/$defs/scheduler"
-                                    },
-                                    "transformer": {
-                                        "$ref": "#/$defs/transformer"
-                                    },
-                                    "controlnet": {
-                                        "$ref": "#/$defs/controlnet"
-                                    },
-                                    "preprocessors": {
-                                        "type": "array",
-                                        "items": {
-                                            "$ref": "#/$defs/preprocessor"
-                                        }
-                                    },
-                                    "loras": {
-                                        "type": "array",
-                                        "items": {
-                                            "$ref": "#/$defs/lora"
-                                        }
-                                    },
-                                    "from_pretrained_arguments": {
-                                        "$ref": "#/$defs/from_pretrained_arguments"
-                                    }
-                                },
-                                "required": [
-                                    "configuration",
-                                    "from_pretrained_arguments"
-                                ]
-                            },
-                            "iterations": {
-                                "type": "array",
-                                "items": {
-                                    "$ref": "#/$defs/iteration"
-                                }
-                            }
-                        },
-                        "required": [
-                            "name",
-                            "pipeline",
-                            "iterations"
-                        ]
+                        "$ref": "#/$defs/step"
                     }
                 }
             },
@@ -139,6 +82,78 @@
                 "location"
             ]
         },
+        "step": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "seed": {
+                    "description": "Default seed for the entire step",
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "pipeline": {
+                    "$ref": "#/$defs/pipeline"
+                },
+                "iterations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/iteration"
+                    }
+                }
+            },
+            "required": [
+                "name",
+                "pipeline",
+                "iterations"
+            ]
+        },
+        "pipeline": {
+            "type": "object",
+            "properties": {
+                "configuration": {
+                    "$ref": "#/$defs/pipeline_configuration"
+                },
+                "scheduler": {
+                    "$ref": "#/$defs/scheduler"
+                },
+                "transformer": {
+                    "$ref": "#/$defs/transformer"
+                },
+                "vae": {
+                    "$ref": "#/$defs/vae"
+                },
+                "unet": {
+                    "$ref": "#/$defs/unet"
+                },
+                "text_encoder": {
+                    "$ref": "#/$defs/text_encoder"
+                },
+                "controlnet": {
+                    "$ref": "#/$defs/controlnet"
+                },
+                "preprocessors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/preprocessor"
+                    }
+                },
+                "loras": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/lora"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "$ref": "#/$defs/from_pretrained_arguments"
+                }
+            },
+            "required": [
+                "configuration",
+                "from_pretrained_arguments"
+            ]
+        },
         "pipeline_configuration": {
             "type": "object",
             "properties": {
@@ -150,6 +165,7 @@
                     ]
                 },
                 "pipeline_type": {
+                    "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
                     "type": "string"
                 },
                 "vae": {
@@ -228,6 +244,7 @@
                     "type": "object",
                     "properties": {
                         "pipeline_type": {
+                            "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
                             "type": "string"
                         }
                     },
@@ -258,21 +275,85 @@
                         "pipeline_type"
                     ]
                 },
-                "from_config_args": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": [
-                            "string",
-                            "number",
-                            "object",
-                            "array",
-                            "boolean"
-                        ]
-                    }
+                "from_pretrained_arguments": {
+                    "$ref": "#/$defs/from_pretrained_arguments"
                 }
             },
             "required": [
-                "configuration"
+                "configuration",
+                "from_pretrained_arguments"
+            ]
+        },
+        "vae": {
+            "type": "object",
+            "properties": {
+                "configuration": {
+                    "type": "object",
+                    "properties": {
+                        "pipeline_type": {
+                            "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "pipeline_type"
+                    ]
+                },
+                "from_pretrained_arguments": {
+                    "$ref": "#/$defs/from_pretrained_arguments"
+                }
+            },
+            "required": [
+                "configuration",
+                "from_pretrained_arguments"
+            ]
+        },
+        "unet": {
+            "type": "object",
+            "properties": {
+                "configuration": {
+                    "type": "object",
+                    "properties": {
+                        "pipeline_type": {
+                            "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "pipeline_type"
+                    ]
+                },
+                "from_pretrained_arguments": {
+                    "$ref": "#/$defs/from_pretrained_arguments"
+                }
+            },
+            "required": [
+                "configuration",
+                "from_pretrained_arguments"
+            ]
+        },
+        "text_encoder": {
+            "type": "object",
+            "properties": {
+                "configuration": {
+                    "type": "object",
+                    "properties": {
+                        "pipeline_type": {
+                            "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "pipeline_type"
+                    ]
+                },
+                "from_pretrained_arguments": {
+                    "$ref": "#/$defs/from_pretrained_arguments"
+                }
+            },
+            "required": [
+                "configuration",
+                "from_pretrained_arguments"
             ]
         },
         "controlnet": {
@@ -330,8 +411,10 @@
         },
         "from_pretrained_arguments": {
             "type": "object",
+            "description": "Arguments to pass to the from_pretrained function when creating the component",
             "properties": {
                 "model_name": {
+                    "description": "The huggingface hub name of the pretrained model to load",
                     "type": "string"
                 }
             },

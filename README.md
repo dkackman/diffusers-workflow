@@ -111,8 +111,10 @@ This example demonstrates a multiple step workflow including an image generation
                     "offload": "sequential",
                     "pipeline_type": "CogVideoXImageToVideoPipeline",
                     "vae": {
-                        "enable_slicing": true,
-                        "enable_tiling": true
+                        "configuration": {
+                            "enable_slicing": true,
+                            "enable_tiling": true
+                        }
                     }
                 },
                 "from_pretrained_arguments": {

@@ -18,6 +18,7 @@ def startup():
             f"Pytorch must be 2.0 or greater (found {torch.__version__}). Run install script. Quitting."
         )
 
+    print(torch.__version__)
     setup_logging(resolve_path(settings.log_filename), settings.log_level)
     logging.info(f"Version {__version__}")
     logging.debug(f"Torch version {torch.__version__}")
