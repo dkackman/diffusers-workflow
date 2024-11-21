@@ -1,70 +1,78 @@
 {
     "id": "CogVideoX1.5-5B-I2V",
-    "steps": [
+    "variables": {
+        "model_name": "THUDM/CogVideoX1.5-5B-I2V"
+    },
+    "jobs": [
         {
-            "name": "image_to_video",
-            "pipeline": {
-                "configuration": {
-                    "offload": "sequential",
-                    "pipeline_type": "CogVideoXImageToVideoPipeline",
-                    "vae": {
-                        "enable_slicing": true,
-                        "enable_tiling": true
-                    }
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "THUDM/CogVideoX1.5-5B-I2V",
-                    "torch_dtype": "torch.bfloat16"
-                },
-                "transformer": {
-                    "configuration": {
-                        "pipeline_type": "CogVideoXTransformer3DModel",
-                        "torachao_quantization_type": "torchao.quantization.int8_weight_only"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "THUDM/CogVideoX1.5-5B-I2V",
-                        "subfolder": "transformer",
-                        "torch_dtype": "torch.bfloat16"
-                    }
-                },
-                "vae": {
-                    "configuration": {
-                        "pipeline_type": "AutoencoderKLCogVideoX",
-                        "torachao_quantization_type": "torchao.quantization.int8_weight_only"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "THUDM/CogVideoX1.5-5B-I2V",
-                        "subfolder": "vae",
-                        "torch_dtype": "torch.bfloat16"
-                    }
-                },
-                "text_encoder": {
-                    "configuration": {
-                        "pipeline_type": "transformers.T5EncoderModel",
-                        "torachao_quantization_type": "torchao.quantization.int8_weight_only"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "THUDM/CogVideoX1.5-5B-I2V",
-                        "subfolder": "text_encoder",
-                        "torch_dtype": "torch.bfloat16"
-                    }
-                }
-            },
-            "iterations": [
+            "id": "CogVideoX1.5-5B-I2V",
+            "steps": [
                 {
-                    "result_properties": {
-                        "content_type": "video/mp4"
-                    },
-                    "arguments": {
-                        "image": {
-                            "location": "https://pbs.twimg.com/media/GcpCDN8asAA9V2U?format=jpg&name=medium"
+                    "name": "image_to_video",
+                    "pipeline": {
+                        "configuration": {
+                            "offload": "sequential",
+                            "pipeline_type": "CogVideoXImageToVideoPipeline",
+                            "vae": {
+                                "enable_slicing": true,
+                                "enable_tiling": true
+                            }
                         },
-                        "prompt": "the diamond spins",
-                        "num_videos_per_prompt": 1,
-                        "num_inference_steps": 35,
-                        "num_frames": 49,
-                        "guidance_scale": 6
-                    }
+                        "from_pretrained_arguments": {
+                            "model_name": "$(model_name)",
+                            "torch_dtype": "torch.bfloat16"
+                        },
+                        "transformer": {
+                            "configuration": {
+                                "pipeline_type": "CogVideoXTransformer3DModel",
+                                "torachao_quantization_type": "torchao.quantization.int8_weight_only"
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "$(model_name)",
+                                "subfolder": "transformer",
+                                "torch_dtype": "torch.bfloat16"
+                            }
+                        },
+                        "vae": {
+                            "configuration": {
+                                "pipeline_type": "AutoencoderKLCogVideoX",
+                                "torachao_quantization_type": "torchao.quantization.int8_weight_only"
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "$(model_name)",
+                                "subfolder": "vae",
+                                "torch_dtype": "torch.bfloat16"
+                            }
+                        },
+                        "text_encoder": {
+                            "configuration": {
+                                "pipeline_type": "transformers.T5EncoderModel",
+                                "torachao_quantization_type": "torchao.quantization.int8_weight_only"
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "$(model_name)",
+                                "subfolder": "text_encoder",
+                                "torch_dtype": "torch.bfloat16"
+                            }
+                        }
+                    },
+                    "iterations": [
+                        {
+                            "result_properties": {
+                                "content_type": "video/mp4"
+                            },
+                            "arguments": {
+                                "image": {
+                                    "location": "https://pbs.twimg.com/media/GcpCDN8asAA9V2U?format=jpg&name=medium"
+                                },
+                                "prompt": "the diamond spins",
+                                "num_videos_per_prompt": 1,
+                                "num_inference_steps": 35,
+                                "num_frames": 49,
+                                "guidance_scale": 6
+                            }
+                        }
+                    ]
                 }
             ]
         }

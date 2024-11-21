@@ -1,4 +1,9 @@
 {
+    "variables": {
+        "image_locations": [
+            "https://pbs.twimg.com"
+        ]
+    },
     "template": {
         "applies_to": "image_to_video",
         "variables": {
