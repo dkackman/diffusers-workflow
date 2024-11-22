@@ -1,7 +1,7 @@
 import torch
 from diffusers import BitsAndBytesConfig
-from torchao.quantization import quantize_
 from ..pre_processors.controlnet import preprocess_image
+from .quantization import quantize
 from .result import Result
 
 def run_step(step_definition, device_identifier, intermediate_results, shared_components):
@@ -117,9 +117,7 @@ def load_and_configure_component(component_definition, component_name, device_id
         print(f"Loading {component_name}")
         component_configuration = component_definition["configuration"]
         component = load_and_configure_pipeline(component_configuration, component_definition["from_pretrained_arguments"], device_identifier)
-        torachao_quantization_type = component_configuration.get("torchao_quantization_type", None)
-        if torachao_quantization_type is not None:
-            quantize_(component, torachao_quantization_type)
+        quantize(component_configuration.get("quantization", None))
 
         return component
     
