@@ -1,5 +1,5 @@
 {
-    "id": "sd35",
+    "id": "txt2img2vid",
     "steps": [
         {
             "name": "image_generation",
@@ -19,7 +19,7 @@
                         "content_type": "image/jpeg"
                     },
                     "arguments": {
-                        "prompt": "A beautiful photo showcases a night waterfall in the jungle, illuminated with a subtle blue tint that adds an ethereal touch. Fireflies float delicately around, their gentle glow enhancing the magical ambiance of the scene.",
+                        "prompt": "Baroque-style battle scene with futuristic robots and a golden palace in the background.",
                         "height": 1024,
                         "width": 1024,
                         "guidance_scale": 3.5,
@@ -52,14 +52,13 @@
             "iterations": [
                 {
                     "result_properties": {
-                        "content_type": "video/mp4",
-                        "file_base_name": "marmot"
+                        "content_type": "video/mp4"
                     },
                     "intermediate_results": {
                         "image": "{base_image}"
                     },
                     "arguments": {
-                        "prompt": "Fireflies float lazily by",
+                        "prompt": "explosions in the sky",
                         "num_videos_per_prompt": 1,
                         "num_inference_steps": 25,
                         "num_frames": 49,

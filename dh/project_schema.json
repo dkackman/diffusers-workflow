@@ -176,6 +176,9 @@
                         },
                         "enable_tiling": {
                             "type": "boolean"
+                        },
+                        "set_memory_format": {
+                            "type": "boolean"
                         }
                     }
                 },
@@ -183,6 +186,9 @@
                     "type": "object",
                     "properties": {
                         "enable_forward_chunking": {
+                            "type": "boolean"
+                        },
+                        "set_memory_format": {
                             "type": "boolean"
                         }
                     }
