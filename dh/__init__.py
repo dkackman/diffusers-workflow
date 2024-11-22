@@ -18,12 +18,13 @@ def startup():
             f"Pytorch must be 2.0 or greater (found {torch.__version__}). Run install script. Quitting."
         )
 
-    print(torch.__version__)
     setup_logging(resolve_path(settings.log_filename), settings.log_level)
     logging.info(f"Version {__version__}")
     logging.debug(f"Torch version {torch.__version__}")
     diffusers.logging.set_verbosity_error()
 
     torch.set_float32_matmul_precision("high")
-    torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.deterministic = False  # Prioritize performance

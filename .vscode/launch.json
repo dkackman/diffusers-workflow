@@ -45,7 +45,7 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/CogVideoX-5b.json",
+        "./examples/CogVideoX1.5-5B-I2V.json",
       ]
     },
     {
