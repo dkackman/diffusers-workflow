@@ -1,5 +1,4 @@
 import os
-import json 
 import soundfile
 import mimetypes
 from diffusers.utils import export_to_video

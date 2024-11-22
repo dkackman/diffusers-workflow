@@ -22,30 +22,8 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
     for reused_component_name in pipeline_definition.get("reused_components", []):
         from_pretrained_arguments[reused_component_name] = shared_components[reused_component_name]
 
-    # load the controlnet if specified
-    controlnet = load_and_configure_component(pipeline_definition.get("controlnet", None), "controlnet", device_identifier)
-    if controlnet is not None:
-        from_pretrained_arguments["controlnet"] = controlnet
-
-    # load the transformer if specified
-    transformer = load_and_configure_component(pipeline_definition.get("transformer", None), "transformer", device_identifier)
-    if transformer is not None:
-        from_pretrained_arguments["transformer"] = transformer
-    
-    # load the vae if specified
-    vae = load_and_configure_component(pipeline_definition.get("vae", None), "vae", device_identifier)
-    if vae is not None:
-        from_pretrained_arguments["vae"] = vae
-
-    # load the unet if specified
-    unet = load_and_configure_component(pipeline_definition.get("unet", None), "unet", device_identifier)
-    if unet is not None:
-        from_pretrained_arguments["unet"] = unet
-
-    # load the text_encoder if specified
-    text_encoder = load_and_configure_component(pipeline_definition.get("text_encoder", None), "text_encoder", device_identifier)
-    if text_encoder is not None:
-        from_pretrained_arguments["text_encoder"] = text_encoder
+    for optional_component_name in ["controlnet", "transformer", "vae", "unet", "text_encoder"]:
+        load_optional_component(optional_component_name, pipeline_definition, from_pretrained_arguments, device_identifier)
 
     # load and configure the pipeline
     pipeline = load_and_configure_pipeline(configuration, from_pretrained_arguments, device_identifier)
@@ -107,15 +85,24 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
 
 def load_and_configure_scheduler(scheduler_definition, pipeline):
     if scheduler_definition is not None:
-        print(f"Loading scheduler")
         scheduler_configuration = scheduler_definition.get("configuration", None)        
+        from_config_args = scheduler_definition.get("from_config_args", {})                
         scheduler_type = scheduler_configuration.get("scheduler_type", None)
-        pipeline.scheduler = scheduler_type.from_config(pipeline.scheduler.config, **scheduler_configuration)
+        print(f"Loading scheduler {scheduler_type}...")
+
+        pipeline.scheduler = scheduler_type.from_config(pipeline.scheduler.config, **from_config_args)
+
+
+def load_optional_component(component_name, pipeline_definition, from_pretrained_arguments, device_identifier):
+    # load the component if specified
+    component = load_and_configure_component(pipeline_definition.get(component_name, None), component_name, device_identifier)
+    if component is not None:
+        from_pretrained_arguments[component_name] = component
 
 
 def load_and_configure_component(component_definition, component_name, device_identifier):
     if component_definition is not None:
-        print(f"Loading {component_name}")
+        print(f"Loading {component_name}...")
         component_configuration = component_definition["configuration"]
         component = load_and_configure_pipeline(component_configuration, component_definition["from_pretrained_arguments"], device_identifier)
         quantize(component, component_definition.get("quantization", None))
