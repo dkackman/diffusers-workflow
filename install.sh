@@ -23,7 +23,7 @@ fi
 if [ "$(uname -m)" = "armv7l" ]; then
   echo ""
   echo "WARNING:"
-  echo "The chiaSWARM requires a 64 bit OS and this is 32 bit armv7l"
+  echo "The diffusers helper requires a 64 bit OS and this is 32 bit armv7l"
   echo "Exiting."
   exit 1
 fi
@@ -189,7 +189,7 @@ if ! command -v "$INSTALL_PYTHON_PATH" >/dev/null; then
 fi
 
 if [ "$PYTHON_MAJOR_VER" -ne "3" ] || [ "$PYTHON_MINOR_VER" -lt "7" ] || [ "$PYTHON_MINOR_VER" -ge "12" ]; then
-  echo "The chiaSWARM requires Python version >= 3.7 and  <= 3.11.0" >&2
+  echo "The diffusers helper requires Python version >= 3.7 and  <= 3.11.0" >&2
   echo "Current Python version = $INSTALL_PYTHON_VERSION" >&2
   # If Arch, direct to Arch Wiki
   if type pacman >/dev/null 2>&1 && [ -f "/etc/arch-release" ]; then

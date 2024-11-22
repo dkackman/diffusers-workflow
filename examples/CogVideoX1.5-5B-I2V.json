@@ -11,7 +11,7 @@
                     "name": "image_to_video",
                     "pipeline": {
                         "configuration": {
-                            "offload": "sequential",
+                            "offload": "full",
                             "pipeline_type": "CogVideoXImageToVideoPipeline",
                             "vae": {
                                 "enable_slicing": true,
@@ -24,8 +24,11 @@
                         },
                         "transformer": {
                             "configuration": {
-                                "pipeline_type": "CogVideoXTransformer3DModel",
-                                "torachao_quantization_type": "torchao.quantization.int8_weight_only"
+                                "pipeline_type": "CogVideoXTransformer3DModel"
+                            },
+                            "quantization": {
+                                "quantization_library": "torchao",
+                                "weights_type": "torchao.quantization.int8_weight_only"
                             },
                             "from_pretrained_arguments": {
                                 "model_name": "$(model_name)",
@@ -35,8 +38,11 @@
                         },
                         "vae": {
                             "configuration": {
-                                "pipeline_type": "AutoencoderKLCogVideoX",
-                                "torachao_quantization_type": "torchao.quantization.int8_weight_only"
+                                "pipeline_type": "AutoencoderKLCogVideoX"
+                            },
+                            "quantization": {
+                                "quantization_library": "torchao",
+                                "weights_type": "torchao.quantization.int8_weight_only"
                             },
                             "from_pretrained_arguments": {
                                 "model_name": "$(model_name)",
@@ -46,8 +52,11 @@
                         },
                         "text_encoder": {
                             "configuration": {
-                                "pipeline_type": "transformers.T5EncoderModel",
-                                "torachao_quantization_type": "torchao.quantization.int8_weight_only"
+                                "pipeline_type": "transformers.T5EncoderModel"
+                            },
+                            "quantization": {
+                                "quantization_library": "torchao",
+                                "weights_type": "torchao.quantization.int8_weight_only"
                             },
                             "from_pretrained_arguments": {
                                 "model_name": "$(model_name)",

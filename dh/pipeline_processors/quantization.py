@@ -6,7 +6,7 @@ def quantize(component, quantization_definition):
         quantization_library = quantization_definition["quantization_library"]
         weights_type = quantization_definition["weights_type"]
 
-        if quantization_library == "torachao":
+        if quantization_library == "torchao":
             torachao_quantize(component, weights_type())
 
         elif quantization_library == "optimum.quanto":

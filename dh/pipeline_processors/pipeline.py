@@ -4,6 +4,7 @@ from ..pre_processors.controlnet import preprocess_image
 from .quantization import quantize
 from .result import Result
 
+@torch.inference_mode()
 def run_step(step_definition, device_identifier, intermediate_results, shared_components):
     pipeline_definition = step_definition.get("pipeline", None)
     configuration = pipeline_definition.get("configuration", None)
@@ -16,7 +17,7 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
         intermediate_results[intermediate_result] = preprocessed_image
     
     # grab any previously shared components and put them into from_pretrained_arguments
-    # if a pipeline asks for both a shared component and specifies a configruation for 
+    # if a pipeline asks for both a shared component and specifies a configuration for 
     # that component, the configuration will take precedence
     for reused_component_name in pipeline_definition.get("reused_components", []):
         from_pretrained_arguments[reused_component_name] = shared_components[reused_component_name]
@@ -44,7 +45,7 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
     # load the text_encoder if specified
     text_encoder = load_and_configure_component(pipeline_definition.get("text_encoder", None), "text_encoder", device_identifier)
     if text_encoder is not None:
-        from_pretrained_arguments["text_encoder"] = unet
+        from_pretrained_arguments["text_encoder"] = text_encoder
 
     # load and configure the pipeline
     pipeline = load_and_configure_pipeline(configuration, from_pretrained_arguments, device_identifier)
@@ -117,7 +118,7 @@ def load_and_configure_component(component_definition, component_name, device_id
         print(f"Loading {component_name}")
         component_configuration = component_definition["configuration"]
         component = load_and_configure_pipeline(component_configuration, component_definition["from_pretrained_arguments"], device_identifier)
-        quantize(component_configuration.get("quantization", None))
+        quantize(component, component_definition.get("quantization", None))
 
         return component
     
@@ -139,7 +140,7 @@ def load_and_configure_pipeline(configuration, from_pretrained_arguments, device
 
     offload = configuration.get("offload", None)
     if offload == "full":
-        pipeline.enable_model_cpu_offload()
+         pipeline.enable_model_cpu_offload()
     elif offload == "sequential":
         pipeline.enable_sequential_cpu_offload()
     else:
