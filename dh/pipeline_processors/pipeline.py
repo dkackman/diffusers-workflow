@@ -152,6 +152,8 @@ def load_and_configure_pipeline(configuration, from_pretrained_arguments, device
         pipeline.vae.enable_slicing()
     if vae.get("enable_tiling", False):
         pipeline.vae.enable_tiling()
+    if vae.get("set_memory_format", False):
+        pipeline.vae.to(memory_format=torch.channels_last)
 
     unet = configuration.get("unet", {})
     if unet.get("enable_forward_chunking", False):

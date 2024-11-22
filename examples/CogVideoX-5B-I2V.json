@@ -8,7 +8,7 @@
         "applies_to": "image_to_video",
         "variables": {
             "image_locations": [
-                "https://media.discordapp.net/attachments/1170349328225800304/1307324253565091890/CHAD.jpg?ex=67407b96&is=673f2a16&hm=0bd352d5b365a41074640a71569a3b51f73e0cf53d9a63feafd856cd043fdbc0&=&format=webp&width=597&height=597"
+                "https://pbs.twimg.com/media/Gc9Uay0WEAA32_U?format=jpg&name=small"
             ]
         },
         "iteration": {
@@ -19,7 +19,7 @@
                 "image": {
                     "location": "$(image_locations)"
                 },
-                "prompt": "the man laughs",
+                "prompt": "the houses fly up into the air and water splashes everywhere",
                 "num_videos_per_prompt": 1,
                 "num_inference_steps": 25,
                 "num_frames": 49,
