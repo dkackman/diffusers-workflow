@@ -250,29 +250,29 @@
                         "torachao_quantization_type": {
                             "description": "The quantization type to use for torachao. Also triggers the torachao quantization.",
                             "type": "string"
-                        }
-                    },
-                    "bits_and_bytes_configuration": {
-                        "type": "object",
-                        "properties": {
-                            "load_in_4bit": {
-                                "type": "boolean"
-                            },
-                            "bnb_4bit_quant_type": {
-                                "type": "string"
-                            },
-                            "bnb_4bit_compute_dtype": {
-                                "type": "string"
-                            }
                         },
-                        "additionalProperties": {
-                            "type": [
-                                "string",
-                                "number",
-                                "object",
-                                "array",
-                                "boolean"
-                            ]
+                        "bits_and_bytes_configuration": {
+                            "type": "object",
+                            "properties": {
+                                "load_in_4bit": {
+                                    "type": "boolean"
+                                },
+                                "bnb_4bit_quant_type": {
+                                    "type": "string"
+                                },
+                                "bnb_4bit_compute_dtype": {
+                                    "type": "string"
+                                }
+                            },
+                            "additionalProperties": {
+                                "type": [
+                                    "string",
+                                    "number",
+                                    "object",
+                                    "array",
+                                    "boolean"
+                                ]
+                            }
                         }
                     },
                     "required": [

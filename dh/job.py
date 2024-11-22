@@ -49,11 +49,10 @@ def prepare_job(input_job):
 
     # modify the source dictionary with a default seed value
     # so that it will be captured when the arguments are saved
-    default_seed = input_job.get("seed", torch.seed())    
-    input_job["seed"] = default_seed
+    input_job["seed"] = input_job.get("seed", torch.seed())    
 
     job = copy.deepcopy(input_job)
 
     realize_args(job)
 
-    return job, default_seed
+    return job, input_job["seed"]
