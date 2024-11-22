@@ -243,6 +243,23 @@
                 "configuration"
             ]
         },
+        "quantization": {
+            "type": "object",
+            "properties": {
+                "quantization_library": {
+                    "description": "The name of the quantization library to use",
+                    "type": "string",
+                    "enum": [
+                        "torchao",
+                        "optimum.quanto"
+                    ]
+                },
+                "weights_type": {
+                    "description": "The library specific type of weights to use for quantization",
+                    "type": "string"
+                }
+            }
+        },
         "transformer": {
             "type": "object",
             "properties": {
@@ -253,9 +270,8 @@
                             "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
                             "type": "string"
                         },
-                        "torachao_quantization_type": {
-                            "description": "The quantization type to use for torachao. Also triggers the torachao quantization.",
-                            "type": "string"
+                        "quantization": {
+                            "$ref": "#/$defs/quantization"
                         },
                         "bits_and_bytes_configuration": {
                             "type": "object",
@@ -304,9 +320,8 @@
                             "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
                             "type": "string"
                         },
-                        "torachao_quantization_type": {
-                            "description": "The quantization type to use for torachao. Also triggers the torachao quantization.",
-                            "type": "string"
+                        "quantization": {
+                            "$ref": "#/$defs/quantization"
                         }
                     },
                     "required": [
@@ -356,9 +371,8 @@
                             "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
                             "type": "string"
                         },
-                        "torachao_quantization_type": {
-                            "description": "The quantization type to use for torachao. Also triggers the torachao quantization.",
-                            "type": "string"
+                        "quantization": {
+                            "$ref": "#/$defs/quantization"
                         }
                     },
                     "required": [
