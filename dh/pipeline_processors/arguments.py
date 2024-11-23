@@ -1,5 +1,5 @@
 from ..toolbox.type_helpers import load_type_from_name
-from diffusers.utils import load_image
+from diffusers.utils import load_image, load_video
 
 #
 # This recursvively processes the arguments of a workflow
@@ -11,6 +11,8 @@ def realize_args(d):
         for k, v in d.items():
             if k.endswith("_image") or k == "image":
                 d[k] = process_image(v)    
+            elif k.endswith("_video") or k == "video":
+                d[k] = process_video(v)    
             elif isinstance(v, dict): 
                 realize_args(v)
             elif isinstance(v, list):
@@ -38,3 +40,12 @@ def process_image(image):
         img = img.resize((image["size"]["height"], image["size"]["width"]))
 
     return img
+
+def process_video(video):
+    # escape indicator for intermediate result references
+    if isinstance(video, str):
+        return video.strip("{}")
+
+    vid = load_video(video["location"])
+
+    return vid

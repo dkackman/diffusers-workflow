@@ -1,0 +1,56 @@
+{
+    "variables": {
+        "mask_image_uri": "https://nftfactory.blob.core.windows.net/images/chia256.jpg"
+    },
+    "jobs": [
+        {
+            "id": "sd15-controlnet",
+            "steps": [
+                {
+                    "name": "main",
+                    "pipeline": {
+                        "configuration": {
+                            "pipeline_type": "StableDiffusionControlNetPipeline"
+                        },
+                        "preprocessors": [
+                            {
+                                "name": "depth_estimator",
+                                "capture_intermediate_result": "mask",
+                                "image": {
+                                    "location": "$(mask_image_uri)"
+                                }
+                            }
+                        ],
+                        "controlnet": {
+                            "configuration": {
+                                "pipeline_type": "ControlNetModel"
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "lllyasviel/control_v11f1p_sd15_depth",
+                                "torch_dtype": "torch.float16"
+                            }
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "runwayml/stable-diffusion-v1-5",
+                            "torch_dtype": "torch.float16"
+                        }
+                    },
+                    "iterations": [
+                        {
+                            "result_properties": {
+                                "content_type": "image/jpeg"
+                            },
+                            "arguments": {
+                                "prompt": "a cityscape",
+                                "num_inference_steps": 25
+                            },
+                            "intermediate_results": {
+                                "image": "{mask}"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
