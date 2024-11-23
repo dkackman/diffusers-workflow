@@ -45,7 +45,18 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/scratch.json",
+        "./examples/CogVideoX-5B-V2V.json",
+      ]
+    },
+    {
+      "name": "controlnet",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dh.run",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "./examples/controlnet.json",
       ]
     },
     {

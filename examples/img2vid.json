@@ -1,7 +1,7 @@
 {
     "seed": 42,
     "variables": {
-        "source_image": "https://pbs.twimg.com/media/Gcm423ZbAAAGvp_?format=jpg&name=medium"
+        "source_image": "https://pbs.twimg.com/media/GdCdt6NWkAA4QTX?format=png&name=small"
     },
     "jobs": [
         {
