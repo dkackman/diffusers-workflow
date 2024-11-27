@@ -22,7 +22,7 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
     for reused_component_name in pipeline_definition.get("reused_components", []):
         from_pretrained_arguments[reused_component_name] = shared_components[reused_component_name]
 
-    for optional_component_name in ["controlnet", "transformer", "vae", "unet", "text_encoder"]:
+    for optional_component_name in ["controlnet", "transformer", "vae", "unet", "text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2"]:
         load_optional_component(optional_component_name, pipeline_definition, from_pretrained_arguments, device_identifier)
 
     # load and configure the pipeline
@@ -54,7 +54,8 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
         arguments = iteration.get("arguments", {})
 
         # each iteration can use its own seed
-        arguments["generator"] = torch.Generator(device_identifier).manual_seed(iteration["seed"]) if "seed" in iteration else default_generator
+        if not configuration.get("no_generator", False):
+            arguments["generator"] = torch.Generator(device_identifier).manual_seed(iteration["seed"]) if "seed" in iteration else default_generator
 
         # if there are intermediate results requested, add them to the iteration
         intermediate_result_names = iteration.get("intermediate_results", {})
@@ -62,7 +63,8 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
             arguments[k] = intermediate_results[v]
 
         # run the pipeline
-        result = Result(pipeline(**arguments), iteration)
+        pipeline_output = pipeline(**arguments)
+        result = Result(pipeline_output, iteration)
         results.append(result)
         #
         # the presence of this key indicates that the output should be
@@ -104,7 +106,9 @@ def load_and_configure_component(component_definition, component_name, device_id
     if component_definition is not None:
         print(f"Loading {component_name}...")
         component_configuration = component_definition["configuration"]
-        component = load_and_configure_pipeline(component_configuration, component_definition["from_pretrained_arguments"], device_identifier)
+        component_from_pretrained_arguments = component_definition["from_pretrained_arguments"]
+        component_from_pretrained_arguments["subfolder"] = component_name
+        component = load_and_configure_pipeline(component_configuration, component_from_pretrained_arguments, device_identifier)
         quantize(component, component_definition.get("quantization", None))
 
         return component

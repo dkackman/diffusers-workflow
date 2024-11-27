@@ -1,0 +1,71 @@
+{
+    "variables": {
+        "cup_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup.png",
+        "cup_mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png",
+        "robot_image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png",
+        "mondo_image": "https://pbs.twimg.com/media/GdV9Jd-bcAAkAhi?format=jpg&name=medium"
+    },
+    "jobs": [
+        {
+            "id": "FluxRedux",
+            "steps": [
+                {
+                    "name": "prior",
+                    "pipeline": {
+                        "configuration": {
+                            "pipeline_type": "FluxPriorReduxPipeline",
+                            "no_generator": true
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "black-forest-labs/FLUX.1-Redux-dev",
+                            "torch_dtype": "torch.bfloat16"
+                        }
+                    },
+                    "iterations": [
+                        {
+                            "capture_intermediate_results": {
+                                "prompt_embeds": "prompt_embeds",
+                                "pooled_prompt_embeds": "pooled_prompt_embeds"
+                            },
+                            "arguments": {
+                                "image": {
+                                    "location": "$(mondo_image)"
+                                }
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "main",
+                    "pipeline": {
+                        "configuration": {
+                            "pipeline_type": "FluxPipeline",
+                            "offload": "sequential"
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "black-forest-labs/FLUX.1-dev",
+                            "torch_dtype": "torch.bfloat16",
+                            "text_encoder": null,
+                            "text_encoder_2": null
+                        }
+                    },
+                    "iterations": [
+                        {
+                            "result_properties": {
+                                "content_type": "image/jpeg"
+                            },
+                            "intermediate_results": {
+                                "prompt_embeds": "prompt_embeds",
+                                "pooled_prompt_embeds": "pooled_prompt_embeds"
+                            },
+                            "arguments": {
+                                "num_inference_steps": 50,
+                                "guidance_scale": 2.5
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
