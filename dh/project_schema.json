@@ -119,16 +119,25 @@
                     "$ref": "#/$defs/scheduler"
                 },
                 "transformer": {
-                    "$ref": "#/$defs/transformer"
+                    "$ref": "#/$defs/pipeline_component"
                 },
                 "vae": {
-                    "$ref": "#/$defs/vae"
+                    "$ref": "#/$defs/pipeline_component"
                 },
                 "unet": {
-                    "$ref": "#/$defs/unet"
+                    "$ref": "#/$defs/pipeline_component"
                 },
                 "text_encoder": {
-                    "$ref": "#/$defs/text_encoder"
+                    "$ref": "#/$defs/pipeline_component"
+                },
+                "text_encoder_2": {
+                    "$ref": "#/$defs/pipeline_component"
+                },
+                "tokenizer": {
+                    "$ref": "#/$defs/pipeline_component"
+                },
+                "tokenizer_2": {
+                    "$ref": "#/$defs/pipeline_component"
                 },
                 "controlnet": {
                     "$ref": "#/$defs/controlnet"
@@ -167,6 +176,10 @@
                 "pipeline_type": {
                     "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
                     "type": "string"
+                },
+                "no_generator": {
+                    "description": "Whether to use a generator for the pipeline. Some pipelines do not support generators.",
+                    "type": "boolean"
                 },
                 "vae": {
                     "type": "object",
@@ -260,18 +273,15 @@
                 }
             }
         },
-        "transformer": {
+        "pipeline_component": {
             "type": "object",
             "properties": {
                 "configuration": {
                     "type": "object",
                     "properties": {
                         "pipeline_type": {
-                            "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
+                            "description": "The python type of pipeline component to use in the format 'module.typename' module defaults to diffusers",
                             "type": "string"
-                        },
-                        "quantization": {
-                            "$ref": "#/$defs/quantization"
                         },
                         "bits_and_bytes_configuration": {
                             "type": "object",
@@ -295,81 +305,6 @@
                                     "boolean"
                                 ]
                             }
-                        }
-                    },
-                    "required": [
-                        "pipeline_type"
-                    ]
-                },
-                "from_pretrained_arguments": {
-                    "$ref": "#/$defs/from_pretrained_arguments"
-                }
-            },
-            "required": [
-                "configuration",
-                "from_pretrained_arguments"
-            ]
-        },
-        "vae": {
-            "type": "object",
-            "properties": {
-                "configuration": {
-                    "type": "object",
-                    "properties": {
-                        "pipeline_type": {
-                            "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
-                            "type": "string"
-                        },
-                        "quantization": {
-                            "$ref": "#/$defs/quantization"
-                        }
-                    },
-                    "required": [
-                        "pipeline_type"
-                    ]
-                },
-                "from_pretrained_arguments": {
-                    "$ref": "#/$defs/from_pretrained_arguments"
-                }
-            },
-            "required": [
-                "configuration",
-                "from_pretrained_arguments"
-            ]
-        },
-        "unet": {
-            "type": "object",
-            "properties": {
-                "configuration": {
-                    "type": "object",
-                    "properties": {
-                        "pipeline_type": {
-                            "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
-                            "type": "string"
-                        }
-                    },
-                    "required": [
-                        "pipeline_type"
-                    ]
-                },
-                "from_pretrained_arguments": {
-                    "$ref": "#/$defs/from_pretrained_arguments"
-                }
-            },
-            "required": [
-                "configuration",
-                "from_pretrained_arguments"
-            ]
-        },
-        "text_encoder": {
-            "type": "object",
-            "properties": {
-                "configuration": {
-                    "type": "object",
-                    "properties": {
-                        "pipeline_type": {
-                            "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
-                            "type": "string"
                         },
                         "quantization": {
                             "$ref": "#/$defs/quantization"
@@ -429,6 +364,14 @@
                     "description": "The huggingface hub name of the lora to be used.",
                     "type": "string"
                 },
+                "weight_name": {
+                    "description": "The file name of the lora weights.",
+                    "type": "string"
+                },
+                "subfolder": {
+                    "description": "The subfolder location of a model file within a larger model repository",
+                    "type": "string"
+                },
                 "lora_scale": {
                     "description": "The scale factor of the lora when fusing.",
                     "type": "number",
@@ -456,7 +399,8 @@
                     "number",
                     "object",
                     "array",
-                    "boolean"
+                    "boolean",
+                    "null"
                 ]
             },
             "required": [
