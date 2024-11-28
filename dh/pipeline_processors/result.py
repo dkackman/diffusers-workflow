@@ -9,27 +9,13 @@ class Result:
         self.iteration = iteration
         self.properties = iteration.get("result", {})
 
-    def __repr__(self):
-        return f"Result({self.result})"
-    
     def get_raw_result(self):
         return self.result
     
-    def get_output(self):
-        if hasattr(self.result, "images"):
-            return self.result.images[0]
-        
-        if hasattr(self.result, "image_embeds"):
-            return self.result.image_embeds[0]
-
-        if hasattr(self.result, "image_embeddings"):
-            return self.result.image_embeddings[0]
-
-        if hasattr(self.result, "frames"):
-            return self.result.frames[0]
-        
-        if hasattr(self.result, "audios"):
-            return self.result.audios[0].T.float().cpu().numpy()
+    def get_primary_output(self):
+        list = self.get_output_list()
+        if len(list) > 0:
+            return list[0]
         
         return None
     
@@ -51,7 +37,7 @@ class Result:
             return [audio.T.float().cpu().numpy() for audio in self.result.audios]
             # return self.result.audios[0].T.float().cpu().numpy()
         
-        return None
+        return []
     
     # This method is used to guess the extension of the output file based on the content type.
     # It includes the leading "." in the extension.
