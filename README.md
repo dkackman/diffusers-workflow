@@ -89,7 +89,7 @@ This example demonstrates a multiple step workflow including an image generation
             },
             "iterations": [
                 {
-                    "result_properties": {
+                    "result": {
                         "content_type": "image/png"
                     },
                     "arguments": {
@@ -125,7 +125,7 @@ This example demonstrates a multiple step workflow including an image generation
             },
             "iterations": [
                 {
-                    "result_properties": {
+                    "result": {
                         "content_type": "video/mp4",
                         "file_base_name": "owl"
                     },

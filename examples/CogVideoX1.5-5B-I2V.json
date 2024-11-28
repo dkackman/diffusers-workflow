@@ -67,7 +67,7 @@
                     },
                     "iterations": [
                         {
-                            "result_properties": {
+                            "result": {
                                 "content_type": "video/mp4"
                             },
                             "arguments": {

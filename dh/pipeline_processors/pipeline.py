@@ -12,9 +12,8 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
     
     # run all the prerpocessors first
     for preprocessor in pipeline_definition.get("preprocessors", []) :          
-        preprocessed_image = preprocess_image(preprocessor["image"], preprocessor["name"], device_identifier)
-        intermediate_result = preprocessor["capture_intermediate_result"]
-        intermediate_results[intermediate_result] = preprocessed_image
+        preprocessor_output = preprocess_image(preprocessor["image"], preprocessor["name"], device_identifier, preprocessor.get("arguments", {}))
+        intermediate_results[preprocessor["result_name"]] = preprocessor_output
     
     # grab any previously shared components and put them into from_pretrained_arguments
     # if a pipeline asks for both a shared component and specifies a configuration for 
@@ -60,7 +59,13 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
         # if there are intermediate results requested, add them to the iteration
         intermediate_result_names = iteration.get("intermediate_results", {})
         for k, v in intermediate_result_names.items():
-            arguments[k] = intermediate_results[v]
+            if "." in v:
+                # this is named property of the captured result
+                # parse and get that property
+                parts = v.split(".")
+                arguments[k] = intermediate_results[parts[0]][parts[1]]
+            else:
+                arguments[k] = intermediate_results[v]
 
         # run the pipeline
         pipeline_output = pipeline(**arguments)

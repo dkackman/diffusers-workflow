@@ -14,7 +14,7 @@
             },
             "iterations": [
                 {
-                    "result_properties": {
+                    "result": {
                         "content_type": "image/jpeg",
                         "file_base_name": "test_image"
                     },

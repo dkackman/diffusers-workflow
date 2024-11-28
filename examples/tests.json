@@ -25,7 +25,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -64,7 +64,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -132,7 +132,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -179,7 +179,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -217,7 +217,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -244,14 +244,14 @@
                     "preprocessors": [
                         {
                             "name": "tile",
-                            "capture_intermediate_result": "condition_image",
+                            "result_name": "condition_image",
                             "image": {
                                 "location": "https://1.bp.blogspot.com/-dHN4KiD3dsU/XRxU5JRV7DI/AAAAAAAAAz4/u1ynpCMIuKwZMA642dHEoXFVKuHQbJvwgCEwYBhgL/s1600/qr-code.png"
                             }
                         },
                         {
                             "name": "tile",
-                            "capture_intermediate_result": "init_image",
+                            "result_name": "init_image",
                             "image": {
                                 "location": "https://as1.ftcdn.net/v2/jpg/01/53/24/06/1000_F_153240633_iTL2FpCwzu5KJPdU4cotBAvObaovWWO4.jpg"
                             }
@@ -308,7 +308,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -362,7 +362,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -411,7 +411,7 @@
                     "preprocessors": [
                         {
                             "name": "depth_estimator",
-                            "capture_intermediate_result": "depth_mask",
+                            "result_name": "depth_mask",
                             "image": {
                                 "location": "https://huggingface.co/lllyasviel/control_v11p_sd15_depth/resolve/main/images/input.png"
                             }
@@ -433,7 +433,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -470,7 +470,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -505,7 +505,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "video/mp4"
                         },
                         "arguments": {
@@ -542,7 +542,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "video/mp4"
                         },
                         "arguments": {
@@ -579,7 +579,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "video/mp4"
                         },
                         "arguments": {
@@ -616,7 +616,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "video/mp4"
                         },
                         "arguments": {
@@ -657,7 +657,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "video/mp4"
                         },
                         "arguments": {
@@ -690,7 +690,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -702,7 +702,7 @@
                         }
                     },
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -735,7 +735,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -771,7 +771,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/png"
                         },
                         "arguments": {
@@ -805,7 +805,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "arguments": {
@@ -854,11 +854,11 @@
                 "name": "main",
                 "preprocessors": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "image/jpeg"
                         },
                         "name": "depth_estimator_tensor",
-                        "capture_intermediate_result": "hint",
+                        "result_name": "hint",
                         "image": {
                             "location": "https://huggingface.co/datasets/hf-internal-testing/diffusers-images/resolve/main/kandinskyv22/cat.png",
                             "size": {
@@ -911,7 +911,7 @@
                 },
                 "iterations": [
                     {
-                        "result_properties": {
+                        "result": {
                             "content_type": "audio/wav"
                         },
                         "arguments": {

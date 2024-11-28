@@ -30,7 +30,7 @@
             },
             "iterations": [
                 {
-                    "result_properties": {
+                    "result": {
                         "content_type": "image/jpeg"
                     },
                     "arguments": {

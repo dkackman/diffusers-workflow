@@ -15,7 +15,7 @@
             },
             "iterations": [
                 {
-                    "result_properties": {
+                    "result": {
                         "content_type": "image/jpeg"
                     },
                     "arguments": {
@@ -51,7 +51,7 @@
             },
             "iterations": [
                 {
-                    "result_properties": {
+                    "result": {
                         "content_type": "video/mp4"
                     },
                     "intermediate_results": {

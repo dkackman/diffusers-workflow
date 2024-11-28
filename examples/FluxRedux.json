@@ -51,7 +51,7 @@
                     },
                     "iterations": [
                         {
-                            "result_properties": {
+                            "result": {
                                 "content_type": "image/jpeg"
                             },
                             "intermediate_results": {
