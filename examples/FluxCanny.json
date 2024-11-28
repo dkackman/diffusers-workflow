@@ -1,35 +1,32 @@
 {
     "variables": {
-        "input_image": "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=small",
+        "input_image": "https://pbs.twimg.com/card_img/1861062981414461440/ksfE0eTn?format=jpg&name=small",
         "cup_mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png",
         "robot_image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png",
-        "mondo_image": "https://pbs.twimg.com/media/GdcxG6oaUAAHgSL?format=jpg&name=medium"
+        "mondo_image": "https://assets.mainnet.mintgarden.io/thumbnails/5f401e020c2c70e358d09976a7c8ac1b5f92fe08f14afe8f0a2c54dcd568bd2c.webp"
     },
     "jobs": [
         {
-            "id": "FluxOutpaint",
+            "id": "FluxCanny",
             "steps": [
                 {
                     "name": "outpaint",
                     "pipeline": {
                         "preprocessors": [
                             {
-                                "name": "add_border_and_mask",
-                                "result_name": "image_with_border",
+                                "name": "canny",
+                                "result_name": "canny_image",
                                 "image": {
-                                    "location": "$(input_image)"
-                                },
-                                "arguments": {
-                                    "zoom_all": 1.5
+                                    "location": "$(mondo_image)"
                                 }
                             }
                         ],
                         "configuration": {
-                            "pipeline_type": "FluxFillPipeline",
+                            "pipeline_type": "FluxControlPipeline",
                             "offload": "sequential"
                         },
                         "from_pretrained_arguments": {
-                            "model_name": "black-forest-labs/FLUX.1-Fill-dev",
+                            "model_name": "black-forest-labs/FLUX.1-Canny-dev",
                             "torch_dtype": "torch.bfloat16"
                         }
                     },
@@ -39,12 +36,13 @@
                                 "content_type": "image/jpeg"
                             },
                             "intermediate_results": {
-                                "image": "image_with_border.bordered_image",
-                                "mask_image": "image_with_border.mask"
+                                "control_image": "canny_image"
                             },
                             "arguments": {
-                                "prompt": "",
-                                "guidance_scale": 30,
+                                "prompt": "a cyberpunk robot",
+                                "height": 1024,
+                                "width": 1024,
+                                "guidance_scale": 10,
                                 "num_inference_steps": 25,
                                 "max_sequence_length": 512
                             }
