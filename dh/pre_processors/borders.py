@@ -48,9 +48,6 @@ def add_border_and_mask(image, zoom_all=1.0, zoom_left=0, zoom_right=0, zoom_up=
         ),
     )
 
-    bordered_image.save("bordered_image.png")
-    mask.save("mask.png")
-
     return  {
         "bordered_image": bordered_image, 
         "mask": mask

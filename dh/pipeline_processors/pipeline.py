@@ -85,7 +85,7 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
                 raw_result = result.get_raw_result()
                 # output can have different shapes, so we need to check if the key is present
                 # if it is, capture that property of the result, otherwise just capture the result itself
-                intermediate_results[k + capture_key] = raw_result.get(v, result.get_output())
+                intermediate_results[k + capture_key] = raw_result.get(v, result.get_primary_output())
 
     return results
 

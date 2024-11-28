@@ -45,7 +45,7 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/FluxRedux.json",
+        "./examples/FluxOutpaint.json",
       ]
     },
     {

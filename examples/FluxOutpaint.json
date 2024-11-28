@@ -1,6 +1,6 @@
 {
     "variables": {
-        "input_image": "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=small",
+        "input_image": "https://pbs.twimg.com/media/GddfB1aXwAA6K5c?format=jpg&name=medium",
         "cup_mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png",
         "robot_image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png",
         "mondo_image": "https://pbs.twimg.com/media/GdcxG6oaUAAHgSL?format=jpg&name=medium"
