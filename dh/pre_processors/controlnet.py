@@ -19,55 +19,60 @@ from transformers import (
 from .zoe_depth import colorize, load_zoe
 from .image_utils import center_crop_resize, resize_for_condition_image
 from .depth_estimator import make_hint_image, make_hint_tensor
+from .borders import add_border_and_mask
 import torch
 
 
-def preprocess_image(image, preprocessor, device_identifier):
+def preprocess_image(image, preprocessor, device_identifier, kwargs):
     preprocessor = preprocessor.lower()
+
+    if preprocessor == "add_border_and_mask":
+        return add_border_and_mask(image, **kwargs)    
+    
     if preprocessor == "canny":
-        return image_to_canny(image)
+        return image_to_canny(image, **kwargs)
 
     if preprocessor == "mlsd":
-        return MLSDdetector.from_pretrained("lllyasviel/ControlNet")(image)
+        return MLSDdetector.from_pretrained("lllyasviel/ControlNet")(image, **kwargs)
 
     if preprocessor == "depth":
         return image_to_depth(image, device_identifier)
 
     if preprocessor == "normal_bae":
-        return NormalBaeDetector.from_pretrained("lllyasviel/Annotators")(image)
+        return NormalBaeDetector.from_pretrained("lllyasviel/Annotators")(image, **kwargs)
 
     if preprocessor == "segmentation":
         return image_to_segmentation(image)
 
     if preprocessor == "lineart":
-        return LineartDetector.from_pretrained("lllyasviel/Annotators")(image)
+        return LineartDetector.from_pretrained("lllyasviel/Annotators")(image, **kwargs)
 
     if preprocessor == "openpose":
-        return OpenposeDetector.from_pretrained("lllyasviel/ControlNet")(image)
+        return OpenposeDetector.from_pretrained("lllyasviel/ControlNet")(image, **kwargs)
 
     if preprocessor == "pix2pix":
         return image
 
     if preprocessor == "scribble":
         return HEDdetector.from_pretrained("lllyasviel/Annotators")(
-            image, scribble=True
+            image, scribble=True, **kwargs
         )
 
     if preprocessor == "soft_edge":
-        return PidiNetDetector.from_pretrained("lllyasviel/Annotators")(image)
+        return PidiNetDetector.from_pretrained("lllyasviel/Annotators")(image, **kwargs)
 
     if preprocessor == "shuffle":
         processor = ContentShuffleDetector()
-        return processor(image)
+        return processor(image, **kwargs)
 
     if preprocessor == "tile":
-        return resize_for_condition_image(image)
+        return resize_for_condition_image(image, **kwargs)
 
     if preprocessor == "zoe_depth":
         return get_zoe_depth_map(image, device_identifier)
 
     if preprocessor == "center_crop":
-        return center_crop_resize(image)
+        return center_crop_resize(image, **kwargs)
 
     if preprocessor == "depth_estimator_tensor":
         return make_hint_tensor(image, device_identifier)    
@@ -75,7 +80,7 @@ def preprocess_image(image, preprocessor, device_identifier):
     if preprocessor == "depth_estimator":
         return make_hint_image(image, device_identifier)
 
-    raise Exception("Unknown controlnet type")
+    raise Exception("Unknown preprocessor type")
 
 
 def get_zoe_depth_map(image, device_identifier):

@@ -15,7 +15,7 @@
                         "preprocessors": [
                             {
                                 "name": "depth_estimator",
-                                "capture_intermediate_result": "mask",
+                                "result_name": "mask",
                                 "image": {
                                     "location": "$(mask_image_uri)"
                                 }
@@ -37,7 +37,7 @@
                     },
                     "iterations": [
                         {
-                            "result_properties": {
+                            "result": {
                                 "content_type": "image/jpeg"
                             },
                             "arguments": {

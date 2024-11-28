@@ -10,7 +10,7 @@
                 "preprocessors": [
                     {
                         "name": "depth_estimator",
-                        "capture_intermediate_result": "depth_mask",
+                        "result_name": "depth_mask",
                         "image": {
                             "location": "https://huggingface.co/lllyasviel/control_v11p_sd15_depth/resolve/main/images/input.png"
                         }
@@ -32,7 +32,7 @@
             },
             "iterations": [
                 {
-                    "result_properties": {
+                    "result": {
                         "content_type": "image/jpeg"
                     },
                     "arguments": {

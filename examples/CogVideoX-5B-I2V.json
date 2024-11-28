@@ -3,22 +3,22 @@
         "applies_to": "image_to_video",
         "variables": {
             "image_locations": [
-                "https://pbs.twimg.com/media/GdPc_3hasAAQhKm?format=jpg&name=medium"
+                "https://pbs.twimg.com/media/GdZbdjEXoAAQmLR?format=jpg&name=large"
             ]
         },
         "iteration": {
-            "result_properties": {
+            "result": {
                 "content_type": "video/mp4"
             },
             "arguments": {
                 "image": {
                     "location": "$(image_locations)"
                 },
-                "prompt": "the chimpanzee smiles",
+                "prompt": "the sprout grows",
                 "num_videos_per_prompt": 1,
                 "num_inference_steps": 25,
                 "num_frames": 49,
-                "guidance_scale": 6
+                "guidance_scale": 2.5
             }
         }
     },

@@ -7,7 +7,7 @@ class Result:
     def __init__(self, result, iteration):
         self.result = result
         self.iteration = iteration
-        self.properties = iteration.get("result_properties", {})
+        self.properties = iteration.get("result", {})
 
     def __repr__(self):
         return f"Result({self.result})"
@@ -65,3 +65,6 @@ class Result:
 
             elif hasattr(output, 'save'):
                 output.save(output_path)        
+
+            else:
+                raise ValueError(f"Unsupported content type {content_type}")

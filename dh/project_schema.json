@@ -344,16 +344,29 @@
                 "name": {
                     "type": "string"
                 },
-                "capture_intermediate_result": {
+                "result_name": {
                     "type": "string"
                 },
                 "image": {
                     "$ref": "#/$defs/image"
+                },
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "integer",
+                            "number",
+                            "object",
+                            "array",
+                            "boolean"
+                        ]
+                    }
                 }
             },
             "required": [
                 "name",
-                "capture_intermediate_result",
+                "result_name",
                 "image"
             ]
         },
@@ -415,7 +428,7 @@
                     "type": "integer",
                     "format": "int64"
                 },
-                "result_properties": {
+                "result": {
                     "type": "object",
                     "properties": {
                         "content_type": {
