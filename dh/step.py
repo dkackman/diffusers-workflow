@@ -1,4 +1,4 @@
-from .pipeline_processors.pipeline import run_step
+from .pipeline_processors.pipeline import Pipeline
 from .pre_processors.controlnet import process_image
 
 
@@ -17,8 +17,9 @@ class Step:
             for preprocessor in self.data.get("preprocessors", []) :          
                 preprocessor_output = process_image(preprocessor["image"], preprocessor["name"], "cuda", preprocessor.get("arguments", {}))
                 intermediate_results[preprocessor["result_name"]] = preprocessor_output
-                
-            step_result_list = run_step(self.data["pipeline"], "cuda", intermediate_results, shared_components)
+            
+            pipeline = Pipeline(self.data["pipeline"])
+            step_result_list = pipeline.run("cuda", intermediate_results, shared_components)
             self._results.extend(step_result_list)  
 
             # run all the postprocessors 
