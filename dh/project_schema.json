@@ -88,6 +88,11 @@
                 "name": {
                     "type": "string"
                 },
+                "seed": {
+                    "description": "Default seed for the entire job",
+                    "type": "integer",
+                    "format": "int64"
+                },
                 "preprocessors": {
                     "type": "array",
                     "items": {
@@ -152,7 +157,7 @@
                     "$ref": "#/$defs/from_pretrained_arguments"
                 },
                 "seed": {
-                    "description": "The seed for this iteration",
+                    "description": "The seed for this pipeline",
                     "type": "integer",
                     "format": "int64"
                 },

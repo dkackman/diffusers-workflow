@@ -41,7 +41,7 @@ class Pipeline:
             pipeline.load_lora_weights(lora_name, **lora)
             pipeline.fuse_lora(lora_scale=lora_scale)
 
-        # create a generator that will be used by each iteration if they don't set their own seed
+        # create a generator that will be used by the pipeline
         default_generator = torch.Generator(device_identifier).manual_seed(self.pipeline_definition.get("seed", torch.seed()))
         results = []
 
