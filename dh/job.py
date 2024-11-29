@@ -7,17 +7,17 @@ from .step import Step
 
 
 class Job:
-    def __init__(self, data):
-        self.data = data
+    def __init__(self, job_definition):
+        self.job_definition = job_definition
 
     def run(self, output_dir):
         try:
-            job_id = self.data["id"]
+            job_id = self.job_definition["id"]
             print(f"Processing {job_id}")
 
             # prepare the job by realizing the arguments
             # ie fetching images, replacing type names with actual types etc
-            job, default_seed = prepare_job(self.data)
+            job, default_seed = prepare_job(self.job_definition)
 
             # collections that are passed between steps to share state
             results = []
@@ -29,7 +29,7 @@ class Job:
                 results.extend(step.results)  
 
             with open(os.path.join(output_dir, f"{job_id}.json"), 'w') as file:
-                json.dump(self.data, file, indent=4)
+                json.dump(self.job_definition, file, indent=4)
 
             for i, result in enumerate(results):
                 result.save(output_dir, f"{job_id}-{i}")        
@@ -37,7 +37,7 @@ class Job:
             print("ok")
 
         except Exception as e:
-            print(f"Error running job {self.data.get('id', 'unknown')}")
+            print(f"Error running job {self.job_definition.get('id', 'unknown')}")
             print(e)
 
 

@@ -24,21 +24,21 @@ def create_project(data):
     )
 
 class Project:
-    def __init__(self, data):
-        self.data = data
+    def __init__(self, project_definition):
+        self.project_definition = project_definition
 
     def validate(self):
-        status, message = validate_data(self.data, load_schema("project"))
+        status, message = validate_data(self.project_definition, load_schema("project"))
         if not status:
             raise Exception(f"Validation error: {message}")
 
     def run(self, output_dir = "./outputs"):
-        expand_template(self.data, self.data.get("template", None))
-        replace_variables(self.data["jobs"], self.data.get("variables", None))
+        expand_template(self.project_definition, self.project_definition.get("template", None))
+        replace_variables(self.project_definition["jobs"], self.project_definition.get("variables", None))
         jobs = []
 
         print(f"Running  project...")
-        for item in self.data.get("jobs", []):
+        for item in self.project_definition.get("jobs", []):
             jobs.append(Job(item))
 
         if len(jobs) == 0:
