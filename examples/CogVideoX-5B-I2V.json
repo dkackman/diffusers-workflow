@@ -3,27 +3,11 @@
         "applies_to": "image_to_video",
         "variables": {
             "image_locations": [
-                "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=small"
+                "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=small",
+                "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=large"
             ]
         },
-        "iteration": {
-            "result": {
-                "content_type": "video/mp4"
-            },
-            "arguments": {
-                "image": {
-                    "location": "$(image_locations)"
-                },
-                "prompt": "the lizard fixes the rocket",
-                "num_videos_per_prompt": 1,
-                "num_inference_steps": 25,
-                "num_frames": 49,
-                "guidance_scale": 2.5
-            }
-        }
-    },
-    "jobs": [
-        {
+        "job": {
             "id": "CogVideoX-5B-I2V",
             "steps": [
                 {
@@ -41,10 +25,24 @@
                             "model_name": "THUDM/CogVideoX-5B-I2V",
                             "torch_dtype": "torch.bfloat16",
                             "use_safe_tensors": true
+                        },
+                        "result": {
+                            "content_type": "video/mp4"
+                        },
+                        "arguments": {
+                            "image": {
+                                "location": "$(image_locations)"
+                            },
+                            "prompt": "the lizard fixes the rocket",
+                            "num_videos_per_prompt": 1,
+                            "num_inference_steps": 5,
+                            "num_frames": 49,
+                            "guidance_scale": 2.5
                         }
                     }
                 }
             ]
         }
-    ]
+    },
+    "jobs": []
 }

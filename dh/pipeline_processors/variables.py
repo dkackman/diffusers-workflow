@@ -30,25 +30,25 @@ Functions:
 def expand_template(project, template):
     if template is not None:    
         # Find the step to which the template applies
-        step = find_step_by_name(project["jobs"], template["applies_to"])
-
-        template_iteration = template["iteration"]
-        iterations = []
+        template_job = template["job"]
+        job_name = template_job["id"]
+        jobs = []
         # Expand the template with iterations
         for variable_list_name in template["variables"]:
             for variable in template["variables"][variable_list_name]:
-                new_iteration = copy.deepcopy(template_iteration)
+                new_job = copy.deepcopy(template_job)
+                new_job["id"] = f"{job_name}_{len(jobs)}"
                 # Replace variables in the arguments of the new iteration
                 replace_variables(
-                    new_iteration["arguments"], 
+                    new_job["steps"], 
                     {
                         variable_list_name: variable
                     }
                 )
-                iterations.append(new_iteration)
-
+                jobs.append(new_job)
+        
         # Replace the step with the expanded iterations
-        step["iterations"] = iterations
+        project["jobs"] = jobs
 
 
 def replace_variables(data, variables):
@@ -66,12 +66,3 @@ def replace_variables(data, variables):
                     data[k] = variables[variable_name]     
                 else:
                     replace_variables(v, variables)
-
-
-def find_step_by_name(jobs, step_name):
-    for job in jobs:
-        for step in job.get('steps', []):
-            if step['name'] == step_name:
-                return step
-            
-    raise Exception(f"Template step <{step_name}> not found")

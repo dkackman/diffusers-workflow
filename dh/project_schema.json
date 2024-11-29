@@ -485,10 +485,6 @@
         "template": {
             "type": "object",
             "properties": {
-                "applies_to": {
-                    "description": "The name of the pipeline step this template applies to",
-                    "type": "string"
-                },
                 "variables": {
                     "description": "Variables that will drive iterations",
                     "additionalProperties": {
@@ -497,14 +493,13 @@
                         ]
                     }
                 },
-                "iteration": {
-                    "$ref": "#/$defs/iteration"
+                "job": {
+                    "$ref": "#/$defs/job"
                 }
             },
             "required": [
-                "applies_to",
                 "variables",
-                "iteration"
+                "job"
             ]
         }
     }
