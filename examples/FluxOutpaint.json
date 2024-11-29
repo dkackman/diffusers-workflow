@@ -11,19 +11,19 @@
             "steps": [
                 {
                     "name": "outpaint",
-                    "pipeline": {
-                        "preprocessors": [
-                            {
-                                "name": "add_border_and_mask",
-                                "result_name": "image_with_border",
-                                "image": {
-                                    "location": "$(input_image)"
-                                },
-                                "arguments": {
-                                    "zoom_all": 1.5
-                                }
+                    "preprocessors": [
+                        {
+                            "name": "add_border_and_mask",
+                            "result_name": "image_with_border",
+                            "image": {
+                                "location": "$(input_image)"
+                            },
+                            "arguments": {
+                                "zoom_all": 1.5
                             }
-                        ],
+                        }
+                    ],
+                    "pipeline": {
                         "configuration": {
                             "pipeline_type": "FluxFillPipeline",
                             "offload": "sequential"
@@ -31,25 +31,21 @@
                         "from_pretrained_arguments": {
                             "model_name": "black-forest-labs/FLUX.1-Fill-dev",
                             "torch_dtype": "torch.bfloat16"
+                        },
+                        "result": {
+                            "content_type": "image/jpeg"
+                        },
+                        "intermediate_results": {
+                            "image": "image_with_border.bordered_image",
+                            "mask_image": "image_with_border.mask"
+                        },
+                        "arguments": {
+                            "prompt": "",
+                            "guidance_scale": 30,
+                            "num_inference_steps": 25,
+                            "max_sequence_length": 512
                         }
-                    },
-                    "iterations": [
-                        {
-                            "result": {
-                                "content_type": "image/jpeg"
-                            },
-                            "intermediate_results": {
-                                "image": "image_with_border.bordered_image",
-                                "mask_image": "image_with_border.mask"
-                            },
-                            "arguments": {
-                                "prompt": "",
-                                "guidance_scale": 30,
-                                "num_inference_steps": 25,
-                                "max_sequence_length": 512
-                            }
-                        }
-                    ]
+                    }
                 }
             ]
         }

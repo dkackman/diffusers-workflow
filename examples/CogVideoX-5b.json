@@ -38,8 +38,7 @@
                             "model_name": "THUDM/CogVideoX-5b",
                             "torch_dtype": "torch.bfloat16"
                         }
-                    },
-                    "iterations": []
+                    }
                 }
             ]
         }

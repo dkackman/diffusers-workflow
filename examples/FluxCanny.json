@@ -11,16 +11,16 @@
             "steps": [
                 {
                     "name": "outpaint",
-                    "pipeline": {
-                        "preprocessors": [
-                            {
-                                "name": "canny",
-                                "result_name": "canny_image",
-                                "image": {
-                                    "location": "$(mondo_image)"
-                                }
+                    "preprocessors": [
+                        {
+                            "name": "canny",
+                            "result_name": "canny_image",
+                            "image": {
+                                "location": "$(mondo_image)"
                             }
-                        ],
+                        }
+                    ],
+                    "pipeline": {
                         "configuration": {
                             "pipeline_type": "FluxControlPipeline",
                             "offload": "sequential"
@@ -28,26 +28,22 @@
                         "from_pretrained_arguments": {
                             "model_name": "black-forest-labs/FLUX.1-Canny-dev",
                             "torch_dtype": "torch.bfloat16"
+                        },
+                        "result": {
+                            "content_type": "image/jpeg"
+                        },
+                        "intermediate_results": {
+                            "control_image": "canny_image"
+                        },
+                        "arguments": {
+                            "prompt": "a cyberpunk robot",
+                            "height": 1024,
+                            "width": 1024,
+                            "guidance_scale": 10,
+                            "num_inference_steps": 25,
+                            "max_sequence_length": 512
                         }
-                    },
-                    "iterations": [
-                        {
-                            "result": {
-                                "content_type": "image/jpeg"
-                            },
-                            "intermediate_results": {
-                                "control_image": "canny_image"
-                            },
-                            "arguments": {
-                                "prompt": "a cyberpunk robot",
-                                "height": 1024,
-                                "width": 1024,
-                                "guidance_scale": 10,
-                                "num_inference_steps": 25,
-                                "max_sequence_length": 512
-                            }
-                        }
-                    ]
+                    }
                 }
             ]
         }

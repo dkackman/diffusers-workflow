@@ -42,8 +42,7 @@
                             "torch_dtype": "torch.bfloat16",
                             "use_safe_tensors": true
                         }
-                    },
-                    "iterations": []
+                    }
                 }
             ]
         }

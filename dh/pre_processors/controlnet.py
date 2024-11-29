@@ -23,7 +23,7 @@ from .borders import add_border_and_mask
 import torch
 
 
-def preprocess_image(image, preprocessor, device_identifier, kwargs):
+def process_image(image, preprocessor, device_identifier, kwargs):
     preprocessor = preprocessor.lower()
 
     if preprocessor == "add_border_and_mask":

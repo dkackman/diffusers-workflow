@@ -22,24 +22,20 @@
                         "from_pretrained_arguments": {
                             "model_name": "THUDM/CogVideoX-5b",
                             "torch_dtype": "torch.bfloat16"
-                        }
-                    },
-                    "iterations": [
-                        {
-                            "result": {
-                                "content_type": "video/mp4"
+                        },
+                        "result": {
+                            "content_type": "video/mp4"
+                        },
+                        "arguments": {
+                            "video": {
+                                "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/hiker.mp4"
                             },
-                            "arguments": {
-                                "video": {
-                                    "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/hiker.mp4"
-                                },
-                                "prompt": "An astronaut stands triumphantly at the peak of a towering mountain. Panorama of rugged peaks and valleys. Very futuristic vibe and animated aesthetic. Highlights of purple and golden colors in the scene. The sky is looks like an animated/cartoonish dream of galaxies, nebulae, stars, planets, moons, but the remainder of the scene is mostly realistic.",
-                                "num_inference_steps": 50,
-                                "strength": 0.8,
-                                "guidance_scale": 6
-                            }
+                            "prompt": "An astronaut stands triumphantly at the peak of a towering mountain. Panorama of rugged peaks and valleys. Very futuristic vibe and animated aesthetic. Highlights of purple and golden colors in the scene. The sky is looks like an animated/cartoonish dream of galaxies, nebulae, stars, planets, moons, but the remainder of the scene is mostly realistic.",
+                            "num_inference_steps": 50,
+                            "strength": 0.8,
+                            "guidance_scale": 6
                         }
-                    ]
+                    }
                 }
             ]
         }
