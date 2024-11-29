@@ -1,19 +1,13 @@
 import torch
 from diffusers import BitsAndBytesConfig
-from ..pre_processors.controlnet import preprocess_image
 from .quantization import quantize
 from .result import Result
 
+
 @torch.inference_mode()
-def run_step(step_definition, device_identifier, intermediate_results, shared_components):
-    pipeline_definition = step_definition.get("pipeline", None)
+def run_step(pipeline_definition, device_identifier, intermediate_results, shared_components):
     configuration = pipeline_definition.get("configuration", None)
     from_pretrained_arguments = pipeline_definition.get("from_pretrained_arguments", None)
-    
-    # run all the prerpocessors first
-    for preprocessor in pipeline_definition.get("preprocessors", []) :          
-        preprocessor_output = preprocess_image(preprocessor["image"], preprocessor["name"], device_identifier, preprocessor.get("arguments", {}))
-        intermediate_results[preprocessor["result_name"]] = preprocessor_output
     
     # grab any previously shared components and put them into from_pretrained_arguments
     # if a pipeline asks for both a shared component and specifies a configuration for 
@@ -45,47 +39,42 @@ def run_step(step_definition, device_identifier, intermediate_results, shared_co
         pipeline.fuse_lora(lora_scale=lora_scale)
 
     # create a generator that will be used by each iteration if they don't set their own seed
-    default_generator = torch.Generator(device_identifier).manual_seed(step_definition.get("seed", torch.seed()))
+    default_generator = torch.Generator(device_identifier).manual_seed(pipeline_definition.get("seed", torch.seed()))
     results = []
 
-    # prepare and run pipeline iterations
-    for iteration in step_definition.get("iterations", []):
-        arguments = iteration.get("arguments", {})
+    # prepare and run pipeline
+    arguments = pipeline_definition.get("arguments", {})
 
-        # each iteration can use its own seed
-        if not configuration.get("no_generator", False):
-            arguments["generator"] = torch.Generator(device_identifier).manual_seed(iteration["seed"]) if "seed" in iteration else default_generator
+    # each iteration can use its own seed
+    if not configuration.get("no_generator", False):
+        arguments["generator"] = torch.Generator(device_identifier).manual_seed(pipeline_definition["seed"]) if "seed" in pipeline_definition else default_generator
 
-        # if there are intermediate results requested, add them to the iteration
-        intermediate_result_names = iteration.get("intermediate_results", {})
+    # if there are intermediate results requested, add them to the iteration
+    intermediate_result_names = pipeline_definition.get("intermediate_results", {})
+    for k, v in intermediate_result_names.items():
+        if "." in v:
+            # this is named property of the captured result
+            # parse and get that property
+            parts = v.split(".")
+            arguments[k] = intermediate_results[parts[0]][parts[1]]
+        else:
+            arguments[k] = intermediate_results[v]
+
+    # run the pipeline
+    pipeline_output = pipeline(**arguments)
+    result = Result(pipeline_output, pipeline_definition)
+    results.append(result)
+    #
+    # the presence of this key indicates that the output should be
+    # stored as an intermediate result, not returned as an output
+    #
+    if "capture_intermediate_results" in pipeline_definition:
+        intermediate_result_names = pipeline_definition["capture_intermediate_results"]
         for k, v in intermediate_result_names.items():
-            if "." in v:
-                # this is named property of the captured result
-                # parse and get that property
-                parts = v.split(".")
-                arguments[k] = intermediate_results[parts[0]][parts[1]]
-            else:
-                arguments[k] = intermediate_results[v]
-
-        # run the pipeline
-        pipeline_output = pipeline(**arguments)
-        result = Result(pipeline_output, iteration)
-        results.append(result)
-        #
-        # the presence of this key indicates that the output should be
-        # stored as an intermediate result, not returned as an output
-        #
-        # NOTE - the capture key can be used to differentiate between different
-        #        iterations of the same pipeline. It is not required.
-        #
-        if "capture_intermediate_results" in iteration:
-            intermediate_result_names = iteration["capture_intermediate_results"]
-            capture_key = iteration.get("capture_key", "")
-            for k, v in intermediate_result_names.items():
-                raw_result = result.get_raw_result()
-                # output can have different shapes, so we need to check if the key is present
-                # if it is, capture that property of the result, otherwise just capture the result itself
-                intermediate_results[k + capture_key] = raw_result.get(v, result.get_primary_output())
+            raw_result = result.get_raw_result()
+            # output can have different shapes, so we need to check if the key is present
+            # if it is, capture that property of the result, otherwise just capture the result itself
+            intermediate_results[k] = raw_result.get(v, result.get_primary_output())
 
     return results
 

@@ -88,25 +88,25 @@
                 "name": {
                     "type": "string"
                 },
-                "seed": {
-                    "description": "Default seed for the entire step",
-                    "type": "integer",
-                    "format": "int64"
+                "preprocessors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/processor"
+                    }
                 },
                 "pipeline": {
                     "$ref": "#/$defs/pipeline"
                 },
-                "iterations": {
+                "postprocessors": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/$defs/iteration"
+                        "$ref": "#/$defs/processor"
                     }
                 }
             },
             "required": [
                 "name",
-                "pipeline",
-                "iterations"
+                "pipeline"
             ]
         },
         "pipeline": {
@@ -142,12 +142,6 @@
                 "controlnet": {
                     "$ref": "#/$defs/controlnet"
                 },
-                "preprocessors": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/$defs/preprocessor"
-                    }
-                },
                 "loras": {
                     "type": "array",
                     "items": {
@@ -156,11 +150,79 @@
                 },
                 "from_pretrained_arguments": {
                     "$ref": "#/$defs/from_pretrained_arguments"
+                },
+                "seed": {
+                    "description": "The seed for this iteration",
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "intermediate_results": {
+                    "description": "Key value pairs of intermediate results to use in this iteration. The key is the name of the intermediate result and the value is the argument name pass to the pipeline.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "arguments": {
+                    "description": "The arguments to pass to the pipeline",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "integer",
+                            "number",
+                            "object",
+                            "array",
+                            "boolean"
+                        ]
+                    }
+                },
+                "capture_intermediate_results": {
+                    "description": "Key value pairs to capture as intermediate results. If value is non-null it will capture the property of the pipiline output of that name. Otherwise it captures the content_type appropriate pipeline output object.",
+                    "type": "object",
+                    "properties": {
+                        "capture_key": {
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "result": {
+                    "type": "object",
+                    "properties": {
+                        "content_type": {
+                            "description": "The content type of the result",
+                            "type": "string"
+                        },
+                        "file_base_name": {
+                            "description": "The base name for saving result and metadata files. The file extension is determined by context and content_type.",
+                            "type": "string"
+                        },
+                        "fps": {
+                            "description": "Frames per second - only used when output is video",
+                            "type": "integer",
+                            "default": 8
+                        },
+                        "samplerate": {
+                            "description": "Audio sample rate - only used when output is audio",
+                            "type": "integer",
+                            "default": 44100
+                        }
+                    },
+                    "required": [
+                        "content_type"
+                    ]
                 }
             },
             "required": [
                 "configuration",
-                "from_pretrained_arguments"
+                "from_pretrained_arguments",
+                "arguments"
             ]
         },
         "pipeline_configuration": {
@@ -338,7 +400,7 @@
                 "from_pretrained_arguments"
             ]
         },
-        "preprocessor": {
+        "processor": {
             "type": "object",
             "properties": {
                 "name": {
@@ -418,87 +480,6 @@
             },
             "required": [
                 "model_name"
-            ]
-        },
-        "iteration": {
-            "type": "object",
-            "properties": {
-                "seed": {
-                    "description": "The seed for this iteration",
-                    "type": "integer",
-                    "format": "int64"
-                },
-                "result": {
-                    "type": "object",
-                    "properties": {
-                        "content_type": {
-                            "description": "The content type of the result",
-                            "type": "string"
-                        },
-                        "file_base_name": {
-                            "description": "The base name for saving result and metadata files. The file extension is determined by context and content_type.",
-                            "type": "string"
-                        },
-                        "fps": {
-                            "description": "Frames per second - only used when output is video",
-                            "type": "integer",
-                            "default": 8
-                        },
-                        "samplerate": {
-                            "description": "Audio sample rate - only used when output is audio",
-                            "type": "integer",
-                            "default": 44100
-                        }
-                    },
-                    "required": [
-                        "content_type"
-                    ]
-                },
-                "arguments": {
-                    "description": "The arguments to pass to the pipeline",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": [
-                            "string",
-                            "integer",
-                            "number",
-                            "object",
-                            "array",
-                            "boolean"
-                        ]
-                    }
-                },
-                "capture_intermediate_results": {
-                    "description": "Key value pairs to capture as intermediate results. If value is non-null it will capture the property of the pipiline output of that name. Otherwise it captures the content_type appropriate pipeline output object.",
-                    "type": "object",
-                    "properties": {
-                        "capture_key": {
-                            "type": "string"
-                        }
-                    },
-                    "additionalProperties": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
-                    }
-                },
-                "intermediate_results": {
-                    "description": "Key value pairs of intermediate results to use in this iteration. The key is the name of the intermediate result and the value is the argument name pass to the pipeline.",
-                    "type": "object",
-                    "properties": {
-                        "capture_key": {
-                            "description": "The disambiguator of the intermediate result when there are multiple iterations.",
-                            "type": "string"
-                        }
-                    },
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                }
-            },
-            "required": [
-                "arguments"
             ]
         },
         "template": {

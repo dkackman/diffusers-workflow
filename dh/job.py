@@ -2,8 +2,9 @@ import os
 import json
 import torch
 import copy
-from .pipeline_processors.pipeline import run_step
 from .pipeline_processors.arguments import realize_args
+from .step import Step
+
 
 class Job:
     def __init__(self, data):
@@ -22,13 +23,10 @@ class Job:
             results = []
             intermediate_results = {}
             shared_components = {}
-            for step in job["steps"]:
-                name = step["name"]
-                step["seed"] = step.get("seed", default_seed)
-                print(f"Running step {name}...")
-
-                step_result_list = run_step(step, "cuda", intermediate_results, shared_components)
-                results.extend(step_result_list)  
+            for step_data in job["steps"]:
+                step = Step(step_data, default_seed)
+                step.run(intermediate_results, shared_components)
+                results.extend(step.results)  
 
             with open(os.path.join(output_dir, f"{job_id}.json"), 'w') as file:
                 json.dump(self.data, file, indent=4)

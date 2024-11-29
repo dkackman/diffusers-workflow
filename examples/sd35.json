@@ -26,21 +26,17 @@
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-3.5-large",
                     "torch_dtype": "torch.bfloat16"
+                },
+                "result": {
+                    "content_type": "image/jpeg"
+                },
+                "arguments": {
+                    "prompt": "A whimsical and creative image depicting a marmot and a chimpanzee, exchanging gift wrapped packages. It features the distinctive, plump body shape of a marmot. The environment combines the natural habitat of a marmot with elements of a breakfast table setting, a river of warm, melted butter, with oversized utensils or plates peeking out from the lush, pancake-like foliage in the background, a towering pepper mill standing in for a tree.  As the sun rises in this fantastical world, it casts a warm, buttery glow over the scene. The creatures, content in their butter river, lets out a yawn. Nearby, a flock of birds take flight",
+                    "num_inference_steps": 25,
+                    "guidance_scale": 4.5,
+                    "max_sequence_length": 512
                 }
-            },
-            "iterations": [
-                {
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
-                    "arguments": {
-                        "prompt": "A whimsical and creative image depicting a marmot and a chimpanzee, exchanging gift wrapped packages. It features the distinctive, plump body shape of a marmot. The environment combines the natural habitat of a marmot with elements of a breakfast table setting, a river of warm, melted butter, with oversized utensils or plates peeking out from the lush, pancake-like foliage in the background, a towering pepper mill standing in for a tree.  As the sun rises in this fantastical world, it casts a warm, buttery glow over the scene. The creatures, content in their butter river, lets out a yawn. Nearby, a flock of birds take flight",
-                        "num_inference_steps": 25,
-                        "guidance_scale": 4.5,
-                        "max_sequence_length": 512
-                    }
-                }
-            ]
+            }
         }
     ]
 }

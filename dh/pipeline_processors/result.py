@@ -4,10 +4,9 @@ import mimetypes
 from diffusers.utils import export_to_video
 
 class Result:
-    def __init__(self, result, iteration):
+    def __init__(self, result, pipeline_definition):
         self.result = result
-        self.iteration = iteration
-        self.properties = iteration.get("result", {})
+        self.properties = pipeline_definition.get("result", {})
 
     def get_raw_result(self):
         return self.result
@@ -18,7 +17,6 @@ class Result:
             return list[0]
         
         return None
-    
     
     def get_output_list(self):
         if hasattr(self.result, "images"):

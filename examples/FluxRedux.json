@@ -17,21 +17,17 @@
                         "from_pretrained_arguments": {
                             "model_name": "black-forest-labs/FLUX.1-Redux-dev",
                             "torch_dtype": "torch.bfloat16"
-                        }
-                    },
-                    "iterations": [
-                        {
-                            "capture_intermediate_results": {
-                                "prompt_embeds": "prompt_embeds",
-                                "pooled_prompt_embeds": "pooled_prompt_embeds"
-                            },
-                            "arguments": {
-                                "image": {
-                                    "location": "$(input_image)"
-                                }
+                        },
+                        "capture_intermediate_results": {
+                            "prompt_embeds": "prompt_embeds",
+                            "pooled_prompt_embeds": "pooled_prompt_embeds"
+                        },
+                        "arguments": {
+                            "image": {
+                                "location": "$(input_image)"
                             }
                         }
-                    ]
+                    }
                 },
                 {
                     "name": "main",
@@ -45,24 +41,20 @@
                             "torch_dtype": "torch.bfloat16",
                             "text_encoder": null,
                             "text_encoder_2": null
+                        },
+                        "result": {
+                            "content_type": "image/jpeg"
+                        },
+                        "intermediate_results": {
+                            "prompt_embeds": "prompt_embeds",
+                            "pooled_prompt_embeds": "pooled_prompt_embeds"
+                        },
+                        "arguments": {
+                            "num_inference_steps": 25,
+                            "num_images_per_prompt": 2,
+                            "guidance_scale": 2.5
                         }
-                    },
-                    "iterations": [
-                        {
-                            "result": {
-                                "content_type": "image/jpeg"
-                            },
-                            "intermediate_results": {
-                                "prompt_embeds": "prompt_embeds",
-                                "pooled_prompt_embeds": "pooled_prompt_embeds"
-                            },
-                            "arguments": {
-                                "num_inference_steps": 25,
-                                "num_images_per_prompt": 2,
-                                "guidance_scale": 2.5
-                            }
-                        }
-                    ]
+                    }
                 }
             ]
         }

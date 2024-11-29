@@ -63,25 +63,21 @@
                                 "subfolder": "text_encoder",
                                 "torch_dtype": "torch.bfloat16"
                             }
-                        }
-                    },
-                    "iterations": [
-                        {
-                            "result": {
-                                "content_type": "video/mp4"
+                        },
+                        "result": {
+                            "content_type": "video/mp4"
+                        },
+                        "arguments": {
+                            "image": {
+                                "location": "https://pbs.twimg.com/media/GcpCDN8asAA9V2U?format=jpg&name=medium"
                             },
-                            "arguments": {
-                                "image": {
-                                    "location": "https://pbs.twimg.com/media/GcpCDN8asAA9V2U?format=jpg&name=medium"
-                                },
-                                "prompt": "the diamond spins",
-                                "num_videos_per_prompt": 1,
-                                "num_inference_steps": 35,
-                                "num_frames": 49,
-                                "guidance_scale": 6
-                            }
+                            "prompt": "the diamond spins",
+                            "num_videos_per_prompt": 1,
+                            "num_inference_steps": 35,
+                            "num_frames": 49,
+                            "guidance_scale": 6
                         }
-                    ]
+                    }
                 }
             ]
         }

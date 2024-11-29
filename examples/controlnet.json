@@ -8,19 +8,19 @@
             "steps": [
                 {
                     "name": "main",
+                    "preprocessors": [
+                        {
+                            "name": "depth_estimator",
+                            "result_name": "mask",
+                            "image": {
+                                "location": "$(mask_image_uri)"
+                            }
+                        }
+                    ],
                     "pipeline": {
                         "configuration": {
                             "pipeline_type": "StableDiffusionControlNetPipeline"
                         },
-                        "preprocessors": [
-                            {
-                                "name": "depth_estimator",
-                                "result_name": "mask",
-                                "image": {
-                                    "location": "$(mask_image_uri)"
-                                }
-                            }
-                        ],
                         "controlnet": {
                             "configuration": {
                                 "pipeline_type": "ControlNetModel"
@@ -33,22 +33,18 @@
                         "from_pretrained_arguments": {
                             "model_name": "runwayml/stable-diffusion-v1-5",
                             "torch_dtype": "torch.float16"
+                        },
+                        "result": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "prompt": "a cityscape",
+                            "num_inference_steps": 25
+                        },
+                        "intermediate_results": {
+                            "image": "{mask}"
                         }
-                    },
-                    "iterations": [
-                        {
-                            "result": {
-                                "content_type": "image/jpeg"
-                            },
-                            "arguments": {
-                                "prompt": "a cityscape",
-                                "num_inference_steps": 25
-                            },
-                            "intermediate_results": {
-                                "image": "{mask}"
-                            }
-                        }
-                    ]
+                    }
                 }
             ]
         }
