@@ -19,7 +19,7 @@ class Pipeline:
             from_pretrained_arguments[reused_component_name] = shared_components[reused_component_name]
 
         for optional_component_name in ["controlnet", "transformer", "vae", "unet", "text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2"]:
-            load_optional_component(optional_component_name, self.pipeline_definition, from_pretrained_arguments, device_identifier)
+            self.load_optional_component(optional_component_name, from_pretrained_arguments, device_identifier)
 
         # load and configure the pipeline
         pipeline = load_and_configure_pipeline(configuration, from_pretrained_arguments, device_identifier)
@@ -80,8 +80,15 @@ class Pipeline:
                 intermediate_results[k] = raw_result.get(v, result.get_primary_output())
 
         return results
+    
 
+    def load_optional_component(self, component_name, from_pretrained_arguments, device_identifier):
+        # load the component if specified
+        component = load_and_configure_component(self.pipeline_definition.get(component_name, None), component_name, device_identifier)
+        if component is not None:
+            from_pretrained_arguments[component_name] = component
 
+            
 def load_and_configure_scheduler(scheduler_definition, pipeline):
     if scheduler_definition is not None:
         scheduler_configuration = scheduler_definition.get("configuration", None)        
@@ -90,13 +97,6 @@ def load_and_configure_scheduler(scheduler_definition, pipeline):
         print(f"Loading scheduler {scheduler_type}...")
 
         pipeline.scheduler = scheduler_type.from_config(pipeline.scheduler.config, **from_config_args)
-
-
-def load_optional_component(component_name, pipeline_definition, from_pretrained_arguments, device_identifier):
-    # load the component if specified
-    component = load_and_configure_component(pipeline_definition.get(component_name, None), component_name, device_identifier)
-    if component is not None:
-        from_pretrained_arguments[component_name] = component
 
 
 def load_and_configure_component(component_definition, component_name, device_identifier):
