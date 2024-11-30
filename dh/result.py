@@ -18,6 +18,9 @@ class Result:
         
         return None
     
+    def get_output_property(self, property_name):
+        return getattr(self.result, property_name, None)
+    
     def get_output_list(self):
         if hasattr(self.result, "images"):
             return self.result.images
@@ -62,7 +65,7 @@ class Result:
                     output.save(output_path)        
 
                 else:
-                    raise ValueError(f"Unsupported content type {content_type}")
+                    raise ValueError(f"Content type {content_type} does not match result type {type(output)}")
 
 
 # This method is used to guess the extension of the output file based on the content type.

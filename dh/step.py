@@ -7,22 +7,25 @@ class Step:
         self.step_definition = step_definition
         self.step_definition["seed"] = self.step_definition.get("seed", default_seed)
 
-    def run(self, intermediate_results, shared_components):
+    def run(self, previous_results, shared_components):
         try:
             name = self.step_definition["name"]
             print(f"Running step {name}...")
     
             result = None
+            preprocessor_results = {}
             # run all the preprocessors
-            for preprocessor in self.step_definition.get("preprocessors", []) :          
-                preprocessor_output = process_image(preprocessor["image"], preprocessor["name"], "cuda", preprocessor.get("arguments", {}))
-                intermediate_results[preprocessor["result_name"]] = preprocessor_output
+            for preprocessor in self.step_definition.get("preprocessors", []) :     
+                print(f"Running preprocessor {preprocessor['name']}...")     
+                preprocessor_output = process_image(preprocessor["image"], preprocessor["processor_name"], "cuda", preprocessor.get("arguments", {}))
+                preprocessor_results[preprocessor["name"]] = preprocessor_output
             
             if "pipeline" in self.step_definition:
                 pipeline = Pipeline(self.step_definition["pipeline"])
-                result = pipeline.run("cuda", intermediate_results, shared_components)
+                result = pipeline.run("cuda", previous_results, preprocessor_results, shared_components)
 
             else:
+                print(f"Running task {preprocessor['name']}...")     
                 task = Task(self.step_definition["task"])
                 result = task.run()
 

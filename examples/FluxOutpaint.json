@@ -14,7 +14,6 @@
                     "preprocessors": [
                         {
                             "name": "add_border_and_mask",
-                            "result_name": "image_with_border",
                             "image": {
                                 "location": "$(input_image)"
                             },
@@ -35,14 +34,14 @@
                         "result": {
                             "content_type": "image/jpeg"
                         },
-                        "intermediate_results": {
-                            "image": "image_with_border.bordered_image",
-                            "mask_image": "image_with_border.mask"
+                        "preprocessor_results": {
+                            "image": "add_border_and_mask.bordered_image",
+                            "mask_image": "add_border_and_mask.mask"
                         },
                         "arguments": {
                             "prompt": "",
                             "guidance_scale": 30,
-                            "num_inference_steps": 25,
+                            "num_inference_steps": 5,
                             "max_sequence_length": 512
                         }
                     }

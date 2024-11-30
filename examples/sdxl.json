@@ -1,0 +1,58 @@
+{
+    "id": "sdxl",
+    "steps": [
+        {
+            "name": "sdxl_base",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "DiffusionPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-diffusion-xl-base-1.0",
+                    "torch_dtype": "torch.float16",
+                    "variant": "fp16",
+                    "use_safetensors": true
+                },
+                "shared_components": [
+                    "text_encoder_2",
+                    "vae"
+                ],
+                "arguments": {
+                    "prompt": "A majestic lion jumping from a big stone at night",
+                    "num_inference_steps": 25,
+                    "denoising_end": 0.8,
+                    "output_type": "{latent}"
+                }
+            }
+        },
+        {
+            "name": "refiner",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "DiffusionPipeline"
+                },
+                "reused_components": [
+                    "text_encoder_2",
+                    "vae"
+                ],
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-diffusion-xl-refiner-1.0",
+                    "torch_dtype": "torch.float16",
+                    "variant": "fp16",
+                    "use_safetensors": true
+                },
+                "previous_results": {
+                    "image": "{sdxl_base}"
+                },
+                "arguments": {
+                    "prompt": "A majestic lion jumping from a big stone at night",
+                    "num_inference_steps": 25,
+                    "denoising_start": 0.8
+                },
+                "result": {
+                    "content_type": "image/jpeg"
+                }
+            }
+        }
+    ]
+}

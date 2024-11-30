@@ -10,7 +10,7 @@
                     "name": "main",
                     "task": {
                         "name": "qr_code",
-                        "result_name": "qr_code_image",
+                        "task_name": "qr_code",
                         "result": {
                             "content_type": "image/jpeg"
                         },

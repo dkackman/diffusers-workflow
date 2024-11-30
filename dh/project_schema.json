@@ -168,8 +168,15 @@
                     "type": "integer",
                     "format": "int64"
                 },
-                "intermediate_results": {
-                    "description": "Key value pairs of intermediate results to use in this iteration. The key is the name of the intermediate result and the value is the argument name pass to the pipeline.",
+                "preprocessor_results": {
+                    "description": "Key value pairs of preprocessor results to use in this iteration. The key is the name of the preprocessor and the value is the argument name pass to the pipeline.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "previous_results": {
+                    "description": "Key value pairs of previous results to use. The key is the name of the previous step result and the value is the argument name pass to the pipeline.",
                     "type": "object",
                     "additionalProperties": {
                         "type": "string"
@@ -186,21 +193,6 @@
                             "object",
                             "array",
                             "boolean"
-                        ]
-                    }
-                },
-                "capture_intermediate_results": {
-                    "description": "Key value pairs to capture as intermediate results. If value is non-null it will capture the property of the pipiline output of that name. Otherwise it captures the content_type appropriate pipeline output object.",
-                    "type": "object",
-                    "properties": {
-                        "capture_key": {
-                            "type": "string"
-                        }
-                    },
-                    "additionalProperties": {
-                        "type": [
-                            "string",
-                            "null"
                         ]
                     }
                 },
@@ -395,7 +387,7 @@
                 "name": {
                     "type": "string"
                 },
-                "result_name": {
+                "processor_name": {
                     "type": "string"
                 },
                 "image": {
@@ -417,7 +409,6 @@
             },
             "required": [
                 "name",
-                "result_name",
                 "image"
             ]
         },
@@ -474,10 +465,10 @@
         "task": {
             "type": "object",
             "properties": {
-                "task_name": {
+                "name": {
                     "type": "string"
                 },
-                "result_name": {
+                "task_name": {
                     "type": "string"
                 },
                 "result": {
@@ -498,6 +489,7 @@
                 }
             },
             "required": [
+                "name",
                 "task_name"
             ]
         },

@@ -8,7 +8,7 @@ class Pipeline:
         self.pipeline_definition = pipeline_definition
 
     @torch.inference_mode()
-    def run(self, device_identifier, intermediate_results, shared_components):
+    def run(self, device_identifier, previous_results, preprocessor_results, shared_components):
         configuration = self.pipeline_definition.get("configuration", None)
         from_pretrained_arguments = self.pipeline_definition.get("from_pretrained_arguments", None)
         
@@ -52,36 +52,29 @@ class Pipeline:
             arguments["generator"] = torch.Generator(device_identifier).manual_seed(self.pipeline_definition["seed"]) if "seed" in self.pipeline_definition else default_generator
 
         # if there are intermediate results requested, add them to the iteration
-        intermediate_result_names = self.pipeline_definition.get("intermediate_results", {})
-        for k, v in intermediate_result_names.items():
+        for k, v in self.pipeline_definition.get("preprocessor_results", {}).items():
             if "." in v:
-                # this is named property of the captured result
-                # parse and get that property
+                # this is named property of the intermediate result parse and get that property
                 parts = v.split(".")
-                arguments[k] = intermediate_results[parts[0]][parts[1]]
+                arguments[k] = preprocessor_results[parts[0]][parts[1]]
             else:
-                arguments[k] = intermediate_results[v]
+                arguments[k] = preprocessor_results[v]
+
+        # TODO - iterate over previous results and run pipeline once for each
+        for k, v in self.pipeline_definition.get("previous_results", {}).items():
+            if "." in v:
+                # this is named property of the previous result parse and get that property
+                parts = v.split(".")
+                arguments[k] = previous_results[parts[0]].get_output_property(parts[1])
+            else:
+                arguments[k] = previous_results[v].get_primary_output()
 
         # run the pipeline
         pipeline_output = pipeline(**arguments)
-        result = Result(pipeline_output, self.pipeline_definition.get("result", {}))
-        #
-        # the presence of this key indicates that the output should be
-        # stored as an intermediate result, not returned as an output
-        #
-        if "capture_intermediate_results" in self.pipeline_definition:
-            intermediate_result_names = self.pipeline_definition["capture_intermediate_results"]
-            for k, v in intermediate_result_names.items():
-                raw_result = result.get_raw_result()
-                # output can have different shapes, so we need to check if the key is present
-                # if it is, capture that property of the result, otherwise just capture the result itself
-                intermediate_results[k] = raw_result.get(v, result.get_primary_output())
-
-        return result
+        return Result(pipeline_output, self.pipeline_definition.get("result", {}))
     
 
     def load_optional_component(self, component_name, from_pretrained_arguments, device_identifier):
-        # load the component if specified
         component = load_and_configure_component(self.pipeline_definition.get(component_name, None), component_name, device_identifier)
         if component is not None:
             from_pretrained_arguments[component_name] = component
