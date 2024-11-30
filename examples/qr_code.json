@@ -7,9 +7,8 @@
             "id": "qr_code",
             "steps": [
                 {
-                    "name": "main",
+                    "name": "qr_code",
                     "task": {
-                        "name": "qr_code",
                         "task_name": "qr_code",
                         "result": {
                             "content_type": "image/jpeg"

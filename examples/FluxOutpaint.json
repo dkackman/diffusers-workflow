@@ -10,18 +10,19 @@
             "id": "FluxOutpaint",
             "steps": [
                 {
-                    "name": "outpaint",
-                    "preprocessors": [
-                        {
-                            "name": "add_border_and_mask",
-                            "image": {
-                                "location": "$(input_image)"
-                            },
-                            "arguments": {
-                                "zoom_all": 1.5
-                            }
+                    "name": "mask_image",
+                    "image_processor": {
+                        "processor_name": "add_border_and_mask",
+                        "image": {
+                            "location": "$(input_image)"
+                        },
+                        "arguments": {
+                            "zoom_all": 1.5
                         }
-                    ],
+                    }
+                },
+                {
+                    "name": "outpaint",
                     "pipeline": {
                         "configuration": {
                             "pipeline_type": "FluxFillPipeline",
@@ -31,18 +32,18 @@
                             "model_name": "black-forest-labs/FLUX.1-Fill-dev",
                             "torch_dtype": "torch.bfloat16"
                         },
-                        "result": {
-                            "content_type": "image/jpeg"
-                        },
-                        "preprocessor_results": {
-                            "image": "add_border_and_mask.bordered_image",
-                            "mask_image": "add_border_and_mask.mask"
+                        "previous_results": {
+                            "image": "mask_image.bordered_image",
+                            "mask_image": "mask_image.mask"
                         },
                         "arguments": {
                             "prompt": "",
                             "guidance_scale": 30,
                             "num_inference_steps": 5,
                             "max_sequence_length": 512
+                        },
+                        "result": {
+                            "content_type": "image/jpeg"
                         }
                     }
                 }
