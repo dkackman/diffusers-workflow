@@ -89,7 +89,7 @@
                     "type": "string"
                 },
                 "seed": {
-                    "description": "Default seed for the entire job",
+                    "description": "Default seed for the entire step",
                     "type": "integer",
                     "format": "int64"
                 },
@@ -102,6 +102,9 @@
                 "pipeline": {
                     "$ref": "#/$defs/pipeline"
                 },
+                "task": {
+                    "$ref": "#/$defs/task"
+                },
                 "postprocessors": {
                     "type": "array",
                     "items": {
@@ -109,9 +112,19 @@
                     }
                 }
             },
-            "required": [
-                "name",
-                "pipeline"
+            "oneOf": [
+                {
+                    "required": [
+                        "name",
+                        "task"
+                    ]
+                },
+                {
+                    "required": [
+                        "name",
+                        "pipeline"
+                    ]
+                }
             ]
         },
         "pipeline": {
@@ -198,30 +211,7 @@
                     }
                 },
                 "result": {
-                    "type": "object",
-                    "properties": {
-                        "content_type": {
-                            "description": "The content type of the result",
-                            "type": "string"
-                        },
-                        "file_base_name": {
-                            "description": "The base name for saving result and metadata files. The file extension is determined by context and content_type.",
-                            "type": "string"
-                        },
-                        "fps": {
-                            "description": "Frames per second - only used when output is video",
-                            "type": "integer",
-                            "default": 8
-                        },
-                        "samplerate": {
-                            "description": "Audio sample rate - only used when output is audio",
-                            "type": "integer",
-                            "default": 44100
-                        }
-                    },
-                    "required": [
-                        "content_type"
-                    ]
+                    "$ref": "#/$defs/result"
                 }
             },
             "required": [
@@ -487,6 +477,36 @@
                 "model_name"
             ]
         },
+        "task": {
+            "type": "object",
+            "properties": {
+                "task_name": {
+                    "type": "string"
+                },
+                "result_name": {
+                    "type": "string"
+                },
+                "result": {
+                    "$ref": "#/$defs/result"
+                },
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "integer",
+                            "number",
+                            "object",
+                            "array",
+                            "boolean"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "task_name"
+            ]
+        },
         "template": {
             "type": "object",
             "properties": {
@@ -505,6 +525,32 @@
             "required": [
                 "variables",
                 "job"
+            ]
+        },
+        "result": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "description": "The content type of the result",
+                    "type": "string"
+                },
+                "file_base_name": {
+                    "description": "The base name for saving result and metadata files. The file extension is determined by context and content_type.",
+                    "type": "string"
+                },
+                "fps": {
+                    "description": "Frames per second - only used when output is video",
+                    "type": "integer",
+                    "default": 8
+                },
+                "samplerate": {
+                    "description": "Audio sample rate - only used when output is audio",
+                    "type": "integer",
+                    "default": 44100
+                }
+            },
+            "required": [
+                "content_type"
             ]
         }
     }

@@ -10,9 +10,9 @@ def realize_args(d):
     if isinstance(d, dict):
         for k, v in d.items():
             if k.endswith("_image") or k == "image":
-                d[k] = process_image(v)    
+                d[k] = fetch_image(v)    
             elif k.endswith("_video") or k == "video":
-                d[k] = process_video(v)    
+                d[k] = fetch_video(v)    
             elif isinstance(v, dict): 
                 realize_args(v)
             elif isinstance(v, list):
@@ -30,7 +30,7 @@ def realize_args(d):
             realize_args(item)
 
 
-def process_image(image):
+def fetch_image(image):
     # escape indicator for intermediate result references
     if isinstance(image, str):
         return image.strip("{}")
@@ -41,7 +41,7 @@ def process_image(image):
 
     return img
 
-def process_video(video):
+def fetch_video(video):
     # escape indicator for intermediate result references
     if isinstance(video, str):
         return video.strip("{}")

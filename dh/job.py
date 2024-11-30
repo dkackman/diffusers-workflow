@@ -25,8 +25,8 @@ class Job:
             shared_components = {}
             for step_data in job["steps"]:
                 step = Step(step_data, default_seed)
-                step.run(intermediate_results, shared_components)
-                results.extend(step.results)  
+                results = step.run(intermediate_results, shared_components)
+                results.extend(results)  
 
             with open(os.path.join(output_dir, f"{job_id}.json"), 'w') as file:
                 json.dump(self.job_definition, file, indent=4)

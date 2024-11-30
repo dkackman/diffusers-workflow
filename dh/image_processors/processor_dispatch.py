@@ -20,67 +20,71 @@ from .zoe_depth import colorize, load_zoe
 from .image_utils import center_crop_resize, resize_for_condition_image
 from .depth_estimator import make_hint_image, make_hint_tensor
 from .borders import add_border_and_mask
+from ..tasks.qr_code import get_qrcode_image
 import torch
 
 
-def process_image(image, preprocessor, device_identifier, kwargs):
-    preprocessor = preprocessor.lower()
+def process_image(image, processor, device_identifier, kwargs):
+    processor = processor.lower()
 
-    if preprocessor == "add_border_and_mask":
+    if processor == "add_border_and_mask":
         return add_border_and_mask(image, **kwargs)    
     
-    if preprocessor == "canny":
+    if processor == "canny":
         return image_to_canny(image, **kwargs)
 
-    if preprocessor == "mlsd":
+    if processor == "mlsd":
         return MLSDdetector.from_pretrained("lllyasviel/ControlNet")(image, **kwargs)
 
-    if preprocessor == "depth":
+    if processor == "depth":
         return image_to_depth(image, device_identifier)
 
-    if preprocessor == "normal_bae":
+    if processor == "normal_bae":
         return NormalBaeDetector.from_pretrained("lllyasviel/Annotators")(image, **kwargs)
 
-    if preprocessor == "segmentation":
+    if processor == "segmentation":
         return image_to_segmentation(image)
 
-    if preprocessor == "lineart":
+    if processor == "lineart":
         return LineartDetector.from_pretrained("lllyasviel/Annotators")(image, **kwargs)
 
-    if preprocessor == "openpose":
+    if processor == "openpose":
         return OpenposeDetector.from_pretrained("lllyasviel/ControlNet")(image, **kwargs)
 
-    if preprocessor == "pix2pix":
+    if processor == "pix2pix":
         return image
 
-    if preprocessor == "scribble":
+    if processor == "scribble":
         return HEDdetector.from_pretrained("lllyasviel/Annotators")(
             image, scribble=True, **kwargs
         )
 
-    if preprocessor == "soft_edge":
+    if processor == "soft_edge":
         return PidiNetDetector.from_pretrained("lllyasviel/Annotators")(image, **kwargs)
 
-    if preprocessor == "shuffle":
+    if processor == "shuffle":
         processor = ContentShuffleDetector()
         return processor(image, **kwargs)
 
-    if preprocessor == "tile":
+    if processor == "tile":
         return resize_for_condition_image(image, **kwargs)
 
-    if preprocessor == "zoe_depth":
+    if processor == "zoe_depth":
         return get_zoe_depth_map(image, device_identifier)
 
-    if preprocessor == "center_crop":
+    if processor == "center_crop":
         return center_crop_resize(image, **kwargs)
 
-    if preprocessor == "depth_estimator_tensor":
+    if processor == "depth_estimator_tensor":
         return make_hint_tensor(image, device_identifier)    
     
-    if preprocessor == "depth_estimator":
+    if processor == "depth_estimator":
         return make_hint_image(image, device_identifier)
 
-    raise Exception("Unknown preprocessor type")
+    if processor == "qr_code":
+        return get_qrcode_image(image, **kwargs)
+
+    raise Exception("Unknown image processor type")
 
 
 def get_zoe_depth_map(image, device_identifier):

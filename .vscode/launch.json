@@ -89,5 +89,24 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true
     },
+    {
+      "name": "ask",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dh.run",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "./examples/${input:jobName}.json"
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "jobName",
+      "type": "promptString",
+      "description": "Enter the job name:",
+      "default": "scratch"
+    }
   ]
 }

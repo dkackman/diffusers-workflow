@@ -1,7 +1,7 @@
 import torch
 from diffusers import BitsAndBytesConfig
 from .quantization import quantize
-from .result import Result
+from ..result import Result
 
 class Pipeline:
     def __init__(self, pipeline_definition):
@@ -65,7 +65,7 @@ class Pipeline:
 
         # run the pipeline
         pipeline_output = pipeline(**arguments)
-        result = Result(pipeline_output, self.pipeline_definition)
+        result = Result(pipeline_output, self.pipeline_definition.get("result", {}))
         results.append(result)
         #
         # the presence of this key indicates that the output should be
