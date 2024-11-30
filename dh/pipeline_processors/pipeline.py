@@ -43,7 +43,6 @@ class Pipeline:
 
         # create a generator that will be used by the pipeline
         default_generator = torch.Generator(device_identifier).manual_seed(self.pipeline_definition.get("seed", torch.seed()))
-        results = []
 
         # prepare and run pipeline
         arguments = self.pipeline_definition.get("arguments", {})
@@ -66,7 +65,6 @@ class Pipeline:
         # run the pipeline
         pipeline_output = pipeline(**arguments)
         result = Result(pipeline_output, self.pipeline_definition.get("result", {}))
-        results.append(result)
         #
         # the presence of this key indicates that the output should be
         # stored as an intermediate result, not returned as an output
@@ -79,7 +77,7 @@ class Pipeline:
                 # if it is, capture that property of the result, otherwise just capture the result itself
                 intermediate_results[k] = raw_result.get(v, result.get_primary_output())
 
-        return results
+        return result
     
 
     def load_optional_component(self, component_name, from_pretrained_arguments, device_identifier):

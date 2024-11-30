@@ -50,6 +50,9 @@
                 "intermediate_results": {
                     "image": "{base_image}"
                 },
+                "previous_results": {
+                    "image": "{image_generation}"
+                },
                 "arguments": {
                     "prompt": "explosions in the sky",
                     "num_videos_per_prompt": 1,
