@@ -12,7 +12,7 @@ class Step:
             name = self.step_definition["name"]
             print(f"Running step {name}...")
     
-            results = []
+            result = None
             # run all the preprocessors
             for preprocessor in self.step_definition.get("preprocessors", []) :          
                 preprocessor_output = process_image(preprocessor["image"], preprocessor["name"], "cuda", preprocessor.get("arguments", {}))
@@ -20,18 +20,18 @@ class Step:
             
             if "pipeline" in self.step_definition:
                 pipeline = Pipeline(self.step_definition["pipeline"])
-                step_result_list = pipeline.run("cuda", intermediate_results, shared_components)
-                results.extend(step_result_list)  
+                result = pipeline.run("cuda", intermediate_results, shared_components)
+
             else:
                 task = Task(self.step_definition["task"])
-                task_result_list = task.run()
-                results.extend(task_result_list)  
+                result = task.run()
 
-            # run all the postprocessors 
-            for postprocessor in self.step_definition.get("postprocessors", []) :          
-                postprocessor_output = process_image(postprocessor["image"], postprocessor["name"], "cuda", postprocessor.get("arguments", {}))
-                intermediate_results[postprocessor["result_name"]] = postprocessor_output
-
+            return result
+        
         except Exception as e:
             print(f"Error running step {self.step_definition.get('name', 'unknown')}")
             print(e)
+
+    @property
+    def name(self):
+        return self.step_definition.get("name", "unknown")

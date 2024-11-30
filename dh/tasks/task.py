@@ -8,4 +8,4 @@ class Task:
     def run(self):
         task_output = dispatch_task(self.task_definition["task_name"], self.task_definition.get("arguments", {}))
         result = Result(task_output, self.task_definition.get("result", {}))
-        return [result]
+        return result

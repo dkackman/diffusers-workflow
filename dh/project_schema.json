@@ -104,12 +104,6 @@
                 },
                 "task": {
                     "$ref": "#/$defs/task"
-                },
-                "postprocessors": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/$defs/processor"
-                    }
                 }
             },
             "oneOf": [
