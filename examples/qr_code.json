@@ -1,0 +1,25 @@
+{
+    "variables": {
+        "mask_image_uri": "https://nftfactory.blob.core.windows.net/images/chia256.jpg"
+    },
+    "jobs": [
+        {
+            "id": "qr_code",
+            "steps": [
+                {
+                    "name": "main",
+                    "task": {
+                        "name": "qr_code",
+                        "result_name": "qr_code_image",
+                        "result": {
+                            "content_type": "image/jpeg"
+                        },
+                        "arguments": {
+                            "qr_code_contents": "https://fishzor.azurewebsites.net/"
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}

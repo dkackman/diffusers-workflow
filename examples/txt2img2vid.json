@@ -11,26 +11,22 @@
                 "from_pretrained_arguments": {
                     "model_name": "shuttleai/shuttle-3-diffusion",
                     "torch_dtype": "torch.bfloat16"
+                },
+                "result": {
+                    "content_type": "image/jpeg"
+                },
+                "arguments": {
+                    "prompt": "Baroque-style battle scene with futuristic robots and a golden palace in the background.",
+                    "height": 1024,
+                    "width": 1024,
+                    "guidance_scale": 3.5,
+                    "num_inference_steps": 4,
+                    "max_sequence_length": 256
+                },
+                "capture_intermediate_results": {
+                    "base_image": "image"
                 }
-            },
-            "iterations": [
-                {
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
-                    "arguments": {
-                        "prompt": "Baroque-style battle scene with futuristic robots and a golden palace in the background.",
-                        "height": 1024,
-                        "width": 1024,
-                        "guidance_scale": 3.5,
-                        "num_inference_steps": 4,
-                        "max_sequence_length": 256
-                    },
-                    "capture_intermediate_results": {
-                        "base_image": "image"
-                    }
-                }
-            ]
+            }
         },
         {
             "name": "image_to_video",
@@ -47,25 +43,21 @@
                     "model_name": "THUDM/CogVideoX-5b-I2V",
                     "torch_dtype": "torch.bfloat16",
                     "use_safe_tensors": true
+                },
+                "result": {
+                    "content_type": "video/mp4"
+                },
+                "intermediate_results": {
+                    "image": "{base_image}"
+                },
+                "arguments": {
+                    "prompt": "explosions in the sky",
+                    "num_videos_per_prompt": 1,
+                    "num_inference_steps": 25,
+                    "num_frames": 49,
+                    "guidance_scale": 6
                 }
-            },
-            "iterations": [
-                {
-                    "result": {
-                        "content_type": "video/mp4"
-                    },
-                    "intermediate_results": {
-                        "image": "{base_image}"
-                    },
-                    "arguments": {
-                        "prompt": "explosions in the sky",
-                        "num_videos_per_prompt": 1,
-                        "num_inference_steps": 25,
-                        "num_frames": 49,
-                        "guidance_scale": 6
-                    }
-                }
-            ]
+            }
         }
     ]
 }

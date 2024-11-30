@@ -31,10 +31,12 @@
                     "content_type": "image/jpeg"
                 },
                 "arguments": {
-                    "prompt": "A whimsical and creative image depicting a marmot and a chimpanzee, exchanging gift wrapped packages. It features the distinctive, plump body shape of a marmot. The environment combines the natural habitat of a marmot with elements of a breakfast table setting, a river of warm, melted butter, with oversized utensils or plates peeking out from the lush, pancake-like foliage in the background, a towering pepper mill standing in for a tree.  As the sun rises in this fantastical world, it casts a warm, buttery glow over the scene. The creatures, content in their butter river, lets out a yawn. Nearby, a flock of birds take flight",
+                    "prompt": "A breathtaking and hyper-realistic scene of a sleek, futuristic electric maglev train racing forward at incredible speed, suspended above a gleaming, semi-reflective track. The train's aerodynamic design features seamless curves and polished metallic surfaces that glisten under a vibrant, golden sunset sky. On the front of the train, prominently displayed, is a single vivid green leaf emblem, symbolizing harmony with nature and sustainable innovation. The background blends sprawling, lush green landscapes with towering, modern eco-friendly skyscrapers adorned with vertical gardens. A radiant beam of sunlight illuminates the train, casting dramatic shadows, while windblown leaves swirl gently around, adding dynamic energy. The atmosphere radiates hope, progress, and boundless opportunity, blending the power of technology with the serenity of nature.",
+                    "negative_prompt": "marijuana, cannabis, palmate",
                     "num_inference_steps": 25,
                     "guidance_scale": 4.5,
-                    "max_sequence_length": 512
+                    "max_sequence_length": 512,
+                    "num_images_per_prompt": 4
                 }
             }
         }
