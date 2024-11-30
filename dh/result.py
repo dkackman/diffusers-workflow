@@ -19,7 +19,7 @@ class Result:
         return None
     
     def get_output_property(self, property_name):
-        return getattr(self.result, property_name, None)
+        return self.result.get(property_name, None)
     
     def get_output_list(self):
         if hasattr(self.result, "images"):

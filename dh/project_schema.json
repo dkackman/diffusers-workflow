@@ -93,20 +93,23 @@
                     "type": "integer",
                     "format": "int64"
                 },
-                "preprocessors": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/$defs/processor"
-                    }
-                },
-                "pipeline": {
-                    "$ref": "#/$defs/pipeline"
+                "image_processor": {
+                    "$ref": "#/$defs/image_processor"
                 },
                 "task": {
                     "$ref": "#/$defs/task"
+                },
+                "pipeline": {
+                    "$ref": "#/$defs/pipeline"
                 }
             },
             "oneOf": [
+                {
+                    "required": [
+                        "name",
+                        "image_processor"
+                    ]
+                },
                 {
                     "required": [
                         "name",
@@ -167,13 +170,6 @@
                     "description": "The seed for this pipeline",
                     "type": "integer",
                     "format": "int64"
-                },
-                "preprocessor_results": {
-                    "description": "Key value pairs of preprocessor results to use in this iteration. The key is the name of the preprocessor and the value is the argument name pass to the pipeline.",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
                 },
                 "previous_results": {
                     "description": "Key value pairs of previous results to use. The key is the name of the previous step result and the value is the argument name pass to the pipeline.",
@@ -381,37 +377,6 @@
                 "from_pretrained_arguments"
             ]
         },
-        "processor": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "processor_name": {
-                    "type": "string"
-                },
-                "image": {
-                    "$ref": "#/$defs/image"
-                },
-                "arguments": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": [
-                            "string",
-                            "integer",
-                            "number",
-                            "object",
-                            "array",
-                            "boolean"
-                        ]
-                    }
-                }
-            },
-            "required": [
-                "name",
-                "image"
-            ]
-        },
         "lora": {
             "type": "object",
             "properties": {
@@ -465,9 +430,6 @@
         "task": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string"
-                },
                 "task_name": {
                     "type": "string"
                 },
@@ -489,8 +451,35 @@
                 }
             },
             "required": [
-                "name",
                 "task_name"
+            ]
+        },
+        "image_processor": {
+            "type": "object",
+            "properties": {
+                "processor_name": {
+                    "type": "string"
+                },
+                "image": {
+                    "$ref": "#/$defs/image"
+                },
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "integer",
+                            "number",
+                            "object",
+                            "array",
+                            "boolean"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "processor_name",
+                "image"
             ]
         },
         "template": {

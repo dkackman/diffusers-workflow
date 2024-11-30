@@ -10,15 +10,16 @@
             "id": "FluxCanny",
             "steps": [
                 {
-                    "name": "outpaint",
-                    "preprocessors": [
-                        {
-                            "name": "canny",
-                            "image": {
-                                "location": "$(mondo_image)"
-                            }
+                    "name": "canny",
+                    "image_processor": {
+                        "processor_name": "canny",
+                        "image": {
+                            "location": "$(mondo_image)"
                         }
-                    ],
+                    }
+                },
+                {
+                    "name": "outpaint",
                     "pipeline": {
                         "configuration": {
                             "pipeline_type": "FluxControlPipeline",
@@ -28,10 +29,7 @@
                             "model_name": "black-forest-labs/FLUX.1-Canny-dev",
                             "torch_dtype": "torch.bfloat16"
                         },
-                        "result": {
-                            "content_type": "image/jpeg"
-                        },
-                        "preprocessor_results": {
+                        "previous_results": {
                             "control_image": "canny"
                         },
                         "arguments": {
@@ -41,6 +39,9 @@
                             "guidance_scale": 10,
                             "num_inference_steps": 25,
                             "max_sequence_length": 512
+                        },
+                        "result": {
+                            "content_type": "image/jpeg"
                         }
                     }
                 }

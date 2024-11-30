@@ -7,15 +7,16 @@
             "id": "sd15-controlnet",
             "steps": [
                 {
-                    "name": "main",
-                    "preprocessors": [
-                        {
-                            "name": "depth_estimator",
-                            "image": {
-                                "location": "$(mask_image_uri)"
-                            }
+                    "name": "depth",
+                    "image_processor": {
+                        "processor_name": "depth_estimator",
+                        "image": {
+                            "location": "$(mask_image_uri)"
                         }
-                    ],
+                    }
+                },
+                {
+                    "name": "main",
                     "pipeline": {
                         "configuration": {
                             "pipeline_type": "StableDiffusionControlNetPipeline"
@@ -33,8 +34,8 @@
                             "model_name": "runwayml/stable-diffusion-v1-5",
                             "torch_dtype": "torch.float16"
                         },
-                        "preprocessor_results": {
-                            "image": "depth_estimator"
+                        "previous_results": {
+                            "image": "depth"
                         },
                         "arguments": {
                             "prompt": "a cityscape",

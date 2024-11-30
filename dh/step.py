@@ -1,5 +1,5 @@
 from .pipeline_processors.pipeline import Pipeline
-from .image_processors.processor_dispatch import process_image
+from .image_processors.image_processor import ImageProcessor
 from .tasks.task import Task
 
 class Step:
@@ -13,20 +13,18 @@ class Step:
             print(f"Running step {name}...")
     
             result = None
-            preprocessor_results = {}
-            # run all the preprocessors
-            for preprocessor in self.step_definition.get("preprocessors", []) :     
-                print(f"Running preprocessor {preprocessor['name']}...")     
-                preprocessor_output = process_image(preprocessor["image"], preprocessor["processor_name"], "cuda", preprocessor.get("arguments", {}))
-                preprocessor_results[preprocessor["name"]] = preprocessor_output
-            
+
             if "pipeline" in self.step_definition:
                 pipeline = Pipeline(self.step_definition["pipeline"])
-                result = pipeline.run("cuda", previous_results, preprocessor_results, shared_components)
+                result = pipeline.run("cuda", previous_results, shared_components)
+
+            elif "image_processor" in self.step_definition:
+                processor = ImageProcessor(self.step_definition["image_processor"])
+                result = processor.run("cuda")
 
             else:
-                print(f"Running task {preprocessor['name']}...")     
                 task = Task(self.step_definition["task"])
+                print(f"Running task {task['task_name']}...")     
                 result = task.run()
 
             return result
