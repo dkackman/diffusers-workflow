@@ -1,45 +1,45 @@
-{
-    "id": "sd15-controlnet",
-    "steps": [
-        {
-            "name": "main",
-            "preprocessors": [
-                {
-                    "name": "depth_estimator",
-                    "result_name": "depth_mask",
-                    "image": {
-                        "location": "https://huggingface.co/lllyasviel/control_v11p_sd15_depth/resolve/main/images/input.png"
+    {
+        "id": "sd15-controlnet",
+        "steps": [
+            {
+                "name": "main",
+                "preprocessors": [
+                    {
+                        "name": "depth_estimator",
+                        "processor_name": "depth_estimator",
+                        "image": {
+                            "location": "https://huggingface.co/lllyasviel/control_v11p_sd15_depth/resolve/main/images/input.png"
+                        }
                     }
-                }
-            ],
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "StableDiffusionControlNetPipeline"
-                },
-                "controlnet": {
+                ],
+                "pipeline": {
                     "configuration": {
-                        "pipeline_type": "ControlNetModel"
+                        "pipeline_type": "StableDiffusionControlNetPipeline"
+                    },
+                    "controlnet": {
+                        "configuration": {
+                            "pipeline_type": "ControlNetModel"
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "lllyasviel/control_v11f1p_sd15_depth",
+                            "torch_dtype": "torch.float16"
+                        }
                     },
                     "from_pretrained_arguments": {
-                        "model_name": "lllyasviel/control_v11f1p_sd15_depth",
+                        "model_name": "runwayml/stable-diffusion-v1-5",
                         "torch_dtype": "torch.float16"
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
+                    },
+                    "arguments": {
+                        "prompt": "Stormtrooper's lecture in beautiful lecture hall",
+                        "num_inference_steps": 25
+                    },
+                    "preprocessor_results": {
+                        "image": "depth_estimator"
                     }
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "runwayml/stable-diffusion-v1-5",
-                    "torch_dtype": "torch.float16"
-                },
-                "result": {
-                    "content_type": "image/jpeg"
-                },
-                "arguments": {
-                    "prompt": "Stormtrooper's lecture in beautiful lecture hall",
-                    "num_inference_steps": 25
-                },
-                "intermediate_results": {
-                    "image": "{depth_mask}"
                 }
             }
-        }
-    ]
-}
+        ]
+    }

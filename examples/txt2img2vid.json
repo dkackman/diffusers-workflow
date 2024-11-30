@@ -22,9 +22,6 @@
                     "guidance_scale": 3.5,
                     "num_inference_steps": 4,
                     "max_sequence_length": 256
-                },
-                "capture_intermediate_results": {
-                    "base_image": "image"
                 }
             }
         },
@@ -46,9 +43,6 @@
                 },
                 "result": {
                     "content_type": "video/mp4"
-                },
-                "intermediate_results": {
-                    "image": "{base_image}"
                 },
                 "previous_results": {
                     "image": "{image_generation}"

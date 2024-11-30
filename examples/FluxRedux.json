@@ -18,10 +18,6 @@
                             "model_name": "black-forest-labs/FLUX.1-Redux-dev",
                             "torch_dtype": "torch.bfloat16"
                         },
-                        "capture_intermediate_results": {
-                            "prompt_embeds": "prompt_embeds",
-                            "pooled_prompt_embeds": "pooled_prompt_embeds"
-                        },
                         "arguments": {
                             "image": {
                                 "location": "$(input_image)"
@@ -42,17 +38,17 @@
                             "text_encoder": null,
                             "text_encoder_2": null
                         },
-                        "result": {
-                            "content_type": "image/jpeg"
-                        },
-                        "intermediate_results": {
-                            "prompt_embeds": "prompt_embeds",
-                            "pooled_prompt_embeds": "pooled_prompt_embeds"
+                        "previous_results": {
+                            "prompt_embeds": "prior.prompt_embeds",
+                            "pooled_prompt_embeds": "prior.pooled_prompt_embeds"
                         },
                         "arguments": {
                             "num_inference_steps": 25,
                             "num_images_per_prompt": 2,
                             "guidance_scale": 2.5
+                        },
+                        "result": {
+                            "content_type": "image/jpeg"
                         }
                     }
                 }

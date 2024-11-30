@@ -14,7 +14,6 @@
                     "preprocessors": [
                         {
                             "name": "canny",
-                            "result_name": "canny_image",
                             "image": {
                                 "location": "$(mondo_image)"
                             }
@@ -32,8 +31,8 @@
                         "result": {
                             "content_type": "image/jpeg"
                         },
-                        "intermediate_results": {
-                            "control_image": "canny_image"
+                        "preprocessor_results": {
+                            "control_image": "canny"
                         },
                         "arguments": {
                             "prompt": "a cyberpunk robot",

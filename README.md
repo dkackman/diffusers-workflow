@@ -95,7 +95,7 @@ This example demonstrates a multiple step workflow including an image generation
                     "guidance_scale": 4.5,
                     "max_sequence_length": 512
                 },
-                "capture_intermediate_results": {
+                "capture_preprocessor_results": {
                     "base_image": "image"
                 }
             }
@@ -122,7 +122,7 @@ This example demonstrates a multiple step workflow including an image generation
                     "content_type": "video/mp4",
                     "file_base_name": "owl"
                 },
-                "intermediate_results": {
+                "preprocessor_results": {
                     "image": "{base_image}"
                 },
                 "arguments": {

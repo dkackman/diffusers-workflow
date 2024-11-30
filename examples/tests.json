@@ -42,7 +42,7 @@
         "id": "sdxl",
         "steps": [
             {
-                "name": "main",
+                "name": "sdxl_base",
                 "pipeline": {
                     "configuration": {
                         "pipeline_type": "DiffusionPipeline"
@@ -57,22 +57,16 @@
                         "text_encoder_2",
                         "vae"
                     ],
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
                     "arguments": {
                         "prompt": "A majestic lion jumping from a big stone at night",
                         "num_inference_steps": 25,
                         "denoising_end": 0.8,
                         "output_type": "{latent}"
-                    },
-                    "capture_intermediate_results": {
-                        "base_image": "image"
                     }
                 }
             },
             {
-                "name": "main",
+                "name": "refiner",
                 "pipeline": {
                     "configuration": {
                         "pipeline_type": "DiffusionPipeline"
@@ -87,13 +81,16 @@
                         "variant": "fp16",
                         "use_safetensors": true
                     },
-                    "intermediate_results": {
-                        "image": "{base_image}"
+                    "previous_results": {
+                        "image": "{sdxl_base}"
                     },
                     "arguments": {
                         "prompt": "A majestic lion jumping from a big stone at night",
                         "num_inference_steps": 25,
                         "denoising_start": 0.8
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 }
             }
@@ -215,15 +212,15 @@
                 "name": "main",
                 "preprocessors": [
                     {
-                        "name": "tile",
-                        "result_name": "condition_image",
+                        "name": "condition_image",
+                        "processor_name": "tile",
                         "image": {
                             "location": "https://1.bp.blogspot.com/-dHN4KiD3dsU/XRxU5JRV7DI/AAAAAAAAAz4/u1ynpCMIuKwZMA642dHEoXFVKuHQbJvwgCEwYBhgL/s1600/qr-code.png"
                         }
                     },
                     {
-                        "name": "tile",
-                        "result_name": "init_image",
+                        "name": "init_image",
+                        "processor_name": "tile",
                         "image": {
                             "location": "https://as1.ftcdn.net/v2/jpg/01/53/24/06/1000_F_153240633_iTL2FpCwzu5KJPdU4cotBAvObaovWWO4.jpg"
                         }
@@ -256,9 +253,9 @@
                         "strength": 0.9,
                         "num_inference_steps": 25
                     },
-                    "intermediate_results": {
-                        "image": "{init_image}",
-                        "control_image": "{condition_image}"
+                    "preprocessor_results": {
+                        "image": "init_image",
+                        "control_image": "condition_image"
                     }
                 }
             }
@@ -281,9 +278,6 @@
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall",
                         "num_inference_steps": 25,
                         "output_type": "{latent}"
-                    },
-                    "capture_intermediate_results": {
-                        "low_res_latents": "image"
                     }
                 }
             },
@@ -297,11 +291,14 @@
                         "model_name": "stabilityai/sd-x2-latent-upscaler",
                         "torch_dtype": "torch.float16"
                     },
+                    "previous_results": {
+                        "image": "main"
+                    },
                     "arguments": {
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall"
                     },
-                    "intermediate_results": {
-                        "image": "low_res_latents"
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 }
             }
@@ -320,15 +317,12 @@
                         "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
                         "torch_dtype": "torch.float16"
                     },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
                     "arguments": {
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall",
                         "num_inference_steps": 25
                     },
-                    "capture_intermediate_results": {
-                        "low_res_image": "image"
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 }
             },
@@ -345,8 +339,11 @@
                     "arguments": {
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall"
                     },
-                    "intermediate_results": {
-                        "image": "low_res_image"
+                    "previous_results": {
+                        "image": "main"
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 }
             }
@@ -360,7 +357,7 @@
                 "preprocessors": [
                     {
                         "name": "depth_estimator",
-                        "result_name": "depth_mask",
+                        "preprocesor_name": "depth_estimator",
                         "image": {
                             "location": "https://huggingface.co/lllyasviel/control_v11p_sd15_depth/resolve/main/images/input.png"
                         }
@@ -390,8 +387,8 @@
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall",
                         "num_inference_steps": 25
                     },
-                    "intermediate_results": {
-                        "image": "{depth_mask}"
+                    "preprocessor_results": {
+                        "image": "depth_estimator"
                     }
                 }
             }
@@ -736,10 +733,6 @@
                     "arguments": {
                         "negative_prompt": "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature",
                         "prompt": "A robot, 4k photo"
-                    },
-                    "capture_intermediate_results": {
-                        "image_embeds": "image_embeds",
-                        "negative_image_embeds": "negative_image_embeds"
                     }
                 }
             },
@@ -751,7 +744,6 @@
                             "content_type": "image/jpeg"
                         },
                         "name": "depth_estimator_tensor",
-                        "result_name": "hint",
                         "image": {
                             "location": "https://huggingface.co/datasets/hf-internal-testing/diffusers-images/resolve/main/kandinskyv22/cat.png",
                             "size": {
@@ -769,16 +761,21 @@
                         "model_name": "kandinsky-community/kandinsky-2-2-controlnet-depth",
                         "torch_dtype": "torch.float16"
                     },
+                    "previous_results": {
+                        "image_embeds": "prior.image_embeds",
+                        "negative_image_embeds": "prior.negative_image_embeds"
+                    },
+                    "preprocessor_results": {
+                        "hint": "depth_estimator_tensor"
+                    },
                     "arguments": {
                         "num_inference_steps": 25,
                         "num_images_per_prompt": 1,
                         "height": 768,
                         "width": 768
                     },
-                    "intermediate_results": {
-                        "hint": "hint",
-                        "image_embeds": "image_embeds",
-                        "negative_image_embeds": "negative_image_embeds"
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 }
             }
