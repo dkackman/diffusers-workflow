@@ -1,32 +1,88 @@
 {
     "id": "CogVideoX1.5-5B",
-    "steps": [
+    "variables": {
+        "model_name": "THUDM/CogVideoX1.5-5B",
+        "quantization_library": "torchao",
+        "weights_type": "torchao.quantization.int8_weight_only",
+        "activations_type": "optimum.quanto.qfloat8"
+    },
+    "jobs": [
         {
-            "name": "image_to_video",
-            "pipeline": {
-                "configuration": {
-                    "offload": "sequential",
-                    "pipeline_type": "CogVideoXPipeline",
-                    "vae": {
-                        "enable_slicing": true,
-                        "enable_tiling": true
+            "id": "CogVideoX1.5-5B",
+            "steps": [
+                {
+                    "name": "text_to_video",
+                    "pipeline": {
+                        "configuration": {
+                            "offload": "sequential",
+                            "pipeline_type": "CogVideoXPipeline",
+                            "vae": {
+                                "enable_slicing": true,
+                                "enable_tiling": true
+                            }
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "variable:model_name",
+                            "torch_dtype": "torch.bfloat16"
+                        },
+                        "transformer": {
+                            "configuration": {
+                                "pipeline_type": "CogVideoXTransformer3DModel"
+                            },
+                            "quantization": {
+                                "quantization_library": "variable:quantization_library",
+                                "weights_type": "variable:weights_type",
+                                "activations_type": "variable:activations_type"
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "variable:model_name",
+                                "subfolder": "transformer",
+                                "torch_dtype": "torch.bfloat16"
+                            }
+                        },
+                        "vae": {
+                            "configuration": {
+                                "pipeline_type": "AutoencoderKLCogVideoX"
+                            },
+                            "quantization": {
+                                "quantization_library": "variable:quantization_library",
+                                "weights_type": "variable:weights_type",
+                                "activations_type": "variable:activations_type"
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "variable:model_name",
+                                "subfolder": "vae",
+                                "torch_dtype": "torch.bfloat16"
+                            }
+                        },
+                        "text_encoder": {
+                            "configuration": {
+                                "pipeline_type": "transformers.T5EncoderModel"
+                            },
+                            "quantization": {
+                                "quantization_library": "variable:quantization_library",
+                                "weights_type": "variable:weights_type",
+                                "activations_type": "variable:activations_type"
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "variable:model_name",
+                                "subfolder": "text_encoder",
+                                "torch_dtype": "torch.bfloat16"
+                            }
+                        },
+                        "arguments": {
+                            "prompt": "the diamond spins",
+                            "num_videos_per_prompt": 1,
+                            "num_inference_steps": 35,
+                            "num_frames": 49,
+                            "guidance_scale": 6
+                        }
+                    },
+                    "result": {
+                        "content_type": "video/mp4"
                     }
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "THUDM/CogVideoX1.5-5B",
-                    "torch_dtype": "torch.bfloat16"
-                },
-                "arguments": {
-                    "prompt": "A panda, dressed in a small, red jacket and a tiny hat, sits on a wooden stool in a serene bamboo forest. The panda's fluffy paws strum a miniature acoustic guitar, producing soft, melodic tunes. Nearby, a few other pandas gather, watching curiously and some clapping in rhythm. Sunlight filters through the tall bamboo, casting a gentle glow on the scene. The panda's face is expressive, showing concentration and joy as it plays. The background includes a small, flowing stream and vibrant green foliage, enhancing the peaceful and magical atmosphere of this unique musical performance.",
-                    "num_videos_per_prompt": 1,
-                    "num_inference_steps": 35,
-                    "num_frames": 81,
-                    "guidance_scale": 6
                 }
-            },
-            "result": {
-                "content_type": "video/mp4"
-            }
+            ]
         }
     ]
 }

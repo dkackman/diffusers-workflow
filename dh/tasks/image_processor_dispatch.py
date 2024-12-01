@@ -17,7 +17,7 @@ from transformers import (
     DPTFeatureExtractor,
 )
 from .zoe_depth import colorize, load_zoe
-from ..toolbox.image_utils import center_crop_resize, resize_for_condition_image
+from .image_utils import center_crop_resize, resize_for_condition_image, resize_square, scale_to_size
 from .depth_estimator import make_hint_image, make_hint_tensor
 from .borders import add_border_and_mask
 from .qr_code import get_qrcode_image
@@ -81,8 +81,14 @@ def process_image(image, processor, device_identifier, kwargs):
     if processor == "depth_estimator":
         return make_hint_image(image, device_identifier)
 
-    if processor == "qr_code":
-        return get_qrcode_image(image, **kwargs)
+    if processor == "resize_for_condition_image":
+        return resize_for_condition_image(image, **kwargs)
+
+    if processor == "resize_square":
+        return resize_square(image, **kwargs)
+
+    if processor == "scale_to_size":
+        return scale_to_size(image, **kwargs)
 
     raise Exception("Unknown image processor type")
 

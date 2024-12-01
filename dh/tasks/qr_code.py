@@ -1,5 +1,5 @@
 import qrcode
-from ..toolbox.image_utils import resize_for_condition_image
+from .image_utils import resize_for_condition_image
 
 
 def get_qrcode_image(qr_code_contents, size = (768, 768)):
