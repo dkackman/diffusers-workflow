@@ -165,13 +165,6 @@
                     "type": "integer",
                     "format": "int64"
                 },
-                "previous_results": {
-                    "description": "Key value pairs of previous results to use. The key is the name of the previous step result and the value is the argument name pass to the pipeline.",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
                 "arguments": {
                     "description": "The arguments to pass to the pipeline",
                     "type": "object",

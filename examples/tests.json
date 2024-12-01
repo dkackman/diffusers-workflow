@@ -81,10 +81,8 @@
                         "variant": "fp16",
                         "use_safetensors": true
                     },
-                    "previous_results": {
-                        "image": "{sdxl_base}"
-                    },
                     "arguments": {
+                        "image": "previous_result:sdxl_base",
                         "prompt": "A majestic lion jumping from a big stone at night",
                         "num_inference_steps": 25,
                         "denoising_start": 0.8
@@ -250,6 +248,8 @@
                         "torch_dtype": "torch.float16"
                     },
                     "arguments": {
+                        "image": "previous_result:init_image",
+                        "control_image": "previous_result:condition_image",
                         "prompt": "a billboard in NYC with a qrcode",
                         "negative_prompt": "ugly, disfigured, low quality, blurry, nsfw",
                         "width": 768,
@@ -258,10 +258,6 @@
                         "controlnet_conditioning_scale": 1.5,
                         "strength": 0.9,
                         "num_inference_steps": 25
-                    },
-                    "previous_results": {
-                        "image": "init_image",
-                        "control_image": "condition_image"
                     }
                 },
                 "result": {
@@ -300,10 +296,8 @@
                         "model_name": "stabilityai/sd-x2-latent-upscaler",
                         "torch_dtype": "torch.float16"
                     },
-                    "previous_results": {
-                        "image": "main"
-                    },
                     "arguments": {
+                        "image": "main",
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall"
                     }
                 },
@@ -346,10 +340,8 @@
                         "torch_dtype": "torch.float16"
                     },
                     "arguments": {
+                        "image": "previous_result:main",
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall"
-                    },
-                    "previous_results": {
-                        "image": "main"
                     }
                 },
                 "result": {
@@ -395,11 +387,9 @@
                         "torch_dtype": "torch.float16"
                     },
                     "arguments": {
+                        "image": "depth",
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall",
                         "num_inference_steps": 25
-                    },
-                    "previous_results": {
-                        "image": "depth"
                     }
                 },
                 "result": {
@@ -771,12 +761,10 @@
                         "model_name": "kandinsky-community/kandinsky-2-2-controlnet-depth",
                         "torch_dtype": "torch.float16"
                     },
-                    "previous_results": {
-                        "image_embeds": "prior.image_embeds",
-                        "negative_image_embeds": "prior.negative_image_embeds",
-                        "hint": "depth_estimator"
-                    },
                     "arguments": {
+                        "image_embeds": "previous_result:prior.image_embeds",
+                        "negative_image_embeds": "previous_result:prior.negative_image_embeds",
+                        "hint": "previous_result:depth_estimator",
                         "num_inference_steps": 25,
                         "num_images_per_prompt": 1,
                         "height": 768,

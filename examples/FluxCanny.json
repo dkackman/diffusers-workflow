@@ -34,10 +34,8 @@
                             "model_name": "black-forest-labs/FLUX.1-Canny-dev",
                             "torch_dtype": "torch.bfloat16"
                         },
-                        "previous_results": {
-                            "control_image": "canny"
-                        },
                         "arguments": {
+                            "control_image": "previous_result:canny",
                             "prompt": "a cyberpunk robot",
                             "height": 1024,
                             "width": 1024,

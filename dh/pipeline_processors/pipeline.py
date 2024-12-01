@@ -36,7 +36,6 @@ class Pipeline:
         for lora in loras:
             default_lora_scale = 0.7 / len(loras) # default to equally distributing lora weights
             lora_name = lora.pop("lora_name", None)
-            print(f"Loading lora {lora_name}...")
             lora_scale = lora.pop("lora_scale", default_lora_scale)
             pipeline.load_lora_weights(lora_name, **lora)
             pipeline.fuse_lora(lora_scale=lora_scale)
@@ -51,14 +50,16 @@ class Pipeline:
         if not configuration.get("no_generator", False):
             arguments["generator"] = torch.Generator(device_identifier).manual_seed(self.pipeline_definition["seed"]) if "seed" in self.pipeline_definition else default_generator
 
-        # TODO - iterate over previous results and run pipeline once for each
-        for k, v in self.pipeline_definition.get("previous_results", {}).items():
-            if "." in v:
-                # this is named property of the previous result parse and get that property
-                parts = v.split(".")
-                arguments[k] = previous_results[parts[0]].get_output_property(parts[1])
-            else:
-                arguments[k] = previous_results[v].get_primary_output()
+        # replace previous_result: references with the actual previous result
+        for argument_name, argument_value in arguments.items():
+            if isinstance(argument_value, str) and argument_value.startswith("previous_result:"):
+                previous_result_name = argument_value.split(":")[1]
+                if "." in previous_result_name:
+                    # this is named property of the previous result parse and get that property
+                    parts = previous_result_name.split(".")
+                    arguments[argument_name] = previous_results[parts[0]].get_output_property(parts[1])
+                else:
+                    arguments[argument_name] = previous_results[previous_result_name].get_primary_output()                
 
         # run the pipeline
         pipeline_output = pipeline(**arguments)

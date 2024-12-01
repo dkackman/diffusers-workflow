@@ -38,11 +38,9 @@
                             "text_encoder": null,
                             "text_encoder_2": null
                         },
-                        "previous_results": {
-                            "prompt_embeds": "prior.prompt_embeds",
-                            "pooled_prompt_embeds": "prior.pooled_prompt_embeds"
-                        },
                         "arguments": {
+                            "prompt_embeds": "previous_result:prior.prompt_embeds",
+                            "pooled_prompt_embeds": "previous_result:prior.pooled_prompt_embeds",
                             "num_inference_steps": 25,
                             "num_images_per_prompt": 2,
                             "guidance_scale": 2.5

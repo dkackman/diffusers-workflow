@@ -2,7 +2,7 @@ import os
 import json
 import torch
 import copy
-from .pipeline_processors.arguments import realize_args
+from .arguments import realize_args
 from .step import Step
 
 
