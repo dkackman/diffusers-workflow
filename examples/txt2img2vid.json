@@ -12,9 +12,6 @@
                     "model_name": "shuttleai/shuttle-3-diffusion",
                     "torch_dtype": "torch.bfloat16"
                 },
-                "result": {
-                    "content_type": "image/jpeg"
-                },
                 "arguments": {
                     "prompt": "Baroque-style battle scene with futuristic robots and a golden palace in the background.",
                     "height": 1024,
@@ -23,6 +20,9 @@
                     "num_inference_steps": 4,
                     "max_sequence_length": 256
                 }
+            },
+            "result": {
+                "content_type": "image/jpeg"
             }
         },
         {
@@ -41,9 +41,6 @@
                     "torch_dtype": "torch.bfloat16",
                     "use_safe_tensors": true
                 },
-                "result": {
-                    "content_type": "video/mp4"
-                },
                 "previous_results": {
                     "image": "{image_generation}"
                 },
@@ -54,6 +51,9 @@
                     "num_frames": 49,
                     "guidance_scale": 6
                 }
+            },
+            "result": {
+                "content_type": "video/mp4"
             }
         }
     ]

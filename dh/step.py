@@ -1,6 +1,6 @@
 from .pipeline_processors.pipeline import Pipeline
-from .image_processors.image_processor import ImageProcessor
 from .tasks.task import Task
+from .result import Result
 
 class Step:
     def __init__(self, step_definition, default_seed):
@@ -13,19 +13,15 @@ class Step:
             print(f"Running step {name}...")
     
             result = None
-
+            result_definition = self.step_definition.get("result", {})
             if "pipeline" in self.step_definition:
                 pipeline = Pipeline(self.step_definition["pipeline"])
-                result = pipeline.run("cuda", previous_results, shared_components)
-
-            elif "image_processor" in self.step_definition:
-                processor = ImageProcessor(self.step_definition["image_processor"])
-                result = processor.run("cuda")
+                result = Result(pipeline.run("cuda", previous_results, shared_components), result_definition)
 
             else:
                 task = Task(self.step_definition["task"])
-                print(f"Running task {task['task_name']}...")     
-                result = task.run()
+                print(f"Running task {task.command}...")     
+                result = Result(task.run("cuda"), result_definition)
 
             return result
         

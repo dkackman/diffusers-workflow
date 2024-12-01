@@ -8,10 +8,12 @@
             "steps": [
                 {
                     "name": "depth",
-                    "image_processor": {
-                        "processor_name": "depth_estimator",
-                        "image": {
-                            "location": "$(mask_image_uri)"
+                    "task": {
+                        "command": "depth_estimator",
+                        "arguments": {
+                            "image": {
+                                "location": "$(mask_image_uri)"
+                            }
                         }
                     }
                 },
@@ -40,10 +42,10 @@
                         "arguments": {
                             "prompt": "a cityscape",
                             "num_inference_steps": 25
-                        },
-                        "result": {
-                            "content_type": "image/jpeg"
                         }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 }
             ]

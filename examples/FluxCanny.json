@@ -11,11 +11,16 @@
             "steps": [
                 {
                     "name": "canny",
-                    "image_processor": {
-                        "processor_name": "canny",
-                        "image": {
-                            "location": "$(mondo_image)"
+                    "task": {
+                        "command": "canny",
+                        "arguments": {
+                            "image": {
+                                "location": "$(mondo_image)"
+                            }
                         }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 },
                 {
@@ -39,10 +44,10 @@
                             "guidance_scale": 10,
                             "num_inference_steps": 25,
                             "max_sequence_length": 512
-                        },
-                        "result": {
-                            "content_type": "image/jpeg"
                         }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 }
             ]

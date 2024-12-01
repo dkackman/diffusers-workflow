@@ -46,10 +46,10 @@
                             "num_inference_steps": 25,
                             "num_images_per_prompt": 2,
                             "guidance_scale": 2.5
-                        },
-                        "result": {
-                            "content_type": "image/jpeg"
                         }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 }
             ]

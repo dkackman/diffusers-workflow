@@ -26,9 +26,6 @@
                             "torch_dtype": "torch.bfloat16",
                             "use_safe_tensors": true
                         },
-                        "result": {
-                            "content_type": "video/mp4"
-                        },
                         "arguments": {
                             "image": {
                                 "location": "$(image_locations)"
@@ -39,6 +36,9 @@
                             "num_frames": 49,
                             "guidance_scale": 2.5
                         }
+                    },
+                    "result": {
+                        "content_type": "video/mp4"
                     }
                 }
             ]

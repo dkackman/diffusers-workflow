@@ -23,9 +23,6 @@
                             "model_name": "THUDM/CogVideoX-5b",
                             "torch_dtype": "torch.bfloat16"
                         },
-                        "result": {
-                            "content_type": "video/mp4"
-                        },
                         "arguments": {
                             "video": {
                                 "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/hiker.mp4"
@@ -35,6 +32,9 @@
                             "strength": 0.8,
                             "guidance_scale": 6
                         }
+                    },
+                    "result": {
+                        "content_type": "video/mp4"
                     }
                 }
             ]

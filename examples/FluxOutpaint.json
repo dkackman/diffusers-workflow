@@ -11,12 +11,12 @@
             "steps": [
                 {
                     "name": "mask_image",
-                    "image_processor": {
-                        "processor_name": "add_border_and_mask",
-                        "image": {
-                            "location": "$(input_image)"
-                        },
+                    "task": {
+                        "command": "add_border_and_mask",
                         "arguments": {
+                            "image": {
+                                "location": "$(input_image)"
+                            },
                             "zoom_all": 1.5
                         }
                     }
@@ -41,10 +41,10 @@
                             "guidance_scale": 30,
                             "num_inference_steps": 5,
                             "max_sequence_length": 512
-                        },
-                        "result": {
-                            "content_type": "image/jpeg"
                         }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 }
             ]

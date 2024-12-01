@@ -62,8 +62,8 @@ class Pipeline:
 
         # run the pipeline
         pipeline_output = pipeline(**arguments)
-        return Result(pipeline_output, self.pipeline_definition.get("result", {}))
-    
+        return pipeline_output   
+     
 
     def load_optional_component(self, component_name, from_pretrained_arguments, device_identifier):
         component = load_and_configure_component(self.pipeline_definition.get(component_name, None), component_name, device_identifier)

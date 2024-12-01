@@ -26,7 +26,7 @@
             }
         },
         {
-            "name": "refiner",
+            "name": "main",
             "pipeline": {
                 "configuration": {
                     "pipeline_type": "DiffusionPipeline"
@@ -42,16 +42,16 @@
                     "use_safetensors": true
                 },
                 "previous_results": {
-                    "image": "{sdxl_base}"
+                    "image": "sdxl_base"
                 },
                 "arguments": {
                     "prompt": "A majestic lion jumping from a big stone at night",
                     "num_inference_steps": 25,
                     "denoising_start": 0.8
-                },
-                "result": {
-                    "content_type": "image/jpeg"
                 }
+            },
+            "result": {
+                "content_type": "image/jpeg"
             }
         }
     ]
