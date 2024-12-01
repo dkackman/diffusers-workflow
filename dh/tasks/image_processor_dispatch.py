@@ -37,7 +37,7 @@ def process_image(image, processor, device_identifier, kwargs):
         return MLSDdetector.from_pretrained("lllyasviel/ControlNet")(image, **kwargs)
 
     if processor == "depth":
-        return image_to_depth(image, device_identifier)
+        return image_to_depth(image, device_identifier, **kwargs)
 
     if processor == "normal_bae":
         return NormalBaeDetector.from_pretrained("lllyasviel/Annotators")(image, **kwargs)
@@ -103,7 +103,7 @@ def image_to_canny(image, low_threshold=100, high_threshold=200):
     return Image.fromarray(image)
 
 
-def image_to_depth(image, device_identifier):
+def image_to_depth(image, device_identifier, size=(1024, 1024)):
     depth_estimator = DPTForDepthEstimation.from_pretrained(
         "Intel/dpt-hybrid-midas"
     ).to(device_identifier)
@@ -117,7 +117,7 @@ def image_to_depth(image, device_identifier):
 
     depth_map = torch.nn.functional.interpolate(
         depth_map.unsqueeze(1),
-        size=(1024, 1024),
+        size=size,
         mode="bicubic",
         align_corners=False,
     )

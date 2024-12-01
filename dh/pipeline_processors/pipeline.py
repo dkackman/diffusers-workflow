@@ -1,7 +1,7 @@
 import torch
 from diffusers import BitsAndBytesConfig
 from .quantization import quantize
-from ..result import Result
+
 
 class Pipeline:
     def __init__(self, pipeline_definition):
