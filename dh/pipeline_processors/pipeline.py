@@ -87,10 +87,6 @@ def load_and_configure_component(component_definition, component_name, device_id
         print(f"Loading {component_name}...")
         component_configuration = component_definition["configuration"]
         component_from_pretrained_arguments = component_definition["from_pretrained_arguments"]
-
-        # TODO - does this need to be generalized?
-        if component_name != "controlnet":
-            component_from_pretrained_arguments["subfolder"] = component_name
         component = load_and_configure_pipeline(component_configuration, component_from_pretrained_arguments, device_identifier)
         quantize(component, component_definition.get("quantization", None))
 
