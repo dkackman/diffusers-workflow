@@ -22,6 +22,15 @@ python -m dh.test
 python -m dh.test
 ```
 
+### diffusers from source
+
+The install script will install the diffusers library from PyPl. If you want to install from source and use not yet released diffusers, you can do so with the following commands:
+
+```bash
+. ./activate # or ./venv/scripts/activate on windows
+pip install git+https://github.com/huggingface/diffusers
+```
+
 ## Usage
 
 ### Run a job
