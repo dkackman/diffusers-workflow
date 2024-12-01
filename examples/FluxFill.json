@@ -22,10 +22,10 @@
                         },
                         "arguments": {
                             "image": {
-                                "location": "$(cup_image)"
+                                "location": "variable:cup_image"
                             },
                             "mask_image": {
-                                "location": "$(cup_mask_image)"
+                                "location": "variable:cup_mask_image"
                             },
                             "prompt": "a white paper cup",
                             "height": 1632,

@@ -12,7 +12,7 @@
                         "command": "depth_estimator",
                         "arguments": {
                             "image": {
-                                "location": "$(mask_image_uri)"
+                                "location": "variable:mask_image_uri"
                             }
                         }
                     }

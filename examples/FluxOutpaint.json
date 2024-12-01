@@ -15,7 +15,7 @@
                         "command": "add_border_and_mask",
                         "arguments": {
                             "image": {
-                                "location": "$(input_image)"
+                                "location": "variable:input_image"
                             },
                             "zoom_all": 1.5
                         }

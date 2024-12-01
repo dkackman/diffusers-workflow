@@ -25,7 +25,7 @@
                             "torch_dtype": "torch.bfloat16"
                         },
                         "arguments": {
-                            "prompt": "$(prompts)",
+                            "prompt": "variable:prompts",
                             "num_videos_per_prompt": 1,
                             "num_inference_steps": 5,
                             "num_frames": 49,
