@@ -8,12 +8,17 @@ def quantize(component, quantization_definition):
         print(f"Quantizing {type(component).__name__} using {quantization_library}...")
         weights_type = quantization_definition["weights_type"]
 
-        if quantization_library == "torchao":
-            torachao_quantize(component, weights_type())
+        try:
+            if quantization_library == "torchao":
+                torachao_quantize(component, weights_type())
 
-        elif quantization_library == "optimum.quanto":
-            quanto_quantize(component, weights=weights_type)
-            freeze(component)
-
-        else:
-            raise ValueError(f"Quantization library {quantization_library} not supported")
+            elif quantization_library == "optimum.quanto":
+                quanto_quantize(component, weights=weights_type)
+                freeze(component)
+            else:
+                raise ValueError(f"Quantization library {quantization_library} not supported")
+            
+        except Exception as e:
+            print(f"Error while quantizing {type(component).__name__} using {quantization_library}")
+            print(e)
+            raise e
