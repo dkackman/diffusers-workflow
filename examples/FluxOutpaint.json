@@ -1,6 +1,6 @@
 {
     "variables": {
-        "input_image": "https://pbs.twimg.com/media/GddfB1aXwAA6K5c?format=jpg&name=medium",
+        "input_image": "https://pbs.twimg.com/media/Gduq2eNWEAA6hsO?format=jpg&name=medium",
         "cup_mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png",
         "robot_image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png",
         "mondo_image": "https://pbs.twimg.com/media/GdcxG6oaUAAHgSL?format=jpg&name=medium"
@@ -37,7 +37,7 @@
                             "mask_image": "previous_result:mask_image.mask",
                             "prompt": "",
                             "guidance_scale": 30,
-                            "num_inference_steps": 5,
+                            "num_inference_steps": 25,
                             "max_sequence_length": 512
                         }
                     },
