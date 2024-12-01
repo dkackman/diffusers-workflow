@@ -84,20 +84,17 @@ This example demonstrates a multiple step workflow including an image generation
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-3.5-large",
                     "torch_dtype": "torch.bfloat16"
-                },
-                "result": {
-                    "content_type": "image/png"
-                },
+                }
                 "arguments": {
                     "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of owl, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, asymmetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
                     "num_inference_steps": 25,
                     "guidance_scale": 4.5,
                     "max_sequence_length": 512
-                },
-                "capture_preprocessor_results": {
-                    "base_image": "image"
                 }
-            }
+            },
+            "result": {
+                "content_type": "image/png"
+            },
         },
         {
             "name": "image_to_video",
@@ -114,23 +111,20 @@ This example demonstrates a multiple step workflow including an image generation
                 },
                 "from_pretrained_arguments": {
                     "model_name": "THUDM/CogVideoX-5b-I2V",
-                    "torch_dtype": "torch.bfloat16",
-                    "use_safe_tensors": true
-                },
-                "result": {
-                    "content_type": "video/mp4",
-                    "file_base_name": "owl"
-                },
-                "preprocessor_results": {
-                    "image": "{base_image}"
+                    "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
+                    "image": "previous_result:image_generation",
                     "prompt": "The owl stares intently and blinks",
                     "num_videos_per_prompt": 1,
                     "num_inference_steps": 50,
                     "num_frames": 49,
                     "guidance_scale": 6
                 }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "file_base_name": "owl"
             }
         }
     ]
