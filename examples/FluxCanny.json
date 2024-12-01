@@ -15,7 +15,7 @@
                         "command": "canny",
                         "arguments": {
                             "image": {
-                                "location": "$(mondo_image)"
+                                "location": "variable:mondo_image"
                             }
                         }
                     },

@@ -59,8 +59,8 @@ def replace_variables(data, variables):
 
         elif isinstance(data, dict):
             for k, v in data.items():
-                if isinstance(v, str) and v.startswith("$(") and v.endswith(")"):  
-                    variable_name = v.strip("$()")
+                if isinstance(v, str) and v.startswith("variable:"):  
+                    variable_name = v.removeprefix("variable:")
                     if not variable_name in variables:
                         raise Exception(f"Variable <{variable_name}> not found")                
                     data[k] = variables[variable_name]     

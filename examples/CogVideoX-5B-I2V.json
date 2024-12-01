@@ -28,7 +28,7 @@
                         },
                         "arguments": {
                             "image": {
-                                "location": "$(image_locations)"
+                                "location": "variable:image_locations"
                             },
                             "prompt": "the lizard fixes the rocket",
                             "num_videos_per_prompt": 1,

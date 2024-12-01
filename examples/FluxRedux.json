@@ -20,7 +20,7 @@
                         },
                         "arguments": {
                             "image": {
-                                "location": "$(input_image)"
+                                "location": "variable:input_image"
                             }
                         }
                     }
