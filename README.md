@@ -1,3 +1,5 @@
+[![CodeQL](https://github.com/dkackman/diffusers-helper/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/dkackman/diffusers-helper/actions/workflows/github-code-scanning/codeql)
+
 # diffusers-helper
 
 ## Introduction
