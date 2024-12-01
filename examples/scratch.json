@@ -38,12 +38,10 @@
                         "model_name": "kandinsky-community/kandinsky-2-2-controlnet-depth",
                         "torch_dtype": "torch.float16"
                     },
-                    "previous_results": {
-                        "image_embeds": "prior.image_embeds",
-                        "negative_image_embeds": "prior.negative_image_embeds",
-                        "hint": "depth_estimator"
-                    },
                     "arguments": {
+                        "image_embeds": "previous_result:prior.image_embeds",
+                        "negative_image_embeds": "previous_result:prior.negative_image_embeds",
+                        "hint": "previous_result:depth_estimator",
                         "num_inference_steps": 25,
                         "num_images_per_prompt": 1,
                         "height": 768,

@@ -41,10 +41,8 @@
                     "variant": "fp16",
                     "use_safetensors": true
                 },
-                "previous_results": {
-                    "image": "sdxl_base"
-                },
                 "arguments": {
+                    "image": "previous_result:sdxl_base",
                     "prompt": "A majestic lion jumping from a big stone at night",
                     "num_inference_steps": 25,
                     "denoising_start": 0.8

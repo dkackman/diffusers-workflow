@@ -1,4 +1,4 @@
-from ..toolbox.type_helpers import load_type_from_name
+from .toolbox.type_helpers import load_type_from_name
 from diffusers.utils import load_image, load_video
 
 #

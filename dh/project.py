@@ -2,7 +2,7 @@ import json
 import os
 from jsonschema import validate, ValidationError
 from .job import Job
-from .pipeline_processors.variables import replace_variables, expand_template
+from .variables import replace_variables, expand_template
 
 def create_project(data):
     if isinstance(data, dict) and "jobs" in data:

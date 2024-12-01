@@ -41,10 +41,8 @@
                     "torch_dtype": "torch.bfloat16",
                     "use_safe_tensors": true
                 },
-                "previous_results": {
-                    "image": "{image_generation}"
-                },
                 "arguments": {
+                    "image": "previous_result:image_generation",
                     "prompt": "explosions in the sky",
                     "num_videos_per_prompt": 1,
                     "num_inference_steps": 25,

@@ -32,11 +32,9 @@
                             "model_name": "black-forest-labs/FLUX.1-Fill-dev",
                             "torch_dtype": "torch.bfloat16"
                         },
-                        "previous_results": {
-                            "image": "mask_image.bordered_image",
-                            "mask_image": "mask_image.mask"
-                        },
                         "arguments": {
+                            "image": "previous_result:mask_image.bordered_image",
+                            "mask_image": "previous_result:mask_image.mask",
                             "prompt": "",
                             "guidance_scale": 30,
                             "num_inference_steps": 5,
