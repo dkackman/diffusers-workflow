@@ -20,9 +20,6 @@
                             "model_name": "black-forest-labs/FLUX.1-Fill-dev",
                             "torch_dtype": "torch.bfloat16"
                         },
-                        "result": {
-                            "content_type": "image/jpeg"
-                        },
                         "arguments": {
                             "image": {
                                 "location": "$(cup_image)"
@@ -37,6 +34,9 @@
                             "num_inference_steps": 50,
                             "max_sequence_length": 512
                         }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 }
             ]

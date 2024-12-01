@@ -19,10 +19,12 @@
             },
             {
                 "name": "depth_estimator",
-                "image_processor": {
-                    "processor_name": "depth_estimator_tensor",
-                    "image": {
-                        "location": "https://huggingface.co/datasets/hf-internal-testing/diffusers-images/resolve/main/kandinskyv22/cat.png"
+                "task": {
+                    "command": "depth_estimator_tensor",
+                    "arguments": {
+                        "image": {
+                            "location": "https://huggingface.co/datasets/hf-internal-testing/diffusers-images/resolve/main/kandinskyv22/cat.png"
+                        }
                     }
                 }
             },
@@ -46,10 +48,10 @@
                         "num_images_per_prompt": 1,
                         "height": 768,
                         "width": 768
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]

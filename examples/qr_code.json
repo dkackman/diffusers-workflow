@@ -9,13 +9,13 @@
                 {
                     "name": "qr_code",
                     "task": {
-                        "task_name": "qr_code",
-                        "result": {
-                            "content_type": "image/jpeg"
-                        },
+                        "command": "qr_code",
                         "arguments": {
                             "qr_code_contents": "https://fishzor.azurewebsites.net/"
                         }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
                     }
                 }
             ]

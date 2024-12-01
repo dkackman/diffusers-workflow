@@ -22,9 +22,6 @@
                         "model_name": "black-forest-labs/FLUX.1-dev",
                         "torch_dtype": "torch.bfloat16"
                     },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
                     "arguments": {
                         "prompt": "A girl in city, 25 years old, cool, futuristic",
                         "num_inference_steps": 10,
@@ -34,6 +31,9 @@
                             "location": "https://huggingface.co/InstantX/FLUX.1-dev-Controlnet-Canny/resolve/main/canny.jpg"
                         }
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -88,10 +88,10 @@
                         "prompt": "A majestic lion jumping from a big stone at night",
                         "num_inference_steps": 25,
                         "denoising_start": 0.8
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -114,9 +114,6 @@
                         "model_name": "THUDM/CogView3-Plus-3B",
                         "torch_dtype": "torch.bfloat16"
                     },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
                     "arguments": {
                         "prompt": "A vibrant cherry red sports car sits proudly under the gleaming sun, it's polished exterior smooth and flawless, casting a mirror-like reflection. The car features a low, aerodynamic body, angular headlights that gaze forward like predatory eyes, and a set of black, high-gloss racing rims that contrast starkly with the red. A subtle hint of chrome embellishes the grille and exhaust, while the tinted windows suggest a luxurious and private interior. The scene conveys a sense of speed and elegance, the car appearing as if it's about to burst into a sprint along a coastal road, with the ocean's azure waves crashing in the background.",
                         "num_inference_steps": 25,
@@ -124,6 +121,9 @@
                         "width": 1024,
                         "height": 1024
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -157,15 +157,15 @@
                         "model_name": "stabilityai/stable-diffusion-3.5-large",
                         "torch_dtype": "torch.bfloat16"
                     },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
                     "arguments": {
                         "prompt": "A whimsical and creative image depicting a hybrid creature that is a mix of a waffle and a marmot, basking in a river of melted butter amidst a breakfast-themed landscape. It features the distinctive, plump body shape of a marmot. However, instead of the usual brown fur, the creature's body resembles a golden-brown, crispy waffle fresh off the griddle. The fur is textured with the familiar grid pattern of a waffle, each square filled with a glistening sheen of syrup. The environment combines the natural habitat of a marmot with elements of a breakfast table setting, a river of warm, melted butter, with oversized utensils or plates peeking out from the lush, pancake-like foliage in the background, a towering pepper mill standing in for a tree.  As the sun rises in this fantastical world, it casts a warm, buttery glow over the scene. The creature, content in its butter river, lets out a yawn. Nearby, a flock of birds take flight",
                         "num_inference_steps": 25,
                         "guidance_scale": 4.5,
                         "max_sequence_length": 512
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -191,15 +191,15 @@
                             "use_karras_sigmas": true
                         }
                     },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
                     "arguments": {
                         "prompt": "a billboard in NYC with a qrcode",
                         "negative_prompt": "ugly, disfigured, low quality, blurry, nsfw",
                         "guidance_scale": 20,
                         "num_inference_steps": 25
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -210,19 +210,23 @@
         "steps": [
             {
                 "name": "condition_image",
-                "image_processor": {
-                    "processor_name": "tile",
-                    "image": {
-                        "location": "https://1.bp.blogspot.com/-dHN4KiD3dsU/XRxU5JRV7DI/AAAAAAAAAz4/u1ynpCMIuKwZMA642dHEoXFVKuHQbJvwgCEwYBhgL/s1600/qr-code.png"
+                "task": {
+                    "command": "tile",
+                    "arguments": {
+                        "image": {
+                            "location": "https://1.bp.blogspot.com/-dHN4KiD3dsU/XRxU5JRV7DI/AAAAAAAAAz4/u1ynpCMIuKwZMA642dHEoXFVKuHQbJvwgCEwYBhgL/s1600/qr-code.png"
+                        }
                     }
                 }
             },
             {
                 "name": "init_image",
-                "image_processor": {
-                    "processor_name": "tile",
-                    "image": {
-                        "location": "https://as1.ftcdn.net/v2/jpg/01/53/24/06/1000_F_153240633_iTL2FpCwzu5KJPdU4cotBAvObaovWWO4.jpg"
+                "task": {
+                    "command": "tile",
+                    "arguments": {
+                        "image": {
+                            "location": "https://as1.ftcdn.net/v2/jpg/01/53/24/06/1000_F_153240633_iTL2FpCwzu5KJPdU4cotBAvObaovWWO4.jpg"
+                        }
                     }
                 }
             },
@@ -259,6 +263,9 @@
                         "image": "init_image",
                         "control_image": "condition_image"
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -298,10 +305,10 @@
                     },
                     "arguments": {
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall"
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -322,10 +329,10 @@
                     "arguments": {
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall",
                         "num_inference_steps": 25
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             },
             {
@@ -343,10 +350,10 @@
                     },
                     "previous_results": {
                         "image": "main"
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -356,10 +363,12 @@
         "steps": [
             {
                 "name": "depth",
-                "image_processor": {
-                    "processor_name": "depth_estimator",
-                    "image": {
-                        "location": "https://huggingface.co/lllyasviel/control_v11p_sd15_depth/resolve/main/images/input.png"
+                "task": {
+                    "command": "depth_estimator",
+                    "arguments": {
+                        "image": {
+                            "location": "https://huggingface.co/lllyasviel/control_v11p_sd15_depth/resolve/main/images/input.png"
+                        }
                     },
                     "result": {
                         "content_type": "image/jpeg"
@@ -385,9 +394,6 @@
                         "model_name": "runwayml/stable-diffusion-v1-5",
                         "torch_dtype": "torch.float16"
                     },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
                     "arguments": {
                         "prompt": "Stormtrooper's lecture in beautiful lecture hall",
                         "num_inference_steps": 25
@@ -395,6 +401,9 @@
                     "previous_results": {
                         "image": "depth"
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -418,14 +427,14 @@
                             "lora_scale": 0.1
                         }
                     ],
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
                     "arguments": {
                         "prompt": "A pokemon with blue eyes",
                         "guidance_scale": 7.5,
                         "num_inference_steps": 25
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -449,9 +458,6 @@
                         "use_safe_tensors": true,
                         "variant": "fp16"
                     },
-                    "result": {
-                        "content_type": "video/mp4"
-                    },
                     "arguments": {
                         "image": {
                             "location": "https://pbs.twimg.com/profile_images/1708153260853383168/s8DMOcLj_400x400.jpg"
@@ -459,6 +465,9 @@
                         "num_frames": 25,
                         "decode_chunk_size": 2
                     }
+                },
+                "result": {
+                    "content_type": "video/mp4"
                 }
             }
         ]
@@ -482,9 +491,6 @@
                         "use_safe_tensors": true,
                         "variant": "fp16"
                     },
-                    "result": {
-                        "content_type": "video/mp4"
-                    },
                     "arguments": {
                         "image": {
                             "location": "https://pbs.twimg.com/profile_images/1708153260853383168/s8DMOcLj_400x400.jpg"
@@ -492,6 +498,9 @@
                         "num_frames": 25,
                         "decode_chunk_size": 2
                     }
+                },
+                "result": {
+                    "content_type": "video/mp4"
                 }
             }
         ]
@@ -515,9 +524,6 @@
                         "use_safe_tensors": true,
                         "variant": "fp16"
                     },
-                    "result": {
-                        "content_type": "video/mp4"
-                    },
                     "arguments": {
                         "image": {
                             "location": "https://pbs.twimg.com/profile_images/1708153260853383168/s8DMOcLj_400x400.jpg"
@@ -525,6 +531,9 @@
                         "num_frames": 25,
                         "decode_chunk_size": 2
                     }
+                },
+                "result": {
+                    "content_type": "video/mp4"
                 }
             }
         ]
@@ -548,9 +557,6 @@
                         "torch_dtype": "torch.bfloat16",
                         "use_safe_tensors": true
                     },
-                    "result": {
-                        "content_type": "video/mp4"
-                    },
                     "arguments": {
                         "prompt": "A man laughing",
                         "negative_prompt": "lowres, text, error, cropped, worst quality, low quality, weird, deformed",
@@ -562,6 +568,9 @@
                         "num_frames": 49,
                         "guidance_scale": 6
                     }
+                },
+                "result": {
+                    "content_type": "video/mp4"
                 }
             }
         ]
@@ -585,9 +594,6 @@
                         "torch_dtype": "torch.bfloat16",
                         "use_safe_tensors": true
                     },
-                    "result": {
-                        "content_type": "video/mp4"
-                    },
                     "arguments": {
                         "prompt": "A marmot wearing a top hat, dancing on a mountainside.",
                         "num_videos_per_prompt": 1,
@@ -595,6 +601,9 @@
                         "num_frames": 49,
                         "guidance_scale": 6
                     }
+                },
+                "result": {
+                    "content_type": "video/mp4"
                 }
             }
         ]
@@ -614,9 +623,6 @@
                         "torch_dtype": "torch.bfloat16",
                         "use_safe_tensors": true
                     },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
                     "arguments": {
                         "max_sequence_length": 256,
                         "prompt": "A frog holding a sign that says 'onchain engagement farming'",
@@ -624,6 +630,9 @@
                         "num_inference_steps": 5,
                         "num_images_per_prompt": 1
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -643,9 +652,6 @@
                         "torch_dtype": "torch.bfloat16",
                         "use_safe_tensors": true
                     },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
                     "arguments": {
                         "max_sequence_length": 512,
                         "prompt": "A visually striking dark fantasy portrait of Cthulhu and The Flying Spaghetti Monster, raging oceanic landscape. The Cthulhu's slimy green skin is a stark contrast to the Spaghetti Monster's vivid, noodle-like appendages, which seems to be made of real spaghetti. The two are locked in battle, leaving glowing, leave a trail of lightning behind, while their intense, glistening eyes reflect a fierce, unbridled energy. The background features a haunting, stormy red sky filled with ominous lightning, adding to the overall sense of mystique and intrigue. This captivating image blends the mediums of photo, painting, and portrait photography to create a unique, conceptual art piece., painting, portrait photography, vibrant, photo, conceptual art, dark fantasy",
@@ -655,6 +661,9 @@
                         "height": 1024,
                         "width": 1024
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -675,9 +684,6 @@
                         "variant": "fp16",
                         "use_safe_tensors": true
                     },
-                    "result": {
-                        "content_type": "image/png"
-                    },
                     "arguments": {
                         "negative_prompt": "low quality, bad quality",
                         "prompt": "A picture of Cthulhu, the god of the deep",
@@ -685,6 +691,9 @@
                         "num_inference_steps": 25,
                         "num_images_per_prompt": 1
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -705,9 +714,6 @@
                         "variant": "fp16",
                         "use_safe_tensors": true
                     },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    },
                     "arguments": {
                         "negative_prompt": "low quality, bad quality",
                         "prompt": "A painting of the inside of a subway train with tiny raccoons.",
@@ -718,6 +724,9 @@
                         "num_images_per_prompt": 1,
                         "strength": 0.75
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -743,10 +752,12 @@
             },
             {
                 "name": "depth_estimator",
-                "image_processor": {
-                    "processor_name": "depth_estimator_tensor",
-                    "image": {
-                        "location": "https://huggingface.co/datasets/hf-internal-testing/diffusers-images/resolve/main/kandinskyv22/cat.png"
+                "task": {
+                    "command": "depth_estimator_tensor",
+                    "arguments": {
+                        "image": {
+                            "location": "https://huggingface.co/datasets/hf-internal-testing/diffusers-images/resolve/main/kandinskyv22/cat.png"
+                        }
                     }
                 }
             },
@@ -770,10 +781,10 @@
                         "num_images_per_prompt": 1,
                         "height": 768,
                         "width": 768
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
                     }
+                },
+                "result": {
+                    "content_type": "image/jpeg"
                 }
             }
         ]
@@ -791,9 +802,6 @@
                         "model_name": "stabilityai/stable-audio-open-1.0",
                         "torch_dtype": "torch.float16"
                     },
-                    "result": {
-                        "content_type": "audio/wav"
-                    },
                     "arguments": {
                         "prompt": "The sound of a hammer hitting a wooden surface.",
                         "negative_prompt": "Low quality.",
@@ -801,6 +809,9 @@
                         "audio_end_in_s": 10.0,
                         "num_waveforms_per_prompt": 3
                     }
+                },
+                "result": {
+                    "content_type": "audio/wav"
                 }
             }
         ]

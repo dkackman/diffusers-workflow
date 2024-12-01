@@ -17,10 +17,10 @@ from transformers import (
     DPTFeatureExtractor,
 )
 from .zoe_depth import colorize, load_zoe
-from .image_utils import center_crop_resize, resize_for_condition_image
+from ..toolbox.image_utils import center_crop_resize, resize_for_condition_image
 from .depth_estimator import make_hint_image, make_hint_tensor
 from .borders import add_border_and_mask
-from ..tasks.qr_code import get_qrcode_image
+from .qr_code import get_qrcode_image
 import torch
 
 

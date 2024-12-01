@@ -24,9 +24,6 @@
                             "model_name": "THUDM/CogVideoX-5b",
                             "torch_dtype": "torch.bfloat16"
                         },
-                        "result": {
-                            "content_type": "video/mp4"
-                        },
                         "arguments": {
                             "prompt": "$(prompts)",
                             "num_videos_per_prompt": 1,
@@ -34,6 +31,9 @@
                             "num_frames": 49,
                             "guidance_scale": 6
                         }
+                    },
+                    "result": {
+                        "content_type": "video/mp4"
                     }
                 }
             ]
