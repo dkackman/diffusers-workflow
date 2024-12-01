@@ -287,14 +287,22 @@
                     "type": "string",
                     "enum": [
                         "torchao",
-                        "optimum.quanto"
+                        "optimum.quanto",
+                        "torchao.autoquant"
                     ]
                 },
                 "weights_type": {
-                    "description": "The library specific type of weights to use for quantization",
+                    "description": "The library specific type of weights to use",
+                    "type": "string"
+                },
+                "activations_type": {
+                    "description": "The library specific type of activation weights to use",
                     "type": "string"
                 }
-            }
+            },
+            "required": [
+                "quantization_library"
+            ]
         },
         "pipeline_component": {
             "type": "object",
