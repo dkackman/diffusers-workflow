@@ -1,6 +1,5 @@
 {
     "template": {
-        "applies_to": "image_to_video",
         "variables": {
             "image_locations": [
                 "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=small",
@@ -23,8 +22,7 @@
                         },
                         "from_pretrained_arguments": {
                             "model_name": "THUDM/CogVideoX-5B-I2V",
-                            "torch_dtype": "torch.bfloat16",
-                            "use_safe_tensors": true
+                            "torch_dtype": "torch.bfloat16"
                         },
                         "arguments": {
                             "image": {
