@@ -1,9 +1,8 @@
 absl-py==2.1.0
 accelerate==1.1.1
 aiohappyeyeballs==2.4.3
-aiohttp==3.11.2
+aiohttp==3.11.7
 aiosignal==1.3.1
-async-timeout==5.0.1
 attrs==24.2.0
 beautifulsoup4==4.12.3
 bitsandbytes==0.44.1
@@ -14,8 +13,8 @@ concurrent-log-handler==0.9.25
 contourpy==1.3.1
 controlnet-aux==0.0.9
 cycler==0.12.1
-decorator==4.4.2
-diffusers==0.31.0
+decorator==5.1.1
+diffusers @ git+https://github.com/huggingface/diffusers@75bd1e83cb3741ec750e27e504ba78fd8b363ab7
 einops==0.8.0
 filelock==3.16.1
 flatbuffers==24.3.25
@@ -38,10 +37,11 @@ MarkupSafe==3.0.2
 matplotlib==3.9.2
 mediapipe==0.10.18
 ml_dtypes==0.5.0
-moviepy==1.0.3
+moviepy==2.1.1
 mpmath==1.3.0
 multidict==6.1.0
 networkx==3.4.2
+ninja==1.11.1.2
 numpy==1.26.4
 nvidia-cublas-cu12==12.1.3.1
 nvidia-cuda-cupti-cu12==12.1.105
@@ -59,9 +59,10 @@ opencv-contrib-python==4.10.0.84
 opencv-python==4.10.0.84
 opencv-python-headless==4.10.0.84
 opt_einsum==3.4.0
+optimum-quanto==0.2.6
 packaging==24.2
 peft==0.13.2
-pillow==11.0.0
+pillow==10.4.0
 portalocker==3.0.0
 proglog==0.1.10
 propcache==0.2.0
@@ -70,6 +71,7 @@ psutil==6.1.0
 pycparser==2.22
 pyparsing==3.2.0
 python-dateutil==2.9.0.post0
+python-dotenv==1.0.1
 PyYAML==6.0.2
 qrcode==8.0
 referencing==0.35.1
@@ -80,6 +82,7 @@ safetensors==0.4.5
 scikit-image==0.24.0
 scipy==1.14.1
 sentencepiece==0.2.0
+setuptools==75.6.0
 six==1.16.0
 sounddevice==0.5.1
 soundfile==0.12.1
@@ -89,13 +92,14 @@ tifffile==2024.9.20
 timm==0.6.7
 tokenizers==0.20.3
 torch==2.4.1
+torchao==0.6.1
 torchsde==0.2.6
 torchvision==0.19.1
-tqdm==4.67.0
+tqdm==4.67.1
 trampoline==0.1.2
-transformers==4.46.2
+transformers==4.46.3
 triton==3.0.0
 typing_extensions==4.12.2
 urllib3==2.2.3
-yarl==1.17.2
+yarl==1.18.0
 zipp==3.21.0
