@@ -59,13 +59,45 @@ usage: validate.py [-h] file_name
 
 [Json schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-helper%2Frefs%2Fheads%2Fmaster%2Fdh%2Fproject_schema.json)
 
-### Example
+### Examples
 
-This example demonstrates a multiple step workflow including an image generation step followed by a video generation step. It includes the use of a transformer model for the image generation step and a video generation model for the video generation step.
+#### Simple Image Generation
 
 ```json
 {
-    "id": "sd35 image to video",
+    "id": "test_job",
+    "steps": [
+        {
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "StableDiffusionPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16"
+                },
+                "arguments": {
+                    "prompt": "A samurai dragon",
+                    "num_inference_steps": 25
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "file_base_name": "test_image"
+            }
+        }
+    ]
+}
+```
+
+#### Multiple Step Workflow
+
+This example demonstrates a multiple step workflow including an image generation step followed by video generation. It includes the use of a transformer model for the image generation, a quantization example and an image to video model.
+
+```json
+{
+    "id": "sd35 text to image to video",
     "steps": [
         {
             "name": "image_generation",
