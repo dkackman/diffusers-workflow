@@ -29,3 +29,5 @@ def quantize(component, quantization_definition):
             print(f"Error while quantizing {type(component).__name__} using {quantization_library}")
             print(e)
             raise e
+        
+    return component

@@ -1,6 +1,7 @@
 {
     "variables": {
-        "mask_image_uri": "https://nftfactory.blob.core.windows.net/images/chia256.jpg"
+        "mask_image_uri": "https://nftfactory.blob.core.windows.net/images/chia256.jpg",
+        "qr_code_contents": "https://chia.net/"
     },
     "jobs": [
         {
@@ -11,7 +12,57 @@
                     "task": {
                         "command": "qr_code",
                         "arguments": {
-                            "qr_code_contents": "https://fishzor.azurewebsites.net/"
+                            "qr_code_contents": "variable:qr_code_contents"
+                        }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
+                    }
+                },
+                {
+                    "name": "init_image",
+                    "task": {
+                        "command": "tile",
+                        "arguments": {
+                            "image": {
+                                "location": "https://plus.unsplash.com/premium_photo-1669927131902-a64115445f0f?q=80&w=1000&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+                            }
+                        }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
+                    }
+                },
+                {
+                    "name": "main",
+                    "pipeline": {
+                        "configuration": {
+                            "pipeline_type": "StableDiffusionControlNetImg2ImgPipeline"
+                        },
+                        "controlnet": {
+                            "configuration": {
+                                "pipeline_type": "ControlNetModel"
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "DionTimmer/controlnet_qrcode-control_v1p_sd15",
+                                "torch_dtype": "torch.float16"
+                            }
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                            "torch_dtype": "torch.float16"
+                        },
+                        "arguments": {
+                            "prompt": "a bilboard in NYC with a qrcode",
+                            "negative_prompt": "ugly, disfigured, low quality, blurry, nsfw",
+                            "image": "previous_result:init_image",
+                            "control_image": "previous_result:qr_code",
+                            "width": 768,
+                            "height": 768,
+                            "guidance_scale": 20,
+                            "controlnet_conditioning_scale": 1.5,
+                            "strength": 0.9,
+                            "num_inference_steps": 150
                         }
                     },
                     "result": {

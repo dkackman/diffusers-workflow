@@ -53,13 +53,7 @@ class Pipeline:
         # replace previous_result: references with the actual previous result
         for argument_name, argument_value in arguments.items():
             if isinstance(argument_value, str) and argument_value.startswith("previous_result:"):
-                previous_result_name = argument_value.split(":")[1]
-                if "." in previous_result_name:
-                    # this is named property of the previous result parse and get that property
-                    parts = previous_result_name.split(".")
-                    arguments[argument_name] = previous_results[parts[0]].get_output_property(parts[1])
-                else:
-                    arguments[argument_name] = previous_results[previous_result_name].get_primary_output()                
+                arguments[argument_name] = get_previous_result(previous_results, argument_value.split(":")[1])
 
         # run the pipeline
         pipeline_output = pipeline(**arguments)
@@ -71,7 +65,16 @@ class Pipeline:
         if component is not None:
             from_pretrained_arguments[component_name] = component
 
-            
+
+def get_previous_result(previous_results, previous_result_name):
+    if "." in previous_result_name:
+        # this is named property of the previous result parse and get that property
+        parts = previous_result_name.split(".")
+        return previous_result_name[parts[0]].get_output_property(parts[1])
+    
+    return previous_results[previous_result_name].get_primary_output() 
+
+
 def load_and_configure_scheduler(scheduler_definition, pipeline):
     if scheduler_definition is not None:
         scheduler_configuration = scheduler_definition.get("configuration", None)        
@@ -88,10 +91,8 @@ def load_and_configure_component(component_definition, component_name, device_id
         component_configuration = component_definition["configuration"]
         component_from_pretrained_arguments = component_definition["from_pretrained_arguments"]
         component = load_and_configure_pipeline(component_configuration, component_from_pretrained_arguments, device_identifier)
-        quantize(component, component_definition.get("quantization", None))
+        return quantize(component, component_definition.get("quantization", None))
 
-        return component
-    
     return None
 
 
