@@ -1,7 +1,10 @@
 {
     "id": "CogVideoX1.5-5B-I2V",
     "variables": {
-        "model_name": "THUDM/CogVideoX1.5-5B-I2V"
+        "model_name": "THUDM/CogVideoX1.5-5B-I2V",
+        "quantization_library": "torchao",
+        "weights_type": "torchao.quantization.int8_weight_only",
+        "activations_type": "optimum.quanto.qfloat8"
     },
     "jobs": [
         {
@@ -11,7 +14,7 @@
                     "name": "image_to_video",
                     "pipeline": {
                         "configuration": {
-                            "offload": "full",
+                            "offload": "sequential",
                             "pipeline_type": "CogVideoXImageToVideoPipeline",
                             "vae": {
                                 "enable_slicing": true,
@@ -27,8 +30,9 @@
                                 "pipeline_type": "CogVideoXTransformer3DModel"
                             },
                             "quantization": {
-                                "quantization_library": "torchao",
-                                "weights_type": "torchao.quantization.int8_weight_only"
+                                "quantization_library": "variable:quantization_library",
+                                "weights_type": "variable:weights_type",
+                                "activations_type": "variable:activations_type"
                             },
                             "from_pretrained_arguments": {
                                 "model_name": "variable:model_name",
@@ -41,8 +45,9 @@
                                 "pipeline_type": "AutoencoderKLCogVideoX"
                             },
                             "quantization": {
-                                "quantization_library": "torchao",
-                                "weights_type": "torchao.quantization.int8_weight_only"
+                                "quantization_library": "variable:quantization_library",
+                                "weights_type": "variable:weights_type",
+                                "activations_type": "variable:activations_type"
                             },
                             "from_pretrained_arguments": {
                                 "model_name": "variable:model_name",
@@ -55,8 +60,9 @@
                                 "pipeline_type": "transformers.T5EncoderModel"
                             },
                             "quantization": {
-                                "quantization_library": "torchao",
-                                "weights_type": "torchao.quantization.int8_weight_only"
+                                "quantization_library": "variable:quantization_library",
+                                "weights_type": "variable:weights_type",
+                                "activations_type": "variable:activations_type"
                             },
                             "from_pretrained_arguments": {
                                 "model_name": "variable:model_name",
