@@ -35,15 +35,14 @@ usage: run.py [-h] file_name [output_dir]
 - `output_dir` is an optional directory to write the diffuser job output to. defaults to `./output`
 
 
-### Validate a job defintino
+### Validate a job definition 
 
 ```bash
 python -m dh.validate --help
-usage: validate.py [-h] file_name [job_id] [output_dir]
+usage: validate.py [-h] file_name
 ```
 
-- `file_name` is the name of the json file containing the diffuser job configuration
-- `job_id` is an optional job id to use for the diffuser job if the file contains multiple jobs
+- `file_name` is the name of the json file containing the diffuser job 
 
 ## JSON Input Format
 
