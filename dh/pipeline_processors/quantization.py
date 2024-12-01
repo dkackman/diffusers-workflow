@@ -1,6 +1,6 @@
 from torchao.quantization import quantize_ as torchao_quantize
 from optimum.quanto import freeze, quantize as quanto_quantize
-
+from torchao.quantization import autoquant
 
 def quantize(component, quantization_definition):
     if quantization_definition is not None:
@@ -10,13 +10,18 @@ def quantize(component, quantization_definition):
 
         try:
             if quantization_library == "torchao":
-                torchao_quantize(component, weights_type())
+                torchao_quantize(component, weights_type(), device="cuda")
+                return component
+            
+            if quantization_library == "torchao.autoquant":
+                return autoquant(component, error_on_unseen=False)
 
-            elif quantization_library == "optimum.quanto":
+            if quantization_library == "optimum.quanto":
                 activations_type = quantization_definition["activations_type"]
                 quanto_quantize(component, weights=weights_type, activations=activations_type)
                 freeze(component)
-
+                return component
+            
             else:
                 raise ValueError(f"Quantization library {quantization_library} not supported")
             
