@@ -34,7 +34,7 @@ class Pipeline:
         # load loras and fuse them into the pipeline
         loras = self.pipeline_definition.get("loras", [])        
         for lora in loras:
-            default_lora_scale = 0.7 / len(loras) # default to equally distributing lora weights
+            default_lora_scale = 1.0 / len(loras) # default to equally distributing lora weights
             lora_name = lora.pop("lora_name", None)
             lora_scale = lora.pop("lora_scale", default_lora_scale)
             pipeline.load_lora_weights(lora_name, **lora)
