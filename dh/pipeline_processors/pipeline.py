@@ -70,7 +70,7 @@ def get_previous_result(previous_results, previous_result_name):
     if "." in previous_result_name:
         # this is named property of the previous result parse and get that property
         parts = previous_result_name.split(".")
-        return previous_result_name[parts[0]].get_output_property(parts[1])
+        return previous_results[parts[0]].get_output_property(parts[1])
     
     return previous_results[previous_result_name].get_primary_output() 
 
