@@ -32,13 +32,10 @@ class Pipeline:
             shared_components[shared_component_name] = getattr(pipeline, shared_component_name)
 
         # load loras and fuse them into the pipeline
-        loras = self.pipeline_definition.get("loras", [])        
-        for lora in loras:
-            default_lora_scale = 1.0 / len(loras) # default to equally distributing lora weights
-            lora_name = lora.pop("lora_name", None)
-            lora_scale = lora.pop("lora_scale", default_lora_scale)
-            pipeline.load_lora_weights(lora_name, **lora)
-            pipeline.fuse_lora(lora_scale=lora_scale)
+        load_loras(self.pipeline_definition.get("loras", []), pipeline)        
+
+        # load ip adapter
+        load_ip_adapter(self.pipeline_definition.get("ip_adapter", None), pipeline)
 
         # create a generator that will be used by the pipeline
         default_generator = torch.Generator(device_identifier).manual_seed(self.pipeline_definition.get("seed", torch.seed()))
@@ -64,6 +61,21 @@ class Pipeline:
         component = load_and_configure_component(self.pipeline_definition.get(component_name, None), component_name, device_identifier)
         if component is not None:
             from_pretrained_arguments[component_name] = component
+
+
+def load_loras(loras, pipeline):
+    for lora in loras:
+        default_lora_scale = 1.0 / len(loras) # default to equally distributing lora weights
+        lora_name = lora.pop("lora_name", None)
+        lora_scale = lora.pop("lora_scale", default_lora_scale)
+        pipeline.load_lora_weights(lora_name, **lora)
+        pipeline.fuse_lora(lora_scale=lora_scale)
+
+
+def load_ip_adapter(ip_adapter_definition, pipeline):
+    if ip_adapter_definition is not None:
+        model_name = ip_adapter_definition.pop("model_name")
+        pipeline.load_ip_adapter(model_name, **ip_adapter_definition)
 
 
 def get_previous_result(previous_results, previous_result_name):

@@ -157,6 +157,9 @@
                         "$ref": "#/$defs/lora"
                     }
                 },
+                "ip_adapter": {
+                    "$ref": "#/$defs/ip_adapter"
+                },
                 "from_pretrained_arguments": {
                     "$ref": "#/$defs/from_pretrained_arguments"
                 },
@@ -367,6 +370,27 @@
             "required": [
                 "configuration",
                 "from_pretrained_arguments"
+            ]
+        },
+        "ip_adapter": {
+            "type": "object",
+            "properties": {
+                "model_name": {
+                    "description": "The huggingface hub name of the ip adpater model to use.",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": {
+                "type": [
+                    "string",
+                    "number",
+                    "object",
+                    "array",
+                    "boolean"
+                ]
+            },
+            "required": [
+                "model_name"
             ]
         },
         "lora": {
