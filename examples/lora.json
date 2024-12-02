@@ -4,24 +4,9 @@
         {
             "name": "main",
             "pipeline": {
-                "transformer": {
-                    "configuration": {
-                        "pipeline_type": "SD3Transformer2DModel",
-                        "bits_and_bytes_configuration": {
-                            "load_in_4bit": true,
-                            "bnb_4bit_quant_type": "{nf4}",
-                            "bnb_4bit_compute_dtype": "torch.bfloat16"
-                        }
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "stabilityai/stable-diffusion-3.5-large",
-                        "subfolder": "transformer",
-                        "torch_dtype": "torch.bfloat16"
-                    }
-                },
                 "configuration": {
                     "pipeline_type": "StableDiffusion3Pipeline",
-                    "offload": "full"
+                    "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-3.5-large",
