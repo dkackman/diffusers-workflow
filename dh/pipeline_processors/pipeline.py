@@ -76,7 +76,10 @@ def load_ip_adapter(ip_adapter_definition, pipeline):
     if ip_adapter_definition is not None:
         model_name = ip_adapter_definition.pop("model_name")
         pipeline.load_ip_adapter(model_name, **ip_adapter_definition)
-
+        scale = ip_adapter_definition.get("ip_adapter_scale", None)
+        if scale is not None:
+            pipeline.set_ip_adapter_scale(scale)
+            
 
 def get_previous_result(previous_results, previous_result_name):
     if "." in previous_result_name:
