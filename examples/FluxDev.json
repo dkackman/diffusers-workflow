@@ -15,7 +15,7 @@
                             "torch_dtype": "torch.bfloat16"
                         },
                         "arguments": {
-                            "prompt": "A breathtaking and hyper-realistic scene of a sleek, futuristic electric maglev train racing forward at incredible speed, suspended above a gleaming, semi-reflective track. The train's aerodynamic design features seamless curves and polished metallic surfaces that glisten under a vibrant, golden sunset sky. On the front of the train, prominently displayed, is a single vivid green leaf emblem, symbolizing harmony with nature and sustainable innovation. The background blends sprawling, lush green landscapes with towering, modern eco-friendly skyscrapers adorned with vertical gardens. A radiant beam of sunlight illuminates the train, casting dramatic shadows, while windblown leaves swirl gently around, adding dynamic energy. The atmosphere radiates hope, progress, and boundless opportunity, blending the power of technology with the serenity of nature.",
+                            "prompt": "Sage and chia",
                             "num_inference_steps": 25,
                             "num_images_per_prompt": 4,
                             "guidance_scale": 3.5,

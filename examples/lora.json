@@ -1,5 +1,5 @@
 {
-    "id": "sd35",
+    "id": "sd35_lora",
     "steps": [
         {
             "name": "main",
@@ -27,8 +27,13 @@
                     "model_name": "stabilityai/stable-diffusion-3.5-large",
                     "torch_dtype": "torch.bfloat16"
                 },
+                "loras": [
+                    {
+                        "lora_name": "linoyts/yart_art_sd3-5_lora"
+                    }
+                ],
                 "arguments": {
-                    "prompt": "sage and chia",
+                    "prompt": "marmot, yarn art style",
                     "num_inference_steps": 25,
                     "guidance_scale": 4.5,
                     "max_sequence_length": 512,
