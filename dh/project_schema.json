@@ -376,18 +376,24 @@
             "type": "object",
             "properties": {
                 "model_name": {
-                    "description": "The huggingface hub name of the ip adpater model to use.",
+                    "description": "The huggingface hub name of the ip adadapter model to use.",
                     "type": "string"
+                },
+                "weight_name": {
+                    "description": "The file name of the ip adapter weights.",
+                    "type": "string"
+                },
+                "subfolder": {
+                    "description": "The subfolder location of a model file within a larger model repository",
+                    "type": "string"
+                },
+                "ip_adapter_scale": {
+                    "description": "The scale factor of the ip adapter.",
+                    "type": "number",
+                    "format": "float",
+                    "minimum": 0.0,
+                    "maximum": 1.0
                 }
-            },
-            "additionalProperties": {
-                "type": [
-                    "string",
-                    "number",
-                    "object",
-                    "array",
-                    "boolean"
-                ]
             },
             "required": [
                 "model_name"
