@@ -23,7 +23,7 @@ def resize_square(img: Image) -> Image:
     return img_cropped
 
 
-def center_crop_resize(img, output_size=(512, 512)):
+def center_crop_resize(img, output_size=(768, 768)):
     width, height = img.size
 
     # Calculate dimensions to crop to the center
