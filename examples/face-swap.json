@@ -1,0 +1,34 @@
+{
+    "id": "face_swap",
+    "steps": [
+        {
+            "name": "sd15",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "StableDiffusionPipeline"
+                },
+                "ip_adapter": {
+                    "model_name": "h94/IP-Adapter",
+                    "subfolder": "models",
+                    "weight_name": "ip-adapter-full-face_sd15.bin",
+                    "ip_adapter_scale": 0.5
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16"
+                },
+                "arguments": {
+                    "ip_adapter_image": {
+                        "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/ip_adapter_einstein_base.png"
+                    },
+                    "prompt": "A photo of Einstein as a chef, wearing an apron, cooking in a French restaurant",
+                    "negative_prompt": "deformed, ugly, wrong proportion, low res, bad anatomy, worst quality, low quality",
+                    "num_inference_steps": 100
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}
