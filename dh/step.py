@@ -16,7 +16,8 @@ class Step:
             result_definition = self.step_definition.get("result", {})
             if "pipeline" in self.step_definition:
                 pipeline = Pipeline(self.step_definition["pipeline"])
-                result = Result(pipeline.run("cuda", previous_results, shared_components), result_definition)
+                pipeline.load("cuda", shared_components)
+                result = Result(pipeline.run(previous_results), result_definition)
 
             else:
                 task = Task(self.step_definition["task"])
