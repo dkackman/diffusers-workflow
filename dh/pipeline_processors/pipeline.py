@@ -18,7 +18,7 @@ class Pipeline:
         for reused_component_name in self.pipeline_definition.get("reused_components", []):
             from_pretrained_arguments[reused_component_name] = shared_components[reused_component_name]
 
-        for optional_component_name in ["controlnet", "transformer", "vae", "unet", "text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2"]:
+        for optional_component_name in ["controlnet", "transformer", "vae", "unet", "text_encoder", "text_encoder_2", "tokenizer", "tokenizer_2", "image_encoder"]:
             self.load_optional_component(optional_component_name, from_pretrained_arguments, device_identifier)
 
         # load and configure the pipeline
@@ -75,8 +75,8 @@ def load_loras(loras, pipeline):
 def load_ip_adapter(ip_adapter_definition, pipeline):
     if ip_adapter_definition is not None:
         model_name = ip_adapter_definition.pop("model_name")
+        scale = ip_adapter_definition.pop("ip_adapter_scale", None)
         pipeline.load_ip_adapter(model_name, **ip_adapter_definition)
-        scale = ip_adapter_definition.get("ip_adapter_scale", None)
         if scale is not None:
             pipeline.set_ip_adapter_scale(scale)
             

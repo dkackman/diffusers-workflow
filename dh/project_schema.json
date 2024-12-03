@@ -148,6 +148,9 @@
                 "tokenizer_2": {
                     "$ref": "#/$defs/pipeline_component"
                 },
+                "image_encoder": {
+                    "$ref": "#/$defs/pipeline_component"
+                },
                 "controlnet": {
                     "$ref": "#/$defs/controlnet"
                 },
@@ -385,7 +388,10 @@
                 },
                 "subfolder": {
                     "description": "The subfolder location of a model file within a larger model repository",
-                    "type": "string"
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "ip_adapter_scale": {
                     "description": "The scale factor of the ip adapter.",
