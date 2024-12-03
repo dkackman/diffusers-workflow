@@ -86,6 +86,13 @@ def load_ip_adapter(ip_adapter_definition, pipeline):
         if scale is not None:
             pipeline.set_ip_adapter_scale(scale)
 
+def get_previous_results(previous_results, previous_result_name):
+    if "." in previous_result_name:
+        # this is named property of the previous result parse and get that property
+        parts = previous_result_name.split(".")
+        return previous_results[parts[0]].get_output_properties(parts[1])
+    
+    return previous_results[previous_result_name].get_primary_output() 
 
 def get_previous_result(previous_results, previous_result_name):
     if "." in previous_result_name:
