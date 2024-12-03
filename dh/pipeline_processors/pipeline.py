@@ -1,4 +1,5 @@
 import torch
+import copy
 from diffusers import BitsAndBytesConfig
 from .quantization import quantize
 
@@ -6,11 +7,12 @@ from .quantization import quantize
 class Pipeline:
     def __init__(self, pipeline_definition):
         self.pipeline_definition = pipeline_definition
+        self.pipeline = None
+        self.default_generator = None
 
-    @torch.inference_mode()
-    def run(self, device_identifier, previous_results, shared_components):
-        configuration = self.pipeline_definition.get("configuration", None)
-        from_pretrained_arguments = self.pipeline_definition.get("from_pretrained_arguments", None)
+
+    def load(self, device_identifier, shared_components):
+        from_pretrained_arguments = self.pipeline_definition["from_pretrained_arguments"]
         
         # grab any previously shared components and put them into from_pretrained_arguments
         # if a pipeline asks for both a shared component and specifies a configuration for 
@@ -22,7 +24,7 @@ class Pipeline:
             self.load_optional_component(optional_component_name, from_pretrained_arguments, device_identifier)
 
         # load and configure the pipeline
-        pipeline = load_and_configure_pipeline(configuration, from_pretrained_arguments, device_identifier)
+        pipeline = load_and_configure_pipeline(self.pipeline_definition["configuration"], from_pretrained_arguments, device_identifier)
 
         # load and configure any custom scheduler
         load_and_configure_scheduler(self.pipeline_definition.get("scheduler", None), pipeline)
@@ -38,14 +40,18 @@ class Pipeline:
         load_ip_adapter(self.pipeline_definition.get("ip_adapter", None), pipeline)
 
         # create a generator that will be used by the pipeline
-        default_generator = torch.Generator(device_identifier).manual_seed(self.pipeline_definition.get("seed", torch.seed()))
+        self.default_generator = torch.Generator(device_identifier).manual_seed(self.pipeline_definition.get("seed", torch.seed()))
+        self.pipeline = pipeline
 
+
+    @torch.inference_mode()
+    def run(self, previous_results):
+        if self.pipeline is None:
+            raise ValueError("Pipeline has not been initialized. Call load(device_identifier, shared_components) first.")
+        
         # prepare and run pipeline
-        arguments = self.pipeline_definition.get("arguments", {})
-
-        # each iteration can use its own seed
-        if not configuration.get("no_generator", False):
-            arguments["generator"] = torch.Generator(device_identifier).manual_seed(self.pipeline_definition["seed"]) if "seed" in self.pipeline_definition else default_generator
+        arguments = copy.deepcopy(self.pipeline_definition.get("arguments", {}))
+        arguments["generator"] = self.default_generator
 
         # replace previous_result: references with the actual previous result
         for argument_name, argument_value in arguments.items():
@@ -53,7 +59,7 @@ class Pipeline:
                 arguments[argument_name] = get_previous_result(previous_results, argument_value.split(":")[1])
 
         # run the pipeline
-        pipeline_output = pipeline(**arguments)
+        pipeline_output = self.pipeline(**arguments)
         return pipeline_output   
      
 
@@ -79,7 +85,7 @@ def load_ip_adapter(ip_adapter_definition, pipeline):
         pipeline.load_ip_adapter(model_name, **ip_adapter_definition)
         if scale is not None:
             pipeline.set_ip_adapter_scale(scale)
-            
+
 
 def get_previous_result(previous_results, previous_result_name):
     if "." in previous_result_name:
@@ -118,8 +124,8 @@ def load_and_configure_pipeline(configuration, from_pretrained_arguments, device
         from_pretrained_arguments["quantization_config"] = BitsAndBytesConfig(**bits_and_bytes_configuration)
 
     # load the pipeline
-    pipeline_type = configuration.get("pipeline_type", None)
-    model_name = from_pretrained_arguments.pop("model_name", None)  
+    pipeline_type = configuration["pipeline_type"]
+    model_name = from_pretrained_arguments["model_name"]
     print(f"Loading pipeline {model_name}...")
 
     pipeline = pipeline_type.from_pretrained(model_name, **from_pretrained_arguments)
