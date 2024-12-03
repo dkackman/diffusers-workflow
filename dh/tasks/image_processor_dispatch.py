@@ -109,7 +109,8 @@ def image_to_canny(image, low_threshold=100, high_threshold=200):
     return Image.fromarray(image)
 
 
-def image_to_depth(image, device_identifier, size=(1024, 1024)):
+def image_to_depth(image, device_identifier, height = 1024, width = 1024):
+    size = (width, height)
     depth_estimator = DPTForDepthEstimation.from_pretrained(
         "Intel/dpt-hybrid-midas"
     ).to(device_identifier)

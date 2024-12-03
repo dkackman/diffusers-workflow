@@ -12,17 +12,24 @@ class Result:
     def add_result(self, result):
         self.result_list.append(result)
     
-    def get_primary_output(self):
-        list = get_output_list(self.result_list[0])
+    def get_primary_artifact(self):
+        list = get_artifact_list(self.result_list[0])
         if len(list) > 0:
             return list[0]
         
         return None
     
-    def get_output_property(self, property_name):
+    def get_artifacts(self):
+        artifacts = []
+        for result in self.result_list:
+            artifacts.extend(get_artifact_list(result))
+
+        return artifacts
+    
+    def get_artifact_property(self, property_name):
         return self.result_list[0].get(property_name, None)
     
-    def get_output_properties(self, property_name):
+    def get_artifact_properties(self, property_name):
         values = [getattr(result, property_name, None) 
                 for result in self.result_list 
                 if hasattr(result, property_name)]
@@ -40,7 +47,7 @@ class Result:
             extension = guess_extension(content_type)
             
             for i, result in enumerate(self.result_list):
-                for j, artifact in enumerate(get_output_list(result)):
+                for j, artifact in enumerate(get_artifact_list(result)):
                     output_path = os.path.join(output_dir, f"{file_base_name}-{i}.{j}{extension}")
                     print(f"Saving result to {output_path}")
                     if content_type.startswith("video"):
@@ -56,7 +63,7 @@ class Result:
                         raise ValueError(f"Content type {content_type} does not match result type {type(artifact)}")
 
 
-def get_output_list(result):
+def get_artifact_list(result):
     if hasattr(result, "images"):
         return result.images
     
@@ -71,7 +78,6 @@ def get_output_list(result):
     
     if hasattr(result, "audios"):
         return [audio.T.float().cpu().numpy() for audio in result.audios]
-        # return result.audios[0].T.float().cpu().numpy()
     
     if isinstance(result, list):
         return result

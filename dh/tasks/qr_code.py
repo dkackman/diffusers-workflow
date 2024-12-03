@@ -2,12 +2,10 @@ import qrcode
 from .image_utils import resize_for_condition_image
 
 
-def get_qrcode_image(qr_code_contents, size = (768, 768)):
-    # base the resolution of of size - defaulting to 768
-    W, H = size if size is not None else (768, 768)
-    resolution = max(H, W)
+def get_qrcode_image(qr_code_contents, height=768, width=768):
+    # base the resolution off of size - defaulting to 768
+    resolution = max(height, width)
 
-    # user passed a qrcode - generate image
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H,

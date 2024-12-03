@@ -2,7 +2,7 @@ import torch
 import copy
 from diffusers import BitsAndBytesConfig
 from .quantization import quantize
-
+from ..previous_results import get_previous_result
 
 class Pipeline:
     def __init__(self, pipeline_definition):
@@ -40,28 +40,32 @@ class Pipeline:
         load_ip_adapter(self.pipeline_definition.get("ip_adapter", None), pipeline)
 
         # create a generator that will be used by the pipeline
-        self.default_generator = torch.Generator(device_identifier).manual_seed(self.pipeline_definition.get("seed", torch.seed()))
+        if not "no_generator" in self.pipeline_definition["configuration"]:
+            self.default_generator = torch.Generator(device_identifier).manual_seed(self.pipeline_definition.get("seed", torch.seed()))
+
         self.pipeline = pipeline
 
-
     @torch.inference_mode()
-    def run(self, previous_results):
+    def run(self, arguments):
         if self.pipeline is None:
             raise ValueError("Pipeline has not been initialized. Call load(device_identifier, shared_components) first.")
-        
+
+        # run the pipeline
+        pipeline_output = self.pipeline(**arguments)
+        return pipeline_output        
+
+    def get_iterations(self, previous_results):
         # prepare and run pipeline
         arguments = copy.deepcopy(self.pipeline_definition.get("arguments", {}))
-        arguments["generator"] = self.default_generator
+        if self.default_generator is not None:
+            arguments["generator"] = self.default_generator
 
         # replace previous_result: references with the actual previous result
         for argument_name, argument_value in arguments.items():
             if isinstance(argument_value, str) and argument_value.startswith("previous_result:"):
                 arguments[argument_name] = get_previous_result(previous_results, argument_value.split(":")[1])
 
-        # run the pipeline
-        pipeline_output = self.pipeline(**arguments)
-        return pipeline_output   
-     
+        return [arguments]
 
     def load_optional_component(self, component_name, from_pretrained_arguments, device_identifier):
         component = load_and_configure_component(self.pipeline_definition.get(component_name, None), component_name, device_identifier)
@@ -85,22 +89,6 @@ def load_ip_adapter(ip_adapter_definition, pipeline):
         pipeline.load_ip_adapter(model_name, **ip_adapter_definition)
         if scale is not None:
             pipeline.set_ip_adapter_scale(scale)
-
-def get_previous_results(previous_results, previous_result_name):
-    if "." in previous_result_name:
-        # this is named property of the previous result parse and get that property
-        parts = previous_result_name.split(".")
-        return previous_results[parts[0]].get_output_properties(parts[1])
-    
-    return previous_results[previous_result_name].get_primary_output() 
-
-def get_previous_result(previous_results, previous_result_name):
-    if "." in previous_result_name:
-        # this is named property of the previous result parse and get that property
-        parts = previous_result_name.split(".")
-        return previous_results[parts[0]].get_output_property(parts[1])
-    
-    return previous_results[previous_result_name].get_primary_output() 
 
 
 def load_and_configure_scheduler(scheduler_definition, pipeline):

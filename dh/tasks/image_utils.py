@@ -1,9 +1,9 @@
 from PIL import Image
 
 
-def scale_to_size(image, size):
+def scale_to_size(image, height, width):
     input_image = image.convert("RGB")
-    return input_image.resize(size)
+    return input_image.resize((width, height))
 
 
 def resize_square(img: Image) -> Image:
@@ -23,15 +23,16 @@ def resize_square(img: Image) -> Image:
     return img_cropped
 
 
-def center_crop_resize(img, output_size=(768, 768)):
-    width, height = img.size
+def center_crop_resize(img, height=768, width=768):
+    output_size = (width, height)
+    W, H = img.size
 
     # Calculate dimensions to crop to the center
-    new_dimension = min(width, height)
-    left = (width - new_dimension) / 2
-    top = (height - new_dimension) / 2
-    right = (width + new_dimension) / 2
-    bottom = (height + new_dimension) / 2
+    new_dimension = min(W, H)
+    left = (W - new_dimension) / 2
+    top = (H - new_dimension) / 2
+    right = (W + new_dimension) / 2
+    bottom = (H + new_dimension) / 2
 
     # Crop and resize
     img = img.crop((left, top, right, bottom))

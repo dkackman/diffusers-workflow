@@ -9,19 +9,21 @@ class Step:
 
     def run(self, previous_results, shared_components):
         try:
-            name = self.step_definition["name"]
-            print(f"Running step {name}...")
+            step_name = self.step_definition["name"]
     
             result = Result(self.step_definition.get("result", {}))
             if "pipeline" in self.step_definition:
                 pipeline = Pipeline(self.step_definition["pipeline"])
                 pipeline.load("cuda", shared_components)
-                result.add_result(pipeline.run(previous_results))
+
+                for arguments in pipeline.get_iterations(previous_results):                    
+                    result.add_result(pipeline.run(arguments))
 
             else:
                 task = Task(self.step_definition["task"])
-                print(f"Running task {task.command}...")     
-                result.add_result(task.run("cuda"))
+                print(f"Running task {step_name}:{task.command}...")   
+                for arguments in task.get_iterations(previous_results):
+                    result.add_result(task.run("cuda", arguments))
 
             return result
         
