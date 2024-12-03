@@ -5,17 +5,6 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "txt2img2vid",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "dh.run",
-      "cwd": "${workspaceFolder}/",
-      "justMyCode": true,
-      "args": [
-        "./examples/txt2img2vid.json"
-      ]
-    },
-    {
       "name": "test-all",
       "type": "debugpy",
       "request": "launch",
@@ -24,17 +13,6 @@
       "justMyCode": true,
       "args": [
         "./examples/tests.json"
-      ]
-    },
-    {
-      "name": "img2vid",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "dh.run",
-      "cwd": "${workspaceFolder}/",
-      "justMyCode": true,
-      "args": [
-        "./examples/img2vid.json"
       ]
     },
     {
@@ -49,17 +27,6 @@
       ]
     },
     {
-      "name": "controlnet",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "dh.run",
-      "cwd": "${workspaceFolder}/",
-      "justMyCode": true,
-      "args": [
-        "./examples/controlnet.json",
-      ]
-    },
-    {
       "name": "validate file",
       "type": "debugpy",
       "request": "launch",
@@ -67,7 +34,7 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/img2vid.json",
+        "./examples/${input:jobName}.json"
       ]
     },
     {
