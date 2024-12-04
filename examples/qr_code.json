@@ -1,6 +1,6 @@
 {
     "variables": {
-        "qr_code_contents": "https://xch.network/chia-toronto-2025/",
+        "qr_code_contents": "txch1jdsqdz4069k00t5vlk9l8mnr5ycljz640g36ymnygslgkra675ssg2y4ng",
         "init_image_location": "https://th.bing.com/th/id/OIP.Lsm7UOwPR37OPvDy3HUUTQHaE7?rs=1&pid=ImgDetMain"
     },
     "jobs": [
@@ -22,7 +22,7 @@
                 {
                     "name": "init_image",
                     "task": {
-                        "command": "tile",
+                        "command": "resize_resample",
                         "arguments": {
                             "image": {
                                 "location": "variable:init_image_location"
@@ -53,7 +53,7 @@
                             "torch_dtype": "torch.float16"
                         },
                         "arguments": {
-                            "prompt": "the toronto skyline",
+                            "prompt": "green vines",
                             "negative_prompt": "ugly, disfigured, low quality, blurry, nsfw",
                             "image": "previous_result:init_image",
                             "control_image": "previous_result:qr_code",
