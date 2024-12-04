@@ -32,7 +32,7 @@
         {
             "name": "resize",
             "task": {
-                "command": "center_crop",
+                "command": "resize_center_crop",
                 "arguments": {
                     "image": "previous_result:gather_images",
                     "height": 768,

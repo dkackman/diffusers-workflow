@@ -17,7 +17,7 @@ from transformers import (
     DPTFeatureExtractor,
 )
 from .zoe_depth import colorize, load_zoe
-from .image_utils import center_crop_resize, resize_for_condition_image, resize_square, scale_to_size
+from .image_utils import resize_center_crop, resize_resample, crop_sqaure, resize_rescale
 from .depth_estimator import make_hint_image, make_hint_tensor
 from .borders import add_border_and_mask
 from .qr_code import get_qrcode_image
@@ -35,9 +35,6 @@ def process_image(image, processor, device_identifier, kwargs):
 
     if processor == "mlsd":
         return MLSDdetector.from_pretrained("lllyasviel/ControlNet")(image, **kwargs)
-
-    if processor == "depth":
-        return image_to_depth(image, device_identifier, **kwargs)
 
     if processor == "normal_bae":
         return NormalBaeDetector.from_pretrained("lllyasviel/Annotators")(image, **kwargs)
@@ -66,29 +63,29 @@ def process_image(image, processor, device_identifier, kwargs):
         processor = ContentShuffleDetector()
         return processor(image, **kwargs)
 
-    if processor == "tile":
-        return resize_for_condition_image(image, **kwargs)
-
     if processor == "zoe_depth":
         return get_zoe_depth_map(image, device_identifier)
 
-    if processor == "center_crop":
-        return center_crop_resize(image, **kwargs)
+    if processor == "depth":
+        return image_to_depth(image, device_identifier, **kwargs)
 
     if processor == "depth_estimator_tensor":
         return make_hint_tensor(image, device_identifier)    
     
     if processor == "depth_estimator":
         return make_hint_image(image, device_identifier)
+    
+    if processor == "resize_center_crop":
+        return resize_center_crop(image, **kwargs)
+    
+    if processor == "resize_resample":
+        return resize_resample(image, **kwargs)
 
-    if processor == "resize_for_condition_image":
-        return resize_for_condition_image(image, **kwargs)
+    if processor == "crop_sqaure":
+        return crop_sqaure(image, **kwargs)
 
-    if processor == "resize_square":
-        return resize_square(image, **kwargs)
-
-    if processor == "scale_to_size":
-        return scale_to_size(image, **kwargs)
+    if processor == "resize_rescale":
+        return resize_rescale(image, **kwargs)
 
     raise Exception("Unknown image processor type")
 

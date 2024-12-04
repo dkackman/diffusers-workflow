@@ -476,7 +476,8 @@
                 }
             },
             "required": [
-                "command"
+                "command",
+                "arguments"
             ]
         },
         "template": {
