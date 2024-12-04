@@ -3,6 +3,7 @@ import copy
 from diffusers import BitsAndBytesConfig
 from .quantization import quantize
 from ..previous_results import get_previous_results, find_previous_result_refs
+from itertools import product
 
 class Pipeline:
     def __init__(self, pipeline_definition):
@@ -63,15 +64,22 @@ class Pipeline:
 
         if len(result_refs) == 0:
             return [self.get_arguments_instance(argument_template)]
+            
+        # Get all previous results for each ref
+        ref_results = {}
+        for ref_key, ref_value in result_refs.items():
+            ref_results[ref_key] = list(get_previous_results(previous_results, ref_value))
         
-        if len(result_refs) > 1:
-            raise ValueError(f"Task {self.command} can have only one previous_result reference")
-
-        result_ref_key, result_ref_value = next(iter(result_refs.items()))    
+        # Generate all possible combinations
+        keys = list(ref_results.keys())
+        value_combinations = product(*[ref_results[k] for k in keys])
+        
+        # Create an arguments instance for each combination
         iterations = []
-        for previous_result in get_previous_results(previous_results, result_ref_value):
+        for values in value_combinations:
             arguments = self.get_arguments_instance(argument_template)
-            arguments[result_ref_key] = previous_result
+            for key, value in zip(keys, values):
+                arguments[key] = value
             iterations.append(arguments)
             
         return iterations

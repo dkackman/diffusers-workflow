@@ -19,5 +19,5 @@ def gather(glob = None, urls = []):
     
     for url in urls:
         images.append(load_image(url))
-        
+
     return images
