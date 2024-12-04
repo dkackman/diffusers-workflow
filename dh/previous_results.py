@@ -7,15 +7,6 @@ def get_previous_results(previous_results, previous_result_name):
     return previous_results[previous_result_name].get_artifacts() 
 
 
-def get_previous_result(previous_results, previous_result_name):
-    if "." in previous_result_name:
-        # this is named property of the previous result parse and get that property
-        parts = previous_result_name.split(".")
-        return previous_results[parts[0]].get_artifact_property(parts[1])
-    
-    return previous_results[previous_result_name].get_primary_artifact() 
-
-
 def find_previous_result_refs(arguments):
     """Find all values in arguments dict that reference previous results.
     

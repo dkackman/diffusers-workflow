@@ -12,22 +12,12 @@ class Result:
     def add_result(self, result):
         self.result_list.append(result)
     
-    def get_primary_artifact(self):
-        list = get_artifact_list(self.result_list[0])
-        if len(list) > 0:
-            return list[0]
-        
-        return None
-    
     def get_artifacts(self):
         artifacts = []
         for result in self.result_list:
             artifacts.extend(get_artifact_list(result))
 
         return artifacts
-    
-    def get_artifact_property(self, property_name):
-        return self.result_list[0].get(property_name, None)
     
     def get_artifact_properties(self, property_name):
         values = [getattr(result, property_name, None) 

@@ -32,6 +32,7 @@ class Step:
         except Exception as e:
             print(f"Error running step {self.step_definition.get('name', 'unknown')}")
             print(e)
+            raise e
 
     @property
     def name(self):
