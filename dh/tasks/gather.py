@@ -1,6 +1,7 @@
 import glob as glob_lib
 from diffusers.utils import load_image
 
+
 def gather(glob = None, urls = []):
     """Gather and process images matching glob pattern.
     

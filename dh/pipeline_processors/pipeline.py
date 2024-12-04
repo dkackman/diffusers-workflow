@@ -1,19 +1,21 @@
 import torch
-import copy
 from diffusers import BitsAndBytesConfig
 from .quantization import quantize
-from ..previous_results import get_previous_results, find_previous_result_refs
-from itertools import product
+
 
 class Pipeline:
-    def __init__(self, pipeline_definition):
+    def __init__(self, pipeline_definition, default_seed):
         self.pipeline_definition = pipeline_definition
+        self.default_seed = default_seed
         self.pipeline = None
-        self.default_generator = None
 
     @property
     def model_name(self):
         return self.pipeline_definition["from_pretrained_arguments"]["model_name"]
+    
+    @property
+    def argument_template(self):
+        return self.pipeline_definition["arguments"]
 
     def load(self, device_identifier, shared_components):
         from_pretrained_arguments = self.pipeline_definition["from_pretrained_arguments"]
@@ -45,7 +47,7 @@ class Pipeline:
 
         # create a generator that will be used by the pipeline
         if not "no_generator" in self.pipeline_definition["configuration"]:
-            self.default_generator = torch.Generator(device_identifier).manual_seed(self.pipeline_definition.get("seed", torch.seed()))
+            self.argument_template["generator"] = torch.Generator(device_identifier).manual_seed(self.pipeline_definition.get("seed", self.default_seed))
 
         self.pipeline = pipeline
 
@@ -57,39 +59,6 @@ class Pipeline:
         # run the pipeline
         pipeline_output = self.pipeline(**arguments)
         return pipeline_output        
-
-    def get_iterations(self, previous_results):
-        argument_template = self.pipeline_definition.get("arguments", {})
-        result_refs = find_previous_result_refs(argument_template)
-
-        if len(result_refs) == 0:
-            return [self.get_arguments_instance(argument_template)]
-            
-        # Get all previous results for each ref
-        ref_results = {}
-        for ref_key, ref_value in result_refs.items():
-            ref_results[ref_key] = list(get_previous_results(previous_results, ref_value))
-        
-        # Generate all possible combinations
-        keys = list(ref_results.keys())
-        value_combinations = product(*[ref_results[k] for k in keys])
-        
-        # Create an arguments instance for each combination
-        iterations = []
-        for values in value_combinations:
-            arguments = self.get_arguments_instance(argument_template)
-            for key, value in zip(keys, values):
-                arguments[key] = value
-            iterations.append(arguments)
-            
-        return iterations
-    
-    def get_arguments_instance(self, argument_template):
-        arguments = copy.deepcopy(argument_template)
-        if self.default_generator is not None:
-            arguments["generator"] = self.default_generator
-
-        return arguments
 
     def load_optional_component(self, component_name, from_pretrained_arguments, device_identifier):
         component = load_and_configure_component(self.pipeline_definition.get(component_name, None), component_name, device_identifier)

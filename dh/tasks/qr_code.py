@@ -1,5 +1,5 @@
 import qrcode
-from .image_utils import resize_for_condition_image
+from .image_utils import resize_resample
 
 
 def get_qrcode_image(qr_code_contents, height=768, width=768):
@@ -16,4 +16,4 @@ def get_qrcode_image(qr_code_contents, height=768, width=768):
     qr.make(fit=True)
 
     qrcode_image = qr.make_image(fill_color="black", back_color="white")
-    return resize_for_condition_image(qrcode_image, resolution)
+    return resize_resample(qrcode_image, resolution)

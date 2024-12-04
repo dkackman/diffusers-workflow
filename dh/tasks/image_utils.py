@@ -1,12 +1,7 @@
 from PIL import Image
 
 
-def scale_to_size(image, height, width):
-    input_image = image.convert("RGB")
-    return input_image.resize((width, height))
-
-
-def resize_square(img: Image) -> Image:
+def crop_sqaure(img: Image) -> Image:
     # Determine the shortest side
     min_side = min(img.width, img.height)
 
@@ -23,7 +18,7 @@ def resize_square(img: Image) -> Image:
     return img_cropped
 
 
-def center_crop_resize(img, height=768, width=768):
+def resize_center_crop(img, height=768, width=768):
     output_size = (width, height)
     W, H = img.size
 
@@ -41,7 +36,12 @@ def center_crop_resize(img, height=768, width=768):
     return img
 
 
-def resize_for_condition_image(image, resolution=1024):
+def resize_rescale(image, height, width):
+    input_image = image.convert("RGB")
+    return input_image.resize((width, height))
+
+
+def resize_resample(image, resolution=1024):
     input_image = image.convert("RGB")
     W, H = input_image.size
     k = float(resolution) / min(H, W)

@@ -18,7 +18,8 @@
                     "width": 1024,
                     "guidance_scale": 3.5,
                     "num_inference_steps": 4,
-                    "max_sequence_length": 256
+                    "max_sequence_length": 256,
+                    "num_images_per_prompt": 2
                 }
             },
             "result": {
