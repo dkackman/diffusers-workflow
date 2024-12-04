@@ -14,6 +14,7 @@ class Step:
             result = Result(self.step_definition.get("result", {}))
             if "pipeline" in self.step_definition:
                 pipeline = Pipeline(self.step_definition["pipeline"])
+                print(f"Running task {step_name}:{pipeline.model_name}...")   
                 pipeline.load("cuda", shared_components)
 
                 for arguments in pipeline.get_iterations(previous_results):                    
@@ -22,6 +23,7 @@ class Step:
             else:
                 task = Task(self.step_definition["task"])
                 print(f"Running task {step_name}:{task.command}...")   
+
                 for arguments in task.get_iterations(previous_results):
                     result.add_result(task.run("cuda", arguments))
 
