@@ -15,6 +15,7 @@ def crop_sqaure(img: Image) -> Image:
 
     # Crop the image
     img_cropped = img.crop((left, top, right, bottom))
+    
     return img_cropped
 
 
@@ -36,7 +37,7 @@ def resize_center_crop(img, height=768, width=768):
     return img
 
 
-def resize_rescale(image, height, width):
+def resize_rescale(image, height=768, width=768):
     input_image = image.convert("RGB")
     return input_image.resize((width, height))
 
@@ -49,4 +50,5 @@ def resize_resample(image, resolution=1024):
     W *= k
     H = int(round(H / 64.0)) * 64
     W = int(round(W / 64.0)) * 64
+
     return input_image.resize((W, H), resample=Image.LANCZOS)

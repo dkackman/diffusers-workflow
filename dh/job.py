@@ -23,6 +23,7 @@ class Job:
             results = {}
             shared_components = {}
             default_seed = job.get("seed", torch.seed()) 
+            job["seed"] = default_seed # save the seed for reproducibility
             for step_data in job["steps"]:
                 step = Step(step_data, default_seed)
                 result = step.run(results, shared_components)
