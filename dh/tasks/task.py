@@ -17,6 +17,7 @@ class Task:
         if len(result_refs) > 1:
             raise ValueError(f"Task {self.command} can have only one previous_result reference")
 
+        # realize the single previous result reference into the arguments
         result_ref_key, result_ref_value = next(iter(result_refs.items()))    
         iterations = []
         for previous_result in get_previous_results(previous_results, result_ref_value):
