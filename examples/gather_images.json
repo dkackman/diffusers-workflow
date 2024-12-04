@@ -1,22 +1,27 @@
 {
-    "id": "sd-x2-latent-upscaler",
+    "id": "workflow",
     "steps": [
         {
-            "name": "main",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "StableDiffusionPipeline"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                    "torch_dtype": "torch.float16"
-                },
+            "name": "gather_images",
+            "task": {
+                "command": "gather",
                 "arguments": {
-                    "prompt": "Stormtrooper's lecture in beautiful lecture hall",
-                    "num_inference_steps": 25,
-                    "num_images_per_prompt": 2,
-                    "output_type": "{latent}"
+                    "glob": "./test_images/*.jpg"
                 }
+            }
+        },
+        {
+            "name": "resize",
+            "task": {
+                "command": "center_crop",
+                "arguments": {
+                    "image": "previous_result:gather_images",
+                    "height": 128,
+                    "width": 128
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
             }
         },
         {
@@ -30,7 +35,7 @@
                     "torch_dtype": "torch.float16"
                 },
                 "arguments": {
-                    "image": "previous_result:main",
+                    "image": "previous_result:center_crop",
                     "prompt": "Stormtrooper's lecture in beautiful lecture hall"
                 }
             },

@@ -2,7 +2,7 @@ import torch
 import copy
 from diffusers import BitsAndBytesConfig
 from .quantization import quantize
-from ..previous_results import get_previous_result
+from ..previous_results import get_previous_results, find_previous_result_refs
 
 class Pipeline:
     def __init__(self, pipeline_definition):
@@ -10,6 +10,9 @@ class Pipeline:
         self.pipeline = None
         self.default_generator = None
 
+    @property
+    def model_name(self):
+        return self.pipeline_definition["from_pretrained_arguments"]["model_name"]
 
     def load(self, device_identifier, shared_components):
         from_pretrained_arguments = self.pipeline_definition["from_pretrained_arguments"]
@@ -55,17 +58,30 @@ class Pipeline:
         return pipeline_output        
 
     def get_iterations(self, previous_results):
-        # prepare and run pipeline
-        arguments = copy.deepcopy(self.pipeline_definition.get("arguments", {}))
+        argument_template = self.pipeline_definition.get("arguments", {})
+        result_refs = find_previous_result_refs(argument_template)
+
+        if len(result_refs) == 0:
+            return [self.get_arguments_instance(argument_template)]
+        
+        if len(result_refs) > 1:
+            raise ValueError(f"Task {self.command} can have only one previous_result reference")
+
+        result_ref_key, result_ref_value = next(iter(result_refs.items()))    
+        iterations = []
+        for previous_result in get_previous_results(previous_results, result_ref_value):
+            arguments = self.get_arguments_instance(argument_template)
+            arguments[result_ref_key] = previous_result
+            iterations.append(arguments)
+            
+        return iterations
+    
+    def get_arguments_instance(self, argument_template):
+        arguments = copy.deepcopy(argument_template)
         if self.default_generator is not None:
             arguments["generator"] = self.default_generator
 
-        # replace previous_result: references with the actual previous result
-        for argument_name, argument_value in arguments.items():
-            if isinstance(argument_value, str) and argument_value.startswith("previous_result:"):
-                arguments[argument_name] = get_previous_result(previous_results, argument_value.split(":")[1])
-
-        return [arguments]
+        return arguments
 
     def load_optional_component(self, component_name, from_pretrained_arguments, device_identifier):
         component = load_and_configure_component(self.pipeline_definition.get(component_name, None), component_name, device_identifier)
