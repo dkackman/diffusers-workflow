@@ -87,7 +87,7 @@ def process_image(image, processor, device_identifier, kwargs):
     if processor == "resize_rescale":
         return resize_rescale(image, **kwargs)
 
-    raise Exception("Unknown image processor type")
+    raise Exception(f"Unknown image processor type: {processor}")
 
 
 def get_zoe_depth_map(image, device_identifier):

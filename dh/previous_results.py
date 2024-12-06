@@ -12,6 +12,9 @@ def get_iterations(argument_template, previous_results):
     Returns:
         List of argument dictionaries with all possible combinations
     """
+    if isinstance(argument_template, list):
+        return argument_template
+    
     # Find all references to previous results in arguments
     result_refs = find_previous_result_refs(argument_template)
 

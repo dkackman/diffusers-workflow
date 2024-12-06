@@ -1,79 +1,34 @@
 {
-    "id": "kandinsky_controlnet",
+    "id": "CogVideoX-5b",
     "steps": [
         {
-            "name": "prior",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "KandinskyV22PriorPipeline"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "kandinsky-community/kandinsky-2-2-prior",
-                    "torch_dtype": "torch.float16"
-                },
-                "arguments": {
-                    "negative_prompt": "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature",
-                    "prompt": "A robot, 4k photo"
-                }
-            }
-        },
-        {
-            "name": "gather_images",
+            "name": "gather_prompts",
             "task": {
-                "command": "gather",
-                "arguments": {
-                    "urls": [
-                        "https://huggingface.co/datasets/hf-internal-testing/diffusers-images/resolve/main/kandinskyv22/cat.png",
-                        "https://i.etsystatic.com/26048301/r/il/aa495c/3143939494/il_1080xN.3143939494_qbjy.jpg"
-                    ]
-                }
-            }
-        },
-        {
-            "name": "resize",
-            "task": {
-                "command": "resize_center_crop",
-                "arguments": {
-                    "image": "previous_result:gather_images",
-                    "height": 768,
-                    "width": 768
-                }
-            },
-            "result": {
-                "content_type": "image/jpeg"
-            }
-        },
-        {
-            "name": "depth_estimator",
-            "task": {
-                "command": "depth_estimator_tensor",
-                "arguments": {
-                    "image": "previous_result:resize"
-                }
+                "command": "gather_inputs",
+                "inputs": [
+                    "an apple",
+                    "an orange"
+                ]
             }
         },
         {
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "KandinskyV22ControlnetPipeline"
+                    "pipeline_type": "StableDiffusionPipeline"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "kandinsky-community/kandinsky-2-2-controlnet-depth",
+                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
                     "torch_dtype": "torch.float16"
                 },
                 "arguments": {
-                    "image_embeds": "previous_result:prior.image_embeds",
-                    "negative_image_embeds": "previous_result:prior.negative_image_embeds",
-                    "hint": "previous_result:depth_estimator",
-                    "num_inference_steps": 25,
-                    "num_images_per_prompt": 1,
-                    "height": 768,
-                    "width": 768
+                    "prompt": "previous_result:gather_prompts",
+                    "num_inference_steps": 25
                 }
             },
             "result": {
-                "content_type": "image/jpeg"
+                "content_type": "image/jpeg",
+                "file_base_name": "test_image"
             }
         }
     ]

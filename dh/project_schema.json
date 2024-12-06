@@ -473,31 +473,33 @@
                             "boolean"
                         ]
                     }
-                }
-            },
-            "required": [
-                "command",
-                "arguments"
-            ]
-        },
-        "template": {
-            "type": "object",
-            "properties": {
-                "variables": {
-                    "description": "Variables that will drive iterations",
-                    "additionalProperties": {
+                },
+                "inputs": {
+                    "type": "array",
+                    "items": {
                         "type": [
-                            "array"
+                            "string",
+                            "integer",
+                            "number",
+                            "object",
+                            "boolean"
                         ]
                     }
-                },
-                "job": {
-                    "$ref": "#/$defs/job"
                 }
             },
-            "required": [
-                "variables",
-                "job"
+            "oneOf": [
+                {
+                    "required": [
+                        "command",
+                        "arguments"
+                    ]
+                },
+                {
+                    "required": [
+                        "command",
+                        "inputs"
+                    ]
+                }
             ]
         },
         "result": {

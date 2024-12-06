@@ -1,14 +1,20 @@
 {
-    "template": {
-        "variables": {
-            "image_locations": [
-                "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=small",
-                "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=large"
-            ]
-        },
-        "job": {
+    "jobs": [
+        {
             "id": "CogVideoX-5B-I2V",
             "steps": [
+                {
+                    "name": "gather_images",
+                    "task": {
+                        "command": "gather_images",
+                        "arguments": {
+                            "urls": [
+                                "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=small",
+                                "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=large"
+                            ]
+                        }
+                    }
+                },
                 {
                     "name": "image_to_video",
                     "pipeline": {
@@ -25,9 +31,7 @@
                             "torch_dtype": "torch.bfloat16"
                         },
                         "arguments": {
-                            "image": {
-                                "location": "variable:image_locations"
-                            },
+                            "image": "previous_result:gather_images",
                             "prompt": "the lizard fixes the rocket",
                             "num_videos_per_prompt": 1,
                             "num_inference_steps": 5,
@@ -41,6 +45,5 @@
                 }
             ]
         }
-    },
-    "jobs": []
+    ]
 }
