@@ -113,7 +113,7 @@ def load_and_configure_pipeline(configuration, from_pretrained_arguments, device
 
     # load the pipeline
     pipeline_type = configuration["pipeline_type"]
-    model_name = from_pretrained_arguments["model_name"]
+    model_name = from_pretrained_arguments.pop("model_name")
     print(f"Loading pipeline {model_name}...")
 
     pipeline = pipeline_type.from_pretrained(model_name, **from_pretrained_arguments)

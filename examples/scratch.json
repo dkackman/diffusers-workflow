@@ -1,35 +1,88 @@
 {
-    "id": "CogVideoX-5b",
-    "steps": [
+    "id": "CogVideoX1.5-5B-I2V",
+    "variables": {
+        "model_name": "THUDM/CogVideoX1.5-5B-I2V",
+        "quantization_library": "torchao",
+        "weights_type": "torchao.quantization.int8_weight_only",
+        "activations_type": "optimum.quanto.qfloat8"
+    },
+    "jobs": [
         {
-            "name": "gather_prompts",
-            "task": {
-                "command": "gather_inputs",
-                "inputs": [
-                    "an apple",
-                    "an orange"
-                ]
-            }
-        },
-        {
-            "name": "main",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "StableDiffusionPipeline"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                    "torch_dtype": "torch.float16"
-                },
-                "arguments": {
-                    "prompt": "previous_result:gather_prompts",
-                    "num_inference_steps": 25
+            "id": "CogVideoX1.5-5B-I2V",
+            "steps": [
+                {
+                    "name": "image_to_video",
+                    "pipeline": {
+                        "configuration": {
+                            "offload": "sequential",
+                            "pipeline_type": "CogVideoXImageToVideoPipeline",
+                            "vae": {
+                                "enable_slicing": true,
+                                "enable_tiling": true
+                            }
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "variable:model_name",
+                            "torch_dtype": "torch.bfloat16"
+                        },
+                        "transformer": {
+                            "configuration": {
+                                "pipeline_type": "CogVideoXTransformer3DModel"
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "variable:model_name",
+                                "subfolder": "transformer",
+                                "torch_dtype": "torch.bfloat16"
+                            },
+                            "quantization": {
+                                "quantization_library": "variable:quantization_library",
+                                "weights_type": "variable:weights_type"
+                            }
+                        },
+                        "vae": {
+                            "configuration": {
+                                "pipeline_type": "AutoencoderKLCogVideoX"
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "variable:model_name",
+                                "subfolder": "vae",
+                                "torch_dtype": "torch.bfloat16"
+                            },
+                            "quantization": {
+                                "quantization_library": "variable:quantization_library",
+                                "weights_type": "variable:weights_type"
+                            }
+                        },
+                        "text_encoder": {
+                            "configuration": {
+                                "pipeline_type": "transformers.T5EncoderModel"
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "variable:model_name",
+                                "subfolder": "text_encoder",
+                                "torch_dtype": "torch.bfloat16"
+                            },
+                            "quantization": {
+                                "quantization_library": "variable:quantization_library",
+                                "weights_type": "variable:weights_type"
+                            }
+                        },
+                        "arguments": {
+                            "image": {
+                                "location": "https://pbs.twimg.com/media/GcpCDN8asAA9V2U?format=jpg&name=medium"
+                            },
+                            "prompt": "the diamond spins",
+                            "num_videos_per_prompt": 1,
+                            "num_inference_steps": 35,
+                            "num_frames": 49,
+                            "guidance_scale": 6
+                        }
+                    },
+                    "result": {
+                        "content_type": "video/mp4"
+                    }
                 }
-            },
-            "result": {
-                "content_type": "image/jpeg",
-                "file_base_name": "test_image"
-            }
+            ]
         }
     ]
 }
