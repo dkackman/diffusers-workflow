@@ -20,7 +20,6 @@ from .zoe_depth import colorize, load_zoe
 from .image_utils import resize_center_crop, resize_resample, crop_sqaure, resize_rescale
 from .depth_estimator import make_hint_image, make_hint_tensor
 from .borders import add_border_and_mask
-from .qr_code import get_qrcode_image
 import torch
 
 
@@ -116,7 +115,7 @@ def image_to_depth(image, device_identifier, height = 1024, width = 1024):
     image = feature_extractor(images=image, return_tensors="pt").pixel_values.to(
         device_identifier
     )
-    with torch.no_grad(), torch.autocast("cuda"):
+    with torch.no_grad(), torch.autocast(device_identifier):
         depth_map = depth_estimator(image).predicted_depth
 
     depth_map = torch.nn.functional.interpolate(
