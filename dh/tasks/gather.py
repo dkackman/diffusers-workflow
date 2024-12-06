@@ -1,17 +1,8 @@
 import glob as glob_lib
-from diffusers.utils import load_image
+from diffusers.utils import load_image, load_video
 
 
-def gather(glob = None, urls = []):
-    """Gather and process images matching glob pattern.
-    
-    Args:
-        glob_pattern: Pattern to match image files
-        
-    Returns:
-        List of loaded and resized PIL Images
-    """
-    
+def gather_images(glob = None, urls = []):
     images = []
     if glob is not None:
         image_paths = glob_lib.glob(glob)
@@ -22,3 +13,20 @@ def gather(glob = None, urls = []):
         images.append(load_image(url))
 
     return images
+
+def gather_videos(glob = None, urls = []):
+    videos = []
+    if glob is not None:
+        video_paths = glob_lib.glob(glob)
+        for path in video_paths:            
+            videos.append(load_video(path))
+    
+    for url in urls:
+        videos.append(load_video(url))
+
+    return videos
+
+def gather_inputs(kwargs):
+    # gather inputs returns the input array so it can be put into a result
+    # and passed to the next task
+    return kwargs

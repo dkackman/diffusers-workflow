@@ -2,7 +2,7 @@ import json
 import os
 from jsonschema import validate, ValidationError
 from .job import Job
-from .variables import replace_variables, expand_template
+
 
 def create_project(data):
     if isinstance(data, dict) and "jobs" in data:
@@ -33,7 +33,6 @@ class Project:
             raise Exception(f"Validation error: {message}")
 
     def run(self, output_dir = "./outputs"):
-        expand_template(self.project_definition, self.project_definition.get("template", None))
         replace_variables(self.project_definition["jobs"], self.project_definition.get("variables", None))
         jobs = []
 
@@ -68,3 +67,19 @@ def load_json_file(file_spec):
 
 def load_schema(schema_name):
     return load_json_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), f"{schema_name}_schema.json"))
+
+def replace_variables(data, variables):
+    if variables is not None:    
+        if isinstance(data, list):
+            for item in data:
+                replace_variables(item, variables)
+
+        elif isinstance(data, dict):
+            for k, v in data.items():
+                if isinstance(v, str) and v.startswith("variable:"):  
+                    variable_name = v.removeprefix("variable:")
+                    if not variable_name in variables:
+                        raise Exception(f"Variable <{variable_name}> not found")                
+                    data[k] = variables[variable_name]     
+                else:
+                    replace_variables(v, variables)

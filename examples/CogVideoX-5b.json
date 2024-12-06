@@ -1,14 +1,18 @@
 {
-    "template": {
-        "variables": {
-            "prompts": [
-                "Photorealisitc movie trailer, urban city with high-rise buildings, tracking shot of a marmot driving a cycle, intricate details photographed by professional directors",
-                "Photorealisitc movie trailer, tracking shot of a bug driving a cycle, intricate details photographed by professional directors"
-            ]
-        },
-        "job": {
+    "job": [
+        {
             "id": "CogVideoX-5b",
             "steps": [
+                {
+                    "name": "gather_prompts",
+                    "task": {
+                        "command": "gather_inputs",
+                        "inputs": [
+                            "Photorealisitc movie trailer, urban city with high-rise buildings, tracking shot of a marmot driving a cycle, intricate details photographed by professional directors",
+                            "Photorealisitc movie trailer, tracking shot of a bug driving a cycle, intricate details photographed by professional directors"
+                        ]
+                    }
+                },
                 {
                     "name": "text_to_video",
                     "pipeline": {
@@ -25,7 +29,7 @@
                             "torch_dtype": "torch.bfloat16"
                         },
                         "arguments": {
-                            "prompt": "variable:prompts",
+                            "prompt": "previous_result:gather_prompts",
                             "num_videos_per_prompt": 1,
                             "num_inference_steps": 5,
                             "num_frames": 49,
@@ -38,6 +42,5 @@
                 }
             ]
         }
-    },
-    "jobs": []
+    ]
 }

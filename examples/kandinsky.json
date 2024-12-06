@@ -20,7 +20,7 @@
         {
             "name": "gather_images",
             "task": {
-                "command": "gather",
+                "command": "gather_images",
                 "arguments": {
                     "urls": [
                         "https://huggingface.co/datasets/hf-internal-testing/diffusers-images/resolve/main/kandinskyv22/cat.png",

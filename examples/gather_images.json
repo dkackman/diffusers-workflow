@@ -4,7 +4,7 @@
         {
             "name": "gather_images",
             "task": {
-                "command": "gather",
+                "command": "gather_images",
                 "arguments": {
                     "glob": "./test_images/*.jpg"
                 }

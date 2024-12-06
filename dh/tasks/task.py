@@ -1,6 +1,6 @@
 from .qr_code import get_qrcode_image
 from .image_processor_dispatch import process_image
-from .gather import gather
+from .gather import gather_images, gather_inputs, gather_videos
 
 
 class Task:
@@ -9,6 +9,10 @@ class Task:
 
     @property
     def argument_template(self):
+        # a task will either be an input array or a dictionary of arguments
+        if "inputs" in self.task_definition:
+            return self.task_definition["inputs"]
+        
         return self.task_definition["arguments"]
     
     @property
@@ -19,8 +23,14 @@ class Task:
         if self.command == "qr_code":
             return get_qrcode_image(**arguments)
         
-        if self.command == "gather":
-            return gather(**arguments)
+        if self.command == "gather_images":
+            return gather_images(**arguments)
+
+        if self.command == "gather_videos":
+            return gather_videos(**arguments)
+
+        if self.command == "gather_inputs":
+            return gather_inputs(arguments)
 
         if "image" in arguments:
             return process_image(arguments.pop("image"), self.command, device_identifier, arguments)
