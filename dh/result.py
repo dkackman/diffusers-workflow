@@ -20,9 +20,10 @@ class Result:
         return artifacts
     
     def get_artifact_properties(self, property_name):
-        values = [getattr(result, property_name, None) 
-                for result in self.result_list 
-                if hasattr(result, property_name)]
+        values = []
+        for result in self.result_list:
+            if property_name in result:
+                values.append(result[property_name])
                 
         return values
             
