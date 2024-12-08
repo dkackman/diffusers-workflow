@@ -4,7 +4,9 @@
 
 ## Introduction
 
-This is a helper for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). It provides a command line interface and json input format for driving the diffuser library supporting the most common diffuser use cases. It allows you to run new models without any code changes by referencing the pipeline types, module names, and arbitrary paramters as data.
+This is a command line helper for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). It provides a command line interface and json input format for driving the diffuser library supporting the most common diffuser use cases, allowing you to run new models without code changes.
+
+It also provides a way to define a job as a json file and run it from the command line, supplying input parameters such as the prompt and any other parameters required by the model.
 
 ## Installation
 
@@ -39,21 +41,35 @@ pip install git+https://github.com/huggingface/diffusers
 
 ```bash
 python -m dh.run --help
-usage: run.py [-h] file_name [output_dir]
-```
+usage: run.py [-h] [-o OUTPUT_DIR] file_name [variables ...]
 
-- `file_name` is the name of the json file containing the diffuser job configuration
-- `output_dir` is an optional directory to write the diffuser job output to. defaults to `./output`
+Run a workflow from a file.
 
+positional arguments:
+  file_name             The filespec to of the workflow to run
+  variables             Optional parameters in name=value format
+
+options:
+  -h, --help            show this help message and exit
+  -o OUTPUT_DIR, --output_dir OUTPUT_DIR
+                        The folder to write the outputs to
+```                      
 
 ### Validate a job definition 
 
 ```bash
 python -m dh.validate --help
+(venv) don@durthang:/mnt/swarm/diffusers-helper$ python -m dh.validate -h
 usage: validate.py [-h] file_name
-```
 
-- `file_name` is the name of the json file containing the diffuser job 
+Validate a project from a file.
+
+positional arguments:
+  file_name   The filespec to of the project to validate
+
+options:
+  -h, --help  show this help message and exit
+```
 
 ## JSON Input Format
 
@@ -63,31 +79,44 @@ usage: validate.py [-h] file_name
 
 ### Examples
 
-#### Simple Image Generation
+#### Simple Image Generation with an Input Variable
+
+This example declares a variable for the `prompt` which can then be set on the command line. The `prompt` variable is then used in the `prompt` argument of the `StableDiffusionPipeline` model.
+
+```
+python -m dh.run test_job.json prompt="an orange"
+```
 
 ```json
 {
-    "id": "test_job",
-    "steps": [
+    "variables": {
+        "prompt": "an apple"
+    },
+    "jobs": [
         {
-            "name": "main",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "StableDiffusionPipeline"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                    "torch_dtype": "torch.float16"
-                },
-                "arguments": {
-                    "prompt": "A samurai dragon",
-                    "num_inference_steps": 25
+            "id": "test_job",
+            "steps": [
+                {
+                    "name": "main",
+                    "pipeline": {
+                        "configuration": {
+                            "pipeline_type": "StableDiffusionPipeline"
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                            "torch_dtype": "torch.float16"
+                        },
+                        "arguments": {
+                            "prompt": "variable:prompt",
+                            "num_inference_steps": 25
+                        }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg",
+                        "file_base_name": "test_image"
+                    }
                 }
-            },
-            "result": {
-                "content_type": "image/jpeg",
-                "file_base_name": "test_image"
-            }
+            ]
         }
     ]
 }
