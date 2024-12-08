@@ -57,6 +57,18 @@
       "justMyCode": true
     },
     {
+      "name": "test-with-variable",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dh.run",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "./dh/test_job.json",
+        "prompt=an orange"
+      ]
+    },
+    {
       "name": "ask",
       "type": "debugpy",
       "request": "launch",

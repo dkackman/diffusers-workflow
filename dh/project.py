@@ -32,8 +32,12 @@ class Project:
         if not status:
             raise Exception(f"Validation error: {message}")
 
-    def run(self, output_dir = "./outputs"):
-        replace_variables(self.project_definition["jobs"], self.project_definition.get("variables", None))
+    def run(self, output_dir = "./outputs", variable_assignments = {}):
+        variables = self.project_definition.get("variables", None)
+        if variables is not None:
+            set_variables(variable_assignments, variables)
+            replace_variables(self.project_definition["jobs"], variables)
+
         jobs = []
 
         print(f"Running  project...")
@@ -68,6 +72,7 @@ def load_json_file(file_spec):
 def load_schema(schema_name):
     return load_json_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), f"{schema_name}_schema.json"))
 
+
 def replace_variables(data, variables):
     if variables is not None:    
         if isinstance(data, list):
@@ -83,3 +88,8 @@ def replace_variables(data, variables):
                     data[k] = variables[variable_name]     
                 else:
                     replace_variables(v, variables)
+
+
+def set_variables(values, variables):
+    for k, v in values.items():
+        variables[k] = v

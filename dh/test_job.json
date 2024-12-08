@@ -1,25 +1,32 @@
 {
-    "id": "test_job",
-    "steps": [
+    "variables": {
+        "prompt": "an apple"
+    },
+    "jobs": [
         {
-            "name": "main",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "StableDiffusionPipeline"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                    "torch_dtype": "torch.float16"
-                },
-                "arguments": {
-                    "prompt": "A samurai dragon",
-                    "num_inference_steps": 25
+            "id": "test_job",
+            "steps": [
+                {
+                    "name": "main",
+                    "pipeline": {
+                        "configuration": {
+                            "pipeline_type": "StableDiffusionPipeline"
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                            "torch_dtype": "torch.float16"
+                        },
+                        "arguments": {
+                            "prompt": "variable:prompt",
+                            "num_inference_steps": 25
+                        }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg",
+                        "file_base_name": "test_image"
+                    }
                 }
-            },
-            "result": {
-                "content_type": "image/jpeg",
-                "file_base_name": "test_image"
-            }
+            ]
         }
     ]
 }
