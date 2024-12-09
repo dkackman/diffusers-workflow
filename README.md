@@ -21,8 +21,8 @@ python -m dh.test
 ### powershell
 
 ```powershell
-.\install.ps1
-.\venv\scripts\activate 
+./install.ps1
+./venv/scripts/activate 
 python -m dh.test
 ```
 
@@ -84,13 +84,14 @@ options:
 This example declares a variable for the `prompt` which can then be set on the command line. The `prompt` variable is then used in the `prompt` argument of the `StableDiffusionPipeline` model.
 
 ```
-python -m dh.run test_job.json prompt="an orange"
+python -m dh.run test_job.json prompt="an orange" num_images_per_prompt=4
 ```
 
 ```json
 {
     "variables": {
-        "prompt": "an apple"
+        "prompt": "an apple",
+        "num_images_per_prompt": 1
     },
     "jobs": [
         {
@@ -108,7 +109,8 @@ python -m dh.run test_job.json prompt="an orange"
                         },
                         "arguments": {
                             "prompt": "variable:prompt",
-                            "num_inference_steps": 25
+                            "num_inference_steps": 25,
+                            "num_images_per_prompt": "variable:num_images_per_prompt"
                         }
                     },
                     "result": {
