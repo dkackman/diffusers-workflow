@@ -92,6 +92,7 @@ def replace_variables(data, variables):
 
 def set_variables(values, variables):
     for k, v in values.items():
+        # the default value determines the type of the variable
         variables[k] = get_value(v, type(variables[k]))
 
 
