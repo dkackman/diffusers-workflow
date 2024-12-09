@@ -65,7 +65,8 @@
       "justMyCode": true,
       "args": [
         "./dh/test_job.json",
-        "prompt=an orange"
+        "prompt=an orange",
+        "num_images_per_prompt=4"
       ]
     },
     {

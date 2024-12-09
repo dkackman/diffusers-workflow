@@ -9,8 +9,7 @@
                         "command": "gather_images",
                         "arguments": {
                             "urls": [
-                                "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=small",
-                                "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=large"
+                                "https://pbs.twimg.com/media/GeT5FoFX0AAL-kM?format=jpg&name=small"
                             ]
                         }
                     }
@@ -32,11 +31,11 @@
                         },
                         "arguments": {
                             "image": "previous_result:gather_images",
-                            "prompt": "the lizard fixes the rocket",
+                            "prompt": "the go cart races around a track",
                             "num_videos_per_prompt": 1,
-                            "num_inference_steps": 5,
+                            "num_inference_steps": 50,
                             "num_frames": 49,
-                            "guidance_scale": 2.5
+                            "guidance_scale": 6
                         }
                     },
                     "result": {

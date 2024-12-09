@@ -15,7 +15,7 @@
                             "torch_dtype": "torch.bfloat16"
                         },
                         "arguments": {
-                            "prompt": "Sage and chia",
+                            "prompt": "a marmot riding a four wheeler. the four wheeler has a flag on the back that says 'chia!'",
                             "num_inference_steps": 25,
                             "num_images_per_prompt": 4,
                             "guidance_scale": 3.5,
