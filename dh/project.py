@@ -92,4 +92,16 @@ def replace_variables(data, variables):
 
 def set_variables(values, variables):
     for k, v in values.items():
-        variables[k] = v
+        variables[k] = get_value(v, type(variables[k]))
+
+
+def get_value(v, desired_type):
+    if v.lower() == "true":
+        return True
+    if v.lower() == "false":
+        return False
+
+    try:
+        return desired_type(v)
+    except ValueError:
+        return v

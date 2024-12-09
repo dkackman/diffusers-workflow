@@ -1,15 +1,45 @@
 {
-    "id": "CogVideoX1.5-5B-I2V",
-    "variables": {
-        "model_name": "THUDM/CogVideoX1.5-5B-I2V",
-        "quantization_library": "torchao",
-        "weights_type": "torchao.quantization.int8_weight_only",
-        "activations_type": "optimum.quanto.qfloat8"
-    },
     "jobs": [
         {
-            "id": "CogVideoX1.5-5B-I2V",
+            "id": "sd35 text to image to video",
             "steps": [
+                {
+                    "name": "image_generation",
+                    "pipeline": {
+                        "transformer": {
+                            "configuration": {
+                                "pipeline_type": "SD3Transformer2DModel",
+                                "bits_and_bytes_configuration": {
+                                    "load_in_4bit": true,
+                                    "bnb_4bit_quant_type": "{nf4}",
+                                    "bnb_4bit_compute_dtype": "torch.bfloat16"
+                                }
+                            },
+                            "from_pretrained_arguments": {
+                                "model_name": "stabilityai/stable-diffusion-3.5-large",
+                                "subfolder": "transformer",
+                                "torch_dtype": "torch.bfloat16"
+                            }
+                        },
+                        "configuration": {
+                            "pipeline_type": "StableDiffusion3Pipeline",
+                            "offload": "full"
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "stabilityai/stable-diffusion-3.5-large",
+                            "torch_dtype": "torch.bfloat16"
+                        },
+                        "arguments": {
+                            "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of owl, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, asymmetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
+                            "num_inference_steps": 25,
+                            "guidance_scale": 4.5,
+                            "max_sequence_length": 512
+                        }
+                    },
+                    "result": {
+                        "content_type": "image/png"
+                    }
+                },
                 {
                     "name": "image_to_video",
                     "pipeline": {
@@ -17,69 +47,28 @@
                             "offload": "sequential",
                             "pipeline_type": "CogVideoXImageToVideoPipeline",
                             "vae": {
-                                "enable_slicing": true,
-                                "enable_tiling": true
+                                "configuration": {
+                                    "enable_slicing": true,
+                                    "enable_tiling": true
+                                }
                             }
                         },
                         "from_pretrained_arguments": {
-                            "model_name": "variable:model_name",
+                            "model_name": "THUDM/CogVideoX-5b-I2V",
                             "torch_dtype": "torch.bfloat16"
                         },
-                        "transformer": {
-                            "configuration": {
-                                "pipeline_type": "CogVideoXTransformer3DModel"
-                            },
-                            "from_pretrained_arguments": {
-                                "model_name": "variable:model_name",
-                                "subfolder": "transformer",
-                                "torch_dtype": "torch.bfloat16"
-                            },
-                            "quantization": {
-                                "quantization_library": "variable:quantization_library",
-                                "weights_type": "variable:weights_type"
-                            }
-                        },
-                        "vae": {
-                            "configuration": {
-                                "pipeline_type": "AutoencoderKLCogVideoX"
-                            },
-                            "from_pretrained_arguments": {
-                                "model_name": "variable:model_name",
-                                "subfolder": "vae",
-                                "torch_dtype": "torch.bfloat16"
-                            },
-                            "quantization": {
-                                "quantization_library": "variable:quantization_library",
-                                "weights_type": "variable:weights_type"
-                            }
-                        },
-                        "text_encoder": {
-                            "configuration": {
-                                "pipeline_type": "transformers.T5EncoderModel"
-                            },
-                            "from_pretrained_arguments": {
-                                "model_name": "variable:model_name",
-                                "subfolder": "text_encoder",
-                                "torch_dtype": "torch.bfloat16"
-                            },
-                            "quantization": {
-                                "quantization_library": "variable:quantization_library",
-                                "weights_type": "variable:weights_type"
-                            }
-                        },
                         "arguments": {
-                            "image": {
-                                "location": "https://pbs.twimg.com/media/GcpCDN8asAA9V2U?format=jpg&name=medium"
-                            },
-                            "prompt": "the diamond spins",
+                            "image": "previous_result:image_generation",
+                            "prompt": "The owl stares intently and blinks",
                             "num_videos_per_prompt": 1,
-                            "num_inference_steps": 35,
+                            "num_inference_steps": 50,
                             "num_frames": 49,
                             "guidance_scale": 6
                         }
                     },
                     "result": {
-                        "content_type": "video/mp4"
+                        "content_type": "video/mp4",
+                        "file_base_name": "owl"
                     }
                 }
             ]

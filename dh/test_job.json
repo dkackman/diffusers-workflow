@@ -1,6 +1,7 @@
 {
     "variables": {
-        "prompt": "an apple"
+        "prompt": "an apple",
+        "num_images_per_prompt": 1
     },
     "jobs": [
         {
@@ -18,7 +19,8 @@
                         },
                         "arguments": {
                             "prompt": "variable:prompt",
-                            "num_inference_steps": 25
+                            "num_inference_steps": 25,
+                            "num_images_per_prompt": "variable:num_images_per_prompt"
                         }
                     },
                     "result": {

@@ -28,7 +28,7 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "sage and chia",
+                    "prompt": "a muscle bound marmot body builder flexing in front of a mirror, the marmot is wearing a tank top that says 'chia!'. its legs are not as muscular as the rest of his body",
                     "num_inference_steps": 25,
                     "guidance_scale": 4.5,
                     "max_sequence_length": 512,
