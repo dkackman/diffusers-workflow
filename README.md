@@ -21,8 +21,8 @@ python -m dh.test
 ### powershell
 
 ```powershell
-./install.ps1
-./venv/scripts/activate 
+.\install.ps1
+.\venv\scripts\activate 
 python -m dh.test
 ```
 
@@ -31,7 +31,7 @@ python -m dh.test
 The install script will install [the diffusers library from PyPi](https://pypi.org/project/diffusers/). If you want to install from source and use not yet released diffusers, you can do so with the following commands:
 
 ```bash
-. ./activate # or ./venv/scripts/activate on windows
+. ./activate # or .\venv\scripts\activate on windows
 pip install git+https://github.com/huggingface/diffusers
 ```
 
