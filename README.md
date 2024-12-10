@@ -4,9 +4,9 @@
 
 ## Introduction
 
-This is a command line helper for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). It provides a command line interface and json input format for driving the diffuser library supporting the most common diffuser use cases, allowing you to run new models without code changes.
+This is a helper for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). It provides a command line interface and json input format for driving the diffuser library, supporting the most common diffuser use cases. This allows you to run new models without code changes.
 
-It also provides a way to define a job as a json file and run it from the command line, supplying input parameters such as the prompt and any other parameters required by the model.
+It also provides a way to define a job as a json file and run it from the command line, supplying parameters such as the prompt and any other inputs required by the model.
 
 ## Installation
 
