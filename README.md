@@ -59,10 +59,9 @@ options:
 
 ```bash
 python -m dh.validate --help
-(venv) don@durthang:/mnt/swarm/diffusers-helper$ python -m dh.validate -h
 usage: validate.py [-h] file_name
 
-Validate a project from a file.
+Validate a project file.
 
 positional arguments:
   file_name   The filespec to of the project to validate
@@ -83,7 +82,7 @@ options:
 
 This example declares a variable for the `prompt` which can then be set on the command line. The `prompt` variable is then used in the `prompt` argument of the `StableDiffusionPipeline` model.
 
-```
+```bash
 python -m dh.run test_job.json prompt="an orange" num_images_per_prompt=4
 ```
 
