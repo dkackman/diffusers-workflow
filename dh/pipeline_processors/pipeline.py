@@ -100,7 +100,7 @@ def load_and_configure_component(component_definition, component_name, device_id
         component_configuration = component_definition["configuration"]
         component_from_pretrained_arguments = component_definition["from_pretrained_arguments"]
         component = load_and_configure_pipeline(component_configuration, component_from_pretrained_arguments, device_identifier)
-        return quantize(component, component_definition.get("quantization", None))
+        return quantize(component, component_definition.get("quantization", None), device_identifier)
 
     return None
 
