@@ -4,9 +4,9 @@
 
 ## Introduction
 
-This is a command line helper for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). It provides a command line interface and json input format for driving the diffuser library supporting the most common diffuser use cases, allowing you to run new models without code changes.
+This is a helper for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). It provides a command line interface and json input format for driving the diffuser library, supporting the most common diffuser use cases. This allows you to run new models without code changes.
 
-It also provides a way to define a job as a json file and run it from the command line, supplying input parameters such as the prompt and any other parameters required by the model.
+It also provides a way to define a job as a json file and run it from the command line, supplying parameters such as the prompt and any other inputs required by the model.
 
 ## Installation
 
@@ -31,7 +31,7 @@ python -m dh.test
 The install script will install [the diffusers library from PyPi](https://pypi.org/project/diffusers/). If you want to install from source and use not yet released diffusers, you can do so with the following commands:
 
 ```bash
-. ./activate # or ./venv/scripts/activate on windows
+. ./activate # or .\venv\scripts\activate on windows
 pip install git+https://github.com/huggingface/diffusers
 ```
 
@@ -59,10 +59,9 @@ options:
 
 ```bash
 python -m dh.validate --help
-(venv) don@durthang:/mnt/swarm/diffusers-helper$ python -m dh.validate -h
 usage: validate.py [-h] file_name
 
-Validate a project from a file.
+Validate a project file.
 
 positional arguments:
   file_name   The filespec to of the project to validate
@@ -83,14 +82,15 @@ options:
 
 This example declares a variable for the `prompt` which can then be set on the command line. The `prompt` variable is then used in the `prompt` argument of the `StableDiffusionPipeline` model.
 
-```
-python -m dh.run test_job.json prompt="an orange"
+```bash
+python -m dh.run test_job.json prompt="an orange" num_images_per_prompt=4
 ```
 
 ```json
 {
     "variables": {
-        "prompt": "an apple"
+        "prompt": "an apple",
+        "num_images_per_prompt": 1
     },
     "jobs": [
         {
@@ -108,7 +108,8 @@ python -m dh.run test_job.json prompt="an orange"
                         },
                         "arguments": {
                             "prompt": "variable:prompt",
-                            "num_inference_steps": 25
+                            "num_inference_steps": 25,
+                            "num_images_per_prompt": "variable:num_images_per_prompt"
                         }
                     },
                     "result": {
