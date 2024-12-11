@@ -38,16 +38,9 @@ class Project:
             set_variables(variable_assignments, variables)
             replace_variables(self.project_definition["jobs"], variables)
 
-        jobs = []
-
-        print(f"Running  project...")
-        for item in self.project_definition.get("jobs", []):
-            jobs.append(Job(item))
-
-        if len(jobs) == 0:
-            raise Exception("No jobs found to run")
-
-        for job in jobs:
+        print(f"Running project...")
+        for job_definition in self.project_definition.get("jobs", []):
+            job = Job(job_definition)
             job.run(output_dir)
 
 

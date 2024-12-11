@@ -8,9 +8,7 @@
                     "task": {
                         "command": "gather_images",
                         "arguments": {
-                            "urls": [
-                                "https://pbs.twimg.com/media/GeT5FoFX0AAL-kM?format=jpg&name=small"
-                            ]
+                            "glob": "./outputs/FluxDev-main-0-0.3.jpg"
                         }
                     }
                 },
@@ -31,7 +29,7 @@
                         },
                         "arguments": {
                             "image": "previous_result:gather_images",
-                            "prompt": "the go cart races around a track",
+                            "prompt": "the steam rises from the mug",
                             "num_videos_per_prompt": 1,
                             "num_inference_steps": 50,
                             "num_frames": 49,
