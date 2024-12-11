@@ -24,18 +24,16 @@ class Job:
             shared_components = {}
             default_seed = job.get("seed", torch.seed()) 
             job["seed"] = default_seed # save the seed for reproducibility
+            i = 0
             for step_data in job["steps"]:
                 step = Step(step_data, default_seed)
                 result = step.run(results, shared_components)
                 results[step.name] = result
+                result.save(output_dir, f"{job_id}-{step.name}-{i}")
+                i = i + 1
 
             with open(os.path.join(output_dir, f"{job_id}.json"), 'w') as file:
-                json.dump(self.job_definition, file, indent=4)
-
-            for i, result in enumerate(results.items()):                
-                name = result[0]
-                value = result[1]
-                value.save(output_dir, f"{job_id}-{name}-{i}")        
+                json.dump(self.job_definition, file, indent=4)    
 
             print("ok")
 
