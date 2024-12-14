@@ -18,7 +18,7 @@ def get_iterations(argument_template, previous_results):
     # Find all references to previous results in arguments
     result_refs = find_previous_result_refs(argument_template)
 
-    # If no references found, return template as-is
+    # If no references found, return a copy of the template template as-is
     if len(result_refs) == 0:
         return [copy.deepcopy(argument_template)]
         

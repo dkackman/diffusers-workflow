@@ -12,6 +12,9 @@ def gather_images(glob = None, urls = []):
     for url in urls:
         images.append(load_image(url))
 
+    if len(images) == 0:
+        raise ValueError("No images found")
+    
     return images
 
 def gather_videos(glob = None, urls = []):
