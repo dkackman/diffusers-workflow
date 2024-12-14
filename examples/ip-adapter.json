@@ -1,62 +1,70 @@
 {
-    "id": "ip_adapter",
-    "steps": [
+    "id": "ip-adapter",
+    "variables": {
+        "ip_adapter_image_location": "https://pbs.twimg.com/media/GeiyNysXUAAYEAs?format=jpg&name=small"
+    },
+    "jobs": [
         {
-            "name": "sd15",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "AutoPipelineForText2Image"
-                },
-                "ip_adapter": {
-                    "model_name": "h94/IP-Adapter",
-                    "subfolder": "models",
-                    "weight_name": "ip-adapter_sd15.bin"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                    "torch_dtype": "torch.float16"
-                },
-                "arguments": {
-                    "ip_adapter_image": {
-                        "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/load_neg_embed.png"
+            "id": "ip_adapter",
+            "steps": [
+                {
+                    "name": "sd15",
+                    "pipeline": {
+                        "configuration": {
+                            "pipeline_type": "AutoPipelineForText2Image"
+                        },
+                        "ip_adapter": {
+                            "model_name": "h94/IP-Adapter",
+                            "subfolder": "models",
+                            "weight_name": "ip-adapter_sd15.bin"
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                            "torch_dtype": "torch.float16"
+                        },
+                        "arguments": {
+                            "ip_adapter_image": {
+                                "location": "variable:ip_adapter_image_location"
+                            },
+                            "prompt": "an image of an Axolotl in the style of Salvador Dalí..",
+                            "negative_prompt": "monochrome, lowres, bad anatomy, worst quality, low quality",
+                            "num_inference_steps": 50
+                        }
                     },
-                    "prompt": "best quality, high quality, wearing sunglasses",
-                    "negative_prompt": "monochrome, lowres, bad anatomy, worst quality, low quality",
-                    "num_inference_steps": 50
-                }
-            },
-            "result": {
-                "content_type": "image/jpeg"
-            }
-        },
-        {
-            "name": "sdxl",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "AutoPipelineForText2Image"
+                    "result": {
+                        "content_type": "image/jpeg"
+                    }
                 },
-                "ip_adapter": {
-                    "model_name": "h94/IP-Adapter",
-                    "subfolder": "sdxl_models",
-                    "weight_name": "ip-adapter_sdxl.bin",
-                    "ip_adapter_scale": 0.6
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "stabilityai/stable-diffusion-xl-base-1.0",
-                    "torch_dtype": "torch.float16"
-                },
-                "arguments": {
-                    "ip_adapter_image": {
-                        "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/ip_adapter_diner.png"
+                {
+                    "name": "sdxl",
+                    "pipeline": {
+                        "configuration": {
+                            "pipeline_type": "AutoPipelineForText2Image"
+                        },
+                        "ip_adapter": {
+                            "model_name": "h94/IP-Adapter",
+                            "subfolder": "sdxl_models",
+                            "weight_name": "ip-adapter_sdxl.bin",
+                            "ip_adapter_scale": 0.6
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "stabilityai/stable-diffusion-xl-base-1.0",
+                            "torch_dtype": "torch.float16"
+                        },
+                        "arguments": {
+                            "ip_adapter_image": {
+                                "location": "variable:ip_adapter_image_location"
+                            },
+                            "prompt": "an image of an Axolotl in the style of Salvador Dalí..",
+                            "negative_prompt": "deformed, ugly, wrong proportion, low res, bad anatomy, worst quality, low quality",
+                            "num_inference_steps": 100
+                        }
                     },
-                    "prompt": "a polar bear sitting in a chair drinking a milkshake",
-                    "negative_prompt": "deformed, ugly, wrong proportion, low res, bad anatomy, worst quality, low quality",
-                    "num_inference_steps": 100
+                    "result": {
+                        "content_type": "image/jpeg"
+                    }
                 }
-            },
-            "result": {
-                "content_type": "image/jpeg"
-            }
+            ]
         }
     ]
 }

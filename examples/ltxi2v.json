@@ -1,5 +1,5 @@
 {
-    "id": "ltx",
+    "id": "ltxi2v",
     "steps": [
         {
             "name": "gather_images",
@@ -7,9 +7,8 @@
                 "command": "gather_images",
                 "arguments": {
                     "urls": [
-                        "https://huggingface.co/datasets/a-r-r-o-w/tiny-meme-dataset-captioned/resolve/main/images/8.png"
-                    ],
-                    "glob": "./outputs/sd35-main-0-0.1.ong"
+                        "https://pbs.twimg.com/media/GetfkxLbUAAvO9u?format=jpg&name=small"
+                    ]
                 }
             }
         },
@@ -24,7 +23,7 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "A young girl stands calmly in the foreground, looking directly at the camera, as a house fire rages in the background. Flames engulf the structure, with smoke billowing into the air. Firefighters in protective gear rush to the scene, a fire truck labeled '38' visible behind them. The girl's neutral expression contrasts sharply with the chaos of the fire, creating a poignant and emotionally charged scene.",
+                    "prompt": "The monkey, dressed like uncle sam, stands between the buildings. He smiles and waves his hat in the air.",
                     "width": 704,
                     "height": 480,
                     "num_frames": 161,

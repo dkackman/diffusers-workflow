@@ -15,7 +15,7 @@
                             "torch_dtype": "torch.bfloat16"
                         },
                         "arguments": {
-                            "prompt": "A steaming mug of coffee. The steam forms the letters XCH",
+                            "prompt": "Giant constantly mutating ravenous radioactive mushroom",
                             "num_inference_steps": 25,
                             "num_images_per_prompt": 4,
                             "guidance_scale": 3.5,
