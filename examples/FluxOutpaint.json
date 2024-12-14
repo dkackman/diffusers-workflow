@@ -1,9 +1,6 @@
 {
     "variables": {
-        "input_image": "https://pbs.twimg.com/media/Gd1kyErWAAAmEqA?format=jpg&name=large",
-        "cup_mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png",
-        "robot_image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png",
-        "mondo_image": "https://pbs.twimg.com/media/GdcxG6oaUAAHgSL?format=jpg&name=medium"
+        "input_image": "https://pbs.twimg.com/media/GedotVkXYAAhOuW?format=jpg&name=small"
     },
     "jobs": [
         {
@@ -17,7 +14,7 @@
                             "image": {
                                 "location": "variable:input_image"
                             },
-                            "zoom_all": 1.5
+                            "zoom_all": 2.0
                         }
                     }
                 },
@@ -35,7 +32,7 @@
                         "arguments": {
                             "image": "previous_result:mask_image.bordered_image",
                             "mask_image": "previous_result:mask_image.mask",
-                            "prompt": "space ships fly overheard",
+                            "prompt": "a mointain meadow",
                             "guidance_scale": 30,
                             "num_inference_steps": 25,
                             "max_sequence_length": 512

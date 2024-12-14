@@ -8,7 +8,7 @@
                     "task": {
                         "command": "gather_images",
                         "arguments": {
-                            "glob": "./outputs/FluxDev-main-0-0.3.jpg"
+                            "glob": "./outputs/sd35-main*.jpg"
                         }
                     }
                 },
@@ -29,7 +29,7 @@
                         },
                         "arguments": {
                             "image": "previous_result:gather_images",
-                            "prompt": "the steam rises from the mug",
+                            "prompt": "Giant constantly mutating ravenous radioactive mushroom",
                             "num_videos_per_prompt": 1,
                             "num_inference_steps": 50,
                             "num_frames": 49,

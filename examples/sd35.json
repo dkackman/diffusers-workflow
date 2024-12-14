@@ -20,15 +20,14 @@
                     }
                 },
                 "configuration": {
-                    "pipeline_type": "StableDiffusion3Pipeline",
-                    "offload": "full"
+                    "pipeline_type": "StableDiffusion3Pipeline"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-3.5-large",
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "a muscle bound marmot body builder flexing in front of a mirror, the marmot is wearing a tank top that says 'chia!'. its legs are not as muscular as the rest of his body",
+                    "prompt": "Giant constantly mutating ravenous radioactive mushroom",
                     "num_inference_steps": 25,
                     "guidance_scale": 4.5,
                     "max_sequence_length": 512,

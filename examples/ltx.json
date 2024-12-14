@@ -1,0 +1,29 @@
+{
+    "id": "ltx",
+    "steps": [
+        {
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "LTXPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Lightricks/LTX-Video",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "A woman walks away from a white Jeep parked on a city street at night, then ascends a staircase and knocks on a door. The woman, wearing a dark jacket and jeans, walks away from the Jeep parked on the left side of the street, her back to the camera; she walks at a steady pace, her arms swinging slightly by her sides; the street is dimly lit, with streetlights casting pools of light on the wet pavement; a man in a dark jacket and jeans walks past the Jeep in the opposite direction; the camera follows the woman from behind as she walks up a set of stairs towards a building with a green door; she reaches the top of the stairs and turns left, continuing to walk towards the building; she reaches the door and knocks on it with her right hand; the camera remains stationary, focused on the doorway; the scene is captured in real-life footage.",
+                    "width": 704,
+                    "height": 480,
+                    "num_frames": 181,
+                    "num_inference_steps": 50,
+                    "guidance_scale": 3.5
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}
