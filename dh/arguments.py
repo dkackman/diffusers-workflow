@@ -4,48 +4,43 @@ from diffusers.utils import load_image, load_video
 #
 # This recursvively processes the arguments of a workflow
 # replacing type references with the actual types
-# loading any images from their locations
+# plus loading any images and videos from their locations
 #
-def realize_args(d):    
-    if isinstance(d, dict):
-        for k, v in d.items():
+def realize_args(arg):    
+    if isinstance(arg, dict):
+        for k, v in arg.items():
             if k.endswith("_image") or k == "image":
-                d[k] = fetch_image(v)    
+                arg[k] = fetch_image(v)    
             elif k.endswith("_video") or k == "video":
-                d[k] = fetch_video(v)    
-            elif isinstance(v, dict): 
-                realize_args(v)
-            elif isinstance(v, list):
-                for item in v:
-                    realize_args(item)
+                arg[k] = fetch_video(v)    
             elif (k.endswith("_type") or k.endswith("_dtype")) and k != "content_type":
                 # use {} to escape key value pairs that are not type references
                 if isinstance(v, str) and v.startswith("{") and v.endswith("}"):
-                    d[k] = v.strip("{}")
+                    arg[k] = v.strip("{}")
                 else:
-                    d[k] = load_type_from_name(v)                  
+                    arg[k] = load_type_from_name(v)      
+            else:
+                realize_args(v)            
             
-    elif isinstance(d, list):
-        for item in d:
+    elif isinstance(arg, list):
+        for item in arg:
             realize_args(item)
 
 
 def fetch_image(image):
     # escape indicator for intermediate result references
     if isinstance(image, str):
-        return image.strip("{}")
+        return image
 
     img = load_image(image["location"])
     if "size" in image:
-        img = img.resize((image["size"]["height"], image["size"]["width"]))
+        img = img.resize((image["size"]["width"], image["size"]["height"]))
 
     return img
 
 def fetch_video(video):
     # escape indicator for intermediate result references
     if isinstance(video, str):
-        return video.strip("{}")
+        return video
 
-    vid = load_video(video["location"])
-
-    return vid
+    return load_video(video["location"])
