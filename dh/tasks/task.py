@@ -12,17 +12,17 @@ class Task:
         # a task will either be an input array or a dictionary of arguments
         if "inputs" in self.task_definition:
             return self.task_definition["inputs"]
-        
+
         return self.task_definition["arguments"]
-    
+
     @property
     def command(self):
         return self.task_definition.get("command", "unknown")
-        
-    def run(self, device_identifier, arguments):                                            
+
+    def run(self, device_identifier, arguments):
         if self.command == "qr_code":
             return get_qrcode_image(**arguments)
-        
+
         if self.command == "gather_images":
             return gather_images(**arguments)
 
@@ -33,7 +33,8 @@ class Task:
             return gather_inputs(arguments)
 
         if "image" in arguments:
-            return process_image(arguments.pop("image"), self.command, device_identifier, arguments)
-                    
+            return process_image(
+                arguments.pop("image"), self.command, device_identifier, arguments
+            )
+
         raise ValueError(f"Unknown task {self.command}")
-    

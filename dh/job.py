@@ -22,8 +22,8 @@ class Job:
             # collections that are passed between steps to share state
             results = {}
             shared_components = {}
-            default_seed = job.get("seed", torch.seed()) 
-            job["seed"] = default_seed # save the seed for reproducibility
+            default_seed = job.get("seed", torch.seed())
+            job["seed"] = default_seed  # save the seed for reproducibility
             i = 0
             for step_data in job["steps"]:
                 step = Step(step_data, default_seed)
@@ -32,8 +32,8 @@ class Job:
                 result.save(output_dir, f"{job_id}-{step.name}-{i}")
                 i = i + 1
 
-            with open(os.path.join(output_dir, f"{job_id}.json"), 'w') as file:
-                json.dump(self.job_definition, file, indent=4)    
+            with open(os.path.join(output_dir, f"{job_id}.json"), "w") as file:
+                json.dump(self.job_definition, file, indent=4)
 
             print("ok")
 

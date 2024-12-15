@@ -9,6 +9,7 @@ __version__ = "0.37.0"
 
 settings = load_settings()
 
+
 def startup():
     if not torch.cuda.is_available():
         raise Exception("CUDA not present. Quitting.")

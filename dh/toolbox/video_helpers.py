@@ -50,9 +50,11 @@ def make_video(images, duration_seconds):
         return images[len(images) - 1], BytesIO(tmp.read())
 
 
-def export_to_video(content_type, video_frames, save_debug = False, fps: int = 8):    
+def export_to_video(content_type, video_frames, save_debug=False, fps: int = 8):
     if content_type.startswith("video"):
-        media_info = ("mp4", "XVID") if content_type == "video/mp4" else ("webm", "VP90")
+        media_info = (
+            ("mp4", "XVID") if content_type == "video/mp4" else ("webm", "VP90")
+        )
 
         # convert to video
         with tempfile.TemporaryDirectory() as tmpdirname:
@@ -60,7 +62,7 @@ def export_to_video(content_type, video_frames, save_debug = False, fps: int = 8
                 video_frames,
                 pathlib.Path(tmpdirname).joinpath(f"video.{media_info[0]}").__str__(),
                 media_info[1],
-                fps
+                fps,
             )
             with open(final_filepath, "rb") as video_file:
                 video_buffer = BytesIO(video_file.read())
@@ -74,40 +76,39 @@ def export_to_video(content_type, video_frames, save_debug = False, fps: int = 8
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         final_filepath = export_to_gif(
-            video_frames,
-            pathlib.Path(tmpdirname).joinpath(f"video.gif").__str__(),
-            fps
+            video_frames, pathlib.Path(tmpdirname).joinpath(f"video.gif").__str__(), fps
         )
         with open(final_filepath, "rb") as video_file:
             video_buffer = BytesIO(video_file.read())
 
         if save_debug:
             shutil.copy(final_filepath, "./video.gif")
-            
+
         thumbnail = get_frame(final_filepath, 0)
 
         return (thumbnail, video_buffer)
+
 
 def export_to_video_pil(
     video_frames: List[Image.Image],  # Expect a list of PIL images
     output_video_path: str,
     codec: str,
-    fps: int = 8  # Added fps as a parameter for flexibility
+    fps: int = 8,  # Added fps as a parameter for flexibility
 ) -> str:
     # Convert the first PIL image to NumPy to get dimensions
     first_frame = np.array(video_frames[0])
     h, w, _ = first_frame.shape
-    
+
     # Initialize the video writer
     fourcc = cv2.VideoWriter_fourcc(*codec)
     video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, frameSize=(w, h))
-    
+
     for video_frame in video_frames:
         # Convert each PIL image to a NumPy array
         img_array = np.array(video_frame)
         # Convert RGB (PIL's default) to BGR (OpenCV's default)
         img = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
         video_writer.write(img)
-    
+
     video_writer.release()  # Ensure to release the video writer
-    return output_video_path        
+    return output_video_path
