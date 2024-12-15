@@ -9,6 +9,17 @@ from controlnet_aux import (
     HEDdetector,
     PidiNetDetector,
     ContentShuffleDetector,
+    MidasDetector,
+    ZoeDetector,
+    SamDetector,
+    LeresDetector,
+    TEEDdetector,
+    AnylineDetector,
+    MediapipeFaceDetector,
+    CannyDetector,
+    LineartStandardDetector,
+    DWposeDetector
+
 )
 from transformers import (
     AutoImageProcessor,
@@ -29,41 +40,77 @@ def process_image(image, processor, device_identifier, kwargs):
     if processor == "add_border_and_mask":
         return add_border_and_mask(image, **kwargs)    
     
-    if processor == "canny":
+    if processor == "canny_cv":
         return image_to_canny(image, **kwargs)
 
     if processor == "mlsd":
-        return MLSDdetector.from_pretrained("lllyasviel/ControlNet")(image, **kwargs)
+        return MLSDdetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, **kwargs)
 
     if processor == "normal_bae":
-        return NormalBaeDetector.from_pretrained("lllyasviel/Annotators")(image, **kwargs)
+        return NormalBaeDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, **kwargs)
 
     if processor == "segmentation":
         return image_to_segmentation(image)
 
     if processor == "lineart":
-        return LineartDetector.from_pretrained("lllyasviel/Annotators")(image, **kwargs)
+        return LineartDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, coarse=True, **kwargs)
 
     if processor == "openpose":
-        return OpenposeDetector.from_pretrained("lllyasviel/ControlNet")(image, **kwargs)
+        return OpenposeDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, hand_and_face=True, **kwargs)
 
-    if processor == "pix2pix":
-        return image
-
+    if processor == "hed":
+        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(
+            image, scribble=False, **kwargs
+        )
+    
     if processor == "scribble":
-        return HEDdetector.from_pretrained("lllyasviel/Annotators")(
+        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(
             image, scribble=True, **kwargs
         )
 
-    if processor == "soft_edge":
-        return PidiNetDetector.from_pretrained("lllyasviel/Annotators")(image, **kwargs)
+    if processor == "pidi":
+        return PidiNetDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, safe=True, **kwargs)
+
+    if processor == "midas":
+        return MidasDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, **kwargs)
 
     if processor == "shuffle":
         processor = ContentShuffleDetector()
         return processor(image, **kwargs)
 
+    if processor == "face_detector":
+        processor = MediapipeFaceDetector()
+        return processor(image, **kwargs)
+
+    if processor == "canny":
+        processor = CannyDetector()
+        return processor(image, **kwargs)
+
+    if processor == "lineart_standard":
+        processor = LineartStandardDetector()
+        return processor(image, **kwargs)
+
+    if processor == "dw_pose":
+        processor = DWposeDetector(device=device_identifier)
+        return processor(image, **kwargs)
+
     if processor == "zoe_depth":
         return get_zoe_depth_map(image, device_identifier)
+
+    if processor == "zoe":
+        return ZoeDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, **kwargs)
+
+    if processor == "sam":
+        return SamDetector.from_pretrained("ybelkada/segment-anything", subfolder="checkpoints")(image, **kwargs)
+
+    if processor == "teed":
+        return TEEDdetector.from_pretrained("fal-ai/teed", filename="5_model.pth").to(device_identifier)(image, **kwargs)
+
+    if processor == "anyline":
+        return AnylineDetector.from_pretrained("TheMistoAI/MistoLine", filename="MTEED.pth", subfolder="Anyline").to(device_identifier)(image, **kwargs)
+
+    if processor == "leres":
+        return LeresDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, **kwargs)
 
     if processor == "depth":
         return image_to_depth(image, device_identifier, **kwargs)
