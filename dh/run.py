@@ -9,15 +9,16 @@ if __name__ == "__main__":
         "file_name", type=str, help="The filespec to of the workflow to run"
     )
     parser.add_argument(
-        "-o", "--output_dir",
+        "-o",
+        "--output_dir",
         type=str,
         default="./outputs",
         help="The folder to write the outputs to",
     )
     parser.add_argument(
-        'variables',
-        nargs='*',  # Accept 0 or more parameters
-        help='Optional parameters in name=value format'
+        "variables",
+        nargs="*",  # Accept 0 or more parameters
+        help="Optional parameters in name=value format",
     )
     args = parser.parse_args()
 
@@ -25,7 +26,7 @@ if __name__ == "__main__":
     variables = {}
     for variable in args.variables:
         try:
-            name, value = variable.split('=', 1)
+            name, value = variable.split("=", 1)
             variables[name.strip()] = value.strip()
         except ValueError:
             print(f"Error: Variable '{variable}' is not in name=value format")
@@ -38,16 +39,15 @@ if __name__ == "__main__":
         raise FileNotFoundError(f"File {args.file_name} does not exist")
 
     project = create_project(load_json_file(args.file_name))
-    try:    
+    try:
         project.validate()
     except Exception as e:
         print(f"Error validating project: {e}")
         exit(1)
 
-    try:    
+    try:
         startup()
         project.run(args.output_dir, variables)
     except Exception as e:
         print(f"Error running project: {e}")
         exit(1)
-

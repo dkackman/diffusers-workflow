@@ -18,8 +18,7 @@ from controlnet_aux import (
     MediapipeFaceDetector,
     CannyDetector,
     LineartStandardDetector,
-    DWposeDetector
-
+    DWposeDetector,
 )
 from transformers import (
     AutoImageProcessor,
@@ -28,7 +27,12 @@ from transformers import (
     DPTFeatureExtractor,
 )
 from .zoe_depth import colorize, load_zoe
-from .image_utils import resize_center_crop, resize_resample, crop_sqaure, resize_rescale
+from .image_utils import (
+    resize_center_crop,
+    resize_resample,
+    crop_sqaure,
+    resize_rescale,
+)
 from .depth_estimator import make_hint_image, make_hint_tensor
 from .borders import add_border_and_mask
 import torch
@@ -38,41 +42,53 @@ def process_image(image, processor, device_identifier, kwargs):
     processor = processor.lower()
 
     if processor == "add_border_and_mask":
-        return add_border_and_mask(image, **kwargs)    
-    
+        return add_border_and_mask(image, **kwargs)
+
     if processor == "canny_cv":
         return image_to_canny(image, **kwargs)
 
     if processor == "mlsd":
-        return MLSDdetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, **kwargs)
+        return MLSDdetector.from_pretrained("lllyasviel/Annotators").to(
+            device_identifier
+        )(image, **kwargs)
 
     if processor == "normal_bae":
-        return NormalBaeDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, **kwargs)
+        return NormalBaeDetector.from_pretrained("lllyasviel/Annotators").to(
+            device_identifier
+        )(image, **kwargs)
 
     if processor == "segmentation":
         return image_to_segmentation(image)
 
     if processor == "lineart":
-        return LineartDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, coarse=True, **kwargs)
+        return LineartDetector.from_pretrained("lllyasviel/Annotators").to(
+            device_identifier
+        )(image, coarse=True, **kwargs)
 
     if processor == "openpose":
-        return OpenposeDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, hand_and_face=True, **kwargs)
+        return OpenposeDetector.from_pretrained("lllyasviel/Annotators").to(
+            device_identifier
+        )(image, hand_and_face=True, **kwargs)
 
     if processor == "hed":
-        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(
-            image, scribble=False, **kwargs
-        )
-    
+        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(
+            device_identifier
+        )(image, scribble=False, **kwargs)
+
     if processor == "scribble":
-        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(
-            image, scribble=True, **kwargs
-        )
+        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(
+            device_identifier
+        )(image, scribble=True, **kwargs)
 
     if processor == "pidi":
-        return PidiNetDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, safe=True, **kwargs)
+        return PidiNetDetector.from_pretrained("lllyasviel/Annotators").to(
+            device_identifier
+        )(image, safe=True, **kwargs)
 
     if processor == "midas":
-        return MidasDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, **kwargs)
+        return MidasDetector.from_pretrained("lllyasviel/Annotators").to(
+            device_identifier
+        )(image, **kwargs)
 
     if processor == "shuffle":
         processor = ContentShuffleDetector()
@@ -98,32 +114,42 @@ def process_image(image, processor, device_identifier, kwargs):
         return get_zoe_depth_map(image, device_identifier)
 
     if processor == "zoe":
-        return ZoeDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, **kwargs)
+        return ZoeDetector.from_pretrained("lllyasviel/Annotators").to(
+            device_identifier
+        )(image, **kwargs)
 
     if processor == "sam":
-        return SamDetector.from_pretrained("ybelkada/segment-anything", subfolder="checkpoints")(image, **kwargs)
+        return SamDetector.from_pretrained(
+            "ybelkada/segment-anything", subfolder="checkpoints"
+        )(image, **kwargs)
 
     if processor == "teed":
-        return TEEDdetector.from_pretrained("fal-ai/teed", filename="5_model.pth").to(device_identifier)(image, **kwargs)
+        return TEEDdetector.from_pretrained("fal-ai/teed", filename="5_model.pth").to(
+            device_identifier
+        )(image, **kwargs)
 
     if processor == "anyline":
-        return AnylineDetector.from_pretrained("TheMistoAI/MistoLine", filename="MTEED.pth", subfolder="Anyline").to(device_identifier)(image, **kwargs)
+        return AnylineDetector.from_pretrained(
+            "TheMistoAI/MistoLine", filename="MTEED.pth", subfolder="Anyline"
+        ).to(device_identifier)(image, **kwargs)
 
     if processor == "leres":
-        return LeresDetector.from_pretrained("lllyasviel/Annotators").to(device_identifier)(image, **kwargs)
+        return LeresDetector.from_pretrained("lllyasviel/Annotators").to(
+            device_identifier
+        )(image, **kwargs)
 
     if processor == "depth":
         return image_to_depth(image, device_identifier, **kwargs)
 
     if processor == "depth_estimator_tensor":
-        return make_hint_tensor(image, device_identifier)    
-    
+        return make_hint_tensor(image, device_identifier)
+
     if processor == "depth_estimator":
         return make_hint_image(image, device_identifier)
-    
+
     if processor == "resize_center_crop":
         return resize_center_crop(image, **kwargs)
-    
+
     if processor == "resize_resample":
         return resize_resample(image, **kwargs)
 
@@ -152,7 +178,7 @@ def image_to_canny(image, low_threshold=100, high_threshold=200):
     return Image.fromarray(image)
 
 
-def image_to_depth(image, device_identifier, height = 1024, width = 1024):
+def image_to_depth(image, device_identifier, height=1024, width=1024):
     size = (width, height)
     depth_estimator = DPTForDepthEstimation.from_pretrained(
         "Intel/dpt-hybrid-midas"

@@ -15,7 +15,7 @@ def crop_sqaure(img: Image) -> Image:
 
     # Crop the image
     img_cropped = img.crop((left, top, right, bottom))
-    
+
     return img_cropped
 
 

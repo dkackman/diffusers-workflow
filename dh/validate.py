@@ -12,8 +12,8 @@ if __name__ == "__main__":
 
     if not os.path.exists(args.file_name):
         raise FileNotFoundError(f"File {args.file_name} does not exist")
-    
-    try:    
+
+    try:
         project = create_project(load_json_file(args.file_name))
         project.validate()
     except Exception as e:
@@ -21,4 +21,3 @@ if __name__ == "__main__":
         exit(1)
 
     print("Project validated successfully")
-

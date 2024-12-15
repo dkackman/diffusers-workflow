@@ -12,29 +12,33 @@ class Step:
     @property
     def name(self):
         return self.step_definition.get("name", "unknown")
-    
+
     def run(self, previous_results, shared_components):
         try:
             step_name = self.step_definition["name"]
-    
+
             result = Result(self.step_definition.get("result", {}))
             if "pipeline" in self.step_definition:
                 pipeline = Pipeline(self.step_definition["pipeline"], self.default_seed)
-                print(f"Running task {step_name}:{pipeline.model_name}...")   
+                print(f"Running task {step_name}:{pipeline.model_name}...")
                 pipeline.load("cuda", shared_components)
 
-                for arguments in get_iterations(pipeline.argument_template, previous_results):                    
+                for arguments in get_iterations(
+                    pipeline.argument_template, previous_results
+                ):
                     result.add_result(pipeline.run(arguments))
 
             else:
                 task = Task(self.step_definition["task"])
-                print(f"Running task {step_name}:{task.command}...")   
+                print(f"Running task {step_name}:{task.command}...")
 
-                for arguments in get_iterations(task.argument_template, previous_results):
+                for arguments in get_iterations(
+                    task.argument_template, previous_results
+                ):
                     result.add_result(task.run("cuda", arguments))
 
             return result
-        
+
         except Exception as e:
             print(f"Error running step {self.step_definition.get('name', 'unknown')}")
             print(e)

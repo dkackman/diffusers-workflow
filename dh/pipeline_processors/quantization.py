@@ -12,22 +12,28 @@ def quantize(component, quantization_definition, device_identifier):
             if quantization_library == "torchao":
                 torchao_quantize(component, weights_type(), device=device_identifier)
                 return component
-            
+
             if quantization_library == "torchao.autoquant":
                 return autoquant(component, error_on_unseen=False)
 
             if quantization_library == "optimum.quanto":
                 activations_type = quantization_definition["activations_type"]
-                quanto_quantize(component, weights=weights_type, activations=activations_type)
+                quanto_quantize(
+                    component, weights=weights_type, activations=activations_type
+                )
                 freeze(component)
                 return component
-            
+
             else:
-                raise ValueError(f"Quantization library {quantization_library} not supported")
-            
+                raise ValueError(
+                    f"Quantization library {quantization_library} not supported"
+                )
+
         except Exception as e:
-            print(f"Error while quantizing {type(component).__name__} using {quantization_library}")
+            print(
+                f"Error while quantizing {type(component).__name__} using {quantization_library}"
+            )
             print(e)
             raise e
-        
+
     return component

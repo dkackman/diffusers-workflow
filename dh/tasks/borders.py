@@ -1,6 +1,9 @@
 from PIL import Image
 
-def add_border_and_mask(image, zoom_all=1.0, zoom_left=0, zoom_right=0, zoom_up=0, zoom_down=0, overlap=0):
+
+def add_border_and_mask(
+    image, zoom_all=1.0, zoom_left=0, zoom_right=0, zoom_up=0, zoom_down=0, overlap=0
+):
     """Adds a black border around the image with individual side control and mask overlap"""
     orig_width, orig_height = image.size
 
@@ -48,7 +51,4 @@ def add_border_and_mask(image, zoom_all=1.0, zoom_left=0, zoom_right=0, zoom_up=
         ),
     )
 
-    return  {
-        "bordered_image": bordered_image, 
-        "mask": mask
-    }
+    return {"bordered_image": bordered_image, "mask": mask}
