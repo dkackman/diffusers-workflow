@@ -1,10 +1,4 @@
 {
-    "variables": {
-        "input_image": "https://pbs.twimg.com/card_img/1861062981414461440/ksfE0eTn?format=jpg&name=small",
-        "cup_mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png",
-        "robot_image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png",
-        "mondo_image": "https://pbs.twimg.com/media/GeynVQNbwAAYtRt?format=jpg&name=medium"
-    },
     "jobs": [
         {
             "id": "FluxCanny",
@@ -15,7 +9,7 @@
                         "command": "canny",
                         "arguments": {
                             "image": {
-                                "location": "variable:mondo_image",
+                                "location": "https://pbs.twimg.com/media/GezfaKzaQAEwLJJ?format=jpg&name=medium",
                                 "low_threshold": 50,
                                 "high_threshold": 200,
                                 "detect_resolution": 1024,

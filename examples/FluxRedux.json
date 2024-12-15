@@ -1,7 +1,6 @@
 {
     "variables": {
-        "input_image": "https://pbs.twimg.com/media/GdeUpIiXQAEvYQD?format=jpg&name=small",
-        "mondo_image": "https://pbs.twimg.com/media/GdV9Jd-bcAAkAhi?format=jpg&name=medium"
+        "input_image": "https://pbs.twimg.com/media/GezfaKzaQAEwLJJ?format=jpg&name=medium"
     },
     "jobs": [
         {
