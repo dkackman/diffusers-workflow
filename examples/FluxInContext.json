@@ -281,6 +281,37 @@
                     "result": {
                         "content_type": "image/jpeg"
                     }
+                },
+                {
+                    "name": "portrait-illustration",
+                    "pipeline": {
+                        "configuration": {
+                            "pipeline_type": "FluxPipeline",
+                            "offload": "sequential"
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "black-forest-labs/FLUX.1-dev",
+                            "torch_dtype": "torch.bfloat16"
+                        },
+                        "loras": [
+                            {
+                                "lora_name": "ali-vilab/In-Context-LoRA",
+                                "weight_name": "portrait-illustration.safetensors"
+                            }
+                        ],
+                        "arguments": {
+                            "prompt": "This two-panel image presents a transformation from a realistic portrait to a playful illustration, capturing both detail and artistic flair; [LEFT] the photograph shows a woman standing in a bustling marketplace, wearing a wide-brimmed hat, a flowing bohemian dress, and a leather crossbody bag; [RIGHT] the illustration panel exaggerates her accessories and features, with the bohemian dress depicted in vibrant patterns and bold colors, while the background is simplified into abstract market stalls, giving the scene an animated and lively feel.",
+                            "width": 1344,
+                            "height": 1728,
+                            "num_inference_steps": 25,
+                            "num_images_per_prompt": 1,
+                            "guidance_scale": 3.5,
+                            "max_sequence_length": 512
+                        }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
+                    }
                 }
             ]
         }
