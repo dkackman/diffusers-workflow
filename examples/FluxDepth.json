@@ -1,9 +1,4 @@
 {
-    "variables": {
-        "input_image": "https://pbs.twimg.com/card_img/1861062981414461440/ksfE0eTn?format=jpg&name=small",
-        "robot_image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png",
-        "mondo_image": "https://pbs.twimg.com/media/GeynVQNbwAAYtRt?format=jpg&name=medium"
-    },
     "jobs": [
         {
             "id": "FluxDepth",
@@ -14,7 +9,7 @@
                         "command": "depth",
                         "arguments": {
                             "image": {
-                                "location": "variable:mondo_image"
+                                "location": "https://pbs.twimg.com/media/GezfaKzaQAEwLJJ?format=jpg&name=medium"
                             }
                         }
                     },

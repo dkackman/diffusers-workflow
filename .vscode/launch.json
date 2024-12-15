@@ -16,17 +16,6 @@
       ]
     },
     {
-      "name": "scratch",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "dh.run",
-      "cwd": "${workspaceFolder}/",
-      "justMyCode": true,
-      "args": [
-        "./examples/scratch.json",
-      ]
-    },
-    {
       "name": "validate file",
       "type": "debugpy",
       "request": "launch",
@@ -67,6 +56,17 @@
         "./dh/test_job.json",
         "prompt=an orange",
         "num_images_per_prompt=4"
+      ]
+    },
+    {
+      "name": "scratch",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dh.run",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "./examples/scratch.json",
       ]
     },
     {
