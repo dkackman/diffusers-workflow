@@ -1,25 +1,20 @@
 {
     "variables": {
         "input_image": "https://pbs.twimg.com/card_img/1861062981414461440/ksfE0eTn?format=jpg&name=small",
-        "cup_mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png",
         "robot_image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png",
         "mondo_image": "https://pbs.twimg.com/media/GeynVQNbwAAYtRt?format=jpg&name=medium"
     },
     "jobs": [
         {
-            "id": "FluxCanny",
+            "id": "FluxDepth",
             "steps": [
                 {
-                    "name": "canny",
+                    "name": "depth",
                     "task": {
-                        "command": "canny",
+                        "command": "depth",
                         "arguments": {
                             "image": {
-                                "location": "variable:mondo_image",
-                                "low_threshold": 50,
-                                "high_threshold": 200,
-                                "detect_resolution": 1024,
-                                "image_resolution": 1024
+                                "location": "variable:mondo_image"
                             }
                         }
                     },
@@ -28,21 +23,23 @@
                     }
                 },
                 {
-                    "name": "FluxCanny",
+                    "name": "FluxDepth",
                     "pipeline": {
                         "configuration": {
                             "pipeline_type": "FluxControlPipeline",
                             "offload": "sequential"
                         },
                         "from_pretrained_arguments": {
-                            "model_name": "black-forest-labs/FLUX.1-Canny-dev",
+                            "model_name": "black-forest-labs/FLUX.1-Depth-dev",
                             "torch_dtype": "torch.bfloat16"
                         },
                         "arguments": {
-                            "control_image": "previous_result:canny",
+                            "control_image": "previous_result:depth",
                             "prompt": "A Chimpanzee dressed as super man flying over a city",
-                            "guidance_scale": 30,
-                            "num_inference_steps": 50,
+                            "height": 1024,
+                            "width": 1024,
+                            "guidance_scale": 10,
+                            "num_inference_steps": 25,
                             "max_sequence_length": 512
                         }
                     },

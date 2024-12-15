@@ -1,7 +1,4 @@
 {
-    "variables": {
-        "robot_image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png"
-    },
     "jobs": [
         {
             "id": "image_processors",
@@ -12,7 +9,7 @@
                         "command": "gather_images",
                         "arguments": {
                             "urls": [
-                                "variable:robot_image"
+                                "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png"
                             ]
                         }
                     }

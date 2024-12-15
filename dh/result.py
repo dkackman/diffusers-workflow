@@ -39,20 +39,29 @@ class Result:
             
             for i, result in enumerate(self.result_list):
                 for j, artifact in enumerate(get_artifact_list(result)):
-                    output_path = os.path.join(output_dir, f"{file_base_name}-{i}.{j}{extension}")
-                    print(f"Saving result to {output_path}")
-                    if content_type.startswith("video"):
-                        export_to_video(artifact, output_path, fps=self.result_definition.get("fps", 8))
+                    self.save_artifact(output_dir, artifact, f"{file_base_name}-{i}.{j}", content_type, extension)
 
-                    elif content_type.startswith("audio"):
-                        soundfile.write(output_path, artifact, self.result_definition.get("sample_rate", 44100))
 
-                    elif hasattr(artifact, 'save'):
-                        artifact.save(output_path)        
+    def save_artifact(self, output_dir, artifact, file_base_name, content_type, extension):
+        if isinstance(artifact, dict):
+            for k, v in artifact.items():
+                self.save_artifact(output_dir, v, f"{file_base_name}-{k}", content_type, extension)
+        
+        else:
+            output_path = os.path.join(output_dir, f"{file_base_name}{extension}")
+            print(f"Saving result to {output_path}")
 
-                    else:
-                        raise ValueError(f"Content type {content_type} does not match result type {type(artifact)}")
+            if content_type.startswith("video"):
+                export_to_video(artifact, output_path, fps=self.result_definition.get("fps", 8))
 
+            elif content_type.startswith("audio"):
+                soundfile.write(output_path, artifact, self.result_definition.get("sample_rate", 44100))
+
+            elif hasattr(artifact, 'save'):
+                artifact.save(output_path)        
+
+            else:
+                raise ValueError(f"Content type {content_type} does not match result type {type(artifact)}")
 
 def get_artifact_list(result):
     if hasattr(result, "images"):

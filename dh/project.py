@@ -69,8 +69,14 @@ def load_schema(schema_name):
 def replace_variables(data, variables):
     if variables is not None:    
         if isinstance(data, list):
-            for item in data:
-                replace_variables(item, variables)
+            for i, item in enumerate(data):
+                if isinstance(item, str) and item.startswith("variable:"):  
+                    variable_name = item.removeprefix("variable:")
+                    if not variable_name in variables:
+                        raise Exception(f"Variable <{variable_name}> not found")                
+                    data[i] = variables[variable_name]
+                else:
+                    replace_variables(item, variables)
 
         elif isinstance(data, dict):
             for k, v in data.items():
@@ -79,6 +85,7 @@ def replace_variables(data, variables):
                     if not variable_name in variables:
                         raise Exception(f"Variable <{variable_name}> not found")                
                     data[k] = variables[variable_name]     
+
                 else:
                     replace_variables(v, variables)
 
