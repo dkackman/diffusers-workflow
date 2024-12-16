@@ -33,6 +33,7 @@ from .image_utils import (
     crop_sqaure,
     resize_rescale,
 )
+from .background_remover import remove_background
 from .depth_estimator import make_hint_image, make_hint_tensor
 from .borders import add_border_and_mask
 import torch
@@ -43,6 +44,9 @@ def process_image(image, processor, device_identifier, kwargs):
 
     if processor == "add_border_and_mask":
         return add_border_and_mask(image, **kwargs)
+
+    if processor == "remove_background":
+        return remove_background(image, **kwargs)
 
     if processor == "canny_cv":
         return image_to_canny(image, **kwargs)
