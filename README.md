@@ -4,9 +4,14 @@
 
 ## Introduction
 
-This is a helper for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). It provides a command line interface and json input format for driving the diffuser library, supporting the most common diffuser use cases. This allows you to run new models without code changes.
+This is a helper for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). This command-line tool simplifies working with the Hugging Face Diffusers library by providing a flexible, JSON-based interface for running generative AI models. Users can define and execute complex image generation tasks without writing custom Python code.
 
-It also provides a way to define a job as a json file and run it from the command line, supplying parameters such as the prompt and any other inputs required by the model.
+## Features
+
+    - Single or multi-step workflows
+    - Variable substitution
+    - JSON input format
+    - Image processing tasks for controlnet workflows
 
 ## Installation
 
