@@ -1,6 +1,6 @@
 {
     "variables": {
-        "input_image": "https://pbs.twimg.com/media/GedotVkXYAAhOuW?format=jpg&name=small"
+        "input_image": "https://pbs.twimg.com/media/Ge7NpKpWAAAq6L4?format=jpg&name=large"
     },
     "jobs": [
         {
@@ -32,7 +32,7 @@
                         "arguments": {
                             "image": "previous_result:mask_image.bordered_image",
                             "mask_image": "previous_result:mask_image.mask",
-                            "prompt": "a mointain meadow",
+                            "prompt": "fill in with more clouds, rainbows, stars and rockets",
                             "guidance_scale": 30,
                             "num_inference_steps": 25,
                             "max_sequence_length": 512
