@@ -12,6 +12,7 @@ This is a helper for the [Huggingface Diffuser project](https://github.com/huggi
     - Variable substitution
     - JSON input format
     - Image processing tasks for controlnet workflows
+    - Other helpful tasks like background removal and qr code generation
 
 ## Installation
 
