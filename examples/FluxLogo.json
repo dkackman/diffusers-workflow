@@ -1,0 +1,40 @@
+{
+    "variables": {
+        "prompt": "An eco-friendly crypto currency logo"
+    },
+    "jobs": [
+        {
+            "id": "FluxLogo",
+            "steps": [
+                {
+                    "name": "logo",
+                    "pipeline": {
+                        "configuration": {
+                            "pipeline_type": "FluxPipeline",
+                            "offload": "sequential"
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "black-forest-labs/FLUX.1-dev",
+                            "torch_dtype": "torch.bfloat16"
+                        },
+                        "loras": [
+                            {
+                                "lora_name": "Shakker-Labs/FLUX.1-dev-LoRA-Logo-Design",
+                                "lora_scale": 0.8
+                            }
+                        ],
+                        "arguments": {
+                            "prompt": "variable:prompt",
+                            "guidance_scale": 30,
+                            "num_inference_steps": 50,
+                            "max_sequence_length": 512
+                        }
+                    },
+                    "result": {
+                        "content_type": "image/jpeg"
+                    }
+                }
+            ]
+        }
+    ]
+}
