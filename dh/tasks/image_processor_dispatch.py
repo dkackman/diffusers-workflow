@@ -46,7 +46,7 @@ def process_image(image, processor, device_identifier, kwargs):
         return add_border_and_mask(image, **kwargs)
 
     if processor == "remove_background":
-        return remove_background(image, **kwargs)
+        return remove_background(image, device_identifier, **kwargs)
 
     if processor == "canny_cv":
         return image_to_canny(image, **kwargs)
