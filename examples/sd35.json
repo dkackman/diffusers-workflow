@@ -1,4 +1,7 @@
 {
+    "variables": {
+        "prompt": "The slowest timelord and cameron cooper create the first fully distributed zero trust options contract."
+    },
     "id": "sd35",
     "steps": [
         {
@@ -27,7 +30,7 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "Giant constantly mutating ravenous radioactive mushroom",
+                    "prompt": "variable:prompt",
                     "num_inference_steps": 25,
                     "guidance_scale": 4.5,
                     "max_sequence_length": 512,

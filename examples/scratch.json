@@ -1,43 +1,71 @@
 {
-    "jobs": [
+    "id": "qr_code",
+    "variables": {
+        "qr_code_contents": "txch1jdsqdz4069k00t5vlk9l8mnr5ycljz640g36ymnygslgkra675ssg2y4ng",
+        "init_image_location": "https://th.bing.com/th/id/OIP.Lsm7UOwPR37OPvDy3HUUTQHaE7?rs=1&pid=ImgDetMain"
+    },
+    "steps": [
         {
-            "id": "FluxInContext",
-            "steps": [
-                {
-                    "name": "gather_images",
-                    "task": {
-                        "command": "gather_images",
-                        "arguments": {
-                            "glob": "./outputs/OneMarmotLogo.png"
-                        }
-                    }
-                },
-                {
-                    "name": "remove_background",
-                    "pipeline": {
-                        "configuration": {
-                            "pipeline_type": "FluxPipeline",
-                            "offload": "sequential"
-                        },
-                        "from_pretrained_arguments": {
-                            "model_name": "black-forest-labs/FLUX.1-dev",
-                            "torch_dtype": "torch.bfloat16"
-                        },
-                        "arguments": {
-                            "prompt": "The two-panel image showcases the joyful identity of a blockchain brand, with the left panel showing a smiling marmot graphic and the brand name “One Marmot in a fun, casual font on a light green background; [LEFT] while the right panel translates the design onto a reusable shopping tote with the marmot logo in brown, held by a person in a market setting, emphasizing the brand’s approachable and eco-friendly vibe.",
-                            "width": 1472,
-                            "height": 1024,
-                            "num_inference_steps": 25,
-                            "num_images_per_prompt": 1,
-                            "guidance_scale": 3.5,
-                            "max_sequence_length": 512
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
+            "name": "qr_code",
+            "task": {
+                "command": "qr_code",
+                "arguments": {
+                    "qr_code_contents": "variable:qr_code_contents"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "init_image",
+            "task": {
+                "command": "resize_resample",
+                "arguments": {
+                    "image": {
+                        "location": "variable:init_image_location"
                     }
                 }
-            ]
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "StableDiffusionControlNetImg2ImgPipeline"
+                },
+                "controlnet": {
+                    "configuration": {
+                        "pipeline_type": "ControlNetModel"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "DionTimmer/controlnet_qrcode-control_v11p_sd21",
+                        "torch_dtype": "torch.float16"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-diffusion-2-1",
+                    "torch_dtype": "torch.float16"
+                },
+                "arguments": {
+                    "prompt": "green vines",
+                    "negative_prompt": "ugly, disfigured, low quality, blurry, nsfw",
+                    "image": "previous_result:init_image",
+                    "control_image": "previous_result:qr_code",
+                    "width": 768,
+                    "height": 768,
+                    "guidance_scale": 20,
+                    "controlnet_conditioning_scale": 1.75,
+                    "strength": 0.9,
+                    "num_inference_steps": 150
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
         }
     ]
 }

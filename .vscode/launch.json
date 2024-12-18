@@ -34,15 +34,14 @@
       ]
     },
     {
-      "name": "validate tests file",
+      "name": "validate all examples",
+      "env": {
+        "PYDEVD_DISABLE_FILE_VALIDATION": "1"
+      },
       "type": "debugpy",
       "request": "launch",
-      "module": "dh.validate",
-      "cwd": "${workspaceFolder}/",
-      "justMyCode": true,
-      "args": [
-        "./examples/tests.json"
-      ]
+      "program": "${workspaceFolder}/validate_all.py",
+      "console": "integratedTerminal"
     },
     {
       "name": "test",

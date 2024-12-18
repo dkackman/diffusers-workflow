@@ -1,7 +1,8 @@
 import argparse
 import os
-from .project import create_project, load_json_file
 from . import startup
+from .schema import load_json_file
+from .job import Job
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a workflow from a file.")
@@ -38,16 +39,16 @@ if __name__ == "__main__":
     if not os.path.exists(args.file_name):
         raise FileNotFoundError(f"File {args.file_name} does not exist")
 
-    project = create_project(load_json_file(args.file_name))
+    job = Job(load_json_file(args.file_name))
     try:
-        project.validate()
+        job.validate()
     except Exception as e:
-        print(f"Error validating project: {e}")
+        print(f"Error validating job: {e}")
         exit(1)
 
     try:
         startup()
-        project.run(args.output_dir, variables)
+        job.run(args.output_dir, variables)
     except Exception as e:
-        print(f"Error running project: {e}")
+        print(f"Error running job: {e}")
         exit(1)

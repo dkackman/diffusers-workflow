@@ -1,12 +1,13 @@
 import argparse
 import os
-from .project import create_project, load_json_file
+from .schema import load_json_file
+from .job import Job
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Validate a project from a file.")
+    parser = argparse.ArgumentParser(description="Validate a job from a file.")
     parser.add_argument(
-        "file_name", type=str, help="The filespec to of the project to validate"
+        "file_name", type=str, help="The filespec of the job to validate"
     )
     args = parser.parse_args()
 
@@ -14,10 +15,10 @@ if __name__ == "__main__":
         raise FileNotFoundError(f"File {args.file_name} does not exist")
 
     try:
-        project = create_project(load_json_file(args.file_name))
-        project.validate()
+        job = Job(load_json_file(args.file_name))
+        job.validate()
     except Exception as e:
-        print(f"Error validating project: {e}")
+        print(f"Error validating job: {args.file_name}")
         exit(1)
 
-    print("Project validated successfully")
+    print(f"Job {args.file_name} validated successfully")

@@ -2,47 +2,43 @@
     "variables": {
         "input_image": "https://pbs.twimg.com/media/Ge7NpKpWAAAq6L4?format=jpg&name=large"
     },
-    "jobs": [
+    "id": "FluxOutpaint",
+    "steps": [
         {
-            "id": "FluxOutpaint",
-            "steps": [
-                {
-                    "name": "mask_image",
-                    "task": {
-                        "command": "add_border_and_mask",
-                        "arguments": {
-                            "image": {
-                                "location": "variable:input_image"
-                            },
-                            "zoom_all": 2.0
-                        }
-                    }
-                },
-                {
-                    "name": "outpaint",
-                    "pipeline": {
-                        "configuration": {
-                            "pipeline_type": "FluxFillPipeline",
-                            "offload": "sequential"
-                        },
-                        "from_pretrained_arguments": {
-                            "model_name": "black-forest-labs/FLUX.1-Fill-dev",
-                            "torch_dtype": "torch.bfloat16"
-                        },
-                        "arguments": {
-                            "image": "previous_result:mask_image.bordered_image",
-                            "mask_image": "previous_result:mask_image.mask",
-                            "prompt": "fill in with more clouds, rainbows, stars and rockets",
-                            "guidance_scale": 30,
-                            "num_inference_steps": 25,
-                            "max_sequence_length": 512
-                        }
+            "name": "mask_image",
+            "task": {
+                "command": "add_border_and_mask",
+                "arguments": {
+                    "image": {
+                        "location": "variable:input_image"
                     },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
+                    "zoom_all": 2.0
                 }
-            ]
+            }
+        },
+        {
+            "name": "outpaint",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "FluxFillPipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-Fill-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "image": "previous_result:mask_image.bordered_image",
+                    "mask_image": "previous_result:mask_image.mask",
+                    "prompt": "fill in with more clouds, rainbows, stars and rockets",
+                    "guidance_scale": 30,
+                    "num_inference_steps": 25,
+                    "max_sequence_length": 512
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
         }
     ]
 }

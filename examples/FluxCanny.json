@@ -1,50 +1,46 @@
 {
-    "jobs": [
+    "id": "FluxCanny",
+    "steps": [
         {
-            "id": "FluxCanny",
-            "steps": [
-                {
-                    "name": "canny",
-                    "task": {
-                        "command": "canny",
-                        "arguments": {
-                            "image": {
-                                "location": "https://pbs.twimg.com/media/GezfaKzaQAEwLJJ?format=jpg&name=medium",
-                                "low_threshold": 50,
-                                "high_threshold": 200,
-                                "detect_resolution": 1024,
-                                "image_resolution": 1024
-                            }
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "FluxCanny",
-                    "pipeline": {
-                        "configuration": {
-                            "pipeline_type": "FluxControlPipeline",
-                            "offload": "sequential"
-                        },
-                        "from_pretrained_arguments": {
-                            "model_name": "black-forest-labs/FLUX.1-Canny-dev",
-                            "torch_dtype": "torch.bfloat16"
-                        },
-                        "arguments": {
-                            "control_image": "previous_result:canny",
-                            "prompt": "A Chimpanzee dressed as super man flying over a city",
-                            "guidance_scale": 30,
-                            "num_inference_steps": 50,
-                            "max_sequence_length": 512
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
+            "name": "canny",
+            "task": {
+                "command": "canny",
+                "arguments": {
+                    "image": {
+                        "location": "https://pbs.twimg.com/media/GezfaKzaQAEwLJJ?format=jpg&name=medium",
+                        "low_threshold": 50,
+                        "high_threshold": 200,
+                        "detect_resolution": 1024,
+                        "image_resolution": 1024
                     }
                 }
-            ]
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "FluxCanny",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "FluxControlPipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-Canny-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "control_image": "previous_result:canny",
+                    "prompt": "A Chimpanzee dressed as super man flying over a city",
+                    "guidance_scale": 30,
+                    "num_inference_steps": 50,
+                    "max_sequence_length": 512
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
         }
     ]
 }

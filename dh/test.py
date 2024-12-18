@@ -1,22 +1,23 @@
 import os
-from .project import create_project, load_json_file
+from .schema import load_json_file
+from .job import Job
 from . import startup
 
 if __name__ == "__main__":
-    job = load_json_file(
+    data = load_json_file(
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_job.json")
     )
-    project = create_project(job)
+    job = Job(data)
 
     try:
-        project.validate()
+        job.validate()
     except Exception as e:
-        print(f"Error validating project: {e}")
+        print(f"Error validating job: {e}")
         exit(1)
 
     try:
         startup()
-        project.run(".")
+        job.run(".")
     except Exception as e:
-        print(f"Error running project: {e}")
+        print(f"Error running job: {e}")
         exit(1)
