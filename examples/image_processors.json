@@ -1,326 +1,322 @@
 {
-    "jobs": [
+    "id": "image_processors",
+    "steps": [
         {
-            "id": "image_processors",
-            "steps": [
-                {
-                    "name": "input_image",
-                    "task": {
-                        "command": "gather_images",
-                        "arguments": {
-                            "urls": [
-                                "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "add_border_and_mask",
-                    "task": {
-                        "command": "add_border_and_mask",
-                        "arguments": {
-                            "image": "previous_result:input_image",
-                            "zoom_all": 2.0
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "canny",
-                    "task": {
-                        "command": "canny",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "canny_cv",
-                    "task": {
-                        "command": "canny_cv",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "mlsd",
-                    "task": {
-                        "command": "mlsd",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "normal_bae",
-                    "task": {
-                        "command": "normal_bae",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "segmentation",
-                    "task": {
-                        "command": "segmentation",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "openpose",
-                    "task": {
-                        "command": "openpose",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "lineart",
-                    "task": {
-                        "command": "lineart",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "face_detector",
-                    "task": {
-                        "command": "face_detector",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "lineart_standard",
-                    "task": {
-                        "command": "lineart_standard",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "hed",
-                    "task": {
-                        "command": "hed",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "pidi",
-                    "task": {
-                        "command": "pidi",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "midas",
-                    "task": {
-                        "command": "midas",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "shuffle",
-                    "task": {
-                        "command": "shuffle",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "zoe",
-                    "task": {
-                        "command": "zoe",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "sam",
-                    "task": {
-                        "command": "sam",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "teed",
-                    "task": {
-                        "command": "teed",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "anyline",
-                    "task": {
-                        "command": "anyline",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "leres",
-                    "task": {
-                        "command": "leres",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "depth",
-                    "task": {
-                        "command": "depth",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "depth_estimator",
-                    "task": {
-                        "command": "depth_estimator",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "resize_center_crop",
-                    "task": {
-                        "command": "resize_center_crop",
-                        "arguments": {
-                            "image": "previous_result:input_image",
-                            "height": 512,
-                            "width": 512
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "resize_resample",
-                    "task": {
-                        "command": "resize_resample",
-                        "arguments": {
-                            "image": "previous_result:input_image",
-                            "resolution": 512
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "crop_sqaure",
-                    "task": {
-                        "command": "crop_sqaure",
-                        "arguments": {
-                            "image": "previous_result:input_image"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
-                },
-                {
-                    "name": "resize_rescale",
-                    "task": {
-                        "command": "resize_rescale",
-                        "arguments": {
-                            "image": "previous_result:input_image",
-                            "height": 512,
-                            "width": 512
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
+            "name": "input_image",
+            "task": {
+                "command": "gather_images",
+                "arguments": {
+                    "urls": [
+                        "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png"
+                    ]
                 }
-            ]
+            }
+        },
+        {
+            "name": "add_border_and_mask",
+            "task": {
+                "command": "add_border_and_mask",
+                "arguments": {
+                    "image": "previous_result:input_image",
+                    "zoom_all": 2.0
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "canny",
+            "task": {
+                "command": "canny",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "canny_cv",
+            "task": {
+                "command": "canny_cv",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "mlsd",
+            "task": {
+                "command": "mlsd",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "normal_bae",
+            "task": {
+                "command": "normal_bae",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "segmentation",
+            "task": {
+                "command": "segmentation",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "openpose",
+            "task": {
+                "command": "openpose",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "lineart",
+            "task": {
+                "command": "lineart",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "face_detector",
+            "task": {
+                "command": "face_detector",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "lineart_standard",
+            "task": {
+                "command": "lineart_standard",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "hed",
+            "task": {
+                "command": "hed",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "pidi",
+            "task": {
+                "command": "pidi",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "midas",
+            "task": {
+                "command": "midas",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "shuffle",
+            "task": {
+                "command": "shuffle",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "zoe",
+            "task": {
+                "command": "zoe",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "sam",
+            "task": {
+                "command": "sam",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "teed",
+            "task": {
+                "command": "teed",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "anyline",
+            "task": {
+                "command": "anyline",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "leres",
+            "task": {
+                "command": "leres",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "depth",
+            "task": {
+                "command": "depth",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "depth_estimator",
+            "task": {
+                "command": "depth_estimator",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "resize_center_crop",
+            "task": {
+                "command": "resize_center_crop",
+                "arguments": {
+                    "image": "previous_result:input_image",
+                    "height": 512,
+                    "width": 512
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "resize_resample",
+            "task": {
+                "command": "resize_resample",
+                "arguments": {
+                    "image": "previous_result:input_image",
+                    "resolution": 512
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "crop_sqaure",
+            "task": {
+                "command": "crop_sqaure",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "resize_rescale",
+            "task": {
+                "command": "resize_rescale",
+                "arguments": {
+                    "image": "previous_result:input_image",
+                    "height": 512,
+                    "width": 512
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
         }
     ]
 }

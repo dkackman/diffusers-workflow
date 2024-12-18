@@ -2,51 +2,47 @@
     "variables": {
         "mask_image_uri": "https://nftfactory.blob.core.windows.net/images/chia256.jpg"
     },
-    "jobs": [
+    "id": "sd15-controlnet",
+    "steps": [
         {
-            "id": "sd15-controlnet",
-            "steps": [
-                {
-                    "name": "depth",
-                    "task": {
-                        "command": "depth_estimator",
-                        "arguments": {
-                            "image": {
-                                "location": "variable:mask_image_uri"
-                            }
-                        }
-                    }
-                },
-                {
-                    "name": "main",
-                    "pipeline": {
-                        "configuration": {
-                            "pipeline_type": "StableDiffusionControlNetPipeline"
-                        },
-                        "controlnet": {
-                            "configuration": {
-                                "pipeline_type": "ControlNetModel"
-                            },
-                            "from_pretrained_arguments": {
-                                "model_name": "lllyasviel/control_v11f1p_sd15_depth",
-                                "torch_dtype": "torch.float16"
-                            }
-                        },
-                        "from_pretrained_arguments": {
-                            "model_name": "runwayml/stable-diffusion-v1-5",
-                            "torch_dtype": "torch.float16"
-                        },
-                        "arguments": {
-                            "image": "previous_result:depth",
-                            "prompt": "a cityscape",
-                            "num_inference_steps": 25
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg"
+            "name": "depth",
+            "task": {
+                "command": "depth_estimator",
+                "arguments": {
+                    "image": {
+                        "location": "variable:mask_image_uri"
                     }
                 }
-            ]
+            }
+        },
+        {
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "StableDiffusionControlNetPipeline"
+                },
+                "controlnet": {
+                    "configuration": {
+                        "pipeline_type": "ControlNetModel"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "lllyasviel/control_v11f1p_sd15_depth",
+                        "torch_dtype": "torch.float16"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "runwayml/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16"
+                },
+                "arguments": {
+                    "image": "previous_result:depth",
+                    "prompt": "a cityscape",
+                    "num_inference_steps": 25
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
         }
     ]
 }

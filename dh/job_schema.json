@@ -1,16 +1,14 @@
 {
-    "$id": "https://github.com/dkackman/diffusers-helper/project",
+    "$id": "https://github.com/dkackman/diffusers-helper/job",
     "$schema": "https://json-schema.org/draft/2020-12/schema#",
-    "description": "The definition of the diffusers-helper project.",
+    "description": "The definition of the diffusers-helper job.",
     "type": "object",
     "properties": {
-        "seed": {
-            "description": "Default seed for the entire project",
-            "type": "integer",
-            "format": "int64"
+        "id": {
+            "type": "string"
         },
         "variables": {
-            "description": "Variables to be used in the project across jobs and steps.",
+            "description": "Variables to be used in for the job.",
             "additionalProperties": {
                 "type": [
                     "string",
@@ -22,41 +20,24 @@
                 ]
             }
         },
-        "jobs": {
+        "seed": {
+            "description": "Default seed for the entire job",
+            "type": "integer",
+            "format": "int64"
+        },
+        "steps": {
             "type": "array",
+            "minItems": 1,
             "items": {
-                "$ref": "#/$defs/job"
+                "$ref": "#/$defs/step"
             }
         }
     },
     "required": [
-        "jobs"
+        "id",
+        "steps"
     ],
     "$defs": {
-        "job": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "seed": {
-                    "description": "Default seed for the entire job",
-                    "type": "integer",
-                    "format": "int64"
-                },
-                "steps": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {
-                        "$ref": "#/$defs/step"
-                    }
-                }
-            },
-            "required": [
-                "id",
-                "steps"
-            ]
-        },
         "image": {
             "type": "object",
             "properties": {

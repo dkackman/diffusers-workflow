@@ -1,144 +1,123 @@
 {
-    "seed": 42,
     "variables": {
         "source_image": "https://pbs.twimg.com/media/GdCdt6NWkAA4QTX?format=png&name=small"
     },
-    "jobs": [
+    "id": "img2vid",
+    "steps": [
         {
-            "id": "cog5b",
-            "steps": [
-                {
-                    "name": "image_to_video",
-                    "seed": 42,
-                    "pipeline": {
-                        "configuration": {
-                            "offload": "sequential",
-                            "pipeline_type": "CogVideoXImageToVideoPipeline",
-                            "vae": {
-                                "enable_slicing": true,
-                                "enable_tiling": true
-                            }
-                        },
-                        "from_pretrained_arguments": {
-                            "model_name": "THUDM/CogVideoX-5b-I2V",
-                            "torch_dtype": "torch.bfloat16",
-                            "use_safe_tensors": true
-                        },
-                        "arguments": {
-                            "prompt": "Sparkles and fire",
-                            "image": {
-                                "location": "sovariable:urce_image"
-                            },
-                            "num_videos_per_prompt": 1,
-                            "num_inference_steps": 25,
-                            "num_frames": 49,
-                            "guidance_scale": 6
-                        }
-                    },
-                    "result": {
-                        "content_type": "video/mp4"
+            "name": "cog5b",
+            "seed": 42,
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
                     }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "THUDM/CogVideoX-5b-I2V",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "Sparkles and fire",
+                    "image": {
+                        "location": "sovariable:urce_image"
+                    },
+                    "num_videos_per_prompt": 1,
+                    "num_inference_steps": 25,
+                    "num_frames": 49,
+                    "guidance_scale": 6
                 }
-            ]
+            },
+            "result": {
+                "content_type": "video/mp4"
+            }
         },
         {
-            "id": "svd",
-            "steps": [
-                {
-                    "name": "main",
-                    "pipeline": {
-                        "configuration": {
-                            "offload": "sequential",
-                            "pipeline_type": "StableVideoDiffusionPipeline",
-                            "unet": {
-                                "enable_forward_chunking": true
-                            }
-                        },
-                        "from_pretrained_arguments": {
-                            "model_name": "stabilityai/stable-video-diffusion-img2vid",
-                            "torch_dtype": "torch.float16",
-                            "use_safe_tensors": true,
-                            "variant": "fp16"
-                        },
-                        "arguments": {
-                            "image": {
-                                "location": "variable:source_image"
-                            },
-                            "num_frames": 25,
-                            "decode_chunk_size": 2
-                        }
-                    },
-                    "result": {
-                        "content_type": "video/mp4"
+            "name": "svd",
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "StableVideoDiffusionPipeline",
+                    "unet": {
+                        "enable_forward_chunking": true
                     }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-video-diffusion-img2vid",
+                    "torch_dtype": "torch.float16",
+                    "use_safe_tensors": true,
+                    "variant": "fp16"
+                },
+                "arguments": {
+                    "image": {
+                        "location": "variable:source_image"
+                    },
+                    "num_frames": 25,
+                    "decode_chunk_size": 2
                 }
-            ]
+            },
+            "result": {
+                "content_type": "video/mp4"
+            }
         },
         {
-            "id": "svdxt",
-            "steps": [
-                {
-                    "name": "main",
-                    "pipeline": {
-                        "configuration": {
-                            "offload": "sequential",
-                            "pipeline_type": "StableVideoDiffusionPipeline",
-                            "unet": {
-                                "enable_forward_chunking": true
-                            }
-                        },
-                        "from_pretrained_arguments": {
-                            "model_name": "stabilityai/stable-video-diffusion-img2vid-xt",
-                            "torch_dtype": "torch.float16",
-                            "use_safe_tensors": true,
-                            "variant": "fp16"
-                        },
-                        "arguments": {
-                            "image": {
-                                "location": "variable:source_image"
-                            },
-                            "num_frames": 25,
-                            "decode_chunk_size": 2
-                        }
-                    },
-                    "result": {
-                        "content_type": "video/mp4"
+            "name": "svdxt",
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "StableVideoDiffusionPipeline",
+                    "unet": {
+                        "enable_forward_chunking": true
                     }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-video-diffusion-img2vid-xt",
+                    "torch_dtype": "torch.float16",
+                    "use_safe_tensors": true,
+                    "variant": "fp16"
+                },
+                "arguments": {
+                    "image": {
+                        "location": "variable:source_image"
+                    },
+                    "num_frames": 25,
+                    "decode_chunk_size": 2
                 }
-            ]
+            },
+            "result": {
+                "content_type": "video/mp4"
+            }
         },
         {
-            "id": "svdxt1-1",
-            "steps": [
-                {
-                    "name": "main",
-                    "pipeline": {
-                        "configuration": {
-                            "offload": "sequential",
-                            "pipeline_type": "StableVideoDiffusionPipeline",
-                            "unet": {
-                                "enable_forward_chunking": true
-                            }
-                        },
-                        "from_pretrained_arguments": {
-                            "model_name": "stabilityai/stable-video-diffusion-img2vid-xt-1-1",
-                            "torch_dtype": "torch.float16",
-                            "use_safe_tensors": true,
-                            "variant": "fp16"
-                        },
-                        "arguments": {
-                            "image": {
-                                "location": "variable:source_image"
-                            },
-                            "num_frames": 25,
-                            "decode_chunk_size": 2
-                        }
-                    },
-                    "result": {
-                        "content_type": "video/mp4"
+            "name": "svdxt1-1",
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "StableVideoDiffusionPipeline",
+                    "unet": {
+                        "enable_forward_chunking": true
                     }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-video-diffusion-img2vid-xt-1-1",
+                    "torch_dtype": "torch.float16",
+                    "use_safe_tensors": true,
+                    "variant": "fp16"
+                },
+                "arguments": {
+                    "image": {
+                        "location": "variable:source_image"
+                    },
+                    "num_frames": 25,
+                    "decode_chunk_size": 2
                 }
-            ]
+            },
+            "result": {
+                "content_type": "video/mp4"
+            }
         }
     ]
 }

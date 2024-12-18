@@ -2,32 +2,28 @@
     "variables": {
         "image_path": "./outputs/FluxLogo-logo-0-0.0.jpg"
     },
-    "jobs": [
+    "id": "remove_background",
+    "steps": [
         {
-            "id": "remove_background",
-            "steps": [
-                {
-                    "name": "gather_images",
-                    "task": {
-                        "command": "gather_images",
-                        "arguments": {
-                            "glob": "variable:image_path"
-                        }
-                    }
-                },
-                {
-                    "name": "remove_background",
-                    "task": {
-                        "command": "remove_background",
-                        "arguments": {
-                            "image": "previous_result:gather_images"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/png"
-                    }
+            "name": "gather_images",
+            "task": {
+                "command": "gather_images",
+                "arguments": {
+                    "glob": "variable:image_path"
                 }
-            ]
+            }
+        },
+        {
+            "name": "remove_background",
+            "task": {
+                "command": "remove_background",
+                "arguments": {
+                    "image": "previous_result:gather_images"
+                }
+            },
+            "result": {
+                "content_type": "image/png"
+            }
         }
     ]
 }

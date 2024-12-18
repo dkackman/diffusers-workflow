@@ -1,46 +1,42 @@
 {
-    "jobs": [
+    "id": "CogVideoX-5B-I2V",
+    "steps": [
         {
-            "id": "CogVideoX-5B-I2V",
-            "steps": [
-                {
-                    "name": "gather_images",
-                    "task": {
-                        "command": "gather_images",
-                        "arguments": {
-                            "glob": "./outputs/sd35-main*.jpg"
-                        }
+            "name": "gather_images",
+            "task": {
+                "command": "gather_images",
+                "arguments": {
+                    "glob": "./outputs/sd35-main*.jpg"
+                }
+            }
+        },
+        {
+            "name": "image_to_video",
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
                     }
                 },
-                {
-                    "name": "image_to_video",
-                    "pipeline": {
-                        "configuration": {
-                            "offload": "sequential",
-                            "pipeline_type": "CogVideoXImageToVideoPipeline",
-                            "vae": {
-                                "enable_slicing": true,
-                                "enable_tiling": true
-                            }
-                        },
-                        "from_pretrained_arguments": {
-                            "model_name": "THUDM/CogVideoX-5B-I2V",
-                            "torch_dtype": "torch.bfloat16"
-                        },
-                        "arguments": {
-                            "image": "previous_result:gather_images",
-                            "prompt": "Giant constantly mutating ravenous radioactive mushroom",
-                            "num_videos_per_prompt": 1,
-                            "num_inference_steps": 50,
-                            "num_frames": 49,
-                            "guidance_scale": 6
-                        }
-                    },
-                    "result": {
-                        "content_type": "video/mp4"
-                    }
+                "from_pretrained_arguments": {
+                    "model_name": "THUDM/CogVideoX-5B-I2V",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "image": "previous_result:gather_images",
+                    "prompt": "Giant constantly mutating ravenous radioactive mushroom",
+                    "num_videos_per_prompt": 1,
+                    "num_inference_steps": 50,
+                    "num_frames": 49,
+                    "guidance_scale": 6
                 }
-            ]
+            },
+            "result": {
+                "content_type": "video/mp4"
+            }
         }
     ]
 }

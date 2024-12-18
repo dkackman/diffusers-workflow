@@ -1,45 +1,39 @@
 {
     "variables": {
-        "cup_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup.png",
-        "cup_mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png",
-        "robot_image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png",
-        "mondo_image": "https://pbs.twimg.com/media/GdV9Jd-bcAAkAhi?format:jpg&name:medium"
+        "mage": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup.png",
+        "mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png"
     },
-    "jobs": [
+    "id": "FluxFill",
+    "steps": [
         {
-            "id": "FluxFill",
-            "steps": [
-                {
-                    "name": "fill",
-                    "pipeline": {
-                        "configuration": {
-                            "pipeline_type": "FluxFillPipeline",
-                            "offload": "sequential"
-                        },
-                        "from_pretrained_arguments": {
-                            "model_name": "black-forest-labs/FLUX.1-Fill-dev",
-                            "torch_dtype": "torch.bfloat16"
-                        },
-                        "arguments": {
-                            "image": {
-                                "location": "variable:cup_image"
-                            },
-                            "mask_image": {
-                                "location": "variable:cup_mask_image"
-                            },
-                            "prompt": "a white paper cup",
-                            "height": 1632,
-                            "width": 1232,
-                            "guidance_scale": 30,
-                            "num_inference_steps": 50,
-                            "max_sequence_length": 512
-                        }
+            "name": "fill",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "FluxFillPipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-Fill-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "image": {
+                        "location": "variable:image"
                     },
-                    "result": {
-                        "content_type": "image/jpeg"
-                    }
+                    "mask_image": {
+                        "location": "variable:mask_image"
+                    },
+                    "prompt": "a white paper cup",
+                    "height": 1632,
+                    "width": 1232,
+                    "guidance_scale": 30,
+                    "num_inference_steps": 50,
+                    "max_sequence_length": 512
                 }
-            ]
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
         }
     ]
 }

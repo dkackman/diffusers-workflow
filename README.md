@@ -93,36 +93,32 @@ python -m dh.run test_job.json prompt="an orange" num_images_per_prompt=4
 
 ```json
 {
+    "id": "test_job",
     "variables": {
         "prompt": "an apple",
         "num_images_per_prompt": 1
     },
-    "jobs": [
+    "steps": [
         {
-            "id": "test_job",
-            "steps": [
-                {
-                    "name": "main",
-                    "pipeline": {
-                        "configuration": {
-                            "pipeline_type": "StableDiffusionPipeline"
-                        },
-                        "from_pretrained_arguments": {
-                            "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                            "torch_dtype": "torch.float16"
-                        },
-                        "arguments": {
-                            "prompt": "variable:prompt",
-                            "num_inference_steps": 25,
-                            "num_images_per_prompt": "variable:num_images_per_prompt"
-                        }
-                    },
-                    "result": {
-                        "content_type": "image/jpeg",
-                        "file_base_name": "test_image"
-                    }
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "StableDiffusionPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": 25,
+                    "num_images_per_prompt": "variable:num_images_per_prompt"
                 }
-            ]
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "file_base_name": "test_image"
+            }
         }
     ]
 }
@@ -134,7 +130,7 @@ This example demonstrates a multiple step workflow including an image generation
 
 ```json
 {
-    "id": "sd35 text to image to video",
+    "id": "sd35_txt2img2vid",
     "steps": [
         {
             "name": "image_generation",
