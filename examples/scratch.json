@@ -1,66 +1,38 @@
 {
-    "id": "qr_code",
     "variables": {
-        "qr_code_contents": "txch1jdsqdz4069k00t5vlk9l8mnr5ycljz640g36ymnygslgkra675ssg2y4ng",
-        "init_image_location": "https://th.bing.com/th/id/OIP.Lsm7UOwPR37OPvDy3HUUTQHaE7?rs=1&pid=ImgDetMain"
+        "prompt": "sketched style,A joyful marmot with balloons floats above a city wearing a hat and striped pants,",
+        "num_images_per_prompt": 4
     },
+    "id": "FluxDev",
     "steps": [
-        {
-            "name": "qr_code",
-            "task": {
-                "command": "qr_code",
-                "arguments": {
-                    "qr_code_contents": "variable:qr_code_contents"
-                }
-            },
-            "result": {
-                "content_type": "image/jpeg"
-            }
-        },
-        {
-            "name": "init_image",
-            "task": {
-                "command": "resize_resample",
-                "arguments": {
-                    "image": {
-                        "location": "variable:init_image_location"
-                    }
-                }
-            },
-            "result": {
-                "content_type": "image/jpeg"
-            }
-        },
         {
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "StableDiffusionControlNetImg2ImgPipeline"
-                },
-                "controlnet": {
-                    "configuration": {
-                        "pipeline_type": "ControlNetModel"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "DionTimmer/controlnet_qrcode-control_v11p_sd21",
-                        "torch_dtype": "torch.float16"
+                    "pipeline_type": "FluxPipeline",
+                    "offload": "sequential",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
                     }
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "stabilityai/stable-diffusion-2-1",
-                    "torch_dtype": "torch.float16"
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16"
                 },
+                "loras": [
+                    {
+                        "model_name": "Shakker-Labs/FLUX.1-dev-LoRA-Children-Simple-Sketch",
+                        "weight_name": "FLUX-dev-lora-children-simple-sketch.safetensors",
+                        "scale": 1.5
+                    }
+                ],
                 "arguments": {
-                    "prompt": "green vines",
-                    "negative_prompt": "ugly, disfigured, low quality, blurry, nsfw",
-                    "image": "previous_result:init_image",
-                    "control_image": "previous_result:qr_code",
-                    "width": 768,
-                    "height": 768,
-                    "guidance_scale": 20,
-                    "controlnet_conditioning_scale": 1.75,
-                    "strength": 0.9,
-                    "num_inference_steps": 150
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": 25,
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "guidance_scale": 3.5,
+                    "max_sequence_length": 512
                 }
             },
             "result": {

@@ -106,17 +106,19 @@ class Pipeline:
 
 def load_loras(loras, pipeline):
     for lora in loras:
-        lora_name = lora.pop("lora_name", None)
-        lora_scale = lora.pop("lora_scale", None)
-        pipeline.load_lora_weights(lora_name, **lora)
-        if lora_scale is not None:
-            pipeline.fuse_lora(lora_scale=lora_scale)
+        model_name = lora.pop("model_name", None)
+        print(f"Loading lora {model_name}...")
+        scale = lora.pop("scale", None)
+        pipeline.load_lora_weights(model_name, **lora)
+        if scale is not None:
+            pipeline.fuse_lora(lora_scale=scale)
 
 
 def load_ip_adapter(ip_adapter_definition, pipeline):
     if ip_adapter_definition is not None:
         model_name = ip_adapter_definition.pop("model_name")
-        scale = ip_adapter_definition.pop("ip_adapter_scale", None)
+        print(f"Loading ip adapter {model_name}...")
+        scale = ip_adapter_definition.pop("scale", None)
         pipeline.load_ip_adapter(model_name, **ip_adapter_definition)
         if scale is not None:
             pipeline.set_ip_adapter_scale(scale)
@@ -162,7 +164,7 @@ def load_and_configure_pipeline(
         "bits_and_bytes_configuration", None
     )
     if bits_and_bytes_configuration is not None:
-        print("Loading bits and bytes configuration")
+        print("Loading bits and bytes configuration...")
         from_pretrained_arguments["quantization_config"] = BitsAndBytesConfig(
             **bits_and_bytes_configuration
         )

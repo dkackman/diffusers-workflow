@@ -1,0 +1,51 @@
+{
+    "variables": {
+        "prompt": "cubart a leaf"
+    },
+    "id": "sd35",
+    "steps": [
+        {
+            "name": "main",
+            "pipeline": {
+                "transformer": {
+                    "configuration": {
+                        "pipeline_type": "SD3Transformer2DModel",
+                        "bits_and_bytes_configuration": {
+                            "load_in_4bit": true,
+                            "bnb_4bit_quant_type": "{nf4}",
+                            "bnb_4bit_compute_dtype": "torch.bfloat16"
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "stabilityai/stable-diffusion-3.5-large",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "configuration": {
+                    "pipeline_type": "StableDiffusion3Pipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-diffusion-3.5-large",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "loras": [
+                    {
+                        "model_name": "crystalwizard/cubic-abstract-1",
+                        "weight_name": "cubic-abstract-lora.safetensors"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": 25,
+                    "guidance_scale": 4.5,
+                    "max_sequence_length": 512,
+                    "num_images_per_prompt": 1
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

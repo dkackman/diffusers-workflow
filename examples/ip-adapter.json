@@ -42,7 +42,7 @@
                     "model_name": "h94/IP-Adapter",
                     "subfolder": "sdxl_models",
                     "weight_name": "ip-adapter_sdxl.bin",
-                    "ip_adapter_scale": 0.6
+                    "scale": 0.6
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-xl-base-1.0",

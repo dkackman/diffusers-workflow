@@ -11,7 +11,7 @@
                     "model_name": "h94/IP-Adapter",
                     "subfolder": "models",
                     "weight_name": "ip-adapter-full-face_sd15.bin",
-                    "ip_adapter_scale": 0.5
+                    "scale": 0.5
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",

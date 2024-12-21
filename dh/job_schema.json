@@ -374,12 +374,10 @@
                         "null"
                     ]
                 },
-                "ip_adapter_scale": {
+                "scale": {
                     "description": "The scale factor of the ip adapter.",
                     "type": "number",
-                    "format": "float",
-                    "minimum": 0.0,
-                    "maximum": 1.0
+                    "format": "float"
                 }
             },
             "required": [
@@ -389,8 +387,8 @@
         "lora": {
             "type": "object",
             "properties": {
-                "lora_name": {
-                    "description": "The huggingface hub name of the lora to be used.",
+                "model_name": {
+                    "description": "The huggingface hub name of the lora.",
                     "type": "string"
                 },
                 "weight_name": {
@@ -401,16 +399,14 @@
                     "description": "The subfolder location of a model file within a larger model repository",
                     "type": "string"
                 },
-                "lora_scale": {
+                "scale": {
                     "description": "The scale factor of the lora when fusing.",
                     "type": "number",
-                    "format": "float",
-                    "minimum": 0.0,
-                    "maximum": 1.0
+                    "format": "float"
                 }
             },
             "required": [
-                "lora_name"
+                "model_name"
             ]
         },
         "from_pretrained_arguments": {

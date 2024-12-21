@@ -14,7 +14,7 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "linoyts/yart_art_sd3-5_lora"
+                        "model_name": "linoyts/yart_art_sd3-5_lora"
                     }
                 ],
                 "arguments": {
