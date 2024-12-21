@@ -17,8 +17,8 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "Shakker-Labs/FLUX.1-dev-LoRA-Logo-Design",
-                        "lora_scale": 0.8
+                        "model_name": "Shakker-Labs/FLUX.1-dev-LoRA-Logo-Design",
+                        "scale": 0.8
                     }
                 ],
                 "arguments": {

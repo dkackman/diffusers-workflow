@@ -14,7 +14,7 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "ali-vilab/In-Context-LoRA",
+                        "model_name": "ali-vilab/In-Context-LoRA",
                         "weight_name": "couple-profile.safetensors"
                     }
                 ],
@@ -45,7 +45,7 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "ali-vilab/In-Context-LoRA",
+                        "model_name": "ali-vilab/In-Context-LoRA",
                         "weight_name": "film-storyboard.safetensors"
                     }
                 ],
@@ -76,7 +76,7 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "ali-vilab/In-Context-LoRA",
+                        "model_name": "ali-vilab/In-Context-LoRA",
                         "weight_name": "font-design.safetensors"
                     }
                 ],
@@ -107,7 +107,7 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "ali-vilab/In-Context-LoRA",
+                        "model_name": "ali-vilab/In-Context-LoRA",
                         "weight_name": "home-decoration.safetensors"
                     }
                 ],
@@ -138,7 +138,7 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "ali-vilab/In-Context-LoRA",
+                        "model_name": "ali-vilab/In-Context-LoRA",
                         "weight_name": "portrait-photography.safetensors"
                     }
                 ],
@@ -169,7 +169,7 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "ali-vilab/In-Context-LoRA",
+                        "model_name": "ali-vilab/In-Context-LoRA",
                         "weight_name": "ppt-templates.safetensors"
                     }
                 ],
@@ -200,7 +200,7 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "ali-vilab/In-Context-LoRA",
+                        "model_name": "ali-vilab/In-Context-LoRA",
                         "weight_name": "sandstorm-visual-effect.safetensors"
                     }
                 ],
@@ -231,7 +231,7 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "ali-vilab/In-Context-LoRA",
+                        "model_name": "ali-vilab/In-Context-LoRA",
                         "weight_name": "sparklers-visual-effect.safetensors"
                     }
                 ],
@@ -262,7 +262,7 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "ali-vilab/In-Context-LoRA",
+                        "model_name": "ali-vilab/In-Context-LoRA",
                         "weight_name": "visual-identity-design.safetensors"
                     }
                 ],
@@ -293,7 +293,7 @@
                 },
                 "loras": [
                     {
-                        "lora_name": "ali-vilab/In-Context-LoRA",
+                        "model_name": "ali-vilab/In-Context-LoRA",
                         "weight_name": "portrait-illustration.safetensors"
                     }
                 ],

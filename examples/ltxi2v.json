@@ -7,9 +7,23 @@
                 "command": "gather_images",
                 "arguments": {
                     "urls": [
-                        "https://pbs.twimg.com/media/GetfkxLbUAAvO9u?format=jpg&name=small"
+                        "https://pbs.twimg.com/media/GfRakEHW8AAvlFh?format=png&name=small"
                     ]
                 }
+            }
+        },
+        {
+            "name": "resize_image",
+            "task": {
+                "command": "resize_rescale",
+                "arguments": {
+                    "image": "previous_result:gather_images",
+                    "width": 704,
+                    "height": 480
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
             }
         },
         {
@@ -23,13 +37,13 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "The monkey, dressed like uncle sam, stands between the buildings. He smiles and waves his hat in the air.",
+                    "prompt": "the camera from right to left. it is a scene of tanks at battle in a city landscape. a giant cat hisses angrily in the background.",
                     "width": 704,
                     "height": 480,
                     "num_frames": 161,
                     "num_inference_steps": 50,
                     "negative_prompt": "worst quality, inconsistent motion, blurry, jittery, distorted",
-                    "image": "previous_result:gather_images"
+                    "image": "previous_result:resize_image"
                 }
             },
             "result": {
