@@ -39,13 +39,11 @@ class Job:
             # collections that are passed between steps to share state
             results = {}
             shared_components = {}
-            i = 0
-            for step_data in job["steps"]:
+            for i, step_data in enumerate(job["steps"]):
                 step = Step(step_data, default_seed)
                 result = step.run(results, shared_components)
                 results[step.name] = result
-                result.save(output_dir, f"{job_id}-{step.name}-{i}")
-                i = i + 1
+                result.save(output_dir, f"{job_id}-{step.name}.{i}")
 
             with open(os.path.join(output_dir, f"{job_id}.json"), "w") as file:
                 json.dump(self.job_definition, file, indent=4)

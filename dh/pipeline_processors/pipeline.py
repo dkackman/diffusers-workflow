@@ -106,13 +106,11 @@ class Pipeline:
 
 def load_loras(loras, pipeline):
     for lora in loras:
-        default_lora_scale = 1.0 / len(
-            loras
-        )  # default to equally distributing lora weights
         lora_name = lora.pop("lora_name", None)
-        lora_scale = lora.pop("lora_scale", default_lora_scale)
+        lora_scale = lora.pop("lora_scale", None)
         pipeline.load_lora_weights(lora_name, **lora)
-        pipeline.fuse_lora(lora_scale=lora_scale)
+        if lora_scale is not None:
+            pipeline.fuse_lora(lora_scale=lora_scale)
 
 
 def load_ip_adapter(ip_adapter_definition, pipeline):
