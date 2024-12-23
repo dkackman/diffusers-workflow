@@ -53,6 +53,8 @@ class Result:
         self, output_dir, artifact, file_base_name, content_type, extension
     ):
         if isinstance(artifact, dict):
+            # here, if the result is a dictionary, we iterate over the items and save each one
+            # by calling save_artifact recursively. which it will do until serializable properties are found
             for k, v in artifact.items():
                 self.save_artifact(
                     output_dir, v, f"{file_base_name}-{k}", content_type, extension
