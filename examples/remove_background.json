@@ -1,6 +1,6 @@
 {
     "variables": {
-        "image_path": "./outputs/FluxLogo-logo-0-0.0.jpg"
+        "image_path": "./outputs/FluxDev-main.*.jpg"
     },
     "id": "remove_background",
     "steps": [

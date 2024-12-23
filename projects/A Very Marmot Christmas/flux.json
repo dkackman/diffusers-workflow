@@ -1,7 +1,8 @@
 {
     "variables": {
-        "prompt": "Isometric 3D, a small miniature mountain landscape is displayed on a light green backdrop. The landscape features a circular pond with a winding walkway in the middle. The pond is surrounded by trees and shrubs, and there is a small wooden bridge crossing the pond. The bridge is made up of gray stones, and the trees are arranged in a circular pattern. A family of marmots are positioned at the center of the pond, and a small sign is placed at the bottom of the bridge.",
-        "num_images_per_prompt": 4
+        "prompt": "the prompt will go here",
+        "num_images_per_prompt": 4,
+        "file_base_name": "FluxDev"
     },
     "id": "FluxDev",
     "steps": [
@@ -22,8 +23,8 @@
                 },
                 "loras": [
                     {
-                        "model_name": "strangerzonehf/Flux-Isometric-3D-LoRA",
-                        "weight_name": "Isometric-3D.safetensors"
+                        "model_name": "strangerzonehf/Flux-Xmas-Illustration-LoRA",
+                        "weight_name": "Xmas-Illustration.safetensors"
                     }
                 ],
                 "arguments": {
@@ -35,7 +36,8 @@
                 }
             },
             "result": {
-                "content_type": "image/jpeg"
+                "content_type": "image/jpeg",
+                "file_base_name": "variable:file_base_name"
             }
         }
     ]
