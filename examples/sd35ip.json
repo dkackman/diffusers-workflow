@@ -1,0 +1,58 @@
+{
+    "variables": {
+        "prompt": "a marmot drinks a milkshake"
+    },
+    "id": "sd35ip",
+    "steps": [
+        {
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "StableDiffusion3Pipeline",
+                    "offload": "sequential"
+                },
+                "feature_extractor": {
+                    "configuration": {
+                        "pipeline_type": "transformers.SiglipImageProcessor"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "google/siglip-so400m-patch14-384",
+                        "torch_dtype": "torch.float16"
+                    }
+                },
+                "image_encoder": {
+                    "configuration": {
+                        "pipeline_type": "transformers.SiglipVisionModel"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "google/siglip-so400m-patch14-384",
+                        "torch_dtype": "torch.float16"
+                    }
+                },
+                "ip_adapter": {
+                    "model_name": "InstantX/SD3.5-Large-IP-Adapter",
+                    "weight_name": "ip-adapter.bin",
+                    "scale": 0.6
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-diffusion-3.5-large",
+                    "torch_dtype": "torch.float16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "negative_prompt": "lowres, low quality, worst quality",
+                    "num_inference_steps": 25,
+                    "guidance_scale": 4.5,
+                    "width": 1024,
+                    "height": 1024,
+                    "ip_adapter_image": {
+                        "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/ip_adapter_diner.png"
+                    }
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

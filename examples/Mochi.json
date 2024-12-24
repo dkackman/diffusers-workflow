@@ -1,0 +1,30 @@
+{
+    "id": "MochiVideo",
+    "steps": [
+        {
+            "name": "text_to_video",
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "pipeline_type": "MochiPipeline",
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "genmo/mochi-1-preview",
+                    "variant": "bf16",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "Close-up of a marmot wearing a hat, with him blinking slowly. Ultra high resolution 4k.",
+                    "num_frames": 85
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 30
+            }
+        }
+    ]
+}

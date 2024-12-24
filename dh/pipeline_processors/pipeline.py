@@ -1,26 +1,33 @@
 import torch
+import copy
 from diffusers import BitsAndBytesConfig
 from .quantization import quantize
 
 
 class Pipeline:
-    def __init__(self, pipeline_definition, default_seed):
+    def __init__(self, pipeline_definition, default_seed, pipeline=None):
         self.pipeline_definition = pipeline_definition
         self.default_seed = default_seed
-        self.pipeline = None
+        self.pipeline = pipeline
+
+    @property
+    def configuration(self):
+        return self.pipeline_definition.get("configuration", {})
 
     @property
     def model_name(self):
-        return self.pipeline_definition["from_pretrained_arguments"]["model_name"]
+        return self.from_pretrained_arguments.get("model_name", "")
+
+    @property
+    def from_pretrained_arguments(self):
+        return self.pipeline_definition.get("from_pretrained_arguments", {})
 
     @property
     def argument_template(self):
         return self.pipeline_definition["arguments"]
 
     def load(self, device_identifier, shared_components):
-        from_pretrained_arguments = self.pipeline_definition[
-            "from_pretrained_arguments"
-        ]
+        from_pretrained_arguments = self.from_pretrained_arguments
 
         # grab any previously shared components and put them into from_pretrained_arguments
         # if a pipeline asks for both a shared component and specifies a configuration for
@@ -42,6 +49,7 @@ class Pipeline:
             "tokenizer",
             "tokenizer_2",
             "image_encoder",
+            "feature_extractor",
         ]:
             self.load_optional_component(
                 optional_component_name, from_pretrained_arguments, device_identifier
@@ -49,7 +57,7 @@ class Pipeline:
 
         # load and configure the pipeline
         pipeline = load_and_configure_pipeline(
-            self.pipeline_definition["configuration"],
+            self.configuration,
             from_pretrained_arguments,
             device_identifier,
         )
@@ -74,7 +82,7 @@ class Pipeline:
         load_ip_adapter(self.pipeline_definition.get("ip_adapter", None), pipeline)
 
         # create a generator that will be used by the pipeline
-        if not "no_generator" in self.pipeline_definition["configuration"]:
+        if not "no_generator" in self.configuration:
             self.argument_template["generator"] = torch.Generator(
                 device_identifier
             ).manual_seed(self.pipeline_definition.get("seed", self.default_seed))
@@ -88,9 +96,22 @@ class Pipeline:
                 "Pipeline has not been initialized. Call load(device_identifier, shared_components) first."
             )
 
+        # if it's an inversion step run the pipeline with the invert method
+        if self.configuration.get("inversion", False):
+            # this is very specific to the FluxRFInversion pipeline - think about generalizing
+            invert_arguments = copy.deepcopy(arguments)
+            invert_arguments.pop("generator", None)
+            inverted_latents, image_latents, latent_image_ids = self.pipeline.invert(
+                **invert_arguments
+            )
+            return {
+                "inverted_latents": inverted_latents,
+                "image_latents": image_latents,
+                "latent_image_ids": latent_image_ids,
+            }
+
         # run the pipeline
-        pipeline_output = self.pipeline(**arguments)
-        return pipeline_output
+        return self.pipeline(**arguments)
 
     def load_optional_component(
         self, component_name, from_pretrained_arguments, device_identifier
@@ -181,7 +202,7 @@ def load_and_configure_pipeline(
         pipeline.enable_model_cpu_offload()
     elif offload == "sequential":
         pipeline.enable_sequential_cpu_offload()
-    else:
+    elif hasattr(pipeline, "to"):
         pipeline = pipeline.to(device_identifier)
 
     vae = configuration.get("vae", {})

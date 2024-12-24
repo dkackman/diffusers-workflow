@@ -96,7 +96,38 @@
                         "name",
                         "pipeline"
                     ]
+                },
+                {
+                    "required": [
+                        "name",
+                        "pipeline_reference"
+                    ]
                 }
+            ]
+        },
+        "pipeline_reference": {
+            "type": "object",
+            "properties": {
+                "reference_name": {
+                    "type": "string"
+                },
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "integer",
+                            "number",
+                            "object",
+                            "array",
+                            "boolean"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "reference_name",
+                "arguments"
             ]
         },
         "pipeline": {
@@ -130,6 +161,9 @@
                     "$ref": "#/$defs/pipeline_component"
                 },
                 "image_encoder": {
+                    "$ref": "#/$defs/pipeline_component"
+                },
+                "feature_extractor": {
                     "$ref": "#/$defs/pipeline_component"
                 },
                 "controlnet": {

@@ -13,7 +13,7 @@ class Step:
     def name(self):
         return self.step_definition.get("name", "unknown")
 
-    def run(self, previous_results, shared_components):
+    def run(self, previous_results, shared_components, previous_pipelines):
         try:
             step_name = self.step_definition["name"]
 
@@ -22,7 +22,21 @@ class Step:
                 pipeline = Pipeline(self.step_definition["pipeline"], self.default_seed)
                 print(f"Running task {step_name}:{pipeline.model_name}...")
                 pipeline.load("cuda", shared_components)
+                previous_pipelines[step_name] = pipeline
 
+                for arguments in get_iterations(
+                    pipeline.argument_template, previous_results
+                ):
+                    result.add_result(pipeline.run(arguments))
+
+            elif "pipeline_reference" in self.step_definition:
+                pipeline_reference = self.step_definition["pipeline_reference"]
+                previous_pipeline = previous_pipelines[
+                    pipeline_reference["reference_name"]
+                ]
+                pipeline = Pipeline(
+                    pipeline_reference, self.default_seed, previous_pipeline.pipeline
+                )
                 for arguments in get_iterations(
                     pipeline.argument_template, previous_results
                 ):

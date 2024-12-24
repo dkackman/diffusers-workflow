@@ -1,0 +1,67 @@
+{
+    "variables": {
+        "prompt": "portrait of a tiger",
+        "num_images_per_prompt": 4
+    },
+    "id": "FluxRfInversion",
+    "steps": [
+        {
+            "name": "invert",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "dh.community_pipelines.pipeline_flux_rf_inversion.RFInversionFluxPipeline",
+                    "inversion": true
+                },
+                "transformer": {
+                    "configuration": {
+                        "pipeline_type": "FluxTransformer2DModel",
+                        "bits_and_bytes_configuration": {
+                            "load_in_4bit": true,
+                            "bnb_4bit_quant_type": "{nf4}",
+                            "bnb_4bit_compute_dtype": "torch.bfloat16"
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "black-forest-labs/FLUX.1-dev",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "image": {
+                        "location": "https://i.pinimg.com/originals/8a/01/e2/8a01e279d39112703d2dc893b0c0699d.jpg",
+                        "size": {
+                            "width": 1024,
+                            "height": 1024
+                        }
+                    },
+                    "num_inversion_steps": 28,
+                    "gamma": 0.5
+                }
+            }
+        },
+        {
+            "name": "main",
+            "pipeline_reference": {
+                "reference_name": "invert",
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "inverted_latents": "previous_result:invert.inverted_latents",
+                    "image_latents": "previous_result:invert.image_latents",
+                    "latent_image_ids": "previous_result:invert.latent_image_ids",
+                    "start_timestep": 0,
+                    "stop_timestep": 0.38,
+                    "num_inference_steps": 28,
+                    "eta": 0.9
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}
