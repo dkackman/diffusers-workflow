@@ -1,37 +1,35 @@
 {
-    "id": "HunyuanVideo",
+    "id": "AllegroVideo",
     "steps": [
         {
             "name": "text_to_video",
             "pipeline": {
                 "configuration": {
                     "offload": "sequential",
-                    "pipeline_type": "HunyuanVideoPipeline",
+                    "pipeline_type": "AllegroPipeline",
                     "vae": {
                         "enable_slicing": true,
                         "enable_tiling": true
                     }
                 },
-                "transformer": {
+                "vae": {
                     "configuration": {
-                        "pipeline_type": "HunyuanVideoTransformer3DModel"
+                        "pipeline_type": "AutoencoderKLAllegro"
                     },
                     "from_pretrained_arguments": {
-                        "model_name": "hunyuanvideo-community/HunyuanVideo",
+                        "model_name": "rhymes-ai/Allegro",
                         "subfolder": "transformer",
-                        "torch_dtype": "torch.bfloat16"
+                        "torch_dtype": "torch.float16"
                     }
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "hunyuanvideo-community/HunyuanVideo",
+                    "model_name": "rhymes-ai/Allegro",
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "A cat walks on the grass, realistic",
-                    "height": 320,
-                    "width": 512,
-                    "num_inference_steps": 30,
-                    "num_frames": 61
+                    "prompt": "Close-up of a chameleon's eye, with its scaly skin changing color. Ultra high resolution 4k.",
+                    "guidance_scale": 7.5,
+                    "max_sequence_length": 512
                 }
             },
             "result": {

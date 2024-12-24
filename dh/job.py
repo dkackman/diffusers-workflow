@@ -39,9 +39,10 @@ class Job:
             # collections that are passed between steps to share state
             results = {}
             shared_components = {}
+            pipelines = {}
             for i, step_data in enumerate(job["steps"]):
                 step = Step(step_data, default_seed)
-                result = step.run(results, shared_components)
+                result = step.run(results, shared_components, pipelines)
                 results[step.name] = result
                 result.save(output_dir, f"{job_id}-{step.name}.{i}")
 
