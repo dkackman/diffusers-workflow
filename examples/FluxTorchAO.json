@@ -8,8 +8,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxPipeline",
-                    "offload": "model"
+                    "pipeline_type": "FluxPipeline"
                 },
                 "transformer": {
                     "configuration": {

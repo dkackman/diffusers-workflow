@@ -1,6 +1,6 @@
 import torch
 import copy
-from .quantization import quantize, get_quantization_configuration
+from .quantization import get_quantization_configuration
 
 
 class Pipeline:
@@ -176,13 +176,10 @@ def load_and_configure_component(
                 quantization_configuration
             )
 
-        component = load_and_configure_pipeline(
+        return load_and_configure_pipeline(
             component_configuration,
             component_from_pretrained_arguments,
             device_identifier,
-        )
-        return quantize(
-            component, component_definition.get("quantization", None), device_identifier
         )
 
     return None
