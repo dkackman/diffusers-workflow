@@ -154,10 +154,16 @@
                 "text_encoder_2": {
                     "$ref": "#/$defs/pipeline_component"
                 },
+                "text_encoder_3": {
+                    "$ref": "#/$defs/pipeline_component"
+                },
                 "tokenizer": {
                     "$ref": "#/$defs/pipeline_component"
                 },
                 "tokenizer_2": {
+                    "$ref": "#/$defs/pipeline_component"
+                },
+                "tokenizer_3": {
                     "$ref": "#/$defs/pipeline_component"
                 },
                 "image_encoder": {
