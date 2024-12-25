@@ -14,12 +14,12 @@
                 },
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "HunyuanVideoTransformer3DModel",
-                        "bits_and_bytes_configuration": {
-                            "load_in_4bit": true,
-                            "bnb_4bit_quant_type": "{nf4}",
-                            "bnb_4bit_compute_dtype": "torch.bfloat16"
-                        }
+                        "pipeline_type": "HunyuanVideoTransformer3DModel"
+                    },
+                    "bits_and_bytes_configuration": {
+                        "load_in_4bit": true,
+                        "bnb_4bit_quant_type": "{nf4}",
+                        "bnb_4bit_compute_dtype": "torch.bfloat16"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "hunyuanvideo-community/HunyuanVideo",
