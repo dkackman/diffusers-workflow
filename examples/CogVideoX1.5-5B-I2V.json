@@ -26,10 +26,8 @@
                     "configuration": {
                         "pipeline_type": "CogVideoXTransformer3DModel"
                     },
-                    "quantization": {
-                        "quantization_library": "variable:quantization_library",
-                        "weights_type": "variable:weights_type",
-                        "activations_type": "variable:activations_type"
+                    "torchao_configuration": {
+                        "quantization": "int4wo"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "variable:model_name",
@@ -41,10 +39,8 @@
                     "configuration": {
                         "pipeline_type": "AutoencoderKLCogVideoX"
                     },
-                    "quantization": {
-                        "quantization_library": "variable:quantization_library",
-                        "weights_type": "variable:weights_type",
-                        "activations_type": "variable:activations_type"
+                    "torchao_configuration": {
+                        "quantization": "int4wo"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "variable:model_name",
@@ -56,10 +52,8 @@
                     "configuration": {
                         "pipeline_type": "transformers.T5EncoderModel"
                     },
-                    "quantization": {
-                        "quantization_library": "variable:quantization_library",
-                        "weights_type": "variable:weights_type",
-                        "activations_type": "variable:activations_type"
+                    "torchao_configuration": {
+                        "quantization": "int4wo"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "variable:model_name",

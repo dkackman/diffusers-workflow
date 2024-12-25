@@ -330,9 +330,6 @@
                 "torchao_configuration": {
                     "$ref": "#/$defs/torchao_configuration"
                 },
-                "quantization": {
-                    "$ref": "#/$defs/quantization"
-                },
                 "from_pretrained_arguments": {
                     "$ref": "#/$defs/from_pretrained_arguments"
                 }
@@ -386,31 +383,6 @@
                     "boolean"
                 ]
             }
-        },
-        "quantization": {
-            "type": "object",
-            "properties": {
-                "quantization_library": {
-                    "description": "The name of the quantization library to use",
-                    "type": "string",
-                    "enum": [
-                        "torchao",
-                        "optimum.quanto",
-                        "torchao.autoquant"
-                    ]
-                },
-                "weights_type": {
-                    "description": "The library specific type of weights to use",
-                    "type": "string"
-                },
-                "activations_type": {
-                    "description": "The library specific type of activation weights to use",
-                    "type": "string"
-                }
-            },
-            "required": [
-                "quantization_library"
-            ]
         },
         "controlnet": {
             "type": "object",

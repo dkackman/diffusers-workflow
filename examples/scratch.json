@@ -1,18 +1,18 @@
 {
     "variables": {
-        "model_name": "THUDM/CogVideoX1.5-5B",
+        "model_name": "THUDM/CogVideoX1.5-5B-I2V",
         "quantization_library": "torchao",
         "weights_type": "torchao.quantization.int8_weight_only",
         "activations_type": "optimum.quanto.qfloat8"
     },
-    "id": "CogVideoX1.5-5B",
+    "id": "CogVideoX1.5-5B-I2V",
     "steps": [
         {
-            "name": "text_to_video",
+            "name": "image_to_video",
             "pipeline": {
                 "configuration": {
-                    "offload": "model",
-                    "pipeline_type": "CogVideoXPipeline",
+                    "offload": "sequential",
+                    "pipeline_type": "CogVideoXImageToVideoPipeline",
                     "vae": {
                         "enable_slicing": true,
                         "enable_tiling": true
@@ -26,10 +26,8 @@
                     "configuration": {
                         "pipeline_type": "CogVideoXTransformer3DModel"
                     },
-                    "quantization": {
-                        "quantization_library": "variable:quantization_library",
-                        "weights_type": "variable:weights_type",
-                        "activations_type": "variable:activations_type"
+                    "torchao_configuration": {
+                        "quantization": "int4wo"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "variable:model_name",
@@ -41,10 +39,8 @@
                     "configuration": {
                         "pipeline_type": "AutoencoderKLCogVideoX"
                     },
-                    "quantization": {
-                        "quantization_library": "variable:quantization_library",
-                        "weights_type": "variable:weights_type",
-                        "activations_type": "variable:activations_type"
+                    "torchao_configuration": {
+                        "quantization": "int4wo"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "variable:model_name",
@@ -56,10 +52,8 @@
                     "configuration": {
                         "pipeline_type": "transformers.T5EncoderModel"
                     },
-                    "quantization": {
-                        "quantization_library": "variable:quantization_library",
-                        "weights_type": "variable:weights_type",
-                        "activations_type": "variable:activations_type"
+                    "torchao_configuration": {
+                        "quantization": "int4wo"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "variable:model_name",
@@ -68,6 +62,9 @@
                     }
                 },
                 "arguments": {
+                    "image": {
+                        "location": "https://pbs.twimg.com/media/GcpCDN8asAA9V2U?format=jpg&name=medium"
+                    },
                     "prompt": "the diamond spins",
                     "num_videos_per_prompt": 1,
                     "num_inference_steps": 35,
