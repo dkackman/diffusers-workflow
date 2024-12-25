@@ -213,7 +213,7 @@
                 "offload": {
                     "type": "string",
                     "enum": [
-                        "full",
+                        "model",
                         "sequential"
                     ]
                 },
@@ -336,27 +336,13 @@
                             "type": "string"
                         },
                         "bits_and_bytes_configuration": {
-                            "type": "object",
-                            "properties": {
-                                "load_in_4bit": {
-                                    "type": "boolean"
-                                },
-                                "bnb_4bit_quant_type": {
-                                    "type": "string"
-                                },
-                                "bnb_4bit_compute_dtype": {
-                                    "type": "string"
-                                }
-                            },
-                            "additionalProperties": {
-                                "type": [
-                                    "string",
-                                    "number",
-                                    "object",
-                                    "array",
-                                    "boolean"
-                                ]
-                            }
+                            "$ref": "#/$defs/bits_and_bytes_configuration"
+                        },
+                        "gguf_configuration": {
+                            "$ref": "#/$defs/gguf_configuration"
+                        },
+                        "torchao_configuration": {
+                            "$ref": "#/$defs/torchao_configuration"
                         },
                         "quantization": {
                             "$ref": "#/$defs/quantization"
@@ -374,6 +360,51 @@
                 "configuration",
                 "from_pretrained_arguments"
             ]
+        },
+        "gguf_configuration": {
+            "type": "object",
+            "properties": {
+                "compute_dtype": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "compute_dtype"
+            ]
+        },
+        "torchao_configuration": {
+            "type": "object",
+            "properties": {
+                "quantization": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "quantization"
+            ]
+        },
+        "bits_and_bytes_configuration": {
+            "type": "object",
+            "properties": {
+                "load_in_4bit": {
+                    "type": "boolean"
+                },
+                "bnb_4bit_quant_type": {
+                    "type": "string"
+                },
+                "bnb_4bit_compute_dtype": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": {
+                "type": [
+                    "string",
+                    "number",
+                    "object",
+                    "array",
+                    "boolean"
+                ]
+            }
         },
         "controlnet": {
             "type": "object",
@@ -450,6 +481,10 @@
                 "model_name": {
                     "description": "The huggingface hub name of the pretrained model to load",
                     "type": "string"
+                },
+                "from_single_file": {
+                    "description": "Location of a checkpoint model from a single file",
+                    "type": "string"
                 }
             },
             "additionalProperties": {
@@ -462,8 +497,17 @@
                     "null"
                 ]
             },
-            "required": [
-                "model_name"
+            "oneOf": [
+                {
+                    "required": [
+                        "model_name"
+                    ]
+                },
+                {
+                    "required": [
+                        "from_single_file"
+                    ]
+                }
             ]
         },
         "task": {

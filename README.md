@@ -153,7 +153,7 @@ This example demonstrates a multiple step workflow including an image generation
                 },
                 "configuration": {
                     "pipeline_type": "StableDiffusion3Pipeline",
-                    "offload": "full"
+                    "offload": "model"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-3.5-large",

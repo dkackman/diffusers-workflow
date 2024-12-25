@@ -1,7 +1,6 @@
 import torch
 import copy
-from diffusers import BitsAndBytesConfig
-from .quantization import quantize
+from .quantization import quantize, get_quantization_configuration
 
 
 class Pipeline:
@@ -181,24 +180,29 @@ def load_and_configure_component(
 def load_and_configure_pipeline(
     configuration, from_pretrained_arguments, device_identifier
 ):
-    bits_and_bytes_configuration = configuration.get(
-        "bits_and_bytes_configuration", None
-    )
-    if bits_and_bytes_configuration is not None:
-        print("Loading bits and bytes configuration...")
-        from_pretrained_arguments["quantization_config"] = BitsAndBytesConfig(
-            **bits_and_bytes_configuration
-        )
+    quantization_configuration = get_quantization_configuration(configuration)
+    if quantization_configuration is not None:
+        from_pretrained_arguments["quantization_config"] = quantization_configuration
 
     # load the pipeline
     pipeline_type = configuration["pipeline_type"]
-    model_name = from_pretrained_arguments.pop("model_name")
-    print(f"Loading pipeline {model_name}...")
+    pipeline = None
+    if "model_name" in from_pretrained_arguments:
+        model_name = from_pretrained_arguments.pop("model_name")
+        print(f"Loading pipeline {model_name}...")
 
-    pipeline = pipeline_type.from_pretrained(model_name, **from_pretrained_arguments)
+        pipeline = pipeline_type.from_pretrained(
+            model_name, **from_pretrained_arguments
+        )
+    else:
+        from_single_file = from_pretrained_arguments.pop("from_single_file")
+        print(f"Loading pipeline from {from_single_file}...")
+        pipeline = pipeline_type.from_single_file(
+            from_single_file, **from_pretrained_arguments
+        )
 
     offload = configuration.get("offload", None)
-    if offload == "full":
+    if offload == "model":
         pipeline.enable_model_cpu_offload()
     elif offload == "sequential":
         pipeline.enable_sequential_cpu_offload()

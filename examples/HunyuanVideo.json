@@ -14,7 +14,12 @@
                 },
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "HunyuanVideoTransformer3DModel"
+                        "pipeline_type": "HunyuanVideoTransformer3DModel",
+                        "bits_and_bytes_configuration": {
+                            "load_in_4bit": true,
+                            "bnb_4bit_quant_type": "{nf4}",
+                            "bnb_4bit_compute_dtype": "torch.bfloat16"
+                        }
                     },
                     "from_pretrained_arguments": {
                         "model_name": "hunyuanvideo-community/HunyuanVideo",
@@ -27,7 +32,7 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "A cat walks on the grass, realistic",
+                    "prompt": "A marmot walks on the grass, realistic",
                     "height": 320,
                     "width": 512,
                     "num_inference_steps": 30,

@@ -1,0 +1,39 @@
+{
+    "variables": {
+        "checkpoint_path": "https://huggingface.co/city96/FLUX.1-dev-gguf/blob/main/flux1-dev-Q2_K.gguf",
+        "prompt": "a marmot wearing a tophat, in a forest scene."
+    },
+    "id": "FluxGGUF",
+    "steps": [
+        {
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "FluxPipeline"
+                },
+                "transformer": {
+                    "configuration": {
+                        "pipeline_type": "FluxTransformer2DModel",
+                        "gguf_configuration": {
+                            "compute_dtype": "torch.bfloat16"
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "from_single_file": "variable:checkpoint_path",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}
