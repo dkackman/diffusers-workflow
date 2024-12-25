@@ -8,14 +8,15 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxPipeline"
+                    "pipeline_type": "FluxPipeline",
+                    "offload": "model"
                 },
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "FluxTransformer2DModel",
-                        "torchao_configuration": {
-                            "quantization": "int4wo"
-                        }
+                        "pipeline_type": "FluxTransformer2DModel"
+                    },
+                    "torchao_configuration": {
+                        "quantization": "int4wo"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "black-forest-labs/Flux.1-Dev",

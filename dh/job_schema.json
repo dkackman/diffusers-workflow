@@ -300,31 +300,6 @@
                 "configuration"
             ]
         },
-        "quantization": {
-            "type": "object",
-            "properties": {
-                "quantization_library": {
-                    "description": "The name of the quantization library to use",
-                    "type": "string",
-                    "enum": [
-                        "torchao",
-                        "optimum.quanto",
-                        "torchao.autoquant"
-                    ]
-                },
-                "weights_type": {
-                    "description": "The library specific type of weights to use",
-                    "type": "string"
-                },
-                "activations_type": {
-                    "description": "The library specific type of activation weights to use",
-                    "type": "string"
-                }
-            },
-            "required": [
-                "quantization_library"
-            ]
-        },
         "pipeline_component": {
             "type": "object",
             "properties": {
@@ -334,23 +309,23 @@
                         "pipeline_type": {
                             "description": "The python type of pipeline component to use in the format 'module.typename' module defaults to diffusers",
                             "type": "string"
-                        },
-                        "bits_and_bytes_configuration": {
-                            "$ref": "#/$defs/bits_and_bytes_configuration"
-                        },
-                        "gguf_configuration": {
-                            "$ref": "#/$defs/gguf_configuration"
-                        },
-                        "torchao_configuration": {
-                            "$ref": "#/$defs/torchao_configuration"
-                        },
-                        "quantization": {
-                            "$ref": "#/$defs/quantization"
                         }
                     },
                     "required": [
                         "pipeline_type"
                     ]
+                },
+                "bits_and_bytes_configuration": {
+                    "$ref": "#/$defs/bits_and_bytes_configuration"
+                },
+                "gguf_configuration": {
+                    "$ref": "#/$defs/gguf_configuration"
+                },
+                "torchao_configuration": {
+                    "$ref": "#/$defs/torchao_configuration"
+                },
+                "quantization": {
+                    "$ref": "#/$defs/quantization"
                 },
                 "from_pretrained_arguments": {
                     "$ref": "#/$defs/from_pretrained_arguments"
@@ -405,6 +380,31 @@
                     "boolean"
                 ]
             }
+        },
+        "quantization": {
+            "type": "object",
+            "properties": {
+                "quantization_library": {
+                    "description": "The name of the quantization library to use",
+                    "type": "string",
+                    "enum": [
+                        "torchao",
+                        "optimum.quanto",
+                        "torchao.autoquant"
+                    ]
+                },
+                "weights_type": {
+                    "description": "The library specific type of weights to use",
+                    "type": "string"
+                },
+                "activations_type": {
+                    "description": "The library specific type of activation weights to use",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "quantization_library"
+            ]
         },
         "controlnet": {
             "type": "object",

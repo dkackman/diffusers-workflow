@@ -1,42 +1,78 @@
 {
-    "id": "HunyuanVideo",
+    "variables": {
+        "model_name": "THUDM/CogVideoX1.5-5B",
+        "quantization_library": "torchao",
+        "weights_type": "torchao.quantization.int8_weight_only",
+        "activations_type": "optimum.quanto.qfloat8"
+    },
+    "id": "CogVideoX1.5-5B",
     "steps": [
         {
             "name": "text_to_video",
             "pipeline": {
                 "configuration": {
-                    "offload": "sequential",
-                    "pipeline_type": "HunyuanVideoPipeline",
+                    "offload": "model",
+                    "pipeline_type": "CogVideoXPipeline",
                     "vae": {
                         "enable_slicing": true,
                         "enable_tiling": true
                     }
                 },
+                "from_pretrained_arguments": {
+                    "model_name": "variable:model_name",
+                    "torch_dtype": "torch.bfloat16"
+                },
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "HunyuanVideoTransformer3DModel",
-                        "bits_and_bytes_configuration": {
-                            "load_in_4bit": true,
-                            "bnb_4bit_quant_type": "{nf4}",
-                            "bnb_4bit_compute_dtype": "torch.bfloat16"
-                        }
+                        "pipeline_type": "CogVideoXTransformer3DModel"
+                    },
+                    "quantization": {
+                        "quantization_library": "variable:quantization_library",
+                        "weights_type": "variable:weights_type",
+                        "activations_type": "variable:activations_type"
                     },
                     "from_pretrained_arguments": {
-                        "model_name": "hunyuanvideo-community/HunyuanVideo",
+                        "model_name": "variable:model_name",
                         "subfolder": "transformer",
                         "torch_dtype": "torch.bfloat16"
                     }
                 },
-                "from_pretrained_arguments": {
-                    "model_name": "hunyuanvideo-community/HunyuanVideo",
-                    "torch_dtype": "torch.bfloat16"
+                "vae": {
+                    "configuration": {
+                        "pipeline_type": "AutoencoderKLCogVideoX"
+                    },
+                    "quantization": {
+                        "quantization_library": "variable:quantization_library",
+                        "weights_type": "variable:weights_type",
+                        "activations_type": "variable:activations_type"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "vae",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "pipeline_type": "transformers.T5EncoderModel"
+                    },
+                    "quantization": {
+                        "quantization_library": "variable:quantization_library",
+                        "weights_type": "variable:weights_type",
+                        "activations_type": "variable:activations_type"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
                 },
                 "arguments": {
-                    "prompt": "A cat walks on the grass, realistic",
-                    "height": 320,
-                    "width": 512,
-                    "num_inference_steps": 30,
-                    "num_frames": 61
+                    "prompt": "the diamond spins",
+                    "num_videos_per_prompt": 1,
+                    "num_inference_steps": 35,
+                    "num_frames": 49,
+                    "guidance_scale": 6
                 }
             },
             "result": {

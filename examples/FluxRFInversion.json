@@ -1,6 +1,6 @@
 {
     "variables": {
-        "prompt": "portrait of a tiger",
+        "prompt": "a marmot",
         "num_images_per_prompt": 4
     },
     "id": "FluxRfInversion",
@@ -14,12 +14,12 @@
                 },
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "FluxTransformer2DModel",
-                        "bits_and_bytes_configuration": {
-                            "load_in_4bit": true,
-                            "bnb_4bit_quant_type": "{nf4}",
-                            "bnb_4bit_compute_dtype": "torch.bfloat16"
-                        }
+                        "pipeline_type": "FluxTransformer2DModel"
+                    },
+                    "bits_and_bytes_configuration": {
+                        "load_in_4bit": true,
+                        "bnb_4bit_quant_type": "{nf4}",
+                        "bnb_4bit_compute_dtype": "torch.bfloat16"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "black-forest-labs/FLUX.1-dev",
@@ -33,7 +33,7 @@
                 },
                 "arguments": {
                     "image": {
-                        "location": "https://i.pinimg.com/originals/8a/01/e2/8a01e279d39112703d2dc893b0c0699d.jpg",
+                        "location": "https://pbs.twimg.com/media/GflnEcAXcAA7F78?format=jpg&name=medium",
                         "size": {
                             "width": 1024,
                             "height": 1024

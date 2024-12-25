@@ -165,6 +165,15 @@ def load_and_configure_component(
         component_from_pretrained_arguments = component_definition[
             "from_pretrained_arguments"
         ]
+
+        quantization_configuration = get_quantization_configuration(
+            component_definition
+        )
+        if quantization_configuration is not None:
+            component_from_pretrained_arguments["quantization_config"] = (
+                quantization_configuration
+            )
+
         component = load_and_configure_pipeline(
             component_configuration,
             component_from_pretrained_arguments,
@@ -180,10 +189,6 @@ def load_and_configure_component(
 def load_and_configure_pipeline(
     configuration, from_pretrained_arguments, device_identifier
 ):
-    quantization_configuration = get_quantization_configuration(configuration)
-    if quantization_configuration is not None:
-        from_pretrained_arguments["quantization_config"] = quantization_configuration
-
     # load the pipeline
     pipeline_type = configuration["pipeline_type"]
     pipeline = None
