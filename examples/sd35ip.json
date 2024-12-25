@@ -9,11 +9,12 @@
             "pipeline": {
                 "configuration": {
                     "pipeline_type": "StableDiffusion3Pipeline",
-                    "offload": "sequential"
+                    "offload": "model"
                 },
                 "feature_extractor": {
                     "configuration": {
-                        "pipeline_type": "transformers.SiglipImageProcessor"
+                        "pipeline_type": "transformers.SiglipImageProcessor",
+                        "do_not_send_to_device": true
                     },
                     "from_pretrained_arguments": {
                         "model_name": "google/siglip-so400m-patch14-384",

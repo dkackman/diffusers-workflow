@@ -45,8 +45,10 @@ class Pipeline:
             "unet",
             "text_encoder",
             "text_encoder_2",
+            "text_encoder_3",
             "tokenizer",
             "tokenizer_2",
+            "tokenizer_3",
             "image_encoder",
             "feature_extractor",
         ]:
@@ -206,12 +208,13 @@ def load_and_configure_pipeline(
             from_single_file, **from_pretrained_arguments
         )
 
+    do_not_send_to_device = configuration.get("do_not_send_to_device", False)
     offload = configuration.get("offload", None)
     if offload == "model":
         pipeline.enable_model_cpu_offload()
     elif offload == "sequential":
         pipeline.enable_sequential_cpu_offload()
-    elif hasattr(pipeline, "to"):
+    elif hasattr(pipeline, "to") and not do_not_send_to_device:
         pipeline = pipeline.to(device_identifier)
 
     vae = configuration.get("vae", {})
