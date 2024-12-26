@@ -1,35 +1,73 @@
 {
-    "id": "xchmas",
+    "variables": {
+        "model_name": "THUDM/CogVideoX1.5-5B"
+    },
+    "id": "CogVideoX1.5-5B",
     "steps": [
         {
-            "name": "font-design",
+            "name": "text_to_video",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxPipeline",
-                    "offload": "sequential"
+                    "pipeline_type": "CogVideoXPipeline",
+                    "offload": "model",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "model_name": "variable:model_name",
                     "torch_dtype": "torch.bfloat16"
                 },
-                "loras": [
-                    {
-                        "model_name": "ali-vilab/In-Context-LoRA",
-                        "weight_name": "font-design.safetensors"
+                "transformer": {
+                    "configuration": {
+                        "pipeline_type": "CogVideoXTransformer3DModel"
+                    },
+                    "torchao_configuration": {
+                        "quantization": "int4wo"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
                     }
-                ],
+                },
+                "vae": {
+                    "configuration": {
+                        "pipeline_type": "AutoencoderKLCogVideoX"
+                    },
+                    "torchao_configuration": {
+                        "quantization": "int4wo"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "vae",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "pipeline_type": "transformers.T5EncoderModel"
+                    },
+                    "torchao_configuration": {
+                        "quantization": "int4wo"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
                 "arguments": {
-                    "prompt": "The four-panel image showcases a playful bubble font in a vibrant pop-art style. [TOP-LEFT] displays 'Merry XCH-mas!' in bright green with a red polka dot background; [TOP-RIGHT] shows 'Merry XCH-mas!' in red and green, surrounded by candy illustrations; [BOTTOM-LEFT] has 'Merry XCH-mas!' in a mix of bright red and green colors; [BOTTOM-RIGHT] shows 'Happy XCH-Mas!' against a christmas background, perfect for fun, kid-friendly products.",
-                    "width": 1792,
-                    "height": 1216,
-                    "num_inference_steps": 25,
-                    "num_images_per_prompt": 1,
-                    "guidance_scale": 3.5,
-                    "max_sequence_length": 512
+                    "prompt": "the diamond spins",
+                    "num_videos_per_prompt": 1,
+                    "num_inference_steps": 35,
+                    "num_frames": 49,
+                    "guidance_scale": 6
                 }
             },
             "result": {
-                "content_type": "image/jpeg"
+                "content_type": "video/mp4"
             }
         }
     ]

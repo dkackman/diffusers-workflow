@@ -367,6 +367,9 @@
                 "load_in_4bit": {
                     "type": "boolean"
                 },
+                "load_in_8bit": {
+                    "type": "boolean"
+                },
                 "bnb_4bit_quant_type": {
                     "type": "string"
                 },

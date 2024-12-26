@@ -8,7 +8,8 @@
                     "offload": "sequential",
                     "pipeline_type": "MochiPipeline",
                     "vae": {
-                        "enable_tiling": true
+                        "enable_tiling": true,
+                        "enable_slicing": true
                     }
                 },
                 "from_pretrained_arguments": {
