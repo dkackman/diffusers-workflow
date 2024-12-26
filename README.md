@@ -85,7 +85,7 @@ options:
 
 #### Simple Image Generation with an Input Variable
 
-This example declares a variable for the `prompt` which can then be set on the command line. The `prompt` variable is then used in the `prompt` argument of the `StableDiffusionPipeline` model.
+This example declares a variable for the `prompt` which can then be set on the command line. The `prompt` variable is then used in the `prompt` argument of the model.
 
 ```bash
 python -m dh.run test_job.json prompt="an orange" num_images_per_prompt=4
