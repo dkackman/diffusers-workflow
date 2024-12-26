@@ -103,21 +103,23 @@ python -m dh.run test_job.json prompt="an orange" num_images_per_prompt=4
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "StableDiffusionPipeline"
+                    "pipeline_type": "FluxPipeline",
+                    "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                    "torch_dtype": "torch.float16"
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
                     "num_inference_steps": 25,
-                    "num_images_per_prompt": "variable:num_images_per_prompt"
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "guidance_scale": 3.5,
+                    "max_sequence_length": 512
                 }
             },
             "result": {
-                "content_type": "image/jpeg",
-                "file_base_name": "test_image"
+                "content_type": "image/jpeg"
             }
         }
     ]
