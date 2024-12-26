@@ -79,7 +79,7 @@ options:
 
 ### Schema
 
-[Json schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-helper%2Frefs%2Fheads%2Fmaster%2Fdh%2Fproject_schema.json)
+[Json schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-helper%2Frefs%2Fheads%2Fmaster%2Fdh%2Fjob_schema.json)
 
 ### Examples
 
