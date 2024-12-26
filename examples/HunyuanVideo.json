@@ -5,8 +5,8 @@
             "name": "text_to_video",
             "pipeline": {
                 "configuration": {
-                    "offload": "sequential",
                     "pipeline_type": "HunyuanVideoPipeline",
+                    "offload": "model",
                     "vae": {
                         "enable_slicing": true,
                         "enable_tiling": true
@@ -16,14 +16,11 @@
                     "configuration": {
                         "pipeline_type": "HunyuanVideoTransformer3DModel"
                     },
-                    "bits_and_bytes_configuration": {
-                        "load_in_4bit": true,
-                        "bnb_4bit_quant_type": "{nf4}",
-                        "bnb_4bit_compute_dtype": "torch.bfloat16"
+                    "gguf_configuration": {
+                        "compute_dtype": "torch.bfloat16"
                     },
                     "from_pretrained_arguments": {
-                        "model_name": "hunyuanvideo-community/HunyuanVideo",
-                        "subfolder": "transformer",
+                        "from_single_file": "https://huggingface.co/city96/HunyuanVideo-gguf/blob/main/hunyuan-video-t2v-720p-Q4_K_M.gguf",
                         "torch_dtype": "torch.bfloat16"
                     }
                 },
@@ -32,15 +29,16 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "A marmot walks on the grass, realistic",
+                    "prompt": "A marmot walks on the snow, realistic",
                     "height": 320,
                     "width": 512,
                     "num_inference_steps": 30,
-                    "num_frames": 61
+                    "num_frames": 129
                 }
             },
             "result": {
-                "content_type": "video/mp4"
+                "content_type": "video/mp4",
+                "fps": 15
             }
         }
     ]

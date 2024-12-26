@@ -27,7 +27,7 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "Giant constantly mutating ravenous radioactive mushroom",
+                    "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of a marmot, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, asymmetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
                     "num_inference_steps": 25,
                     "guidance_scale": 4.5,
                     "max_sequence_length": 512,
@@ -58,7 +58,7 @@
                 },
                 "arguments": {
                     "image": "previous_result:image_generation",
-                    "prompt": "the steam rises from the mug",
+                    "prompt": "the marmot sniffs the air and looks round",
                     "num_videos_per_prompt": 1,
                     "num_inference_steps": 25,
                     "num_frames": 49,

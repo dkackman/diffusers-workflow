@@ -1,9 +1,6 @@
 {
     "variables": {
-        "model_name": "THUDM/CogVideoX1.5-5B-I2V",
-        "quantization_library": "torchao",
-        "weights_type": "torchao.quantization.int8_weight_only",
-        "activations_type": "optimum.quanto.qfloat8"
+        "model_name": "THUDM/CogVideoX1.5-5B-I2V"
     },
     "id": "CogVideoX1.5-5B-I2V",
     "steps": [

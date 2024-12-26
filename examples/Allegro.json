@@ -8,7 +8,8 @@
                     "offload": "sequential",
                     "pipeline_type": "AllegroPipeline",
                     "vae": {
-                        "enable_tiling": true
+                        "enable_tiling": true,
+                        "enable_slicing": true
                     }
                 },
                 "vae": {
@@ -26,14 +27,16 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "A woodland scene with bright sunlight and sparkling sunshine through the leaves, with many faeries. From an aerial view, the faeries vary in size and color, some moving and some stationary. The faeries wear boots.",
+                    "prompt": "A marmot walks through the snow, realistic",
+                    "negative_prompt": "nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry",
                     "guidance_scale": 7.5,
                     "max_sequence_length": 512,
-                    "num_inference_steps": 30
+                    "num_inference_steps": 100
                 }
             },
             "result": {
-                "content_type": "video/mp4"
+                "content_type": "video/mp4",
+                "fps": 15
             }
         }
     ]
