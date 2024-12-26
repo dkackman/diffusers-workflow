@@ -8,10 +8,10 @@ This is a helper for the [Huggingface Diffuser project](https://github.com/huggi
 
 ## Features
 
-    - Make any workflow command line executable with variable substitution
-    - Suppport for text to image & video and image to image & video workflows
-    - Image processing tasks for controlnet workflows
-    - Other helpful tasks like background removal, upscaling, cropping and qr code generation
+- Make any workflow command line executable with variable substitution
+- Suppport for text to image & video and image to image & video workflows
+- Image processing tasks for controlnet workflows
+- Other helpful tasks like background removal, upscaling, cropping and qr code generation
 
 ## Installation
 
