@@ -43,7 +43,7 @@ pip install git+https://github.com/huggingface/diffusers
 
 ## Usage
 
-### Run a job
+### Run a Workflow
 
 ```bash
 python -m dh.run --help
@@ -61,7 +61,7 @@ options:
                         The folder to write the outputs to
 ```                      
 
-### Validate a job definition 
+### Validate a Workflow Definition 
 
 ```bash
 python -m dh.validate --help
@@ -80,7 +80,7 @@ options:
 
 ### Schema
 
-[Json schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-helper%2Frefs%2Fheads%2Fmaster%2Fdh%2Fjob_schema.json)
+[Json schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-helper%2Frefs%2Fheads%2Fmaster%2Fdh%2Fworkflow_schema.json)
 
 ### Examples
 
@@ -89,12 +89,12 @@ options:
 This example declares a variable for the `prompt` which can then be set on the command line. The `prompt` variable is then used in the `prompt` argument of the model.
 
 ```bash
-python -m dh.run test_job.json prompt="an orange" num_images_per_prompt=4
+python -m dh.run test_workflow.json prompt="an orange" num_images_per_prompt=4
 ```
 
 ```json
 {
-    "id": "test_job",
+    "id": "test_workflow",
     "variables": {
         "prompt": "an apple",
         "num_images_per_prompt": 1

@@ -4,9 +4,12 @@ from .quantization import get_quantization_configuration
 
 
 class Pipeline:
-    def __init__(self, pipeline_definition, default_seed, pipeline=None):
+    def __init__(
+        self, pipeline_definition, default_seed, device_identifier, pipeline=None
+    ):
         self.pipeline_definition = pipeline_definition
         self.default_seed = default_seed
+        self.device_identifier = device_identifier
         self.pipeline = pipeline
 
     @property
@@ -14,7 +17,7 @@ class Pipeline:
         return self.pipeline_definition.get("configuration", {})
 
     @property
-    def model_name(self):
+    def name(self):
         return self.from_pretrained_arguments.get("model_name", "")
 
     @property
@@ -58,16 +61,16 @@ class Pipeline:
             )
         return from_pretrained_arguments
 
-    def load(self, device_identifier, shared_components):
+    def load(self, shared_components):
         from_pretrained_arguments = self.populate_from_pretrained_arguments(
-            device_identifier, shared_components
+            self.device_identifier, shared_components
         )
 
         # load and configure the pipeline
         pipeline = load_and_configure_pipeline(
             self.configuration,
             from_pretrained_arguments,
-            device_identifier,
+            self.device_identifier,
         )
 
         # load and configure any custom scheduler
@@ -92,13 +95,13 @@ class Pipeline:
         # create a generator that will be used by the pipeline
         if not "no_generator" in self.configuration:
             self.argument_template["generator"] = torch.Generator(
-                device_identifier
+                self.device_identifier
             ).manual_seed(self.pipeline_definition.get("seed", self.default_seed))
 
         self.pipeline = pipeline
 
     @torch.inference_mode()
-    def run(self, arguments, device_identifier):
+    def run(self, arguments, previous_pipelines={}):
         if self.pipeline is None:
             raise ValueError(
                 "Pipeline has not been initialized. Call load(device_identifier, shared_components) first."
@@ -126,7 +129,7 @@ class Pipeline:
 
         # if moveable make sure the result is on the correct device
         if hasattr(output, "to"):
-            output = output.to(device_identifier)
+            output = output.to(self.device_identifier)
         return output
 
     def load_optional_component(

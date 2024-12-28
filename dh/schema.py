@@ -16,14 +16,9 @@ def validate_data(data, schema):
         return False, f"Unexpected error: {str(e)}"
 
 
-def load_json_file(file_spec):
+def load_schema(schema_name):
+    file_spec = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), f"{schema_name}_schema.json"
+    )
     with open(file_spec, "r") as file:
         return json.load(file)
-
-
-def load_schema(schema_name):
-    return load_json_file(
-        os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), f"{schema_name}_schema.json"
-        )
-    )

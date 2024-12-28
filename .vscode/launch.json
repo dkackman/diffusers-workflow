@@ -30,7 +30,7 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/${input:jobName}.json"
+        "./examples/${input:workflowName}.json"
       ]
     },
     {
@@ -83,15 +83,15 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/${input:jobName}.json"
+        "./examples/${input:workflowName}.json"
       ]
     }
   ],
   "inputs": [
     {
-      "id": "jobName",
+      "id": "workflowName",
       "type": "promptString",
-      "description": "Enter the job name:",
+      "description": "Enter the workflow name:",
       "default": "scratch"
     }
   ]

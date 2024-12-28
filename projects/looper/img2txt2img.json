@@ -119,7 +119,8 @@
                 }
             },
             "result": {
-                "content_type": "text/plain"
+                "content_type": "text/plain",
+                "file_base_name": "variable:file_base_name"
             }
         },
         {

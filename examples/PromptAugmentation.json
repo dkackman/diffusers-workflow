@@ -5,56 +5,15 @@
     "id": "PromptAugmentation",
     "steps": [
         {
-            "name": "messages",
-            "task": {
-                "command": "format_chat_message",
+            "name": "augment_prompt",
+            "workflow": {
+                "path": "builtin:augment_prompt.json",
                 "arguments": {
-                    "system_prompt": "You are a helpful AI assistant that creates prompts for text to image generative AI. When supplied input generate only the prompt.",
-                    "user_message": "variable:prompt"
+                    "prompt": "variable:prompt"
                 }
             },
             "result": {
                 "content_type": "application/json"
-            }
-        },
-        {
-            "name": "augment_prompt",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "transformers.pipeline",
-                    "no_generator": true
-                },
-                "from_pretrained_arguments": {
-                    "task": "text-generation"
-                },
-                "model": {
-                    "configuration": {
-                        "pipeline_type": "transformers.AutoModelForCausalLM"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "microsoft/Phi-3.5-mini-instruct",
-                        "device_map": "cuda",
-                        "torch_dtype": "{auto}",
-                        "trust_remote_code": true
-                    }
-                },
-                "tokenizer": {
-                    "configuration": {
-                        "pipeline_type": "transformers.AutoTokenizer"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "microsoft/Phi-3.5-mini-instruct"
-                    }
-                },
-                "arguments": {
-                    "text_inputs": "previous_result:messages",
-                    "max_new_tokens": 500,
-                    "return_full_text": false,
-                    "do_sample": false
-                }
-            },
-            "result": {
-                "content_type": "text/plain"
             }
         },
         {
