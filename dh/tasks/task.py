@@ -5,8 +5,13 @@ from .format_messages import format_chat_message, batch_decode_post_process
 
 
 class Task:
-    def __init__(self, task_definition):
+    def __init__(self, task_definition, device_identifier):
         self.task_definition = task_definition
+        self.device_identifier = device_identifier
+
+    @property
+    def name(self):
+        return self.command
 
     @property
     def argument_template(self):
@@ -20,7 +25,7 @@ class Task:
     def command(self):
         return self.task_definition.get("command", "unknown")
 
-    def run(self, device_identifier, arguments, previous_pipelines):
+    def run(self, arguments, previous_pipelines={}):
         if self.command == "qr_code":
             return get_qrcode_image(**arguments)
 
@@ -43,7 +48,7 @@ class Task:
 
         if "image" in arguments:
             return process_image(
-                arguments.pop("image"), self.command, device_identifier, arguments
+                arguments.pop("image"), self.command, self.device_identifier, arguments
             )
 
         raise ValueError(f"Unknown task {self.command}")

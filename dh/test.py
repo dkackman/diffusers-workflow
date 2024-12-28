@@ -1,23 +1,24 @@
 import os
-from .schema import load_json_file
-from .job import Job
+from .workflow import workflow_from_file
 from . import startup
 
 if __name__ == "__main__":
-    data = load_json_file(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_job.json")
+    workflow = workflow_from_file(
+        os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "workflows", "test.json"
+        ),
+        ".",
     )
-    job = Job(data)
 
     try:
-        job.validate()
+        workflow.validate()
     except Exception as e:
-        print(f"Error validating job: {e}")
+        print(f"Error validating workflow: {e}")
         exit(1)
 
     try:
         startup()
-        job.run(".")
+        workflow.run()
     except Exception as e:
-        print(f"Error running job: {e}")
+        print(f"Error running workflow: {e}")
         exit(1)

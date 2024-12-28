@@ -1,13 +1,12 @@
 import argparse
 import os
-from .schema import load_json_file
-from .job import Job
+from .workflow import workflow_from_file
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Validate a job from a file.")
+    parser = argparse.ArgumentParser(description="Validate a workflow from a file.")
     parser.add_argument(
-        "file_name", type=str, help="The filespec of the job to validate"
+        "file_name", type=str, help="The filespec of the workflow to validate"
     )
     args = parser.parse_args()
 
@@ -15,10 +14,10 @@ if __name__ == "__main__":
         raise FileNotFoundError(f"File {args.file_name} does not exist")
 
     try:
-        job = Job(load_json_file(args.file_name))
-        job.validate()
+        workflow = workflow_from_file(args.file_name, ".")
+        workflow.validate()
     except Exception as e:
-        print(f"Error validating job: {args.file_name}")
+        print(f"Error validating workflow: {args.file_name}")
         exit(1)
 
-    print(f"Job {args.file_name} validated successfully")
+    print(f"Workflow {args.file_name} validated successfully")

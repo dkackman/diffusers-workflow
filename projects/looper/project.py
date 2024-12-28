@@ -3,21 +3,21 @@ import json
 import subprocess
 
 
-subprocess.run(
-    [
-        "python",
-        "-m",
-        "dh.run",
-        "-o",
-        "./projects/looper/outputs",
-        "./projects/looper/img2txt2img.json",
-        f"file_base_name=looper-{0}",
-        "num_inference_steps=25",
-        "image_glob=./projects/looper/start_img.jpg",
-    ]
-)
+# subprocess.run(
+#     [
+#         "python",
+#         "-m",
+#         "dh.run",
+#         "-o",
+#         "./projects/looper/outputs",
+#         "./projects/looper/img2txt2img.json",
+#         f"file_base_name=looper-{0}",
+#         "num_inference_steps=25",
+#         "image_glob=./projects/looper/start_img.jpg",
+#     ]
+# )
 
-for i in range(1, 100):
+for i in range(25, 100):
     subprocess.run(
         [
             "python",

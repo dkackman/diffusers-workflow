@@ -1,14 +1,14 @@
 {
-    "$id": "https://github.com/dkackman/diffusers-helper/job",
+    "$id": "https://github.com/dkackman/diffusers-helper/workflow",
     "$schema": "https://json-schema.org/draft/2020-12/schema#",
-    "description": "The definition of the diffusers-helper job.",
+    "description": "The definition of the diffusers-helper workflow.",
     "type": "object",
     "properties": {
         "id": {
             "type": "string"
         },
         "variables": {
-            "description": "Variables to be used in for the job.",
+            "description": "Variables to be used in for the workflow.",
             "additionalProperties": {
                 "type": [
                     "string",
@@ -21,7 +21,7 @@
             }
         },
         "seed": {
-            "description": "Default seed for the entire job",
+            "description": "Default seed for the entire workflow",
             "type": "integer",
             "format": "int64"
         },
@@ -80,6 +80,12 @@
                 "pipeline": {
                     "$ref": "#/$defs/pipeline"
                 },
+                "pipeline_reference": {
+                    "$ref": "#/$defs/pipeline_reference"
+                },
+                "workflow": {
+                    "$ref": "#/$defs/workflow_reference"
+                },
                 "result": {
                     "$ref": "#/$defs/result"
                 }
@@ -101,6 +107,12 @@
                     "required": [
                         "name",
                         "pipeline_reference"
+                    ]
+                },
+                {
+                    "required": [
+                        "name",
+                        "workflow"
                     ]
                 }
             ]
@@ -549,6 +561,28 @@
                     ]
                 }
             ]
+        },
+        "workflow_reference": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "description": "The path to the workflow file. Use 'builtin:' for built-in workflows.",
+                    "type": "string"
+                },
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "integer",
+                            "number",
+                            "object",
+                            "array",
+                            "boolean"
+                        ]
+                    }
+                }
+            }
         },
         "result": {
             "type": "object",
