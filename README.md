@@ -10,7 +10,7 @@ This is a helper for the [Huggingface Diffuser project](https://github.com/huggi
 
 - Make any workflow command line executable with variable substitution
 - Suppport for text to image & video and image to image & video workflows
-- Prompt augmentation using locally installed LLMs
+- Image describing and prompt augmentation using locally installed LLMs
 - Image processing tasks for controlnet workflows
 - Other helpful tasks like background removal, upscaling, cropping and qr code generation
 
