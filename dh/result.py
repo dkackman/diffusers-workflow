@@ -1,5 +1,6 @@
 import os
 import soundfile
+import json
 import mimetypes
 from diffusers.utils import export_to_video
 
@@ -10,7 +11,10 @@ class Result:
         self.result_list = []
 
     def add_result(self, result):
-        self.result_list.append(result)
+        if isinstance(result, list):
+            self.result_list.extend(result)
+        else:
+            self.result_list.append(result)
 
     def get_artifacts(self):
         artifacts = []
@@ -40,14 +44,24 @@ class Result:
             extension = guess_extension(content_type)
 
             for i, result in enumerate(self.result_list):
-                for j, artifact in enumerate(get_artifact_list(result)):
-                    self.save_artifact(
-                        output_dir,
-                        artifact,
-                        f"{file_base_name}-{i}.{j}",
-                        content_type,
-                        extension,
+                # if the result is meant to be saved as json, dump it to a file
+                if content_type.endswith("json"):
+                    output_path = os.path.join(
+                        output_dir, f"{file_base_name}-{i}{extension}"
                     )
+                    print(f"Saving result to {output_path}")
+                    with open(output_path, "w") as file:
+                        file.write(json.dumps(result, indent=4))
+
+                else:
+                    for j, artifact in enumerate(get_artifact_list(result)):
+                        self.save_artifact(
+                            output_dir,
+                            artifact,
+                            f"{file_base_name}-{i}.{j}",
+                            content_type,
+                            extension,
+                        )
 
     def save_artifact(
         self, output_dir, artifact, file_base_name, content_type, extension
@@ -75,6 +89,14 @@ class Result:
                     artifact,
                     self.result_definition.get("sample_rate", 44100),
                 )
+
+            elif content_type.endswith("json"):
+                with open(output_path, "w") as file:
+                    file.write(json.dumps(artifact, indent=4))
+
+            elif content_type.startswith("text"):
+                with open(output_path, "w") as file:
+                    file.write(artifact)
 
             elif hasattr(artifact, "save"):
                 artifact.save(output_path)

@@ -25,7 +25,7 @@ class Pipeline:
     def argument_template(self):
         return self.pipeline_definition["arguments"]
 
-    def load(self, device_identifier, shared_components):
+    def populate_from_pretrained_arguments(self, device_identifier, shared_components):
         from_pretrained_arguments = self.from_pretrained_arguments
 
         # grab any previously shared components and put them into from_pretrained_arguments
@@ -51,10 +51,17 @@ class Pipeline:
             "tokenizer_3",
             "image_encoder",
             "feature_extractor",
+            "model",
         ]:
             self.load_optional_component(
                 optional_component_name, from_pretrained_arguments, device_identifier
             )
+        return from_pretrained_arguments
+
+    def load(self, device_identifier, shared_components):
+        from_pretrained_arguments = self.populate_from_pretrained_arguments(
+            device_identifier, shared_components
+        )
 
         # load and configure the pipeline
         pipeline = load_and_configure_pipeline(
@@ -198,12 +205,15 @@ def load_and_configure_pipeline(
         pipeline = pipeline_type.from_pretrained(
             model_name, **from_pretrained_arguments
         )
-    else:
+    elif "from_single_file" in from_pretrained_arguments:
         from_single_file = from_pretrained_arguments.pop("from_single_file")
         print(f"Loading pipeline from {from_single_file}...")
         pipeline = pipeline_type.from_single_file(
             from_single_file, **from_pretrained_arguments
         )
+    else:
+        print(f"Creating pipeline...")
+        pipeline = pipeline_type(**from_pretrained_arguments)
 
     do_not_send_to_device = configuration.get("do_not_send_to_device", False)
     offload = configuration.get("offload", None)

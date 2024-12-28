@@ -122,5 +122,12 @@ fi
 
 python -m pip install --upgrade pip
 
+pip install wheel setuptools
 pip install torch diffusers[torch] peft transformers accelerate safetensors controlnet_aux sentencepiece mediapipe torchsde bitsandbytes torchao gguf
 pip install aiohttp matplotlib moviepy opencv-python concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black
+
+# to use some LLM workflows like Phi mini-instruct you'll need to install the following
+# they however need the cuda dev toolkit to be installed
+# https://developer.nvidia.com/cuda-toolkit
+
+# pip install flash_attn
