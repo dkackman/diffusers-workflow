@@ -1,7 +1,7 @@
 from .qr_code import get_qrcode_image
 from .image_processor_dispatch import process_image
 from .gather import gather_images, gather_inputs, gather_videos
-from .format_messages import format_chat_message
+from .format_messages import format_chat_message, batch_decode_post_process
 
 
 class Task:
@@ -20,7 +20,7 @@ class Task:
     def command(self):
         return self.task_definition.get("command", "unknown")
 
-    def run(self, device_identifier, arguments):
+    def run(self, device_identifier, arguments, previous_pipelines):
         if self.command == "qr_code":
             return get_qrcode_image(**arguments)
 
@@ -35,6 +35,11 @@ class Task:
 
         if self.command == "format_chat_message":
             return format_chat_message(**arguments)
+
+        if self.command == "batch_decode_post_process":
+            pipeline_reference = self.task_definition["pipeline_reference"]
+            processor = previous_pipelines[pipeline_reference].pipeline
+            return batch_decode_post_process(processor, **arguments)
 
         if "image" in arguments:
             return process_image(

@@ -1,80 +1,16 @@
 {
-    "id": "scratch",
+    "variables": {
+        "prompt": "A marmot, wearing a tophat in a woodland setting. Somewhat magical."
+    },
+    "id": "PromptAugmentation",
     "steps": [
-        {
-            "name": "input_image",
-            "task": {
-                "command": "gather_images",
-                "arguments": {
-                    "urls": [
-                        "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download:true"
-                    ]
-                }
-            },
-            "result": {
-                "content_type": "image/jpeg"
-            }
-        },
-        {
-            "name": "process_image",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "transformers.AutoProcessor",
-                    "no_generator": true
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "microsoft/Florence-2-large",
-                    "trust_remote_code": true
-                },
-                "arguments": {
-                    "text": "<DETAILED_CAPTION>",
-                    "images": "previous_result:input_image",
-                    "return_tensors": "pt"
-                }
-            }
-        },
-        {
-            "name": "model",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "transformers.AutoModelForCausalLM",
-                    "no_generator": true,
-                    "generate": true
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "microsoft/Florence-2-large",
-                    "trust_remote_code": true
-                },
-                "arguments": {
-                    "input_ids": "previous_result:process_image.input_ids",
-                    "pixel_values": "previous_result:process_image.pixel_values",
-                    "max_new_tokens": 4096,
-                    "num_beams": 3,
-                    "do_sample": false
-                }
-            }
-        },
-        {
-            "name": "decode",
-            "task": {
-                "command": "batch_decode_post_process",
-                "pipeline_reference": "process_image",
-                "arguments": {
-                    "generated_ids": "previous_result:model.generated_ids",
-                    "task": "<DETAILED_CAPTION>"
-                }
-            },
-            "result": {
-                "content_type": "text/plain"
-            }
-        },
         {
             "name": "messages",
             "task": {
                 "command": "format_chat_message",
                 "arguments": {
                     "system_prompt": "You are a helpful AI assistant that creates prompts for text to image generative AI. When supplied input generate only the prompt.",
-                    "user_message": "previous_result:decode"
+                    "user_message": "variable:prompt"
                 }
             },
             "result": {
@@ -122,7 +58,7 @@
             }
         },
         {
-            "name": "flux",
+            "name": "main",
             "pipeline": {
                 "configuration": {
                     "pipeline_type": "FluxPipeline",

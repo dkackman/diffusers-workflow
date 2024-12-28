@@ -10,6 +10,7 @@ This is a helper for the [Huggingface Diffuser project](https://github.com/huggi
 
 - Make any workflow command line executable with variable substitution
 - Suppport for text to image & video and image to image & video workflows
+- Prompt augmentation using locally installed LLMs
 - Image processing tasks for controlnet workflows
 - Other helpful tasks like background removal, upscaling, cropping and qr code generation
 
@@ -201,6 +202,93 @@ This example demonstrates a multiple step workflow including an image generation
             "result": {
                 "content_type": "video/mp4",
                 "file_base_name": "owl"
+            }
+        }
+    ]
+}
+```
+
+#### Prompt Augmentation
+
+This example uses an instruct LLM to augment the prompt before passing it to the model.
+
+Note that this particular LLM requries `flash_attn` which in turn requires the [CUDA toolkit](https://developer.nvidia.com/cuda-toolkit).
+
+```json
+{
+    "variables": {
+        "prompt": "A marmot, wearing a tophat in a woodland setting. Somewhat magical."
+    },
+    "id": "sd35",
+    "steps": [
+        {
+            "name": "messages",
+            "task": {
+                "command": "format_chat_message",
+                "arguments": {
+                    "system_prompt": "You are a helpful AI assistant that creates prompts for text to image generative AI. When supplied input generate only the prompt.",
+                    "user_message": "variable:prompt"
+                }
+            }
+        },
+        {
+            "name": "augment_prompt",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "transformers.pipeline",
+                    "no_generator": true
+                },
+                "from_pretrained_arguments": {
+                    "task": "text-generation"
+                },
+                "model": {
+                    "configuration": {
+                        "pipeline_type": "transformers.AutoModelForCausalLM"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "microsoft/Phi-3.5-mini-instruct",
+                        "device_map": "cuda",
+                        "torch_dtype": "{auto}",
+                        "trust_remote_code": true
+                    }
+                },
+                "tokenizer": {
+                    "configuration": {
+                        "pipeline_type": "transformers.AutoTokenizer"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "microsoft/Phi-3.5-mini-instruct"
+                    }
+                },
+                "arguments": {
+                    "text_inputs": "previous_result:messages",
+                    "max_new_tokens": 500,
+                    "return_full_text": false,
+                    "do_sample": false
+                }
+            }
+        },
+        {
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "StableDiffusion3Pipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "stabilityai/stable-diffusion-3.5-large",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "previous_result:augment_prompt.generated_text",
+                    "num_inference_steps": 25,
+                    "guidance_scale": 4.5,
+                    "max_sequence_length": 512,
+                    "num_images_per_prompt": 1
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
             }
         }
     ]
