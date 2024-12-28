@@ -98,7 +98,7 @@ class Pipeline:
         self.pipeline = pipeline
 
     @torch.inference_mode()
-    def run(self, arguments):
+    def run(self, arguments, device_identifier):
         if self.pipeline is None:
             raise ValueError(
                 "Pipeline has not been initialized. Call load(device_identifier, shared_components) first."
@@ -118,8 +118,16 @@ class Pipeline:
                 "latent_image_ids": latent_image_ids,
             }
 
+        if self.configuration.get("generate", False):
+            return {"generated_ids": self.pipeline.generate(**arguments)}
+
         # run the pipeline
-        return self.pipeline(**arguments)
+        output = self.pipeline(**arguments)
+
+        # if moveable make sure the result is on the correct device
+        if hasattr(output, "to"):
+            output = output.to(device_identifier)
+        return output
 
     def load_optional_component(
         self, component_name, from_pretrained_arguments, device_identifier

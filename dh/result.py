@@ -14,6 +14,8 @@ class Result:
         if isinstance(result, list):
             self.result_list.extend(result)
         else:
+            if isinstance(result, str):
+                result = result.strip().strip('"')
             self.result_list.append(result)
 
     def get_artifacts(self):

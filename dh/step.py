@@ -27,7 +27,7 @@ class Step:
                 for arguments in get_iterations(
                     pipeline.argument_template, previous_results
                 ):
-                    result.add_result(pipeline.run(arguments))
+                    result.add_result(pipeline.run(arguments, "cuda"))
 
             elif "pipeline_reference" in self.step_definition:
                 pipeline_reference = self.step_definition["pipeline_reference"]
@@ -49,7 +49,7 @@ class Step:
                 for arguments in get_iterations(
                     task.argument_template, previous_results
                 ):
-                    result.add_result(task.run("cuda", arguments))
+                    result.add_result(task.run("cuda", arguments, previous_pipelines))
 
             return result
 

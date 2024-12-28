@@ -1,5 +1,8 @@
 {
-    "id": "scratch",
+    "variables": {
+        "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download:true"
+    },
+    "id": "img2txt2img",
     "steps": [
         {
             "name": "input_image",
@@ -7,7 +10,7 @@
                 "command": "gather_images",
                 "arguments": {
                     "urls": [
-                        "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download:true"
+                        "variable:image_url"
                     ]
                 }
             },
