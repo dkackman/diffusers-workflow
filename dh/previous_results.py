@@ -38,7 +38,11 @@ def get_iterations(argument_template, previous_results):
         arguments = copy.deepcopy(argument_template)
         # Replace reference placeholders with actual values
         for key, value in zip(keys, values):
-            arguments[key] = value
+            # if value is a dict, derefence the property in the dict
+            if key in value:
+                arguments[key] = value[key]
+            else:
+                arguments[key] = value
         iterations.append(arguments)
 
     return iterations

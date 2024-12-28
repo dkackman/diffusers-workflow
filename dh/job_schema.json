@@ -139,6 +139,9 @@
                 "scheduler": {
                     "$ref": "#/$defs/scheduler"
                 },
+                "model": {
+                    "$ref": "#/$defs/pipeline_component"
+                },
                 "transformer": {
                     "$ref": "#/$defs/pipeline_component"
                 },
@@ -466,6 +469,10 @@
                 "from_single_file": {
                     "description": "Location of a checkpoint model from a single file",
                     "type": "string"
+                },
+                "task": {
+                    "description": "The name of a task that transformers.Pipeline understands",
+                    "type": "string"
                 }
             },
             "additionalProperties": {
@@ -487,6 +494,11 @@
                 {
                     "required": [
                         "from_single_file"
+                    ]
+                },
+                {
+                    "required": [
+                        "task"
                     ]
                 }
             ]

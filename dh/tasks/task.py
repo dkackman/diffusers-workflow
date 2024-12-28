@@ -1,6 +1,7 @@
 from .qr_code import get_qrcode_image
 from .image_processor_dispatch import process_image
 from .gather import gather_images, gather_inputs, gather_videos
+from .format_messages import format_chat_message
 
 
 class Task:
@@ -31,6 +32,9 @@ class Task:
 
         if self.command == "gather_inputs":
             return gather_inputs(arguments)
+
+        if self.command == "format_chat_message":
+            return format_chat_message(**arguments)
 
         if "image" in arguments:
             return process_image(

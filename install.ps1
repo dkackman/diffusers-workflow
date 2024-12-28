@@ -70,6 +70,9 @@ python -m venv venv
 python.exe -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+pip install wheel setuptools
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 pip3 install torch diffusers[torch] peft transformers accelerate safetensors controlnet_aux sentencepiece mediapipe torchsde bitsandbytes torchao gguf --index-url https://download.pytorch.org/whl/cu124
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -78,3 +81,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Output "done"
 exit
+
+# to use some LLM workflows like Phi mini-instruct you'll need to install the following
+# they however need the cuda dev toolkit to be installed
+# https://developer.nvidia.com/cuda-toolkit
+
+# pip install flash_attn
