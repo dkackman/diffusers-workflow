@@ -6,27 +6,26 @@
         "width": 768,
         "height": 768
     },
-    "id": "FluxDev",
+    "id": "kandinsky3",
     "steps": [
         {
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxPipeline",
+                    "pipeline_type": "AutoPipelineForText2Image",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "black-forest-labs/FLUX.1-dev",
-                    "torch_dtype": "torch.bfloat16"
+                    "model_name": "kandinsky-community/kandinsky-3",
+                    "torch_dtype": "torch.float16",
+                    "variant": "fp16"
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
                     "num_inference_steps": "variable:num_inference_steps",
                     "num_images_per_prompt": "variable:num_images_per_prompt",
                     "width": "variable:width",
-                    "height": "variable:height",
-                    "guidance_scale": 3.5,
-                    "max_sequence_length": 512
+                    "height": "variable:height"
                 }
             },
             "result": {

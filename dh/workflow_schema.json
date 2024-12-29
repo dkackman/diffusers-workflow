@@ -588,8 +588,13 @@
             "type": "object",
             "properties": {
                 "content_type": {
-                    "description": "The content type of the result",
+                    "description": "The content type of the result when serialized to disk",
                     "type": "string"
+                },
+                "save": {
+                    "description": "Whether to save the result",
+                    "type": "boolean",
+                    "default": true
                 },
                 "file_base_name": {
                     "description": "The base name for saving result and metadata files. The file extension is determined by context and content_type.",
@@ -605,6 +610,15 @@
                     "type": "integer",
                     "default": 44100
                 }
+            },
+            "additionalProperties": {
+                "type": [
+                    "string",
+                    "number",
+                    "object",
+                    "array",
+                    "boolean"
+                ]
             },
             "required": [
                 "content_type"

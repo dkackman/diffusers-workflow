@@ -20,7 +20,7 @@
                         "compute_dtype": "torch.bfloat16"
                     },
                     "from_pretrained_arguments": {
-                        "from_single_file": "https://huggingface.co/city96/HunyuanVideo-gguf/blob/main/hunyuan-video-t2v-720p-Q4_K_M.gguf",
+                        "from_single_file": "https://huggingface.co/city96/HunyuanVideo-gguf/blob/main/hunyuan-video-t2v-720p-Q5_K_M.gguf",
                         "torch_dtype": "torch.bfloat16"
                     }
                 },
