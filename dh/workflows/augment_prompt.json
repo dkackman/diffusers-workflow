@@ -1,6 +1,6 @@
 {
     "variables": {
-        "prompt": ""
+        "prompt": "default"
     },
     "id": "augment_prompt_workflow",
     "steps": [
