@@ -65,7 +65,9 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/scratch.json",
+        "--log_level",
+        "INFO",
+        "./examples/scratch.json"
       ]
     },
     {

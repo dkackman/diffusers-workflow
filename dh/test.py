@@ -11,13 +11,13 @@ if __name__ == "__main__":
     )
 
     try:
+        startup(True, "DEBUG")
         workflow.validate()
     except Exception as e:
         print(f"Error validating workflow: {e}")
         exit(1)
 
     try:
-        startup()
         workflow.run({})
     except Exception as e:
         print(f"Error running workflow: {e}")
