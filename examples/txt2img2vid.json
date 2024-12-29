@@ -1,13 +1,25 @@
 {
+    "variables": {
+        "width": 720,
+        "height": 480,
+        "image_generation_workflow": "./kandinsky3.json",
+        "image_num_inference_steps": 25,
+        "image_prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of a marmot, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, asymmetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
+        "video_generation_workflow": "./CogVideoX-5B-I2V.json",
+        "video_prompt": "the marmot blinks and looks around",
+        "video_num_inference_steps": 50
+    },
     "id": "txt2img2vid",
     "steps": [
         {
             "name": "image_generation",
             "workflow": {
-                "path": "./sd35.json",
+                "path": "variable:image_generation_workflow",
                 "arguments": {
-                    "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of a marmot, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, asymmetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
-                    "num_inference_steps": 25
+                    "prompt": "variable:image_prompt",
+                    "num_inference_steps": "variable:image_num_inference_steps",
+                    "width": "variable:width",
+                    "height": "variable:height"
                 }
             },
             "result": {
@@ -17,10 +29,11 @@
         {
             "name": "video_generation",
             "workflow": {
-                "path": "./CogVideoX-5B-I2V.json",
+                "path": "variable:video_generation_workflow",
                 "arguments": {
                     "image": "previous_result:image_generation",
-                    "prompt": "the owl blinks and looks around"
+                    "prompt": "variable:video_prompt",
+                    "num_inference_steps": "variable:video_num_inference_steps"
                 }
             },
             "result": {

@@ -14,34 +14,17 @@
             }
         },
         {
-            "name": "image_to_video",
-            "pipeline": {
-                "configuration": {
-                    "offload": "sequential",
-                    "pipeline_type": "CogVideoXImageToVideoPipeline",
-                    "vae": {
-                        "configuration": {
-                            "enable_slicing": true,
-                            "enable_tiling": true
-                        }
-                    }
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "THUDM/CogVideoX-5b-I2V",
-                    "torch_dtype": "torch.bfloat16"
-                },
+            "name": "video_generation",
+            "workflow": {
+                "path": "variable:video_generation_workflow",
                 "arguments": {
                     "image": "previous_result:image_generation",
                     "prompt": "The owl stares intently and blinks",
-                    "num_videos_per_prompt": 1,
-                    "num_inference_steps": 50,
-                    "num_frames": 49,
-                    "guidance_scale": 6
+                    "num_inference_steps": 50
                 }
             },
             "result": {
-                "content_type": "video/mp4",
-                "file_base_name": "owl"
+                "content_type": "video/mp4"
             }
         }
     ]

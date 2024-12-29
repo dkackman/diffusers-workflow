@@ -34,10 +34,9 @@ class Result:
         return values
 
     def save(self, output_dir, default_base_name):
-        content_type = self.result_definition.get("content_type", None)
-
         # do not save if no result content_type is specified
-        if content_type is not None:
+        content_type = self.result_definition.get("content_type", None)
+        if self.result_definition.get("save", True) and content_type is not None:
             file_base_name = default_base_name
             if "file_base_name" in self.result_definition:
                 file_base_name = (
@@ -48,7 +47,7 @@ class Result:
             extension = guess_extension(content_type)
 
             for i, result in enumerate(self.result_list):
-                # if the result is meant to be saved as json, dump it to a file
+                # if the result is meant to be saved as json, dump the whole thing to a file
                 if content_type.endswith("json"):
                     output_path = os.path.join(
                         output_dir, f"{file_base_name}-{i}{extension}"
