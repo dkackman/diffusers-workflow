@@ -1,6 +1,7 @@
 {
     "variables": {
-        "prompt": "Xmas Illustration, a medium-sized cartoon marmot is depicted. The marmot's head is encased in a light blue skirt, with a red circle in the center of its mouth. Its eyes are black, and its beak is yellow, while its feet are black. The marmot is adorned with a Santa Claus hat, and a pair of antlers on its head, adding a pop of color to the scene. The background is a stark white, with small gray dots dotting the wall."
+        "prompt": "Xmas Illustration, a medium-sized cartoon marmot is depicted. The marmot's head is encased in a light blue skirt, with a red circle in the center of its mouth. Its eyes are black, and its beak is yellow, while its feet are black. The marmot is adorned with a Santa Claus hat, and a pair of antlers on its head, adding a pop of color to the scene. The background is a stark white, with small gray dots dotting the wall.",
+        "num_images_per_prompt": 4
     },
     "id": "FluxDev",
     "steps": [
@@ -18,7 +19,7 @@
                 "arguments": {
                     "prompt": "variable:prompt",
                     "num_inference_steps": 25,
-                    "num_images_per_prompt": 4,
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
                     "guidance_scale": 3.5,
                     "max_sequence_length": 512
                 }

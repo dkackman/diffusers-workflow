@@ -16,52 +16,11 @@
             }
         },
         {
-            "name": "caption_processor",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "transformers.AutoProcessor",
-                    "no_generator": true
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "microsoft/Florence-2-large",
-                    "trust_remote_code": true
-                },
+            "name": "describe_image",
+            "workflow": {
+                "path": "builtin:describe_image.json",
                 "arguments": {
-                    "text": "<DETAILED_CAPTION>",
-                    "images": "previous_result:input_image",
-                    "return_tensors": "pt"
-                }
-            }
-        },
-        {
-            "name": "caption_model",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "transformers.AutoModelForCausalLM",
-                    "no_generator": true,
-                    "generate": true
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "microsoft/Florence-2-large",
-                    "trust_remote_code": true
-                },
-                "arguments": {
-                    "input_ids": "previous_result:caption_processor.input_ids",
-                    "pixel_values": "previous_result:caption_processor.pixel_values",
-                    "max_new_tokens": 4096,
-                    "num_beams": 3,
-                    "do_sample": false
-                }
-            }
-        },
-        {
-            "name": "decode_caption",
-            "task": {
-                "command": "batch_decode_post_process",
-                "pipeline_reference": "caption_processor",
-                "arguments": {
-                    "generated_ids": "previous_result:caption_model.generated_ids",
-                    "task": "<DETAILED_CAPTION>"
+                    "image": "previous_result:input_image"
                 }
             },
             "result": {
@@ -70,52 +29,11 @@
             }
         },
         {
-            "name": "messages",
-            "task": {
-                "command": "format_chat_message",
-                "arguments": {
-                    "system_prompt": "You are a helpful AI assistant that creates prompts for text to image generative AI. When supplied input generate only the prompt.",
-                    "user_message": "previous_result:decode_caption"
-                }
-            },
-            "result": {
-                "content_type": "application/json"
-            }
-        },
-        {
             "name": "augment_prompt",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "transformers.pipeline",
-                    "no_generator": true
-                },
-                "from_pretrained_arguments": {
-                    "task": "text-generation"
-                },
-                "model": {
-                    "configuration": {
-                        "pipeline_type": "transformers.AutoModelForCausalLM"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "microsoft/Phi-3.5-mini-instruct",
-                        "device_map": "cuda",
-                        "torch_dtype": "{auto}",
-                        "trust_remote_code": true
-                    }
-                },
-                "tokenizer": {
-                    "configuration": {
-                        "pipeline_type": "transformers.AutoTokenizer"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "microsoft/Phi-3.5-mini-instruct"
-                    }
-                },
+            "workflow": {
+                "path": "builtin:augment_prompt.json",
                 "arguments": {
-                    "text_inputs": "previous_result:messages",
-                    "max_new_tokens": 500,
-                    "return_full_text": false,
-                    "do_sample": false
+                    "prompt": "previous_result:describe_image"
                 }
             },
             "result": {
@@ -135,7 +53,7 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "previous_result:augment_prompt.generated_text",
+                    "prompt": "previous_result:augment_prompt",
                     "num_inference_steps": "variable:num_inference_steps",
                     "num_images_per_prompt": 1,
                     "guidance_scale": 3.5,

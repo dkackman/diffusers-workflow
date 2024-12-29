@@ -1,15 +1,12 @@
 {
+    "variables": {
+        "image": {
+            "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download:true"
+        },
+        "prompt": "default"
+    },
     "id": "CogVideoX-5B-I2V",
     "steps": [
-        {
-            "name": "gather_images",
-            "task": {
-                "command": "gather_images",
-                "arguments": {
-                    "glob": "./outputs/sd35-main*.jpg"
-                }
-            }
-        },
         {
             "name": "image_to_video",
             "pipeline": {
@@ -26,8 +23,8 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "image": "previous_result:gather_images",
-                    "prompt": "Giant constantly mutating ravenous radioactive mushroom",
+                    "image": "variable:image",
+                    "prompt": "variable:prompt",
                     "num_videos_per_prompt": 1,
                     "num_inference_steps": 50,
                     "num_frames": 49,

@@ -50,6 +50,16 @@
                     "do_sample": false
                 }
             }
+        },
+        {
+            "name": "generated_text",
+            "task": {
+                "command": "get_dict_value",
+                "arguments": {
+                    "dict": "previous_result:augment_prompt",
+                    "key": "generated_text"
+                }
+            }
         }
     ]
 }

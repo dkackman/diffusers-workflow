@@ -17,17 +17,17 @@ import subprocess
 #     ]
 # )
 
-for i in range(25, 100):
+for i in range(29, 100):
     subprocess.run(
         [
             "python",
             "-m",
             "dh.run",
             "-o",
-            "./projects/looper/outputs",
-            "./projects/looper/img2txt2img.json",
-            f"file_base_name=looper-{i}",
+            "./examples/projects/looper/outputs",
+            "./examples/projects/looper/img2txt2img.json",
+            f"file_base_name={i}",
             "num_inference_steps=25",
-            f"image_glob=./projects/looper/outputs/looper-{i-1}-*.jpg",
+            f"image_glob=./examples/projects/looper/outputs/{i-1}looper-*.jpg",
         ]
     )

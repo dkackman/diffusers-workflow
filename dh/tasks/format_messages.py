@@ -16,3 +16,9 @@ def batch_decode_post_process(processor, task, generated_ids):
     parsed_answer = processor.post_process_generation(generated_text, task=task)
 
     return parsed_answer[task]
+
+
+def get_dict_value(dict, key):
+    if key in dict:
+        return dict[key]
+    return None

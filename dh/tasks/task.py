@@ -1,7 +1,11 @@
 from .qr_code import get_qrcode_image
 from .image_processor_dispatch import process_image
 from .gather import gather_images, gather_inputs, gather_videos
-from .format_messages import format_chat_message, batch_decode_post_process
+from .format_messages import (
+    format_chat_message,
+    batch_decode_post_process,
+    get_dict_value,
+)
 
 
 class Task:
@@ -40,6 +44,9 @@ class Task:
 
         if self.command == "format_chat_message":
             return format_chat_message(**arguments)
+
+        if self.command == "get_dict_value":
+            return get_dict_value(**arguments)
 
         if self.command == "batch_decode_post_process":
             pipeline_reference = self.task_definition["pipeline_reference"]

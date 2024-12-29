@@ -11,13 +11,11 @@ class Result:
         self.result_list = []
 
     def add_result(self, result):
-        if result is None:
-            pass
         if isinstance(result, list):
             self.result_list.extend(result)
         else:
             if isinstance(result, str):
-                result = result.strip().strip('"')
+                result = result.strip().strip('"').strip()
             self.result_list.append(result)
 
     def get_artifacts(self):
@@ -40,9 +38,11 @@ class Result:
 
         # do not save if no result content_type is specified
         if content_type is not None:
-            file_base_name = self.result_definition.get(
-                "file_base_name", default_base_name
-            )
+            file_base_name = default_base_name
+            if "file_base_name" in self.result_definition:
+                file_base_name = (
+                    self.result_definition["file_base_name"] + default_base_name
+                )
 
             content_type = self.result_definition.get("content_type", "")
             extension = guess_extension(content_type)

@@ -35,10 +35,11 @@ if __name__ == "__main__":
     if not os.path.exists(args.output_dir):
         raise FileNotFoundError(f"Output directory {args.output_dir} does not exist")
 
-    if not os.path.exists(args.file_name):
-        raise FileNotFoundError(f"File {args.file_name} does not exist")
+    file_path = os.path.abspath(args.file_name)
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File {file_path} does not exist")
 
-    workflow = workflow_from_file(args.file_name, args.output_dir)
+    workflow = workflow_from_file(file_path, args.output_dir)
     try:
         workflow.validate()
     except Exception as e:
