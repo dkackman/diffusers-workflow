@@ -1,0 +1,21 @@
+{
+    "id": "test_workflow",
+    "variables": {
+        "prompt": "test prompt",
+        "num_images": 1
+    },
+    "steps": [
+        {
+            "name": "test_step",
+            "task": {
+                "command": "qr_code",
+                "arguments": {
+                    "qr_code_contents": "variable:prompt"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

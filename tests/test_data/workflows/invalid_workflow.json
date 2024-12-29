@@ -1,0 +1,6 @@
+{
+    "id": "test_workflow",
+    "variables": {
+        "prompt": "test prompt"
+    }
+}
