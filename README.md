@@ -146,8 +146,7 @@ This example demonstrates a multiple step workflow including an image generation
     "steps": [
         {
             "name": "image_generation",
-            "pipeline": 
-            {
+            "pipeline": {
                 "transformer": {
                     "configuration": {
                         "pipeline_type": "SD3Transformer2DModel",
