@@ -2,7 +2,7 @@ import logging
 from concurrent_log_handler import ConcurrentRotatingFileHandler
 
 
-def setup_logging(log_path, log_level):
+def setup_logging(log_path, log_level="WARNING", log_to_console=False):
     # Use a dictionary to map log level strings to log level constants
     log_levels = {
         "CRITICAL": logging.CRITICAL,
@@ -12,18 +12,30 @@ def setup_logging(log_path, log_level):
         "DEBUG": logging.DEBUG,
     }
 
-    # Set up logger
-    logger = logging.getLogger()
+    # Get named logger for dh
+    logger = logging.getLogger("dh")
     logger.setLevel(log_levels.get(log_level, logging.INFO))
 
-    # Set up file handler
-    handler = ConcurrentRotatingFileHandler(
+    # Handler for files
+    file_handler = ConcurrentRotatingFileHandler(
         log_path, "a", maxBytes=50 * 1024 * 1024, backupCount=7
     )
-    handler.setFormatter(
+    file_handler.setFormatter(
         logging.Formatter(
-            fmt="%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"
+            fmt="%(asctime)s [%(levelname)s] (%(name)s) %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
         )
     )
+    logger.addHandler(file_handler)
 
-    logger.addHandler(handler)
+    if log_to_console:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(
+            logging.Formatter(
+                fmt="%(asctime)s [%(levelname)s] (%(name)s) %(message)s",
+                datefmt="%Y-%m-%dT%H:%M:%S",
+            )
+        )
+        logger.addHandler(console_handler)
+
+    return logger

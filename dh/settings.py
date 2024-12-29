@@ -1,17 +1,12 @@
-from typing import Union
 import json
 import os
 from pathlib import Path
 
 
 class Settings:
-    # when true huggingface will look for auth from the environment -
-    # otherwise the api key itself
-    huggingface_token: Union[bool, str] = True  # deprecated
-    log_level: str = "WARN"
-    log_filename: str = "log/generator.log"
-    worker_name: str = "worker"
-    lora_root_dir: str = "~/lora"
+    log_level: str = "WARNING"
+    log_filename: str = "log/dh.log"
+    log_to_console: bool = False
 
 
 def load_settings():
@@ -20,16 +15,14 @@ def load_settings():
         with open(get_settings_full_path(), "r") as file:
             settings_dict = json.load(file)
     except FileNotFoundError:
-        print("no settings file")
         settings_dict = {}
     except json.JSONDecodeError:
         print("invalid settings file")
         settings_dict = {}
 
-    settings.log_level = settings_dict.get("log_level", "WARN")
-    settings.log_filename = settings_dict.get("log_filename", "log/generator.log")
-    settings.lora_root_dir = settings_dict.get("lora_root_dir", "~/lora")
-
+    settings.log_level = settings_dict.get("log_level", "WARNING")
+    settings.log_filename = settings_dict.get("log_filename", "log/dh.log")
+    settings.log_to_console = settings_dict.get("log_to_console", False)
     return settings
 
 
@@ -52,7 +45,7 @@ def resolve_path(path):
 
 
 def get_settings_dir():
-    dir_path = os.environ.get("SDAAS_ROOT") or "~/.sdaas/"
+    dir_path = os.environ.get("DIFFUSERS_HELPER_ROOT") or "~/.diffusers_helper/"
 
     return Path(dir_path).expanduser()
 
