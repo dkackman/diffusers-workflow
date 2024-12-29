@@ -4,19 +4,19 @@ import os
 
 
 def test_workflow_validation_valid(valid_workflow_json):
-    workflow = Workflow(valid_workflow_json, "./output")
+    workflow = Workflow(valid_workflow_json, "./output", "")
     workflow.validate()  # Should not raise exception
 
 
 def test_workflow_validation_invalid(invalid_workflow_json):
-    workflow = Workflow(invalid_workflow_json, "./output")
+    workflow = Workflow(invalid_workflow_json, "./output", "")
     with pytest.raises(Exception) as exc_info:
         workflow.validate()
     assert "Validation error" in str(exc_info.value)
 
 
 def test_workflow_name(valid_workflow_json):
-    workflow = Workflow(valid_workflow_json, "./output")
+    workflow = Workflow(valid_workflow_json, "./output", "")
     assert workflow.name == "test_workflow"
 
 
