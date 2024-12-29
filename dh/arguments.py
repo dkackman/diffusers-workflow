@@ -33,11 +33,15 @@ def fetch_image(image):
     if isinstance(image, str):
         return image
 
-    img = load_image(image["location"])
-    if "size" in image:
-        img = img.resize((image["size"]["width"], image["size"]["height"]))
+    if isinstance(image, dict) and "location" in image:
+        img = load_image(image["location"])
 
-    return img
+        if "size" in image:
+            img = img.resize((image["size"]["width"], image["size"]["height"]))
+
+        return img
+
+    return image
 
 
 def fetch_video(video):

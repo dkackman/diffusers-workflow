@@ -18,7 +18,7 @@ if __name__ == "__main__":
 
     try:
         startup()
-        workflow.run()
+        workflow.run({})
     except Exception as e:
         print(f"Error running workflow: {e}")
         exit(1)

@@ -21,7 +21,8 @@ class Step:
             for arguments in get_iterations(
                 step_action.argument_template, previous_results
             ):
-                result.add_result(step_action.run(arguments, previous_pipelines))
+                r = step_action.run(arguments, previous_pipelines)
+                result.add_result(r)
 
             return result
 

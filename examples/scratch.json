@@ -2,22 +2,10 @@
     "variables": {
         "prompt": "A marmot, wearing a tophat in a woodland setting. Somewhat magical."
     },
-    "id": "PromptAugmentation",
+    "id": "scratch",
     "steps": [
         {
-            "name": "augment_prompt",
-            "workflow": {
-                "path": "builtin:augment_prompt.json",
-                "arguments": {
-                    "prompt": "variable:prompt"
-                }
-            },
-            "result": {
-                "content_type": "application/json"
-            }
-        },
-        {
-            "name": "main",
+            "name": "flux",
             "pipeline": {
                 "configuration": {
                     "pipeline_type": "FluxPipeline",
@@ -28,8 +16,8 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "previous_result:augment_prompt.generated_text",
-                    "num_inference_steps": 25,
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": 1,
                     "num_images_per_prompt": 1,
                     "guidance_scale": 3.5,
                     "max_sequence_length": 512
@@ -37,6 +25,18 @@
             },
             "result": {
                 "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "describe_image",
+            "workflow": {
+                "path": "builtin:describe_image.json",
+                "arguments": {
+                    "image": "previous_result:flux"
+                }
+            },
+            "result": {
+                "content_type": "text/plain"
             }
         }
     ]
