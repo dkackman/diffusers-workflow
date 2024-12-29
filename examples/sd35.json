@@ -1,6 +1,8 @@
 {
     "variables": {
-        "prompt": "Create a digital artwork illustrating a serene, magical twilight scene in a lush, enchanted forest. The environment should be softly lit by the gentle glow of the sunset, bathing tall ancient trees in a warm, amber hue. The twilight sky should be a mesmerizing gradient of deep purples, fiery oranges, and subtle pinks, symbolizing the fusion of day and night.A crystal-clear, twinkling stream flows through the heart of the forest, reflecting the melting colors of the sunset and adding a sensuous tranquility to the scene. Alongside the stream, delicate wildflowers with a mix of lavender, lilac, and white petals sway gently as if dancing in the light breeze.In the heart of this enchanting woodland, an ethereal figure emerges from behind a velvety fern, bathed in the transformative glow of twilight. Dressed in flowing garments woven from silken, refracted light and misty iridescent materials, the figure bears a serene and meditative expression. It holds a staff topped with an orb of swirling galaxies, encapsulating the infinite mysteries of the universe..This mysterious traveler, an embodiment of the harmonious blend between the earth and the cosmos, sits cross-legged near a small, mossy boulder adorned with ancient runes of nature-inspired designs, symbolizing balance and continuity..To add a sense of depth and texture, incorporate elements such as ethereal mushrooms, delicate ferns, whispering leaves, and translucent butterflies hovering amongst the soft shadows of the forest floor. Moreover, add mystical creatures like subtle wraith-like figures gracefully gliding among the tall trees, or small, silvery-feathered birds taking flight towards the twilight sky.Ensure that your image captures the magical serenity of this otherworldly twilight scene at the intersection of nature's beauty, celestial wonder, and mystical reflections, blended together with an artistic and transformative sentiment."
+        "prompt": "Create a digital artwork illustrating a serene, magical twilight scene in a lush, enchanted forest. The environment should be softly lit by the gentle glow of the sunset, bathing tall ancient trees in a warm, amber hue. The twilight sky should be a mesmerizing gradient of deep purples, fiery oranges, and subtle pinks, symbolizing the fusion of day and night.A crystal-clear, twinkling stream flows through the heart of the forest, reflecting the melting colors of the sunset and adding a sensuous tranquility to the scene. Alongside the stream, delicate wildflowers with a mix of lavender, lilac, and white petals sway gently as if dancing in the light breeze.In the heart of this enchanting woodland, an ethereal figure emerges from behind a velvety fern, bathed in the transformative glow of twilight. Dressed in flowing garments woven from silken, refracted light and misty iridescent materials, the figure bears a serene and meditative expression. It holds a staff topped with an orb of swirling galaxies, encapsulating the infinite mysteries of the universe..This mysterious traveler, an embodiment of the harmonious blend between the earth and the cosmos, sits cross-legged near a small, mossy boulder adorned with ancient runes of nature-inspired designs, symbolizing balance and continuity..To add a sense of depth and texture, incorporate elements such as ethereal mushrooms, delicate ferns, whispering leaves, and translucent butterflies hovering amongst the soft shadows of the forest floor. Moreover, add mystical creatures like subtle wraith-like figures gracefully gliding among the tall trees, or small, silvery-feathered birds taking flight towards the twilight sky.Ensure that your image captures the magical serenity of this otherworldly twilight scene at the intersection of nature's beauty, celestial wonder, and mystical reflections, blended together with an artistic and transformative sentiment.",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 25
     },
     "id": "sd35",
     "steps": [
@@ -17,10 +19,10 @@
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
-                    "num_inference_steps": 25,
+                    "num_inference_steps": "variable:num_inference_steps",
                     "guidance_scale": 4.5,
                     "max_sequence_length": 512,
-                    "num_images_per_prompt": 1
+                    "num_images_per_prompt": "variable:num_images_per_prompt"
                 }
             },
             "result": {

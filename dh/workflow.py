@@ -12,13 +12,14 @@ from .tasks.task import Task
 
 def workflow_from_file(file_spec, output_dir):
     with open(file_spec, "r") as file:
-        return Workflow(json.load(file), output_dir)
+        return Workflow(json.load(file), output_dir, file_spec)
 
 
 class Workflow:
-    def __init__(self, workflow_definition, output_dir):
+    def __init__(self, workflow_definition, output_dir, file_spec):
         self.workflow_definition = workflow_definition
         self.output_dir = output_dir
+        self.file_spec = file_spec
 
     @property
     def name(self):
@@ -75,8 +76,6 @@ class Workflow:
                 results[step.name] = result
                 result.save(self.output_dir, f"{workflow_id}-{step.name}.{i}")
 
-            print("ok")
-
             # a child workflow only returns the results of the last step
             return_value = last_result.result_list if last_result is not None else []
             return return_value
@@ -125,6 +124,9 @@ class Workflow:
                     "workflows",
                     path.replace("builtin:", ""),
                 )
+            elif not os.path.isabs(path):
+                # if the path is relative it is relative to the current workflow
+                path = os.path.join(os.path.dirname(self.file_spec), path)
 
             workflow = workflow_from_file(path, self.output_dir)
             workflow.workflow_definition["argument_template"] = workflow_definition.get(
