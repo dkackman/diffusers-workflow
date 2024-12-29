@@ -1,5 +1,8 @@
+import logging
 from .toolbox.type_helpers import load_type_from_name
 from diffusers.utils import load_image, load_video
+
+logger = logging.getLogger("dh")
 
 
 # Helper functions for processing and loading workflow arguments
@@ -11,15 +14,19 @@ def realize_args(arg):
     3. Load videos from file paths/URLs
     """
     if isinstance(arg, dict):
+        logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
         for k, v in arg.items():
             # Handle image loading for keys ending in '_image' or exactly 'image'
             if k.endswith("_image") or k == "image":
+                logger.debug(f"Loading image for key: {k}")
                 arg[k] = fetch_image(v)
             # Handle video loading for keys ending in '_video' or exactly 'video'
             elif k.endswith("_video") or k == "video":
+                logger.debug(f"Loading video for key: {k}")
                 arg[k] = fetch_video(v)
             # Handle type references (except 'content_type')
             elif (k.endswith("_type") or k.endswith("_dtype")) and k != "content_type":
+                logger.debug(f"Processing type reference for key: {k}")
                 # Allow escaping type references using {} brackets
                 if isinstance(v, str) and v.startswith("{") and v.endswith("}"):
                     arg[k] = v.strip("{}")
@@ -31,6 +38,7 @@ def realize_args(arg):
 
     # Recursively process lists
     elif isinstance(arg, list):
+        logger.debug("Processing list arguments")
         for item in arg:
             realize_args(item)
 
@@ -48,13 +56,16 @@ def fetch_image(image):
     """
     # Handle string references (usually for intermediate results)
     if isinstance(image, str):
+        logger.debug(f"Using image reference: {image}")
         return image
 
     # Load image from location and apply optional resizing
     if isinstance(image, dict) and "location" in image:
+        logger.info(f"Loading image from: {image['location']}")
         img = load_image(image["location"])
 
         if "size" in image:
+            logger.debug(f"Resizing image to: {image['size']}")
             img = img.resize((image["size"]["width"], image["size"]["height"]))
 
         return img
@@ -74,10 +85,12 @@ def fetch_video(video):
     """
     # Handle string references (usually for intermediate results)
     if isinstance(video, str):
+        logger.debug(f"Using video reference: {video}")
         return video
 
     # Load video from location
     if isinstance(video, dict) and "location" in video:
+        logger.info(f"Loading video from: {video['location']}")
         return load_video(video["location"])
 
     return video

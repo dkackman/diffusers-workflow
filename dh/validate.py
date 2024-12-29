@@ -26,7 +26,7 @@ if __name__ == "__main__":
     try:
         workflow = workflow_from_file(args.file_name, ".")
         workflow.validate()
+        print("Workflow validated successfully")
     except Exception as e:
         print(f"Error validating workflow: {args.file_name}")
         exit(1)
-

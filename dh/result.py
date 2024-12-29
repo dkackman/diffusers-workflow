@@ -2,143 +2,241 @@ import os
 import soundfile
 import json
 import mimetypes
+import logging
 from diffusers.utils import export_to_video
+
+logger = logging.getLogger("dh")
 
 
 class Result:
+    """Manages and stores results from workflow steps.
+
+    Handles result storage, artifact management, and file saving with support
+    for multiple content types including images, video, audio, and JSON.
+    """
+
     def __init__(self, result_definition):
+        """Initialize Result with configuration for how to handle/save results.
+
+        Args:
+            result_definition: Dict containing result configuration including:
+                - content_type: MIME type of the result
+                - save: Boolean indicating if result should be saved
+                - file_base_name: Base name for saved files
+        """
         self.result_definition = result_definition
         self.result_list = []
+        logger.debug(f"Initialized Result with definition: {result_definition}")
 
     def add_result(self, result):
+        """Add one or more results to the result list.
+
+        Args:
+            result: Single result or list of results to store
+        """
         if isinstance(result, list):
+            logger.debug(f"Adding {len(result)} results to result list")
             self.result_list.extend(result)
         else:
             if isinstance(result, str):
+                # Clean up string results by removing extra quotes and whitespace
                 result = result.strip().strip('"').strip()
+            logger.debug("Adding single result to result list")
             self.result_list.append(result)
 
     def get_artifacts(self):
+        """Retrieve all artifacts from stored results.
+
+        Returns:
+            List of all artifacts from all results
+        """
         artifacts = []
         for result in self.result_list:
             artifacts.extend(get_artifact_list(result))
 
+        logger.debug(f"Retrieved {len(artifacts)} artifacts from results")
         return artifacts
 
     def get_artifact_properties(self, property_name):
+        """Extract specific properties from results.
+
+        Args:
+            property_name: Name of property to extract from results
+
+        Returns:
+            List of property values from results where property exists
+        """
         values = []
         for result in self.result_list:
-            if property_name in result:
-                values.append(result[property_name])
+            # Add type checking before accessing property
+            if isinstance(result, dict):
+                if property_name in result:
+                    values.append(result[property_name])
+            else:
+                logger.warning(
+                    f"Skipping non-dict result when getting property {property_name}: {type(result)}"
+                )
 
+        logger.debug(f"Retrieved {len(values)} values for property: {property_name}")
         return values
 
     def save(self, output_dir, default_base_name):
-        # do not save if no result content_type is specified
+        """Save results to files based on content type.
+
+        Args:
+            output_dir: Directory to save files in
+            default_base_name: Default name to use for files
+        """
+
+        # Add directory check/creation
+        if not os.path.exists(output_dir):
+            logger.debug(f"Creating output directory: {output_dir}")
+            os.makedirs(output_dir, exist_ok=True)
+
+        # Check if saving is enabled and content type is specified
         content_type = self.result_definition.get("content_type", None)
-        if self.result_definition.get("save", True) and content_type is not None:
-            file_base_name = default_base_name
-            if "file_base_name" in self.result_definition:
-                file_base_name = (
-                    self.result_definition["file_base_name"] + default_base_name
+        if not self.result_definition.get("save", True) or content_type is None:
+            logger.debug("Skipping save - disabled or no content type specified")
+            return
+
+        # Determine base filename
+        file_base_name = default_base_name
+        if "file_base_name" in self.result_definition:
+            file_base_name = (
+                self.result_definition["file_base_name"] + default_base_name
+            )
+
+        # Get file extension for content type
+        extension = guess_extension(content_type)
+        logger.debug(
+            f"Saving with content type: {content_type}, extension: {extension}"
+        )
+
+        # Save each result
+        for i, result in enumerate(self.result_list):
+            if content_type.endswith("json"):
+                # Handle JSON content type
+                output_path = os.path.join(
+                    output_dir, f"{file_base_name}-{i}{extension}"
                 )
-
-            content_type = self.result_definition.get("content_type", "")
-            extension = guess_extension(content_type)
-
-            for i, result in enumerate(self.result_list):
-                # if the result is meant to be saved as json, dump the whole thing to a file
-                if content_type.endswith("json"):
-                    output_path = os.path.join(
-                        output_dir, f"{file_base_name}-{i}{extension}"
+                logger.info(f"Saving JSON result to {output_path}")
+                with open(output_path, "w") as file:
+                    file.write(json.dumps(result, indent=4))
+            else:
+                # Handle other content types
+                for j, artifact in enumerate(get_artifact_list(result)):
+                    self.save_artifact(
+                        output_dir,
+                        artifact,
+                        f"{file_base_name}-{i}.{j}",
+                        content_type,
+                        extension,
                     )
-                    print(f"Saving result to {output_path}")
-                    with open(output_path, "w") as file:
-                        file.write(json.dumps(result, indent=4))
-
-                else:
-                    for j, artifact in enumerate(get_artifact_list(result)):
-                        self.save_artifact(
-                            output_dir,
-                            artifact,
-                            f"{file_base_name}-{i}.{j}",
-                            content_type,
-                            extension,
-                        )
 
     def save_artifact(
         self, output_dir, artifact, file_base_name, content_type, extension
     ):
+        """Save individual artifact to file based on its type.
+
+        Args:
+            output_dir: Directory to save file in
+            artifact: The artifact to save
+            file_base_name: Base name for the file
+            content_type: MIME type of the content
+            extension: File extension to use
+        """
+        if artifact is None:
+            logger.warning(f"Skipping None artifact for {file_base_name}")
+            return
+
         if isinstance(artifact, dict):
-            # here, if the result is a dictionary, we iterate over the items and save each one
-            # by calling save_artifact recursively. which it will do until serializable properties are found
+            # Recursively save dictionary items
+            logger.debug(
+                f"Saving dictionary artifact with keys: {list(artifact.keys())}"
+            )
             for k, v in artifact.items():
                 self.save_artifact(
                     output_dir, v, f"{file_base_name}-{k}", content_type, extension
                 )
+            return
 
-        else:
-            output_path = os.path.join(output_dir, f"{file_base_name}{extension}")
-            print(f"Saving result to {output_path}")
+        output_path = os.path.join(output_dir, f"{file_base_name}{extension}")
+        logger.info(f"Saving artifact to {output_path}")
 
+        try:
             if content_type.startswith("video"):
                 export_to_video(
                     artifact, output_path, fps=self.result_definition.get("fps", 8)
                 )
-
             elif content_type.startswith("audio"):
                 soundfile.write(
                     output_path,
                     artifact,
                     self.result_definition.get("sample_rate", 44100),
                 )
-
             elif content_type.endswith("json"):
                 with open(output_path, "w") as file:
                     file.write(json.dumps(artifact, indent=4))
-
             elif content_type.startswith("text"):
                 with open(output_path, "w") as file:
                     file.write(artifact)
-
             elif hasattr(artifact, "save"):
                 artifact.save(output_path)
-
             else:
                 raise ValueError(
                     f"Content type {content_type} does not match result type {type(artifact)}"
                 )
+        except Exception as e:
+            logger.error(
+                f"Error saving artifact to {output_path}: {str(e)}", exc_info=True
+            )
+            raise
 
 
 def get_artifact_list(result):
+    """Extract list of artifacts from a result object.
+
+    Handles various result types including images, embeddings, frames, and audio.
+
+    Args:
+        result: Result object to extract artifacts from
+
+    Returns:
+        List of artifacts
+    """
     if hasattr(result, "images"):
         return result.images
-
     if hasattr(result, "image_embeds"):
         return result.image_embeds
-
     if hasattr(result, "image_embeddings"):
         return result.image_embeddings
-
     if hasattr(result, "frames"):
         return result.frames
-
     if hasattr(result, "audios"):
         return [audio.T.float().cpu().numpy() for audio in result.audios]
-
     if isinstance(result, list):
         return result
-
     return [result]
 
 
-# This method is used to guess the extension of the output file based on the content type.
-# It includes the leading "." in the extension.
 def guess_extension(content_type):
+    """Determine file extension from MIME type.
+
+    Args:
+        content_type: MIME type string
+
+    Returns:
+        String containing file extension with leading dot
+    """
+    if not content_type:
+        logger.warning("No content type provided for extension guess")
+        return ""
+
     ext = mimetypes.guess_extension(content_type)
     if ext is not None:
         return ext
 
+    # Handle special case for WAV files
     if content_type == "audio/wav":
         return ".wav"
 
