@@ -32,13 +32,21 @@ python -m dh.test
 python -m dh.test
 ```
 
-### diffusers from source
+### Install Diffusers from Source
 
 The install script will install [the diffusers library from PyPi](https://pypi.org/project/diffusers/). If you want to install from source and use not yet released diffusers, you can do so with the following commands:
 
 ```bash
 . ./activate # or .\venv\scripts\activate on windows
 pip install git+https://github.com/huggingface/diffusers
+```
+
+### Run Tests
+
+```bash
+. ./activate # or .\venv\scripts\activate on windows
+pip install pytest
+pytest -v
 ```
 
 ## Usage
