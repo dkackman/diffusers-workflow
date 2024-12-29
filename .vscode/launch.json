@@ -12,15 +12,18 @@
       "console": "integratedTerminal"
     },
     {
-      "name": "test-all",
+      "name": "Python: Debug Tests",
       "type": "debugpy",
       "request": "launch",
-      "module": "dh.run",
-      "cwd": "${workspaceFolder}/",
-      "justMyCode": true,
-      "args": [
-        "./examples/tests.json"
-      ]
+      "program": "${file}",
+      "purpose": [
+        "debug-test"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
     },
     {
       "name": "validate file",
@@ -32,16 +35,6 @@
       "args": [
         "./examples/${input:workflowName}.json"
       ]
-    },
-    {
-      "name": "validate all examples",
-      "env": {
-        "PYDEVD_DISABLE_FILE_VALIDATION": "1"
-      },
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/validate_all.py",
-      "console": "integratedTerminal"
     },
     {
       "name": "test",
