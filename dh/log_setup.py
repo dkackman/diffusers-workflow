@@ -2,7 +2,7 @@ import logging
 from concurrent_log_handler import ConcurrentRotatingFileHandler
 
 
-def setup_logging(log_path, log_level="WARNING", log_to_console=False):
+def setup_logging(log_path, log_level="INFO"):
     # Use a dictionary to map log level strings to log level constants
     log_levels = {
         "CRITICAL": logging.CRITICAL,
@@ -14,6 +14,8 @@ def setup_logging(log_path, log_level="WARNING", log_to_console=False):
 
     # Get named logger for dh
     logger = logging.getLogger("dh")
+    # Prevent propagation to root logger
+    #logger.propagate = False    
     logger.setLevel(log_levels.get(log_level, logging.INFO))
 
     # Handler for files
@@ -27,15 +29,5 @@ def setup_logging(log_path, log_level="WARNING", log_to_console=False):
         )
     )
     logger.addHandler(file_handler)
-
-    if log_to_console:
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(
-            logging.Formatter(
-                fmt="%(asctime)s [%(levelname)s] (%(name)s) %(message)s",
-                datefmt="%Y-%m-%dT%H:%M:%S",
-            )
-        )
-        logger.addHandler(console_handler)
 
     return logger

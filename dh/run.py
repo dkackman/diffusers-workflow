@@ -20,6 +20,13 @@ if __name__ == "__main__":
         nargs="*",  # Accept 0 or more parameters
         help="Optional parameters in name=value format",
     )
+    parser.add_argument(
+        "-l",
+        "--log_level",
+        type=str,
+        default="INFO",
+        help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
     args = parser.parse_args()
 
     # Parse key-value pairs
@@ -39,6 +46,8 @@ if __name__ == "__main__":
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File {file_path} does not exist")
 
+    startup(args.log_level)
+
     workflow = workflow_from_file(file_path, args.output_dir)
     try:
         workflow.validate()
@@ -47,7 +56,6 @@ if __name__ == "__main__":
         exit(1)
 
     try:
-        startup()
         workflow.run(variables)
     except Exception as e:
         print(f"Error running workflow: {e}")

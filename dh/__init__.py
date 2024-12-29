@@ -10,7 +10,7 @@ __version__ = "0.37.0"
 settings = load_settings()
 
 
-def startup():
+def startup(log_level=None):
     if not torch.cuda.is_available():
         raise Exception("CUDA not present. Quitting.")
 
@@ -19,10 +19,12 @@ def startup():
             f"Pytorch must be 2.0 or greater (found {torch.__version__}). Run install script. Quitting."
         )
 
+    if log_level is not None:
+        settings.log_level = log_level
+
     setup_logging(
         resolve_path(settings.log_filename),
         settings.log_level,
-        settings.log_to_console,
     )
     logging.info(f"Version {__version__}")
     logging.debug(f"Torch version {torch.__version__}")

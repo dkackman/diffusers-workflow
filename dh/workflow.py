@@ -3,6 +3,7 @@ import os
 import json
 import torch
 import copy
+import logging
 from .arguments import realize_args
 from .step import Step
 from .schema import validate_data, load_schema
@@ -11,8 +12,12 @@ from .pipeline_processors.pipeline import Pipeline
 from .tasks.task import Task
 
 
+logger = logging.getLogger("dh")
+
+
 def workflow_from_file(file_spec, output_dir):
     """Loads a workflow from a JSON file"""
+    logger.info(f"Loading workflow from file: {file_spec}")
     with open(file_spec, "r") as file:
         return Workflow(json.load(file), output_dir, file_spec)
 
@@ -40,11 +45,14 @@ class Workflow:
 
     def validate(self):
         """Validates workflow definition against JSON schema"""
+        logger.debug(f"Validating workflow: {self.name}")
         status, message = validate_data(
             self.workflow_definition, load_schema("workflow")
         )
         if not status:
+            logger.error(f"Validation error: {message}")
             raise Exception(f"Validation error: {message}")
+        logger.info(f"Workflow {self.name} validated successfully")
 
     def run(self, arguments, previous_pipelines=None):
         """
@@ -56,11 +64,12 @@ class Workflow:
         """
         try:
             workflow_id = self.workflow_definition["id"]
-            print(f"Processing {workflow_id}")
+            logger.info(f"Processing workflow: {workflow_id}")
 
             # Handle variable substitution if variables are defined
             variables = self.workflow_definition.get("variables", None)
             if variables is not None:
+                logger.debug(f"Setting variables for workflow: {workflow_id}")
                 set_variables(arguments, variables)
                 replace_variables(self.workflow_definition, variables)
 
@@ -79,6 +88,9 @@ class Workflow:
 
             # Execute each step in sequence
             for i, step_data in enumerate(workflow["steps"]):
+                logger.info(
+                    f"Running step {i+1}/{len(workflow['steps'])}: {step_data['name']}"
+                )
                 step = Step(step_data, default_seed)
                 result = step.run(
                     results,
@@ -90,16 +102,17 @@ class Workflow:
                 last_result = result
                 results[step.name] = result
                 result.save(self.output_dir, f"{workflow_id}-{step.name}.{i}")
+                logger.debug(f"Step {step.name} completed with result: {result}")
 
+            logger.info(f"Workflow {workflow_id} completed successfully")
             # Return only the last step's results for child workflows
             return_value = last_result.result_list if last_result is not None else []
             return return_value
 
         except Exception as e:
-            print(
-                f"Error running workflow {self.workflow_definition.get('id', 'unknown')}"
+            logger.error(
+                f"Error running workflow {self.workflow_definition.get('id', 'unknown')}: {e}"
             )
-            print(e)
 
     def create_step_action(
         self,
@@ -118,6 +131,7 @@ class Workflow:
         """
         # Handle pipeline creation
         if "pipeline" in step_definition:
+            logger.debug(f"Creating pipeline for step: {step_definition['name']}")
             pipeline = Pipeline(
                 step_definition["pipeline"],
                 default_seed,
@@ -129,6 +143,9 @@ class Workflow:
 
         # Handle pipeline reference
         if "pipeline_reference" in step_definition:
+            logger.debug(
+                f"Referencing existing pipeline for step: {step_definition['name']}"
+            )
             pipeline_reference = step_definition["pipeline_reference"]
             previous_pipeline = previous_pipelines[pipeline_reference["reference_name"]]
             return Pipeline(
@@ -140,6 +157,7 @@ class Workflow:
 
         # Handle sub-workflow
         if "workflow" in step_definition:
+            logger.debug(f"Loading sub-workflow for step: {step_definition['name']}")
             workflow_definition = step_definition["workflow"]
             path = workflow_definition["path"]
             # Handle built-in workflows
@@ -160,6 +178,7 @@ class Workflow:
             workflow.validate()
             return workflow
 
+        logger.debug(f"Creating task for step: {step_definition['name']}")
         # Handle task creation
         task_definition = step_definition["task"]
         task = Task(task_definition, device_identifier)
