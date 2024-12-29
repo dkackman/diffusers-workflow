@@ -12,6 +12,7 @@ This is a helper for the [Huggingface Diffuser project](https://github.com/huggi
 - Suppport for text to image & video and image to image & video workflows
 - Image describing and prompt augmentation using locally installed LLMs
 - Image processing tasks for controlnet workflows
+- Composable workflows from multiple files
 - Other helpful tasks like background removal, upscaling, cropping and qr code generation
 
 ## Installation
@@ -218,7 +219,7 @@ This example demonstrates a multiple step workflow including an image generation
 
 #### Prompt Augmentation
 
-This example uses an instruct LLM to augment the prompt before passing it to the model.
+This example uses an instruct LLM to augment the prompt before passing it to the model. This also demonstrates composable child workflows.
 
 Note that this particular LLM requries `flash_attn` which in turn requires the [CUDA toolkit](https://developer.nvidia.com/cuda-toolkit).
 
@@ -230,54 +231,19 @@ Note that this particular LLM requries `flash_attn` which in turn requires the [
     "id": "sd35",
     "steps": [
         {
-            "name": "messages",
-            "task": {
-                "command": "format_chat_message",
-                "arguments": {
-                    "system_prompt": "You are a helpful AI assistant that creates prompts for text to image generative AI. When supplied input generate only the prompt.",
-                    "user_message": "variable:prompt"
-                }
-            }
-        },
-        {
             "name": "augment_prompt",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "transformers.pipeline",
-                    "no_generator": true
-                },
-                "from_pretrained_arguments": {
-                    "task": "text-generation"
-                },
-                "model": {
-                    "configuration": {
-                        "pipeline_type": "transformers.AutoModelForCausalLM"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "microsoft/Phi-3.5-mini-instruct",
-                        "device_map": "cuda",
-                        "torch_dtype": "{auto}",
-                        "trust_remote_code": true
-                    }
-                },
-                "tokenizer": {
-                    "configuration": {
-                        "pipeline_type": "transformers.AutoTokenizer"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "microsoft/Phi-3.5-mini-instruct"
-                    }
-                },
+            "workflow": {
+                "path": "builtin:augment_prompt.json",
                 "arguments": {
-                    "text_inputs": "previous_result:messages",
-                    "max_new_tokens": 500,
-                    "return_full_text": false,
-                    "do_sample": false
+                    "prompt": "variable:prompt"
                 }
+            },
+            "result": {
+                "content_type": "text/plain"
             }
         },
         {
-            "name": "main",
+            "name": "image_generation",
             "pipeline": {
                 "configuration": {
                     "pipeline_type": "StableDiffusion3Pipeline",
@@ -288,7 +254,7 @@ Note that this particular LLM requries `flash_attn` which in turn requires the [
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "previous_result:augment_prompt.generated_text",
+                    "prompt": "previous_result:augment_prompt",
                     "num_inference_steps": 25,
                     "guidance_scale": 4.5,
                     "max_sequence_length": 512,
