@@ -6,7 +6,7 @@
             "workflow": {
                 "path": "./sd35.json",
                 "arguments": {
-                    "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of owl, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, asymmetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000"
+                    "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of an owl, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, asymmetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000"
                 }
             },
             "result": {
@@ -16,7 +16,7 @@
         {
             "name": "video_generation",
             "workflow": {
-                "path": "variable:video_generation_workflow",
+                "path": "./CogVideoX-5B-I2V.json",
                 "arguments": {
                     "image": "previous_result:image_generation",
                     "prompt": "The owl stares intently and blinks",

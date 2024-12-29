@@ -9,7 +9,6 @@ def remove_background(image: Image, device_identifier) -> Image:
     model = AutoModelForImageSegmentation.from_pretrained(
         "briaai/RMBG-2.0", trust_remote_code=True
     )
-    torch.set_float32_matmul_precision(["high", "highest"][0])
     model.to(device_identifier)
     model.eval()
 

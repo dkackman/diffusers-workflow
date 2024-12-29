@@ -52,7 +52,7 @@ class Workflow:
         if not status:
             logger.error(f"Validation error: {message}")
             raise Exception(f"Validation error: {message}")
-        logger.info(f"Workflow {self.name} validated successfully")
+        logger.debug(f"Workflow {self.name} validated successfully")
 
     def run(self, arguments, previous_pipelines=None):
         """
@@ -64,7 +64,7 @@ class Workflow:
         """
         try:
             workflow_id = self.workflow_definition["id"]
-            logger.info(f"Processing workflow: {workflow_id}")
+            logger.debug(f"Processing workflow: {workflow_id}")
 
             # Handle variable substitution if variables are defined
             variables = self.workflow_definition.get("variables", None)
@@ -88,7 +88,7 @@ class Workflow:
 
             # Execute each step in sequence
             for i, step_data in enumerate(workflow["steps"]):
-                logger.info(
+                logger.debug(
                     f"Running step {i+1}/{len(workflow['steps'])}: {step_data['name']}"
                 )
                 step = Step(step_data, default_seed)
@@ -104,7 +104,7 @@ class Workflow:
                 result.save(self.output_dir, f"{workflow_id}-{step.name}.{i}")
                 logger.debug(f"Step {step.name} completed with result: {result}")
 
-            logger.info(f"Workflow {workflow_id} completed successfully")
+            logger.debug(f"Workflow {workflow_id} completed successfully")
             # Return only the last step's results for child workflows
             return_value = last_result.result_list if last_result is not None else []
             return return_value

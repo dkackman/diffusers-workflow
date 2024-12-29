@@ -15,7 +15,7 @@ def setup_logging(log_path, log_level="INFO"):
     # Get named logger for dh
     logger = logging.getLogger("dh")
     # Prevent propagation to root logger
-    #logger.propagate = False    
+    # logger.propagate = False
     logger.setLevel(log_levels.get(log_level, logging.INFO))
 
     # Handler for files
