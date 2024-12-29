@@ -29,12 +29,13 @@ def set_variables(values, variables):
 
 
 def get_value(v, desired_type):
-    if v.lower() == "true":
-        return True
-    if v.lower() == "false":
-        return False
+    if isinstance(v, str):
+        if v.lower() == "true":
+            return True
+        if v.lower() == "false":
+            return False
 
     try:
         return desired_type(v)
-    except ValueError:
+    except Exception:
         return v

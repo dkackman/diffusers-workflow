@@ -11,6 +11,8 @@ class Result:
         self.result_list = []
 
     def add_result(self, result):
+        if result is None:
+            pass
         if isinstance(result, list):
             self.result_list.extend(result)
         else:
