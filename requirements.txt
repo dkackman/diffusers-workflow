@@ -28,7 +28,7 @@ imageio-ffmpeg==0.5.1
 importlib_metadata==8.5.0
 jax==0.4.37
 jaxlib==0.4.36
-Jinja2==3.1.4
+Jinja2==3.1.5
 jsonschema==4.23.0
 jsonschema-specifications==2024.10.1
 kiwisolver==1.4.7
