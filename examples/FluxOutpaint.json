@@ -1,6 +1,7 @@
 {
     "variables": {
-        "input_image": "https://pbs.twimg.com/media/Ge7NpKpWAAAq6L4?format=jpg&name=large"
+        "input_image": "https://pbs.twimg.com/media/Ge7NpKpWAAAq6L4?format=jpg&name=large",
+        "prompt": "fill in with more clouds, rainbows, stars and rockets"
     },
     "id": "FluxOutpaint",
     "steps": [
@@ -30,7 +31,7 @@
                 "arguments": {
                     "image": "previous_result:mask_image.bordered_image",
                     "mask_image": "previous_result:mask_image.mask",
-                    "prompt": "fill in with more clouds, rainbows, stars and rockets",
+                    "prompt": "variable:prompt",
                     "guidance_scale": 30,
                     "num_inference_steps": 25,
                     "max_sequence_length": 512
