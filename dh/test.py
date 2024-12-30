@@ -7,7 +7,7 @@ if __name__ == "__main__":
         os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "workflows", "test.json"
         ),
-        ".",
+        "./outputs",
     )
 
     try:

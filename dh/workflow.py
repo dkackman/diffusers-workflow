@@ -17,7 +17,7 @@ logger = logging.getLogger("dh")
 
 def workflow_from_file(file_spec, output_dir):
     """Loads a workflow from a JSON file"""
-    logger.info(f"Loading workflow from file: {file_spec}")
+    logger.debug(f"Loading workflow from file: {file_spec}")
     with open(file_spec, "r") as file:
         return Workflow(json.load(file), output_dir, file_spec)
 
@@ -158,8 +158,8 @@ class Workflow:
         # Handle sub-workflow
         if "workflow" in step_definition:
             logger.debug(f"Loading sub-workflow for step: {step_definition['name']}")
-            workflow_definition = step_definition["workflow"]
-            path = workflow_definition["path"]
+            workflow_reference = step_definition["workflow"]
+            path = workflow_reference["path"]
             # Handle built-in workflows
             if path.startswith("builtin:"):
                 path = os.path.join(
@@ -172,7 +172,10 @@ class Workflow:
                 path = os.path.join(os.path.dirname(self.file_spec), path)
 
             workflow = workflow_from_file(path, self.output_dir)
-            workflow.workflow_definition["argument_template"] = workflow_definition.get(
+
+            # this is where the arguments in the paretn script are passed to the child workflow
+            # they will already be populated with values from previous steps or parent variables
+            workflow.workflow_definition["argument_template"] = workflow_reference.get(
                 "arguments", {}
             )
             workflow.validate()

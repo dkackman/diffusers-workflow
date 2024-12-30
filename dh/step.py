@@ -2,7 +2,6 @@ import logging
 from .result import Result
 from .previous_results import get_iterations
 
-# Get logger instance for this module
 logger = logging.getLogger("dh")
 
 
@@ -14,7 +13,6 @@ class Step:
 
     def __init__(self, step_definition, default_seed):
         """Initialize step with its configuration and seed value"""
-        # Store the complete step configuration
         self.step_definition = step_definition
 
         # Get step-specific seed or use default if not specified
@@ -35,7 +33,6 @@ class Step:
             step_action: The actual action to execute (Pipeline/Task/Workflow)
         """
         try:
-            # Get the step name for logging and reference
             step_name = self.step_definition["name"]
             logger.debug(f"Starting execution of step: {step_name}")
 
@@ -54,28 +51,21 @@ class Step:
 
             # Execute the action for each set of arguments
             for i, arguments in enumerate(iterations, 1):
-                # Log the current iteration and its arguments
                 logger.debug(
                     f"Running iteration {i}/{len(iterations)} with arguments: {arguments}"
                 )
 
                 try:
-                    # Execute the action with current arguments
                     iteration_result = step_action.run(arguments, previous_pipelines)
-
-                    # Store the results
                     result.add_result(iteration_result)
 
                 except Exception as e:
-                    # Log any errors in this iteration and re-raise
                     logger.error(f"Error in iteration {i}: {str(e)}", exc_info=True)
                     raise
 
-            # Log successful completion
             logger.debug(f"Successfully completed step: {step_name}")
             return result
 
         except Exception as e:
-            # Log any errors in the overall step execution
             logger.error(f"Error running step {self.name}: {str(e)}", exc_info=True)
             raise
