@@ -12,13 +12,9 @@ def setup_logging(log_path, log_level="INFO"):
         "DEBUG": logging.DEBUG,
     }
 
-    # Get named logger for dh
     logger = logging.getLogger("dh")
-    # Prevent propagation to root logger
-    # logger.propagate = False
     logger.setLevel(log_levels.get(log_level, logging.INFO))
 
-    # Handler for files
     file_handler = ConcurrentRotatingFileHandler(
         log_path, "a", maxBytes=50 * 1024 * 1024, backupCount=7
     )

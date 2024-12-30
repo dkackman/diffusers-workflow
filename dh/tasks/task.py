@@ -120,7 +120,6 @@ class Task:
                     arguments,
                 )
 
-            # Unknown command
             error_msg = f"Unknown task {self.command}"
             logger.error(error_msg)
             raise ValueError(error_msg)

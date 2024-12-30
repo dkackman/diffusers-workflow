@@ -4,6 +4,7 @@ import json
 import mimetypes
 import logging
 from diffusers.utils import export_to_video
+from collections.abc import Iterable
 
 logger = logging.getLogger("dh")
 
@@ -68,8 +69,7 @@ class Result:
         """
         values = []
         for result in self.result_list:
-            # Add type checking before accessing property
-            if isinstance(result, dict):
+            if isinstance(result, Iterable):
                 if property_name in result:
                     values.append(result[property_name])
             else:
