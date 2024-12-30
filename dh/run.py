@@ -52,11 +52,11 @@ if __name__ == "__main__":
     try:
         workflow.validate()
     except Exception as e:
-        print(f"Error validating workflow: {e}")
+        print(f"Error validating workflow '{args.file_name}': {e}")
         exit(1)
 
     try:
         workflow.run(variables)
     except Exception as e:
-        print(f"Error running workflow: {e}")
+        print(f"Error running workflow '{args.file_name}': {e}")
         exit(1)
