@@ -1,6 +1,10 @@
 from PIL import Image
 
 
+def get_image_size(image):
+    return {"width": image.width, "height": image.height}
+
+
 def crop_sqaure(img: Image) -> Image:
     # Determine the shortest side
     min_side = min(img.width, img.height)
