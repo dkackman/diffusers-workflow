@@ -35,12 +35,10 @@ class Workflow:
 
     @property
     def name(self):
-        """Returns workflow ID or 'unknown' if not specified"""
         return self.workflow_definition.get("id", "unknown")
 
     @property
     def argument_template(self):
-        """Returns the argument template for this workflow"""
         return self.workflow_definition.get("argument_template", {})
 
     def validate(self):
@@ -70,27 +68,33 @@ class Workflow:
             variables = self.workflow_definition.get("variables", None)
             if variables is not None:
                 logger.debug(f"Setting variables for workflow: {workflow_id}")
+                # first set variable values base don the arguments passed to the workflow
+                # these may come form the command line or form a parent workflow
                 set_variables(arguments, variables)
+                # realize the variables, initialiting downloads of images etc
+                realize_args(variables)
+                ## then replace any variable references in the workflow definition with the actual values
                 replace_variables(self.workflow_definition, variables)
 
             # Set up random seed for reproducibility
             default_seed = self.workflow_definition.get("seed", torch.seed())
             self.workflow_definition["seed"] = default_seed
 
-            # Prepare workflow by processing arguments
-            workflow = prepare_workflow(self.workflow_definition)
-
             # Initialize collections for sharing state between steps
             results = {}  # Stores results from each step
             shared_components = {}  # Shared resources between steps
             pipelines = {}  # Active pipelines
-            last_result = None  # Final result to return
+            last_result = None  # Final result is the workflow return value
+
+            # realize any arguments for the steps, i.e. load images etc
+            # that are referenced directly in the step
+            steps = copy.deepcopy(self.workflow_definition).get("steps", [])
+            realize_args(steps)
 
             # Execute each step in sequence
-            for i, step_data in enumerate(workflow["steps"]):
-                logger.debug(
-                    f"Running step {i+1}/{len(workflow['steps'])}: {step_data['name']}"
-                )
+            for i, step_data in enumerate(steps):
+                logger.debug(f"Running step {i+1}/{len(steps)}: {step_data['name']}")
+
                 step = Step(step_data, default_seed)
                 result = step.run(
                     results,
@@ -106,8 +110,7 @@ class Workflow:
 
             logger.debug(f"Workflow {workflow_id} completed successfully")
             # Return only the last step's results for child workflows
-            return_value = last_result.result_list if last_result is not None else []
-            return return_value
+            return last_result.result_list if last_result is not None else []
 
         except Exception as e:
             logger.error(
@@ -186,16 +189,3 @@ class Workflow:
         task_definition = step_definition["task"]
         task = Task(task_definition, device_identifier)
         return task
-
-
-def prepare_workflow(input_workflow):
-    """
-    Creates a copy of the workflow and processes its arguments
-    Returns the prepared workflow definition
-    """
-    if input_workflow is None:
-        return {}, 0
-
-    workflow = copy.deepcopy(input_workflow)
-    realize_args(workflow)
-    return workflow

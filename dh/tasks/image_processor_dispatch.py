@@ -32,6 +32,7 @@ from .image_utils import (
     resize_resample,
     crop_sqaure,
     resize_rescale,
+    get_image_size,
 )
 from .background_remover import remove_background
 from .depth_estimator import make_hint_image, make_hint_tensor
@@ -41,6 +42,9 @@ import torch
 
 def process_image(image, processor, device_identifier, kwargs):
     processor = processor.lower()
+
+    if processor == "get_image_size":
+        return get_image_size(image)
 
     if processor == "add_border_and_mask":
         return add_border_and_mask(image, **kwargs)

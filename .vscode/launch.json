@@ -78,6 +78,8 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
+        "--log_level",
+        "INFO",
         "./examples/${input:workflowName}.json"
       ]
     }

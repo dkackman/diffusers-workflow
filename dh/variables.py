@@ -1,4 +1,5 @@
 import logging
+import PIL
 
 logger = logging.getLogger("dh")
 
@@ -41,13 +42,13 @@ def replace_variables(data, variables):
                         raise Exception(f"Variable <{variable_name}> not found")
                     data[k] = variables[variable_name]
                 else:
-                    # Recursively process nested structures
+                    # Recursively process nested structures in dictionary values
                     replace_variables(v, variables)
 
 
 def set_variables(values, variables):
     """
-    Updates variable values while preserving their original types
+    Sets the values of variables from a dictionary of new values
     Args:
         values: Dictionary of new values to set
         variables: Dictionary of existing variables with their default values/types
@@ -86,10 +87,15 @@ def get_value(v, desired_type):
         if v.lower() == "false":
             return False
 
+    # special handling for images that have already been realized
+    elif isinstance(v, PIL.Image.Image):
+        return v
+
     # Attempt type conversion, return original value if it fails
     try:
         converted = desired_type(v)
         logger.debug(f"Successfully converted to {desired_type.__name__}: {converted}")
         return converted
     except Exception as e:
+        logger.warning(f"Failed to convert to {desired_type.__name__}: {e}")
         return v
