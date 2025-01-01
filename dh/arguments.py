@@ -28,13 +28,15 @@ def realize_args(arg):
             elif (k.endswith("_type") or k.endswith("_dtype")) and k != "content_type":
                 logger.debug(f"Processing type reference for key: {k}")
                 # Allow escaping type references using {} brackets
+                # this is for instances when the argument name is "something_type" but it is
+                # not a reference to a python type, but rather a category or something else
                 if isinstance(v, str):
                     if v.startswith("{") and v.endswith("}"):
                         arg[k] = v.strip("{}")
                     else:
                         arg[k] = load_type_from_name(v)
                 elif isinstance(v, type):
-                    # the value isn't a string so it must be a type already
+                    # the value already a type
                     arg[k] = v
             # Recursively process nested dictionaries
             else:
