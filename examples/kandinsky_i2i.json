@@ -1,0 +1,46 @@
+{
+    "variables": {
+        "prompt": "a realistic polaroid camera taking a picture of seedling growing from the ground",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 25,
+        "image": {
+            "location": "https://pbs.twimg.com/media/GgA2RMRXwAACXC4?format=png&name=large"
+        }
+    },
+    "id": "kandinsky_i2i",
+    "steps": [
+        {
+            "name": "resize",
+            "task": {
+                "command": "resize_rescale",
+                "arguments": {
+                    "image": "variable:image"
+                }
+            }
+        },
+        {
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "AutoPipelineForImage2Image",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "kandinsky-community/kandinsky-3",
+                    "torch_dtype": "torch.float16",
+                    "variant": "fp16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "image": "previous_result:resize",
+                    "strength": 0.75,
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

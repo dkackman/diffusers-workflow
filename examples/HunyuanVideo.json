@@ -20,7 +20,7 @@
                         "compute_dtype": "torch.bfloat16"
                     },
                     "from_pretrained_arguments": {
-                        "from_single_file": "https://huggingface.co/city96/HunyuanVideo-gguf/blob/main/hunyuan-video-t2v-720p-Q5_K_M.gguf",
+                        "from_single_file": "https://huggingface.co/city96/HunyuanVideo-gguf/blob/main/hunyuan-video-t2v-720p-Q8_0.gguf",
                         "torch_dtype": "torch.bfloat16"
                     }
                 },
@@ -29,7 +29,7 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "A marmot walks on the snow, realistic",
+                    "prompt": "a realistic marmot, wearing a tophat, dancing in a woodland setting",
                     "height": 320,
                     "width": 512,
                     "num_inference_steps": 30,

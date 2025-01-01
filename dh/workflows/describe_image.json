@@ -5,7 +5,7 @@
     "id": "describe_image",
     "steps": [
         {
-            "name": "process_image",
+            "name": "desscribe_image_processor",
             "pipeline": {
                 "configuration": {
                     "pipeline_type": "transformers.AutoProcessor",
@@ -23,7 +23,7 @@
             }
         },
         {
-            "name": "model",
+            "name": "describe_image_model",
             "pipeline": {
                 "configuration": {
                     "pipeline_type": "transformers.AutoModelForCausalLM",
@@ -35,8 +35,8 @@
                     "trust_remote_code": true
                 },
                 "arguments": {
-                    "input_ids": "previous_result:process_image.input_ids",
-                    "pixel_values": "previous_result:process_image.pixel_values",
+                    "input_ids": "previous_result:desscribe_image_processor.input_ids",
+                    "pixel_values": "previous_result:desscribe_image_processor.pixel_values",
                     "max_new_tokens": 4096,
                     "num_beams": 3,
                     "do_sample": false
@@ -44,12 +44,12 @@
             }
         },
         {
-            "name": "decode",
+            "name": "decode_image_description",
             "task": {
                 "command": "batch_decode_post_process",
-                "pipeline_reference": "process_image",
+                "pipeline_reference": "desscribe_image_processor",
                 "arguments": {
-                    "generated_ids": "previous_result:model.generated_ids",
+                    "generated_ids": "previous_result:describe_image_model.generated_ids",
                     "task": "<DETAILED_CAPTION>"
                 }
             }

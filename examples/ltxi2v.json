@@ -7,7 +7,7 @@
                 "command": "gather_images",
                 "arguments": {
                     "urls": [
-                        "https://pbs.twimg.com/media/GfRakEHW8AAvlFh?format=png&name=small"
+                        "https://pbs.twimg.com/media/GgA2RMRXwAACXC4?format=png&name=large"
                     ]
                 }
             }
@@ -21,9 +21,6 @@
                     "width": 704,
                     "height": 480
                 }
-            },
-            "result": {
-                "content_type": "image/jpeg"
             }
         },
         {
@@ -33,11 +30,11 @@
                     "pipeline_type": "LTXImageToVideoPipeline"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "Lightricks/LTX-Video",
+                    "model_name": "a-r-r-o-w/LTX-Video-0.9.1-diffusers",
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "the camera from right to left. it is a scene of tanks at battle in a city landscape. a giant cat hisses angrily in the background.",
+                    "prompt": "The photograph slides out of the polaroid camera.",
                     "width": 704,
                     "height": 480,
                     "num_frames": 161,

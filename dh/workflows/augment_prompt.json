@@ -5,7 +5,7 @@
     "id": "augment_prompt_workflow",
     "steps": [
         {
-            "name": "messages",
+            "name": "prepare_messages",
             "task": {
                 "command": "format_chat_message",
                 "arguments": {
@@ -44,7 +44,7 @@
                     }
                 },
                 "arguments": {
-                    "text_inputs": "previous_result:messages",
+                    "text_inputs": "previous_result:prepare_messages",
                     "max_new_tokens": 500,
                     "return_full_text": false,
                     "do_sample": false
@@ -52,7 +52,7 @@
             }
         },
         {
-            "name": "generated_text",
+            "name": "return_generated_text",
             "task": {
                 "command": "get_dict_value",
                 "arguments": {

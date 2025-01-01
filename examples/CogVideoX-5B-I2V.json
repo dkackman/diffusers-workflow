@@ -1,9 +1,9 @@
 {
     "variables": {
         "image": {
-            "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download:true"
+            "location": "https://pbs.twimg.com/media/GgJvo77XsAEU_kx?format=jpg&name=small"
         },
-        "prompt": "default",
+        "prompt": "the cat climbs onto the ship",
         "num_inference_steps": 50
     },
     "id": "CogVideoX-5B-I2V",
