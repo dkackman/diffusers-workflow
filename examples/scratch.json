@@ -1,39 +1,20 @@
 {
     "variables": {
-        "prompt": "A marmot, wearing a tophat in a woodland setting. Somewhat magical."
+        "prompt": "A sleepy alien floating in zero gravity, hugging a stuffed marmot, surrounded by twinkling stars, 3dcndylnd style"
     },
     "id": "scratch",
     "steps": [
         {
-            "name": "flux",
-            "pipeline": {
-                "configuration": {
-                    "pipeline_type": "FluxPipeline",
-                    "offload": "sequential"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "black-forest-labs/FLUX.1-schnell",
-                    "torch_dtype": "torch.bfloat16"
-                },
+            "name": "image",
+            "workflow": {
+                "path": "./FluxLora.json",
                 "arguments": {
                     "prompt": "variable:prompt",
-                    "num_inference_steps": 2,
-                    "num_images_per_prompt": 2,
-                    "guidance_scale": 3.5,
-                    "max_sequence_length": 512
-                }
-            }
-        },
-        {
-            "name": "describe_image",
-            "workflow": {
-                "path": "builtin:describe_image.json",
-                "arguments": {
-                    "image": "previous_result:flux"
+                    "lora": "alvdansen/plushy-world-flux"
                 }
             },
             "result": {
-                "content_type": "text/plain"
+                "content_type": "image/jpeg"
             }
         }
     ]
