@@ -73,7 +73,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 pip install wheel setuptools
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-pip3 install torch diffusers[torch] peft transformers accelerate safetensors controlnet_aux sentencepiece mediapipe torchsde bitsandbytes torchao gguf --index-url https://download.pytorch.org/whl/cu124
+pip3 install torch diffusers[torch] peft transformers accelerate safetensors controlnet_aux sentencepiece mediapipe torchsde bitsandbytes torchao gguf kornia --index-url https://download.pytorch.org/whl/cu124
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 pip3 install aiohttp matplotlib moviepy opencv-python concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black

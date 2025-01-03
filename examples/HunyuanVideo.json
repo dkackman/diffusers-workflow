@@ -1,5 +1,8 @@
 {
     "id": "HunyuanVideo",
+    "variables": {
+        "prompt": "A lone marmot walks across vast, green forest landscape under a clear blue sky. The camera begins with a wide shot, capturing the endless forests, then slowly zooms in on the marmot as it moves gracefully. The soft wind blows sand into gentle waves, adding motion to the scene. The atmosphere is serene and timeless, emphasizing the beauty of the forest. Bright sunlight casts sharp shadows on the trees, creating striking contrasts. The shot transitions from a wide view of the forest  to a medium shot of the marmot, framed against the soaring trees."
+    },
     "steps": [
         {
             "name": "text_to_video",
@@ -29,7 +32,7 @@
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
-                    "prompt": "a realistic marmot, wearing a tophat, dancing in a woodland setting",
+                    "prompt": "variable:prompt",
                     "height": 320,
                     "width": 512,
                     "num_inference_steps": 30,
