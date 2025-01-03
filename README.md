@@ -1,10 +1,10 @@
 [![CodeQL](https://github.com/dkackman/diffusers-helper/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/dkackman/diffusers-helper/actions/workflows/github-code-scanning/codeql)
 
-# diffusers-helper
+# diffusers-workflow
 
 ## Introduction
 
-This is a helper for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). This command-line tool simplifies working with the Hugging Face Diffusers library by providing a flexible, JSON-based interface for running generative AI models. Users can define and execute complex image generation tasks without writing custom Python code.
+This is a simple, declaritive workflow engine for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). This command-line tool simplifies working with the Hugging Face Diffusers library by providing a flexible, JSON-based interface for running generative AI models. Users can define and execute complex image generation tasks without writing custom Python code.
 
 ## Features
 
@@ -55,7 +55,7 @@ pytest -v
 ### Run a Workflow
 
 ```bash
-python -m dh.run --help
+python -m dw.run --help
 usage: run.py [-h] [-o OUTPUT_DIR] file_name [variables ...]
 
 Run a workflow from a file.
@@ -73,7 +73,7 @@ options:
 ### Validate a Workflow Definition 
 
 ```bash
-python -m dh.validate --help
+python -m dw.validate --help
 usage: validate.py [-h] file_name
 
 Validate a project file.
@@ -89,7 +89,7 @@ options:
 
 ### Schema
 
-[Json schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-helper%2Frefs%2Fheads%2Fmaster%2Fdh%2Fworkflow_schema.json)
+[Json schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-workflow%2Frefs%2Fheads%2Fmaster%2Fdh%2Fworkflow_schema.json)
 
 ### Examples
 
@@ -98,7 +98,7 @@ options:
 This example declares a variable for the `prompt` which can then be set on the command line. The `prompt` variable is then used in the `prompt` argument of the model.
 
 ```bash
-python -m dh.run test_workflow.json prompt="an orange" num_images_per_prompt=4
+python -m dw.run test_workflow.json prompt="an orange" num_images_per_prompt=4
 ```
 
 ```json
