@@ -311,6 +311,9 @@ def load_and_configure_pipeline(
             pipeline.enable_model_cpu_offload()
         elif offload == "sequential":
             logger.debug("Enabling sequential CPU offload")
+            for component_name in configuration.get("exclude_from_cpu_offload", []):
+                logger.debug(f"Excluding {component_name} from CPU offload")
+                pipeline._exclude_from_cpu_offload.append(component_name)
             pipeline.enable_sequential_cpu_offload()
         elif hasattr(pipeline, "to") and not do_not_send_to_device:
             logger.debug(f"Moving pipeline to device: {device_identifier}")
