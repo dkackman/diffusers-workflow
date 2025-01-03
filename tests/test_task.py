@@ -1,5 +1,5 @@
 import pytest
-from dh.tasks.task import Task
+from dw.tasks.task import Task
 from PIL import Image
 
 

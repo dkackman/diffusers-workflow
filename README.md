@@ -22,7 +22,7 @@ This is a simple, declaritive workflow engine for the [Huggingface Diffuser proj
 ```bash
 bash ./install.sh
 . ./activate
-python -m dh.test
+python -m dw.test
 ```
 
 ### powershell
@@ -30,7 +30,7 @@ python -m dh.test
 ```powershell
 .\install.ps1
 .\venv\scripts\activate 
-python -m dh.test
+python -m dw.test
 ```
 
 ### Install Diffusers from Source

@@ -6,7 +6,7 @@ import logging
 from diffusers.utils import export_to_video
 from collections.abc import Iterable
 
-logger = logging.getLogger("dh")
+logger = logging.getLogger("dw")
 
 
 class Result:

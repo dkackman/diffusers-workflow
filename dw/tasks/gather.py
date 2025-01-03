@@ -2,7 +2,7 @@ import glob as glob_lib
 import logging
 from diffusers.utils import load_image, load_video
 
-logger = logging.getLogger("dh")
+logger = logging.getLogger("dw")
 
 
 def gather_images(glob=None, urls=[]):

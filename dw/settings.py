@@ -5,7 +5,7 @@ from pathlib import Path
 
 class Settings:
     log_level: str = "WARNING"
-    log_filename: str = "log/dh.log"
+    log_filename: str = "log/dw.log"
     log_to_console: bool = False
 
 
@@ -21,7 +21,7 @@ def load_settings():
         settings_dict = {}
 
     settings.log_level = settings_dict.get("log_level", "WARNING")
-    settings.log_filename = settings_dict.get("log_filename", "log/dh.log")
+    settings.log_filename = settings_dict.get("log_filename", "log/dw.log")
     settings.log_to_console = settings_dict.get("log_to_console", False)
     return settings
 

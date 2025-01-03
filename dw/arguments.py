@@ -2,7 +2,7 @@ import logging
 from .toolbox.type_helpers import load_type_from_name
 from diffusers.utils import load_image, load_video
 
-logger = logging.getLogger("dh")
+logger = logging.getLogger("dw")
 
 
 # Helper functions for processing and loading workflow arguments

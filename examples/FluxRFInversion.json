@@ -9,7 +9,7 @@
             "name": "invert",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "dh.community_pipelines.pipeline_flux_rf_inversion.RFInversionFluxPipeline",
+                    "pipeline_type": "dw.community_pipelines.pipeline_flux_rf_inversion.RFInversionFluxPipeline",
                     "inversion": true
                 },
                 "transformer": {

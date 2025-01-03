@@ -12,7 +12,7 @@ for i, prompt in enumerate(prompts):
         [
             "python",
             "-m",
-            "dh.run",
+            "dw.run",
             "-o",
             "./projects/A Very Marmot Christmas/outputs",
             "./projects/A Very Marmot Christmas/flux.json",
