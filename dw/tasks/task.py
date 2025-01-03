@@ -8,7 +8,7 @@ from .format_messages import (
     get_dict_value,
 )
 
-logger = logging.getLogger("dh")
+logger = logging.getLogger("dw")
 
 
 class Task:

@@ -12,7 +12,7 @@ from .pipeline_processors.pipeline import Pipeline
 from .tasks.task import Task
 
 
-logger = logging.getLogger("dh")
+logger = logging.getLogger("dw")
 
 
 def workflow_from_file(file_spec, output_dir):

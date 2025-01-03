@@ -2,7 +2,7 @@ import logging
 from .result import Result
 from .previous_results import get_iterations
 
-logger = logging.getLogger("dh")
+logger = logging.getLogger("dw")
 
 
 class Step:

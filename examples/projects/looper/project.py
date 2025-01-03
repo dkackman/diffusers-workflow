@@ -7,7 +7,7 @@ import subprocess
 #     [
 #         "python",
 #         "-m",
-#         "dh.run",
+#         "dw.run",
 #         "-o",
 #         "./projects/looper/outputs",
 #         "./projects/looper/img2txt2img.json",
@@ -22,7 +22,7 @@ for i in range(29, 100):
         [
             "python",
             "-m",
-            "dh.run",
+            "dw.run",
             "-o",
             "./examples/projects/looper/outputs",
             "./examples/projects/looper/img2txt2img.json",

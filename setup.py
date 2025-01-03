@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="dh",
-    version="0.37.0",  # Matches version in dh/__init__.py
+    name="dw",
+    version="0.37.0",  # Matches version in dw/__init__.py
     packages=find_packages(),
     install_requires=[
         "torch>=2.0.0",

@@ -1,6 +1,6 @@
 import os
 import pytest
-from dh.workflow import workflow_from_file
+from dw.workflow import workflow_from_file
 
 
 def get_example_files():

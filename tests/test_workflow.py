@@ -1,5 +1,5 @@
 import pytest
-from dh.workflow import Workflow, workflow_from_file
+from dw.workflow import Workflow, workflow_from_file
 import os
 
 

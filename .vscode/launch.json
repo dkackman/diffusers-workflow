@@ -29,7 +29,7 @@
       "name": "validate file",
       "type": "debugpy",
       "request": "launch",
-      "module": "dh.validate",
+      "module": "dw.validate",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
@@ -40,7 +40,7 @@
       "name": "test",
       "type": "debugpy",
       "request": "launch",
-      "module": "dh.test",
+      "module": "dw.test",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true
     },
@@ -48,11 +48,11 @@
       "name": "test-with-variable",
       "type": "debugpy",
       "request": "launch",
-      "module": "dh.run",
+      "module": "dw.run",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./dh/test_job.json",
+        "./dw/test_job.json",
         "prompt=an orange",
         "num_images_per_prompt=4"
       ]
@@ -61,7 +61,7 @@
       "name": "scratch",
       "type": "debugpy",
       "request": "launch",
-      "module": "dh.run",
+      "module": "dw.run",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
@@ -74,7 +74,7 @@
       "name": "ask",
       "type": "debugpy",
       "request": "launch",
-      "module": "dh.run",
+      "module": "dw.run",
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [

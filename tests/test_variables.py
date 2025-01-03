@@ -1,5 +1,5 @@
 import pytest
-from dh.variables import replace_variables, set_variables
+from dw.variables import replace_variables, set_variables
 
 
 def test_replace_variables_in_dict():

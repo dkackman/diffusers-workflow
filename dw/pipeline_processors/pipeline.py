@@ -3,7 +3,7 @@ import copy
 import logging
 from .quantization import get_quantization_configuration
 
-logger = logging.getLogger("dh")
+logger = logging.getLogger("dw")
 
 
 class Pipeline:

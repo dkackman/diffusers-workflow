@@ -2,7 +2,7 @@ import copy
 import logging
 from itertools import product
 
-logger = logging.getLogger("dh")
+logger = logging.getLogger("dw")
 
 
 def get_iterations(argument_template, previous_results):

@@ -1,7 +1,7 @@
 import logging
 import PIL
 
-logger = logging.getLogger("dh")
+logger = logging.getLogger("dw")
 
 
 def replace_variables(data, variables):

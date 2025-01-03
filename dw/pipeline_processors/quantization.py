@@ -1,7 +1,7 @@
 import logging
 from diffusers import BitsAndBytesConfig, GGUFQuantizationConfig, TorchAoConfig
 
-logger = logging.getLogger("dh")
+logger = logging.getLogger("dw")
 
 
 def get_quantization_configuration(configuration):

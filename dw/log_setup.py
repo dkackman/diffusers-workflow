@@ -12,7 +12,7 @@ def setup_logging(log_path, log_level="INFO"):
         "DEBUG": logging.DEBUG,
     }
 
-    logger = logging.getLogger("dh")
+    logger = logging.getLogger("dw")
     logger.setLevel(log_levels.get(log_level, logging.INFO))
 
     file_handler = ConcurrentRotatingFileHandler(

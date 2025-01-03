@@ -1,5 +1,5 @@
 import pytest
-from dh.schema import validate_data, load_schema
+from dw.schema import validate_data, load_schema
 
 
 def test_load_schema():
