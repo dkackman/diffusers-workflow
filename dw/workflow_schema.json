@@ -8,17 +8,7 @@
             "type": "string"
         },
         "variables": {
-            "description": "Variables to be used in for the workflow.",
-            "additionalProperties": {
-                "type": [
-                    "string",
-                    "integer",
-                    "number",
-                    "object",
-                    "array",
-                    "boolean"
-                ]
-            }
+            "$ref": "#/$defs/arguments"
         },
         "seed": {
             "description": "Default seed for the entire workflow",
@@ -117,6 +107,19 @@
                 }
             ]
         },
+        "arguments": {
+            "type": "object",
+            "additionalProperties": {
+                "type": [
+                    "string",
+                    "integer",
+                    "number",
+                    "object",
+                    "array",
+                    "boolean"
+                ]
+            }
+        },
         "pipeline_reference": {
             "type": "object",
             "properties": {
@@ -124,17 +127,7 @@
                     "type": "string"
                 },
                 "arguments": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": [
-                            "string",
-                            "integer",
-                            "number",
-                            "object",
-                            "array",
-                            "boolean"
-                        ]
-                    }
+                    "$ref": "#/$defs/arguments"
                 }
             },
             "required": [
@@ -208,18 +201,7 @@
                     "format": "int64"
                 },
                 "arguments": {
-                    "description": "The arguments to pass to the pipeline",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": [
-                            "string",
-                            "integer",
-                            "number",
-                            "object",
-                            "array",
-                            "boolean"
-                        ]
-                    }
+                    "$ref": "#/$defs/arguments"
                 }
             },
             "required": [
@@ -305,16 +287,7 @@
                     ]
                 },
                 "from_config_args": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": [
-                            "string",
-                            "number",
-                            "object",
-                            "array",
-                            "boolean"
-                        ]
-                    }
+                    "$ref": "#/$defs/arguments"
                 }
             },
             "required": [
@@ -363,16 +336,7 @@
                     ]
                 },
                 "arguments": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": [
-                            "string",
-                            "number",
-                            "object",
-                            "array",
-                            "boolean"
-                        ]
-                    }
+                    "$ref": "#/$defs/arguments"
                 }
             },
             "required": [
@@ -500,17 +464,7 @@
                     "type": "string"
                 },
                 "arguments": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": [
-                            "string",
-                            "integer",
-                            "number",
-                            "object",
-                            "array",
-                            "boolean"
-                        ]
-                    }
+                    "$ref": "#/$defs/arguments"
                 },
                 "inputs": {
                     "type": "array",
@@ -548,17 +502,7 @@
                     "type": "string"
                 },
                 "arguments": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": [
-                            "string",
-                            "integer",
-                            "number",
-                            "object",
-                            "array",
-                            "boolean"
-                        ]
-                    }
+                    "$ref": "#/$defs/arguments"
                 }
             }
         },
