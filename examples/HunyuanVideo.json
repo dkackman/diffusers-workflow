@@ -19,8 +19,13 @@
                     "configuration": {
                         "pipeline_type": "HunyuanVideoTransformer3DModel"
                     },
-                    "gguf_configuration": {
-                        "compute_dtype": "torch.bfloat16"
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "GGUFQuantizationConfig"
+                        },
+                        "arguments": {
+                            "compute_dtype": "torch.bfloat16"
+                        }
                     },
                     "from_pretrained_arguments": {
                         "from_single_file": "https://huggingface.co/city96/HunyuanVideo-gguf/blob/main/hunyuan-video-t2v-720p-Q8_0.gguf",

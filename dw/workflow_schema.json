@@ -336,14 +336,8 @@
                         "pipeline_type"
                     ]
                 },
-                "bits_and_bytes_configuration": {
-                    "$ref": "#/$defs/bits_and_bytes_configuration"
-                },
-                "gguf_configuration": {
-                    "$ref": "#/$defs/gguf_configuration"
-                },
-                "torchao_configuration": {
-                    "$ref": "#/$defs/torchao_configuration"
+                "quantization_config": {
+                    "$ref": "#/$defs/quantization_config"
                 },
                 "from_pretrained_arguments": {
                     "$ref": "#/$defs/from_pretrained_arguments"
@@ -354,53 +348,37 @@
                 "from_pretrained_arguments"
             ]
         },
-        "gguf_configuration": {
+        "quantization_config": {
             "type": "object",
             "properties": {
-                "compute_dtype": {
-                    "type": "string"
+                "configuration": {
+                    "type": "object",
+                    "properties": {
+                        "config_type": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "config_type"
+                    ]
+                },
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "number",
+                            "object",
+                            "array",
+                            "boolean"
+                        ]
+                    }
                 }
             },
             "required": [
-                "compute_dtype"
+                "configuration",
+                "arguments"
             ]
-        },
-        "torchao_configuration": {
-            "type": "object",
-            "properties": {
-                "quantization": {
-                    "type": "string"
-                }
-            },
-            "required": [
-                "quantization"
-            ]
-        },
-        "bits_and_bytes_configuration": {
-            "type": "object",
-            "properties": {
-                "load_in_4bit": {
-                    "type": "boolean"
-                },
-                "load_in_8bit": {
-                    "type": "boolean"
-                },
-                "bnb_4bit_quant_type": {
-                    "type": "string"
-                },
-                "bnb_4bit_compute_dtype": {
-                    "type": "string"
-                }
-            },
-            "additionalProperties": {
-                "type": [
-                    "string",
-                    "number",
-                    "object",
-                    "array",
-                    "boolean"
-                ]
-            }
         },
         "controlnet": {
             "type": "object",

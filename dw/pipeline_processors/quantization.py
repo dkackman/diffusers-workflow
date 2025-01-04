@@ -1,5 +1,4 @@
 import logging
-from diffusers import BitsAndBytesConfig, GGUFQuantizationConfig, TorchAoConfig
 
 logger = logging.getLogger("dw")
 
@@ -16,44 +15,19 @@ def get_quantization_configuration(configuration):
     """
     logger.debug(f"Processing quantization configuration: {configuration}")
 
-    # Check for bits and bytes configuration
-    bits_and_bytes_configuration = configuration.get(
-        "bits_and_bytes_configuration", None
-    )
-    if bits_and_bytes_configuration is not None:
-        logger.info("Loading bits and bytes configuration...")
-        logger.debug(f"Bits and bytes parameters: {bits_and_bytes_configuration}")
+    quantization_config = configuration.get("quantization_config", None)
+    if quantization_config is not None:
+        logger.info("Loading quantization configuration...")
+        logger.debug(f"Quantization parameters: {quantization_config}")
         try:
-            return BitsAndBytesConfig(**bits_and_bytes_configuration)
+            quantization_config_type = quantization_config["configuration"][
+                "config_type"
+            ]
+            return quantization_config_type(**quantization_config["arguments"])
         except Exception as e:
             logger.error(
-                f"Failed to create BitsAndBytesConfig: {str(e)}", exc_info=True
+                f"Failed to create quantization_config: {str(e)}", exc_info=True
             )
-            raise
-
-    # Check for GGUF configuration
-    gguf_configuration = configuration.get("gguf_configuration", None)
-    if gguf_configuration is not None:
-        logger.info("Loading gguf configuration...")
-        logger.debug(f"GGUF parameters: {gguf_configuration}")
-        try:
-            return GGUFQuantizationConfig(**gguf_configuration)
-        except Exception as e:
-            logger.error(
-                f"Failed to create GGUFQuantizationConfig: {str(e)}", exc_info=True
-            )
-            raise
-
-    # Check for TorchAO configuration
-    torchao_configuration = configuration.get("torchao_configuration", None)
-    if torchao_configuration is not None:
-        logger.info("Loading torchao configuration...")
-        logger.debug(f"TorchAO parameters: {torchao_configuration}")
-        try:
-            quantization = torchao_configuration.pop("quantization")
-            return TorchAoConfig(quantization, **torchao_configuration)
-        except Exception as e:
-            logger.error(f"Failed to create TorchAoConfig: {str(e)}", exc_info=True)
             raise
 
     logger.debug("No quantization configuration found")
