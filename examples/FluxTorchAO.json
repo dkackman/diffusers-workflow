@@ -14,8 +14,13 @@
                     "configuration": {
                         "pipeline_type": "FluxTransformer2DModel"
                     },
-                    "torchao_configuration": {
-                        "quantization": "int4wo"
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "TorchAoConfig"
+                        },
+                        "arguments": {
+                            "quant_type": "{int4wo}"
+                        }
                     },
                     "from_pretrained_arguments": {
                         "model_name": "black-forest-labs/Flux.1-Dev",

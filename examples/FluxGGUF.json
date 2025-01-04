@@ -15,8 +15,13 @@
                     "configuration": {
                         "pipeline_type": "FluxTransformer2DModel"
                     },
-                    "gguf_configuration": {
-                        "compute_dtype": "torch.bfloat16"
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "GGUFQuantizationConfig"
+                        },
+                        "arguments": {
+                            "compute_dtype": "torch.bfloat16"
+                        }
                     },
                     "from_pretrained_arguments": {
                         "from_single_file": "variable:checkpoint_path",
