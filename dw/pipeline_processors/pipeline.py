@@ -106,6 +106,7 @@ class Pipeline:
 
         # Load and configure the main pipeline
         self.pipeline = load_and_configure_pipeline(
+            "pipeline",
             self.configuration,
             from_pretrained_arguments,
             self.device_identifier,
@@ -265,6 +266,7 @@ def load_and_configure_component(
             )
 
         return load_and_configure_pipeline(
+            component_name,
             component_configuration,
             component_from_pretrained_arguments,
             device_identifier,
@@ -274,7 +276,7 @@ def load_and_configure_component(
 
 
 def load_and_configure_pipeline(
-    configuration, from_pretrained_arguments, device_identifier
+    component_name, configuration, from_pretrained_arguments, device_identifier
 ):
     """Load and configure a pipeline or component."""
     pipeline_type = configuration["pipeline_type"]
@@ -284,7 +286,7 @@ def load_and_configure_pipeline(
         # Load from model name
         if "model_name" in from_pretrained_arguments:
             model_name = from_pretrained_arguments.pop("model_name")
-            logger.info(f"Loading pipeline from model: {model_name}")
+            logger.info(f"Loading {component_name} from model: {model_name}")
             pipeline = pipeline_type.from_pretrained(
                 model_name, **from_pretrained_arguments
             )
@@ -292,14 +294,16 @@ def load_and_configure_pipeline(
         # Load from single file
         elif "from_single_file" in from_pretrained_arguments:
             from_single_file = from_pretrained_arguments.pop("from_single_file")
-            logger.info(f"Loading pipeline from single file: {from_single_file}")
+            logger.info(
+                f"Loading {component_name} from single file: {from_single_file}"
+            )
             pipeline = pipeline_type.from_single_file(
                 from_single_file, **from_pretrained_arguments
             )
 
         # Create new pipeline
         else:
-            logger.info("Creating new pipeline")
+            logger.info(f"Creating new {component_name}")
             pipeline = pipeline_type(**from_pretrained_arguments)
 
         # Configure pipeline device settings
@@ -316,7 +320,7 @@ def load_and_configure_pipeline(
                 pipeline._exclude_from_cpu_offload.append(component_name)
             pipeline.enable_sequential_cpu_offload()
         elif hasattr(pipeline, "to") and not do_not_send_to_device:
-            logger.debug(f"Moving pipeline to device: {device_identifier}")
+            logger.debug(f"Moving {component_name} to device: {device_identifier}")
             pipeline = pipeline.to(device_identifier)
 
         # Configure VAE settings
@@ -343,5 +347,5 @@ def load_and_configure_pipeline(
         return pipeline
 
     except Exception as e:
-        logger.error(f"Error loading pipeline: {str(e)}", exc_info=True)
+        logger.error(f"Error loading {component_name}: {str(e)}", exc_info=True)
         raise
