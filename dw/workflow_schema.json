@@ -1,7 +1,7 @@
 {
     "$id": "https://github.com/dkackman/diffusers-helper/workflow",
     "$schema": "https://json-schema.org/draft/2020-12/schema#",
-    "description": "The definition of the diffusers-helper workflow.",
+    "description": "The definition of the diffusers-workflow.",
     "type": "object",
     "properties": {
         "id": {
