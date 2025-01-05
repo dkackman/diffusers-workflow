@@ -28,7 +28,7 @@
                         }
                     },
                     "from_pretrained_arguments": {
-                        "from_single_file": "https://huggingface.co/city96/HunyuanVideo-gguf/blob/main/hunyuan-video-t2v-720p-Q8_0.gguf",
+                        "from_single_file": "https://huggingface.co/city96/HunyuanVideo-gguf/blob/main/hunyuan-video-t2v-720p-Q6_K.gguf",
                         "torch_dtype": "torch.bfloat16"
                     }
                 },
