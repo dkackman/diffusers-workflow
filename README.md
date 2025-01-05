@@ -6,6 +6,8 @@
 
 This is a simple, declaritive workflow engine for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). This command-line tool simplifies working with the Hugging Face Diffusers library by providing a flexible, JSON-based interface for running generative AI models. Users can define and execute complex image generation tasks without writing custom Python code.
 
+*Please [refer to the wiki](https://github.com/dkackman/diffusers-workflow/wiki) for more detailed instuctions.*
+
 ## Features
 
 - Make any workflow command line executable with variable substitution
