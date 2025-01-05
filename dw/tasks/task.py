@@ -1,6 +1,7 @@
 import logging
 from .qr_code import get_qrcode_image
-from .image_processor_dispatch import process_image
+from .image_utils import process_image
+from .video_utils import process_video
 from .gather import gather_images, gather_inputs, gather_videos
 from .format_messages import (
     format_chat_message,
@@ -115,6 +116,15 @@ class Task:
                 logger.debug("Processing image")
                 return process_image(
                     arguments.pop("image"),
+                    self.command,
+                    self.device_identifier,
+                    arguments,
+                )
+
+            if "video" in arguments:
+                logger.debug("Processing video")
+                return process_video(
+                    arguments.pop("video"),
                     self.command,
                     self.device_identifier,
                     arguments,
