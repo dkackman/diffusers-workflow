@@ -3,7 +3,7 @@ import soundfile
 import json
 import mimetypes
 import logging
-from diffusers.utils import export_to_video
+from diffusers.utils import export_to_video, export_to_gif
 from collections.abc import Iterable
 
 logger = logging.getLogger("dw")
@@ -166,6 +166,10 @@ class Result:
         try:
             if content_type.startswith("video"):
                 export_to_video(
+                    artifact, output_path, fps=self.result_definition.get("fps", 8)
+                )
+            elif content_type == "image/gif":
+                export_to_gif(
                     artifact, output_path, fps=self.result_definition.get("fps", 8)
                 )
             elif content_type.startswith("audio"):
