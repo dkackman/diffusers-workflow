@@ -1,0 +1,3 @@
+[submodule "diffusers-workflow.wiki"]
+	path = diffusers-workflow.wiki
+	url = https://github.com/dkackman/diffusers-workflow.wiki.git
