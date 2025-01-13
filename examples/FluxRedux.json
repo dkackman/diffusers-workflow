@@ -1,6 +1,6 @@
 {
     "variables": {
-        "input_image": "https://pbs.twimg.com/media/GgYKP0LXsAAlOqp?format=jpg&name=medium",
+        "input_image": "https://pbs.twimg.com/media/GgpbmxGWkAATZtp?format=jpg&name=small",
         "num_images_per_prompt": 4
     },
     "id": "FluxRedux",

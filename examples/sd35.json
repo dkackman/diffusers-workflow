@@ -1,15 +1,15 @@
 {
     "variables": {
-        "prompt": "",
-        "num_images_per_prompt": 1,
-        "num_inference_steps": 15,
+        "prompt": "Image of a marmot in a bull costume",
+        "num_images_per_prompt": 4,
+        "num_inference_steps": 25,
         "width": 768,
         "height": 768
     },
     "id": "sd35",
     "steps": [
         {
-            "name": "main",
+            "name": "txt2img",
             "pipeline": {
                 "configuration": {
                     "pipeline_type": "StableDiffusion3Pipeline",

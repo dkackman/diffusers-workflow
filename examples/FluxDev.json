@@ -1,7 +1,7 @@
 {
     "variables": {
-        "prompt": "visualize the poisson distribution",
-        "num_images_per_prompt": 1,
+        "prompt": "Image of a marmot in a bull costume",
+        "num_images_per_prompt": 4,
         "num_inference_steps": 25,
         "guidance_scale": 3.5,
         "width": 768,
@@ -10,7 +10,7 @@
     "id": "FluxDev",
     "steps": [
         {
-            "name": "main",
+            "name": "txt2img",
             "pipeline": {
                 "configuration": {
                     "pipeline_type": "FluxPipeline",

@@ -1,9 +1,9 @@
 {
     "variables": {
         "image": {
-            "location": "https://pbs.twimg.com/media/GgJvo77XsAEU_kx?format=jpg&name=small"
+            "location": "https://pbs.twimg.com/media/GgpcGssWwAACKKK?format=jpg&name=medium"
         },
-        "prompt": "the cat climbs onto the ship",
+        "prompt": "the orange man smiles and winks",
         "num_inference_steps": 50
     },
     "id": "CogVideoX-5B-I2V",
