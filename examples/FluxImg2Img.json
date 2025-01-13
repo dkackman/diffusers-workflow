@@ -1,0 +1,46 @@
+{
+    "variables": {
+        "prompt": "an orange man, polaroid style",
+        "image": {
+            "location": "https://pbs.twimg.com/media/GgpcGssWwAACKKK?format=jpg&name=medium"
+        },
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 15,
+        "guidance_scale": 2.0,
+        "strength": 0.75
+    },
+    "id": "FluxImg2Img",
+    "steps": [
+        {
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "FluxImg2ImgPipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "loras": [
+                    {
+                        "model_name": "alvdansen/pola-photo-flux",
+                        "scake": 1.0
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "image": "variable:image",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "guidance_scale": "variable:guidance_scale",
+                    "strength": "variable:strength",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "max_sequence_length": 512
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}
