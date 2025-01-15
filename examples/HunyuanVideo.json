@@ -8,7 +8,7 @@
             "name": "text_to_video",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "HunyuanVideoPipeline",
+                    "component_type": "HunyuanVideoPipeline",
                     "offload": "model",
                     "vae": {
                         "enable_slicing": true,
@@ -17,7 +17,7 @@
                 },
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "HunyuanVideoTransformer3DModel"
+                        "component_type": "HunyuanVideoTransformer3DModel"
                     },
                     "quantization_config": {
                         "configuration": {

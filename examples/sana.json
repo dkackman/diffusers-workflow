@@ -13,7 +13,7 @@
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "SanaPipeline",
+                    "component_type": "SanaPipeline",
                     "vae": {
                         "torch_dtype": "torch.bfloat16"
                     },

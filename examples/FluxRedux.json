@@ -9,7 +9,7 @@
             "name": "prior",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxPriorReduxPipeline",
+                    "component_type": "FluxPriorReduxPipeline",
                     "no_generator": true
                 },
                 "from_pretrained_arguments": {
@@ -27,7 +27,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxPipeline",
+                    "component_type": "FluxPipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {

@@ -22,7 +22,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "AutoPipelineForImage2Image",
+                    "component_type": "AutoPipelineForImage2Image",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {

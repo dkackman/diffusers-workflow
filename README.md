@@ -70,9 +70,9 @@ options:
   -h, --help            show this help message and exit
   -o OUTPUT_DIR, --output_dir OUTPUT_DIR
                         The folder to write the outputs to
-```                      
+```
 
-### Validate a Workflow Definition 
+### Validate a Workflow Definition
 
 ```bash
 python -m dw.validate --help
@@ -115,7 +115,7 @@ python -m dw.run test_workflow.json prompt="an orange" num_images_per_prompt=4
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxPipeline",
+                    "component_type": "FluxPipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
@@ -151,7 +151,7 @@ This example demonstrates a multiple step workflow including an image generation
             "pipeline": {
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "SD3Transformer2DModel",
+                        "component_type": "SD3Transformer2DModel",
                         "quantization_config": {
                             "configuration": {
                                 "config_type": "BitsAndBytesConfig"
@@ -170,7 +170,7 @@ This example demonstrates a multiple step workflow including an image generation
                     }
                 },
                 "configuration": {
-                    "pipeline_type": "StableDiffusion3Pipeline",
+                    "component_type": "StableDiffusion3Pipeline",
                     "offload": "model"
                 },
                 "from_pretrained_arguments": {
@@ -193,7 +193,7 @@ This example demonstrates a multiple step workflow including an image generation
             "pipeline": {
                 "configuration": {
                     "offload": "sequential",
-                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "component_type": "CogVideoXImageToVideoPipeline",
                     "vae": {
                         "configuration": {
                             "enable_slicing": true,
@@ -252,7 +252,7 @@ Note that this particular LLM requries `flash_attn` which in turn requires the [
             "name": "image_generation",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "StableDiffusion3Pipeline",
+                    "component_type": "StableDiffusion3Pipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {

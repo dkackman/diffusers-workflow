@@ -5,7 +5,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "StableDiffusion3Pipeline",
+                    "component_type": "StableDiffusion3Pipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {

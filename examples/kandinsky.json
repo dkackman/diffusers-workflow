@@ -5,7 +5,7 @@
             "name": "prior",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "KandinskyV22PriorPipeline"
+                    "component_type": "KandinskyV22PriorPipeline"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "kandinsky-community/kandinsky-2-2-prior",
@@ -53,7 +53,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "KandinskyV22ControlnetPipeline"
+                    "component_type": "KandinskyV22ControlnetPipeline"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "kandinsky-community/kandinsky-2-2-controlnet-depth",

@@ -220,7 +220,7 @@
                         "sequential"
                     ]
                 },
-                "pipeline_type": {
+                "component_type": {
                     "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
                     "type": "string"
                 },
@@ -239,6 +239,9 @@
                         },
                         "set_memory_format": {
                             "type": "boolean"
+                        },
+                        "torch_dtype": {
+                            "type": "string"
                         }
                     }
                 },
@@ -250,6 +253,17 @@
                         },
                         "set_memory_format": {
                             "type": "boolean"
+                        },
+                        "torch_dtype": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "text_encoder": {
+                    "type": "object",
+                    "properties": {
+                        "torch_dtype": {
+                            "type": "string"
                         }
                     }
                 },
@@ -269,7 +283,7 @@
                 }
             },
             "required": [
-                "pipeline_type"
+                "component_type"
             ]
         },
         "scheduler": {
@@ -300,13 +314,13 @@
                 "configuration": {
                     "type": "object",
                     "properties": {
-                        "pipeline_type": {
+                        "component_type": {
                             "description": "The python type of pipeline component to use in the format 'module.typename' module defaults to diffusers",
                             "type": "string"
                         }
                     },
                     "required": [
-                        "pipeline_type"
+                        "component_type"
                     ]
                 },
                 "quantization_config": {

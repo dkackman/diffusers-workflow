@@ -10,7 +10,7 @@
             "pipeline": {
                 "configuration": {
                     "offload": "sequential",
-                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "component_type": "CogVideoXImageToVideoPipeline",
                     "vae": {
                         "enable_slicing": true,
                         "enable_tiling": true
@@ -40,7 +40,7 @@
             "pipeline": {
                 "configuration": {
                     "offload": "sequential",
-                    "pipeline_type": "StableVideoDiffusionPipeline",
+                    "component_type": "StableVideoDiffusionPipeline",
                     "unet": {
                         "enable_forward_chunking": true
                     }
@@ -68,7 +68,7 @@
             "pipeline": {
                 "configuration": {
                     "offload": "sequential",
-                    "pipeline_type": "StableVideoDiffusionPipeline",
+                    "component_type": "StableVideoDiffusionPipeline",
                     "unet": {
                         "enable_forward_chunking": true
                     }
@@ -96,7 +96,7 @@
             "pipeline": {
                 "configuration": {
                     "offload": "sequential",
-                    "pipeline_type": "StableVideoDiffusionPipeline",
+                    "component_type": "StableVideoDiffusionPipeline",
                     "unet": {
                         "enable_forward_chunking": true
                     }

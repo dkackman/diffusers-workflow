@@ -13,7 +13,7 @@
             "pipeline": {
                 "configuration": {
                     "offload": "sequential",
-                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "component_type": "CogVideoXImageToVideoPipeline",
                     "vae": {
                         "enable_slicing": true,
                         "enable_tiling": true

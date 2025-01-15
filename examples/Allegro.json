@@ -6,7 +6,7 @@
             "pipeline": {
                 "configuration": {
                     "offload": "sequential",
-                    "pipeline_type": "AllegroPipeline",
+                    "component_type": "AllegroPipeline",
                     "vae": {
                         "enable_tiling": true,
                         "enable_slicing": true
@@ -14,7 +14,7 @@
                 },
                 "vae": {
                     "configuration": {
-                        "pipeline_type": "AutoencoderKLAllegro"
+                        "component_type": "AutoencoderKLAllegro"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "rhymes-ai/Allegro",

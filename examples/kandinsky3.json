@@ -12,7 +12,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "AutoPipelineForText2Image",
+                    "component_type": "AutoPipelineForText2Image",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {

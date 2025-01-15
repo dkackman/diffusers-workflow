@@ -21,7 +21,7 @@
             "name": "outpaint",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxFillPipeline",
+                    "component_type": "FluxFillPipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {

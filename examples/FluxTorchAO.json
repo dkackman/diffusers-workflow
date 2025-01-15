@@ -8,11 +8,11 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxPipeline"
+                    "component_type": "FluxPipeline"
                 },
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "FluxTransformer2DModel"
+                        "component_type": "FluxTransformer2DModel"
                     },
                     "quantization_config": {
                         "configuration": {

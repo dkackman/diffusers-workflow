@@ -8,7 +8,7 @@
             "name": "desscribe_image_processor",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "transformers.AutoProcessor",
+                    "component_type": "transformers.AutoProcessor",
                     "no_generator": true
                 },
                 "from_pretrained_arguments": {
@@ -26,7 +26,7 @@
             "name": "describe_image_model",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "transformers.AutoModelForCausalLM",
+                    "component_type": "transformers.AutoModelForCausalLM",
                     "no_generator": true,
                     "generate": true
                 },

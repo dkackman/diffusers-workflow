@@ -5,7 +5,7 @@
             "name": "sdxl_base",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "DiffusionPipeline"
+                    "component_type": "DiffusionPipeline"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-xl-base-1.0",
@@ -29,7 +29,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "DiffusionPipeline"
+                    "component_type": "DiffusionPipeline"
                 },
                 "reused_components": [
                     "text_encoder_2",

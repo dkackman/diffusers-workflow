@@ -9,7 +9,7 @@
             "pipeline": {
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "SD3Transformer2DModel"
+                        "component_type": "SD3Transformer2DModel"
                     },
                     "quantization_config": {
                         "configuration": {
@@ -28,7 +28,7 @@
                     }
                 },
                 "configuration": {
-                    "pipeline_type": "StableDiffusion3Pipeline"
+                    "component_type": "StableDiffusion3Pipeline"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-3.5-large",

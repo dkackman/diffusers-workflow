@@ -5,7 +5,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "LTXPipeline"
+                    "component_type": "LTXPipeline"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "a-r-r-o-w/LTX-Video-0.9.1-diffusers",

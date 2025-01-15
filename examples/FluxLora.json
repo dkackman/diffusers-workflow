@@ -12,7 +12,7 @@
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxPipeline",
+                    "component_type": "FluxPipeline",
                     "offload": "sequential",
                     "vae": {
                         "enable_slicing": true,

@@ -8,11 +8,11 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "StableDiffusion3Pipeline"
+                    "component_type": "StableDiffusion3Pipeline"
                 },
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "SD3Transformer2DModel"
+                        "component_type": "SD3Transformer2DModel"
                     },
                     "quantization_config": {
                         "configuration": {
@@ -32,7 +32,7 @@
                 },
                 "feature_extractor": {
                     "configuration": {
-                        "pipeline_type": "transformers.SiglipImageProcessor"
+                        "component_type": "transformers.SiglipImageProcessor"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "google/siglip-so400m-patch14-384",
@@ -41,7 +41,7 @@
                 },
                 "image_encoder": {
                     "configuration": {
-                        "pipeline_type": "transformers.SiglipVisionModel"
+                        "component_type": "transformers.SiglipVisionModel"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "google/siglip-so400m-patch14-384",

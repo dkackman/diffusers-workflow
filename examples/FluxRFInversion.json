@@ -9,12 +9,12 @@
             "name": "invert",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "dw.community_pipelines.pipeline_flux_rf_inversion.RFInversionFluxPipeline",
+                    "component_type": "dw.community_pipelines.pipeline_flux_rf_inversion.RFInversionFluxPipeline",
                     "inversion": true
                 },
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "FluxTransformer2DModel"
+                        "component_type": "FluxTransformer2DModel"
                     },
                     "quantization_config": {
                         "configuration": {

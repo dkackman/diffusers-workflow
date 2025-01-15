@@ -10,7 +10,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxPipeline",
+                    "component_type": "FluxPipeline",
                     "offload": "sequential",
                     "vae": {
                         "enable_slicing": true,
