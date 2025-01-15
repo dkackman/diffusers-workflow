@@ -1,0 +1,43 @@
+{
+    "variables": {
+        "prompt": "Image of a marmot in a bull costume",
+        "num_images_per_prompt": 4,
+        "guidance_scale": 4.5,
+        "num_inference_steps": 20,
+        "width": 1024,
+        "height": 1024
+    },
+    "id": "sana",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "configuration": {
+                    "pipeline_type": "SanaPipeline",
+                    "vae": {
+                        "torch_dtype": "torch.bfloat16"
+                    },
+                    "text_encoder": {
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Efficient-Large-Model/Sana_1600M_1024px_BF16_diffusers",
+                    "torch_dtype": "torch.bfloat16",
+                    "variant": "bf16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "guidance_scale": "variable:guidance_scale",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

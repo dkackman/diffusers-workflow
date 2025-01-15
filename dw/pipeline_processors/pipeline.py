@@ -5,6 +5,22 @@ from .quantization import get_quantization_configuration
 
 logger = logging.getLogger("dw")
 
+optional_component_names = [
+    "controlnet",
+    "transformer",
+    "vae",
+    "unet",
+    "text_encoder",
+    "text_encoder_2",
+    "text_encoder_3",
+    "tokenizer",
+    "tokenizer_2",
+    "tokenizer_3",
+    "image_encoder",
+    "feature_extractor",
+    "model",
+]
+
 
 class Pipeline:
     """
@@ -67,23 +83,7 @@ class Pipeline:
             ]
 
         # Load optional components (controlnet, vae, unet, etc.)
-        optional_components = [
-            "controlnet",
-            "transformer",
-            "vae",
-            "unet",
-            "text_encoder",
-            "text_encoder_2",
-            "text_encoder_3",
-            "tokenizer",
-            "tokenizer_2",
-            "tokenizer_3",
-            "image_encoder",
-            "feature_extractor",
-            "model",
-        ]
-
-        for component_name in optional_components:
+        for component_name in optional_component_names:
             self.load_optional_component(
                 component_name, from_pretrained_arguments, device_identifier
             )
@@ -105,12 +105,15 @@ class Pipeline:
         )
 
         # Load and configure the main pipeline
-        self.pipeline = load_and_configure_pipeline(
+        self.pipeline = load_component(
             "pipeline",
             self.configuration,
             from_pretrained_arguments,
             self.device_identifier,
         )
+
+        # configure components that are not shared
+        self.configure_loaded_components()
 
         # Configure scheduler if specified
         load_and_configure_scheduler(
@@ -208,6 +211,39 @@ class Pipeline:
             logger.debug(f"Loaded optional component: {component_name}")
             from_pretrained_arguments[component_name] = component
 
+    def configure_loaded_components(self):
+        # Configure VAE settings
+        vae = self.configuration.get("vae", {})
+        if vae.get("enable_slicing", False):
+            logger.debug("Enabling VAE slicing")
+            self.pipeline.vae.enable_slicing()
+        if vae.get("enable_tiling", False):
+            logger.debug("Enabling VAE tiling")
+            self.pipeline.vae.enable_tiling()
+        if vae.get("set_memory_format", False):
+            logger.debug("Setting VAE memory format")
+            self.pipeline.vae.to(memory_format=torch.channels_last)
+
+        # Configure UNet settings
+        unet = self.configuration.get("unet", {})
+        if unet.get("enable_forward_chunking", False):
+            logger.debug("Enabling UNet forward chunking")
+            self.pipeline.unet.enable_forward_chunking()
+        if unet.get("set_memory_format", False):
+            logger.debug("Setting UNet memory format")
+            self.pipeline.unet.to(memory_format=torch.channels_last)
+
+        # configure optional components
+        for component_name in optional_component_names:
+            component_configuration = self.configuration.get(component_name, None)
+            component = getattr(self.pipeline, component_name, None)
+            if component_configuration is not None and component is not None:
+                logger.debug(f"Configuring optional component: {component_name}")
+                torch_dtype = component_configuration.get("torch_dtype", None)
+                if torch_dtype is not None:
+                    logger.debug(f"Setting {component_name} torch dtype: {torch_dtype}")
+                    component.to(torch_dtype)
+
 
 def load_loras(loras, pipeline):
     """Load and configure LoRA models."""
@@ -265,7 +301,7 @@ def load_and_configure_component(
                 quantization_configuration
             )
 
-        return load_and_configure_pipeline(
+        return load_component(
             component_name,
             component_configuration,
             component_from_pretrained_arguments,
@@ -275,19 +311,19 @@ def load_and_configure_component(
     return None
 
 
-def load_and_configure_pipeline(
+def load_component(
     component_name, configuration, from_pretrained_arguments, device_identifier
 ):
     """Load and configure a pipeline or component."""
     pipeline_type = configuration["pipeline_type"]
-    pipeline = None
+    component = None
 
     try:
         # Load from model name
         if "model_name" in from_pretrained_arguments:
             model_name = from_pretrained_arguments.pop("model_name")
             logger.info(f"Loading {component_name} from model: {model_name}")
-            pipeline = pipeline_type.from_pretrained(
+            component = pipeline_type.from_pretrained(
                 model_name, **from_pretrained_arguments
             )
 
@@ -297,54 +333,33 @@ def load_and_configure_pipeline(
             logger.info(
                 f"Loading {component_name} from single file: {from_single_file}"
             )
-            pipeline = pipeline_type.from_single_file(
+            component = pipeline_type.from_single_file(
                 from_single_file, **from_pretrained_arguments
             )
 
-        # Create new pipeline
+        # Create new component
         else:
             logger.info(f"Creating new {component_name}")
-            pipeline = pipeline_type(**from_pretrained_arguments)
+            component = pipeline_type(**from_pretrained_arguments)
 
-        # Configure pipeline device settings
+        # Configure component device settings
         do_not_send_to_device = configuration.get("do_not_send_to_device", False)
         offload = configuration.get("offload", None)
 
         if offload == "model":
             logger.debug("Enabling model CPU offload")
-            pipeline.enable_model_cpu_offload()
+            component.enable_model_cpu_offload()
         elif offload == "sequential":
             logger.debug("Enabling sequential CPU offload")
             for component_name in configuration.get("exclude_from_cpu_offload", []):
                 logger.debug(f"Excluding {component_name} from CPU offload")
-                pipeline._exclude_from_cpu_offload.append(component_name)
-            pipeline.enable_sequential_cpu_offload()
-        elif hasattr(pipeline, "to") and not do_not_send_to_device:
+                component._exclude_from_cpu_offload.append(component_name)
+            component.enable_sequential_cpu_offload()
+        elif hasattr(component, "to") and not do_not_send_to_device:
             logger.debug(f"Moving {component_name} to device: {device_identifier}")
-            pipeline = pipeline.to(device_identifier)
+            component = component.to(device_identifier)
 
-        # Configure VAE settings
-        vae = configuration.get("vae", {})
-        if vae.get("enable_slicing", False):
-            logger.debug("Enabling VAE slicing")
-            pipeline.vae.enable_slicing()
-        if vae.get("enable_tiling", False):
-            logger.debug("Enabling VAE tiling")
-            pipeline.vae.enable_tiling()
-        if vae.get("set_memory_format", False):
-            logger.debug("Setting VAE memory format")
-            pipeline.vae.to(memory_format=torch.channels_last)
-
-        # Configure UNet settings
-        unet = configuration.get("unet", {})
-        if unet.get("enable_forward_chunking", False):
-            logger.debug("Enabling UNet forward chunking")
-            pipeline.unet.enable_forward_chunking()
-        if unet.get("set_memory_format", False):
-            logger.debug("Setting UNet memory format")
-            pipeline.unet.to(memory_format=torch.channels_last)
-
-        return pipeline
+        return component
 
     except Exception as e:
         logger.error(f"Error loading {component_name}: {str(e)}", exc_info=True)
