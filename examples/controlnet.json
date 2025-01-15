@@ -19,11 +19,11 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "StableDiffusionControlNetPipeline"
+                    "component_type": "StableDiffusionControlNetPipeline"
                 },
                 "controlnet": {
                     "configuration": {
-                        "pipeline_type": "ControlNetModel"
+                        "component_type": "ControlNetModel"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "lllyasviel/control_v11f1p_sd15_depth",

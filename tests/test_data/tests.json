@@ -6,12 +6,12 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "FluxControlNetPipeline",
+                        "component_type": "FluxControlNetPipeline",
                         "offload": "sequential"
                     },
                     "controlnet": {
                         "configuration": {
-                            "pipeline_type": "FluxControlNetModel"
+                            "component_type": "FluxControlNetModel"
                         },
                         "from_pretrained_arguments": {
                             "model_name": "InstantX/FLUX.1-dev-Controlnet-Canny",
@@ -45,7 +45,7 @@
                 "name": "sdxl_base",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "DiffusionPipeline"
+                        "component_type": "DiffusionPipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "stabilityai/stable-diffusion-xl-base-1.0",
@@ -69,7 +69,7 @@
                 "name": "refiner",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "DiffusionPipeline"
+                        "component_type": "DiffusionPipeline"
                     },
                     "reused_components": [
                         "text_encoder_2",
@@ -101,7 +101,7 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "CogView3PlusPipeline",
+                        "component_type": "CogView3PlusPipeline",
                         "offload": "sequential",
                         "vae": {
                             "enable_slicing": true,
@@ -134,7 +134,7 @@
                 "pipeline": {
                     "transformer": {
                         "configuration": {
-                            "pipeline_type": "SD3Transformer2DModel"
+                            "component_type": "SD3Transformer2DModel"
                         },
                         "quantization_config": {
                             "configuration": {
@@ -153,7 +153,7 @@
                         }
                     },
                     "configuration": {
-                        "pipeline_type": "StableDiffusion3Pipeline",
+                        "component_type": "StableDiffusion3Pipeline",
                         "offload": "model"
                     },
                     "from_pretrained_arguments": {
@@ -180,7 +180,7 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "StableDiffusionPipeline"
+                        "component_type": "StableDiffusionPipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "runwayml/stable-diffusion-v1-5",
@@ -237,11 +237,11 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "StableDiffusionControlNetImg2ImgPipeline"
+                        "component_type": "StableDiffusionControlNetImg2ImgPipeline"
                     },
                     "controlnet": {
                         "configuration": {
-                            "pipeline_type": "ControlNetModel"
+                            "component_type": "ControlNetModel"
                         },
                         "from_pretrained_arguments": {
                             "model_name": "DionTimmer/controlnet_qrcode-control_v1p_sd15",
@@ -278,7 +278,7 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "StableDiffusionPipeline"
+                        "component_type": "StableDiffusionPipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
@@ -295,7 +295,7 @@
                 "name": "upscale",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "StableDiffusionLatentUpscalePipeline"
+                        "component_type": "StableDiffusionLatentUpscalePipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "stabilityai/sd-x2-latent-upscaler",
@@ -319,7 +319,7 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "StableDiffusionPipeline"
+                        "component_type": "StableDiffusionPipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
@@ -338,7 +338,7 @@
                 "name": "upscale",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "StableDiffusionUpscalePipeline"
+                        "component_type": "StableDiffusionUpscalePipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "stabilityai/stable-diffusion-x4-upscaler",
@@ -376,11 +376,11 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "StableDiffusionControlNetPipeline"
+                        "component_type": "StableDiffusionControlNetPipeline"
                     },
                     "controlnet": {
                         "configuration": {
-                            "pipeline_type": "ControlNetModel"
+                            "component_type": "ControlNetModel"
                         },
                         "from_pretrained_arguments": {
                             "model_name": "lllyasviel/control_v11f1p_sd15_depth",
@@ -410,7 +410,7 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "StableDiffusionPipeline"
+                        "component_type": "StableDiffusionPipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "CompVis/stable-diffusion-v1-4",
@@ -442,7 +442,7 @@
                 "pipeline": {
                     "configuration": {
                         "offload": "sequential",
-                        "pipeline_type": "StableVideoDiffusionPipeline",
+                        "component_type": "StableVideoDiffusionPipeline",
                         "unet": {
                             "enable_forward_chunking": true
                         }
@@ -475,7 +475,7 @@
                 "pipeline": {
                     "configuration": {
                         "offload": "sequential",
-                        "pipeline_type": "StableVideoDiffusionPipeline",
+                        "component_type": "StableVideoDiffusionPipeline",
                         "unet": {
                             "enable_forward_chunking": true
                         }
@@ -508,7 +508,7 @@
                 "pipeline": {
                     "configuration": {
                         "offload": "sequential",
-                        "pipeline_type": "StableVideoDiffusionPipeline",
+                        "component_type": "StableVideoDiffusionPipeline",
                         "unet": {
                             "enable_forward_chunking": true
                         }
@@ -541,7 +541,7 @@
                 "pipeline": {
                     "configuration": {
                         "offload": "sequential",
-                        "pipeline_type": "CogVideoXImageToVideoPipeline",
+                        "component_type": "CogVideoXImageToVideoPipeline",
                         "vae": {
                             "enable_slicing": true,
                             "enable_tiling": true
@@ -578,7 +578,7 @@
                 "pipeline": {
                     "configuration": {
                         "offload": "sequential",
-                        "pipeline_type": "CogVideoXPipeline",
+                        "component_type": "CogVideoXPipeline",
                         "vae": {
                             "enable_slicing": true,
                             "enable_tiling": true
@@ -611,7 +611,7 @@
                 "pipeline": {
                     "configuration": {
                         "offload": "sequential",
-                        "pipeline_type": "FluxPipeline"
+                        "component_type": "FluxPipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "black-forest-labs/FLUX.1-schnell",
@@ -640,7 +640,7 @@
                 "pipeline": {
                     "configuration": {
                         "offload": "sequential",
-                        "pipeline_type": "FluxPipeline"
+                        "component_type": "FluxPipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "black-forest-labs/FLUX.1-dev",
@@ -670,7 +670,7 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "AutoPipelineForText2Image",
+                        "component_type": "AutoPipelineForText2Image",
                         "offload": "sequential"
                     },
                     "from_pretrained_arguments": {
@@ -700,7 +700,7 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "AutoPipelineForImage2Image",
+                        "component_type": "AutoPipelineForImage2Image",
                         "offload": "sequential"
                     },
                     "from_pretrained_arguments": {
@@ -733,7 +733,7 @@
                 "name": "prior",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "KandinskyV22PriorPipeline"
+                        "component_type": "KandinskyV22PriorPipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "kandinsky-community/kandinsky-2-2-prior",
@@ -760,7 +760,7 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "KandinskyV22ControlnetPipeline"
+                        "component_type": "KandinskyV22ControlnetPipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "kandinsky-community/kandinsky-2-2-controlnet-depth",
@@ -789,7 +789,7 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "StableAudioPipeline"
+                        "component_type": "StableAudioPipeline"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "stabilityai/stable-audio-open-1.0",

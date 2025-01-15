@@ -35,11 +35,11 @@
                 "name": "main",
                 "pipeline": {
                     "configuration": {
-                        "pipeline_type": "StableDiffusionControlNetImg2ImgPipeline"
+                        "component_type": "StableDiffusionControlNetImg2ImgPipeline"
                     },
                     "controlnet": {
                         "configuration": {
-                            "pipeline_type": "ControlNetModel"
+                            "component_type": "ControlNetModel"
                         },
                         "from_pretrained_arguments": {
                             "model_name": "DionTimmer/controlnet_qrcode-control_v11p_sd21",

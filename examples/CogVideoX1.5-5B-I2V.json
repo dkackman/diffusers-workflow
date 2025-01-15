@@ -9,7 +9,7 @@
             "pipeline": {
                 "configuration": {
                     "offload": "sequential",
-                    "pipeline_type": "CogVideoXImageToVideoPipeline",
+                    "component_type": "CogVideoXImageToVideoPipeline",
                     "vae": {
                         "enable_slicing": true,
                         "enable_tiling": true
@@ -21,7 +21,7 @@
                 },
                 "transformer": {
                     "configuration": {
-                        "pipeline_type": "CogVideoXTransformer3DModel"
+                        "component_type": "CogVideoXTransformer3DModel"
                     },
                     "quantization_config": {
                         "configuration": {
@@ -39,7 +39,7 @@
                 },
                 "vae": {
                     "configuration": {
-                        "pipeline_type": "AutoencoderKLCogVideoX"
+                        "component_type": "AutoencoderKLCogVideoX"
                     },
                     "quantization_config": {
                         "configuration": {
@@ -57,7 +57,7 @@
                 },
                 "text_encoder": {
                     "configuration": {
-                        "pipeline_type": "transformers.T5EncoderModel"
+                        "component_type": "transformers.T5EncoderModel"
                     },
                     "quantization_config": {
                         "configuration": {

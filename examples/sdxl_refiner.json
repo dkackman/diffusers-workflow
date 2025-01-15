@@ -13,7 +13,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "StableDiffusionXLImg2ImgPipeline"
+                    "component_type": "StableDiffusionXLImg2ImgPipeline"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-xl-refiner-1.0",

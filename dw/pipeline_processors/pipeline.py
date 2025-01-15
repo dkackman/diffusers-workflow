@@ -202,14 +202,35 @@ class Pipeline:
         self, component_name, from_pretrained_arguments, device_identifier
     ):
         """Load an optional component if specified in pipeline definition."""
-        component = load_and_configure_component(
-            self.pipeline_definition.get(component_name, None),
-            component_name,
-            device_identifier,
-        )
-        if component is not None:
-            logger.debug(f"Loaded optional component: {component_name}")
-            from_pretrained_arguments[component_name] = component
+        component_definition = self.pipeline_definition.get(component_name, None)
+
+        if component_definition is not None:
+            logger.info(f"Loading component: {component_name}")
+            component_configuration = component_definition.get("configuration", None)
+            if component_configuration is not None:
+                component_from_pretrained_arguments = component_definition[
+                    "from_pretrained_arguments"
+                ]
+
+                # Handle quantization configuration
+                quantization_configuration = get_quantization_configuration(
+                    component_definition
+                )
+                if quantization_configuration is not None:
+                    logger.debug(f"Adding quantization config for {component_name}")
+                    component_from_pretrained_arguments["quantization_config"] = (
+                        quantization_configuration
+                    )
+
+                component = load_component(
+                    component_name,
+                    component_configuration,
+                    component_from_pretrained_arguments,
+                    device_identifier,
+                )
+
+                logger.debug(f"Loaded optional component: {component_name}")
+                from_pretrained_arguments[component_name] = component
 
     def configure_loaded_components(self):
         # Configure VAE settings
@@ -280,42 +301,11 @@ def load_and_configure_scheduler(scheduler_definition, pipeline):
         )
 
 
-def load_and_configure_component(
-    component_definition, component_name, device_identifier
-):
-    """Load and configure a pipeline component."""
-    if component_definition is not None:
-        logger.info(f"Loading component: {component_name}")
-        component_configuration = component_definition["configuration"]
-        component_from_pretrained_arguments = component_definition[
-            "from_pretrained_arguments"
-        ]
-
-        # Handle quantization configuration
-        quantization_configuration = get_quantization_configuration(
-            component_definition
-        )
-        if quantization_configuration is not None:
-            logger.debug(f"Adding quantization config for {component_name}")
-            component_from_pretrained_arguments["quantization_config"] = (
-                quantization_configuration
-            )
-
-        return load_component(
-            component_name,
-            component_configuration,
-            component_from_pretrained_arguments,
-            device_identifier,
-        )
-
-    return None
-
-
 def load_component(
     component_name, configuration, from_pretrained_arguments, device_identifier
 ):
     """Load and configure a pipeline or component."""
-    pipeline_type = configuration["pipeline_type"]
+    component_type = configuration["component_type"]
     component = None
 
     try:
@@ -323,7 +313,7 @@ def load_component(
         if "model_name" in from_pretrained_arguments:
             model_name = from_pretrained_arguments.pop("model_name")
             logger.info(f"Loading {component_name} from model: {model_name}")
-            component = pipeline_type.from_pretrained(
+            component = component_type.from_pretrained(
                 model_name, **from_pretrained_arguments
             )
 
@@ -333,14 +323,14 @@ def load_component(
             logger.info(
                 f"Loading {component_name} from single file: {from_single_file}"
             )
-            component = pipeline_type.from_single_file(
+            component = component_type.from_single_file(
                 from_single_file, **from_pretrained_arguments
             )
 
         # Create new component
         else:
             logger.info(f"Creating new {component_name}")
-            component = pipeline_type(**from_pretrained_arguments)
+            component = component_type(**from_pretrained_arguments)
 
         # Configure component device settings
         do_not_send_to_device = configuration.get("do_not_send_to_device", False)

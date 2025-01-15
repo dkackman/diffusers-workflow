@@ -27,7 +27,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "LTXImageToVideoPipeline"
+                    "component_type": "LTXImageToVideoPipeline"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "a-r-r-o-w/LTX-Video-0.9.1-diffusers",

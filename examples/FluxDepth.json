@@ -19,7 +19,7 @@
             "name": "FluxDepth",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxControlPipeline",
+                    "component_type": "FluxControlPipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {

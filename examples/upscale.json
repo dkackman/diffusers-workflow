@@ -28,7 +28,7 @@
             "name": "upscale",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "StableDiffusionLatentUpscalePipeline"
+                    "component_type": "StableDiffusionLatentUpscalePipeline"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/sd-x2-latent-upscaler",

@@ -45,7 +45,7 @@
             "name": "flux",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxPipeline",
+                    "component_type": "FluxPipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {

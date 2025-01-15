@@ -8,7 +8,7 @@
             "name": "sd15",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "AutoPipelineForText2Image"
+                    "component_type": "AutoPipelineForText2Image"
                 },
                 "ip_adapter": {
                     "model_name": "h94/IP-Adapter",
@@ -36,7 +36,7 @@
             "name": "sdxl",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "AutoPipelineForText2Image"
+                    "component_type": "AutoPipelineForText2Image"
                 },
                 "ip_adapter": {
                     "model_name": "h94/IP-Adapter",

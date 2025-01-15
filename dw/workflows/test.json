@@ -9,7 +9,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "StableDiffusionPipeline"
+                    "component_type": "StableDiffusionPipeline"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",

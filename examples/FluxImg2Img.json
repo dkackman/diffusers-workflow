@@ -15,7 +15,7 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "FluxImg2ImgPipeline",
+                    "component_type": "FluxImg2ImgPipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {

@@ -18,7 +18,7 @@
             "name": "augment_prompt",
             "pipeline": {
                 "configuration": {
-                    "pipeline_type": "transformers.pipeline",
+                    "component_type": "transformers.pipeline",
                     "no_generator": true
                 },
                 "from_pretrained_arguments": {
@@ -26,7 +26,7 @@
                 },
                 "model": {
                     "configuration": {
-                        "pipeline_type": "transformers.AutoModelForCausalLM"
+                        "component_type": "transformers.AutoModelForCausalLM"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "microsoft/Phi-3.5-mini-instruct",
@@ -37,7 +37,7 @@
                 },
                 "tokenizer": {
                     "configuration": {
-                        "pipeline_type": "transformers.AutoTokenizer"
+                        "component_type": "transformers.AutoTokenizer"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "microsoft/Phi-3.5-mini-instruct"

@@ -6,7 +6,7 @@
             "pipeline": {
                 "configuration": {
                     "offload": "sequential",
-                    "pipeline_type": "MochiPipeline",
+                    "component_type": "MochiPipeline",
                     "vae": {
                         "enable_tiling": true,
                         "enable_slicing": true
