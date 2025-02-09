@@ -1,4 +1,5 @@
 activate
+.dw_history
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

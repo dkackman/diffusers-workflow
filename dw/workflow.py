@@ -41,6 +41,10 @@ class Workflow:
     def argument_template(self):
         return self.workflow_definition.get("argument_template", {})
 
+    @property
+    def variables(self):
+        return self.workflow_definition.get("variables", {})
+
     def validate(self):
         """Validates workflow definition against JSON schema"""
         logger.debug(f"Validating workflow: {self.name}")
