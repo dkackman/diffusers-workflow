@@ -1,6 +1,6 @@
 {
     "variables": {
-        "prompt": "Image of a marmot in a bull costume",
+        "prompt": "Image of a marmot in a bull costume holding a sign that says 'i'm bullish on chia'",
         "num_images_per_prompt": 4,
         "num_inference_steps": 25,
         "guidance_scale": 3.5,
