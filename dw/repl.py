@@ -178,6 +178,25 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             print(f"Current workflow: {self.current_workflow.name}")
             print(f"File: {self.current_workflow.file_spec}")
     
+    def do_run(self, arg):
+        """Run the currently loaded workflow with set arguments"""
+        if not self.current_workflow:
+            print("Error: No workflow loaded. Use 'load' command first")
+            return
+        
+        try:
+            print(f"Running workflow: {self.current_workflow.name}")
+            print(f"Using arguments: {self.workflow_args}")
+            
+            result = self.current_workflow.run(self.workflow_args)
+            
+            print("Workflow completed successfully")
+            if result:
+                print(f"Saved {len(result)} results to {self.globals['output_dir']}")
+            
+        except Exception as e:
+            print(f"Error running workflow: {str(e)}")
+    
     def default(self, line):
         """Handle unknown commands"""
         print(f"Unknown command: {line}")
