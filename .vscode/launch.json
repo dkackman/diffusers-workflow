@@ -26,6 +26,15 @@
       }
     },
     {
+      "name": "REPL",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dw.repl",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": []
+    },
+    {
       "name": "validate file",
       "type": "debugpy",
       "request": "launch",
