@@ -11,7 +11,7 @@ if __name__ == "__main__":
     )
 
     try:
-        startup(True, "DEBUG")
+        startup("DEBUG")
         workflow.validate()
     except Exception as e:
         print(f"Error validating workflow: {e}")
