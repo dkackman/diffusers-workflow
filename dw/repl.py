@@ -16,14 +16,15 @@ class DiffusersWorkflowREPL(cmd.Cmd):
     use_rawinput = True  # Ensure we're using raw_input for command reading
     
     def __init__(self):
-        # Initialize cmd.Cmd first, before setting up our variables
+        # Initialize cmd.Cmd first, before setting up our globals
         cmd.Cmd.__init__(self)
-        # Initialize variables dictionary with default values
-        self.variables = {
+        # Initialize globals dictionary with default values
+        self.globals = {
             'output_dir': './outputs',  # Default output directory
             'log_level': 'INFO'  # Default log level
         }
         self.current_workflow = None
+        self.workflow_args = {}  # Store workflow arguments
     
     def preloop(self):
         """Hook method executed once when cmdloop() is called."""
@@ -51,11 +52,11 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         return True
     
     def do_set(self, arg):
-        """Set a variable value. Usage: set variable=value"""
+        """Set a global value. Usage: set global_name=value"""
         if not arg:
-            # If no argument, show all variables
-            print("Current variables:")
-            for name, value in self.variables.items():
+            # If no argument, show all globals
+            print("Current globals:")
+            for name, value in self.globals.items():
                 print(f"{name}={value}")
             return
 
@@ -83,11 +84,58 @@ class DiffusersWorkflowREPL(cmd.Cmd):
                 logging.getLogger().setLevel(value)
                 print(f"Log level set to {value}")
             
-            self.variables[name] = value
+            self.globals[name] = value
             print(f"Set {name}={value}")
             
         except ValueError:
-            print("Error: Invalid format. Use: set variable=value")
+            print("Error: Invalid format. Use: set global_name=value")
+    
+    def do_arg(self, arg):
+        """Set or view workflow arguments. Usage: arg [name=value]"""
+        if not self.current_workflow:
+            print("Error: No workflow loaded. Use 'load' command first")
+            return
+        
+        if not arg:
+               
+            print("\nAvailable variables in workflow and their default values:")
+            workflow_vars = self.current_workflow.variables
+            if not workflow_vars:
+                print("  No variables defined in workflow")
+            else:
+                for var_name, var_def in workflow_vars.items():
+                    print(f"  {var_name}: {var_def}")
+
+            # Show current arguments and available variables
+            print("\nCurrent argument values:")
+            if not self.workflow_args:
+                print("  No arguments set")
+            else:
+                for name, value in self.workflow_args.items():
+                    print(f"  {name}={value}")
+
+            return
+
+        try:
+            name, value = arg.split('=', 1)
+            name = name.strip()
+            value = value.strip()
+            
+            # Verify this is a valid variable name for the workflow
+            if name not in self.current_workflow.variables:
+                print(f"Error: '{name}' is not defined in workflow variables")
+                return
+            
+            self.workflow_args[name] = value
+            print(f"Set argument {name}={value}")
+            
+        except ValueError:
+            print("Error: Invalid format. Use: arg name=value")
+
+    def do_clear_args(self, arg):
+        """Clear all workflow arguments"""
+        self.workflow_args = {}
+        print("All workflow arguments cleared")
     
     def do_load(self, arg):
         """Load a workflow from a JSON file. Usage: load path/to/workflow.json"""
@@ -101,16 +149,19 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             return
             
         try:
-            output_dir = self.variables['output_dir']
+            output_dir = self.globals['output_dir']
             if not os.path.exists(output_dir):
                 print(f"Warning: Output directory {output_dir} does not exist")
             
-            self.current_workflow = workflow_from_file(file_path, output_dir)
-            print(f"Loaded workflow: {self.current_workflow.name}")
+            workflow = workflow_from_file(file_path, output_dir)
             
             # Try to validate the workflow immediately
             try:
-                self.current_workflow.validate()
+                workflow.validate()
+                self.current_workflow = workflow
+                # Clear any existing arguments when loading new workflow
+                self.workflow_args = {}
+                print(f"Loaded workflow: {workflow.name}")
                 print("Workflow validated successfully")
             except Exception as e:
                 print(f"Warning: Workflow validation failed: {str(e)}")
