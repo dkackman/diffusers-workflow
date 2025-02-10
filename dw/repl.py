@@ -5,7 +5,9 @@ import logging
 import os
 from . import startup
 from .workflow import workflow_from_file
-
+import torch
+import gc
+import subprocess  # Add this import at the top
 logger = logging.getLogger("dw")
 
 class DiffusersWorkflowREPL(cmd.Cmd):
@@ -96,8 +98,7 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             print("Error: No workflow loaded. Use 'load' command first")
             return
         
-        if not arg:
-               
+        if not arg:               
             print("\nAvailable variables in workflow and their default values:")
             workflow_vars = self.current_workflow.variables
             if not workflow_vars:
@@ -148,6 +149,12 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             print(f"Error: File {file_path} does not exist")
             return
             
+        if self.current_workflow:
+            del self.current_workflow
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         try:
             output_dir = self.globals['output_dir']
             if not os.path.exists(output_dir):
@@ -169,6 +176,13 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         except Exception as e:
             print(f"Error loading workflow: {str(e)}")
             self.current_workflow = None
+
+        finally:
+            # Force cleanup
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
     
     def do_status(self, arg):
         """Show current workflow status"""
@@ -188,14 +202,55 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             print(f"Running workflow: {self.current_workflow.name}")
             print(f"Using arguments: {self.workflow_args}")
             
-            result = self.current_workflow.run(self.workflow_args)
+            # Build command line arguments
+            cmd = [
+                "python",
+                "-Xfrozen_modules=off",
+                "-m",
+                "dw.run",
+                "-o", self.globals['output_dir'],
+                "-l", self.globals['log_level'],
+                self.current_workflow.file_spec
+            ]
             
-            print("Workflow completed successfully")
-            if result:
-                print(f"Saved {len(result)} results to {self.globals['output_dir']}")
+            # Add workflow arguments as name=value pairs
+            for name, value in self.workflow_args.items():
+                cmd.append(f"{name}={value}")
+            
+            # Run the workflow in a subprocess with streaming output
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Redirect stderr to stdout
+                text=True,
+                bufsize=1,  # Line buffered
+                universal_newlines=True
+            )
+            
+            # Stream output in real-time
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    print(output.rstrip())
+                
+            # Get return code and handle completion
+            return_code = process.poll()
+            if return_code == 0:
+                print("Workflow completed successfully")
+            else:
+                print(f"Workflow failed with return code {return_code}")
             
         except Exception as e:
-            print(f"Error running workflow: {str(e)}")
+            print(f"Error launching workflow: {str(e)}")
+
+        finally:
+            # Force cleanup
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
     
     def default(self, line):
         """Handle unknown commands"""
