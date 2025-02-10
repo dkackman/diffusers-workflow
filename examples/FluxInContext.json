@@ -1,4 +1,13 @@
 {
+    "variables": {
+        "prompt": "Image of a marmot in a bull costume holding a sign that says 'i'm bullish on chia'",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 25,
+        "guidance_scale": 3.5,
+        "width": 2048,
+        "height": 1024,
+        "weight_name": "couple-profile.safetensors"
+    },
     "id": "FluxInContext",
     "steps": [
         {
@@ -15,16 +24,16 @@
                 "loras": [
                     {
                         "model_name": "ali-vilab/In-Context-LoRA",
-                        "weight_name": "couple-profile.safetensors"
+                        "weight_name": "variable:weight_name"
                     }
                 ],
                 "arguments": {
-                    "prompt": "This two-part image portrays a couple of cartoon cats in detective attire; [LEFT] a black cat in a trench coat and fedora holds a magnifying glass and peers to the right, while [RIGHT] a white cat with a bow tie and matching hat raises an eyebrow in curiosity, creating a fun, noir-inspired scene against a dimly lit background.",
-                    "width": 2048,
-                    "height": 1024,
-                    "num_inference_steps": 25,
-                    "num_images_per_prompt": 1,
-                    "guidance_scale": 3.5,
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "guidance_scale": "variable:guidance_scale",
                     "max_sequence_length": 512
                 }
             },
