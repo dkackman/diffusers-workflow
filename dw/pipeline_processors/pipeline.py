@@ -197,9 +197,6 @@ class Pipeline:
         except Exception as e:
             logger.error(f"Error running pipeline: {str(e)}", exc_info=True)
             raise
-        
-        finally:
-            self.cleanup()
 
     def load_optional_component(
         self, component_name, from_pretrained_arguments, device_identifier
@@ -267,33 +264,6 @@ class Pipeline:
                 if torch_dtype is not None:
                     logger.debug(f"Setting {component_name} torch dtype: {torch_dtype}")
                     component.to(torch_dtype)
-
-    def cleanup(self):
-        """
-        Clean up pipeline resources and free memory.
-        """
-        if self.pipeline is not None:
-            logger.debug(f"Cleaning up pipeline: {self.name}")
-            
-            # Clear pipeline components
-            for component_name in optional_component_names:
-                component = getattr(self.pipeline, component_name, None)
-                if component is not None:
-                    if hasattr(component, 'to'):
-                        component.to('cpu')
-                    setattr(self.pipeline, component_name, None)
-                    del component
-            
-            # Clear the main pipeline
-            if hasattr(self.pipeline, 'to'):
-                self.pipeline.to('cpu')
-            del self.pipeline
-            self.pipeline = None
-            
-            # Clear CUDA cache
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()  # Ensure all CUDA operations are complete
 
 
 def load_loras(loras, pipeline):

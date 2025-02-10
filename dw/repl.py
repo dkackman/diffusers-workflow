@@ -6,8 +6,8 @@ import os
 from . import startup
 from .workflow import workflow_from_file
 import torch
-import gc
-import subprocess  # Add this import at the top
+import subprocess 
+
 logger = logging.getLogger("dw")
 
 class DiffusersWorkflowREPL(cmd.Cmd):
@@ -148,12 +148,6 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         if not os.path.exists(file_path):
             print(f"Error: File {file_path} does not exist")
             return
-            
-        if self.current_workflow:
-            del self.current_workflow
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
 
         try:
             output_dir = self.globals['output_dir']
@@ -170,19 +164,13 @@ class DiffusersWorkflowREPL(cmd.Cmd):
                 self.workflow_args = {}
                 print(f"Loaded workflow: {workflow.name}")
                 print("Workflow validated successfully")
+
             except Exception as e:
                 print(f"Warning: Workflow validation failed: {str(e)}")
                 
         except Exception as e:
             print(f"Error loading workflow: {str(e)}")
             self.current_workflow = None
-
-        finally:
-            # Force cleanup
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
     
     def do_status(self, arg):
         """Show current workflow status"""
@@ -244,13 +232,6 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             
         except Exception as e:
             print(f"Error launching workflow: {str(e)}")
-
-        finally:
-            # Force cleanup
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
     
     def default(self, line):
         """Handle unknown commands"""
