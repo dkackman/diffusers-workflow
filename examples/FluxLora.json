@@ -13,7 +13,7 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "model",
+                    "offload": "sequential",
                     "vae": {
                         "enable_slicing": true,
                         "enable_tiling": true
