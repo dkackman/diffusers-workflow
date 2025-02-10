@@ -41,10 +41,6 @@ class Workflow:
     def argument_template(self):
         return self.workflow_definition.get("argument_template", {})
 
-    @property
-    def variables(self):
-        return self.workflow_definition.get("variables", {})
-
     def validate(self):
         """Validates workflow definition against JSON schema"""
         logger.debug(f"Validating workflow: {self.name}")
@@ -111,32 +107,15 @@ class Workflow:
                 results[step.name] = result
                 result.save(self.output_dir, f"{workflow_id}-{step.name}.{i}")
                 logger.debug(f"Step {step.name} completed with result: {result}")
-                del step
 
             logger.debug(f"Workflow {workflow_id} completed successfully")
             # Return only the last step's results for child workflows
-            result = last_result.result_list if last_result is not None else []
-            
-            # Clean up
-            del results
-            del shared_components
-            del pipelines
-            del steps
-            if last_result:
-                del last_result
-            
-            return result
+            return last_result.result_list if last_result is not None else []
 
         except Exception as e:
             logger.error(
                 f"Error running workflow {self.workflow_definition.get('id', 'unknown')}: {e}"
             )
-        finally:
-            # Force garbage collection
-            import gc
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
 
     def create_step_action(
         self,

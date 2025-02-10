@@ -57,7 +57,6 @@ class Step:
 
                 try:
                     iteration_result = step_action.run(arguments, previous_pipelines)
-
                     result.add_result(iteration_result)
 
                 except Exception as e:
@@ -70,8 +69,3 @@ class Step:
         except Exception as e:
             logger.error(f"Error running step {self.name}: {str(e)}", exc_info=True)
             raise
-        finally:
-            # Clean up step action
-            if hasattr(step_action, 'cleanup'):
-                step_action.cleanup()
-            del step_action
