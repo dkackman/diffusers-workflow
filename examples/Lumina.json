@@ -1,32 +1,34 @@
 {
     "variables": {
-        "prompt": "centi-mojo",
-        "num_images_per_prompt": 4,
-        "num_inference_steps": 25,
-        "width": 768,
-        "height": 768
+        "prompt": "Image of a marmot in a bull costume holding a sign that says 'i'm bullish on chia'",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 50,
+        "guidance_scale": 3.5,
+        "width": 1024,
+        "height": 1024
     },
-    "id": "sd35",
+    "id": "Lumina",
     "steps": [
         {
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "component_type": "StableDiffusion3Pipeline",
+                    "component_type": "Lumina2Text2ImgPipeline",
                     "offload": "model"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "stabilityai/stable-diffusion-3.5-large",
+                    "model_name": "Alpha-VLLM/Lumina-Image-2.0",
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
                     "num_inference_steps": "variable:num_inference_steps",
-                    "guidance_scale": 4.5,
-                    "max_sequence_length": 512,
                     "num_images_per_prompt": "variable:num_images_per_prompt",
                     "width": "variable:width",
-                    "height": "variable:height"
+                    "height": "variable:height",
+                    "guidance_scale": "variable:guidance_scale",
+                    "cfg_trunc_ratio": 0.25,
+                    "cfg_normalization": true
                 }
             },
             "result": {

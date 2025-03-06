@@ -8,7 +8,7 @@
             "name": "image_to_video",
             "pipeline": {
                 "configuration": {
-                    "offload": "sequential",
+                    "offload": "model",
                     "component_type": "CogVideoXImageToVideoPipeline",
                     "vae": {
                         "enable_slicing": true,
@@ -28,7 +28,7 @@
                             "config_type": "TorchAoConfig"
                         },
                         "arguments": {
-                            "quant_type": "{int4wo}"
+                            "quant_type": "{int8wo}"
                         }
                     },
                     "from_pretrained_arguments": {
@@ -46,7 +46,7 @@
                             "config_type": "TorchAoConfig"
                         },
                         "arguments": {
-                            "quant_type": "{int4wo}"
+                            "quant_type": "{int8wo}"
                         }
                     },
                     "from_pretrained_arguments": {
@@ -64,7 +64,7 @@
                             "config_type": "TorchAoConfig"
                         },
                         "arguments": {
-                            "quant_type": "{int4wo}"
+                            "quant_type": "{int8wo}"
                         }
                     },
                     "from_pretrained_arguments": {

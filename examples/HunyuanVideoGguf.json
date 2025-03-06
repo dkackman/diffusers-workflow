@@ -1,5 +1,5 @@
 {
-    "id": "HunyuanVideo",
+    "id": "HunyuanVideoGguf",
     "variables": {
         "prompt": "A lone marmot walks across vast, green forest landscape under a clear blue sky. The camera begins with a wide shot, capturing the endless forests, then slowly zooms in on the marmot as it moves gracefully. The soft wind blows sand into gentle waves, adding motion to the scene. The atmosphere is serene and timeless, emphasizing the beauty of the forest. Bright sunlight casts sharp shadows on the trees, creating striking contrasts. The shot transitions from a wide view of the forest  to a medium shot of the marmot, framed against the soaring trees."
     },
@@ -11,6 +11,7 @@
                     "component_type": "HunyuanVideoPipeline",
                     "offload": "model",
                     "vae": {
+                        "enable_slicing": true,
                         "enable_tiling": true
                     }
                 },
@@ -20,15 +21,14 @@
                     },
                     "quantization_config": {
                         "configuration": {
-                            "config_type": "BitsAndBytesConfig"
+                            "config_type": "GGUFQuantizationConfig"
                         },
                         "arguments": {
-                            "load_in_8bit": true
+                            "compute_dtype": "torch.bfloat16"
                         }
                     },
                     "from_pretrained_arguments": {
-                        "model_name": "hunyuanvideo-community/HunyuanVideo",
-                        "subfolder": "transformer",
+                        "from_single_file": "https://huggingface.co/city96/HunyuanVideo-gguf/blob/main/hunyuan-video-t2v-720p-Q6_K.gguf",
                         "torch_dtype": "torch.bfloat16"
                     }
                 },
@@ -41,7 +41,7 @@
                     "height": 320,
                     "width": 512,
                     "num_inference_steps": 30,
-                    "num_frames": 61
+                    "num_frames": 129
                 }
             },
             "result": {

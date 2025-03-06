@@ -1,7 +1,7 @@
 {
     "variables": {
-        "prompt": "Image of a marmot in a bull costume holding a sign that says 'i'm bullish on chia'",
-        "num_images_per_prompt": 1,
+        "prompt": "The only thing that never ends is the one that never began",
+        "num_images_per_prompt": 4,
         "num_inference_steps": 25,
         "guidance_scale": 3.5,
         "width": 768,
@@ -14,7 +14,7 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "model"
+                    "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",
