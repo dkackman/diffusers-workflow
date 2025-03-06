@@ -1,6 +1,6 @@
 {
     "variables": {
-        "prompt": "A smiling marmot standing in an enchanted forest wearing a baseball cap with the word 'chia', 3dcndylnd style",
+        "prompt": "A smiling marmot standing in an enchanted forest holding a sign that cays 'The centi-mojo is the true path', 3dcndylnd style",
         "lora": "alvdansen/plushy-world-flux",
         "num_images_per_prompt": 1,
         "num_inference_steps": 25,
@@ -13,7 +13,7 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "sequential",
+                    "offload": "model",
                     "vae": {
                         "enable_slicing": true,
                         "enable_tiling": true

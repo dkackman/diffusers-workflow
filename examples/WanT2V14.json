@@ -1,19 +1,18 @@
 {
-    "id": "WanI2V14",
+    "id": "WanT2V14",
     "variables": {
-        "model_name": "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
-        "prompt": "An astronaut hatching from an egg, on the surface of the moon, the darkness and depth of space realised in the background. High quality, ultrarealistic detail and breath-taking movie-like camera shot.",
+        "model_name": "Wan-AI/Wan2.1-T2V-14B-Diffusers",
+        "prompt": "A lone marmot walks across vast, green forest landscape under a clear blue sky. The camera begins with a wide shot, capturing the endless forests, then slowly zooms in on the marmot as it moves gracefully. The soft wind blows sand into gentle waves, adding motion to the scene. The atmosphere is serene and timeless, emphasizing the beauty of the forest. Bright sunlight casts sharp shadows on the trees, creating striking contrasts. The shot transitions from a wide view of the forest  to a medium shot of the marmot, framed against the soaring trees.",
         "negative_prompt": "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards",
-        "image": {
-            "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg"
-        }
+        "height": 480,
+        "width": 832
     },
     "steps": [
         {
-            "name": "image_to_video",
+            "name": "text_to_video",
             "pipeline": {
                 "configuration": {
-                    "component_type": "WanImageToVideoPipeline",
+                    "component_type": "WanPipeline",
                     "offload": "model"
                 },
                 "vae": {
@@ -23,26 +22,6 @@
                     "from_pretrained_arguments": {
                         "model_name": "variable:model_name",
                         "subfolder": "vae",
-                        "torch_dtype": "torch.bfloat16"
-                    }
-                },
-                "image_encoder": {
-                    "configuration": {
-                        "component_type": "WanImageToVideoPipeline"
-                    },
-                    "quantization_config": {
-                        "configuration": {
-                            "config_type": "BitsAndBytesConfig"
-                        },
-                        "arguments": {
-                            "load_in_4bit": true,
-                            "bnb_4bit_quant_type": "{nf4}",
-                            "bnb_4bit_compute_dtype": "torch.bfloat16"
-                        }
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "variable:model_name",
-                        "subfolder": "image_encoder",
                         "torch_dtype": "torch.bfloat16"
                     }
                 },
@@ -73,9 +52,10 @@
                 "arguments": {
                     "prompt": "variable:prompt",
                     "negative_prompt": "variable:negative_prompt",
+                    "height": "variable:height",
+                    "width": "variable:width",
                     "guidance_scale": 5.0,
-                    "num_frames": 81,
-                    "image": "variable:image"
+                    "num_frames": 81
                 }
             },
             "result": {
