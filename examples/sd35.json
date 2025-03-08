@@ -1,6 +1,6 @@
 {
     "variables": {
-        "prompt": "Image of a marmot in a bull costume",
+        "prompt": "centi-mojo",
         "num_images_per_prompt": 4,
         "num_inference_steps": 25,
         "width": 768,
@@ -13,7 +13,7 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "StableDiffusion3Pipeline",
-                    "offload": "sequential"
+                    "offload": "model"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-3.5-large",
