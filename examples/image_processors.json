@@ -293,9 +293,9 @@
             }
         },
         {
-            "name": "crop_sqaure",
+            "name": "crop_square",
             "task": {
-                "command": "crop_sqaure",
+                "command": "crop_square",
                 "arguments": {
                     "image": "previous_result:input_image"
                 }
