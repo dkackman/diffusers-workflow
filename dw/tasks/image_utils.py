@@ -154,8 +154,8 @@ def process_image(image, processor, device_identifier, kwargs):
     if processor == "resize_resample":
         return resize_resample(image, **kwargs)
 
-    if processor == "crop_sqaure":
-        return crop_sqaure(image, **kwargs)
+    if processor == "crop_square":
+        return crop_square(image, **kwargs)
 
     if processor == "resize_rescale":
         return resize_rescale(image, **kwargs)
@@ -234,7 +234,7 @@ def get_image_size(image):
     return {"width": image.width, "height": image.height}
 
 
-def crop_sqaure(img: Image) -> Image:
+def crop_square(img: Image) -> Image:
     # Determine the shortest side
     min_side = min(img.width, img.height)
 
