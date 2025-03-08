@@ -1,7 +1,7 @@
 {
     "variables": {
-        "prompt": "A smiling marmot standing in an enchanted forest holding a sign that cays 'The centi-mojo is the true path', 3dcndylnd style",
-        "lora": "alvdansen/plushy-world-flux",
+        "prompt": "A realistic photograph of a masculine looking female mouse playing volleyball against a team of professional volleyball players.",
+        "lora": "XLabs-AI/flux-RealismLora",
         "num_images_per_prompt": 1,
         "num_inference_steps": 25,
         "guidance_scale": 3.5

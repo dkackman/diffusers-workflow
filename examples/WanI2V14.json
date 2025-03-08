@@ -2,7 +2,7 @@
     "id": "WanI2V14",
     "variables": {
         "model_name": "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
-        "prompt": "A earth dragon looks at the man and blasts",
+        "prompt": "The earth dragon turns and looks at the man",
         "negative_prompt": "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards",
         "image": {
             "location": "https://pbs.twimg.com/media/GkRVQJfWUAAxITD?format=png&name=900x900"
@@ -28,7 +28,7 @@
                 },
                 "image_encoder": {
                     "configuration": {
-                        "component_type": "transformers.CLIPVisionModel"
+                        "component_type": "transformers.CLIPVisionModelWithProjection"
                     },
                     "quantization_config": {
                         "configuration": {

@@ -1,6 +1,6 @@
 {
     "variables": {
-        "prompt": "The only thing that never ends is the one that never began",
+        "prompt": "A realistic photograph of a mouse wearing a skirt playing volleyball against a team of professional volleyball players.",
         "num_images_per_prompt": 4,
         "num_inference_steps": 25,
         "guidance_scale": 3.5,
