@@ -23,7 +23,8 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         # Initialize globals dictionary with default values
         self.globals = {
             'output_dir': './outputs',  # Default output directory
-            'log_level': 'INFO'  # Default log level
+            'log_level': 'INFO',  # Default log level
+            'workflow_dir': './examples'  # Default workflow directory
         }
         self.current_workflow = None
         self.workflow_args = {}  # Store workflow arguments
@@ -85,7 +86,13 @@ class DiffusersWorkflowREPL(cmd.Cmd):
                 # Update the log level
                 logging.getLogger().setLevel(value)
                 print(f"Log level set to {value}")
-            
+
+            elif name == 'workflow_dir':
+                value = os.path.abspath(value)
+                if not os.path.exists(value):
+                    print(f"Warning: Directory '{value}' does not exist")
+                    return
+                
             self.globals[name] = value
             print(f"Set {name}={value}")
             
@@ -139,12 +146,24 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         print("All workflow arguments cleared")
     
     def do_load(self, arg):
-        """Load a workflow from a JSON file. Usage: load path/to/workflow.json"""
+        """Load a workflow from a JSON file. Usage: load [path/to/]workflow[.json]"""
         if not arg:
-            print("Error: Please specify a workflow file path")
+            print("Error: Please specify a workflow file path or name")
             return
-            
-        file_path = os.path.abspath(arg.strip())
+        
+        file_path = arg.strip()
+        
+        # If this isn't an absolute path or relative path starting with ./ or ../
+        if not os.path.isabs(file_path) and not file_path.startswith(('./','../')):
+            # Treat as a workflow name in the default directory
+            # Add .json extension if not present
+            if not file_path.endswith('.json'):
+                file_path = f"{file_path}.json"
+            file_path = os.path.join(self.globals['workflow_dir'], file_path)
+        
+        # Convert to absolute path
+        file_path = os.path.abspath(file_path)
+        
         if not os.path.exists(file_path):
             print(f"Error: File {file_path} does not exist")
             return
@@ -232,6 +251,28 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             
         except Exception as e:
             print(f"Error launching workflow: {str(e)}")
+    
+    def do_reload(self, arg):
+        """Reload the current workflow from its file"""
+        if not self.current_workflow:
+            print("Error: No workflow loaded. Use 'load' command first")
+            return
+        
+        try:
+            file_path = self.current_workflow.file_spec
+            print(f"Reloading workflow from: {file_path}")
+            
+            # Load and validate the workflow
+            workflow = workflow_from_file(file_path, self.globals['output_dir'])
+            workflow.validate()
+            
+            # Replace current workflow
+            self.current_workflow = workflow
+            print(f"Reloaded workflow: {workflow.name}")
+            print("Workflow validated successfully")
+            
+        except Exception as e:
+            print(f"Error reloading workflow: {str(e)}")
     
     def default(self, line):
         """Handle unknown commands"""

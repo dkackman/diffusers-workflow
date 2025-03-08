@@ -1,0 +1,46 @@
+{
+    "id": "WanT2V1.3",
+    "variables": {
+        "model_name": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
+        "prompt": "A lone marmot walks across vast, green forest landscape under a clear blue sky. The camera begins with a wide shot, capturing the endless forests, then slowly zooms in on the marmot as it moves gracefully. The soft wind blows sand into gentle waves, adding motion to the scene. The atmosphere is serene and timeless, emphasizing the beauty of the forest. Bright sunlight casts sharp shadows on the trees, creating striking contrasts. The shot transitions from a wide view of the forest  to a medium shot of the marmot, framed against the soaring trees.",
+        "negative_prompt": "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards",
+        "height": 480,
+        "width": 832
+    },
+    "steps": [
+        {
+            "name": "text_to_video",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "WanPipeline"
+                },
+                "vae": {
+                    "configuration": {
+                        "component_type": "AutoencoderKLWan"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "vae",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "variable:model_name",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "negative_prompt": "variable:negative_prompt",
+                    "height": "variable:height",
+                    "width": "variable:width",
+                    "guidance_scale": 5.0,
+                    "num_frames": 81
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 15
+            }
+        }
+    ]
+}
