@@ -73,7 +73,15 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 pip install wheel setuptools
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-pip3 install torch diffusers[torch] peft transformers accelerate safetensors controlnet_aux sentencepiece mediapipe torchsde bitsandbytes torchao gguf kornia --index-url https://download.pytorch.org/whl/cu124
+pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+pip install git+https://github.com/huggingface/diffusers
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+# pip install diffusers[torch]
+# if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+pip3 install peft transformers accelerate safetensors controlnet_aux sentencepiece mediapipe torchsde bitsandbytes torchao gguf kornia ftfy
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 pip3 install aiohttp matplotlib opencv-python concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black

@@ -2,13 +2,58 @@
     "id": "WanI2V14",
     "variables": {
         "model_name": "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
-        "prompt": "The earth dragon turns and looks at the man",
+        "prompt": "The sand dragon turns to the camera and roars",
         "negative_prompt": "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards",
         "image": {
             "location": "https://pbs.twimg.com/media/GkRVQJfWUAAxITD?format=png&name=900x900"
-        }
+        },
+        "height": 480,
+        "width": 832,
+        "num_inference_steps": 25
     },
     "steps": [
+        {
+            "name": "mask_image",
+            "task": {
+                "command": "add_border_and_mask_with_size",
+                "arguments": {
+                    "image": {
+                        "location": "variable:image"
+                    },
+                    "height": "variable:height",
+                    "width": "variable:width"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "outpaint",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "FluxFillPipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-Fill-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "image": "previous_result:mask_image.bordered_image",
+                    "mask_image": "previous_result:mask_image.mask",
+                    "prompt": "",
+                    "guidance_scale": 30,
+                    "num_inference_steps": 25,
+                    "max_sequence_length": 512,
+                    "height": "variable:height",
+                    "width": "variable:width"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
         {
             "name": "image_to_video",
             "pipeline": {
@@ -75,7 +120,10 @@
                     "negative_prompt": "variable:negative_prompt",
                     "guidance_scale": 5.0,
                     "num_frames": 81,
-                    "image": "variable:image"
+                    "image": "previous_result:outpaint",
+                    "height": "variable:height",
+                    "width": "variable:width",
+                    "num_inference_steps": "variable:num_inference_steps"
                 }
             },
             "result": {
