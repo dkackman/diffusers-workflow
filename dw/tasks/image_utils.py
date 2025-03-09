@@ -29,7 +29,7 @@ from transformers import (
 from .zoe_depth import colorize, load_zoe
 from .background_remover import remove_background
 from .depth_estimator import make_hint_image, make_hint_tensor
-from .borders import add_border_and_mask
+from .borders import add_border_and_mask, add_border_and_mask_with_size
 import torch
 
 
@@ -40,7 +40,10 @@ def process_image(image, processor, device_identifier, kwargs):
         return get_image_size(image)
 
     if processor == "add_border_and_mask":
-        return add_border_and_mask(image, **kwargs)
+        return add_border_and_mask(image, **kwargs)    
+        
+    if processor == "add_border_and_mask_with_size":
+        return add_border_and_mask_with_size(image, **kwargs)
 
     if processor == "remove_background":
         return remove_background(image, device_identifier, **kwargs)
