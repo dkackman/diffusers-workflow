@@ -150,6 +150,9 @@
                 "transformer": {
                     "$ref": "#/$defs/pipeline_component"
                 },
+                "transformer_2": {
+                    "$ref": "#/$defs/pipeline_component"
+                },
                 "vae": {
                     "$ref": "#/$defs/pipeline_component"
                 },
@@ -219,6 +222,9 @@
                         "model",
                         "sequential"
                     ]
+                },
+                "device": {
+                    "type": "string"
                 },
                 "component_type": {
                     "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",

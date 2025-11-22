@@ -1,0 +1,44 @@
+{
+    "id": "Wan2.2-TI2V-5B",
+    "variables": {
+        "model_name": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
+        "prompt": "a bird flies"
+    },
+    "steps": [
+        {
+            "name": "text2video",
+            "pipeline": {
+                "vae": {
+                    "configuration": {
+                        "component_type": "AutoencoderKLWan"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "vae",
+                        "torch_dtype": "torch.float32"
+                    }
+                },
+                "configuration": {
+                    "component_type": "WanPipeline",
+                    "offload": "model"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "variable:model_name",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "height": 704,
+                    "width": 1280,
+                    "num_inference_steps": 50,
+                    "num_frames": 81,
+                    "guidance_scale": 5.0
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 15
+            }
+        }
+    ]
+}

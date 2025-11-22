@@ -123,10 +123,10 @@ fi
 python -m pip install --upgrade pip
 
 pip install wheel setuptools
-pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu130
 pip install git+https://github.com/huggingface/diffusers
 # pip install diffusers[torch]
-pip install peft transformers accelerate safetensors controlnet_aux sentencepiece mediapipe torchsde bitsandbytes torchao gguf kornia ftfy
+pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy
 pip install aiohttp matplotlib opencv-python concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black
 
 # to use some LLM workflows like Phi mini-instruct you'll need to install the following
