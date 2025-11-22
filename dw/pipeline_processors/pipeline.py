@@ -8,6 +8,7 @@ logger = logging.getLogger("dw")
 optional_component_names = [
     "controlnet",
     "transformer",
+    "transformer_2",
     "vae",
     "unet",
     "text_encoder",
@@ -199,7 +200,7 @@ class Pipeline:
             raise
 
     def load_optional_component(
-        self, component_name, from_pretrained_arguments, device_identifier
+        self, component_name, from_pretrained_arguments, default_device_identifier
     ):
         """Load an optional component if specified in pipeline definition."""
         component_definition = self.pipeline_definition.get(component_name, None)
@@ -222,6 +223,7 @@ class Pipeline:
                         quantization_configuration
                     )
 
+                device_identifier = component_configuration.get("device", default_device_identifier)
                 component = load_component(
                     component_name,
                     component_configuration,

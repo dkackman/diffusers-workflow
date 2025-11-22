@@ -1,13 +1,21 @@
 {
-    "id": "Wan2.2-TI2V-5B",
+    "id": "Wan2.2I2V14B",
     "variables": {
-        "model_name": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
-        "prompt": "a bird flies"
+        "model_name": "Wan-AI/Wan2.2-I2V-A14B-Diffusers",
+        "prompt": "A earth dragon looks at the man and blasts",
+        "negative_prompt": "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards",
+        "image": {
+            "location": "https://pbs.twimg.com/media/GkRVQJfWUAAxITD?format=png&name=900x900"
+        }
     },
     "steps": [
         {
-            "name": "text2video",
+            "name": "image_to_video",
             "pipeline": {
+                "configuration": {
+                    "component_type": "WanImageToVideoPipeline",
+                    "offload": "model"
+                },
                 "vae": {
                     "configuration": {
                         "component_type": "AutoencoderKLWan"
@@ -38,9 +46,9 @@
                         "torch_dtype": "torch.bfloat16"
                     }
                 },
-                "text_encoder": {
+                "transformer_2": {
                     "configuration": {
-                        "component_type": "transdormers.UMT5EncoderModel"
+                        "component_type": "WanTransformer3DModel"
                     },
                     "quantization_config": {
                         "configuration": {
@@ -54,13 +62,9 @@
                     },
                     "from_pretrained_arguments": {
                         "model_name": "variable:model_name",
-                        "subfolder": "text_encoder",
+                        "subfolder": "transformer_2",
                         "torch_dtype": "torch.bfloat16"
                     }
-                },
-                "configuration": {
-                    "component_type": "WanPipeline",
-                    "offload": "model"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "variable:model_name",
@@ -68,11 +72,10 @@
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
-                    "height": 704,
-                    "width": 1280,
-                    "num_inference_steps": 50,
-                    "num_frames": 121,
-                    "guidance_scale": 5.0
+                    "negative_prompt": "variable:negative_prompt",
+                    "guidance_scale": 5.0,
+                    "num_frames": 81,
+                    "image": "variable:image"
                 }
             },
             "result": {

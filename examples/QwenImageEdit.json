@@ -1,26 +1,23 @@
 {
-    "id": "Wan2.2-TI2V-5B",
+    "id": "Qwen-Image-Edit-2509",
     "variables": {
-        "model_name": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
-        "prompt": "a bird flies"
+        "model_name": "Qwen/Qwen-Image-Edit-2509",
+        "prompt": "everyone has a dirty goalie mask over the lower half of their faces",
+        "first_image": {
+            "location": "https://pbs.twimg.com/media/G6TV9A7WAAEHoBL?format=jpg&name=large"
+        },
+        "second_image": {
+            "location": "https://th.bing.com/th/id/R.a5b35bd3be14d93ea949e839b14432f2?rik=stSvdSMw6UPEQw&riu=http%3a%2f%2fcostumerocket.com%2fwp-content%2fuploads%2f2019%2f04%2fhannibal-lecter-straight-jacket.jpg&ehk=EzwoIJ830VwdOnxwxixQN7wXhyMyQtvNtKdO02HU2yE%3d&risl=&pid=ImgRaw&r=0"
+        }
     },
     "steps": [
         {
-            "name": "text2video",
+            "name": "edit_image",
             "pipeline": {
-                "vae": {
-                    "configuration": {
-                        "component_type": "AutoencoderKLWan"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "variable:model_name",
-                        "subfolder": "vae",
-                        "torch_dtype": "torch.float32"
-                    }
-                },
                 "transformer": {
                     "configuration": {
-                        "component_type": "WanTransformer3DModel"
+                        "component_type": "QwenImageTransformer2DModel",
+                        "device": "cpu"
                     },
                     "quantization_config": {
                         "configuration": {
@@ -29,7 +26,10 @@
                         "arguments": {
                             "load_in_4bit": true,
                             "bnb_4bit_quant_type": "{nf4}",
-                            "bnb_4bit_compute_dtype": "torch.bfloat16"
+                            "bnb_4bit_compute_dtype": "torch.bfloat16",
+                            "llm_int8_skip_modules": [
+                                "transformer_blocks.0.img_mod"
+                            ]
                         }
                     },
                     "from_pretrained_arguments": {
@@ -40,7 +40,8 @@
                 },
                 "text_encoder": {
                     "configuration": {
-                        "component_type": "transdormers.UMT5EncoderModel"
+                        "component_type": "transformers.Qwen2_5_VLForConditionalGeneration",
+                        "device": "cpu"
                     },
                     "quantization_config": {
                         "configuration": {
@@ -59,25 +60,28 @@
                     }
                 },
                 "configuration": {
-                    "component_type": "WanPipeline",
+                    "component_type": "QwenImageEditPlusPipeline",
                     "offload": "model"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "variable:model_name",
                     "torch_dtype": "torch.bfloat16"
                 },
+                "loras": [
+                    {
+                        "model_name": "lightx2v/Qwen-Image-Lightning",
+                        "weight_name": "Qwen-Image-Lightning-8steps-V1.1.safetensors"
+                    }
+                ],
                 "arguments": {
                     "prompt": "variable:prompt",
-                    "height": 704,
-                    "width": 1280,
-                    "num_inference_steps": 50,
-                    "num_frames": 121,
-                    "guidance_scale": 5.0
+                    "num_inference_steps": 8,
+                    "image": "variable:first_image",
+                    "true_cfg_scale": 4.0
                 }
             },
             "result": {
-                "content_type": "video/mp4",
-                "fps": 15
+                "content_type": "image/png"
             }
         }
     ]

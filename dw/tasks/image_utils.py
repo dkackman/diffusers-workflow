@@ -15,7 +15,6 @@ from controlnet_aux import (
     LeresDetector,
     TEEDdetector,
     AnylineDetector,
-    MediapipeFaceDetector,
     CannyDetector,
     LineartStandardDetector,
     DWposeDetector,
@@ -96,10 +95,6 @@ def process_image(image, processor, device_identifier, kwargs):
 
     if processor == "shuffle":
         processor = ContentShuffleDetector()
-        return processor(image, **kwargs)
-
-    if processor == "face_detector":
-        processor = MediapipeFaceDetector()
         return processor(image, **kwargs)
 
     if processor == "canny":
