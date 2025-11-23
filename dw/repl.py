@@ -363,43 +363,45 @@ class DiffusersWorkflowREPL(cmd.Cmd):
                         )
                         break
                     elif result_type == "error":
-                        print("\n" + "="*80)
+                        print("\n" + "=" * 80)
                         print(f"ERROR: {result['message']}")
                         if "traceback" in result:
                             print("\nTraceback:")
                             print(result["traceback"])
-                        print("="*80)
+                        print("=" * 80)
                         print("Worker process encountered an error and stopped.\n")
                         break
                     elif result_type == "worker_crashed":
-                        print("\n" + "="*80)
+                        print("\n" + "=" * 80)
                         print(f"WORKER CRASHED: {result['message']}")
                         if "traceback" in result:
                             print("\nTraceback:")
                             print(result["traceback"])
-                        print("="*80)
-                        print("Worker process has terminated. Use 'restart' to start a new worker.\n")
+                        print("=" * 80)
+                        print(
+                            "Worker process has terminated. Use 'restart' to start a new worker.\n"
+                        )
                         self.worker_active = False
                         break
                     else:
                         print(f"Unknown result type: {result_type}")
 
                 except Exception as e:
-                    print("\n" + "="*80)
+                    print("\n" + "=" * 80)
                     print(f"ERROR receiving results: {e}")
-                    print("="*80)
+                    print("=" * 80)
                     print("Worker communication failed. Shutting down worker.\n")
                     self._shutdown_worker()
                     break
 
         except SecurityError as e:
-            print("\n" + "="*80)
+            print("\n" + "=" * 80)
             print(f"SECURITY ERROR: {e}")
-            print("="*80 + "\n")
+            print("=" * 80 + "\n")
         except Exception as e:
-            print("\n" + "="*80)
+            print("\n" + "=" * 80)
             print(f"ERROR running workflow: {str(e)}")
-            print("="*80)
+            print("=" * 80)
             print("Shutting down worker.\n")
             self._shutdown_worker()
 
