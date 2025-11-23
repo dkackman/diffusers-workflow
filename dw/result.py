@@ -5,6 +5,7 @@ import mimetypes
 import logging
 from diffusers.utils import export_to_video, export_to_gif
 from collections.abc import Iterable
+from .security import validate_output_path, validate_string_input, SecurityError
 
 logger = logging.getLogger("dw")
 
@@ -87,11 +88,23 @@ class Result:
             output_dir: Directory to save files in
             default_base_name: Default name to use for files
         """
-
-        # Add directory check/creation
-        if not os.path.exists(output_dir):
-            logger.debug(f"Creating output directory: {output_dir}")
-            os.makedirs(output_dir, exist_ok=True)
+        try:
+            # Validate output directory
+            validated_output_dir = validate_output_path(output_dir, None)
+            validated_base_name = validate_string_input(default_base_name, max_length=200)
+            
+            # Add directory check/creation
+            if not os.path.exists(validated_output_dir):
+                logger.debug(f"Creating output directory: {validated_output_dir}")
+                os.makedirs(validated_output_dir, exist_ok=True)
+            elif not os.path.isdir(validated_output_dir):
+                raise ValueError(f"Output path exists but is not a directory: {validated_output_dir}")
+        except SecurityError as e:
+            logger.error(f"Security validation failed for output: {e}")
+            raise
+        except (OSError, PermissionError) as e:
+            logger.error(f"Failed to create output directory: {e}")
+            raise
 
         # Check if saving is enabled and content type is specified
         content_type = self.result_definition.get("content_type", None)
@@ -99,12 +112,13 @@ class Result:
             logger.debug("Skipping save - disabled or no content type specified")
             return
 
-        # Determine base filename
-        file_base_name = default_base_name
+        # Determine base filename with validation
+        file_base_name = validated_base_name
         if "file_base_name" in self.result_definition:
-            file_base_name = (
-                self.result_definition["file_base_name"] + default_base_name
+            custom_base = validate_string_input(
+                self.result_definition["file_base_name"], max_length=200
             )
+            file_base_name = custom_base + validated_base_name
 
         # Get file extension for content type
         extension = guess_extension(content_type)
@@ -117,7 +131,7 @@ class Result:
             if content_type.endswith("json"):
                 # Handle JSON content type
                 output_path = os.path.join(
-                    output_dir, f"{file_base_name}-{i}{extension}"
+                    validated_output_dir, f"{file_base_name}-{i}{extension}"
                 )
                 logger.info(f"Saving JSON result to {output_path}")
                 with open(output_path, "w") as file:
@@ -126,7 +140,7 @@ class Result:
                 # Handle other content types
                 for j, artifact in enumerate(get_artifact_list(result)):
                     self.save_artifact(
-                        output_dir,
+                        validated_output_dir,
                         artifact,
                         f"{file_base_name}-{i}.{j}",
                         content_type,
@@ -149,6 +163,14 @@ class Result:
             logger.warning(f"Skipping None artifact for {file_base_name}")
             return
 
+        try:
+            # Validate inputs
+            validated_output_dir = validate_output_path(output_dir, None)
+            validated_base_name = validate_string_input(file_base_name, max_length=200)
+        except SecurityError as e:
+            logger.error(f"Security validation failed for artifact save: {e}")
+            raise
+
         if isinstance(artifact, dict):
             # Recursively save dictionary items
             logger.debug(
@@ -156,11 +178,11 @@ class Result:
             )
             for k, v in artifact.items():
                 self.save_artifact(
-                    output_dir, v, f"{file_base_name}-{k}", content_type, extension
+                    validated_output_dir, v, f"{validated_base_name}-{k}", content_type, extension
                 )
             return
 
-        output_path = os.path.join(output_dir, f"{file_base_name}{extension}")
+        output_path = os.path.join(validated_output_dir, f"{validated_base_name}{extension}")
         logger.info(f"Saving artifact to {output_path}")
 
         try:

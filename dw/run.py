@@ -2,6 +2,10 @@ import argparse
 import os
 from . import startup
 from .workflow import workflow_from_file
+from .security import (
+    validate_workflow_path, validate_output_path, validate_variable_name,
+    validate_string_input, SecurityError
+)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a workflow from a file.")
@@ -29,26 +33,41 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # Parse key-value pairs
+    # Parse key-value pairs with validation
     variables = {}
     for variable in args.variables:
         try:
             name, value = variable.split("=", 1)
-            variables[name.strip()] = value.strip()
+            # Validate variable name and value
+            validated_name = validate_variable_name(name.strip())
+            validated_value = validate_string_input(value.strip(), max_length=10000, allow_empty=True)
+            variables[validated_name] = validated_value
         except ValueError:
             print(f"Error: Variable '{variable}' is not in name=value format")
             exit(1)
+        except SecurityError as e:
+            print(f"Error: Invalid variable input: {e}")
+            exit(1)
 
-    if not os.path.exists(args.output_dir):
-        raise FileNotFoundError(f"Output directory {args.output_dir} does not exist")
+    # Validate and secure file paths
+    try:
+        validated_output_dir = validate_output_path(args.output_dir, None)
+        if not os.path.exists(validated_output_dir):
+            # Create output directory if it doesn't exist
+            os.makedirs(validated_output_dir, exist_ok=True)
+            print(f"Created output directory: {validated_output_dir}")
 
-    file_path = os.path.abspath(args.file_name)
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File {file_path} does not exist")
+        validated_file_path = validate_workflow_path(args.file_name)
+        if not os.path.exists(validated_file_path):
+            raise FileNotFoundError(f"File {validated_file_path} does not exist")
+            
+    except SecurityError as e:
+        print(f"Error: Security validation failed: {e}")
+        exit(1)
 
     startup(args.log_level)
 
-    workflow = workflow_from_file(file_path, args.output_dir)
+    workflow = workflow_from_file(validated_file_path, validated_output_dir)
     try:
         workflow.validate()
     except Exception as e:

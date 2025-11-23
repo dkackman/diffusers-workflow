@@ -1,5 +1,6 @@
 import logging
 import PIL
+from .security import validate_variable_name, validate_string_input, SecurityError
 
 logger = logging.getLogger("dw")
 
@@ -48,7 +49,7 @@ def replace_variables(data, variables):
 
 def set_variables(values, variables):
     """
-    Sets the values of variables from a dictionary of new values
+    Sets the values of variables from a dictionary of new values with validation
     Args:
         values: Dictionary of new values to set
         variables: Dictionary of existing variables with their default values/types
@@ -60,9 +61,23 @@ def set_variables(values, variables):
         raise TypeError("Both values and variables must be dictionaries")
 
     for k, v in values.items():
-        logger.debug(f"Setting variable {k} to value: {v}")
-        # Use the type of the existing variable to convert the new value
-        variables[k] = get_value(v, type(variables[k]))
+        try:
+            # Validate variable name
+            validated_name = validate_variable_name(k)
+            
+            # Validate string values
+            if isinstance(v, str):
+                validated_value = validate_string_input(v, max_length=10000, allow_empty=True)
+            else:
+                validated_value = v
+                
+            logger.debug(f"Setting variable {validated_name} to value: {validated_value}")
+            # Use the type of the existing variable to convert the new value
+            variables[validated_name] = get_value(validated_value, type(variables[validated_name]))
+            
+        except SecurityError as e:
+            logger.error(f"Security validation failed for variable {k}: {e}")
+            raise
 
 
 def get_value(v, desired_type):
@@ -76,19 +91,20 @@ def get_value(v, desired_type):
     """
     logger.debug(f"Converting value {v} to type {desired_type}")
 
-    if desired_type is None:
+    if desired_type is None or desired_type is type(None):
         logger.warning("No type specified for conversion, returning original value")
         return v
 
     # Special handling for boolean string values
-    if isinstance(v, str):
+    if isinstance(v, str) and desired_type is bool:
         if v.lower() == "true":
             return True
         if v.lower() == "false":
             return False
+        # If not "true" or "false", fall through to regular conversion
 
     # special handling for images that have already been realized
-    elif isinstance(v, PIL.Image.Image):
+    if isinstance(v, PIL.Image.Image):
         return v
 
     # Attempt type conversion, return original value if it fails

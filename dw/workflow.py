@@ -10,16 +10,36 @@ from .schema import validate_data, load_schema
 from .variables import replace_variables, set_variables
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.task import Task
+from .security import (
+    validate_workflow_path, validate_json_size, validate_output_path,
+    SecurityError, PathTraversalError, InvalidInputError
+)
 
 
 logger = logging.getLogger("dw")
 
 
 def workflow_from_file(file_spec, output_dir):
-    """Loads a workflow from a JSON file"""
+    """Loads a workflow from a JSON file with security validation"""
     logger.debug(f"Loading workflow from file: {file_spec}")
-    with open(file_spec, "r") as file:
-        return Workflow(json.load(file), output_dir, file_spec)
+    
+    try:
+        # Validate file path and size
+        validated_path = validate_workflow_path(file_spec)
+        validate_json_size(validated_path)
+        validated_output = validate_output_path(output_dir, None)
+        
+        with open(validated_path, "r") as file:
+            workflow_data = json.load(file)
+            
+        return Workflow(workflow_data, validated_output, validated_path)
+        
+    except SecurityError as e:
+        logger.error(f"Security validation failed for workflow {file_spec}: {e}")
+        raise
+    except (json.JSONDecodeError, OSError) as e:
+        logger.error(f"Failed to load workflow from {file_spec}: {e}")
+        raise
 
 
 class Workflow:
@@ -93,6 +113,11 @@ class Workflow:
             # realize any arguments for the steps, i.e. load images etc
             # that are referenced directly in the step
             steps = copy.deepcopy(self.workflow_definition).get("steps", [])
+            
+            if not steps:
+                logger.warning(f"Workflow {workflow_id} has no steps defined")
+                return []
+            
             realize_args(steps)
 
             # Execute each step in sequence
@@ -118,8 +143,10 @@ class Workflow:
 
         except Exception as e:
             logger.error(
-                f"Error running workflow {self.workflow_definition.get('id', 'unknown')}: {e}"
+                f"Error running workflow {self.workflow_definition.get('id', 'unknown')}: {e}",
+                exc_info=True
             )
+            raise
 
     def create_step_action(
         self,
@@ -167,18 +194,31 @@ class Workflow:
             logger.debug(f"Loading sub-workflow for step: {step_definition['name']}")
             workflow_reference = step_definition["workflow"]
             path = workflow_reference["path"]
-            # Handle built-in workflows
-            if path.startswith("builtin:"):
-                path = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)),
-                    "workflows",
-                    path.replace("builtin:", ""),
-                )
-            # Handle relative paths
-            elif not os.path.isabs(path):
-                path = os.path.join(os.path.dirname(self.file_spec), path)
-
-            workflow = workflow_from_file(path, self.output_dir)
+            
+            try:
+                # Handle built-in workflows
+                if path.startswith("builtin:"):
+                    builtin_name = path.replace("builtin:", "")
+                    # Validate builtin workflow name
+                    if not builtin_name.endswith('.json') or '/' in builtin_name or '\\' in builtin_name:
+                        raise InvalidInputError(f"Invalid builtin workflow name: {builtin_name}")
+                    path = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        "workflows",
+                        builtin_name,
+                    )
+                # Handle relative paths
+                elif not os.path.isabs(path):
+                    base_dir = os.path.dirname(self.file_spec)
+                    path = os.path.join(base_dir, path)
+                
+                # Validate the resolved path
+                validated_path = validate_workflow_path(path)
+                workflow = workflow_from_file(validated_path, self.output_dir)
+                
+            except SecurityError as e:
+                logger.error(f"Security validation failed for sub-workflow {path}: {e}")
+                raise
 
             # this is where the arguments in the paretn script are passed to the child workflow
             # they will already be populated with values from previous steps or parent variables
