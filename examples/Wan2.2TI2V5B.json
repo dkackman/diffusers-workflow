@@ -84,8 +84,8 @@
                     "prompt": "variable:prompt",
                     "height": 480,
                     "width": 640,
-                    "num_inference_steps": 50,
-                    "num_frames": 242,
+                    "num_inference_steps": 10,
+                    "num_frames": 121,
                     "guidance_scale": 5.0,
                     "negative_prompt": "variable:negative_prompt",
                     "image": "variable:image"

@@ -62,7 +62,7 @@ def fetch_image(img_spec):
     Load image from file path or URL with security validation.
 
     Args:
-        img_spec: Image specification (file path or URL)
+        img_spec: Image specification (file path, URL, dict with 'location' key, or PIL Image)
 
     Returns:
         Loaded PIL Image or None if img_spec is None
@@ -73,6 +73,19 @@ def fetch_image(img_spec):
     """
     if img_spec is None:
         return None
+
+    # If already a PIL Image, return as-is (allows multiple realize_args calls)
+    if hasattr(img_spec, "mode") and hasattr(img_spec, "size"):
+        logger.debug(f"Image already loaded, returning as-is")
+        return img_spec
+
+    # Handle dict format: {"location": "url_or_path"}
+    if isinstance(img_spec, dict):
+        if "location" not in img_spec:
+            raise ValueError(
+                f"Image dict must have 'location' key, got keys: {list(img_spec.keys())}"
+            )
+        img_spec = img_spec["location"]
 
     if not isinstance(img_spec, str):
         raise ValueError(f"Image specification must be a string, got {type(img_spec)}")
@@ -107,7 +120,7 @@ def fetch_video(video_spec):
     Load video from file path or URL with security validation.
 
     Args:
-        video_spec: Video specification (file path or URL)
+        video_spec: Video specification (file path, URL, dict with 'location' key, or loaded frames)
 
     Returns:
         Loaded video frames or None if video_spec is None
@@ -118,6 +131,19 @@ def fetch_video(video_spec):
     """
     if video_spec is None:
         return None
+
+    # If already loaded video frames (list/array), return as-is
+    if isinstance(video_spec, (list, tuple)):
+        logger.debug(f"Video frames already loaded, returning as-is")
+        return video_spec
+
+    # Handle dict format: {"location": "url_or_path"}
+    if isinstance(video_spec, dict):
+        if "location" not in video_spec:
+            raise ValueError(
+                f"Video dict must have 'location' key, got keys: {list(video_spec.keys())}"
+            )
+        video_spec = video_spec["location"]
 
     if not isinstance(video_spec, str):
         raise ValueError(

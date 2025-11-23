@@ -23,6 +23,24 @@ class TestFetchImage:
             fetch_image(123)
         assert "must be a string" in str(exc_info.value)
 
+    def test_fetch_image_dict_format(self):
+        """Test that image can be specified as dict with 'location' key"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            test_image = Image.new("RGB", (100, 100), color="blue")
+            image_path = os.path.join(temp_dir, "test.png")
+            test_image.save(image_path)
+
+            # Test dict format
+            loaded_image = fetch_image({"location": image_path})
+            assert isinstance(loaded_image, Image.Image)
+            assert loaded_image.size == (100, 100)
+
+    def test_fetch_image_dict_missing_location(self):
+        """Test that dict without 'location' key raises error"""
+        with pytest.raises(ValueError) as exc_info:
+            fetch_image({"invalid": "key"})
+        assert "location" in str(exc_info.value).lower()
+
     def test_fetch_image_from_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create a test image
@@ -74,6 +92,22 @@ class TestFetchVideo:
         with pytest.raises(ValueError) as exc_info:
             fetch_video(456)
         assert "must be a string" in str(exc_info.value)
+
+    def test_fetch_video_dict_format(self):
+        """Test that video can be specified as dict with 'location' key"""
+        with patch("dw.arguments.load_video") as mock_load:
+            with patch("dw.arguments.validate_url") as mock_validate:
+                mock_validate.return_value = "https://example.com/video.mp4"
+                mock_load.return_value = ["frame1", "frame2"]
+
+                result = fetch_video({"location": "https://example.com/video.mp4"})
+                assert result == ["frame1", "frame2"]
+
+    def test_fetch_video_dict_missing_location(self):
+        """Test that dict without 'location' key raises error"""
+        with pytest.raises(ValueError) as exc_info:
+            fetch_video({"url": "test.mp4"})
+        assert "location" in str(exc_info.value).lower()
 
     @patch("dw.arguments.load_video")
     @patch("dw.arguments.validate_url")
