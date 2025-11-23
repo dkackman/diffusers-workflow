@@ -22,6 +22,7 @@ def test_unknown_task():
     assert "Unknown task" in str(exc_info.value)
 
 
+@pytest.mark.skip(reason="Requires network access to external URLs which may be flaky")
 def test_gather_images_task():
     task_def = {
         "command": "gather_images",

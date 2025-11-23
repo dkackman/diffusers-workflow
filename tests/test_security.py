@@ -92,7 +92,11 @@ def test_string_input_validation():
     
     # Strings with null bytes should fail
     with pytest.raises(InvalidInputError):
-        validate_string_input("hello\\x00world")
+        validate_string_input("hello\x00world")
+    
+    # Strings with invalid control characters should fail (not tab/newline/CR)
+    with pytest.raises(InvalidInputError):
+        validate_string_input("hello\x01world")
 
 
 def test_command_sanitization():
