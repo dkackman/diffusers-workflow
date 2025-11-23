@@ -11,7 +11,6 @@ This is a simple, declaritive workflow engine for the [Huggingface Diffuser proj
 ## Features
 
 - Make any workflow command line executable with variable substitution
-- **Interactive REPL with GPU Model Persistence** - Keep models loaded between runs for 2-4x faster iteration
 - Suppport for text to image & video and image to image & video workflows
 - Image describing and prompt augmentation using locally installed LLMs
 - Image processing tasks for controlnet workflows
@@ -112,12 +111,6 @@ Reusing loaded models from cache
 [... runs 2-4x faster! ...]
 Workflow completed successfully
 ```
-
-**Key Features:**
-- **GPU Model Persistence** - Models stay loaded between runs
-- **Automatic File Change Detection** - Reloads when workflow modified
-- **Memory Management** - Aggressive cleanup with `clear` command
-- **Memory Monitoring** - Check GPU usage with `memory` command
 
 See [REPL_WORKER_GUIDE.md](REPL_WORKER_GUIDE.md) for complete documentation.
 
