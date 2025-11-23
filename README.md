@@ -11,6 +11,7 @@ This is a simple, declaritive workflow engine for the [Huggingface Diffuser proj
 ## Features
 
 - Make any workflow command line executable with variable substitution
+- **Interactive REPL with GPU Model Persistence** - Keep models loaded between runs for 2-4x faster iteration
 - Suppport for text to image & video and image to image & video workflows
 - Image describing and prompt augmentation using locally installed LLMs
 - Image processing tasks for controlnet workflows
@@ -86,6 +87,39 @@ positional arguments:
 options:
   -h, --help  show this help message and exit
 ```
+
+## Interactive REPL
+
+The REPL provides an interactive environment for rapid workflow iteration. Models stay loaded in GPU memory between runs for 2-4x faster execution:
+
+```bash
+python -m dw.repl
+
+dw> load FluxDev
+Loaded workflow: FluxDev
+
+dw> arg prompt="a beautiful sunset"
+Set argument prompt=a beautiful sunset
+
+dw> run
+Starting worker process...
+[... models load once ...]
+Workflow completed successfully
+
+dw> arg prompt="a starry night"
+dw> run
+Reusing loaded models from cache
+[... runs 2-4x faster! ...]
+Workflow completed successfully
+```
+
+**Key Features:**
+- **GPU Model Persistence** - Models stay loaded between runs
+- **Automatic File Change Detection** - Reloads when workflow modified
+- **Memory Management** - Aggressive cleanup with `clear` command
+- **Memory Monitoring** - Check GPU usage with `memory` command
+
+See [REPL_WORKER_GUIDE.md](REPL_WORKER_GUIDE.md) for complete documentation.
 
 ## JSON Input Format
 

@@ -3,15 +3,25 @@ import sys
 import argparse
 import logging
 import os
+import multiprocessing
 from . import startup
 from .workflow import workflow_from_file
+from .worker import worker_main
 from .security import (
     validate_path, validate_workflow_path, validate_output_path,
     validate_variable_name, validate_string_input, sanitize_command_args,
     SecurityError, PathTraversalError, InvalidInputError
 )
 import torch
-import subprocess 
+
+# CRITICAL: Set multiprocessing start method to 'spawn' for CUDA compatibility
+# Must be done before any multiprocessing operations
+if multiprocessing.get_start_method(allow_none=True) != 'spawn':
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError:
+        # Already set, ignore
+        pass 
 
 logger = logging.getLogger("dw")
 
@@ -33,6 +43,12 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         }
         self.current_workflow = None
         self.workflow_args = {}  # Store workflow arguments
+        
+        # Worker process management
+        self.worker_process = None
+        self.command_queue = None
+        self.result_queue = None
+        self.worker_active = False
     
     def preloop(self):
         """Hook method executed once when cmdloop() is called."""
@@ -56,6 +72,7 @@ class DiffusersWorkflowREPL(cmd.Cmd):
     
     def do_exit(self, arg):
         """Exit the REPL"""
+        self._shutdown_worker()
         print('Goodbye!')
         return True
     
@@ -165,6 +182,44 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         self.workflow_args = {}
         print("All workflow arguments cleared")
     
+    def do_clear(self, arg):
+        """Clear GPU memory and restart worker process"""
+        if not self.worker_active:
+            print("No worker process running")
+            return
+        
+        try:
+            print("Clearing GPU memory...")
+            self.command_queue.put({'type': 'clear_memory'})
+            
+            # Wait for response
+            result = self.result_queue.get(timeout=30)
+            if result['type'] == 'memory_cleared':
+                self._print_memory_info(result.get('info', {}))
+                print("GPU memory cleared successfully")
+            else:
+                print(f"Unexpected response: {result}")
+        except Exception as e:
+            print(f"Error clearing memory: {e}")
+            self._shutdown_worker()
+    
+    def do_memory(self, arg):
+        """Show current GPU memory usage"""
+        if not self.worker_active:
+            print("No worker process running")
+            return
+        
+        try:
+            self.command_queue.put({'type': 'memory_status'})
+            result = self.result_queue.get(timeout=5)
+            
+            if result['type'] == 'memory_status':
+                self._print_memory_info(result.get('info', {}))
+            else:
+                print(f"Unexpected response: {result}")
+        except Exception as e:
+            print(f"Error getting memory status: {e}")
+    
     def do_load(self, arg):
         """Load a workflow from a JSON file. Usage: load [path/to/]workflow[.json]"""
         if not arg:
@@ -213,6 +268,12 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             # Try to validate the workflow immediately
             try:
                 workflow.validate()
+                
+                # If workflow changed, shutdown worker (will restart on next run)
+                old_path = self.current_workflow.file_spec if self.current_workflow else None
+                if old_path != file_path:
+                    self._shutdown_worker()
+                
                 self.current_workflow = workflow
                 # Clear any existing arguments when loading new workflow
                 self.workflow_args = {}
@@ -241,68 +302,66 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             return
         
         try:
+            # Validate inputs
+            output_dir = validate_output_path(self.globals['output_dir'], None)
+            workflow_spec = validate_workflow_path(self.current_workflow.file_spec)
+            
+            # Ensure worker is running
+            self._ensure_worker()
+            
             print(f"Running workflow: {self.current_workflow.name}")
-            print(f"Using arguments: {self.workflow_args}")
+            if self.workflow_args:
+                print(f"Using arguments: {self.workflow_args}")
             
-            # Build command line arguments with security validation
-            try:
-                # Validate all inputs before building command
-                output_dir = validate_output_path(self.globals['output_dir'], None)
-                log_level = validate_string_input(self.globals['log_level'], 20)
-                workflow_spec = validate_workflow_path(self.current_workflow.file_spec)
-                
-                # Build base command
-                cmd = [
-                    "python",
-                    "-Xfrozen_modules=off",
-                    "-m",
-                    "dw.run",
-                    "-o", output_dir,
-                    "-l", log_level,
-                    workflow_spec
-                ]
-                
-                # Add workflow arguments as name=value pairs with validation
-                for name, value in self.workflow_args.items():
-                    validated_name = validate_variable_name(name)
-                    validated_value = validate_string_input(str(value), max_length=10000, allow_empty=True)
-                    cmd.append(f"{validated_name}={validated_value}")
-                
-                # Sanitize command arguments
-                sanitized_cmd = sanitize_command_args(cmd)
-                
-            except SecurityError as e:
-                print(f"Error: Security validation failed: {e}")
-                return
+            # Send execute command to worker
+            self.command_queue.put({
+                'type': 'execute',
+                'workflow_path': workflow_spec,
+                'arguments': self.workflow_args,
+                'output_dir': output_dir,
+                'log_level': self.globals['log_level']
+            })
             
-            # Run the workflow in a subprocess with streaming output
-            process = subprocess.Popen(
-                sanitized_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # Redirect stderr to stdout
-                text=True,
-                bufsize=1,  # Line buffered
-                universal_newlines=True,
-                shell=False  # Never use shell=True for security
-            )
-            
-            # Stream output in real-time
+            # Process results from worker
             while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
+                try:
+                    result = self.result_queue.get(timeout=300)  # 5 minute timeout
+                    result_type = result.get('type')
+                    
+                    if result_type == 'output':
+                        print(result['message'])
+                    elif result_type == 'workflow_loaded':
+                        print(f"Models loaded for workflow: {result['workflow_name']}")
+                    elif result_type == 'memory_info':
+                        self._print_memory_info(result['info'])
+                    elif result_type == 'success':
+                        print(result['message'])
+                        run_count = result.get('run_count', 0)
+                        print(f"(Workflow has been executed {run_count} time(s) in this session)")
+                        break
+                    elif result_type == 'error':
+                        print(f"Error: {result['message']}")
+                        if 'traceback' in result:
+                            print("\nTraceback:")
+                            print(result['traceback'])
+                        break
+                    elif result_type == 'worker_crashed':
+                        print(f"Worker crashed: {result['message']}")
+                        self.worker_active = False
+                        break
+                    else:
+                        print(f"Unknown result type: {result_type}")
+                        
+                except Exception as e:
+                    print(f"Error receiving results: {e}")
+                    self._shutdown_worker()
                     break
-                if output:
-                    print(output.rstrip())
-                
-            # Get return code and handle completion
-            return_code = process.poll()
-            if return_code == 0:
-                print("Workflow completed successfully")
-            else:
-                print(f"Workflow failed with return code {return_code}")
-            
+                    
+        except SecurityError as e:
+            print(f"Error: Security validation failed: {e}")
         except Exception as e:
-            print(f"Error launching workflow: {str(e)}")
+            print(f"Error running workflow: {str(e)}")
+            self._shutdown_worker()
     
     def do_reload(self, arg):
         """Reload the current workflow from its file"""
@@ -330,6 +389,62 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         """Handle unknown commands"""
         print(f"Unknown command: {line}")
         print("Type 'help' for a list of commands")
+    
+    def _ensure_worker(self):
+        """Start worker process if not running"""
+        if self.worker_process is None or not self.worker_process.is_alive():
+            print("Starting worker process...")
+            self.command_queue = multiprocessing.Queue()
+            self.result_queue = multiprocessing.Queue()
+            
+            self.worker_process = multiprocessing.Process(
+                target=worker_main,
+                args=(self.command_queue, self.result_queue, self.globals['log_level'])
+            )
+            self.worker_process.start()
+            self.worker_active = True
+            print("Worker process started")
+    
+    def _shutdown_worker(self):
+        """Gracefully shutdown worker process"""
+        if self.worker_process and self.worker_process.is_alive():
+            print("Shutting down worker process...")
+            try:
+                self.command_queue.put({'type': 'shutdown'})
+                self.worker_process.join(timeout=10)
+                
+                if self.worker_process.is_alive():
+                    print("Worker did not shutdown gracefully, terminating...")
+                    self.worker_process.terminate()
+                    self.worker_process.join(timeout=5)
+                    
+                    if self.worker_process.is_alive():
+                        print("Worker did not terminate, killing...")
+                        self.worker_process.kill()
+                        
+            except Exception as e:
+                print(f"Error shutting down worker: {e}")
+            finally:
+                self.worker_active = False
+                self.worker_process = None
+    
+    def _print_memory_info(self, info):
+        """Print formatted memory information"""
+        if not info.get('gpu_available'):
+            print("GPU not available")
+            return
+        
+        print(f"\nGPU Memory Status:")
+        print(f"  Device: {info.get('gpu_device_name', 'Unknown')}")
+        print(f"  Allocated: {info.get('gpu_memory_allocated_mb', 0):.1f} MB")
+        print(f"  Reserved: {info.get('gpu_memory_reserved_mb', 0):.1f} MB")
+        
+        if 'gpu_memory_free_mb' in info:
+            print(f"  Free: {info.get('gpu_memory_free_mb', 0):.1f} MB")
+            print(f"  Total: {info.get('gpu_memory_total_mb', 0):.1f} MB")
+        
+        print(f"  Runs in this session: {info.get('run_count', 0)}")
+        print()
 
 def main():
     """Start the REPL interface"""

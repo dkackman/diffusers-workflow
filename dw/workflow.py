@@ -85,11 +85,15 @@ class Workflow:
         4. Managing results between steps
         """
         try:
-            workflow_id = self.workflow_definition["id"]
+            # CRITICAL: Work on a copy to avoid mutating the original workflow definition
+            # This allows the workflow to be run multiple times with different arguments
+            workflow_def = copy.deepcopy(self.workflow_definition)
+            
+            workflow_id = workflow_def["id"]
             logger.debug(f"Processing workflow: {workflow_id}")
 
             # Handle variable substitution if variables are defined
-            variables = self.workflow_definition.get("variables", None)
+            variables = workflow_def.get("variables", None)
             if variables is not None:
                 logger.debug(f"Setting variables for workflow: {workflow_id}")
                 # first set variable values base don the arguments passed to the workflow
@@ -98,21 +102,30 @@ class Workflow:
                 # realize the variables, initialiting downloads of images etc
                 realize_args(variables)
                 ## then replace any variable references in the workflow definition with the actual values
-                replace_variables(self.workflow_definition, variables)
+                replace_variables(workflow_def, variables)
 
             # Set up random seed for reproducibility
-            default_seed = self.workflow_definition.get("seed", torch.seed())
-            self.workflow_definition["seed"] = default_seed
+            default_seed = workflow_def.get("seed", torch.seed())
+            workflow_def["seed"] = default_seed
 
             # Initialize collections for sharing state between steps
             results = {}  # Stores results from each step
             shared_components = {}  # Shared resources between steps
-            pipelines = {}  # Active pipelines
+            
+            # Use provided pipelines cache or create new dict
+            # This allows pipeline reuse across multiple workflow runs
+            if previous_pipelines is None:
+                pipelines = {}
+                logger.debug("Starting with empty pipeline cache")
+            else:
+                pipelines = previous_pipelines
+                logger.debug(f"Reusing pipeline cache with {len(pipelines)} pipelines")
+            
             last_result = None  # Final result is the workflow return value
 
             # realize any arguments for the steps, i.e. load images etc
             # that are referenced directly in the step
-            steps = copy.deepcopy(self.workflow_definition).get("steps", [])
+            steps = workflow_def.get("steps", [])
             
             if not steps:
                 logger.warning(f"Workflow {workflow_id} has no steps defined")
@@ -136,16 +149,18 @@ class Workflow:
                 results[step.name] = result
                 result.save(self.output_dir, f"{workflow_id}-{step.name}.{i}")
                 logger.debug(f"Step {step.name} completed with result: {result}")
+                
+                # Cleanup between steps (but keep pipelines loaded)
+                import gc
+                gc.collect()
 
             logger.debug(f"Workflow {workflow_id} completed successfully")
             # Return only the last step's results for child workflows
             return last_result.result_list if last_result is not None else []
 
         except Exception as e:
-            logger.error(
-                f"Error running workflow {self.workflow_definition.get('id', 'unknown')}: {e}",
-                exc_info=True
-            )
+            workflow_id = self.workflow_definition.get('id', 'unknown')
+            logger.error(f"Error running workflow {workflow_id}: {e}", exc_info=True)
             raise
 
     def create_step_action(
