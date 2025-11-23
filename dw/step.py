@@ -50,6 +50,10 @@ class Step:
             logger.debug(f"Generated {len(iterations)} argument combinations")
 
             # Execute the action for each set of arguments
+            if not iterations:
+                logger.warning(f"Step {step_name} has no iterations to execute")
+                return result
+            
             for i, arguments in enumerate(iterations, 1):
                 logger.debug(
                     f"Running iteration {i}/{len(iterations)} with arguments: {arguments}"

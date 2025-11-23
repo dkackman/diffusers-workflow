@@ -5,6 +5,11 @@ import logging
 import os
 from . import startup
 from .workflow import workflow_from_file
+from .security import (
+    validate_path, validate_workflow_path, validate_output_path,
+    validate_variable_name, validate_string_input, sanitize_command_args,
+    SecurityError, PathTraversalError, InvalidInputError
+)
 import torch
 import subprocess 
 
@@ -70,11 +75,14 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             
             # Special handling for output_dir
             if name == 'output_dir':
-                # Convert to absolute path
-                value = os.path.abspath(value)
-                # Check if directory exists
-                if not os.path.exists(value):
-                    print(f"Warning: Directory '{value}' does not exist")
+                try:
+                    value = validate_output_path(value, None)
+                    # Check if directory exists
+                    if not os.path.exists(value):
+                        print(f"Warning: Directory '{value}' does not exist")
+                except SecurityError as e:
+                    print(f"Error: Invalid output directory: {e}")
+                    return
             
             # Special handling for log_level
             elif name == 'log_level':
@@ -88,9 +96,13 @@ class DiffusersWorkflowREPL(cmd.Cmd):
                 print(f"Log level set to {value}")
 
             elif name == 'workflow_dir':
-                value = os.path.abspath(value)
-                if not os.path.exists(value):
-                    print(f"Warning: Directory '{value}' does not exist")
+                try:
+                    value = validate_path(value, allow_create=False)
+                    if not os.path.exists(value):
+                        print(f"Warning: Directory '{value}' does not exist")
+                        return
+                except SecurityError as e:
+                    print(f"Error: Invalid workflow directory: {e}")
                     return
                 
             self.globals[name] = value
@@ -129,6 +141,14 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             name = name.strip()
             value = value.strip()
             
+            # Validate variable name
+            try:
+                name = validate_variable_name(name)
+                value = validate_string_input(value, max_length=10000, allow_empty=True)
+            except InvalidInputError as e:
+                print(f"Error: Invalid input: {e}")
+                return
+            
             # Verify this is a valid variable name for the workflow
             if name not in self.current_workflow.variables:
                 print(f"Error: '{name}' is not defined in workflow variables")
@@ -151,7 +171,11 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             print("Error: Please specify a workflow file path or name")
             return
         
-        file_path = arg.strip()
+        try:
+            file_path = validate_string_input(arg.strip(), max_length=1000)
+        except InvalidInputError as e:
+            print(f"Error: Invalid file path: {e}")
+            return
         
         # If this isn't an absolute path or relative path starting with ./ or ../
         if not os.path.isabs(file_path) and not file_path.startswith(('./','../')):
@@ -159,10 +183,21 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             # Add .json extension if not present
             if not file_path.endswith('.json'):
                 file_path = f"{file_path}.json"
-            file_path = os.path.join(self.globals['workflow_dir'], file_path)
-        
-        # Convert to absolute path
-        file_path = os.path.abspath(file_path)
+            try:
+                file_path = validate_path(
+                    os.path.join(self.globals['workflow_dir'], file_path),
+                    self.globals['workflow_dir'],
+                    allow_create=False
+                )
+            except SecurityError as e:
+                print(f"Error: Invalid workflow path: {e}")
+                return
+        else:
+            try:
+                file_path = validate_workflow_path(file_path, self.globals['workflow_dir'])
+            except SecurityError as e:
+                print(f"Error: Invalid workflow path: {e}")
+                return
         
         if not os.path.exists(file_path):
             print(f"Error: File {file_path} does not exist")
@@ -209,29 +244,46 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             print(f"Running workflow: {self.current_workflow.name}")
             print(f"Using arguments: {self.workflow_args}")
             
-            # Build command line arguments
-            cmd = [
-                "python",
-                "-Xfrozen_modules=off",
-                "-m",
-                "dw.run",
-                "-o", self.globals['output_dir'],
-                "-l", self.globals['log_level'],
-                self.current_workflow.file_spec
-            ]
-            
-            # Add workflow arguments as name=value pairs
-            for name, value in self.workflow_args.items():
-                cmd.append(f"{name}={value}")
+            # Build command line arguments with security validation
+            try:
+                # Validate all inputs before building command
+                output_dir = validate_output_path(self.globals['output_dir'], None)
+                log_level = validate_string_input(self.globals['log_level'], 20)
+                workflow_spec = validate_workflow_path(self.current_workflow.file_spec)
+                
+                # Build base command
+                cmd = [
+                    "python",
+                    "-Xfrozen_modules=off",
+                    "-m",
+                    "dw.run",
+                    "-o", output_dir,
+                    "-l", log_level,
+                    workflow_spec
+                ]
+                
+                # Add workflow arguments as name=value pairs with validation
+                for name, value in self.workflow_args.items():
+                    validated_name = validate_variable_name(name)
+                    validated_value = validate_string_input(str(value), max_length=10000, allow_empty=True)
+                    cmd.append(f"{validated_name}={validated_value}")
+                
+                # Sanitize command arguments
+                sanitized_cmd = sanitize_command_args(cmd)
+                
+            except SecurityError as e:
+                print(f"Error: Security validation failed: {e}")
+                return
             
             # Run the workflow in a subprocess with streaming output
             process = subprocess.Popen(
-                cmd,
+                sanitized_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # Redirect stderr to stdout
                 text=True,
                 bufsize=1,  # Line buffered
-                universal_newlines=True
+                universal_newlines=True,
+                shell=False  # Never use shell=True for security
             )
             
             # Stream output in real-time

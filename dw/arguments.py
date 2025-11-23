@@ -1,6 +1,8 @@
+import os
 import logging
 from .type_helpers import load_type_from_name
 from diffusers.utils import load_image, load_video
+from .security import validate_path, validate_url, SecurityError, ALLOWED_IMAGE_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
 
 logger = logging.getLogger("dw")
 
@@ -49,54 +51,87 @@ def realize_args(arg):
             realize_args(item)
 
 
-def fetch_image(image):
+def fetch_image(img_spec):
     """
-    Loads an image from a file path/URL or processes image configuration
+    Load image from file path or URL with security validation.
+    
     Args:
-        image: Can be:
-            - A string (treated as reference)
-            - A dict with 'location' key (path/URL to load)
-            - A dict with optional 'size' key for resizing
+        img_spec: Image specification (file path or URL)
+        
     Returns:
-        Loaded and optionally resized image
+        Loaded PIL Image or None if img_spec is None
+        
+    Raises:
+        SecurityError: If validation fails
+        ValueError: If img_spec is invalid type
     """
-    # Handle string references (usually for intermediate results)
-    if isinstance(image, str):
-        logger.debug(f"Using image reference: {image}")
-        return image
+    if img_spec is None:
+        return None
+    
+    if not isinstance(img_spec, str):
+        raise ValueError(f"Image specification must be a string, got {type(img_spec)}")
+        
+    logger.debug(f"Loading image from: {img_spec}")
+    
+    try:
+        # Check if it's a URL
+        if isinstance(img_spec, str) and (img_spec.startswith('http://') or img_spec.startswith('https://')):
+            validated_url = validate_url(img_spec)
+            return load_image(validated_url)
+        else:
+            # Treat as file path
+            validated_path = validate_path(str(img_spec), allow_create=False)
+            # Validate file extension
+            ext = os.path.splitext(validated_path)[1].lower()
+            if ext not in ALLOWED_IMAGE_EXTENSIONS:
+                raise SecurityError(f"Image file extension not allowed: {ext}")
+            return load_image(validated_path)
+            
+    except SecurityError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to load image {img_spec}: {e}")
+        raise
 
-    # Load image from location and apply optional resizing
-    if isinstance(image, dict) and "location" in image:
-        logger.info(f"Loading image from: {image['location']}")
-        img = load_image(image["location"])
 
-        if "size" in image:
-            logger.debug(f"Resizing image to: {image['size']}")
-            img = img.resize((image["size"]["width"], image["size"]["height"]))
-
-        return img
-
-    return image
-
-
-def fetch_video(video):
+def fetch_video(video_spec):
     """
-    Loads a video from a file path/URL
+    Load video from file path or URL with security validation.
+    
     Args:
-        video: Can be:
-            - A string (treated as reference)
-            - A dict with 'location' key (path/URL to load)
+        video_spec: Video specification (file path or URL)
+        
     Returns:
-        Loaded video
+        Loaded video frames or None if video_spec is None
+        
+    Raises:
+        SecurityError: If validation fails
+        ValueError: If video_spec is invalid type
     """
-    # Handle string references (usually for intermediate results)
-    if isinstance(video, str):
-        logger.debug(f"Using video reference: {video}")
-        return video
-
-    # Load video from location
-    if isinstance(video, dict) and "location" in video:
-        logger.info(f"Loading video from: {video['location']}")
-        return load_video(video["location"])
-
-    return video
+    if video_spec is None:
+        return None
+    
+    if not isinstance(video_spec, str):
+        raise ValueError(f"Video specification must be a string, got {type(video_spec)}")
+        
+    logger.debug(f"Loading video from: {video_spec}")
+    
+    try:
+        # Check if it's a URL  
+        if isinstance(video_spec, str) and (video_spec.startswith('http://') or video_spec.startswith('https://')):
+            validated_url = validate_url(video_spec)
+            return load_video(validated_url)
+        else:
+            # Treat as file path
+            validated_path = validate_path(str(video_spec), allow_create=False)
+            # Validate file extension
+            ext = os.path.splitext(validated_path)[1].lower()
+            if ext not in ALLOWED_VIDEO_EXTENSIONS:
+                raise SecurityError(f"Video file extension not allowed: {ext}")
+            return load_video(validated_path)
+            
+    except SecurityError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to load video {video_spec}: {e}")
+        raise

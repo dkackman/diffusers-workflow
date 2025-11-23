@@ -1,11 +1,12 @@
 import glob as glob_lib
 import logging
 from diffusers.utils import load_image, load_video
+from ..security import validate_path, validate_url, SecurityError, ALLOWED_IMAGE_EXTENSIONS
 
 logger = logging.getLogger("dw")
 
 
-def gather_images(glob=None, urls=[]):
+def gather_images(glob=None, urls=None):
     """
     Gather images from local files and/or URLs.
 
@@ -18,7 +19,10 @@ def gather_images(glob=None, urls=[]):
 
     Raises:
         ValueError: If no images are found
+        SecurityError: If validation fails
     """
+    if urls is None:
+        urls = []
     images = []
 
     # Load local images matching glob pattern
@@ -41,7 +45,10 @@ def gather_images(glob=None, urls=[]):
     for url in urls:
         try:
             logger.debug(f"Loading image from URL: {url}")
-            images.append(load_image(url))
+            validated_url = validate_url(url)
+            images.append(load_image(validated_url))
+        except SecurityError:
+            raise
         except Exception as e:
             logger.error(
                 f"Failed to load image from URL {url}: {str(e)}", exc_info=True
@@ -58,7 +65,7 @@ def gather_images(glob=None, urls=[]):
     return images
 
 
-def gather_videos(glob=None, urls=[]):
+def gather_videos(glob=None, urls=None):
     """
     Gather videos from local files and/or URLs.
 
@@ -69,6 +76,8 @@ def gather_videos(glob=None, urls=[]):
     Returns:
         List of loaded videos
     """
+    if urls is None:
+        urls = []
     videos = []
 
     # Load local videos matching glob pattern
@@ -91,7 +100,10 @@ def gather_videos(glob=None, urls=[]):
     for url in urls:
         try:
             logger.debug(f"Loading video from URL: {url}")
-            videos.append(load_video(url))
+            validated_url = validate_url(url)
+            videos.append(load_video(validated_url))
+        except SecurityError:
+            raise
         except Exception as e:
             logger.error(
                 f"Failed to load video from URL {url}: {str(e)}", exc_info=True
