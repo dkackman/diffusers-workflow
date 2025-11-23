@@ -62,7 +62,8 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         try:
             import readline
 
-            readline.read_history_file(".dw_history")
+            history_file = os.path.expanduser("~/.dw_history")
+            readline.read_history_file(history_file)
         except (ImportError, FileNotFoundError):
             pass
 
@@ -71,9 +72,14 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         try:
             import readline
 
-            readline.write_history_file(".dw_history")
+            history_file = os.path.expanduser("~/.dw_history")
+            readline.write_history_file(history_file)
         except (ImportError, FileNotFoundError):
             pass
+
+    def emptyline(self):
+        """Override emptyline to do nothing instead of repeating last command."""
+        pass
 
     def do_help(self, arg):
         """List available commands with "help" or detailed help with "help cmd"."""
@@ -357,27 +363,44 @@ class DiffusersWorkflowREPL(cmd.Cmd):
                         )
                         break
                     elif result_type == "error":
-                        print(f"Error: {result['message']}")
+                        print("\n" + "="*80)
+                        print(f"ERROR: {result['message']}")
                         if "traceback" in result:
                             print("\nTraceback:")
                             print(result["traceback"])
+                        print("="*80)
+                        print("Worker process encountered an error and stopped.\n")
                         break
                     elif result_type == "worker_crashed":
-                        print(f"Worker crashed: {result['message']}")
+                        print("\n" + "="*80)
+                        print(f"WORKER CRASHED: {result['message']}")
+                        if "traceback" in result:
+                            print("\nTraceback:")
+                            print(result["traceback"])
+                        print("="*80)
+                        print("Worker process has terminated. Use 'restart' to start a new worker.\n")
                         self.worker_active = False
                         break
                     else:
                         print(f"Unknown result type: {result_type}")
 
                 except Exception as e:
-                    print(f"Error receiving results: {e}")
+                    print("\n" + "="*80)
+                    print(f"ERROR receiving results: {e}")
+                    print("="*80)
+                    print("Worker communication failed. Shutting down worker.\n")
                     self._shutdown_worker()
                     break
 
         except SecurityError as e:
-            print(f"Error: Security validation failed: {e}")
+            print("\n" + "="*80)
+            print(f"SECURITY ERROR: {e}")
+            print("="*80 + "\n")
         except Exception as e:
-            print(f"Error running workflow: {str(e)}")
+            print("\n" + "="*80)
+            print(f"ERROR running workflow: {str(e)}")
+            print("="*80)
+            print("Shutting down worker.\n")
             self._shutdown_worker()
 
     def do_reload(self, arg):
