@@ -79,14 +79,18 @@ def get_previous_results(previous_results, previous_result_name):
     if "." not in previous_result_name:
         logger.debug(f"Getting all artifacts from result {previous_result_name}")
         if previous_result_name not in previous_results:
-            raise KeyError(f"Previous result '{previous_result_name}' not found. Available results: {list(previous_results.keys())}")
+            raise KeyError(
+                f"Previous result '{previous_result_name}' not found. Available results: {list(previous_results.keys())}"
+            )
         return previous_results[previous_result_name].get_artifacts()
 
     # Split into result name and property name
     result_name, property_name = previous_result_name.split(".")
     logger.debug(f"Getting property {property_name} from result {result_name}")
     if result_name not in previous_results:
-        raise KeyError(f"Previous result '{result_name}' not found. Available results: {list(previous_results.keys())}")
+        raise KeyError(
+            f"Previous result '{result_name}' not found. Available results: {list(previous_results.keys())}"
+        )
     return previous_results[result_name].get_artifact_properties(property_name)
 
 

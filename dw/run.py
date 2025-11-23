@@ -3,8 +3,11 @@ import os
 from . import startup
 from .workflow import workflow_from_file
 from .security import (
-    validate_workflow_path, validate_output_path, validate_variable_name,
-    validate_string_input, SecurityError
+    validate_workflow_path,
+    validate_output_path,
+    validate_variable_name,
+    validate_string_input,
+    SecurityError,
 )
 
 if __name__ == "__main__":
@@ -40,7 +43,9 @@ if __name__ == "__main__":
             name, value = variable.split("=", 1)
             # Validate variable name and value
             validated_name = validate_variable_name(name.strip())
-            validated_value = validate_string_input(value.strip(), max_length=10000, allow_empty=True)
+            validated_value = validate_string_input(
+                value.strip(), max_length=10000, allow_empty=True
+            )
             variables[validated_name] = validated_value
         except ValueError:
             print(f"Error: Variable '{variable}' is not in name=value format")
@@ -60,7 +65,7 @@ if __name__ == "__main__":
         validated_file_path = validate_workflow_path(args.file_name)
         if not os.path.exists(validated_file_path):
             raise FileNotFoundError(f"File {validated_file_path} does not exist")
-            
+
     except SecurityError as e:
         print(f"Error: Security validation failed: {e}")
         exit(1)

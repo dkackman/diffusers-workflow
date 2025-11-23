@@ -91,14 +91,18 @@ class Result:
         try:
             # Validate output directory
             validated_output_dir = validate_output_path(output_dir, None)
-            validated_base_name = validate_string_input(default_base_name, max_length=200)
-            
+            validated_base_name = validate_string_input(
+                default_base_name, max_length=200
+            )
+
             # Add directory check/creation
             if not os.path.exists(validated_output_dir):
                 logger.debug(f"Creating output directory: {validated_output_dir}")
                 os.makedirs(validated_output_dir, exist_ok=True)
             elif not os.path.isdir(validated_output_dir):
-                raise ValueError(f"Output path exists but is not a directory: {validated_output_dir}")
+                raise ValueError(
+                    f"Output path exists but is not a directory: {validated_output_dir}"
+                )
         except SecurityError as e:
             logger.error(f"Security validation failed for output: {e}")
             raise
@@ -178,11 +182,17 @@ class Result:
             )
             for k, v in artifact.items():
                 self.save_artifact(
-                    validated_output_dir, v, f"{validated_base_name}-{k}", content_type, extension
+                    validated_output_dir,
+                    v,
+                    f"{validated_base_name}-{k}",
+                    content_type,
+                    extension,
                 )
             return
 
-        output_path = os.path.join(validated_output_dir, f"{validated_base_name}{extension}")
+        output_path = os.path.join(
+            validated_output_dir, f"{validated_base_name}{extension}"
+        )
         logger.info(f"Saving artifact to {output_path}")
 
         try:

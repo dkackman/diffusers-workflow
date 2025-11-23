@@ -39,8 +39,8 @@ def process_image(image, processor, device_identifier, kwargs):
         return get_image_size(image)
 
     if processor == "add_border_and_mask":
-        return add_border_and_mask(image, **kwargs)    
-        
+        return add_border_and_mask(image, **kwargs)
+
     if processor == "add_border_and_mask_with_size":
         return add_border_and_mask_with_size(image, **kwargs)
 

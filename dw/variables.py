@@ -64,17 +64,23 @@ def set_variables(values, variables):
         try:
             # Validate variable name
             validated_name = validate_variable_name(k)
-            
+
             # Validate string values
             if isinstance(v, str):
-                validated_value = validate_string_input(v, max_length=10000, allow_empty=True)
+                validated_value = validate_string_input(
+                    v, max_length=10000, allow_empty=True
+                )
             else:
                 validated_value = v
-                
-            logger.debug(f"Setting variable {validated_name} to value: {validated_value}")
+
+            logger.debug(
+                f"Setting variable {validated_name} to value: {validated_value}"
+            )
             # Use the type of the existing variable to convert the new value
-            variables[validated_name] = get_value(validated_value, type(variables[validated_name]))
-            
+            variables[validated_name] = get_value(
+                validated_value, type(variables[validated_name])
+            )
+
         except SecurityError as e:
             logger.error(f"Security validation failed for variable {k}: {e}")
             raise

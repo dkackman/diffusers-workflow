@@ -42,7 +42,7 @@ def test_set_variables():
 def test_set_variables_boolean_true():
     variables = {"flag": False}
     values = {"flag": "true"}
-    
+
     set_variables(values, variables)
     assert variables["flag"] is True
 
@@ -50,35 +50,24 @@ def test_set_variables_boolean_true():
 def test_set_variables_type_conversion():
     variables = {"count": 0, "ratio": 0.0}
     values = {"count": "42", "ratio": "3.14"}
-    
+
     set_variables(values, variables)
     assert variables["count"] == 42
     assert abs(variables["ratio"] - 3.14) < 0.01
 
 
 def test_replace_variables_nested():
-    data = {
-        "outer": {
-            "inner": {
-                "value": "variable:nested_var"
-            }
-        }
-    }
+    data = {"outer": {"inner": {"value": "variable:nested_var"}}}
     variables = {"nested_var": "replaced"}
-    
+
     replace_variables(data, variables)
     assert data["outer"]["inner"]["value"] == "replaced"
 
 
 def test_replace_variables_in_nested_list():
-    data = {
-        "items": [
-            {"name": "variable:item1"},
-            {"name": "variable:item2"}
-        ]
-    }
+    data = {"items": [{"name": "variable:item1"}, {"name": "variable:item2"}]}
     variables = {"item1": "first", "item2": "second"}
-    
+
     replace_variables(data, variables)
     assert data["items"][0]["name"] == "first"
     assert data["items"][1]["name"] == "second"
@@ -86,8 +75,9 @@ def test_replace_variables_in_nested_list():
 
 def test_set_variables_invalid_name():
     from dw.security import SecurityError
+
     variables = {"valid_name": "value"}
     values = {"invalid!name": "value"}
-    
+
     with pytest.raises(SecurityError):
         set_variables(values, variables)
