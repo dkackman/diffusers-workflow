@@ -21,8 +21,8 @@ def temp_output_dir():
 @pytest.fixture
 def temp_image():
     """Create a temporary test image"""
-    img = Image.new('RGB', (100, 100), color='red')
-    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+    img = Image.new("RGB", (100, 100), color="red")
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
         img.save(f.name)
         yield f.name
         os.unlink(f.name)
@@ -60,21 +60,19 @@ def invalid_workflow_json():
 @pytest.fixture
 def minimal_workflow_json():
     """Minimal valid workflow for testing"""
-    return {
-        "id": "minimal_workflow",
-        "steps": []
-    }
+    return {"id": "minimal_workflow", "steps": []}
 
 
 @pytest.fixture
 def mock_pipeline():
     """Mock pipeline for testing"""
+
     class MockPipeline:
         def __init__(self):
             self.called = False
-            
+
         def __call__(self, **kwargs):
             self.called = True
-            return type('MockOutput', (), {'images': ['mock_image']})()
-    
+            return type("MockOutput", (), {"images": ["mock_image"]})()
+
     return MockPipeline()

@@ -1,7 +1,12 @@
 import glob as glob_lib
 import logging
 from diffusers.utils import load_image, load_video
-from ..security import validate_path, validate_url, SecurityError, ALLOWED_IMAGE_EXTENSIONS
+from ..security import (
+    validate_path,
+    validate_url,
+    SecurityError,
+    ALLOWED_IMAGE_EXTENSIONS,
+)
 
 logger = logging.getLogger("dw")
 

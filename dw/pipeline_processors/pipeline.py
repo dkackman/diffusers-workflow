@@ -223,7 +223,9 @@ class Pipeline:
                         quantization_configuration
                     )
 
-                device_identifier = component_configuration.get("device", default_device_identifier)
+                device_identifier = component_configuration.get(
+                    "device", default_device_identifier
+                )
                 component = load_component(
                     component_name,
                     component_configuration,

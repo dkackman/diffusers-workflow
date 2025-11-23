@@ -40,7 +40,7 @@ def test_workflow_argument_template(valid_workflow_json):
 
 def test_workflow_security_validation():
     from dw.security import SecurityError
-    
+
     # Test path traversal protection
     with pytest.raises(SecurityError):
         workflow_from_file("../../../etc/passwd", "./output")
