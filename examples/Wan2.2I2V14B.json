@@ -18,7 +18,18 @@
                 },
                 "vae": {
                     "configuration": {
-                        "component_type": "AutoencoderKLWan"
+                        "component_type": "AutoencoderKLWan",
+                        "device": "cpu"
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "BitsAndBytesConfig"
+                        },
+                        "arguments": {
+                            "load_in_4bit": true,
+                            "bnb_4bit_quant_type": "{nf4}",
+                            "bnb_4bit_compute_dtype": "torch.bfloat16"
+                        }
                     },
                     "from_pretrained_arguments": {
                         "model_name": "variable:model_name",
@@ -66,6 +77,27 @@
                         "torch_dtype": "torch.bfloat16"
                     }
                 },
+                "text_encoder": {
+                    "configuration": {
+                        "component_type": "transformers.UMT5EncoderModel",
+                        "device": "cpu"
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "BitsAndBytesConfig"
+                        },
+                        "arguments": {
+                            "load_in_4bit": true,
+                            "bnb_4bit_quant_type": "{nf4}",
+                            "bnb_4bit_compute_dtype": "torch.bfloat16"
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
                 "from_pretrained_arguments": {
                     "model_name": "variable:model_name",
                     "torch_dtype": "torch.bfloat16"
@@ -74,13 +106,15 @@
                     "prompt": "variable:prompt",
                     "negative_prompt": "variable:negative_prompt",
                     "guidance_scale": 5.0,
-                    "num_frames": 81,
-                    "image": "variable:image"
+                    "num_frames": 121,
+                    "image": "variable:image",
+                    "width": 640,
+                    "height": 480
                 }
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": 15
+                "fps": 24
             }
         }
     ]
