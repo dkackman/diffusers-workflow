@@ -1,13 +1,13 @@
 {
-    "id": "Qwen-Image-Edit-2509",
+    "id": "QwenImageEdit",
     "variables": {
         "model_name": "Qwen/Qwen-Image-Edit-2509",
-        "prompt": "everyone has a dirty goalie mask over the lower half of their faces",
+        "prompt": "the dragon in the image is flying in the sky over the man giving a speech",
         "first_image": {
-            "location": "https://pbs.twimg.com/media/G6TV9A7WAAEHoBL?format=jpg&name=large"
+            "location": "https://as2.ftcdn.net/v2/jpg/05/62/00/49/1000_F_562004924_e7isCRgRekdrQY10DYrAb2M0g7lPL3lD.jpg"
         },
         "second_image": {
-            "location": "https://th.bing.com/th/id/R.a5b35bd3be14d93ea949e839b14432f2?rik=stSvdSMw6UPEQw&riu=http%3a%2f%2fcostumerocket.com%2fwp-content%2fuploads%2f2019%2f04%2fhannibal-lecter-straight-jacket.jpg&ehk=EzwoIJ830VwdOnxwxixQN7wXhyMyQtvNtKdO02HU2yE%3d&risl=&pid=ImgRaw&r=0"
+            "location": "https://images.wsj.net/im-628212/IM?width=1300&height=975"
         }
     },
     "steps": [
@@ -40,8 +40,7 @@
                 },
                 "text_encoder": {
                     "configuration": {
-                        "component_type": "transformers.Qwen2_5_VLForConditionalGeneration",
-                        "device": "cpu"
+                        "component_type": "transformers.Qwen2_5_VLForConditionalGeneration"
                     },
                     "quantization_config": {
                         "configuration": {
@@ -76,7 +75,10 @@
                 "arguments": {
                     "prompt": "variable:prompt",
                     "num_inference_steps": 8,
-                    "image": "variable:first_image",
+                    "image": [
+                        "variable:first_image",
+                        "variable:second_image"
+                    ],
                     "true_cfg_scale": 4.0
                 }
             },

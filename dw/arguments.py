@@ -62,10 +62,10 @@ def fetch_image(img_spec):
     Load image from file path or URL with security validation.
 
     Args:
-        img_spec: Image specification (file path, URL, dict with 'location' key, or PIL Image)
+        img_spec: Image specification (file path, URL, dict with 'location' key, PIL Image, or list of any of these)
 
     Returns:
-        Loaded PIL Image or None if img_spec is None
+        Loaded PIL Image, list of PIL Images, or None if img_spec is None
 
     Raises:
         SecurityError: If validation fails
@@ -73,6 +73,11 @@ def fetch_image(img_spec):
     """
     if img_spec is None:
         return None
+
+    # Handle lists of images (recursively process each)
+    if isinstance(img_spec, list):
+        logger.debug(f"Loading list of {len(img_spec)} images")
+        return [fetch_image(img) for img in img_spec]
 
     # If already a PIL Image, return as-is (allows multiple realize_args calls)
     if hasattr(img_spec, "mode") and hasattr(img_spec, "size"):
@@ -120,10 +125,10 @@ def fetch_video(video_spec):
     Load video from file path or URL with security validation.
 
     Args:
-        video_spec: Video specification (file path, URL, dict with 'location' key, or loaded frames)
+        video_spec: Video specification (file path, URL, dict with 'location' key, loaded frames, or list of any of these)
 
     Returns:
-        Loaded video frames or None if video_spec is None
+        Loaded video frames, list of video frames, or None if video_spec is None
 
     Raises:
         SecurityError: If validation fails
@@ -132,8 +137,20 @@ def fetch_video(video_spec):
     if video_spec is None:
         return None
 
-    # If already loaded video frames (list/array), return as-is
-    if isinstance(video_spec, (list, tuple)):
+    # Handle lists of videos (need to distinguish from video frames)
+    # Check if it's a list of specifications (dicts/strings) rather than video frames
+    if isinstance(video_spec, list) and len(video_spec) > 0:
+        # If first element is a dict with 'location' or a string, treat as list of video specs
+        if isinstance(video_spec[0], (dict, str)):
+            logger.debug(f"Loading list of {len(video_spec)} videos")
+            return [fetch_video(vid) for vid in video_spec]
+        # Otherwise assume it's already loaded video frames
+        else:
+            logger.debug(f"Video frames already loaded, returning as-is")
+            return video_spec
+
+    # If already loaded video frames (tuple), return as-is
+    if isinstance(video_spec, tuple):
         logger.debug(f"Video frames already loaded, returning as-is")
         return video_spec
 
