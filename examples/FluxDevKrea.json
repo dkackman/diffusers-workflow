@@ -1,13 +1,13 @@
 {
     "variables": {
-        "prompt": "A realistic photo of a marmot playing basketball with a group of otters on an outdoor court.",
+        "prompt": "A photo of an angry marmot holding a sign that says 'On-chain rage baiting only 23 mojos!!'",
         "num_images_per_prompt": 4,
         "num_inference_steps": 25,
         "guidance_scale": 4.5,
         "width": 768,
         "height": 768
     },
-    "id": "FluxDev",
+    "id": "FluxDevKrea",
     "steps": [
         {
             "name": "txt2img",

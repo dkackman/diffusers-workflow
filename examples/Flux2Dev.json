@@ -1,0 +1,35 @@
+{
+    "variables": {
+        "prompt": "A realistic photograph of a mouse wearing a skirt playing volleyball against a team of professional volleyball players.",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 40,
+        "guidance_scale": 4
+    },
+    "id": "Flux2Dev",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "remote_text_encoder": {
+                    "url": "https://remote-text-encoder-flux-2.huggingface.co/predict"
+                },
+                "configuration": {
+                    "component_type": "Flux2Pipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "diffusers/FLUX.2-dev-bnb-4bit",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "guidance_scale": "variable:guidance_scale"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

@@ -8,7 +8,8 @@
         },
         "second_image": {
             "location": "https://images.wsj.net/im-628212/IM?width=1300&height=975"
-        }
+        },
+        "guidance_scale": 1.0
     },
     "steps": [
         {
@@ -16,8 +17,7 @@
             "pipeline": {
                 "transformer": {
                     "configuration": {
-                        "component_type": "QwenImageTransformer2DModel",
-                        "device": "cpu"
+                        "component_type": "QwenImageTransformer2DModel"
                     },
                     "quantization_config": {
                         "configuration": {
@@ -79,7 +79,8 @@
                         "variable:first_image",
                         "variable:second_image"
                     ],
-                    "true_cfg_scale": 4.0
+                    "true_cfg_scale": 4.0,
+                    "guidance_scale": "variable:guidance_scale"
                 }
             },
             "result": {

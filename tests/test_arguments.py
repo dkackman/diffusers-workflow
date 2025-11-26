@@ -128,9 +128,9 @@ class TestFetchImage:
         """Test that fetch_image handles already-loaded images in a list"""
         img1 = Image.new("RGB", (50, 50), color="red")
         img2 = Image.new("RGB", (50, 50), color="blue")
-        
+
         result = fetch_image([img1, img2])
-        
+
         assert isinstance(result, list)
         assert len(result) == 2
         # Images pass through unchanged (even though list is new)
@@ -196,10 +196,9 @@ class TestFetchVideo:
         mock_validate_url.side_effect = lambda x: x
         mock_load_video.side_effect = [["frames1"], ["frames2"]]
 
-        result = fetch_video([
-            "https://example.com/video1.mp4",
-            "https://example.com/video2.mp4"
-        ])
+        result = fetch_video(
+            ["https://example.com/video1.mp4", "https://example.com/video2.mp4"]
+        )
 
         assert isinstance(result, list)
         assert len(result) == 2
@@ -213,10 +212,12 @@ class TestFetchVideo:
         mock_validate_url.side_effect = lambda x: x
         mock_load_video.side_effect = [["frames1"], ["frames2"]]
 
-        result = fetch_video([
-            {"location": "https://example.com/video1.mp4"},
-            {"location": "https://example.com/video2.mp4"}
-        ])
+        result = fetch_video(
+            [
+                {"location": "https://example.com/video1.mp4"},
+                {"location": "https://example.com/video2.mp4"},
+            ]
+        )
 
         assert isinstance(result, list)
         assert len(result) == 2
