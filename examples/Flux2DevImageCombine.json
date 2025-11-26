@@ -1,0 +1,45 @@
+{
+    "variables": {
+        "prompt": "combine the two images into a Photorealistic photograph of two friends posing together in front of the Eiffel Tower in Paris. On the left: a realistic bird creature with full anthropomorphic body, standing upright, wearing casual clothes and multi colored reflective sunglasses. On the right: a realistic Cthulhu-inspired humanoid with tentacled face, full body visible, wearing modern casual attire. Both are smiling/friendly, arms around each other's shoulders in buddy pose. Natural daylight, tourist photo style, full body shot, realistic textures and lighting, high detail, DSLR quality.",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 40,
+        "guidance_scale": 4,
+        "first_image": {
+            "location": "https://pbs.twimg.com/profile_images/1982336432430571520/CchTWvKW_400x400.jpg"
+        },
+        "second_image": {
+            "location": "https://pbs.twimg.com/profile_images/1961215773080211456/nILQt5Fv_400x400.jpg"
+        }
+    },
+    "id": "Flux2DevImageCombine",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "remote_text_encoder": {
+                    "url": "https://remote-text-encoder-flux-2.huggingface.co/predict"
+                },
+                "configuration": {
+                    "component_type": "Flux2Pipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "diffusers/FLUX.2-dev-bnb-4bit",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "guidance_scale": "variable:guidance_scale",
+                    "image": [
+                        "variable:first_image",
+                        "variable:second_image"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}
