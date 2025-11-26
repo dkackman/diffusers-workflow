@@ -2,6 +2,7 @@ import torch
 import copy
 import logging
 from .quantization import get_quantization_configuration
+from .remote import remote_text_encoder
 
 logger = logging.getLogger("dw")
 
@@ -88,6 +89,11 @@ class Pipeline:
             self.load_optional_component(
                 component_name, from_pretrained_arguments, device_identifier
             )
+
+        # Handle remote text encoder configuration by setting local text_encoder to None
+        if self.pipeline_definition.get("remote_text_encoder", None):
+            logger.info("Configuring remote text encoder")
+            from_pretrained_arguments["text_encoder"] = None
 
         return from_pretrained_arguments
 
@@ -185,6 +191,16 @@ class Pipeline:
                 logger.debug("Running generation pipeline")
                 return {"generated_ids": self.pipeline.generate(**arguments)}
 
+            if self.pipeline_definition.get("remote_text_encoder", None) is not None:
+                logger.info("Invoking remote text encoder")
+                remote_config = self.pipeline_definition["remote_text_encoder"]
+                prompt_embeds = remote_text_encoder(
+                    arguments.pop("prompt"),
+                    remote_config.get("url"),
+                    device=self.device_identifier,
+                )
+                arguments["prompt_embeds"] = prompt_embeds
+
             # Run standard pipeline
             logger.debug("Running standard pipeline")
             output = self.pipeline(**arguments)
@@ -272,13 +288,30 @@ class Pipeline:
 
 def load_loras(loras, pipeline):
     """Load and configure LoRA models."""
-    for lora in loras:
+    adapter_names = []
+    adapter_weights = []
+
+    for i, lora in enumerate(loras):
         model_name = lora.pop("model_name", None)
         logger.info(f"Loading LoRA: {model_name}")
-        scale = lora.pop("scale", None)
-        pipeline.load_lora_weights(model_name, **lora)
-        if scale is not None:
-            pipeline.fuse_lora(lora_scale=scale)
+
+        # Use provided adapter_name or generate from index
+        adapter_name = lora.pop("adapter_name", str(i))
+        adapter_names.append(adapter_name)
+
+        # Extract scale for adapter weights
+        scale = lora.pop("scale", 1.0)
+        adapter_weights.append(scale)
+
+        # Load the LoRA with the adapter name
+        pipeline.load_lora_weights(model_name, adapter_name=adapter_name, **lora)
+
+    # Set adapter weights for all loaded LoRAs
+    if adapter_names:
+        logger.info(
+            f"Setting adapter weights: {list(zip(adapter_names, adapter_weights))}"
+        )
+        pipeline.set_adapters(adapter_names, adapter_weights=adapter_weights)
 
 
 def load_ip_adapter(ip_adapter_definition, pipeline):

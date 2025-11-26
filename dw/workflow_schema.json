@@ -426,6 +426,10 @@
                     "description": "The scale factor of the lora when fusing.",
                     "type": "number",
                     "format": "float"
+                },
+                "adapter_name": {
+                    "description": "The user defined name of the adapter to pass to set_adapters function",
+                    "type": "string"
                 }
             },
             "required": [
