@@ -1,0 +1,37 @@
+{
+    "variables": {
+        "prompt": "Young Chinese woman in red Hanfu, intricate embroidery. Impeccable makeup, red floral forehead pattern. Elaborate high bun, golden phoenix headdress, red flowers, beads. Holds round folding fan with lady, trees, bird. Neon lightning-bolt lamp (⚡️), bright yellow glow, above extended left palm. Soft-lit outdoor night background, silhouetted tiered pagoda (西安大雁塔), blurred colorful distant lights.",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 9,
+        "guidance_scale": 0.0,
+        "width": 1024,
+        "height": 1024
+    },
+    "id": "ZImage",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": false
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "guidance_scale": "variable:guidance_scale"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

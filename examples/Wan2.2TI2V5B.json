@@ -2,10 +2,10 @@
     "id": "Wan2.2TI2V5B",
     "variables": {
         "model_name": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
-        "prompt": "A earth dragon looks at the man and blasts",
+        "prompt": "The marmot growls at the camera, holding a sign that says 'On-chain rage baiting only 23 mojos!!' in a forest setting, highly detailed, photorealistic, 8k, sharp focus, vibrant colors, dramatic lighting",
         "negative_prompt": "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards",
         "image": {
-            "location": "https://pbs.twimg.com/media/GkRVQJfWUAAxITD?format=png&name=900x900"
+            "location": "https://pbs.twimg.com/media/G6h8Ji7WIAAfzXN?format=png&name=900x900"
         }
     },
     "steps": [
@@ -84,7 +84,7 @@
                     "prompt": "variable:prompt",
                     "height": 480,
                     "width": 640,
-                    "num_inference_steps": 10,
+                    "num_inference_steps": 40,
                     "num_frames": 121,
                     "guidance_scale": 5.0,
                     "negative_prompt": "variable:negative_prompt",
