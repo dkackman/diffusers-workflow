@@ -1,6 +1,11 @@
 import logging
 import PIL
-from .security import validate_variable_name, validate_string_input, SecurityError
+from .security import (
+    validate_variable_name,
+    validate_string_input,
+    SecurityError,
+    MAX_VARIABLE_VALUE_LENGTH,
+)
 
 logger = logging.getLogger("dw")
 
@@ -68,7 +73,7 @@ def set_variables(values, variables):
             # Validate string values
             if isinstance(v, str):
                 validated_value = validate_string_input(
-                    v, max_length=10000, allow_empty=True
+                    v, max_length=MAX_VARIABLE_VALUE_LENGTH, allow_empty=True
                 )
             else:
                 validated_value = v

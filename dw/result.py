@@ -9,6 +9,10 @@ from .security import validate_output_path, validate_string_input, SecurityError
 
 logger = logging.getLogger("dw")
 
+# Result saving constants
+MAX_BASE_NAME_LENGTH = 200
+DEFAULT_AUDIO_SAMPLE_RATE = 44100
+
 
 class Result:
     """Manages and stores results from workflow steps.
@@ -92,7 +96,7 @@ class Result:
             # Validate output directory
             validated_output_dir = validate_output_path(output_dir, None)
             validated_base_name = validate_string_input(
-                default_base_name, max_length=200
+                default_base_name, max_length=MAX_BASE_NAME_LENGTH
             )
 
             # Add directory check/creation
@@ -120,7 +124,7 @@ class Result:
         file_base_name = validated_base_name
         if "file_base_name" in self.result_definition:
             custom_base = validate_string_input(
-                self.result_definition["file_base_name"], max_length=200
+                self.result_definition["file_base_name"], max_length=MAX_BASE_NAME_LENGTH
             )
             file_base_name = custom_base + validated_base_name
 
@@ -170,7 +174,9 @@ class Result:
         try:
             # Validate inputs
             validated_output_dir = validate_output_path(output_dir, None)
-            validated_base_name = validate_string_input(file_base_name, max_length=200)
+            validated_base_name = validate_string_input(
+                file_base_name, max_length=MAX_BASE_NAME_LENGTH
+            )
         except SecurityError as e:
             logger.error(f"Security validation failed for artifact save: {e}")
             raise
@@ -208,7 +214,7 @@ class Result:
                 soundfile.write(
                     output_path,
                     artifact,
-                    self.result_definition.get("sample_rate", 44100),
+                    self.result_definition.get("sample_rate", DEFAULT_AUDIO_SAMPLE_RATE),
                 )
             elif content_type.endswith("json"):
                 with open(output_path, "w") as file:

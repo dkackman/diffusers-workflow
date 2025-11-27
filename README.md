@@ -11,7 +11,7 @@ This is a simple, declaritive workflow engine for the [Huggingface Diffuser proj
 ## Features
 
 - Make any workflow command line executable with variable substitution
-- Suppport for text to image & video and image to image & video workflows
+- Support for text to image & video and image to image & video workflows
 - Image describing and prompt augmentation using locally installed LLMs
 - Image processing tasks for controlnet workflows
 - Composable workflows from multiple files
