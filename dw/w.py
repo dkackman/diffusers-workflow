@@ -1,13 +1,20 @@
 import torch
 import numpy as np
-from diffusers import WanPipeline, AutoencoderKLWan, WanTransformer3DModel, UniPCMultistepScheduler
+from diffusers import (
+    WanPipeline,
+    AutoencoderKLWan,
+    WanTransformer3DModel,
+    UniPCMultistepScheduler,
+)
 from diffusers.utils import export_to_video, load_image
 
 dtype = torch.bfloat16
 device = "cuda"
 
 model_id = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
-vae = AutoencoderKLWan.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float32).to("cpu")
+vae = AutoencoderKLWan.from_pretrained(
+    model_id, subfolder="vae", torch_dtype=torch.float32
+).to("cpu")
 pipe = WanPipeline.from_pretrained(model_id, vae=vae, torch_dtype=dtype)
 pipe.to(device)
 pipe.enable_model_cpu_offload()

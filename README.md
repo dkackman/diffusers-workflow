@@ -94,25 +94,44 @@ The REPL provides an interactive environment for rapid workflow iteration. Model
 ```bash
 python -m dw.repl
 
-dw> load FluxDev
+dw> workflow load FluxDev
 Loaded workflow: FluxDev
 
-dw> arg prompt="a beautiful sunset"
+dw> arg set prompt="a beautiful sunset"
 Set argument prompt=a beautiful sunset
 
-dw> run
+dw> model run
 Starting worker process...
 [... models load once ...]
 Workflow completed successfully
 
-dw> arg prompt="a starry night"
-dw> run
+dw> arg set prompt="a starry night"
+dw> model run
 Reusing loaded models from cache
 [... runs 2-4x faster! ...]
 Workflow completed successfully
+
+dw> memory show
+GPU Memory Status:
+  Device: NVIDIA GeForce RTX 4090
+  Allocated: 8234.5 MB
+  ...
 ```
 
-See [REPL_WORKER_GUIDE.md](REPL_WORKER_GUIDE.md) for complete documentation.
+### Hierarchical Commands
+
+Commands are organized into logical groups. Use `?` with any command to explore subcommands:
+
+```bash
+dw> ?             # Show all command groups
+dw> workflow ?    # Show workflow commands
+dw> arg ?         # Show argument commands
+dw> model ?       # Show model execution commands
+dw> memory ?      # Show memory management commands
+dw> config ?      # Show configuration commands
+```
+
+See [REPL_COMMANDS.md](docs/REPL_COMMANDS.md) for complete command reference and [REPL_WORKER_GUIDE.md](docs/REPL_WORKER_GUIDE.md) for architecture details.
 
 ## JSON Input Format
 

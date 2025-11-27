@@ -185,8 +185,8 @@ class Workflow:
         """
         # Handle pipeline creation
         if "pipeline" in step_definition:
-            step_name = step_definition['name']
-            
+            step_name = step_definition["name"]
+
             # Check if pipeline already loaded in cache (GPU persistence)
             if step_name in previous_pipelines:
                 logger.debug(f"Reusing cached pipeline for step: {step_name}")
@@ -197,18 +197,25 @@ class Workflow:
                     step_definition["pipeline"],
                     default_seed,
                     device_identifier,
-                    cached_pipeline.pipeline  # Reuse the actual loaded model
+                    cached_pipeline.pipeline,  # Reuse the actual loaded model
                 )
                 # Set up generator with potentially new seed
                 if not "no_generator" in new_pipeline_wrapper.configuration:
                     import torch
-                    logger.debug("Setting up generator for cached pipeline with new arguments")
-                    new_pipeline_wrapper.argument_template["generator"] = torch.Generator(
-                        device_identifier
-                    ).manual_seed(new_pipeline_wrapper.pipeline_definition.get("seed", default_seed))
-                
+
+                    logger.debug(
+                        "Setting up generator for cached pipeline with new arguments"
+                    )
+                    new_pipeline_wrapper.argument_template[
+                        "generator"
+                    ] = torch.Generator(device_identifier).manual_seed(
+                        new_pipeline_wrapper.pipeline_definition.get(
+                            "seed", default_seed
+                        )
+                    )
+
                 return new_pipeline_wrapper
-            
+
             # Not in cache - load fresh
             logger.debug(f"Creating pipeline for step: {step_name}")
             pipeline = Pipeline(
