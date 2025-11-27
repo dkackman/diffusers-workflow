@@ -178,21 +178,46 @@ class Workflow:
     ):
         """
         Creates the appropriate action object based on step type:
-        - Pipeline: Creates new pipeline
+        - Pipeline: Creates new pipeline or reuses cached one
         - Pipeline reference: References existing pipeline
         - Workflow: Loads and validates sub-workflow
         - Task: Creates task object
         """
         # Handle pipeline creation
         if "pipeline" in step_definition:
-            logger.debug(f"Creating pipeline for step: {step_definition['name']}")
+            step_name = step_definition['name']
+            
+            # Check if pipeline already loaded in cache (GPU persistence)
+            if step_name in previous_pipelines:
+                logger.debug(f"Reusing cached pipeline for step: {step_name}")
+                cached_pipeline = previous_pipelines[step_name]
+                # Create new Pipeline wrapper with updated step definition
+                # but reuse the loaded model from cache
+                new_pipeline_wrapper = Pipeline(
+                    step_definition["pipeline"],
+                    default_seed,
+                    device_identifier,
+                    cached_pipeline.pipeline  # Reuse the actual loaded model
+                )
+                # Set up generator with potentially new seed
+                if not "no_generator" in new_pipeline_wrapper.configuration:
+                    import torch
+                    logger.debug("Setting up generator for cached pipeline with new arguments")
+                    new_pipeline_wrapper.argument_template["generator"] = torch.Generator(
+                        device_identifier
+                    ).manual_seed(new_pipeline_wrapper.pipeline_definition.get("seed", default_seed))
+                
+                return new_pipeline_wrapper
+            
+            # Not in cache - load fresh
+            logger.debug(f"Creating pipeline for step: {step_name}")
             pipeline = Pipeline(
                 step_definition["pipeline"],
                 default_seed,
                 device_identifier,
             )
             pipeline.load(shared_components)
-            previous_pipelines[step_definition["name"]] = pipeline
+            previous_pipelines[step_name] = pipeline
             return pipeline
 
         # Handle pipeline reference

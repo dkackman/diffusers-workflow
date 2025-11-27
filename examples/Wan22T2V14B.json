@@ -1,36 +1,22 @@
 {
-    "id": "Wan2.2I2V14B",
+    "id": "Wan22T2V14B",
     "variables": {
-        "model_name": "Wan-AI/Wan2.2-I2V-A14B-Diffusers",
-        "prompt": "The marmot growls at the camera, holding a sign that says 'On-chain rage baiting only 23 mojos!!' in a forest setting, highly detailed, photorealistic, 8k, sharp focus, vibrant colors, dramatic lighting",
-        "negative_prompt": "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards",
-        "image": {
-            "location": "https://pbs.twimg.com/media/G6h8Ji7WIAAfzXN?format=png&name=900x900"
-        },
-        "num_inference_steps": 4
+        "model_name": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
+        "prompt": "Over-the-shoulder shot. A man in a white shirt and brown vest stands, A man in a white shirt and a brown vest stands by a fireplace, looking at someone to the right.",
+        "num_inference_steps": 40
     },
     "steps": [
         {
-            "name": "image_to_video",
+            "name": "text_to_video",
             "pipeline": {
                 "configuration": {
-                    "component_type": "WanImageToVideoPipeline",
+                    "component_type": "WanPipeline",
                     "offload": "model"
                 },
                 "vae": {
                     "configuration": {
                         "component_type": "AutoencoderKLWan",
                         "device": "cpu"
-                    },
-                    "quantization_config": {
-                        "configuration": {
-                            "config_type": "BitsAndBytesConfig"
-                        },
-                        "arguments": {
-                            "load_in_4bit": true,
-                            "bnb_4bit_quant_type": "{nf4}",
-                            "bnb_4bit_compute_dtype": "torch.bfloat16"
-                        }
                     },
                     "from_pretrained_arguments": {
                         "model_name": "variable:model_name",
@@ -83,44 +69,21 @@
                         "component_type": "transformers.UMT5EncoderModel",
                         "device": "cpu"
                     },
-                    "quantization_config": {
-                        "configuration": {
-                            "config_type": "BitsAndBytesConfig"
-                        },
-                        "arguments": {
-                            "load_in_4bit": true,
-                            "bnb_4bit_quant_type": "{nf4}",
-                            "bnb_4bit_compute_dtype": "torch.bfloat16"
-                        }
-                    },
                     "from_pretrained_arguments": {
                         "model_name": "variable:model_name",
                         "subfolder": "text_encoder",
                         "torch_dtype": "torch.bfloat16"
                     }
                 },
-                "loras": [
-                    {
-                        "model_name": "lightx2v/Wan2.2-Distill-Loras",
-                        "weight_name": "wan2.2_i2v_A14b_high_noise_lora_rank64_lightx2v_4step_1022.safetensors",
-                        "scale": 0.5
-                    },
-                    {
-                        "model_name": "lightx2v/Wan2.2-Distill-Loras",
-                        "weight_name": "wan2.2_i2v_A14b_low_noise_lora_rank64_lightx2v_4step_1022.safetensors",
-                        "scale": 0.5
-                    }
-                ],
                 "from_pretrained_arguments": {
                     "model_name": "variable:model_name",
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
-                    "negative_prompt": "variable:negative_prompt",
-                    "guidance_scale": 5.0,
+                    "guidance_scale": 4.0,
+                    "guidance_scale_2": 3.0,
                     "num_frames": 121,
-                    "image": "variable:image",
                     "width": 640,
                     "height": 480,
                     "num_inference_steps": "variable:num_inference_steps"
