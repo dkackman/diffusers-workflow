@@ -15,6 +15,10 @@ logger = logging.getLogger("dw")
 MAX_PATH_LENGTH = 4096
 MAX_FILENAME_LENGTH = 255
 MAX_JSON_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_VARIABLE_NAME_LENGTH = 100
+MAX_VARIABLE_VALUE_LENGTH = 10000
+DEFAULT_MAX_STRING_LENGTH = 1000
+MAX_FILE_PATH_LENGTH = 1000
 ALLOWED_JSON_EXTENSIONS = {".json"}
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov", ".webm"}
@@ -253,8 +257,10 @@ def validate_variable_name(name: str) -> str:
     if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_-]*$", name):
         raise InvalidInputError(f"Invalid variable name: {name}")
 
-    if len(name) > 100:
-        raise InvalidInputError(f"Variable name too long: {len(name)} > 100")
+    if len(name) > MAX_VARIABLE_NAME_LENGTH:
+        raise InvalidInputError(
+            f"Variable name too long: {len(name)} > {MAX_VARIABLE_NAME_LENGTH}"
+        )
 
     return name
 
@@ -278,7 +284,7 @@ def validate_json_size(file_path: str) -> None:
 
 
 def validate_string_input(
-    value: str, max_length: int = 1000, allow_empty: bool = False
+    value: str, max_length: int = DEFAULT_MAX_STRING_LENGTH, allow_empty: bool = False
 ) -> str:
     """
     Validate string input for basic safety.

@@ -20,6 +20,9 @@ from dw.log_setup import setup_logging
 
 logger = logging.getLogger("dw.worker")
 
+# Memory management constants
+MEMORY_GROWTH_THRESHOLD_MB = 500  # Warn if GPU memory grows by more than this
+
 
 class WorkflowWorker:
     """
@@ -126,7 +129,14 @@ class WorkflowWorker:
             setup_logging(log_level)
 
             # Check if workflow file changed
-            current_hash = self._compute_file_hash(workflow_path)
+            try:
+                current_hash = self._compute_file_hash(workflow_path)
+            except Exception as e:
+                logger.error(f"Failed to compute workflow file hash: {e}")
+                # If hash computation fails, assume workflow changed to force reload
+                current_hash = None
+                self.workflow_hash = None
+            
             workflow_changed = (
                 current_hash != self.workflow_hash
                 or workflow_path != self.workflow_path
@@ -253,7 +263,7 @@ class WorkflowWorker:
         if current_memory > 0:
             if self.last_memory_mb > 0:
                 growth = current_memory - self.last_memory_mb
-                if growth > 500:  # More than 500MB growth
+                if growth > MEMORY_GROWTH_THRESHOLD_MB:
                     logger.warning(
                         f"GPU memory grew by {growth:.1f}MB "
                         f"({self.last_memory_mb:.1f}MB -> {current_memory:.1f}MB)"
@@ -299,15 +309,15 @@ class WorkflowWorker:
                 try:
                     torch.cuda.reset_peak_memory_stats()
                     torch.cuda.reset_accumulated_memory_stats()
-                except:
-                    pass
+                except (RuntimeError, AttributeError) as e:
+                    logger.debug(f"Could not reset memory stats: {e}")
 
         except Exception as e:
             logger.warning(f"Could not perform CUDA cleanup: {e}")
 
         logger.info("Full cleanup complete")
 
-    def _compute_file_hash(self, path: str) -> str:
+    def _compute_file_hash(self, path: str) -> Optional[str]:
         """
         Compute SHA256 hash of workflow file to detect changes.
 
@@ -315,14 +325,20 @@ class WorkflowWorker:
             path: Path to workflow file
 
         Returns:
-            Hex digest of file hash
+            Hex digest of file hash, or None if computation fails
+
+        Raises:
+            OSError: If file cannot be read
         """
         try:
             with open(path, "rb") as f:
                 return hashlib.sha256(f.read()).hexdigest()
+        except (OSError, IOError) as e:
+            logger.error(f"Error computing file hash for {path}: {e}")
+            raise
         except Exception as e:
-            logger.error(f"Error computing file hash: {e}")
-            return ""
+            logger.error(f"Unexpected error computing file hash for {path}: {e}")
+            raise
 
     def _get_gpu_memory_mb(self) -> float:
         """
@@ -336,8 +352,8 @@ class WorkflowWorker:
 
             if torch.cuda.is_available():
                 return torch.cuda.memory_allocated() / 1024 / 1024
-        except:
-            pass
+        except (RuntimeError, AttributeError) as e:
+            logger.debug(f"Could not get GPU memory: {e}")
         return 0.0
 
     def _get_memory_info(self) -> Dict[str, Any]:
@@ -374,10 +390,10 @@ class WorkflowWorker:
                     free, total = torch.cuda.mem_get_info()
                     info["gpu_memory_free_mb"] = free / 1024 / 1024
                     info["gpu_memory_total_mb"] = total / 1024 / 1024
-                except:
-                    pass
-        except:
-            pass
+                except (RuntimeError, AttributeError) as e:
+                    logger.debug(f"Could not get GPU memory info: {e}")
+        except (ImportError, RuntimeError, AttributeError) as e:
+            logger.debug(f"Could not access CUDA: {e}")
 
         return info
 
@@ -404,8 +420,8 @@ def worker_main(command_queue, result_queue, log_level="INFO"):
                     "traceback": traceback.format_exc(),
                 }
             )
-        except:
-            pass
+        except (OSError, RuntimeError) as queue_error:
+            logger.error(f"Failed to send crash notification to queue: {queue_error}")
         sys.exit(1)
 
 

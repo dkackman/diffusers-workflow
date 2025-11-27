@@ -8,6 +8,7 @@ from .security import (
     validate_variable_name,
     validate_string_input,
     SecurityError,
+    MAX_VARIABLE_VALUE_LENGTH,
 )
 
 if __name__ == "__main__":
@@ -44,7 +45,7 @@ if __name__ == "__main__":
             # Validate variable name and value
             validated_name = validate_variable_name(name.strip())
             validated_value = validate_string_input(
-                value.strip(), max_length=10000, allow_empty=True
+                value.strip(), max_length=MAX_VARIABLE_VALUE_LENGTH, allow_empty=True
             )
             variables[validated_name] = validated_value
         except ValueError:

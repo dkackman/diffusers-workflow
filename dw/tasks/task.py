@@ -108,6 +108,11 @@ class Task:
             if self.command == "batch_decode_post_process":
                 logger.debug("Performing batch decode post-processing")
                 pipeline_reference = self.task_definition["pipeline_reference"]
+                if pipeline_reference not in previous_pipelines:
+                    raise KeyError(
+                        f"Pipeline reference '{pipeline_reference}' not found in previous pipelines. "
+                        f"Available pipelines: {list(previous_pipelines.keys())}"
+                    )
                 processor = previous_pipelines[pipeline_reference].pipeline
                 return batch_decode_post_process(processor, **arguments)
 
