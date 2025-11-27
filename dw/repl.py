@@ -83,7 +83,28 @@ class DiffusersWorkflowREPL(cmd.Cmd):
 
     def do_help(self, arg):
         """List available commands with "help" or detailed help with "help cmd"."""
-        super().do_help(arg)
+        if not arg:
+            print("\nDiffusers Workflow REPL - Available Commands")
+            print("=" * 60)
+            print("\nCommand Groups (use '<command> ?' for subcommands):")
+            print("  workflow  - Load and manage workflows")
+            print("  arg       - Manage workflow arguments")
+            print("  model     - Control model loading and execution")
+            print("  memory    - Monitor and manage GPU memory")
+            print("  config    - Configure global settings")
+            print("\nOther Commands:")
+            print("  help      - Show this help message")
+            print("  exit      - Exit the REPL")
+            print("  quit      - Exit the REPL")
+            print("\nExamples:")
+            print("  workflow load FluxDev")
+            print('  arg set prompt="a cat"')
+            print("  model run")
+            print("  memory show")
+            print("  config set output_dir=./outputs")
+            print()
+        else:
+            super().do_help(arg)
 
     def do_exit(self, arg):
         """Exit the REPL"""
@@ -91,13 +112,55 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         print("Goodbye!")
         return True
 
-    def do_set(self, arg):
-        """Set a global value. Usage: set global_name=value"""
+    def do_quit(self, arg):
+        """Exit the REPL (alias for exit)"""
+        return self.do_exit(arg)
+
+    # ========================================================================
+    # CONFIG COMMANDS - Global configuration settings
+    # ========================================================================
+
+    def do_config(self, arg):
+        """Configure global settings. Usage: config ? | show | set <name>=<value>"""
+        if not arg or arg == "?":
+            print("\nConfig commands:")
+            print("  config show              - Show all configuration settings")
+            print("  config set <name>=<value> - Set a configuration value")
+            print("\nAvailable settings:")
+            print("  output_dir   - Directory for output files (default: ./outputs)")
+            print(
+                "  log_level    - Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL"
+            )
+            print(
+                "  workflow_dir - Default directory for workflows (default: ./examples)"
+            )
+            print()
+            return
+
+        parts = arg.split(None, 1)
+        subcommand = parts[0]
+        subarg = parts[1] if len(parts) > 1 else ""
+
+        if subcommand == "show":
+            self._config_show(subarg)
+        elif subcommand == "set":
+            self._config_set(subarg)
+        else:
+            print(f"Unknown config subcommand: {subcommand}")
+            print("Use 'config ?' for help")
+
+    def _config_show(self, arg):
+        """Show configuration settings"""
+        print("\nCurrent configuration:")
+        for name, value in self.globals.items():
+            print(f"  {name}={value}")
+        print()
+
+    def _config_set(self, arg):
+        """Set a configuration value"""
         if not arg:
-            # If no argument, show all globals
-            print("Current globals:")
-            for name, value in self.globals.items():
-                print(f"{name}={value}")
+            # If no argument, show all config (backward compatibility with 'set')
+            self._config_show(arg)
             return
 
         try:
@@ -136,36 +199,79 @@ class DiffusersWorkflowREPL(cmd.Cmd):
                 except SecurityError as e:
                     print(f"Error: Invalid workflow directory: {e}")
                     return
+            else:
+                print(f"Warning: Unknown setting '{name}'")
 
             self.globals[name] = value
             print(f"Set {name}={value}")
 
         except ValueError:
-            print("Error: Invalid format. Use: set global_name=value")
+            print("Error: Invalid format. Use: config set name=value")
+
+    # ========================================================================
+    # ARG COMMANDS - Workflow argument management
+    # ========================================================================
 
     def do_arg(self, arg):
-        """Set or view workflow arguments. Usage: arg [name=value]"""
-        if not self.current_workflow:
-            print("Error: No workflow loaded. Use 'load' command first")
+        """Manage workflow arguments. Usage: arg ? | show | set <name>=<value> | clear"""
+        if arg == "?":
+            print("\nArg commands:")
+            print("  arg show              - Show available and current arguments")
+            print("  arg set <name>=<value> - Set an argument value")
+            print("  arg clear             - Clear all argument values")
+            print()
             return
 
         if not arg:
-            print("\nAvailable variables in workflow and their default values:")
-            workflow_vars = self.current_workflow.variables
-            if not workflow_vars:
-                print("  No variables defined in workflow")
-            else:
-                for var_name, var_def in workflow_vars.items():
-                    print(f"  {var_name}: {var_def}")
+            # If no argument, show args (backward compatibility)
+            self._arg_show(arg)
+            return
 
-            # Show current arguments and available variables
-            print("\nCurrent argument values:")
-            if not self.workflow_args:
-                print("  No arguments set")
-            else:
-                for name, value in self.workflow_args.items():
-                    print(f"  {name}={value}")
+        parts = arg.split(None, 1)
+        subcommand = parts[0]
+        subarg = parts[1] if len(parts) > 1 else ""
 
+        if subcommand == "show":
+            self._arg_show(subarg)
+        elif subcommand == "set":
+            self._arg_set(subarg)
+        elif subcommand == "clear":
+            self._arg_clear(subarg)
+        else:
+            # Try to parse as set command for backward compatibility
+            self._arg_set(arg)
+
+    def _arg_show(self, arg):
+        """Show workflow arguments"""
+        if not self.current_workflow:
+            print("Error: No workflow loaded. Use 'workflow load' command first")
+            return
+
+        print("\nAvailable variables in workflow and their default values:")
+        workflow_vars = self.current_workflow.variables
+        if not workflow_vars:
+            print("  No variables defined in workflow")
+        else:
+            for var_name, var_def in workflow_vars.items():
+                print(f"  {var_name}: {var_def}")
+
+        print("\nCurrent argument values:")
+        if not self.workflow_args:
+            print("  No arguments set")
+        else:
+            for name, value in self.workflow_args.items():
+                print(f"  {name}={value}")
+        print()
+
+    def _arg_set(self, arg):
+        """Set a workflow argument"""
+        if not self.current_workflow:
+            print("Error: No workflow loaded. Use 'workflow load' command first")
+            return
+
+        if not arg:
+            print("Error: Please specify argument name and value")
+            print("Usage: arg set <name>=<value>")
             return
 
         try:
@@ -190,15 +296,57 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             print(f"Set argument {name}={value}")
 
         except ValueError:
-            print("Error: Invalid format. Use: arg name=value")
+            print("Error: Invalid format. Use: arg set name=value")
 
-    def do_clear_args(self, arg):
+    def _arg_clear(self, arg):
         """Clear all workflow arguments"""
         self.workflow_args = {}
         print("All workflow arguments cleared")
 
-    def do_clear(self, arg):
-        """Clear GPU memory and restart worker process"""
+    # ========================================================================
+    # MEMORY COMMANDS - GPU memory management
+    # ========================================================================
+
+    def do_memory(self, arg):
+        """Manage GPU memory. Usage: memory ? | show | clear"""
+        if not arg or arg == "?":
+            print("\nMemory commands:")
+            print("  memory show  - Show current GPU memory usage")
+            print("  memory clear - Clear GPU memory and cached models")
+            print()
+            return
+
+        parts = arg.split(None, 1)
+        subcommand = parts[0]
+        subarg = parts[1] if len(parts) > 1 else ""
+
+        if subcommand == "show":
+            self._memory_show(subarg)
+        elif subcommand == "clear":
+            self._memory_clear(subarg)
+        else:
+            print(f"Unknown memory subcommand: {subcommand}")
+            print("Use 'memory ?' for help")
+
+    def _memory_show(self, arg):
+        """Show current GPU memory usage"""
+        if not self.worker_active:
+            print("No worker process running")
+            return
+
+        try:
+            self.command_queue.put({"type": "memory_status"})
+            result = self.result_queue.get(timeout=5)
+
+            if result["type"] == "memory_status":
+                self._print_memory_info(result.get("info", {}))
+            else:
+                print(f"Unexpected response: {result}")
+        except Exception as e:
+            print(f"Error getting memory status: {e}")
+
+    def _memory_clear(self, arg):
+        """Clear GPU memory and cached models"""
         if not self.worker_active:
             print("No worker process running")
             return
@@ -218,25 +366,36 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             print(f"Error clearing memory: {e}")
             self._shutdown_worker()
 
-    def do_memory(self, arg):
-        """Show current GPU memory usage"""
-        if not self.worker_active:
-            print("No worker process running")
+    # ========================================================================
+    # WORKFLOW COMMANDS - Workflow management
+    # ========================================================================
+
+    def do_workflow(self, arg):
+        """Manage workflows. Usage: workflow ? | load <file> | reload | status"""
+        if not arg or arg == "?":
+            print("\nWorkflow commands:")
+            print("  workflow load <file> - Load a workflow from a JSON file")
+            print("  workflow reload      - Reload the current workflow from disk")
+            print("  workflow status      - Show current workflow information")
+            print()
             return
 
-        try:
-            self.command_queue.put({"type": "memory_status"})
-            result = self.result_queue.get(timeout=5)
+        parts = arg.split(None, 1)
+        subcommand = parts[0]
+        subarg = parts[1] if len(parts) > 1 else ""
 
-            if result["type"] == "memory_status":
-                self._print_memory_info(result.get("info", {}))
-            else:
-                print(f"Unexpected response: {result}")
-        except Exception as e:
-            print(f"Error getting memory status: {e}")
+        if subcommand == "load":
+            self._workflow_load(subarg)
+        elif subcommand == "reload":
+            self._workflow_reload(subarg)
+        elif subcommand == "status":
+            self._workflow_status(subarg)
+        else:
+            print(f"Unknown workflow subcommand: {subcommand}")
+            print("Use 'workflow ?' for help")
 
-    def do_load(self, arg):
-        """Load a workflow from a JSON file. Usage: load [path/to/]workflow[.json]"""
+    def _workflow_load(self, arg):
+        """Load a workflow from a JSON file"""
         if not arg:
             print("Error: Please specify a workflow file path or name")
             return
@@ -306,18 +465,66 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             print(f"Error loading workflow: {str(e)}")
             self.current_workflow = None
 
-    def do_status(self, arg):
+    def _workflow_reload(self, arg):
+        """Reload the current workflow from its file"""
+        if not self.current_workflow:
+            print("Error: No workflow loaded. Use 'workflow load' command first")
+            return
+
+        try:
+            file_path = self.current_workflow.file_spec
+            print(f"Reloading workflow from: {file_path}")
+
+            # Load and validate the workflow
+            workflow = workflow_from_file(file_path, self.globals["output_dir"])
+            workflow.validate()
+
+            # Replace current workflow
+            self.current_workflow = workflow
+            print(f"Reloaded workflow: {workflow.name}")
+            print("Workflow validated successfully")
+
+        except Exception as e:
+            print(f"Error reloading workflow: {str(e)}")
+
+    def _workflow_status(self, arg):
         """Show current workflow status"""
         if self.current_workflow is None:
             print("No workflow currently loaded")
         else:
-            print(f"Current workflow: {self.current_workflow.name}")
+            print(f"\nCurrent workflow: {self.current_workflow.name}")
             print(f"File: {self.current_workflow.file_spec}")
+            print()
 
-    def do_run(self, arg):
+    # ========================================================================
+    # MODEL COMMANDS - Model execution and control
+    # ========================================================================
+
+    def do_model(self, arg):
+        """Control model execution. Usage: model ? | run | restart"""
+        if not arg or arg == "?":
+            print("\nModel commands:")
+            print("  model run     - Execute the currently loaded workflow")
+            print("  model restart - Restart the worker process (clears cache)")
+            print()
+            return
+
+        parts = arg.split(None, 1)
+        subcommand = parts[0]
+        subarg = parts[1] if len(parts) > 1 else ""
+
+        if subcommand == "run":
+            self._model_run(subarg)
+        elif subcommand == "restart":
+            self._model_restart(subarg)
+        else:
+            print(f"Unknown model subcommand: {subcommand}")
+            print("Use 'model ?' for help")
+
+    def _model_run(self, arg):
         """Run the currently loaded workflow with set arguments"""
         if not self.current_workflow:
-            print("Error: No workflow loaded. Use 'load' command first")
+            print("Error: No workflow loaded. Use 'workflow load' command first")
             return
 
         try:
@@ -379,7 +586,7 @@ class DiffusersWorkflowREPL(cmd.Cmd):
                             print(result["traceback"])
                         print("=" * 80)
                         print(
-                            "Worker process has terminated. Use 'restart' to start a new worker.\n"
+                            "Worker process has terminated. Use 'model restart' to start a new worker.\n"
                         )
                         self.worker_active = False
                         break
@@ -405,32 +612,17 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             print("Shutting down worker.\n")
             self._shutdown_worker()
 
-    def do_reload(self, arg):
-        """Reload the current workflow from its file"""
-        if not self.current_workflow:
-            print("Error: No workflow loaded. Use 'load' command first")
-            return
-
-        try:
-            file_path = self.current_workflow.file_spec
-            print(f"Reloading workflow from: {file_path}")
-
-            # Load and validate the workflow
-            workflow = workflow_from_file(file_path, self.globals["output_dir"])
-            workflow.validate()
-
-            # Replace current workflow
-            self.current_workflow = workflow
-            print(f"Reloaded workflow: {workflow.name}")
-            print("Workflow validated successfully")
-
-        except Exception as e:
-            print(f"Error reloading workflow: {str(e)}")
+    def _model_restart(self, arg):
+        """Restart the worker process"""
+        print("Restarting worker process...")
+        self._shutdown_worker()
+        print("Worker shutdown complete")
+        print("Worker will restart on next run")
 
     def default(self, line):
         """Handle unknown commands"""
         print(f"Unknown command: {line}")
-        print("Type 'help' for a list of commands")
+        print("Type 'help' or '?' for a list of commands")
 
     def _ensure_worker(self):
         """Start worker process if not running"""

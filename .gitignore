@@ -137,3 +137,5 @@ dmypy.json
 .__INFO.lock
 INFO
 .dw_history
+pred_d.pt
+test_outputs/
