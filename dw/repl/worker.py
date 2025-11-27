@@ -98,4 +98,3 @@ class WorkerManager:
         if not self.worker_active or not self.result_queue:
             raise RuntimeError("Worker process is not active")
         return self.result_queue.get(timeout=timeout)
-

@@ -11,7 +11,6 @@ Contains all the command implementations organized by category:
 
 import os
 import logging
-from typing import Dict, Any, Optional
 from ..security import (
     validate_path,
     validate_workflow_path,
@@ -330,7 +329,9 @@ class WorkflowCommands:
             return
 
         try:
-            file_path = validate_string_input(arg.strip(), max_length=MAX_FILE_PATH_LENGTH)
+            file_path = validate_string_input(
+                arg.strip(), max_length=MAX_FILE_PATH_LENGTH
+            )
         except InvalidInputError as e:
             print(f"Error: Invalid file path: {e}")
             return
@@ -559,4 +560,3 @@ class ModelCommands:
         self.repl.worker_manager.shutdown_worker()
         print("Worker shutdown complete")
         print("Worker will restart on next run")
-

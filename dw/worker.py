@@ -136,7 +136,7 @@ class WorkflowWorker:
                 # If hash computation fails, assume workflow changed to force reload
                 current_hash = None
                 self.workflow_hash = None
-            
+
             workflow_changed = (
                 current_hash != self.workflow_hash
                 or workflow_path != self.workflow_path
