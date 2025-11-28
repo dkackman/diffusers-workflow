@@ -2,7 +2,11 @@ import pytest
 import os
 import json
 import tempfile
+import warnings
 from PIL import Image
+
+# Suppress FutureWarnings from dependencies (e.g., timm library deprecated imports)
+warnings.filterwarnings("ignore", category=FutureWarning, module="timm")
 
 
 @pytest.fixture
