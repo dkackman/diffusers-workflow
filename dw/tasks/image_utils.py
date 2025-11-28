@@ -162,8 +162,16 @@ def process_image(image, processor, device_identifier, kwargs):
 
 
 def get_zoe_depth_map(image, device_identifier):
-    model_zoe_n = load_zoe()
-    with torch.autocast(device_identifier, enabled=True):
+    model_zoe_n = load_zoe(device_identifier)
+    # MPS doesn't support autocast, so use 'cpu' for autocast when on MPS
+    from dw import get_autocast_device_type
+
+    autocast_device = get_autocast_device_type()
+    if autocast_device == "cuda":
+        with torch.autocast(autocast_device, enabled=True):
+            depth = model_zoe_n.infer_pil(image)
+    else:
+        # For MPS/CPU, don't use autocast
         depth = model_zoe_n.infer_pil(image)
     return colorize(depth, cmap="gray_r")
 
@@ -187,8 +195,17 @@ def image_to_depth(image, device_identifier, height=1024, width=1024):
     image = feature_extractor(images=image, return_tensors="pt").pixel_values.to(
         device_identifier
     )
-    with torch.no_grad(), torch.autocast(device_identifier):
-        depth_map = depth_estimator(image).predicted_depth
+    # MPS doesn't support autocast, so use 'cpu' for autocast when on MPS
+    from dw import get_autocast_device_type
+
+    autocast_device = get_autocast_device_type()
+    if autocast_device == "cuda":
+        with torch.no_grad(), torch.autocast(autocast_device):
+            depth_map = depth_estimator(image).predicted_depth
+    else:
+        # For MPS/CPU, don't use autocast
+        with torch.no_grad():
+            depth_map = depth_estimator(image).predicted_depth
 
     depth_map = torch.nn.functional.interpolate(
         depth_map.unsqueeze(1),

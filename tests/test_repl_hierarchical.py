@@ -83,7 +83,7 @@ def test_command_structure():
     print("\n✅ Command structure is clean and hierarchical")
     print("✅ No backward compatibility aliases")
     print("✅ All commands use '?' for help")
-    
+
     # Assertions for pytest
     assert expected_structure is not None
     assert len(expected_structure) > 0

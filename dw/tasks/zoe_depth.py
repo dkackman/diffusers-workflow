@@ -5,12 +5,12 @@ import numpy as np
 from PIL import Image
 
 
-def load_zoe():
+def load_zoe(device="cuda"):
     torch.hub.help(
         "intel-isl/MiDaS", "DPT_BEiT_L_384"
     )  # Triggers fresh download of MiDaS repo
     model_zoe_n = torch.hub.load("isl-org/ZoeDepth", "ZoeD_NK", pretrained=True).eval()
-    return model_zoe_n.to("cuda")
+    return model_zoe_n.to(device)
 
 
 def colorize(

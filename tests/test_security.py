@@ -36,7 +36,8 @@ def test_path_validation():
 
         # Should work with base directory restriction
         validated = validate_path(test_file, base_dir=temp_dir, allow_create=False)
-        assert validated == os.path.abspath(test_file)
+        # Use realpath to handle macOS symlinks (/var -> /private/var)
+        assert validated == os.path.realpath(os.path.abspath(test_file))
 
         # Should fail when outside base directory
         with pytest.raises(PathTraversalError):

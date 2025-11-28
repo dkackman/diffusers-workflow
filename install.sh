@@ -7,16 +7,21 @@ set -o errexit
 
 UBUNTU=false
 DEBIAN=false
+MACOS=false
 if [ "$(uname)" = "Linux" ]; then
   #LINUX=1
   if command -v apt-get >/dev/null; then
-    OS_ID=$(lsb_release -is)
-    if [ "$OS_ID" = "Debian" ]; then
-      DEBIAN=true
-    else
-      UBUNTU=true
+    if command -v lsb_release >/dev/null; then
+      OS_ID=$(lsb_release -is)
+      if [ "$OS_ID" = "Debian" ]; then
+        DEBIAN=true
+      else
+        UBUNTU=true
+      fi
     fi
   fi
+elif [ "$(uname)" = "Darwin" ]; then
+  MACOS=true
 fi
 
 # Check for non 64 bit ARM64/Raspberry Pi installs
@@ -34,20 +39,22 @@ UBUNTU_21=0
 UBUNTU_22=0
 
 if $UBUNTU; then
-  LSB_RELEASE=$(lsb_release -rs)
-  # In case Ubuntu minimal does not come with bc
-  if ! command -v bc > /dev/null 2>&1; then
-    sudo apt install bc -y
-  fi
-  # Mint 20.04 responds with 20 here so 20 instead of 20.04
-  if [ "$(echo "$LSB_RELEASE<20" | bc)" = "1" ]; then
-    UBUNTU_PRE_20=1
-  elif [ "$(echo "$LSB_RELEASE<21" | bc)" = "1" ]; then
-    UBUNTU_20=1
-  elif [ "$(echo "$LSB_RELEASE<22" | bc)" = "1" ]; then
-    UBUNTU_21=1
-  else
-    UBUNTU_22=1
+  if command -v lsb_release >/dev/null; then
+    LSB_RELEASE=$(lsb_release -rs)
+    # In case Ubuntu minimal does not come with bc
+    if ! command -v bc > /dev/null 2>&1; then
+      sudo apt install bc -y
+    fi
+    # Mint 20.04 responds with 20 here so 20 instead of 20.04
+    if [ "$(echo "$LSB_RELEASE<20" | bc)" = "1" ]; then
+      UBUNTU_PRE_20=1
+    elif [ "$(echo "$LSB_RELEASE<21" | bc)" = "1" ]; then
+      UBUNTU_20=1
+    elif [ "$(echo "$LSB_RELEASE<22" | bc)" = "1" ]; then
+      UBUNTU_21=1
+    else
+      UBUNTU_22=1
+    fi
   fi
 fi
 
@@ -60,7 +67,7 @@ PYTHON_MINOR_VER=
 find_python() {
   set +e
   unset BEST_VERSION
-  for V in 312 3.12 311 3.11 310 3.10; do
+  for V in 314 3.14 313 3.13 312 3.12 311 3.11 310 3.10; do
     if command -v python$V >/dev/null; then
       if [ "$BEST_VERSION" = "" ]; then
         BEST_VERSION=$V
@@ -94,8 +101,8 @@ if ! command -v "$INSTALL_PYTHON_PATH" >/dev/null; then
   exit 1
 fi
 
-if [ "$PYTHON_MAJOR_VER" -ne "3" ] || [ "$PYTHON_MINOR_VER" -lt "7" ] || [ "$PYTHON_MINOR_VER" -ge "13" ]; then
-  echo "The diffusers helper requires Python version >= 3.7 and  <= 3.12.0" >&2
+if [ "$PYTHON_MAJOR_VER" -ne "3" ] || [ "$PYTHON_MINOR_VER" -lt "7" ] || [ "$PYTHON_MINOR_VER" -ge "15" ]; then
+  echo "The diffusers helper requires Python version >= 3.7 and  <= 3.14.0" >&2
   echo "Current Python version = $INSTALL_PYTHON_VERSION" >&2
   # If Arch, direct to Arch Wiki
   if type pacman >/dev/null 2>&1 && [ -f "/etc/arch-release" ]; then
@@ -123,7 +130,14 @@ fi
 python -m pip install --upgrade pip
 
 pip install wheel setuptools
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+
+# Install PyTorch - use CUDA on Linux, standard install on macOS
+if $MACOS; then
+  pip install torch torchvision
+else
+  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+fi
+
 pip install --upgrade git+https://github.com/huggingface/diffusers
 # pip install diffusers[torch]
 pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy
