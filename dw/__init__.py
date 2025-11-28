@@ -1,8 +1,21 @@
-import torch
 import logging
 import warnings
-import diffusers
-from packaging import version
+
+# Lazy import torch to avoid import errors when torch isn't available
+# (e.g., when using system Python instead of venv)
+try:
+    import torch
+    import diffusers
+    from packaging import version
+    _TORCH_AVAILABLE = True
+except ImportError as e:
+    _TORCH_AVAILABLE = False
+    _TORCH_IMPORT_ERROR = e
+    # Create dummy objects to prevent AttributeError
+    torch = None
+    diffusers = None
+    version = None
+
 from .log_setup import setup_logging
 from .settings import resolve_path, load_settings
 
@@ -19,6 +32,9 @@ def get_device():
     Returns:
         str: Device identifier ('cuda', 'mps', or 'cpu')
     """
+    if not _TORCH_AVAILABLE:
+        return "cpu"
+    
     if torch.cuda.is_available():
         return "cuda"
 
@@ -45,6 +61,13 @@ def get_autocast_device_type():
 
 
 def startup(log_level=None):
+    if not _TORCH_AVAILABLE:
+        raise ImportError(
+            f"PyTorch is not available. {_TORCH_IMPORT_ERROR}\n"
+            "Please ensure you're using the virtual environment where torch is installed.\n"
+            "Activate the venv: source venv/bin/activate"
+        )
+    
     device = get_device()
 
     # Suppress autocast warnings when using MPS (MPS doesn't support autocast,

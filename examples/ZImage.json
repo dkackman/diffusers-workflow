@@ -1,6 +1,6 @@
 {
     "variables": {
-        "prompt": "A realistic photograph of a lego turkey dancing in a snow storm.",
+        "prompt": "A pangolin dancing in a rain storm.",
         "num_images_per_prompt": 1,
         "num_inference_steps": 9,
         "guidance_scale": 0.0,
