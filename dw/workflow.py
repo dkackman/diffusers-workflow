@@ -10,6 +10,7 @@ from .schema import validate_data, load_schema
 from .variables import replace_variables, set_variables
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.task import Task
+from . import get_device
 from .security import (
     validate_workflow_path,
     validate_json_size,
@@ -146,7 +147,11 @@ class Workflow:
                     results,
                     pipelines,
                     self.create_step_action(
-                        step_data, shared_components, pipelines, default_seed, "cuda"
+                        step_data,
+                        shared_components,
+                        pipelines,
+                        default_seed,
+                        get_device(),
                     ),
                 )
                 last_result = result

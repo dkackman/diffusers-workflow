@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dw.workflow import Workflow
 from dw.pipeline_processors.pipeline import Pipeline
+from dw import get_device
 
 # Setup logging
 logging.basicConfig(
@@ -86,7 +87,7 @@ def test_pipeline_caching():
             logger.info("=" * 60)
 
             action1 = workflow.create_step_action(
-                workflow_def["steps"][0], {}, pipeline_cache, 42, "cuda"
+                workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
             )
 
             first_load_count = load_call_count
@@ -101,7 +102,7 @@ def test_pipeline_caching():
             logger.info("=" * 60)
 
             action2 = workflow.create_step_action(
-                workflow_def["steps"][0], {}, pipeline_cache, 42, "cuda"
+                workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
             )
 
             second_load_count = load_call_count
@@ -190,19 +191,19 @@ def test_pipeline_caching_different_steps():
 
             # Create step1 pipeline
             action1 = workflow.create_step_action(
-                workflow_def["steps"][0], {}, pipeline_cache, 42, "cuda"
+                workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
             )
             logger.info(f"✅ Step1 created: load_count={load_call_count}")
 
             # Create step2 pipeline (should load fresh)
             action2 = workflow.create_step_action(
-                workflow_def["steps"][1], {}, pipeline_cache, 42, "cuda"
+                workflow_def["steps"][1], {}, pipeline_cache, 42, get_device()
             )
             logger.info(f"✅ Step2 created: load_count={load_call_count}")
 
             # Reuse step1 pipeline (should NOT reload)
             action1_reuse = workflow.create_step_action(
-                workflow_def["steps"][0], {}, pipeline_cache, 42, "cuda"
+                workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
             )
             logger.info(f"✅ Step1 reused: load_count={load_call_count}")
 

@@ -7,9 +7,10 @@ from diffusers import (
     UniPCMultistepScheduler,
 )
 from diffusers.utils import export_to_video, load_image
+from dw import get_device
 
 dtype = torch.bfloat16
-device = "cuda"
+device = get_device()
 
 model_id = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
 vae = AutoencoderKLWan.from_pretrained(

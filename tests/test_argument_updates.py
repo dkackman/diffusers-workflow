@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dw.workflow import Workflow
 from dw.pipeline_processors.pipeline import Pipeline
+from dw import get_device
 
 # Setup logging
 logging.basicConfig(
@@ -81,7 +82,7 @@ def test_cached_pipeline_uses_new_arguments():
                 logger.info("=" * 60)
 
                 action1 = workflow.create_step_action(
-                    workflow_def["steps"][0], {}, pipeline_cache, 42, "cuda"
+                    workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
                 )
 
                 # Simulate step.run() calling action.run()
@@ -105,7 +106,7 @@ def test_cached_pipeline_uses_new_arguments():
                 ] = 30
 
                 action2 = workflow.create_step_action(
-                    workflow_def["steps"][0], {}, pipeline_cache, 42, "cuda"
+                    workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
                 )
 
                 # Simulate step.run() calling action.run()
@@ -201,7 +202,7 @@ def test_generator_seed_updates():
 
             # Run 1 with seed 100
             action1 = workflow.create_step_action(
-                workflow_def["steps"][0], {}, pipeline_cache, 42, "cuda"
+                workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
             )
             seed1 = workflow_def["steps"][0]["pipeline"].get("seed", 42)
             logger.info(f"Run 1: seed={seed1}")
@@ -209,7 +210,7 @@ def test_generator_seed_updates():
             # Run 2 with seed 200
             workflow_def["steps"][0]["pipeline"]["seed"] = 200
             action2 = workflow.create_step_action(
-                workflow_def["steps"][0], {}, pipeline_cache, 42, "cuda"
+                workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
             )
             seed2 = workflow_def["steps"][0]["pipeline"].get("seed", 42)
             logger.info(f"Run 2: seed={seed2}")
