@@ -59,8 +59,6 @@ def test_hierarchical_commands():
     print("✅ All hierarchical commands tested successfully!")
     print("=" * 70)
 
-    return True
-
 
 def test_command_structure():
     """Verify command structure"""
@@ -85,8 +83,10 @@ def test_command_structure():
     print("\n✅ Command structure is clean and hierarchical")
     print("✅ No backward compatibility aliases")
     print("✅ All commands use '?' for help")
-
-    return True
+    
+    # Assertions for pytest
+    assert expected_structure is not None
+    assert len(expected_structure) > 0
 
 
 def main():
