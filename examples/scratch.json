@@ -31,35 +31,6 @@
             "result": {
                 "content_type": "image/jpeg"
             }
-        },
-        {
-            "name": "sdxl",
-            "pipeline": {
-                "configuration": {
-                    "component_type": "AutoPipelineForText2Image"
-                },
-                "ip_adapter": {
-                    "model_name": "h94/IP-Adapter",
-                    "subfolder": "sdxl_models",
-                    "weight_name": "ip-adapter_sdxl.bin",
-                    "scale": 0.6
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "stabilityai/stable-diffusion-xl-base-1.0",
-                    "torch_dtype": "torch.float16"
-                },
-                "arguments": {
-                    "ip_adapter_image": {
-                        "location": "variable:ip_adapter_image_location"
-                    },
-                    "prompt": "an image of an Axolotl in the style of Salvador Dalí..",
-                    "negative_prompt": "deformed, ugly, wrong proportion, low res, bad anatomy, worst quality, low quality",
-                    "num_inference_steps": 100
-                }
-            },
-            "result": {
-                "content_type": "image/jpeg"
-            }
         }
     ]
 }

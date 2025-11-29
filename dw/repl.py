@@ -12,8 +12,8 @@ import logging
 import os
 import multiprocessing
 from . import startup
-from .repl.worker import WorkerManager
-from .repl.commands import (
+from .repl_worker import WorkerManager
+from .repl_commands import (
     ConfigCommands,
     ArgCommands,
     MemoryCommands,
