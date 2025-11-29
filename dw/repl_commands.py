@@ -6,7 +6,6 @@ Contains all the command implementations organized by category:
 - Argument commands
 - Memory commands
 - Workflow commands
-- Model commands
 """
 
 import os
@@ -299,12 +298,14 @@ class WorkflowCommands:
         self.repl = repl
 
     def do_workflow(self, arg: str):
-        """Manage workflows. Usage: workflow ? | load <file> | reload | status"""
+        """Manage workflows. Usage: workflow ? | load <file> | reload | status | run | restart"""
         if not arg or arg == "?":
             print("\nWorkflow commands:")
             print("  workflow load <file> - Load a workflow from a JSON file")
             print("  workflow reload      - Reload the current workflow from disk")
             print("  workflow status      - Show current workflow information")
+            print("  workflow run         - Execute the currently loaded workflow")
+            print("  workflow restart     - Restart the worker process (clears cache)")
             print()
             return
 
@@ -318,6 +319,10 @@ class WorkflowCommands:
             self._workflow_reload(subarg)
         elif subcommand == "status":
             self._workflow_status(subarg)
+        elif subcommand == "run":
+            self._workflow_run(subarg)
+        elif subcommand == "restart":
+            self._workflow_restart(subarg)
         else:
             print(f"Unknown workflow subcommand: {subcommand}")
             print("Use 'workflow ?' for help")
@@ -428,36 +433,7 @@ class WorkflowCommands:
             print(f"File: {self.repl.current_workflow.file_spec}")
             print()
 
-
-class ModelCommands:
-    """Handles model execution and control commands."""
-
-    def __init__(self, repl):
-        """Initialize with reference to REPL instance."""
-        self.repl = repl
-
-    def do_model(self, arg: str):
-        """Control model execution. Usage: model ? | run | restart"""
-        if not arg or arg == "?":
-            print("\nModel commands:")
-            print("  model run     - Execute the currently loaded workflow")
-            print("  model restart - Restart the worker process (clears cache)")
-            print()
-            return
-
-        parts = arg.split(None, 1)
-        subcommand = parts[0]
-        subarg = parts[1] if len(parts) > 1 else ""
-
-        if subcommand == "run":
-            self._model_run(subarg)
-        elif subcommand == "restart":
-            self._model_restart(subarg)
-        else:
-            print(f"Unknown model subcommand: {subcommand}")
-            print("Use 'model ?' for help")
-
-    def _model_run(self, arg: str):
+    def _workflow_run(self, arg: str):
         """Run the currently loaded workflow with set arguments"""
         if not self.repl.current_workflow:
             print("Error: No workflow loaded. Use 'workflow load' command first")
@@ -487,7 +463,7 @@ class ModelCommands:
             )
 
             # Process results from worker
-            from .worker import WORKER_RESULT_TIMEOUT_SECONDS
+            from .repl_worker import WORKER_RESULT_TIMEOUT_SECONDS
 
             while True:
                 try:
@@ -526,7 +502,7 @@ class ModelCommands:
                             print(result["traceback"])
                         print("=" * 80)
                         print(
-                            "Worker process has terminated. Use 'model restart' to start a new worker.\n"
+                            "Worker process has terminated. Use 'workflow restart' to start a new worker.\n"
                         )
                         # Mark worker as inactive (already crashed, no need to shutdown)
                         self.repl.worker_manager.worker_active = False
@@ -554,7 +530,7 @@ class ModelCommands:
             print("Shutting down worker.\n")
             self.repl.worker_manager.shutdown_worker()
 
-    def _model_restart(self, arg: str):
+    def _workflow_restart(self, arg: str):
         """Restart the worker process"""
         print("Restarting worker process...")
         self.repl.worker_manager.shutdown_worker()

@@ -7,6 +7,7 @@ try:
     import torch
     import diffusers
     from packaging import version
+
     _TORCH_AVAILABLE = True
 except ImportError as e:
     _TORCH_AVAILABLE = False
@@ -34,7 +35,7 @@ def get_device():
     """
     if not _TORCH_AVAILABLE:
         return "cpu"
-    
+
     if torch.cuda.is_available():
         return "cuda"
 
@@ -67,7 +68,7 @@ def startup(log_level=None):
             "Please ensure you're using the virtual environment where torch is installed.\n"
             "Activate the venv: source venv/bin/activate"
         )
-    
+
     device = get_device()
 
     # Suppress autocast warnings when using MPS (MPS doesn't support autocast,

@@ -18,7 +18,6 @@ from .repl_commands import (
     ArgCommands,
     MemoryCommands,
     WorkflowCommands,
-    ModelCommands,
 )
 
 # CRITICAL: Set multiprocessing start method to 'spawn' for CUDA compatibility
@@ -60,7 +59,6 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         self.arg_commands = ArgCommands(self)
         self.memory_commands = MemoryCommands(self)
         self.workflow_commands = WorkflowCommands(self)
-        self.model_commands = ModelCommands(self)
 
     def preloop(self):
         """Hook method executed once when cmdloop() is called."""
@@ -94,17 +92,15 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             print("\nCommand Groups (use '<command> ?' for subcommands):")
             print("  workflow  - Load and manage workflows")
             print("  arg       - Manage workflow arguments")
-            print("  model     - Control model loading and execution")
             print("  memory    - Monitor and manage GPU memory")
             print("  config    - Configure global settings")
             print("\nOther Commands:")
             print("  help      - Show this help message")
             print("  exit      - Exit the REPL")
-            print("  quit      - Exit the REPL")
             print("\nExamples:")
             print("  workflow load FluxDev")
             print('  arg set prompt="a cat"')
-            print("  model run")
+            print("  workflow run")
             print("  memory show")
             print("  config set output_dir=./outputs")
             print()
@@ -140,10 +136,6 @@ class DiffusersWorkflowREPL(cmd.Cmd):
     def do_workflow(self, arg):
         """Manage workflows."""
         self.workflow_commands.do_workflow(arg)
-
-    def do_model(self, arg):
-        """Control model execution."""
-        self.model_commands.do_model(arg)
 
     def default(self, line):
         """Handle unknown commands"""

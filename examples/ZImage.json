@@ -1,6 +1,6 @@
 {
     "variables": {
-        "prompt": "A pangolin dancing in a rain storm.",
+        "prompt": "A frog dancing in a rain storm.",
         "num_images_per_prompt": 1,
         "num_inference_steps": 9,
         "guidance_scale": 0.0,
