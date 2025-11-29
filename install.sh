@@ -141,7 +141,7 @@ fi
 pip install --upgrade git+https://github.com/huggingface/diffusers
 # pip install diffusers[torch]
 pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy
-pip install aiohttp matplotlib opencv-python concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black
+pip install aiohttp matplotlib opencv-python-headless concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black
 
 # to use some LLM workflows like Phi mini-instruct you'll need to install the following
 # they however need the cuda dev toolkit to be installed

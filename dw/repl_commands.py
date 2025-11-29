@@ -11,7 +11,7 @@ Contains all the command implementations organized by category:
 
 import os
 import logging
-from ..security import (
+from .security import (
     validate_path,
     validate_workflow_path,
     validate_output_path,
@@ -22,7 +22,7 @@ from ..security import (
     MAX_VARIABLE_VALUE_LENGTH,
     MAX_FILE_PATH_LENGTH,
 )
-from ..workflow import workflow_from_file
+from .workflow import workflow_from_file
 
 logger = logging.getLogger("dw")
 

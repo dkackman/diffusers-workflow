@@ -8,7 +8,7 @@ that keeps models loaded in GPU memory.
 import multiprocessing
 import logging
 from typing import Optional
-from ..worker import worker_main
+from .worker import worker_main
 
 logger = logging.getLogger("dw")
 

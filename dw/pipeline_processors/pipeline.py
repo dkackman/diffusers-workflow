@@ -207,6 +207,7 @@ class Pipeline:
 
             # Ensure output is on correct device
             if hasattr(output, "to"):
+                logger.debug(f"Moving output to {self.device_identifier}")
                 output = output.to(self.device_identifier)
 
             return output
