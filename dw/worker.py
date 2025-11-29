@@ -5,11 +5,9 @@ Keeps models loaded in GPU memory across multiple runs.
 
 import os
 import sys
-import json
 import hashlib
 import logging
 import traceback
-import gc
 from typing import Dict, Any, Optional
 
 # Add parent directory to path for imports
