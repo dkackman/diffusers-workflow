@@ -1,6 +1,11 @@
 import logging
 import warnings
 
+# Suppress all common library warnings before any imports
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 # Lazy import torch to avoid import errors when torch isn't available
 # (e.g., when using system Python instead of venv)
 try:
