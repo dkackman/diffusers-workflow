@@ -234,6 +234,18 @@
                     "description": "Whether to use a generator for the pipeline. Some pipelines do not support generators.",
                     "type": "boolean"
                 },
+                "enable_attention_slicing": {
+                    "description": "Whether to enable attention slicing for the pipeline to reduce memory usage.",
+                    "type": "boolean"
+                },
+                "attention_backend": {
+                    "description": "The attention backend to use for the pipeline.",
+                    "type": "string"
+                },
+                "xformers_memory_efficient_attention": {
+                    "description": "Whether to enable xformers memory efficient attention for the pipeline.",
+                    "type": "boolean"
+                },
                 "vae": {
                     "type": "object",
                     "properties": {
@@ -261,6 +273,18 @@
                             "type": "boolean"
                         },
                         "torch_dtype": {
+                            "type": "string"
+                        },
+                        "attn_processor_type": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "transformer": {
+                    "description": "The type name of an attention processor",
+                    "type": "object",
+                    "properties": {
+                        "attn_processor": {
                             "type": "string"
                         }
                     }

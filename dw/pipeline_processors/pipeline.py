@@ -3,6 +3,7 @@ import copy
 import logging
 from .quantization import get_quantization_configuration
 from .remote import remote_text_encoder
+from diffusers import attention_backend
 
 logger = logging.getLogger("dw")
 
@@ -119,6 +120,14 @@ class Pipeline:
             self.device_identifier,
         )
 
+        if self.configuration.get("enable_attention_slicing", False):
+            logger.debug("Enabling attention slicing for pipeline")
+            self.pipeline.enable_attention_slicing()
+
+        if self.configuration.get("xformers_memory_efficient_attention", False):
+            logger.debug("Enabling attention xformers memory efficient attention for pipeline")
+            self.pipeline.enable_xformers_memory_efficient_attention()
+
         # configure components that are not shared
         self.configure_loaded_components()
 
@@ -203,7 +212,13 @@ class Pipeline:
 
             # Run standard pipeline
             logger.debug("Running standard pipeline")
-            output = self.pipeline(**arguments)
+            attn_backend = self.configuration.get("attention_backend", None)
+            if attn_backend is None:
+                output = self.pipeline(**arguments)
+            else:
+                logger.debug(f"Using attention backend: {attn_backend}")
+                with attention_backend(attn_backend):
+                    output = self.pipeline(**arguments)
 
             # Ensure output is on correct device
             if hasattr(output, "to"):
@@ -274,6 +289,17 @@ class Pipeline:
         if unet.get("set_memory_format", False):
             logger.debug("Setting UNet memory format")
             self.pipeline.unet.to(memory_format=torch.channels_last)
+        if unet.get("attn_processor_type", None) is not None:
+            logger.debug("Enabling UNet attention processor")
+            attn_processor = unet["attn_processor_type"]()
+            self.pipeline.unet.set_attn_processor(attn_processor)
+
+        # Configure transformer settings
+        transformer = self.configuration.get("transformer", {})
+        if transformer.get("attn_processor_type", None) is not None:
+            logger.debug("Enabling transformer attention processor")
+            attn_processor = transformer["attn_processor_type"]()
+            self.pipeline.transformer.set_attn_processor(attn_processor)
 
         # configure optional components
         for component_name in optional_component_names:
