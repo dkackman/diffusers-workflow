@@ -1,0 +1,91 @@
+{
+    "id": "hunyuan15",
+    "variables": {
+        "checkpoint_path": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/vae/hunyuanvideo15_vae_fp16.safetensors",
+        "num_inference_steps": 1,
+        "model_name": "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_t2v_distilled",
+        "prompt": "A lone marmot walks across vast, green forest landscape under a clear blue sky. The camera begins with a wide shot, capturing the endless forests, then slowly zooms in on the marmot as it moves gracefully. The soft wind blows sand into gentle waves, adding motion to the scene. The atmosphere is serene and timeless, emphasizing the beauty of the forest. Bright sunlight casts sharp shadows on the trees, creating striking contrasts. The shot transitions from a wide view of the forest  to a medium shot of the marmot, framed against the soaring trees."
+    },
+    "steps": [
+        {
+            "name": "text_to_video",
+            "pipeline": {
+                "transformer": {
+                    "configuration": {
+                        "component_type": "HunyuanVideo15Transformer3DModel"
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "BitsAndBytesConfig"
+                        },
+                        "arguments": {
+                            "load_in_4bit": true,
+                            "bnb_4bit_quant_type": "{nf4}",
+                            "bnb_4bit_compute_dtype": "torch.bfloat16"
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "component_type": "transformers.Qwen2_5_VLTextModel",
+                        "device": "cpu"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder_2": {
+                    "configuration": {
+                        "component_type": "transformers.T5EncoderModel",
+                        "device": "cpu"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "text_encoder_2",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "vae": {
+                    "configuration": {
+                        "component_type": "AutoencoderKLHunyuanVideo15",
+                        "device": "cpu"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "variable:model_name",
+                        "subfolder": "vae",
+                        "torch_dtype": "torch.float32"
+                    }
+                },
+                "configuration": {
+                    "component_type": "HunyuanVideo15Pipeline",
+                    "offload": "model",
+                    "vae": {
+                        "enable_tiling": true,
+                        "enable_slicing": true
+                    },
+                    "attention_backend": "flash_hub"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "variable:model_name",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_frames": 121
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

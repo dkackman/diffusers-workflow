@@ -2,6 +2,9 @@ from .settings import resolve_path, load_settings
 from .log_setup import setup_logging
 import logging
 import warnings
+from dotenv import load_dotenv
+
+load_dotenv()  # Loads .env from current directory
 
 # Suppress all common library warnings before any imports
 warnings.filterwarnings("ignore", category=FutureWarning)

@@ -11,6 +11,7 @@ from .security import (
     MAX_VARIABLE_VALUE_LENGTH,
 )
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a workflow from a file.")
     parser.add_argument(

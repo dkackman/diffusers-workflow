@@ -132,16 +132,11 @@ python -m pip install --upgrade pip
 pip install wheel setuptools
 
 # Install PyTorch - use CUDA on Linux, standard install on macOS
-if $MACOS; then
-  pip install torch torchvision
-else
-  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
-fi
-
+pip install torch torchvision
 pip install --upgrade git+https://github.com/huggingface/diffusers
 # pip install diffusers[torch]
-pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy
-pip install aiohttp matplotlib opencv-python-headless concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black
+pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy kernels
+pip install aiohttp matplotlib opencv-python-headless concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black dotenv
 
 # to use some LLM workflows like Phi mini-instruct you'll need to install the following
 # they however need the cuda dev toolkit to be installed
