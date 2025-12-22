@@ -20,7 +20,8 @@
                     "url": "https://remote-text-encoder-flux-2.huggingface.co/predict"
                 },
                 "configuration": {
-                    "component_type": "Flux2Pipeline"
+                    "component_type": "Flux2Pipeline",
+                    "attention_backend": "flash_hub"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "diffusers/FLUX.2-dev-bnb-4bit",
