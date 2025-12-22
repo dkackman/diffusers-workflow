@@ -14,31 +14,10 @@
         {
             "name": "2TI2V5B",
             "pipeline": {
-                "vae": {
-                    "configuration": {
-                        "component_type": "AutoencoderKLWan",
-                        "device": "cpu"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "variable:model_name",
-                        "subfolder": "vae",
-                        "torch_dtype": "torch.float32"
-                    }
-                },
-                "text_encoder": {
-                    "configuration": {
-                        "component_type": "transformers.UMT5EncoderModel",
-                        "device": "cpu"
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "variable:model_name",
-                        "subfolder": "text_encoder",
-                        "torch_dtype": "torch.bfloat16"
-                    }
-                },
                 "configuration": {
                     "component_type": "WanPipeline",
-                    "offload": "model"
+                    "offload": "model",
+                    "attention_backend": "flash_hub"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "variable:model_name",

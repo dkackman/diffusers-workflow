@@ -1,6 +1,6 @@
 {
     "variables": {
-        "prompt": "Make this a lego version of the input image.",
+        "prompt": "Make this a lego version of the a dancing bear.",
         "num_images_per_prompt": 1,
         "num_inference_steps": 9,
         "guidance_scale": 0.0,
@@ -13,7 +13,8 @@
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "component_type": "ZImagePipeline"
+                    "component_type": "ZImagePipeline",
+                    "attention_backend": "flash_hub"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "Tongyi-MAI/Z-Image-Turbo",
