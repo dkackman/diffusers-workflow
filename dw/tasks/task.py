@@ -99,7 +99,7 @@ def _handle_image_processing(task, arguments, previous_pipelines):
     return process_image(
         arguments.pop("image"),
         task.command,
-        task.device_identifier,
+        task.device,
         arguments,
     )
 
@@ -110,7 +110,7 @@ def _handle_video_processing(task, arguments, previous_pipelines):
     return process_video(
         arguments.pop("video"),
         task.command,
-        task.device_identifier,
+        task.device,
         arguments,
     )
 
@@ -121,17 +121,17 @@ class Task:
     Tasks are atomic operations like image processing, data gathering, or message formatting.
     """
 
-    def __init__(self, task_definition, device_identifier):
+    def __init__(self, task_definition, device):
         """
         Initialize task with its configuration and device settings.
 
         Args:
             task_definition: Dictionary containing task configuration and parameters
-            device_identifier: Device to run task on (e.g., 'cuda')
+            device: Device to run task on (e.g., 'cuda', 'mps', 'cpu')
         """
         self.task_definition = task_definition
-        self.device_identifier = device_identifier
-        logger.debug(f"Initialized task: {self.name} for device: {device_identifier}")
+        self.device = device
+        logger.debug(f"Initialized task: {self.name} for device: {device}")
 
     @property
     def name(self):

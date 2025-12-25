@@ -4,12 +4,12 @@ from torchvision import transforms
 from transformers import AutoModelForImageSegmentation
 
 
-def remove_background(image: Image, device_identifier) -> Image:
+def remove_background(image: Image, device) -> Image:
     # Model settings
     model = AutoModelForImageSegmentation.from_pretrained(
         "briaai/RMBG-2.0", trust_remote_code=True
     )
-    model.to(device_identifier)
+    model.to(device)
     model.eval()
 
     # Data settings
@@ -22,7 +22,7 @@ def remove_background(image: Image, device_identifier) -> Image:
     )
 
     working_copy = image.copy()
-    input_images = transform_image(working_copy).unsqueeze(0).to(device_identifier)
+    input_images = transform_image(working_copy).unsqueeze(0).to(device)
 
     # Prediction
     with torch.no_grad():

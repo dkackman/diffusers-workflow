@@ -2,7 +2,7 @@ from PIL import Image
 from typing import List
 
 
-def process_video(video: List[Image.Image], processor, device_identifier, kwargs):
+def process_video(video: List[Image.Image], processor, device, kwargs):
     processor = processor.lower()
 
     if processor == "get_frame":

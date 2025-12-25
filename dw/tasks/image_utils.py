@@ -32,7 +32,7 @@ from .borders import add_border_and_mask, add_border_and_mask_with_size
 import torch
 
 
-def process_image(image, processor, device_identifier, kwargs):
+def process_image(image, processor, device, kwargs):
     processor = processor.lower()
 
     if processor == "get_image_size":
@@ -45,53 +45,53 @@ def process_image(image, processor, device_identifier, kwargs):
         return add_border_and_mask_with_size(image, **kwargs)
 
     if processor == "remove_background":
-        return remove_background(image, device_identifier, **kwargs)
+        return remove_background(image, device, **kwargs)
 
     if processor == "canny_cv":
         return image_to_canny(image, **kwargs)
 
     if processor == "mlsd":
-        return MLSDdetector.from_pretrained("lllyasviel/Annotators").to(
-            device_identifier
-        )(image, **kwargs)
+        return MLSDdetector.from_pretrained("lllyasviel/Annotators").to(device)(
+            image, **kwargs
+        )
 
     if processor == "normal_bae":
-        return NormalBaeDetector.from_pretrained("lllyasviel/Annotators").to(
-            device_identifier
-        )(image, **kwargs)
+        return NormalBaeDetector.from_pretrained("lllyasviel/Annotators").to(device)(
+            image, **kwargs
+        )
 
     if processor == "segmentation":
         return image_to_segmentation(image)
 
     if processor == "lineart":
-        return LineartDetector.from_pretrained("lllyasviel/Annotators").to(
-            device_identifier
-        )(image, coarse=True, **kwargs)
+        return LineartDetector.from_pretrained("lllyasviel/Annotators").to(device)(
+            image, coarse=True, **kwargs
+        )
 
     if processor == "openpose":
-        return OpenposeDetector.from_pretrained("lllyasviel/Annotators").to(
-            device_identifier
-        )(image, hand_and_face=True, **kwargs)
+        return OpenposeDetector.from_pretrained("lllyasviel/Annotators").to(device)(
+            image, hand_and_face=True, **kwargs
+        )
 
     if processor == "hed":
-        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(
-            device_identifier
-        )(image, scribble=False, **kwargs)
+        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(device)(
+            image, scribble=False, **kwargs
+        )
 
     if processor == "scribble":
-        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(
-            device_identifier
-        )(image, scribble=True, **kwargs)
+        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(device)(
+            image, scribble=True, **kwargs
+        )
 
     if processor == "pidi":
-        return PidiNetDetector.from_pretrained("lllyasviel/Annotators").to(
-            device_identifier
-        )(image, safe=True, **kwargs)
+        return PidiNetDetector.from_pretrained("lllyasviel/Annotators").to(device)(
+            image, safe=True, **kwargs
+        )
 
     if processor == "midas":
-        return MidasDetector.from_pretrained("lllyasviel/Annotators").to(
-            device_identifier
-        )(image, **kwargs)
+        return MidasDetector.from_pretrained("lllyasviel/Annotators").to(device)(
+            image, **kwargs
+        )
 
     if processor == "shuffle":
         processor = ContentShuffleDetector()
@@ -106,16 +106,16 @@ def process_image(image, processor, device_identifier, kwargs):
         return processor(image, **kwargs)
 
     if processor == "dw_pose":
-        processor = DWposeDetector(device=device_identifier)
+        processor = DWposeDetector(device=device)
         return processor(image, **kwargs)
 
     if processor == "zoe_depth":
-        return get_zoe_depth_map(image, device_identifier)
+        return get_zoe_depth_map(image, device)
 
     if processor == "zoe":
-        return ZoeDetector.from_pretrained("lllyasviel/Annotators").to(
-            device_identifier
-        )(image, **kwargs)
+        return ZoeDetector.from_pretrained("lllyasviel/Annotators").to(device)(
+            image, **kwargs
+        )
 
     if processor == "sam":
         return SamDetector.from_pretrained(
@@ -124,27 +124,27 @@ def process_image(image, processor, device_identifier, kwargs):
 
     if processor == "teed":
         return TEEDdetector.from_pretrained("fal-ai/teed", filename="5_model.pth").to(
-            device_identifier
+            device
         )(image, **kwargs)
 
     if processor == "anyline":
         return AnylineDetector.from_pretrained(
             "TheMistoAI/MistoLine", filename="MTEED.pth", subfolder="Anyline"
-        ).to(device_identifier)(image, **kwargs)
+        ).to(device)(image, **kwargs)
 
     if processor == "leres":
-        return LeresDetector.from_pretrained("lllyasviel/Annotators").to(
-            device_identifier
-        )(image, **kwargs)
+        return LeresDetector.from_pretrained("lllyasviel/Annotators").to(device)(
+            image, **kwargs
+        )
 
     if processor == "depth":
-        return image_to_depth(image, device_identifier, **kwargs)
+        return image_to_depth(image, device, **kwargs)
 
     if processor == "depth_estimator_tensor":
-        return make_hint_tensor(image, device_identifier)
+        return make_hint_tensor(image, device)
 
     if processor == "depth_estimator":
-        return make_hint_image(image, device_identifier)
+        return make_hint_image(image, device)
 
     if processor == "resize_center_crop":
         return resize_center_crop(image, **kwargs)
@@ -161,8 +161,8 @@ def process_image(image, processor, device_identifier, kwargs):
     raise Exception(f"Unknown image processor type: {processor}")
 
 
-def get_zoe_depth_map(image, device_identifier):
-    model_zoe_n = load_zoe(device_identifier)
+def get_zoe_depth_map(image, device):
+    model_zoe_n = load_zoe(device)
     # MPS doesn't support autocast, so use 'cpu' for autocast when on MPS
     from dw import get_autocast_device_type
 
@@ -185,16 +185,14 @@ def image_to_canny(image, low_threshold=100, high_threshold=200):
     return Image.fromarray(image)
 
 
-def image_to_depth(image, device_identifier, height=1024, width=1024):
+def image_to_depth(image, device, height=1024, width=1024):
     size = (width, height)
     depth_estimator = DPTForDepthEstimation.from_pretrained(
         "Intel/dpt-hybrid-midas"
-    ).to(device_identifier)
+    ).to(device)
     feature_extractor = DPTFeatureExtractor.from_pretrained("Intel/dpt-hybrid-midas")
 
-    image = feature_extractor(images=image, return_tensors="pt").pixel_values.to(
-        device_identifier
-    )
+    image = feature_extractor(images=image, return_tensors="pt").pixel_values.to(device)
     # MPS doesn't support autocast, so use 'cpu' for autocast when on MPS
     from dw import get_autocast_device_type
 

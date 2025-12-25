@@ -175,7 +175,9 @@ class Workflow:
         except (KeyError, ValueError, TypeError) as e:
             # Expected errors: missing keys, invalid values, type mismatches
             workflow_id = self.workflow_definition.get("id", "unknown")
-            logger.error(f"Configuration error in workflow {workflow_id}: {e}", exc_info=True)
+            logger.error(
+                f"Configuration error in workflow {workflow_id}: {e}", exc_info=True
+            )
             raise
         except (OSError, IOError) as e:
             # File operations, resource loading errors
@@ -192,7 +194,7 @@ class Workflow:
             workflow_id = self.workflow_definition.get("id", "unknown")
             logger.error(
                 f"Unexpected error ({type(e).__name__}) in workflow {workflow_id}: {e}",
-                exc_info=True
+                exc_info=True,
             )
             raise
 
@@ -202,7 +204,7 @@ class Workflow:
         shared_components,
         previous_pipelines,
         default_seed,
-        device_identifier,
+        device,
     ):
         """
         Creates the appropriate action object based on step type:
@@ -224,7 +226,7 @@ class Workflow:
                 new_pipeline_wrapper = Pipeline(
                     step_definition["pipeline"],
                     default_seed,
-                    device_identifier,
+                    device,
                     cached_pipeline.pipeline,  # Reuse the actual loaded model
                 )
                 # Set up generator with potentially new seed
@@ -236,7 +238,7 @@ class Workflow:
                     )
                     new_pipeline_wrapper.argument_template[
                         "generator"
-                    ] = torch.Generator(device_identifier).manual_seed(
+                    ] = torch.Generator(device).manual_seed(
                         new_pipeline_wrapper.pipeline_definition.get(
                             "seed", default_seed
                         )
@@ -249,7 +251,7 @@ class Workflow:
             pipeline = Pipeline(
                 step_definition["pipeline"],
                 default_seed,
-                device_identifier,
+                device,
             )
             pipeline.load(shared_components)
             previous_pipelines[step_name] = pipeline
@@ -265,7 +267,7 @@ class Workflow:
             return Pipeline(
                 pipeline_reference,
                 default_seed,
-                device_identifier,
+                device,
                 previous_pipeline.pipeline,
             )
 
@@ -317,5 +319,5 @@ class Workflow:
         logger.debug(f"Creating task for step: {step_definition['name']}")
         # Handle task creation
         task_definition = step_definition["task"]
-        task = Task(task_definition, device_identifier)
+        task = Task(task_definition, device)
         return task
