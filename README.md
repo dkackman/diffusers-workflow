@@ -4,20 +4,22 @@
 
 ## Introduction
 
-This is a simple, declaritive workflow engine for the [Huggingface Diffuser project](https://github.com/huggingface/diffusers). This command-line tool simplifies working with the Hugging Face Diffusers library by providing a flexible, JSON-based interface for running generative AI models. Users can define and execute complex image generation tasks without writing custom Python code.
+A declarative workflow engine for the [Hugging Face Diffusers library](https://github.com/huggingface/diffusers). Define and execute complex image/video generation workflows using JSON configuration files—no Python coding required.
 
-*Please [refer to the wiki](https://github.com/dkackman/diffusers-workflow/wiki) for more detailed instuctions.*
+*For detailed documentation, see the [wiki](https://github.com/dkackman/diffusers-workflow/wiki).*
 
 ## Features
 
-- Make any workflow command line executable with variable substitution
-- Support for text to image & video and image to image & video workflows
-- Image describing and prompt augmentation using locally installed LLMs
-- Image processing tasks for controlnet workflows
-- Composable workflows from multiple files
-- Other helpful tasks like background removal, upscaling, cropping and qr code generation
+- **Command-line execution** with variable substitution
+- **Text/image to image/video** generation workflows
+- **LLM-powered** prompt augmentation and image description
+- **ControlNet** image processing tasks
+- **Composable workflows** from multiple JSON files
+- **Utility tasks**: background removal, upscaling, cropping, QR codes
 
 ## Installation
+
+**Tested on:** Ubuntu 22.04+ and Python 3.10+. Windows support is experimental.
 
 ### bash
 
@@ -33,15 +35,6 @@ python -m dw.test
 .\install.ps1
 .\venv\scripts\activate 
 python -m dw.test
-```
-
-### Install Diffusers from Source
-
-The install script will install [the diffusers library from PyPi](https://pypi.org/project/diffusers/). If you want to install from source and use not yet released diffusers, you can do so with the following commands:
-
-```bash
-. ./activate # or .\venv\scripts\activate on windows
-pip install git+https://github.com/huggingface/diffusers
 ```
 
 ### Run Tests
@@ -89,7 +82,7 @@ options:
 
 ## Interactive REPL
 
-The REPL provides an interactive environment for rapid workflow iteration. Models stay loaded in GPU memory between runs for 2-4x faster execution:
+Interactive environment for rapid workflow iteration with **persistent GPU model caching** (2-4x faster repeated execution):
 
 ```bash
 python -m dw.repl
@@ -118,32 +111,29 @@ GPU Memory Status:
   ...
 ```
 
-### Hierarchical Commands
+### Commands
 
-Commands are organized into logical groups. Use `?` with any command to explore subcommands:
+Use `?` to explore hierarchical command groups:
 
 ```bash
-dw> ?             # Show all command groups
-dw> workflow ?    # Show workflow commands
-dw> arg ?         # Show argument commands
-dw> model ?       # Show model execution commands
-dw> memory ?      # Show memory management commands
-dw> config ?      # Show configuration commands
+dw> ?             # Show all groups
+dw> workflow ?    # Workflow management
+dw> arg ?         # Argument configuration
+dw> model ?       # Model execution
+dw> memory ?      # Memory management
 ```
 
-See [REPL_COMMANDS.md](docs/REPL_COMMANDS.md) for complete command reference and [REPL_WORKER_GUIDE.md](docs/REPL_WORKER_GUIDE.md) for architecture details.
+**Documentation:** [Command Reference](docs/REPL_COMMANDS.md) | [Worker Architecture](docs/REPL_WORKER_GUIDE.md)
 
-## JSON Input Format
+## JSON Workflow Format
 
-### Schema
-
-[Json schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-workflow%2Frefs%2Fheads%2Fmaster%2Fdw%2Fworkflow_schema.json)
+**Schema:** [View JSON Schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-workflow%2Frefs%2Fheads%2Fmaster%2Fdw%2Fworkflow_schema.json)
 
 ### Examples
 
-#### Simple Image Generation with an Input Variable
+#### Simple Image Generation
 
-This example declares a variable for the `prompt` which can then be set on the command line. The `prompt` variable is then used in the `prompt` argument of the model.
+Variables declared in the workflow can be overridden via command-line arguments:
 
 ```bash
 python -m dw.run test_workflow.json prompt="an orange" num_images_per_prompt=4
@@ -184,9 +174,9 @@ python -m dw.run test_workflow.json prompt="an orange" num_images_per_prompt=4
 }
 ```
 
-#### Multiple Step Workflow
+#### Multi-Step Workflow (Image → Video)
 
-This example demonstrates a multiple step workflow including an image generation step followed by video generation. It includes the use of a transformer model for the image generation, a quantization example and an image to video model.
+Demonstrates chaining steps: text-to-image with 4-bit quantization, then image-to-video using the generated image:
 
 ```json
 {
@@ -269,11 +259,11 @@ This example demonstrates a multiple step workflow including an image generation
 }
 ```
 
-#### Prompt Augmentation
+#### Prompt Augmentation with LLM
 
-This example uses an instruct LLM to augment the prompt before passing it to the model. This also demonstrates composable child workflows.
+Uses a local LLM to enhance prompts before image generation. Demonstrates composable workflows via `builtin:` references.
 
-Note that this particular LLM requries `flash_attn` which in turn requires the [CUDA toolkit](https://developer.nvidia.com/cuda-toolkit).
+**Note:** Requires `flash_attn` and the [CUDA toolkit](https://developer.nvidia.com/cuda-toolkit).
 
 ```json
 {
