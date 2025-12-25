@@ -3,6 +3,7 @@ import os
 import json
 import torch
 import copy
+import gc
 import logging
 from .arguments import realize_args
 from .step import Step
@@ -160,8 +161,6 @@ class Workflow:
                 logger.debug(f"Step {step.name} completed with result: {result}")
 
                 # Cleanup between steps (but keep pipelines loaded)
-                import gc
-
                 gc.collect()
 
             logger.debug(f"Workflow {workflow_id} completed successfully")
