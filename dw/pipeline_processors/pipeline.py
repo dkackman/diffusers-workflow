@@ -227,8 +227,33 @@ class Pipeline:
 
             return output
 
+        except (KeyError, ValueError, TypeError) as e:
+            # Missing arguments, invalid configuration, type mismatches
+            logger.error(
+                f"Configuration error running pipeline: {e}",
+                exc_info=True
+            )
+            raise
+        except (OSError, IOError) as e:
+            # File operations, resource loading errors
+            logger.error(
+                f"I/O error running pipeline: {e}",
+                exc_info=True
+            )
+            raise
+        except RuntimeError as e:
+            # CUDA OOM, model inference failures, torch errors
+            logger.error(
+                f"Runtime error running pipeline: {e}",
+                exc_info=True
+            )
+            raise
         except Exception as e:
-            logger.error(f"Error running pipeline: {str(e)}", exc_info=True)
+            # Catch-all for unexpected errors
+            logger.error(
+                f"Unexpected error ({type(e).__name__}) running pipeline: {e}",
+                exc_info=True
+            )
             raise
 
     def load_optional_component(
@@ -415,6 +440,31 @@ def load_component(
 
         return component
 
+    except (KeyError, ValueError, TypeError) as e:
+        # Missing configuration, invalid values, type mismatches
+        logger.error(
+            f"Configuration error loading {component_name}: {e}",
+            exc_info=True
+        )
+        raise
+    except (OSError, IOError) as e:
+        # Model file not found, download failures, disk errors
+        logger.error(
+            f"I/O error loading {component_name}: {e}",
+            exc_info=True
+        )
+        raise
+    except RuntimeError as e:
+        # CUDA OOM during model loading, incompatible model format
+        logger.error(
+            f"Runtime error loading {component_name}: {e}",
+            exc_info=True
+        )
+        raise
     except Exception as e:
-        logger.error(f"Error loading {component_name}: {str(e)}", exc_info=True)
+        # Catch-all for unexpected errors
+        logger.error(
+            f"Unexpected error ({type(e).__name__}) loading {component_name}: {e}",
+            exc_info=True
+        )
         raise

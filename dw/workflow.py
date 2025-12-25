@@ -167,9 +167,33 @@ class Workflow:
             # Return only the last step's results for child workflows
             return last_result.result_list if last_result is not None else []
 
-        except Exception as e:
+        except (SecurityError, PathTraversalError, InvalidInputError) as e:
+            # Security validation failures - these should fail fast
             workflow_id = self.workflow_definition.get("id", "unknown")
-            logger.error(f"Error running workflow {workflow_id}: {e}", exc_info=True)
+            logger.error(f"Security error in workflow {workflow_id}: {e}")
+            raise
+        except (KeyError, ValueError, TypeError) as e:
+            # Expected errors: missing keys, invalid values, type mismatches
+            workflow_id = self.workflow_definition.get("id", "unknown")
+            logger.error(f"Configuration error in workflow {workflow_id}: {e}", exc_info=True)
+            raise
+        except (OSError, IOError) as e:
+            # File operations, resource loading errors
+            workflow_id = self.workflow_definition.get("id", "unknown")
+            logger.error(f"I/O error in workflow {workflow_id}: {e}", exc_info=True)
+            raise
+        except RuntimeError as e:
+            # CUDA OOM, model loading failures, torch errors
+            workflow_id = self.workflow_definition.get("id", "unknown")
+            logger.error(f"Runtime error in workflow {workflow_id}: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            # Catch-all for unexpected errors
+            workflow_id = self.workflow_definition.get("id", "unknown")
+            logger.error(
+                f"Unexpected error ({type(e).__name__}) in workflow {workflow_id}: {e}",
+                exc_info=True
+            )
             raise
 
     def create_step_action(
