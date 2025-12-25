@@ -31,23 +31,21 @@ class Pipeline:
     Handles loading of models, schedulers, and adapters.
     """
 
-    def __init__(
-        self, pipeline_definition, default_seed, device_identifier, pipeline=None
-    ):
+    def __init__(self, pipeline_definition, default_seed, device, pipeline=None):
         """
         Initialize pipeline with configuration and device settings.
 
         Args:
             pipeline_definition: Dictionary containing pipeline configuration
             default_seed: Seed value for reproducibility
-            device_identifier: Device to run pipeline on (e.g., 'cuda')
+            device: Device to run pipeline on (e.g., 'cuda', 'mps', 'cpu')
             pipeline: Optional existing pipeline to use
         """
         self.pipeline_definition = pipeline_definition
         self.default_seed = default_seed
-        self.device_identifier = device_identifier
+        self.device = device
         self.pipeline = pipeline
-        logger.debug(f"Initialized pipeline with device: {device_identifier}")
+        logger.debug(f"Initialized pipeline with device: {device}")
 
     @property
     def configuration(self):
@@ -65,12 +63,12 @@ class Pipeline:
     def argument_template(self):
         return self.pipeline_definition["arguments"]
 
-    def populate_from_pretrained_arguments(self, device_identifier, shared_components):
+    def populate_from_pretrained_arguments(self, device, shared_components):
         """
         Prepare arguments for pipeline creation, including shared components.
 
         Args:
-            device_identifier: Device to run pipeline on
+            device: Device to run pipeline on
             shared_components: Dictionary of components shared between pipelines
         """
         logger.debug("Populating from_pretrained arguments")
@@ -88,7 +86,7 @@ class Pipeline:
         # Load optional components (controlnet, vae, unet, etc.)
         for component_name in optional_component_names:
             self.load_optional_component(
-                component_name, from_pretrained_arguments, device_identifier
+                component_name, from_pretrained_arguments, device
             )
 
         # Handle remote text encoder configuration by setting local text_encoder to None
@@ -109,7 +107,7 @@ class Pipeline:
 
         # Prepare arguments and load pipeline
         from_pretrained_arguments = self.populate_from_pretrained_arguments(
-            self.device_identifier, shared_components
+            self.device, shared_components
         )
 
         # Load and configure the main pipeline
@@ -117,7 +115,7 @@ class Pipeline:
             "pipeline",
             self.configuration,
             from_pretrained_arguments,
-            self.device_identifier,
+            self.device,
         )
 
         if self.configuration.get("enable_attention_slicing", False):
@@ -125,7 +123,9 @@ class Pipeline:
             self.pipeline.enable_attention_slicing()
 
         if self.configuration.get("xformers_memory_efficient_attention", False):
-            logger.debug("Enabling attention xformers memory efficient attention for pipeline")
+            logger.debug(
+                "Enabling attention xformers memory efficient attention for pipeline"
+            )
             self.pipeline.enable_xformers_memory_efficient_attention()
 
         # configure components that are not shared
@@ -155,7 +155,7 @@ class Pipeline:
         if not "no_generator" in self.configuration:
             logger.debug("Setting up random generator")
             self.argument_template["generator"] = torch.Generator(
-                self.device_identifier
+                self.device
             ).manual_seed(self.pipeline_definition.get("seed", self.default_seed))
 
         logger.debug("Pipeline loaded successfully")
@@ -206,7 +206,7 @@ class Pipeline:
                 prompt_embeds = remote_text_encoder(
                     arguments.pop("prompt"),
                     remote_config.get("url"),
-                    device=self.device_identifier,
+                    device=self.device,
                 )
                 arguments["prompt_embeds"] = prompt_embeds
 
@@ -222,42 +222,33 @@ class Pipeline:
 
             # Ensure output is on correct device
             if hasattr(output, "to"):
-                logger.debug(f"Moving output to {self.device_identifier}")
-                output = output.to(self.device_identifier)
+                logger.debug(f"Moving output to {self.device}")
+                output = output.to(self.device)
 
             return output
 
         except (KeyError, ValueError, TypeError) as e:
             # Missing arguments, invalid configuration, type mismatches
-            logger.error(
-                f"Configuration error running pipeline: {e}",
-                exc_info=True
-            )
+            logger.error(f"Configuration error running pipeline: {e}", exc_info=True)
             raise
         except (OSError, IOError) as e:
             # File operations, resource loading errors
-            logger.error(
-                f"I/O error running pipeline: {e}",
-                exc_info=True
-            )
+            logger.error(f"I/O error running pipeline: {e}", exc_info=True)
             raise
         except RuntimeError as e:
             # CUDA OOM, model inference failures, torch errors
-            logger.error(
-                f"Runtime error running pipeline: {e}",
-                exc_info=True
-            )
+            logger.error(f"Runtime error running pipeline: {e}", exc_info=True)
             raise
         except Exception as e:
             # Catch-all for unexpected errors
             logger.error(
                 f"Unexpected error ({type(e).__name__}) running pipeline: {e}",
-                exc_info=True
+                exc_info=True,
             )
             raise
 
     def load_optional_component(
-        self, component_name, from_pretrained_arguments, default_device_identifier
+        self, component_name, from_pretrained_arguments, default_device
     ):
         """Load an optional component if specified in pipeline definition."""
         component_definition = self.pipeline_definition.get(component_name, None)
@@ -280,14 +271,12 @@ class Pipeline:
                         quantization_configuration
                     )
 
-                device_identifier = component_configuration.get(
-                    "device", default_device_identifier
-                )
+                device = component_configuration.get("device", default_device)
                 component = load_component(
                     component_name,
                     component_configuration,
                     component_from_pretrained_arguments,
-                    device_identifier,
+                    device,
                 )
 
                 logger.debug(f"Loaded optional component: {component_name}")
@@ -390,9 +379,7 @@ def load_and_configure_scheduler(scheduler_definition, pipeline):
         )
 
 
-def load_component(
-    component_name, configuration, from_pretrained_arguments, device_identifier
-):
+def load_component(component_name, configuration, from_pretrained_arguments, device):
     """Load and configure a pipeline or component."""
     component_type = configuration["component_type"]
     component = None
@@ -435,36 +422,29 @@ def load_component(
                 component._exclude_from_cpu_offload.append(component_name)
             component.enable_sequential_cpu_offload()
         elif hasattr(component, "to") and not do_not_send_to_device:
-            logger.debug(f"Moving {component_name} to device: {device_identifier}")
-            component = component.to(device_identifier)
+            logger.debug(f"Moving {component_name} to device: {device}")
+            component = component.to(device)
 
         return component
 
     except (KeyError, ValueError, TypeError) as e:
         # Missing configuration, invalid values, type mismatches
         logger.error(
-            f"Configuration error loading {component_name}: {e}",
-            exc_info=True
+            f"Configuration error loading {component_name}: {e}", exc_info=True
         )
         raise
     except (OSError, IOError) as e:
         # Model file not found, download failures, disk errors
-        logger.error(
-            f"I/O error loading {component_name}: {e}",
-            exc_info=True
-        )
+        logger.error(f"I/O error loading {component_name}: {e}", exc_info=True)
         raise
     except RuntimeError as e:
         # CUDA OOM during model loading, incompatible model format
-        logger.error(
-            f"Runtime error loading {component_name}: {e}",
-            exc_info=True
-        )
+        logger.error(f"Runtime error loading {component_name}: {e}", exc_info=True)
         raise
     except Exception as e:
         # Catch-all for unexpected errors
         logger.error(
             f"Unexpected error ({type(e).__name__}) loading {component_name}: {e}",
-            exc_info=True
+            exc_info=True,
         )
         raise

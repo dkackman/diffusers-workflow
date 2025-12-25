@@ -5,8 +5,8 @@ from torchvision import transforms
 from transformers import pipeline
 
 
-def make_hint_tensor(image, device_identifier):
-    depth_estimator = pipeline("depth-estimation", device=device_identifier)
+def make_hint_tensor(image, device):
+    depth_estimator = pipeline("depth-estimation", device=device)
 
     image = depth_estimator(image)["depth"]
     image = np.array(image)
@@ -14,11 +14,11 @@ def make_hint_tensor(image, device_identifier):
     image = np.concatenate([image, image, image], axis=2)
     detected_map = torch.from_numpy(image).float() / 255.0
     hint = detected_map.permute(2, 0, 1)
-    return hint.unsqueeze(0).half().to(device_identifier)
+    return hint.unsqueeze(0).half().to(device)
 
 
-def make_hint_image(image, device_identifier):
-    hint = make_hint_tensor(image, device_identifier)
+def make_hint_image(image, device):
+    hint = make_hint_tensor(image, device)
     # Convert the tensor to a Pillow image
     to_pil = transforms.ToPILImage()
     return to_pil(hint[0].cpu())

@@ -67,28 +67,28 @@ class Step:
                     # Missing arguments, invalid values, type mismatches
                     logger.error(
                         f"Configuration error in iteration {i} of step {step_name}: {e}",
-                        exc_info=True
+                        exc_info=True,
                     )
                     raise
                 except (OSError, IOError) as e:
                     # File operations, resource loading failures
                     logger.error(
                         f"I/O error in iteration {i} of step {step_name}: {e}",
-                        exc_info=True
+                        exc_info=True,
                     )
                     raise
                 except RuntimeError as e:
                     # CUDA OOM, model loading failures, torch errors
                     logger.error(
                         f"Runtime error in iteration {i} of step {step_name}: {e}",
-                        exc_info=True
+                        exc_info=True,
                     )
                     raise
                 except Exception as e:
                     # Catch-all for unexpected errors from pipeline/task/workflow execution
                     logger.error(
                         f"Unexpected error ({type(e).__name__}) in iteration {i} of step {step_name}: {e}",
-                        exc_info=True
+                        exc_info=True,
                     )
                     raise
 
@@ -97,29 +97,20 @@ class Step:
 
         except (KeyError, ValueError, TypeError) as e:
             # Missing keys, invalid step configuration, type mismatches
-            logger.error(
-                f"Configuration error in step {self.name}: {e}",
-                exc_info=True
-            )
+            logger.error(f"Configuration error in step {self.name}: {e}", exc_info=True)
             raise
         except (OSError, IOError) as e:
             # File operations, resource loading errors
-            logger.error(
-                f"I/O error in step {self.name}: {e}",
-                exc_info=True
-            )
+            logger.error(f"I/O error in step {self.name}: {e}", exc_info=True)
             raise
         except RuntimeError as e:
             # CUDA OOM, model loading failures, torch errors
-            logger.error(
-                f"Runtime error in step {self.name}: {e}",
-                exc_info=True
-            )
+            logger.error(f"Runtime error in step {self.name}: {e}", exc_info=True)
             raise
         except Exception as e:
             # Catch-all for unexpected errors
             logger.error(
                 f"Unexpected error ({type(e).__name__}) in step {self.name}: {e}",
-                exc_info=True
+                exc_info=True,
             )
             raise
