@@ -1,6 +1,6 @@
 # CLAUDE.md - AI Assistant Guide for diffusers-workflow
 
-**Last Updated:** 2025-11-23
+**Last Updated:** 2025-12-25
 **Version:** 0.37.0
 
 ## Project Overview
@@ -20,7 +20,7 @@
 **Technology Stack:**
 - Python 3.10+ with PyTorch 2.0+
 - HuggingFace Diffusers, Transformers, Accelerate
-- CUDA required for GPU acceleration
+- GPU acceleration: CUDA (NVIDIA) or MPS (Apple Silicon)
 - Model quantization: bitsandbytes, torchao, optimum-quanto
 
 ---
@@ -30,13 +30,15 @@
 ```
 diffusers-workflow/
 ├── dw/                          # Main package
-│   ├── __init__.py             # Version, startup, torch config
+│   ├── __init__.py             # Version, startup, torch config, device detection
 │   ├── workflow.py             # Workflow orchestrator (core)
 │   ├── step.py                 # Step execution engine
 │   ├── run.py                  # CLI entry point
 │   ├── validate.py             # Schema validation CLI
-│   ├── repl.py                 # Interactive REPL (19KB)
-│   ├── worker.py               # REPL worker process (13KB)
+│   ├── repl.py                 # Interactive REPL (main interface)
+│   ├── repl_commands.py        # REPL command handlers (config, arg, memory, workflow)
+│   ├── repl_worker.py          # Worker process lifecycle management
+│   ├── worker.py               # Worker process implementation
 │   ├── arguments.py            # Argument processing & resource loading
 │   ├── variables.py            # Variable substitution system
 │   ├── result.py               # Result storage & file I/O
@@ -208,42 +210,164 @@ Workflow (workflow.py)
 
 ---
 
-## REPL Worker Architecture (NEW)
+## REPL Architecture
 
-The REPL uses a **persistent worker subprocess** for GPU model caching:
+The Interactive REPL provides rapid workflow iteration with GPU model caching and a hierarchical command structure.
+
+### Architecture Overview
+
+```
+┌─────────────────┐         ┌──────────────────┐
+│   REPL (Main)   │◄───────►│  WorkerManager   │
+│                 │         │                  │
+│ - Command loop  │         │ - Process mgmt   │
+│ - User input    │         │ - Queue comm     │
+│ - Help system   │         └─────────┬────────┘
+└────────┬────────┘                   │
+         │                            │
+         │         Multiprocessing    │
+         │         Queues             │
+         ▼                            ▼
+┌─────────────────┐         ┌──────────────────┐
+│ Command Handlers│         │  Worker Process  │
+│                 │         │                  │
+│ - ConfigCmds    │         │ - Model loading  │
+│ - ArgCmds       │         │ - GPU caching    │
+│ - MemoryCmds    │         │ - Workflow exec  │
+│ - WorkflowCmds  │         │ - Memory mgmt    │
+└─────────────────┘         └──────────────────┘
+```
+
+### Key Components
+
+**repl.py** (Main REPL class)
+- `DiffusersWorkflowREPL(cmd.Cmd)`: Command loop and delegation
+- Manages: current_workflow, workflow_args, globals (output_dir, log_level, workflow_dir)
+- Delegates commands to specialized handlers
+- History management (~/.dw_history)
+
+**repl_commands.py** (Command Handlers - 605 lines)
+- `ConfigCommands`: Global settings (output_dir, log_level, workflow_dir)
+- `ArgCommands`: Workflow variables/arguments management
+- `MemoryCommands`: GPU memory monitoring and clearing
+- `WorkflowCommands`: Loading, running, reloading workflows
+
+**repl_worker.py** (Worker Management - 101 lines)
+- `WorkerManager`: Process lifecycle and communication
+- Queue-based command/result passing
+- Graceful shutdown with timeout escalation
+- Error handling and recovery
+
+**worker.py** (Worker Implementation)
+- `worker_main()`: Process entry point
+- Model caching between runs (2-4x faster)
+- Memory monitoring and cleanup
+- Workflow execution with result streaming
+
+### Hierarchical Command Structure
+
+Commands use hierarchical organization with `?` help at each level:
+
+```bash
+# Top-level groups
+workflow ?    # Show workflow subcommands
+arg ?         # Show argument subcommands
+memory ?      # Show memory subcommands
+config ?      # Show config subcommands
+
+# Workflow subcommands
+workflow load <file>      # Load workflow from JSON file
+workflow reload           # Reload current workflow from disk
+workflow run              # Execute workflow with current arguments
+workflow run ask <arg>    # Prompt for argument value, then run
+workflow status           # Show current workflow information
+workflow restart          # Restart worker process (clears cache)
+
+# Argument subcommands
+arg show                  # Show available variables and current values
+arg set <name>=<value>    # Set an argument value
+arg clear                 # Clear all argument values
+
+# Memory subcommands
+memory show               # Show current GPU memory usage
+memory clear              # Clear GPU memory and cached models
+
+# Config subcommands
+config show               # Show all configuration settings
+config set <name>=<value> # Set a configuration value
+```
+
+### Worker Communication Protocol
+
+**Command Queue** (Main → Worker):
+```python
+{
+    "type": "execute" | "shutdown" | "clear_memory" | "memory_status",
+    "workflow_path": "/path/to/workflow.json",  # For execute
+    "arguments": {"prompt": "a cat"},            # For execute
+    "output_dir": "./outputs",                   # For execute
+    "log_level": "INFO"                          # For execute
+}
+```
+
+**Result Queue** (Worker → Main):
+```python
+{
+    "type": "output" | "workflow_loaded" | "memory_info" |
+            "success" | "error" | "worker_crashed" | "memory_status" | "memory_cleared",
+    "message": "...",
+    "info": {...},        # For memory_info/memory_status/memory_cleared
+    "traceback": "...",   # For errors
+    "workflow_name": "..."  # For workflow_loaded
+}
+```
+
+### Memory Management
 
 **Key Features:**
 - Models stay loaded in GPU memory between runs (2-4x faster)
 - Automatic workflow file change detection (SHA256 hash)
-- Aggressive memory cleanup: `gc.collect() + torch.cuda.empty_cache()`
-- Full cleanup on workflow change or `clear` command
-- 5-minute execution timeout with graceful shutdown
+- Aggressive memory cleanup: `gc.collect() + torch.cuda.empty_cache()` (or `torch.mps.empty_cache()`)
 - Memory monitoring with growth warnings (>500MB increase)
 
-**Architecture:**
-- `dw/worker.py` (13KB): Worker process with command loop
-- `dw/repl.py` (19KB): REPL interface with worker lifecycle
-- Communication via `multiprocessing.Queue` (command_queue, result_queue)
+**Cache Invalidation Triggers:**
+- Workflow file change detected
+- `memory clear` command
+- `workflow restart` command
+- Worker crash/error
 
-**Worker Commands:**
-- `execute`: Run workflow with arguments
-- `shutdown`: Graceful termination
-- `ping`: Health check
-- `clear_memory`: Force memory cleanup
-- `memory_status`: Report GPU memory usage
-
-**REPL Commands:**
-```bash
-load <workflow>         # Load workflow file
-arg <name>=<value>      # Set argument
-run                     # Execute workflow
-clear                   # Clear memory cache
-status                  # Show worker status
-restart                 # Restart worker process
-history                 # Show command history
-help                    # Show help
-exit/quit               # Exit REPL
+**Cleanup Strategy:**
+```python
+# In worker after each run
+gc.collect()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
+elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+    torch.mps.empty_cache()
 ```
+
+### Multiprocessing Setup
+
+**CRITICAL**: Uses `spawn` method for CUDA compatibility:
+```python
+# In repl.py - MUST be set before any multiprocessing
+if multiprocessing.get_start_method(allow_none=True) != "spawn":
+    multiprocessing.set_start_method("spawn", force=True)
+```
+
+### Timeouts and Error Handling
+
+```python
+WORKER_RESULT_TIMEOUT_SECONDS = 300      # 5 min for execution
+WORKER_SHUTDOWN_TIMEOUT_SECONDS = 10     # Graceful shutdown
+WORKER_TERMINATE_TIMEOUT_SECONDS = 5     # Force termination
+```
+
+**Error Recovery:**
+- Worker crashes detected and reported to user
+- Main process marks worker inactive after crash
+- User can restart with `workflow restart`
+- Communication errors trigger automatic worker shutdown
 
 ---
 
@@ -289,14 +413,40 @@ python -m dw.validate examples/FluxDev.json
 ```bash
 python -m dw.repl
 
-dw> load examples/FluxDev
-dw> arg prompt="a beautiful sunset"
-dw> run
-# ... models load once ...
+dw> workflow load FluxDev
+Loaded workflow: FluxDev
+Workflow validated successfully
 
-dw> arg prompt="a starry night"
-dw> run
+dw> arg set prompt="a beautiful sunset"
+Set argument prompt=a beautiful sunset
+
+dw> workflow run
+Running workflow: FluxDev
+Starting worker process...
+# ... models load once ...
+Workflow completed successfully
+
+dw> arg set prompt="a starry night"
+Set argument prompt=a starry night
+
+dw> workflow run
+Reusing loaded models from cache
 # ... runs 2-4x faster with cached models ...
+Workflow completed successfully
+
+# Interactive prompting
+dw> workflow run ask prompt
+Enter value for 'prompt': a cyberpunk cityscape
+Set argument prompt=a cyberpunk cityscape
+Running workflow: FluxDev
+...
+
+# Check memory usage
+dw> memory show
+GPU Memory Status:
+  Device: NVIDIA GeForce RTX 4090
+  Allocated: 8234.5 MB
+  ...
 ```
 
 ### Testing
@@ -980,18 +1130,73 @@ python -m dw.run workflow.json -l DEBUG
 }
 ```
 
-### CUDA Requirements
+### Device Support
 
-**Startup check** in `dw/__init__.py`:
+**Automatic device detection** in `dw/__init__.py`:
 ```python
-if not torch.cuda.is_available():
-    raise Exception("CUDA not present. Quitting.")
+def get_device():
+    """
+    Detect and return the best available device for PyTorch operations.
+    Priority: CUDA > MPS > CPU
+    """
+    if torch.cuda.is_available():
+        return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+# Startup sets default device
+device = get_device()
+torch.set_default_device(device)
+```
+
+**Device priority and capabilities**:
+1. **CUDA (NVIDIA GPUs)** - Full support with all optimizations
+   - TF32 matmul acceleration
+   - cuDNN benchmark mode
+   - Fastest performance
+2. **MPS (Apple Silicon)** - Metal Performance Shaders support
+   - Native GPU acceleration on M1/M2/M3 Macs
+   - Autocast warnings suppressed (MPS doesn't support autocast)
+   - Good performance on Apple hardware
+3. **CPU (Fallback)** - Warning displayed
+   - Significantly slower
+   - Works without GPU
+
+**Platform-specific optimizations** in `dw/__init__.py`:
+```python
+# CUDA-specific optimizations
+if device == "cuda":
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.deterministic = False
+
+# MPS-specific: suppress autocast warnings
+elif device == "mps":
+    warnings.filterwarnings(
+        "ignore",
+        message=".*User provided device_type of 'cuda'.*",
+        category=UserWarning,
+        module="torch.amp.autocast_mode",
+    )
 ```
 
 **Torch version check**:
 ```python
 if version.parse(torch.__version__) < version.parse("2.0.0"):
-    raise Exception("Pytorch must be 2.0 or greater")
+    raise Exception(f"Pytorch must be 2.0 or greater (found {torch.__version__})")
+```
+
+**Autocast device type**:
+```python
+def get_autocast_device_type():
+    """
+    Get the device type to use for torch.autocast.
+    MPS doesn't support autocast, so use 'cpu' for MPS devices.
+    """
+    device = get_device()
+    return "cuda" if device == "cuda" else "cpu"
 ```
 
 ---
@@ -1048,17 +1253,38 @@ python -m dw.test
 
 ### REPL Commands
 
-```
-load <workflow>         # Load workflow file
-arg <name>=<value>      # Set workflow argument
-args                    # Show current arguments
-run                     # Execute workflow
-clear                   # Clear memory cache
-status                  # Show worker status
-restart                 # Restart worker
-history                 # Show command history
-help                    # Show help
-exit / quit             # Exit REPL
+**Hierarchical command structure** - Use `<command> ?` for help:
+
+```bash
+# Workflow commands
+workflow ?                  # Show workflow subcommands
+workflow load <file>        # Load workflow from JSON file
+workflow reload             # Reload current workflow from disk
+workflow run                # Execute workflow with current arguments
+workflow run ask <arg>      # Prompt for argument value, then run
+workflow status             # Show current workflow information
+workflow restart            # Restart worker process (clears cache)
+
+# Argument commands
+arg ?                       # Show argument subcommands
+arg show                    # Show available variables and current values
+arg set <name>=<value>      # Set an argument value
+arg clear                   # Clear all argument values
+
+# Memory commands
+memory ?                    # Show memory subcommands
+memory show                 # Show current GPU memory usage
+memory clear                # Clear GPU memory and cached models
+
+# Config commands
+config ?                    # Show config subcommands
+config show                 # Show all configuration settings
+config set <name>=<value>   # Set a configuration value
+#   Available settings: output_dir, log_level, workflow_dir
+
+# General commands
+help                        # Show all command groups
+exit / quit                 # Exit REPL
 ```
 
 ### Common File Patterns
@@ -1130,11 +1356,74 @@ outputs/{workflow_id}-{step_name}.{index}.{ext}
 - **Current Version**: 0.37.0
 - **Python Requirements**: 3.10+
 - **PyTorch Requirements**: 2.0+
-- **CUDA**: Required
+- **GPU**: CUDA (NVIDIA) or MPS (Apple Silicon) recommended; CPU supported
 - **License**: Apache 2.0
 
 ---
 
-**Last Updated**: 2025-11-23
+## Recent Changes (0.37.0)
+
+### REPL Command Reorganization ⚠️ Breaking Change
+
+The REPL now uses a **hierarchical command structure** for better organization and discoverability.
+
+**Migration Guide:**
+```bash
+# OLD (pre-0.37.0)          →  # NEW (0.37.0+)
+load <workflow>              →  workflow load <workflow>
+arg <name>=<value>           →  arg set <name>=<value>
+args                         →  arg show
+run                          →  workflow run
+status                       →  workflow status
+restart                      →  workflow restart
+clear                        →  memory clear
+```
+
+**New Features:**
+- `workflow run ask <arg>` - Interactive argument prompting
+- `workflow reload` - Reload workflow from disk without changing workflow
+- `config` commands - Configure global settings (output_dir, log_level, workflow_dir)
+- `?` help system - Use `<command> ?` to show subcommands
+
+**Architecture Changes:**
+- Command handlers split into `repl_commands.py` classes:
+  - `ConfigCommands` - Global configuration management
+  - `ArgCommands` - Workflow argument management
+  - `MemoryCommands` - GPU memory monitoring and clearing
+  - `WorkflowCommands` - Workflow loading, running, and status
+- Worker management extracted to `repl_worker.py` (`WorkerManager` class)
+- Improved error handling and recovery
+- Better separation of concerns
+
+### Cross-Platform GPU Support
+
+Added automatic device detection with support for multiple GPU backends:
+
+**Device Priority:** CUDA > MPS > CPU
+
+**New Functions in `dw/__init__.py`:**
+- `get_device()` - Automatic device detection
+- `get_autocast_device_type()` - Autocast compatibility for MPS
+
+**Platform-Specific Optimizations:**
+- **CUDA**: TF32 matmul, cuDNN benchmark mode
+- **MPS**: Autocast warnings suppressed, native Metal acceleration
+- **CPU**: Warning displayed about performance
+
+**Benefits:**
+- Native GPU acceleration on Apple Silicon (M1/M2/M3)
+- Automatic fallback to CPU when no GPU available
+- No code changes needed for cross-platform compatibility
+
+### Other Improvements
+
+- **Memory Management**: Better cleanup with device-specific empty_cache calls
+- **Error Messages**: More informative error messages with device information
+- **Logging**: Device type logged on startup
+- **Documentation**: Updated to reflect cross-platform support
+
+---
+
+**Last Updated**: 2025-12-25
 **Maintainer**: dkackman
 **Repository**: https://github.com/dkackman/diffusers-workflow
