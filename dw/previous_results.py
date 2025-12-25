@@ -4,6 +4,9 @@ from itertools import product
 
 logger = logging.getLogger("dw")
 
+# Maximum number of iterations to prevent resource exhaustion
+MAX_ITERATIONS = 10000
+
 
 def get_iterations(argument_template, previous_results):
     """Generate argument combinations using previous task results.
@@ -59,6 +62,14 @@ def get_iterations(argument_template, previous_results):
                 value[key] if isinstance(value, dict) and key in value else value
             )
         iterations.append(arguments)
+
+    # Safety check to prevent cartesian product explosion
+    if len(iterations) > MAX_ITERATIONS:
+        raise ValueError(
+            f"Too many iterations generated: {len(iterations)} exceeds maximum of {MAX_ITERATIONS}. "
+            f"This usually indicates too many previous_result references creating a cartesian product. "
+            f"Consider reducing the number of multi-value results or splitting into multiple steps."
+        )
 
     logger.debug(f"Generated {len(iterations)} argument combinations")
     return iterations
