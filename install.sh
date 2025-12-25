@@ -28,7 +28,7 @@ fi
 if [ "$(uname -m)" = "armv7l" ]; then
   echo ""
   echo "WARNING:"
-  echo "The diffusers helper requires a 64 bit OS and this is 32 bit armv7l"
+  echo "diffusers-workflow requires a 64 bit OS and this is 32 bit armv7l"
   echo "Exiting."
   exit 1
 fi
@@ -101,8 +101,8 @@ if ! command -v "$INSTALL_PYTHON_PATH" >/dev/null; then
   exit 1
 fi
 
-if [ "$PYTHON_MAJOR_VER" -ne "3" ] || [ "$PYTHON_MINOR_VER" -lt "7" ] || [ "$PYTHON_MINOR_VER" -ge "15" ]; then
-  echo "The diffusers helper requires Python version >= 3.7 and  <= 3.14.0" >&2
+if [ "$PYTHON_MAJOR_VER" -ne "3" ] || [ "$PYTHON_MINOR_VER" -lt "10" ] || [ "$PYTHON_MINOR_VER" -ge "15" ]; then
+  echo "diffusers-workflow requires Python version >= 3.10 and < 3.15" >&2
   echo "Current Python version = $INSTALL_PYTHON_VERSION" >&2
   # If Arch, direct to Arch Wiki
   if type pacman >/dev/null 2>&1 && [ -f "/etc/arch-release" ]; then
@@ -113,33 +113,44 @@ if [ "$PYTHON_MAJOR_VER" -ne "3" ] || [ "$PYTHON_MINOR_VER" -lt "7" ] || [ "$PYT
 fi
 echo "Python version is $INSTALL_PYTHON_VERSION"
 
-# delete the venv folder if present
+# Delete the venv folder if present
 if [ -d "venv" ]; then
   rm ./venv -rf
 fi
 
-# create the venv and add soft link to activate
+# Create the venv and add soft link to activate
 $INSTALL_PYTHON_PATH -m venv venv
 if [ ! -f "activate" ]; then
   ln -s venv/bin/activate .
 fi
 
+# Activate the virtual environment
 # shellcheck disable=SC1091
 . ./activate
 
+# Upgrade pip
 python -m pip install --upgrade pip
 
+# Install build tools
 pip install wheel setuptools
 
-# Install PyTorch - use CUDA on Linux, standard install on macOS
+# Install PyTorch - use standard install (CUDA auto-detected on Linux)
 pip install torch torchvision
+
+# Install Diffusers from GitHub (latest version)
 pip install --upgrade git+https://github.com/huggingface/diffusers
-# pip install diffusers[torch]
+
+# Install core ML dependencies
 pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy kernels
+
+# Install utility dependencies
 pip install aiohttp matplotlib opencv-python-headless concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black dotenv
 
-# to use some LLM workflows like Phi mini-instruct you'll need to install the following
-# they however need the cuda dev toolkit to be installed
-# https://developer.nvidia.com/cuda-toolkit
-
-# pip install flash_attn
+echo ""
+echo "Installation complete!"
+echo ""
+echo "To activate the virtual environment, run:"
+echo "  . ./activate"
+echo ""
+echo "Note: Some LLM workflows (e.g., Phi mini-instruct) require flash_attn,"
+echo "which requires the CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit"

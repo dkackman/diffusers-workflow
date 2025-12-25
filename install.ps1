@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 # Check for 64-bit Windows installation
 if (-not [Environment]::Is64BitOperatingSystem) {
-    Write-Error "chiaSWARM requires a 64-bit Windows installation"
+    Write-Error "diffusers-workflow requires a 64-bit Windows installation"
     Exit 1
 }
 
@@ -27,8 +27,8 @@ catch {
     Exit 1
 }
 
-# Check for supported Python version
-$supportedPythonVersions = "3.12", "3.11", "3.10"
+# Check for supported Python version (3.10 - 3.14)
+$supportedPythonVersions = "3.14", "3.13", "3.12", "3.11", "3.10"
 if ($env:INSTALL_PYTHON_VERSION) {
     $pythonVersion = $env:INSTALL_PYTHON_VERSION
 }
@@ -52,46 +52,52 @@ else {
 if (-not $pythonVersion) {
     $supportedPythonVersions = ($supportedPythonVersions | ForEach-Object { "Python $_" }) -join ", "
     Write-Error "No usable Python version found, supported versions are: $supportedPythonVersions"
+    Write-Output "diffusers-workflow requires Python version >= 3.10 and < 3.15"
     Exit 1
 }
 
 # Print Python version
 Write-Output "Python version is: $pythonVersion"
 
-# remove the venv if it exists
+# Remove the venv if it exists
 if (Test-Path -Path ".\venv" -PathType Container) {
     Remove-Item -LiteralPath ".\venv" -Recurse -Force
 }
 
+# Create virtual environment
 python -m venv venv
 
+# Activate virtual environment
 .\venv\scripts\activate 
 
+# Upgrade pip
 python.exe -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Install build tools
 pip install wheel setuptools
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Install PyTorch with CUDA 12.4 support
 pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-pip install git+https://github.com/huggingface/diffusers
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-# pip install diffusers[torch]
-# if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-pip3 install peft transformers accelerate safetensors controlnet_aux sentencepiece mediapipe torchsde bitsandbytes torchao gguf kornia ftfy
+# Install Diffusers from GitHub (latest version)
+pip install --upgrade git+https://github.com/huggingface/diffusers
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-pip3 install aiohttp matplotlib opencv-python concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black
+# Install core ML dependencies
+pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy kernels
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Output "done"
-exit
+# Install utility dependencies
+pip install aiohttp matplotlib opencv-python concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black dotenv
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# to use some LLM workflows like Phi mini-instruct you'll need to install the following
-# they however need the cuda dev toolkit to be installed
-# https://developer.nvidia.com/cuda-toolkit
-
-# pip install flash_attn
+Write-Output "Installation complete!"
+Write-Output ""
+Write-Output "To activate the virtual environment, run:"
+Write-Output "  .\venv\scripts\activate"
+Write-Output ""
+Write-Output "Note: Some LLM workflows (e.g., Phi mini-instruct) require flash_attn,"
+Write-Output "which requires the CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit"
