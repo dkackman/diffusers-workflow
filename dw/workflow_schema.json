@@ -362,6 +362,9 @@
                 "group_offload": {
                     "$ref": "#/$defs/group_offload"
                 },
+                "enable_layerwise_casting": {
+                    "$ref": "#/$defs/enable_layerwise_casting"
+                },
                 "quantization_config": {
                     "$ref": "#/$defs/quantization_config"
                 },
@@ -601,6 +604,21 @@
             },
             "required": [
                 "content_type"
+            ]
+        },
+        "enable_layerwise_casting": {
+            "type": "object",
+            "properties": {
+                "storage_dtype": {
+                    "type": "string"
+                },
+                "compute_dtype": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "storage_dtype",
+                "compute_dtype"
             ]
         },
         "group_offload": {

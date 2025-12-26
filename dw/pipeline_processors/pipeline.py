@@ -441,6 +441,13 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
         if group_offload_configuration is not None:
             component.enable_group_offload(**group_offload_configuration)
 
+        # Handle enable_layerwise_casting configuration
+        enable_layerwise_casting_configuration = configuration.get(
+            "enable_layerwise_casting", None
+        )
+        if enable_layerwise_casting_configuration is not None:
+            component.enable_layerwise_casting(**enable_layerwise_casting_configuration)
+
         # Configure component device settings
         do_not_send_to_device = configuration.get("do_not_send_to_device", False)
         offload = configuration.get("offload", None)
