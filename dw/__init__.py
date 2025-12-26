@@ -115,11 +115,30 @@ def startup(log_level=None):
 
     diffusers.logging.set_verbosity_error()
 
-    torch.set_float32_matmul_precision("high")
+    # TF32 optimization (Ampere+ GPUs: RTX 30/40 series, A100, H100)
+    # Provides ~2x speedup for matmul operations with minimal precision loss
+    if settings.enable_tf32:
+        torch.set_float32_matmul_precision("high")
+        if device == "cuda":
+            torch.backends.cuda.matmul.allow_tf32 = True
+        logging.debug("TF32 precision enabled for faster matmul operations")
+    else:
+        logging.debug("TF32 precision disabled (full FP32 precision)")
 
     # CUDA-specific optimizations
     if device == "cuda":
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
+        # cuDNN autotuner - benchmarks algorithms and selects fastest
+        # Best for fixed input sizes, may slow down variable-size workflows
+        torch.backends.cudnn.benchmark = settings.cudnn_benchmark
+
+        # Always enable cuDNN (default anyway)
         torch.backends.cudnn.enabled = True
-        torch.backends.cudnn.deterministic = False  # Prioritize performance
+
+        # Deterministic mode - set True for reproducibility (same seed = same output)
+        # False prioritizes performance over strict reproducibility
+        torch.backends.cudnn.deterministic = settings.cudnn_deterministic
+
+        logging.debug(
+            f"CUDA optimizations - benchmark: {settings.cudnn_benchmark}, "
+            f"deterministic: {settings.cudnn_deterministic}"
+        )

@@ -8,6 +8,11 @@ class Settings:
     log_filename: str = "log/dw.log"
     log_to_console: bool = False
 
+    # PyTorch optimization settings
+    enable_tf32: bool = True  # TensorFloat-32 for faster matmul on Ampere+ GPUs
+    cudnn_benchmark: bool = True  # cuDNN autotuner (faster for fixed sizes)
+    cudnn_deterministic: bool = False  # Set True for reproducibility
+
 
 def load_settings():
     settings = Settings()
@@ -23,6 +28,12 @@ def load_settings():
     settings.log_level = settings_dict.get("log_level", "WARNING")
     settings.log_filename = settings_dict.get("log_filename", "log/dw.log")
     settings.log_to_console = settings_dict.get("log_to_console", False)
+
+    # PyTorch optimization settings
+    settings.enable_tf32 = settings_dict.get("enable_tf32", True)
+    settings.cudnn_benchmark = settings_dict.get("cudnn_benchmark", True)
+    settings.cudnn_deterministic = settings_dict.get("cudnn_deterministic", False)
+
     return settings
 
 
