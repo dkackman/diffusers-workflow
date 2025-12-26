@@ -255,7 +255,7 @@
                         "enable_tiling": {
                             "type": "boolean"
                         },
-                        "set_memory_format": {
+                        "channels_last": {
                             "type": "boolean"
                         },
                         "torch_dtype": {
@@ -269,7 +269,7 @@
                         "enable_forward_chunking": {
                             "type": "boolean"
                         },
-                        "set_memory_format": {
+                        "channels_last": {
                             "type": "boolean"
                         },
                         "torch_dtype": {
