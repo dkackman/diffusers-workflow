@@ -303,17 +303,47 @@ class Pipeline:
         if unet.get("set_memory_format", False):
             logger.debug("Setting UNet memory format")
             self.pipeline.unet.to(memory_format=torch.channels_last)
+
+        # Configure UNet attention processor (mutually exclusive options)
         if unet.get("attn_processor_type", None) is not None:
-            logger.debug("Enabling UNet attention processor")
+            logger.debug("Enabling UNet custom attention processor")
             attn_processor = unet["attn_processor_type"]()
             self.pipeline.unet.set_attn_processor(attn_processor)
+        elif unet.get("enable_xformers_memory_efficient_attention", False):
+            logger.info("Enabling xFormers memory efficient attention for UNet")
+            if hasattr(
+                self.pipeline.unet, "enable_xformers_memory_efficient_attention"
+            ):
+                self.pipeline.unet.enable_xformers_memory_efficient_attention()
+            else:
+                logger.warning(
+                    "UNet does not support xFormers memory efficient attention"
+                )
 
         # Configure transformer settings
         transformer = self.configuration.get("transformer", {})
         if transformer.get("attn_processor_type", None) is not None:
-            logger.debug("Enabling transformer attention processor")
+            logger.debug("Enabling transformer custom attention processor")
             attn_processor = transformer["attn_processor_type"]()
             self.pipeline.transformer.set_attn_processor(attn_processor)
+        elif transformer.get("enable_xformers", False):
+            logger.info("Enabling xFormers memory efficient attention for transformer")
+            if hasattr(
+                self.pipeline.transformer, "enable_xformers_memory_efficient_attention"
+            ):
+                self.pipeline.transformer.enable_xformers_memory_efficient_attention()
+            else:
+                logger.warning(
+                    "Transformer does not support xFormers memory efficient attention"
+                )
+        elif transformer.get("enable_sdpa", False):
+            logger.info("Enabling SDPA (Scaled Dot Product Attention) for transformer")
+            try:
+                from diffusers.models.attention_processor import AttnProcessor2_0
+
+                self.pipeline.transformer.set_attn_processor(AttnProcessor2_0())
+            except ImportError:
+                logger.warning("SDPA attention processor not available")
 
         # configure optional components
         for component_name in optional_component_names:
