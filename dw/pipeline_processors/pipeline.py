@@ -1,7 +1,10 @@
 import torch
 import copy
 import logging
-from .quantization import get_quantization_configuration
+from .config_objects import (
+    get_quantization_configuration,
+    get_group_offload_configuration,
+)
 from .remote import remote_text_encoder
 from diffusers import attention_backend
 
@@ -272,6 +275,7 @@ class Pipeline:
                     )
 
                 device = component_configuration.get("device", default_device)
+
                 component = load_component(
                     component_name,
                     component_configuration,
@@ -429,6 +433,13 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
         else:
             logger.info(f"Creating new {component_name}")
             component = component_type(**from_pretrained_arguments)
+
+        # Handle group_offload configuration
+        group_offload_configuration = get_group_offload_configuration(
+            configuration, device
+        )
+        if group_offload_configuration is not None:
+            component.enable_group_offload(**group_offload_configuration)
 
         # Configure component device settings
         do_not_send_to_device = configuration.get("do_not_send_to_device", False)

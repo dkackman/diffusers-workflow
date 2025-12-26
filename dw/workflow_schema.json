@@ -223,6 +223,9 @@
                         "sequential"
                     ]
                 },
+                "group_offload": {
+                    "$ref": "#/$defs/group_offload"
+                },
                 "device": {
                     "type": "string"
                 },
@@ -355,6 +358,9 @@
                     "required": [
                         "component_type"
                     ]
+                },
+                "group_offload": {
+                    "$ref": "#/$defs/group_offload"
                 },
                 "quantization_config": {
                     "$ref": "#/$defs/quantization_config"
@@ -595,6 +601,25 @@
             },
             "required": [
                 "content_type"
+            ]
+        },
+        "group_offload": {
+            "type": "object",
+            "properties": {
+                "onload_device": {
+                    "type": "string"
+                },
+                "offload_device": {
+                    "type": "string",
+                    "default": "cpu"
+                },
+                "offload_type": {
+                    "type": "string"
+                },
+                "additionalProperties": true
+            },
+            "required": [
+                "offload_type"
             ]
         }
     }
