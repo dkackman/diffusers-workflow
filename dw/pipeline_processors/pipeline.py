@@ -291,7 +291,7 @@ class Pipeline:
         if vae.get("enable_tiling", False):
             logger.debug("Enabling VAE tiling")
             self.pipeline.vae.enable_tiling()
-        if vae.get("set_memory_format", False):
+        if vae.get("channels_last", False):
             logger.debug("Setting VAE memory format")
             self.pipeline.vae.to(memory_format=torch.channels_last)
 
@@ -300,7 +300,7 @@ class Pipeline:
         if unet.get("enable_forward_chunking", False):
             logger.debug("Enabling UNet forward chunking")
             self.pipeline.unet.enable_forward_chunking()
-        if unet.get("set_memory_format", False):
+        if unet.get("channels_last", False):
             logger.debug("Setting UNet memory format")
             self.pipeline.unet.to(memory_format=torch.channels_last)
 
