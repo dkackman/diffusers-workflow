@@ -1126,7 +1126,44 @@ python -m dw.run workflow.json -l DEBUG
 {
   "log_level": "DEBUG",
   "log_filename": "log/dw.log",
-  "log_to_console": true
+  "log_to_console": true,
+  "enable_tf32": true,
+  "cudnn_benchmark": true,
+  "cudnn_deterministic": false
+}
+```
+
+#### PyTorch Optimization Settings
+
+These settings control PyTorch performance optimizations. Defaults prioritize speed over strict reproducibility.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enable_tf32` | `true` | **TensorFloat-32 Precision** - Enables TF32 math for matmul operations on Ampere+ GPUs (RTX 30/40 series, A100, H100). Provides ~2x speedup with minimal precision loss. Safe to enable. |
+| `cudnn_benchmark` | `true` | **cuDNN Autotuner** - Benchmarks cuDNN algorithms and selects the fastest. Best for workflows with consistent input sizes. May slow down workflows with frequently changing resolutions/sizes. |
+| `cudnn_deterministic` | `false` | **Deterministic Mode** - When `true`, ensures same seed produces identical outputs (reproducibility). When `false`, prioritizes performance but may have slight run-to-run variation. |
+
+**For reproducibility** (same seed = exact same output):
+```json
+{
+  "cudnn_deterministic": true,
+  "enable_tf32": false
+}
+```
+
+**For maximum performance** (default):
+```json
+{
+  "cudnn_deterministic": false,
+  "enable_tf32": true,
+  "cudnn_benchmark": true
+}
+```
+
+**For variable-size workflows** (frequently changing resolutions):
+```json
+{
+  "cudnn_benchmark": false
 }
 ```
 
