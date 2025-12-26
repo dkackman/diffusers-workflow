@@ -1,0 +1,67 @@
+{
+    "id": "attention_processors_example",
+    "description": "Demonstrates xFormers and SDPA attention processor options",
+    "variables": {
+        "prompt": "a serene mountain landscape at sunset",
+        "num_inference_steps": 25,
+        "guidance_scale": 7.5,
+        "height": 512,
+        "width": 512
+    },
+    "steps": [
+        {
+            "name": "generate_with_xformers",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "StableDiffusionPipeline",
+                    "unet": {
+                        "enable_xformers_memory_efficient_attention": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "runwayml/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16",
+                    "safety_checker": null
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "guidance_scale": "variable:guidance_scale",
+                    "height": "variable:height",
+                    "width": "variable:width"
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "file_base_name": "xformers_output"
+            }
+        },
+        {
+            "name": "generate_with_sdpa",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "StableDiffusionPipeline",
+                    "unet": {
+                        "attn_processor_type": "diffusers.models.attention_processor.AttnProcessor2_0"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "runwayml/stable-diffusion-v1-5",
+                    "torch_dtype": "torch.float16",
+                    "safety_checker": null
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "guidance_scale": "variable:guidance_scale",
+                    "height": "variable:height",
+                    "width": "variable:width"
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "file_base_name": "sdpa_output"
+            }
+        }
+    ]
+}
