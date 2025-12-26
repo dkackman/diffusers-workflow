@@ -336,14 +336,6 @@ class Pipeline:
                 logger.warning(
                     "Transformer does not support xFormers memory efficient attention"
                 )
-        elif transformer.get("enable_sdpa", False):
-            logger.info("Enabling SDPA (Scaled Dot Product Attention) for transformer")
-            try:
-                from diffusers.models.attention_processor import AttnProcessor2_0
-
-                self.pipeline.transformer.set_attn_processor(AttnProcessor2_0())
-            except ImportError:
-                logger.warning("SDPA attention processor not available")
 
         # configure optional components
         for component_name in optional_component_names:
