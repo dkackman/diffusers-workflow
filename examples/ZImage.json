@@ -1,12 +1,11 @@
 {
     "variables": {
-        "prompt": "Trumpism self-own",
+        "prompt": "A LEGO playset box and assembled diorama of a Trump dumpster fire disaster scene, the box shows a burning dumpster with orange flames, military missiles launching, oil barrels exploding with black smoke, minifigures, including a trump figure, running in chaos, the assembled LEGO pieces displayed next to the box on a white table, product photography style, bright studio lighting, sharp focus, highly detailed plastic toy aesthetic",
         "num_images_per_prompt": 1,
         "num_inference_steps": 9,
         "guidance_scale": 0.0,
         "width": 1024,
-        "height": 1024,
-        "checkpoint_path": "https://huggingface.co/unsloth/Z-Image-Turbo-GGUF/raw/main/z-image-turbo-Q5_K_S.gguf"
+        "height": 1024
     },
     "id": "ZImage",
     "steps": [
@@ -14,8 +13,7 @@
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "component_type": "ZImagePipeline",
-                    "offload": "model"
+                    "component_type": "ZImagePipeline"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "Tongyi-MAI/Z-Image-Turbo",

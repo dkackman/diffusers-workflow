@@ -42,7 +42,6 @@ from diffusers.utils import (
 )
 from diffusers.utils.torch_utils import randn_tensor
 
-
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
