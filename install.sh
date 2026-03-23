@@ -67,7 +67,7 @@ PYTHON_MINOR_VER=
 find_python() {
   set +e
   unset BEST_VERSION
-  for V in 314 3.14 313 3.13 312 3.12 311 3.11 310 3.10; do
+  for V in 313 3.13 312 3.12 311 3.11 310 3.10; do
     if command -v python$V >/dev/null; then
       if [ "$BEST_VERSION" = "" ]; then
         BEST_VERSION=$V
@@ -101,8 +101,8 @@ if ! command -v "$INSTALL_PYTHON_PATH" >/dev/null; then
   exit 1
 fi
 
-if [ "$PYTHON_MAJOR_VER" -ne "3" ] || [ "$PYTHON_MINOR_VER" -lt "10" ] || [ "$PYTHON_MINOR_VER" -ge "15" ]; then
-  echo "diffusers-workflow requires Python version >= 3.10 and < 3.15" >&2
+if [ "$PYTHON_MAJOR_VER" -ne "3" ] || [ "$PYTHON_MINOR_VER" -lt "10" ] || [ "$PYTHON_MINOR_VER" -ge "14" ]; then
+  echo "diffusers-workflow requires Python version >= 3.10 and < 3.14" >&2
   echo "Current Python version = $INSTALL_PYTHON_VERSION" >&2
   # If Arch, direct to Arch Wiki
   if type pacman >/dev/null 2>&1 && [ -f "/etc/arch-release" ]; then
@@ -115,7 +115,7 @@ echo "Python version is $INSTALL_PYTHON_VERSION"
 
 # Delete the venv folder if present
 if [ -d "venv" ]; then
-  rm ./venv -rf
+  rm -rf ./venv
 fi
 
 # Create the venv and add soft link to activate
@@ -134,17 +134,22 @@ python -m pip install --upgrade pip
 # Install build tools
 pip install wheel setuptools
 
-# Install PyTorch - use standard install (CUDA auto-detected on Linux)
+# Install PyTorch - use standard install (CUDA auto-detected on Linux, MPS on macOS)
 pip install torch torchvision
 
 # Install Diffusers from GitHub (latest version)
 pip install --upgrade git+https://github.com/huggingface/diffusers
 
 # Install core ML dependencies
-pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy kernels
+# Note: bitsandbytes and triton are CUDA-only; skip on macOS
+if $MACOS; then
+  pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde torchao gguf kornia ftfy
+else
+  pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy kernels
+fi
 
 # Install utility dependencies
-pip install aiohttp matplotlib opencv-python-headless concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black dotenv
+pip install aiohttp matplotlib opencv-python-headless concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black python-dotenv
 
 echo ""
 echo "Installation complete!"
@@ -152,5 +157,10 @@ echo ""
 echo "To activate the virtual environment, run:"
 echo "  . ./activate"
 echo ""
-echo "Note: Some LLM workflows (e.g., Phi mini-instruct) require flash_attn,"
-echo "which requires the CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit"
+if $MACOS; then
+  echo "Note: Running on Apple Silicon with MPS (Metal Performance Shaders) backend."
+  echo "Some features (bitsandbytes quantization, flash_attn) are not available on macOS."
+else
+  echo "Note: Some LLM workflows (e.g., Phi mini-instruct) require flash_attn,"
+  echo "which requires the CUDA Toolkit: https://developer.nvidia.com/cuda-toolkit"
+fi

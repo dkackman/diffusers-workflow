@@ -23,7 +23,7 @@ from transformers import (
     AutoImageProcessor,
     UperNetForSemanticSegmentation,
     DPTForDepthEstimation,
-    DPTFeatureExtractor,
+    DPTImageProcessor,
 )
 from .zoe_depth import colorize, load_zoe
 from .background_remover import remove_background
@@ -190,7 +190,7 @@ def image_to_depth(image, device, height=1024, width=1024):
     depth_estimator = DPTForDepthEstimation.from_pretrained(
         "Intel/dpt-hybrid-midas"
     ).to(device)
-    feature_extractor = DPTFeatureExtractor.from_pretrained("Intel/dpt-hybrid-midas")
+    feature_extractor = DPTImageProcessor.from_pretrained("Intel/dpt-hybrid-midas")
 
     image = feature_extractor(images=image, return_tensors="pt").pixel_values.to(device)
     # MPS doesn't support autocast, so use 'cpu' for autocast when on MPS
