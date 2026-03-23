@@ -11,7 +11,7 @@
 # Core ML Frameworks
 torch>=2.4.1
 torchvision>=0.19.1
-triton>=3.0.0
+triton>=3.0.0; sys_platform == "linux"
 
 # Diffusers and HuggingFace ecosystem
 # For latest from git: pip install git+https://github.com/huggingface/diffusers
@@ -24,7 +24,7 @@ huggingface-hub>=0.26.5
 tokenizers>=0.21.0
 
 # Model optimization and quantization
-bitsandbytes>=0.45.0
+bitsandbytes>=0.45.0; sys_platform == "linux"
 torchao>=0.7.0
 optimum-quanto>=0.2.6
 
