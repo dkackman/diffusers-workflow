@@ -160,7 +160,7 @@ class Pipeline:
         load_ip_adapter(self.pipeline_definition.get("ip_adapter", None), self.pipeline)
 
         # Set up random generator if needed
-        if not "no_generator" in self.configuration:
+        if "no_generator" not in self.configuration:
             logger.debug("Setting up random generator")
             self.argument_template["generator"] = torch.Generator(
                 self.device

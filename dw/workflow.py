@@ -21,7 +21,6 @@ from .security import (
     InvalidInputError,
 )
 
-
 logger = logging.getLogger("dw")
 
 

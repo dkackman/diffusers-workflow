@@ -27,7 +27,7 @@ catch {
     Exit 1
 }
 
-# Check for supported Python version (3.10 - 3.14)
+# Check for supported Python version (3.10 - 3.13)
 $supportedPythonVersions = "3.14", "3.13", "3.12", "3.11", "3.10"
 if ($env:INSTALL_PYTHON_VERSION) {
     $pythonVersion = $env:INSTALL_PYTHON_VERSION
@@ -52,7 +52,7 @@ else {
 if (-not $pythonVersion) {
     $supportedPythonVersions = ($supportedPythonVersions | ForEach-Object { "Python $_" }) -join ", "
     Write-Error "No usable Python version found, supported versions are: $supportedPythonVersions"
-    Write-Output "diffusers-workflow requires Python version >= 3.10 and < 3.15"
+    Write-Output "diffusers-workflow requires Python version >= 3.10 and <= 3.14"
     Exit 1
 }
 
@@ -68,7 +68,7 @@ if (Test-Path -Path ".\venv" -PathType Container) {
 python -m venv venv
 
 # Activate virtual environment
-.\venv\scripts\activate 
+.\venv\scripts\activate
 
 # Upgrade pip
 python.exe -m pip install --upgrade pip
@@ -78,8 +78,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 pip install wheel setuptools
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# Install PyTorch with CUDA 12.4 support
-pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+# Install PyTorch - use standard install (CUDA auto-detected on Windows)
+pip install torch torchvision
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Install Diffusers from GitHub (latest version)
@@ -91,9 +91,10 @@ pip install peft transformers accelerate safetensors controlnet_aux sentencepiec
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Install utility dependencies
-pip install aiohttp matplotlib opencv-python concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black dotenv
+pip install aiohttp matplotlib opencv-python-headless concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black python-dotenv
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+Write-Output ""
 Write-Output "Installation complete!"
 Write-Output ""
 Write-Output "To activate the virtual environment, run:"
