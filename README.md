@@ -19,7 +19,7 @@ A declarative workflow engine for the [Hugging Face Diffusers library](https://g
 
 ## Installation
 
-**Tested on:** Ubuntu 22.04+ and Python 3.10+. Windows support is experimental.
+**Tested on:** MacOS, Ubuntu 22.04+ and Python 3.10+. Windows support is experimental.
 
 ### bash
 
