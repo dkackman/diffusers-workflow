@@ -1,10 +1,17 @@
 from .settings import resolve_path, load_settings
 from .log_setup import setup_logging
+import os
 import logging
 import warnings
 from dotenv import load_dotenv
 
 load_dotenv()  # Loads .env from current directory
+
+# Allow MPS to use all available unified memory by default
+# This prevents "MPS backend out of memory" errors with large models
+# Users can override by setting these env vars before import
+if "PYTORCH_MPS_HIGH_WATERMARK_RATIO" not in os.environ:
+    os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
 
 # Suppress all common library warnings before any imports
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -80,14 +87,20 @@ def startup(log_level=None):
     device = get_device()
     torch.set_default_device(device)
 
-    # Suppress autocast warnings when using MPS (MPS doesn't support autocast,
-    # and libraries may try to use it with 'cuda' device_type)
+    # MPS-specific configuration (Apple Silicon)
     if device == "mps":
+        # Suppress autocast warnings (MPS doesn't support autocast,
+        # and libraries may try to use it with 'cuda' device_type)
         warnings.filterwarnings(
             "ignore",
             message=".*User provided device_type of 'cuda'.*",
             category=UserWarning,
             module="torch.amp.autocast_mode",
+        )
+
+        logging.info(
+            f"MPS backend - watermark ratio: "
+            f"{os.environ.get('PYTORCH_MPS_HIGH_WATERMARK_RATIO', 'default')}"
         )
 
     # Check if we have a GPU backend (CUDA or MPS)

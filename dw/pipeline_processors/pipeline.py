@@ -121,7 +121,12 @@ class Pipeline:
             self.device,
         )
 
-        if self.configuration.get("enable_attention_slicing", False):
+        # Enable attention slicing if explicitly requested or automatically on MPS
+        # MPS benefits from slicing since Metal shares system RAM with the GPU
+        if self.configuration.get("enable_attention_slicing", False) or (
+            self.device == "mps"
+            and not self.configuration.get("disable_attention_slicing", False)
+        ):
             logger.debug("Enabling attention slicing for pipeline")
             self.pipeline.enable_attention_slicing()
 
