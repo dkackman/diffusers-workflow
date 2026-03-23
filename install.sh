@@ -143,9 +143,9 @@ pip install --upgrade git+https://github.com/huggingface/diffusers
 # Install core ML dependencies
 # Note: bitsandbytes and triton are CUDA-only; skip on macOS
 if $MACOS; then
-  pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde torchao gguf kornia ftfy
+  pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde torchao gguf kornia ftfy sdnq
 else
-  pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy kernels
+  pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy kernels sdnq
 fi
 
 # Install utility dependencies

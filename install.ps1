@@ -87,7 +87,7 @@ pip install --upgrade git+https://github.com/huggingface/diffusers
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Install core ML dependencies
-pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy kernels
+pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy kernels sdnq
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Install utility dependencies

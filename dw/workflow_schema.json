@@ -253,6 +253,20 @@
                     "description": "Whether to enable xformers memory efficient attention for the pipeline.",
                     "type": "boolean"
                 },
+                "pre_load_modules": {
+                    "description": "List of Python modules to import before loading the pipeline. Used for modules that register with diffusers on import (e.g., sdnq).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sdnq_optimize": {
+                    "description": "List of pipeline component names to apply SDNQ quantized matmul optimization to (e.g., ['transformer', 'text_encoder']). Requires sdnq package and CUDA/XPU hardware.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "vae": {
                     "type": "object",
                     "properties": {

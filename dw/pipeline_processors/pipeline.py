@@ -1,5 +1,6 @@
 import torch
 import copy
+import importlib
 import logging
 from .config_objects import (
     get_quantization_configuration,
@@ -108,6 +109,12 @@ class Pipeline:
         """
         logger.debug(f"Loading pipeline: {self.name}")
 
+        # Import modules that need to register with diffusers/transformers before loading
+        # (e.g., sdnq registers its quantization method on import)
+        for module_name in self.configuration.get("pre_load_modules", []):
+            logger.info(f"Pre-loading module: {module_name}")
+            importlib.import_module(module_name)
+
         # Prepare arguments and load pipeline
         from_pretrained_arguments = self.populate_from_pretrained_arguments(
             self.device, shared_components
@@ -138,6 +145,11 @@ class Pipeline:
 
         # configure components that are not shared
         self.configure_loaded_components()
+
+        # Apply SDNQ quantized matmul optimization to specified components
+        sdnq_optimize = self.configuration.get("sdnq_optimize", [])
+        if sdnq_optimize:
+            apply_sdnq_optimizations(self.pipeline, sdnq_optimize)
 
         # Configure scheduler if specified
         load_and_configure_scheduler(
@@ -493,3 +505,47 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
             exc_info=True,
         )
         raise
+
+
+def apply_sdnq_optimizations(pipeline, component_names):
+    """Apply SDNQ quantized matmul optimization to pipeline components.
+
+    Uses sdnq's apply_sdnq_options_to_model to enable INT8 matmul
+    on supported hardware (CUDA, XPU).
+
+    Args:
+        pipeline: The loaded diffusers pipeline
+        component_names: List of component names to optimize (e.g., ["transformer", "text_encoder"])
+    """
+    try:
+        from sdnq.loader import apply_sdnq_options_to_model
+        from sdnq.common import use_torch_compile as triton_is_available
+    except ImportError:
+        logger.warning("sdnq not installed, skipping SDNQ optimizations")
+        return
+
+    if not triton_is_available:
+        logger.info("Triton not available, skipping SDNQ quantized matmul optimization")
+        return
+
+    if not (
+        torch.cuda.is_available() or hasattr(torch, "xpu") and torch.xpu.is_available()
+    ):
+        logger.info(
+            "SDNQ quantized matmul requires CUDA or XPU, skipping on this device"
+        )
+        return
+
+    for name in component_names:
+        component = getattr(pipeline, name, None)
+        if component is not None:
+            logger.info(f"Applying SDNQ quantized matmul to {name}")
+            setattr(
+                pipeline,
+                name,
+                apply_sdnq_options_to_model(component, use_quantized_matmul=True),
+            )
+        else:
+            logger.warning(
+                f"Component '{name}' not found on pipeline, skipping SDNQ optimization"
+            )
