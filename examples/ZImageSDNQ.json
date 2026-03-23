@@ -1,0 +1,38 @@
+{
+    "variables": {
+        "prompt": "A majestic mountain landscape at golden hour with dramatic clouds",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 9,
+        "guidance_scale": 0.0,
+        "width": 1024,
+        "height": 1024
+    },
+    "id": "ZImageSDNQ",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline",
+                    "pre_load_modules": ["sdnq"],
+                    "sdnq_optimize": ["transformer", "text_encoder"]
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Disty0/Z-Image-Turbo-SDNQ-uint4-svd-r32",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "guidance_scale": "variable:guidance_scale"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

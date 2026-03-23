@@ -27,6 +27,7 @@ tokenizers>=0.21.0
 bitsandbytes>=0.45.0; sys_platform == "linux"
 torchao>=0.7.0
 optimum-quanto>=0.2.6
+sdnq>=0.1.0
 
 # Model formats and utilities
 gguf>=0.10.0
