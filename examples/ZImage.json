@@ -1,11 +1,12 @@
 {
     "variables": {
-        "prompt": "Make this a lego version of the a dancing bear.",
+        "prompt": "Trumpism self-own",
         "num_images_per_prompt": 1,
         "num_inference_steps": 9,
         "guidance_scale": 0.0,
         "width": 1024,
-        "height": 1024
+        "height": 1024,
+        "checkpoint_path": "https://huggingface.co/unsloth/Z-Image-Turbo-GGUF/raw/main/z-image-turbo-Q5_K_S.gguf"
     },
     "id": "ZImage",
     "steps": [
@@ -14,7 +15,7 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "ZImagePipeline",
-                    "attention_backend": "flash_hub"
+                    "offload": "model"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "Tongyi-MAI/Z-Image-Turbo",
