@@ -293,7 +293,9 @@ class Pipeline:
             rel_l1_thresh = teacache_config.get("rel_l1_thresh", None)
             coefficients = teacache_config.get("coefficients", None)
             variant = teacache_config.get("variant", None)
-            with teacache_context(self.pipeline, num_steps, rel_l1_thresh, coefficients, variant):
+            with teacache_context(
+                self.pipeline, num_steps, rel_l1_thresh, coefficients, variant
+            ):
                 return self._call_pipeline(arguments, attn_backend)
         else:
             return self._call_pipeline(arguments, attn_backend)

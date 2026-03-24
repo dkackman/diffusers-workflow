@@ -113,6 +113,35 @@ Same as `gather_images` but for video files.
 
 Pass through arguments directly. Useful for organizing data flow.
 
+## Image Upscaling
+
+Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR, HAT, DAT, and 40+ other architectures). Models are auto-detected from weight files.
+
+```json
+{
+    "task": {
+        "command": "upscale",
+        "arguments": {
+            "image": "previous_result:generate",
+            "model_name": "Kim2091/UltraSharp",
+            "filename": "4x-UltraSharp.pth"
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `image` | Yes | PIL Image or `previous_result:` reference |
+| `model_name` | Yes | HuggingFace repo ID or local file path |
+| `filename` | No | Specific weight file in a HF repo (auto-detected if only one) |
+| `tile_size` | No | Tile size for large images (default: 512) |
+| `tile_overlap` | No | Overlap between tiles in pixels (default: 32) |
+
+Large images are automatically tiled to avoid GPU memory issues. Models can be loaded from HuggingFace Hub repos or local `.pth`/`.safetensors` files.
+
+**Example:** [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
+
 ## QR Code Generation
 
 ```json
@@ -175,4 +204,5 @@ Canny edge detection followed by ControlNet generation:
 - [FluxCanny.json](../examples/FluxCanny.json) — Canny edge ControlNet
 - [FluxDepth.json](../examples/FluxDepth.json) — Depth-guided generation
 - [qr_code.json](../examples/qr_code.json) — QR code with artistic ControlNet
-- [upscale.json](../examples/upscale.json) — Gather, resize, and upscale
+- [upscale.json](../examples/upscale.json) — Gather, resize, and diffusion upscale
+- [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate + spandrel 4x upscale

@@ -226,7 +226,9 @@ def get_weighted_text_embeddings_flux(
     # Generate pooled CLIP embeddings (mean across token groups)
     pool_embeds_list = []
     for token_group in prompt_token_groups:
-        token_tensor = torch.tensor([token_group], dtype=torch.long, device=target_device)
+        token_tensor = torch.tensor(
+            [token_group], dtype=torch.long, device=target_device
+        )
         with torch.no_grad():
             embeds = pipe.text_encoder(token_tensor, output_hidden_states=False)
         pool_embeds_list.append(embeds.pooler_output.squeeze(0))
