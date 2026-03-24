@@ -87,7 +87,7 @@ pip install --upgrade git+https://github.com/huggingface/diffusers
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Install core ML dependencies (all platforms)
-pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde torchao gguf kornia ftfy sdnq spandrel
+pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde torchao gguf kornia ftfy sdnq spandrel facexlib
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Install Windows/CUDA-specific dependencies

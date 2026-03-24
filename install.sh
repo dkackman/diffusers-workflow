@@ -141,7 +141,7 @@ pip install torch torchvision
 pip install --upgrade git+https://github.com/huggingface/diffusers
 
 # Install core ML dependencies (all platforms)
-pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde torchao gguf kornia ftfy sdnq spandrel
+pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde torchao gguf kornia ftfy sdnq spandrel facexlib
 
 # Install platform-specific dependencies
 if $MACOS; then
