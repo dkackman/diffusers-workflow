@@ -140,12 +140,16 @@ pip install torch torchvision
 # Install Diffusers from GitHub (latest version)
 pip install --upgrade git+https://github.com/huggingface/diffusers
 
-# Install core ML dependencies
-# Note: bitsandbytes and triton are CUDA-only; skip on macOS
+# Install core ML dependencies (all platforms)
+pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde torchao gguf kornia ftfy sdnq
+
+# Install platform-specific dependencies
 if $MACOS; then
-  pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde torchao gguf kornia ftfy sdnq
+  # FP8/FP4 dtype support for MPS (auto-activates via torch.backends)
+  pip install fp4-fp8-for-torch-mps
 else
-  pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy kernels sdnq
+  # CUDA-only: bitsandbytes quantization, triton compiler, custom kernels
+  pip install bitsandbytes kernels
 fi
 
 # Install utility dependencies
