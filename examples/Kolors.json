@@ -1,0 +1,33 @@
+{
+    "variables": {
+        "prompt": "A realistic photograph of a mouse wearing a skirt playing volleyball against a team of professional volleyball players.",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 25,
+        "guidance_scale": 6.5
+    },
+    "id": "Kolors",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "KolorsPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Kwai-Kolors/Kolors-diffusers",
+                    "torch_dtype": "torch.float16",
+                    "variant": "fp16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "guidance_scale": "variable:guidance_scale"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}
