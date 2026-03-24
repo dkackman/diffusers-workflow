@@ -267,8 +267,44 @@
                         "type": "string"
                     }
                 },
+                "cache": {
+                    "description": "Enable diffusers built-in cache acceleration on the transformer. Mutually exclusive with teacache. Hooks auto-reset between inference runs.",
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "description": "Cache algorithm: first_block (simplest, broadest support), faster (video-oriented, experimental), mag (magnitude-based, needs num_inference_steps), taylorseer (Taylor series approximation).",
+                            "type": "string",
+                            "enum": ["first_block", "faster", "mag", "taylorseer"]
+                        },
+                        "threshold": {
+                            "description": "Cache threshold for first_block and mag types. Higher = more speedup, more quality loss. first_block default: 0.05, mag default: 0.06.",
+                            "type": "number"
+                        },
+                        "num_inference_steps": {
+                            "description": "Required for mag cache type. Must match the pipeline's num_inference_steps.",
+                            "type": "integer"
+                        },
+                        "max_skip_steps": {
+                            "description": "Max consecutive skippable steps for mag cache. Default: 3.",
+                            "type": "integer"
+                        },
+                        "retention_ratio": {
+                            "description": "Fraction of initial steps where skipping is disabled for mag cache. Default: 0.2.",
+                            "type": "number"
+                        },
+                        "cache_interval": {
+                            "description": "Full computation every N steps for taylorseer cache. Default: 5.",
+                            "type": "integer"
+                        },
+                        "max_order": {
+                            "description": "Taylor series order for taylorseer cache. Higher = better approximation, more memory. Default: 1.",
+                            "type": "integer"
+                        }
+                    },
+                    "required": ["type"]
+                },
                 "teacache": {
-                    "description": "Enable TeaCache inference acceleration. Auto-detects transformer type. Caches intermediate computations and skips redundant steps. Requires num_inference_steps in pipeline arguments. Currently supports FluxTransformer2DModel.",
+                    "description": "Enable TeaCache inference acceleration. Auto-detects transformer type. Caches intermediate computations and skips redundant steps. Requires num_inference_steps in pipeline arguments. Currently supports FluxTransformer2DModel. Mutually exclusive with cache.",
                     "type": "object",
                     "properties": {
                         "rel_l1_thresh": {

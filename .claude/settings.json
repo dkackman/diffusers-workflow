@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"https://raw.githubusercontent.com/Teriks/dgenerate/d83b839033cc22c5101fb0f987bd4eb2de3d5d12/dgenerate/extras/DistillT5/models/__init__.py\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/Teriks/dgenerate/d83b839033cc22c5101fb0f987bd4eb2de3d5d12/dgenerate/extras/DistillT5/models/T5_encoder.py\")",
+      "Bash(python3 -c \"import diffusers; print\\(diffusers.__file__\\); print\\(diffusers.__version__\\)\")",
+      "Bash(source ./activate)",
+      "Bash(pytest tests/ -v)",
+      "Bash(ls /Users/don/src/dkackman/diffusers-workflow/venv/bin/py*)",
+      "Bash(/Users/don/src/dkackman/diffusers-workflow/venv/bin/python -m pytest tests/ -v)",
+      "Bash(/Users/don/src/dkackman/diffusers-workflow/venv/bin/pip install:*)"
+    ]
+  }
+}
