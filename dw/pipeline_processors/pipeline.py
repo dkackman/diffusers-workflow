@@ -7,6 +7,7 @@ from .config_objects import (
     get_group_offload_configuration,
 )
 from .remote import remote_text_encoder
+from ..teacache import teacache_context
 from diffusers import attention_backend
 
 logger = logging.getLogger("dw")
@@ -232,13 +233,7 @@ class Pipeline:
 
             # Run standard pipeline
             logger.debug("Running standard pipeline")
-            attn_backend = self.configuration.get("attention_backend", None)
-            if attn_backend is None:
-                output = self.pipeline(**arguments)
-            else:
-                logger.debug(f"Using attention backend: {attn_backend}")
-                with attention_backend(attn_backend):
-                    output = self.pipeline(**arguments)
+            output = self._execute_pipeline(arguments)
 
             # Ensure output is on correct device
             if hasattr(output, "to"):
@@ -266,6 +261,37 @@ class Pipeline:
                 exc_info=True,
             )
             raise
+
+    def _execute_pipeline(self, arguments):
+        """Execute the pipeline with optional TeaCache and attention backend contexts."""
+        teacache_config = self.configuration.get("teacache", None)
+        attn_backend = self.configuration.get("attention_backend", None)
+
+        # Determine the execution context
+        if teacache_config is not None:
+            num_steps = arguments.get("num_inference_steps", None)
+            if num_steps is None:
+                logger.warning(
+                    "TeaCache requires num_inference_steps in arguments, running without TeaCache"
+                )
+                return self._call_pipeline(arguments, attn_backend)
+
+            rel_l1_thresh = teacache_config.get("rel_l1_thresh", None)
+            coefficients = teacache_config.get("coefficients", None)
+            variant = teacache_config.get("variant", None)
+            with teacache_context(self.pipeline, num_steps, rel_l1_thresh, coefficients, variant):
+                return self._call_pipeline(arguments, attn_backend)
+        else:
+            return self._call_pipeline(arguments, attn_backend)
+
+    def _call_pipeline(self, arguments, attn_backend):
+        """Call the pipeline with optional attention backend context."""
+        if attn_backend is None:
+            return self.pipeline(**arguments)
+
+        logger.debug(f"Using attention backend: {attn_backend}")
+        with attention_backend(attn_backend):
+            return self.pipeline(**arguments)
 
     def load_optional_component(
         self, component_name, from_pretrained_arguments, default_device

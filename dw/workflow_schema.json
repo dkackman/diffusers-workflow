@@ -267,6 +267,29 @@
                         "type": "string"
                     }
                 },
+                "teacache": {
+                    "description": "Enable TeaCache inference acceleration. Auto-detects transformer type. Caches intermediate computations and skips redundant steps. Requires num_inference_steps in pipeline arguments. Currently supports FluxTransformer2DModel.",
+                    "type": "object",
+                    "properties": {
+                        "rel_l1_thresh": {
+                            "description": "Cache threshold. Higher = more speedup, more quality loss. Model-specific defaults apply if omitted.",
+                            "type": "number"
+                        },
+                        "coefficients": {
+                            "description": "Polynomial coefficients for rescaling relative L1 distance. 5 floats for np.poly1d. If omitted, uses model-specific defaults.",
+                            "type": "array",
+                            "items": {
+                                "type": "number"
+                            },
+                            "minItems": 5,
+                            "maxItems": 5
+                        },
+                        "variant": {
+                            "description": "Explicit model variant from teacache_models.json. Required for models with multiple variants (e.g., 'cogvideox_2b', 'wan2.1_t2v_1.3b'). If omitted, uses the class default.",
+                            "type": "string"
+                        }
+                    }
+                },
                 "vae": {
                     "type": "object",
                     "properties": {

@@ -1,0 +1,99 @@
+{
+    "$comment": "TeaCache model registry. Coefficients are 4th-degree polynomial coefficients for np.poly1d rescaling. Source: https://github.com/ali-vilab/TeaCache",
+    "models": {
+        "flux": {
+            "transformer_class": "FluxTransformer2DModel",
+            "coefficients": [4.98651651e+02, -2.83781631e+02, 5.58554382e+01, -3.82021401e+00, 2.64230861e-01],
+            "default_threshold": 0.6,
+            "threshold_guide": "0.25=~1.5x, 0.4=~1.8x, 0.6=~2.0x, 0.8=~2.25x"
+        },
+        "hunyuan_video": {
+            "transformer_class": "HunyuanVideoTransformer3DModel",
+            "coefficients": [7.33226126e+02, -4.01131952e+02, 6.75869174e+01, -3.14987800e+00, 9.61237896e-02],
+            "default_threshold": 0.15,
+            "threshold_guide": "0.1=~1.6x, 0.15=~2.1x"
+        },
+        "mochi": {
+            "transformer_class": "MochiTransformer3DModel",
+            "coefficients": [-3.51241319e+03, 8.11675948e+02, -6.09400215e+01, 2.42429681e+00, 3.05291719e-03],
+            "default_threshold": 0.09,
+            "threshold_guide": "0.06=~1.5x, 0.09=~2.1x"
+        },
+        "ltx_video": {
+            "transformer_class": "LTXVideoTransformer3DModel",
+            "coefficients": [2.14700694e+01, -1.28016453e+01, 2.31279151e+00, 7.92487521e-01, 9.69274326e-03],
+            "default_threshold": 0.05,
+            "threshold_guide": "0.03=~1.6x, 0.05=~2.1x"
+        },
+        "cogvideox_2b": {
+            "transformer_class": "CogVideoXTransformer3DModel",
+            "coefficients": [-3.10658903e+01, 2.54732368e+01, -5.92380459e+00, 1.75769064e+00, -3.61568434e-03],
+            "default_threshold": 0.1,
+            "threshold_guide": "0.1=~1.3x, 0.2=~1.8x"
+        },
+        "cogvideox_5b": {
+            "transformer_class": "CogVideoXTransformer3DModel",
+            "coefficients": [-1.53880483e+03, 8.43202495e+02, -1.34363087e+02, 7.97131516e+00, -5.23162339e-02],
+            "default_threshold": 0.1,
+            "threshold_guide": "0.1=~1.3x, 0.2=~1.8x"
+        },
+        "cogvideox1.5_5b": {
+            "transformer_class": "CogVideoXTransformer3DModel",
+            "coefficients": [2.50210439e+02, -1.65061612e+02, 3.57804877e+01, -7.81551492e-01, 3.58559703e-02],
+            "default_threshold": 0.2,
+            "threshold_guide": "0.1=~1.3x, 0.2=~1.8x, 0.3=~2.1x"
+        },
+        "cogvideox1.5_5b_i2v": {
+            "transformer_class": "CogVideoXTransformer3DModel",
+            "coefficients": [1.22842302e+02, -1.04088754e+02, 2.62981677e+01, -3.06009921e-01, 3.71213220e-02],
+            "default_threshold": 0.1,
+            "threshold_guide": "0.1=~1.5x, 0.2=~2.2x, 0.3=~2.7x"
+        },
+        "lumina2": {
+            "transformer_class": "Lumina2Transformer2DModel",
+            "coefficients": [393.76566581, -603.50993606, 209.10239044, -23.00726601, 0.86377344],
+            "default_threshold": 0.3,
+            "threshold_guide": "0.2=~1.25x, 0.3=~1.56x, 0.4=~2.08x, 0.5=~2.5x"
+        },
+        "lumina2_v2": {
+            "transformer_class": "Lumina2Transformer2DModel",
+            "coefficients": [225.7042019806413, -608.8453716535591, 304.1869942338369, 124.21267720116742, -1.4089066892956552],
+            "default_threshold": 0.3,
+            "threshold_guide": "0.2=~1.5x, 0.3=~1.6x, 0.5=~1.8x, 1.1=~2.1x"
+        },
+        "wan2.1_t2v_1.3b": {
+            "transformer_class": "WanTransformer3DModel",
+            "coefficients": [2.39676752e+03, -1.31110545e+03, 2.01331979e+02, -8.29855975e+00, 1.37887774e-01],
+            "default_threshold": 0.08,
+            "threshold_guide": "0.05=~1.5x, 0.07=~1.6x, 0.08=~2.0x"
+        },
+        "wan2.1_t2v_14b": {
+            "transformer_class": "WanTransformer3DModel",
+            "coefficients": [-5784.54975374, 5449.50911966, -1811.16591783, 256.27178429, -13.02252404],
+            "default_threshold": 0.2,
+            "threshold_guide": "0.14=~1.4x, 0.15=~1.8x, 0.2=~2.0x"
+        },
+        "wan2.1_i2v_480p": {
+            "transformer_class": "WanTransformer3DModel",
+            "coefficients": [-3.02331670e+02, 2.23948934e+02, -5.25463970e+01, 5.87348440e+00, -2.01973289e-01],
+            "default_threshold": 0.26,
+            "threshold_guide": "0.13=~1.6x, 0.19=~2.0x, 0.26=~2.5x"
+        },
+        "wan2.1_i2v_720p": {
+            "transformer_class": "WanTransformer3DModel",
+            "coefficients": [-114.36346466, 65.26524496, -18.82220707, 4.91518089, -0.23412683],
+            "default_threshold": 0.3,
+            "threshold_guide": "0.18=~1.7x, 0.2=~1.9x, 0.3=~2.4x"
+        }
+    },
+    "class_defaults": {
+        "$comment": "Default variant used when looking up by transformer class name (no explicit variant specified)",
+        "FluxTransformer2DModel": "flux",
+        "HunyuanVideoTransformer3DModel": "hunyuan_video",
+        "MochiTransformer3DModel": "mochi",
+        "LTXVideoTransformer3DModel": "ltx_video",
+        "CogVideoXTransformer3DModel": "cogvideox1.5_5b",
+        "Lumina2Transformer2DModel": "lumina2",
+        "WanTransformer3DModel": "wan2.1_t2v_14b"
+    }
+}
