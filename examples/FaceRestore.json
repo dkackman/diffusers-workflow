@@ -1,0 +1,54 @@
+{
+    "variables": {
+        "prompt": "a portrait photograph of a woman in a garden, natural light, sharp focus",
+        "restore_model": "leonelhs/gfpgan",
+        "restore_filename": "GFPGANv1.4.pth",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 9,
+        "guidance_scale": 0.0,
+        "width": 1024,
+        "height": 1024
+    },
+    "id": "FaceRestore",
+    "steps": [
+        {
+            "name": "generate",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": false
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "guidance_scale": "variable:guidance_scale"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "restore",
+            "task": {
+                "command": "restore_faces",
+                "arguments": {
+                    "image": "previous_result:generate",
+                    "model_name": "variable:restore_model",
+                    "filename": "variable:restore_filename",
+                    "use_parse": true
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

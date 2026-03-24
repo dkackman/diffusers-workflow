@@ -10,6 +10,7 @@ from .format_messages import (
     get_dict_value,
 )
 from .upscale import upscale_image
+from .restore_faces import restore_faces
 
 logger = logging.getLogger("dw")
 
@@ -87,6 +88,15 @@ def _handle_upscale(task, arguments, previous_pipelines):
     image = arguments.pop("image")
     model_name = arguments.pop("model_name")
     return upscale_image(image, model_name, device=task.device, **arguments)
+
+
+@register_command("restore_faces")
+def _handle_restore_faces(task, arguments, previous_pipelines):
+    """Restore faces in an image using a spandrel-compatible face restoration model"""
+    logger.debug("Restoring faces")
+    image = arguments.pop("image")
+    model_name = arguments.pop("model_name")
+    return restore_faces(image, model_name, device=task.device, **arguments)
 
 
 @register_command("batch_decode_post_process")

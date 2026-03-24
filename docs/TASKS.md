@@ -142,6 +142,84 @@ Large images are automatically tiled to avoid GPU memory issues. Models can be l
 
 **Example:** [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
 
+## Face Restoration
+
+Restore and enhance faces in images using spandrel-compatible face restoration models (GFPGAN, CodeFormer, RestoreFormer). Uses facexlib for face detection and alignment, then runs each detected face through the restoration model.
+
+```json
+{
+    "task": {
+        "command": "restore_faces",
+        "arguments": {
+            "image": "previous_result:generate",
+            "model_name": "leonelhs/gfpgan",
+            "filename": "GFPGANv1.4.pth"
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `image` | Yes | PIL Image or `previous_result:` reference |
+| `model_name` | Yes | HuggingFace repo ID or local file path |
+| `filename` | No | Specific weight file in a HF repo (auto-detected if only one) |
+| `upscale_factor` | No | Background upscale factor (default: 1, no upscaling) |
+| `face_size` | No | Cropped face size in pixels (default: 512) |
+| `use_parse` | No | Use face parsing for better blending (default: true) |
+| `only_center_face` | No | Only restore the largest/center face (default: false) |
+| `detection_resize` | No | Resize shorter side for detection speed (default: 640) |
+| `eye_dist_threshold` | No | Skip faces with eye distance below this (default: 5) |
+| `upsample_img` | No | Pre-upscaled background image (e.g., from a prior upscale step) |
+
+Models are loaded via spandrel, so any `.pth`/`.safetensors` face restoration weights work. CodeFormer requires `pip install spandrel-extra-arches` (non-commercial license).
+
+**Example:** [FaceRestore.json](../examples/FaceRestore.json) — Generate a portrait, then restore faces with GFPGAN v1.4.
+
+### Combining with Upscaling
+
+You can chain upscaling and face restoration. Generate first, upscale the background, then paste restored faces onto the upscaled image:
+
+```json
+{
+    "steps": [
+        {
+            "name": "generate",
+            "pipeline": { "..." : "..." },
+            "result": { "content_type": "image/jpeg" }
+        },
+        {
+            "name": "upscale",
+            "task": {
+                "command": "upscale",
+                "arguments": {
+                    "image": "previous_result:generate",
+                    "model_name": "Kim2091/UltraSharp",
+                    "filename": "4x-UltraSharp.pth"
+                }
+            },
+            "result": { "content_type": "image/jpeg" }
+        },
+        {
+            "name": "restore",
+            "task": {
+                "command": "restore_faces",
+                "arguments": {
+                    "image": "previous_result:generate",
+                    "model_name": "leonelhs/gfpgan",
+                    "filename": "GFPGANv1.4.pth",
+                    "upscale_factor": 4,
+                    "upsample_img": "previous_result:upscale"
+                }
+            },
+            "result": { "content_type": "image/jpeg" }
+        }
+    ]
+}
+```
+
+This gives the best results: the super-resolution model handles background detail while the face model handles facial features, composited together at the upscaled resolution.
+
 ## QR Code Generation
 
 ```json
@@ -206,3 +284,4 @@ Canny edge detection followed by ControlNet generation:
 - [qr_code.json](../examples/qr_code.json) — QR code with artistic ControlNet
 - [upscale.json](../examples/upscale.json) — Gather, resize, and diffusion upscale
 - [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate + spandrel 4x upscale
+- [FaceRestore.json](../examples/FaceRestore.json) — Generate portrait + GFPGAN face restoration
