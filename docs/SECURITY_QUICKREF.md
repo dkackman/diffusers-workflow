@@ -1,6 +1,6 @@
 # Security Quick Reference
 
-## Import Security Functions
+## Imports
 
 ```python
 from dw.security import (
@@ -10,174 +10,66 @@ from dw.security import (
 )
 ```
 
-## Common Security Patterns
-
-### Validating File Paths
+## Common Patterns
 
 ```python
-# General file path
+# File paths
 safe_path = validate_path(user_path, allow_create=False)
-
-# Workflow file (.json only)
-workflow_path = validate_workflow_path(user_path)
-
-# Output directory/file
+safe_path = validate_path(user_path, base_dir="/allowed/dir")
+workflow_path = validate_workflow_path("workflow.json")
 output_path = validate_output_path(user_path, base_output_dir)
 
-# With base directory restriction
-safe_path = validate_path(user_path, base_dir="/allowed/dir")
-```
-
-### Validating User Input
-
-```python
-# Variable names (alphanumeric + underscore/hyphen)
-var_name = validate_variable_name(user_input)
-
-# String values with length limits
+# User input
+var_name = validate_variable_name("prompt")          # OK
+var_name = validate_variable_name("bad;name")        # raises InvalidInputError
 value = validate_string_input(user_input, max_length=1000)
+url = validate_url(user_url)                         # http/https only
 
-# Allow empty strings
-value = validate_string_input(user_input, max_length=1000, allow_empty=True)
-
-# URLs (http/https only)
-url = validate_url(user_url)
-```
-
-### Safe Subprocess Execution
-
-```python
+# Subprocess
 import subprocess
-
-# Build command list
-cmd = ["python", "-m", "dw.run", workflow_path, f"{var_name}={value}"]
-
-# Sanitize arguments
-safe_cmd = sanitize_command_args(cmd)
-
-# Execute without shell
-process = subprocess.Popen(safe_cmd, shell=False)
+cmd = sanitize_command_args(["python", "-m", "dw.run", validated_path])
+subprocess.Popen(cmd, shell=False)
 ```
 
-### Error Handling
+## Error Handling
 
 ```python
 try:
     path = validate_path(user_path)
-    workflow = workflow_from_file(path, output_dir)
 except PathTraversalError as e:
     logger.error(f"Path traversal detected: {e}")
-    raise
 except InvalidInputError as e:
     logger.error(f"Invalid input: {e}")
-    raise
-except SecurityError as e:
-    logger.error(f"Security error: {e}")
-    raise
 ```
 
-## Security Checklist
+## Input Constraints
 
-When adding new code that handles user input:
+**Variable names:** Letters, numbers, underscores, hyphens. Must start with letter or underscore.
 
-- [ ] Validate all file paths with appropriate validator
-- [ ] Check variable names with `validate_variable_name()`
-- [ ] Validate string inputs with `validate_string_input()`
-- [ ] Validate URLs with `validate_url()`
-- [ ] Sanitize subprocess arguments with `sanitize_command_args()`
-- [ ] Use `shell=False` in subprocess calls
-- [ ] Catch and handle `SecurityError` exceptions
-- [ ] Log security validation failures
-- [ ] Never use `eval()` or `exec()` on user data
-
-## Dangerous Patterns to Avoid
-
-### ❌ DON'T
-```python
-# Don't use shell=True
-subprocess.run(f"python -m dw.run {user_input}", shell=True)
-
-# Don't skip path validation
-with open(user_path, 'r') as f:
-    data = f.read()
-
-# Don't trust user input
-workflow_path = f"../{user_dir}/workflow.json"
-
-# Don't allow any URL scheme
-image = load_image(f"file://{user_path}")
-
-# Don't use eval/exec
-result = eval(user_expression)
+```text
+OK:      prompt, num_images, my-variable, _private
+Invalid: my.var, var;name, $var, var name
 ```
 
-### ✅ DO
-```python
-# Use shell=False with validated args
-cmd = sanitize_command_args(["python", "-m", "dw.run", validated_path])
-subprocess.run(cmd, shell=False)
+**File paths:** No `../` traversal. No `~/`, `/dev/`, `/proc/`, `/sys/`.
 
-# Validate paths before use
-validated = validate_path(user_path, allow_create=False)
-with open(validated, 'r') as f:
-    data = f.read()
-
-# Use safe path joining
-workflow_path = validate_path(os.path.join(base_dir, user_dir, "workflow.json"))
-
-# Validate URL scheme
-url = validate_url(user_url)
-image = load_image(url)
-
-# Don't use eval/exec at all - use safe alternatives
+```text
+OK:      ./subdir/workflow.json, /full/path/workflow.json, builtin:augment_prompt.json
+Invalid: ../../../etc/passwd, ~/secret.json
 ```
 
-## Security Constants
+**URLs:** http and https only.
 
-```python
-MAX_PATH_LENGTH = 4096
-MAX_FILENAME_LENGTH = 255
-MAX_JSON_SIZE = 50 * 1024 * 1024  # 50MB
-
-ALLOWED_JSON_EXTENSIONS = {'.json'}
-ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
-ALLOWED_VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mkv', '.mov', '.webm'}
+```text
+OK:      https://example.com/image.jpg
+Invalid: file:///etc/passwd, ftp://server/file
 ```
 
-## Testing Security
+## Common Errors
 
-```python
-# Test path traversal protection
-with pytest.raises(PathTraversalError):
-    validate_path("../../../etc/passwd")
-
-# Test invalid variable names
-with pytest.raises(InvalidInputError):
-    validate_variable_name("invalid;name")
-
-# Test URL scheme validation
-with pytest.raises(InvalidInputError):
-    validate_url("file:///etc/passwd")
-
-# Test command injection protection
-with pytest.raises(InvalidInputError):
-    sanitize_command_args(["rm", "-rf", "; malicious"])
-```
-
-## Quick Fixes
-
-### Path traversal detected
-**Error**: `PathTraversalError: Path contains dangerous pattern: ../`
-**Fix**: Use absolute paths or safe relative paths without `../`
-
-### Invalid variable name
-**Error**: `InvalidInputError: Invalid variable name: my.var`
-**Fix**: Use only letters, numbers, underscores, hyphens: `my_var`
-
-### URL scheme not allowed
-**Error**: `InvalidInputError: URL scheme not allowed: file`
-**Fix**: Use http/https URLs or local file paths
-
-### Dangerous characters
-**Error**: `InvalidInputError: Argument contains dangerous characters`
-**Fix**: Remove shell metacharacters: `;`, `|`, `&`, `$`, `` ` ``
+| Error | Cause | Fix |
+| ----- | ----- | --- |
+| `Path contains dangerous pattern: ../` | Path traversal | Use absolute or `./` relative paths |
+| `Invalid variable name: my.var` | Special characters | Use `my_var` instead |
+| `URL scheme not allowed: file` | Non-http scheme | Use https or local file path |
+| `Argument contains dangerous characters` | Shell metacharacters | Remove `;` `\|` `&` `$` `` ` `` |
