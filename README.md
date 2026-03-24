@@ -1,147 +1,91 @@
-[![CodeQL](https://github.com/dkackman/diffusers-helper/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/dkackman/diffusers-helper/actions/workflows/github-code-scanning/codeql)
+[![CodeQL](https://github.com/dkackman/diffusers-workflow/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/dkackman/diffusers-workflow/actions/workflows/github-code-scanning/codeql)
 
 # diffusers-workflow
 
-## Introduction
+A declarative workflow engine for the [Hugging Face Diffusers library](https://github.com/huggingface/diffusers). Define and execute image/video generation pipelines using JSON configuration files — no Python coding required.
 
-A declarative workflow engine for the [Hugging Face Diffusers library](https://github.com/huggingface/diffusers). Define and execute complex image/video generation workflows using JSON configuration files—no Python coding required.
+**Python 3.10-3.14 | CUDA (NVIDIA) | MPS (Apple Silicon) | CPU**
 
 *For detailed documentation, see the [wiki](https://github.com/dkackman/diffusers-workflow/wiki).*
 
 ## Features
 
-- **Command-line execution** with variable substitution
-- **Text/image to image/video** generation workflows
-- **LLM-powered** prompt augmentation and image description
-- **ControlNet** image processing tasks
-- **Composable workflows** from multiple JSON files
-- **Utility tasks**: background removal, upscaling, cropping, QR codes
+- **Declarative JSON workflows** with variable substitution and cross-step data flow
+- **Multi-step pipelines** — chain text-to-image, image-to-video, inpainting, ControlNet
+- **Quantization** — BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto
+- **Inference acceleration** — TeaCache, FirstBlockCache, FasterCache, MagCache, TaylorSeerCache
+- **Prompt weighting** — A1111-style `(word:1.5)` syntax with long prompt support
+- **LoRA and IP-Adapter** support
+- **Composable workflows** from multiple JSON files with `builtin:` references
+- **Utility tasks** — background removal, upscaling, cropping, QR codes, LLM prompt augmentation
+- **Interactive REPL** with persistent GPU model caching (2-4x faster iteration)
+- **Cross-platform** — CUDA, MPS (Apple Silicon), and CPU
 
 ## Installation
 
-**Tested on:** MacOS, Ubuntu 22.04+ and Python 3.10+. Windows support is experimental.
-
-### bash
+### Linux / macOS
 
 ```bash
 bash ./install.sh
-. ./activate
+source ./activate
 python -m dw.test
 ```
 
-### powershell
+### Windows
 
 ```powershell
 .\install.ps1
-.\venv\scripts\activate 
+.\venv\scripts\activate
 python -m dw.test
 ```
 
-### Run Tests
-
-```bash
-. ./activate # or .\venv\scripts\activate on windows
-pip install pytest
-pytest -v
-```
+The install scripts detect your Python version, create a virtual environment, and install all dependencies including platform-specific packages (bitsandbytes/kernels on CUDA, fp4-fp8-for-torch-mps on macOS).
 
 ## Usage
 
 ### Run a Workflow
 
 ```bash
-python -m dw.run --help
-usage: run.py [-h] [-o OUTPUT_DIR] file_name [variables ...]
-
-Run a workflow from a file.
-
-positional arguments:
-  file_name             The filespec to of the workflow to run
-  variables             Optional parameters in name=value format
-
-options:
-  -h, --help            show this help message and exit
-  -o OUTPUT_DIR, --output_dir OUTPUT_DIR
-                        The folder to write the outputs to
+python -m dw.run examples/FluxDev.json
+python -m dw.run examples/FluxDev.json prompt="a cat" num_images_per_prompt=4
 ```
 
-### Validate a Workflow Definition
+### Validate a Workflow
 
 ```bash
-python -m dw.validate --help
-usage: validate.py [-h] file_name
-
-Validate a project file.
-
-positional arguments:
-  file_name   The filespec to of the project to validate
-
-options:
-  -h, --help  show this help message and exit
+python -m dw.validate examples/FluxDev.json
 ```
 
-## Interactive REPL
-
-Interactive environment for rapid workflow iteration with **persistent GPU model caching** (2-4x faster repeated execution):
+### Interactive REPL
 
 ```bash
 python -m dw.repl
+```
 
+```text
 dw> workflow load FluxDev
-Loaded workflow: FluxDev
-
 dw> arg set prompt="a beautiful sunset"
-Set argument prompt=a beautiful sunset
-
 dw> model run
-Starting worker process...
 [... models load once ...]
-Workflow completed successfully
 
 dw> arg set prompt="a starry night"
 dw> model run
 Reusing loaded models from cache
-[... runs 2-4x faster! ...]
-Workflow completed successfully
+[... 2-4x faster ...]
 
 dw> memory show
-GPU Memory Status:
-  Device: NVIDIA GeForce RTX 4090
-  Allocated: 8234.5 MB
-  ...
+dw> ?               # show all command groups
 ```
 
-### Commands
+See [REPL Commands](docs/REPL_COMMANDS.md) and [Worker Guide](docs/REPL_WORKER_GUIDE.md).
 
-Use `?` to explore hierarchical command groups:
+## Workflow Examples
 
-```bash
-dw> ?             # Show all groups
-dw> workflow ?    # Workflow management
-dw> arg ?         # Argument configuration
-dw> model ?       # Model execution
-dw> memory ?      # Memory management
-```
-
-**Documentation:** [Command Reference](docs/REPL_COMMANDS.md) | [Worker Architecture](docs/REPL_WORKER_GUIDE.md)
-
-## JSON Workflow Format
-
-**Schema:** [View JSON Schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-workflow%2Frefs%2Fheads%2Fmaster%2Fdw%2Fworkflow_schema.json)
-
-### Examples
-
-#### Simple Image Generation
-
-Variables declared in the workflow can be overridden via command-line arguments:
-
-```bash
-python -m dw.run test_workflow.json prompt="an orange" num_images_per_prompt=4
-```
+### Simple Image Generation
 
 ```json
 {
-    "id": "test_workflow",
+    "id": "flux_example",
     "variables": {
         "prompt": "an apple",
         "num_images_per_prompt": 1
@@ -162,8 +106,7 @@ python -m dw.run test_workflow.json prompt="an orange" num_images_per_prompt=4
                     "prompt": "variable:prompt",
                     "num_inference_steps": 25,
                     "num_images_per_prompt": "variable:num_images_per_prompt",
-                    "guidance_scale": 3.5,
-                    "max_sequence_length": 512
+                    "guidance_scale": 3.5
                 }
             },
             "result": {
@@ -174,37 +117,23 @@ python -m dw.run test_workflow.json prompt="an orange" num_images_per_prompt=4
 }
 ```
 
-#### Multi-Step Workflow (Image → Video)
+Override variables from the command line:
 
-Demonstrates chaining steps: text-to-image with 4-bit quantization, then image-to-video using the generated image:
+```bash
+python -m dw.run flux_example.json prompt="an orange" num_images_per_prompt=4
+```
+
+### Multi-Step Workflow (Image to Video)
+
+Chain steps using `previous_result:step_name` to pass outputs between steps:
 
 ```json
 {
-    "id": "sd35_txt2img2vid",
+    "id": "img2vid",
     "steps": [
         {
             "name": "image_generation",
             "pipeline": {
-                "transformer": {
-                    "configuration": {
-                        "component_type": "SD3Transformer2DModel",
-                        "quantization_config": {
-                            "configuration": {
-                                "config_type": "BitsAndBytesConfig"
-                            },
-                            "arguments": {
-                                "load_in_4bit": true,
-                                "bnb_4bit_quant_type": "{nf4}",
-                                "bnb_4bit_compute_dtype": "torch.bfloat16"
-                            }
-                        },
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "stabilityai/stable-diffusion-3.5-large",
-                        "subfolder": "transformer",
-                        "torch_dtype": "torch.bfloat16"
-                    }
-                },
                 "configuration": {
                     "component_type": "StableDiffusion3Pipeline",
                     "offload": "model"
@@ -212,30 +141,22 @@ Demonstrates chaining steps: text-to-image with 4-bit quantization, then image-t
                 "from_pretrained_arguments": {
                     "model_name": "stabilityai/stable-diffusion-3.5-large",
                     "torch_dtype": "torch.bfloat16"
-                }
+                },
                 "arguments": {
-                    "prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of owl, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, asymmetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
+                    "prompt": "a luminous owl in a neon forest",
                     "num_inference_steps": 25,
-                    "guidance_scale": 4.5,
-                    "max_sequence_length": 512
+                    "guidance_scale": 4.5
                 }
             },
-            "result": {
-                "content_type": "image/png"
-            },
+            "result": { "content_type": "image/png" }
         },
         {
-            "name": "image_to_video",
+            "name": "video",
             "pipeline": {
                 "configuration": {
-                    "offload": "sequential",
                     "component_type": "CogVideoXImageToVideoPipeline",
-                    "vae": {
-                        "configuration": {
-                            "enable_slicing": true,
-                            "enable_tiling": true
-                        }
-                    }
+                    "offload": "sequential",
+                    "vae": { "configuration": { "enable_slicing": true, "enable_tiling": true } }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "THUDM/CogVideoX-5b-I2V",
@@ -243,70 +164,73 @@ Demonstrates chaining steps: text-to-image with 4-bit quantization, then image-t
                 },
                 "arguments": {
                     "image": "previous_result:image_generation",
-                    "prompt": "The owl stares intently and blinks",
-                    "num_videos_per_prompt": 1,
+                    "prompt": "The owl blinks slowly",
                     "num_inference_steps": 50,
                     "num_frames": 49,
                     "guidance_scale": 6
                 }
             },
-            "result": {
-                "content_type": "video/mp4",
-                "file_base_name": "owl"
-            }
+            "result": { "content_type": "video/mp4" }
         }
     ]
 }
 ```
 
-#### Prompt Augmentation with LLM
+### Inference Acceleration
 
-Uses a local LLM to enhance prompts before image generation. Demonstrates composable workflows via `builtin:` references.
-
-**Note:** Requires `flash_attn` and the [CUDA toolkit](https://developer.nvidia.com/cuda-toolkit).
+Speed up generation with built-in diffusers caching or TeaCache:
 
 ```json
-{
-    "variables": {
-        "prompt": "A marmot, wearing a tophat in a woodland setting. Somewhat magical."
-    },
-    "id": "sd35",
-    "steps": [
-        {
-            "name": "augment_prompt",
-            "workflow": {
-                "path": "builtin:augment_prompt.json",
-                "arguments": {
-                    "prompt": "variable:prompt"
-                }
-            },
-            "result": {
-                "content_type": "text/plain"
-            }
-        },
-        {
-            "name": "image_generation",
-            "pipeline": {
-                "configuration": {
-                    "component_type": "StableDiffusion3Pipeline",
-                    "offload": "sequential"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "stabilityai/stable-diffusion-3.5-large",
-                    "torch_dtype": "torch.bfloat16"
-                },
-                "arguments": {
-                    "prompt": "previous_result:augment_prompt",
-                    "num_inference_steps": 25,
-                    "guidance_scale": 4.5,
-                    "max_sequence_length": 512,
-                    "num_images_per_prompt": 1
-                }
-            },
-            "result": {
-                "content_type": "image/jpeg"
-            }
-        }
-    ]
+"configuration": {
+    "component_type": "FluxPipeline",
+    "cache": { "type": "first_block", "threshold": 0.05 }
 }
 ```
+
+```json
+"configuration": {
+    "component_type": "FluxPipeline",
+    "teacache": { "rel_l1_thresh": 0.6 }
+}
+```
+
+### Prompt Weighting
+
+Use A1111-style syntax for per-token weighting:
+
+```json
+"configuration": {
+    "component_type": "FluxPipeline",
+    "prompt_weighting": true
+}
+```
+
+```text
+a (photorealistic:1.4) portrait with (bright red hair:1.3) and [freckles]
+```
+
+## JSON Schema
+
+**Interactive schema browser:** [View Schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-workflow%2Frefs%2Fheads%2Fmaster%2Fdw%2Fworkflow_schema.json)
+
+See [examples/](examples/) for more workflow files.
+
+## Documentation
+
+### Guides
+
+- [Workflow Guide](docs/WORKFLOW_GUIDE.md) — JSON structure, variables, steps, data flow
+- [Quantization](docs/QUANTIZATION.md) — BitsAndBytes, TorchAO, GGUF, SDNQ
+- [Inference Acceleration](docs/ACCELERATION.md) — FirstBlockCache, MagCache, TaylorSeer, TeaCache
+- [LoRA](docs/LORAS.md) — Loading and stacking LoRA adapters
+- [IP-Adapter](docs/IP_ADAPTER.md) — Image-prompt conditioning
+- [Prompt Weighting](docs/PROMPT_WEIGHTING.md) — A1111-style syntax
+- [Tasks](docs/TASKS.md) — Image processing, ControlNet preprocessors, utilities
+
+### Reference
+
+- [REPL Commands](docs/REPL_COMMANDS.md) — Interactive REPL command reference
+- [Worker Guide](docs/REPL_WORKER_GUIDE.md) — GPU persistence and troubleshooting
+- [Dependencies](docs/DEPENDENCIES.md) — Installation details
+- [Security](docs/SECURITY.md) — Security model
+- [Testing](docs/TESTING.md) — Running the test suite
