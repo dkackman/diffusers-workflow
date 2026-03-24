@@ -253,6 +253,10 @@
                     "description": "Whether to enable xformers memory efficient attention for the pipeline.",
                     "type": "boolean"
                 },
+                "prompt_weighting": {
+                    "description": "Enable A1111-style prompt weighting syntax: (word:1.5) for emphasis, [word] for de-emphasis, ((word)) for nested weighting. Also supports prompts longer than 77 tokens. Currently supports Flux pipelines. Mutually exclusive with remote_text_encoder.",
+                    "type": "boolean"
+                },
                 "pre_load_modules": {
                     "description": "List of Python modules to import before loading the pipeline. Used for modules that register with diffusers on import (e.g., sdnq).",
                     "type": "array",

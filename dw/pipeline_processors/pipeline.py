@@ -8,6 +8,7 @@ from .config_objects import (
 )
 from .remote import remote_text_encoder
 from ..teacache import teacache_context
+from ..prompt_weighting import apply_prompt_weighting
 from diffusers import attention_backend
 from diffusers import (
     FirstBlockCacheConfig,
@@ -241,6 +242,8 @@ class Pipeline:
                     device=self.device,
                 )
                 arguments["prompt_embeds"] = prompt_embeds
+            elif self.configuration.get("prompt_weighting", False):
+                apply_prompt_weighting(self.pipeline, arguments)
 
             # Run standard pipeline
             logger.debug("Running standard pipeline")
