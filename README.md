@@ -6,8 +6,6 @@ A declarative workflow engine for the [Hugging Face Diffusers library](https://g
 
 **Python 3.10-3.14 | CUDA (NVIDIA) | MPS (Apple Silicon) | CPU**
 
-*For detailed documentation, see the [wiki](https://github.com/dkackman/diffusers-workflow/wiki).*
-
 ## Features
 
 - **Declarative JSON workflows** with variable substitution and cross-step data flow
