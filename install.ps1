@@ -27,7 +27,7 @@ catch {
     Exit 1
 }
 
-# Check for supported Python version (3.10 - 3.13)
+# Check for supported Python version (3.10 - 3.14)
 $supportedPythonVersions = "3.14", "3.13", "3.12", "3.11", "3.10"
 if ($env:INSTALL_PYTHON_VERSION) {
     $pythonVersion = $env:INSTALL_PYTHON_VERSION
@@ -86,8 +86,12 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 pip install --upgrade git+https://github.com/huggingface/diffusers
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# Install core ML dependencies
-pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde bitsandbytes torchao gguf kornia ftfy kernels sdnq
+# Install core ML dependencies (all platforms)
+pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde torchao gguf kornia ftfy sdnq
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# Install Windows/CUDA-specific dependencies
+pip install bitsandbytes kernels
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Install utility dependencies
