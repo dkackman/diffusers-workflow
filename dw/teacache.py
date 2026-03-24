@@ -86,6 +86,7 @@ def _get_model_info(transformer, variant=None):
 # Forward function factories, one per supported transformer architecture.
 # ---------------------------------------------------------------------------
 
+
 def _create_flux_teacache_forward(num_inference_steps, rel_l1_thresh, coefficients):
     """Create TeaCache forward for FluxTransformer2DModel."""
     cnt = 0
@@ -164,9 +165,13 @@ def _create_flux_teacache_forward(num_inference_steps, rel_l1_thresh, coefficien
             accumulated_rel_l1_distance = 0
         else:
             relative_diff = (
-                (modulated_inp - previous_modulated_input).abs().mean()
-                / previous_modulated_input.abs().mean()
-            ).cpu().item()
+                (
+                    (modulated_inp - previous_modulated_input).abs().mean()
+                    / previous_modulated_input.abs().mean()
+                )
+                .cpu()
+                .item()
+            )
             accumulated_rel_l1_distance += rescale_func(relative_diff)
 
             if accumulated_rel_l1_distance < rel_l1_thresh:
@@ -235,9 +240,7 @@ def _create_flux_teacache_forward(num_inference_steps, rel_l1_thresh, coefficien
                     else:
                         hidden_states = (
                             hidden_states
-                            + controlnet_block_samples[
-                                index_block // interval_control
-                            ]
+                            + controlnet_block_samples[index_block // interval_control]
                         )
 
             for index_block, block in enumerate(self.single_transformer_blocks):
@@ -314,8 +317,11 @@ _FORWARD_FACTORIES = {
 # Public API
 # ---------------------------------------------------------------------------
 
+
 @contextmanager
-def teacache_context(pipeline, num_inference_steps, rel_l1_thresh=None, coefficients=None, variant=None):
+def teacache_context(
+    pipeline, num_inference_steps, rel_l1_thresh=None, coefficients=None, variant=None
+):
     """Context manager that enables TeaCache on a pipeline's transformer.
 
     Auto-detects the transformer type and applies the appropriate

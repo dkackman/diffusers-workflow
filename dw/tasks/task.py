@@ -9,6 +9,7 @@ from .format_messages import (
     batch_decode_post_process,
     get_dict_value,
 )
+from .upscale import upscale_image
 
 logger = logging.getLogger("dw")
 
@@ -77,6 +78,15 @@ def _handle_get_dict_value(task, arguments, previous_pipelines):
     """Extract value from dictionary"""
     logger.debug("Getting dictionary value")
     return get_dict_value(**arguments)
+
+
+@register_command("upscale")
+def _handle_upscale(task, arguments, previous_pipelines):
+    """Upscale an image using a spandrel-compatible super-resolution model"""
+    logger.debug("Upscaling image")
+    image = arguments.pop("image")
+    model_name = arguments.pop("model_name")
+    return upscale_image(image, model_name, device=task.device, **arguments)
 
 
 @register_command("batch_decode_post_process")

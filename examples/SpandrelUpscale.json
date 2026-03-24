@@ -1,0 +1,53 @@
+{
+    "variables": {
+        "prompt": "a photo of an astronaut riding a horse on mars",
+        "upscale_model": "Kim2091/UltraSharp",
+        "upscale_filename": "4x-UltraSharp.pth",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 9,
+        "guidance_scale": 0.0,
+        "width": 512,
+        "height": 512
+    },
+    "id": "SpandrelUpscale",
+    "steps": [
+        {
+            "name": "generate",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": false
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "guidance_scale": "variable:guidance_scale"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "upscale",
+            "task": {
+                "command": "upscale",
+                "arguments": {
+                    "image": "previous_result:generate",
+                    "model_name": "variable:upscale_model",
+                    "filename": "variable:upscale_filename"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

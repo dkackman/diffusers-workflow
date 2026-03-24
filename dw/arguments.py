@@ -95,6 +95,11 @@ def fetch_image(img_spec):
     if not isinstance(img_spec, str):
         raise ValueError(f"Image specification must be a string, got {type(img_spec)}")
 
+    # Skip cross-step and variable references — these are resolved later during execution
+    if img_spec.startswith("previous_result:") or img_spec.startswith("variable:"):
+        logger.debug(f"Skipping deferred reference: {img_spec}")
+        return img_spec
+
     logger.debug(f"Loading image from: {img_spec}")
 
     try:
@@ -166,6 +171,11 @@ def fetch_video(video_spec):
         raise ValueError(
             f"Video specification must be a string, got {type(video_spec)}"
         )
+
+    # Skip cross-step and variable references — these are resolved later during execution
+    if video_spec.startswith("previous_result:") or video_spec.startswith("variable:"):
+        logger.debug(f"Skipping deferred reference: {video_spec}")
+        return video_spec
 
     logger.debug(f"Loading video from: {video_spec}")
 
