@@ -76,7 +76,55 @@ All accept an `image` argument with processing parameters:
 | `crop_square` | Center crop to square | |
 | `add_border_and_mask` | Add border with alpha mask | |
 | `add_border_and_mask_with_size` | Border with specific dimensions | `width`, `height` |
+| `strip_exif` | Remove all EXIF/metadata from image | |
+| `add_watermark` | Add visible text watermark | `text`, `position`, `opacity`, `font_size`, `color`, `margin` |
 | `get_image_size` | Return `{width, height}` dict | |
+
+### EXIF Stripping
+
+Remove all EXIF metadata, GPS coordinates, camera info, and timestamps from images for privacy-safe preprocessing:
+
+```json
+{
+    "task": {
+        "command": "strip_exif",
+        "arguments": {
+            "image": "previous_result:input_image"
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+Returns a clean copy with pixel data only — no embedded metadata. Useful as a first step when processing user-uploaded images.
+
+### Watermark Embedding
+
+Add a visible text watermark to images for responsible AI compliance:
+
+```json
+{
+    "task": {
+        "command": "add_watermark",
+        "arguments": {
+            "image": "previous_result:generate",
+            "text": "AI Generated",
+            "position": "bottom-right",
+            "opacity": 128
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `text` | No | Watermark text (default: "AI Generated") |
+| `position` | No | "bottom-right", "bottom-left", "top-right", "top-left", or "center" (default: "bottom-right") |
+| `opacity` | No | Text opacity 0-255 (default: 128) |
+| `font_size` | No | Font size in pixels, 0 = auto-scale ~3% of image height (default: 0) |
+| `color` | No | RGB array for text color (default: white) |
+| `margin` | No | Pixel margin from edges (default: 10) |
 
 ### Aspect Ratio Bucketing
 
