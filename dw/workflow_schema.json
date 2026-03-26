@@ -672,6 +672,11 @@
                     "description": "Audio sample rate - only used when output is audio",
                     "type": "integer",
                     "default": 44100
+                },
+                "embed_metadata": {
+                    "description": "Whether to embed generation parameters as metadata in saved images (PNG info chunks or EXIF). Only applies to image content types.",
+                    "type": "boolean",
+                    "default": false
                 }
             },
             "additionalProperties": {

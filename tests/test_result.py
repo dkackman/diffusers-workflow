@@ -190,5 +190,82 @@ class TestGuessExtension:
         assert guess_extension("") == ""
 
 
+class TestMetadataEmbedding:
+    """Test opt-in metadata embedding in saved images."""
+
+    def test_png_metadata_embedded(self):
+        """When embed_metadata is true, PNG should contain parameters text chunk."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result_def = {
+                "content_type": "image/png",
+                "save": True,
+                "embed_metadata": True,
+            }
+            result = Result(result_def)
+            result.set_metadata(
+                {
+                    "workflow_id": "test_workflow",
+                    "step_name": "generate",
+                    "model_name": "test/model",
+                    "arguments": {"prompt": "a cat", "num_inference_steps": 25},
+                }
+            )
+
+            img = Image.new("RGB", (64, 64), color=(128, 64, 32))
+            result.add_result(img)
+            result.save(temp_dir, "test_output")
+
+            output_file = os.path.join(temp_dir, "test_output-0.0.png")
+            assert os.path.exists(output_file)
+
+            saved_img = Image.open(output_file)
+            assert "parameters" in saved_img.info
+            metadata = json.loads(saved_img.info["parameters"])
+            assert metadata["workflow_id"] == "test_workflow"
+            assert metadata["arguments"]["prompt"] == "a cat"
+
+    def test_no_metadata_when_not_enabled(self):
+        """When embed_metadata is absent/false, no metadata should be embedded."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result_def = {"content_type": "image/png", "save": True}
+            result = Result(result_def)
+
+            img = Image.new("RGB", (64, 64), color=(128, 64, 32))
+            result.add_result(img)
+            result.save(temp_dir, "test_output")
+
+            output_file = os.path.join(temp_dir, "test_output-0.0.png")
+            saved_img = Image.open(output_file)
+            assert "parameters" not in saved_img.info
+
+    def test_set_metadata_method(self):
+        """set_metadata should store metadata on the Result instance."""
+        result = Result({})
+        assert result.metadata is None
+
+        metadata = {"workflow_id": "test", "step_name": "step1"}
+        result.set_metadata(metadata)
+        assert result.metadata == metadata
+
+    def test_metadata_with_embed_false(self):
+        """When embed_metadata is explicitly false, no metadata embedded even if set."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result_def = {
+                "content_type": "image/png",
+                "save": True,
+                "embed_metadata": False,
+            }
+            result = Result(result_def)
+            result.set_metadata({"workflow_id": "test"})
+
+            img = Image.new("RGB", (64, 64), color=(128, 64, 32))
+            result.add_result(img)
+            result.save(temp_dir, "test_output")
+
+            output_file = os.path.join(temp_dir, "test_output-0.0.png")
+            saved_img = Image.open(output_file)
+            assert "parameters" not in saved_img.info
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
