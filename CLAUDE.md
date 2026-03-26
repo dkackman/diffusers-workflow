@@ -27,7 +27,7 @@ python -m dw.test
 # Interactive REPL
 python -m dw.repl
 
-# Run all tests (134+ tests)
+# Run all tests (260+ tests)
 pytest -v
 
 # Run a single test file or test
@@ -52,7 +52,7 @@ JSON workflow → schema validation → variable substitution → sequential ste
 1. `workflow.py` loads JSON, validates against `workflow_schema.json`, substitutes `variable:name` references
 2. `step.py` executes each step — generating argument combinations via `previous_results.py` (cartesian product of `previous_result:step_name` references)
 3. Each step dispatches to one of: **Pipeline** (HuggingFace inference), **Task** (utility operation), or **Sub-Workflow** (recursive)
-4. `result.py` saves outputs as `{output_dir}/{workflow_id}-{step_name}.{index}.{ext}`
+4. `result.py` saves outputs as `{output_dir}/{workflow_id}-{step_name}.{index}.{ext}` — supports image, video, audio, text, and JSON content types. Optional `embed_metadata` stores generation parameters in PNG info chunks or JPEG/WebP EXIF.
 
 ### Key Modules
 
@@ -62,7 +62,11 @@ JSON workflow → schema validation → variable substitution → sequential ste
 | `dw/step.py` | Step executor: generates iterations, dispatches to pipeline/task/workflow |
 | `dw/pipeline_processors/pipeline.py` | Pipeline loading, components, quantization, LoRA, schedulers, offloading |
 | `dw/pipeline_processors/config_objects.py` | Quantization and group offload config creation |
-| `dw/tasks/task.py` | Task dispatcher (image processing, QR codes, gathering, video) |
+| `dw/tasks/task.py` | Task dispatcher (image processing, QR codes, gathering, video, segmentation, captioning, frame interpolation) |
+| `dw/tasks/segment.py` | GroundingDINO + SAM2 text-prompted object segmentation |
+| `dw/tasks/image_to_text.py` | Image captioning via transformers image-to-text pipeline (BLIP, BLIP-2, etc.) |
+| `dw/tasks/interpolate_frames.py` | RIFE frame interpolation (2x/4x/8x) with vendored IFNet v4.6 |
+| `dw/tasks/rife_model.py` | Vendored RIFE IFNet v4.6 architecture (MIT License, Megvii Inc.) |
 | `dw/previous_results.py` | Cross-step data flow via cartesian products |
 | `dw/arguments.py` | Argument processing, resource loading, dynamic type conversion |
 | `dw/type_helpers.py` | Dynamic type loading: `"FluxPipeline"` → class, `"torch.bfloat16"` → dtype |
