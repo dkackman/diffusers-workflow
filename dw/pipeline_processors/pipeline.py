@@ -469,6 +469,17 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
     component_type = configuration["component_type"]
     component = None
 
+    # MPS (Apple Silicon) has numerical instability with float16 matmul operations,
+    # producing NaN values that result in black images. Auto-convert to float32.
+    if (
+        device == "mps"
+        and from_pretrained_arguments.get("torch_dtype") == torch.float16
+    ):
+        logger.warning(
+            f"On MPS devices float16 produces NaN values on Apple Silicon"
+            f"Consider changing torch_dtype from float16 to float32 for {component_name} "
+        )
+
     try:
         # Load from model name
         if "model_name" in from_pretrained_arguments:
