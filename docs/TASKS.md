@@ -220,6 +220,132 @@ You can chain upscaling and face restoration. Generate first, upscale the backgr
 
 This gives the best results: the super-resolution model handles background detail while the face model handles facial features, composited together at the upscaled resolution.
 
+## Object Segmentation
+
+Detect and segment objects using text prompts via GroundingDINO + SAM2. Returns a binary mask image suitable for inpainting workflows.
+
+```json
+{
+    "task": {
+        "command": "segment",
+        "arguments": {
+            "image": "previous_result:input_image",
+            "prompt": "dog"
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `image` | Yes | PIL Image or `previous_result:` reference |
+| `prompt` | Yes | Text description of object(s) to detect (e.g., "dog", "red car") |
+| `model_name` | No | GroundingDINO model ID (default: `IDEA-Research/grounding-dino-base`) |
+| `sam_model_name` | No | SAM2 model ID (default: `facebook/sam2-hiera-large`) |
+| `threshold` | No | Detection confidence threshold (default: 0.3) |
+| `invert` | No | Invert the output mask (default: false) |
+
+Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, black (0) for background. Use with inpainting pipelines like FluxFillPipeline.
+
+**Examples:**
+
+- [Segment.json](../examples/Segment.json) — Segment an object from an image
+- [SegmentAndInpaint.json](../examples/SegmentAndInpaint.json) — Segment, then inpaint the masked region
+
+## Image Captioning
+
+Generate text captions from images using HuggingFace image-to-text models (BLIP, BLIP-2, ViT-GPT2, GIT, etc.).
+
+```json
+{
+    "task": {
+        "command": "image_to_text",
+        "arguments": {
+            "image": "previous_result:input_image"
+        }
+    },
+    "result": { "content_type": "text/plain" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `image` | Yes | PIL Image or `previous_result:` reference |
+| `model_name` | No | HuggingFace model ID (default: `Salesforce/blip-image-captioning-base`) |
+| `prompt` | No | Text prompt for conditional captioning (supported by BLIP-2, etc.) |
+| `max_new_tokens` | No | Maximum tokens to generate (default: 50) |
+
+Returns a caption string. Save as `text/plain` for `.txt` output, or pass to a downstream step via `previous_result:` as a prompt for image generation.
+
+For Florence-2's advanced task-token captioning (detailed captions, object detection, OCR), use the built-in `describe_image` workflow instead:
+
+```json
+{
+    "name": "caption",
+    "workflow": {
+        "path": "builtin:describe_image.json",
+        "arguments": { "image": "previous_result:input_image" }
+    },
+    "result": { "content_type": "text/plain" }
+}
+```
+
+**Examples:**
+
+- [ImageToText.json](../examples/ImageToText.json) — Basic BLIP captioning, saves as `.txt`
+- [ImageToTextBlip2.json](../examples/ImageToTextBlip2.json) — BLIP-2 with conditional prompt
+- [CaptionToImage.json](../examples/CaptionToImage.json) — Caption an image, then regenerate with Flux
+
+## Frame Interpolation
+
+Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a list of video frames and inserts intermediate frames between each pair.
+
+```json
+{
+    "task": {
+        "command": "interpolate_frames",
+        "arguments": {
+            "video": "previous_result:generate_video",
+            "multiplier": 2
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 60 }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | List of PIL Images (video frames) or `previous_result:` reference |
+| `multiplier` | No | Frame count multiplier: 2, 4, or 8 (default: 2) |
+| `model_name` | No | HuggingFace repo with RIFE weights (default: `styler00dollar/RIFE-v4.6`) |
+
+Uses vendored IFNet v4.6 architecture. Weights are downloaded from HuggingFace Hub on first use.
+
+**Example:** [InterpolateFrames.json](../examples/InterpolateFrames.json) — Generate video with Mochi, then 2x interpolate from 30fps to 60fps.
+
+## Metadata Embedding
+
+Embed generation parameters in saved images. Enable by setting `embed_metadata: true` in a step's result configuration:
+
+```json
+{
+    "result": {
+        "content_type": "image/png",
+        "embed_metadata": true
+    }
+}
+```
+
+| Format | Storage | Notes |
+| ------ | ------- | ----- |
+| PNG | Text chunk (`parameters` key) | Always available |
+| JPEG/WebP | EXIF UserComment | Requires `pip install piexif` |
+
+Metadata includes step name, model name, and generation arguments (prompt, steps, guidance scale, etc.) as JSON.
+
+**Example:** [MetadataEmbed.json](../examples/MetadataEmbed.json) — Generate with Flux and embed parameters in PNG.
+
 ## QR Code Generation
 
 ```json
@@ -285,3 +411,10 @@ Canny edge detection followed by ControlNet generation:
 - [upscale.json](../examples/upscale.json) — Gather, resize, and diffusion upscale
 - [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate + spandrel 4x upscale
 - [FaceRestore.json](../examples/FaceRestore.json) — Generate portrait + GFPGAN face restoration
+- [Segment.json](../examples/Segment.json) — Text-prompted object segmentation
+- [SegmentAndInpaint.json](../examples/SegmentAndInpaint.json) — Segment + inpaint
+- [ImageToText.json](../examples/ImageToText.json) — BLIP image captioning
+- [ImageToTextBlip2.json](../examples/ImageToTextBlip2.json) — BLIP-2 conditional captioning
+- [CaptionToImage.json](../examples/CaptionToImage.json) — Caption then regenerate
+- [InterpolateFrames.json](../examples/InterpolateFrames.json) — RIFE frame interpolation
+- [MetadataEmbed.json](../examples/MetadataEmbed.json) — Embed generation parameters in PNG

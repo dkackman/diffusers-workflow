@@ -12,7 +12,7 @@ Utilities and enhancements from the stable diffusion ecosystem.
 
 - [x] **Marigold depth / DSINE normals** — Newer, more accurate depth/normal estimators than MiDaS/DPT. Better ControlNet conditioning maps.
 - [x] **GroundingDINO + SAM2** — Text-prompted object detection to segmentation. "Segment the dog" as a task, producing masks for inpainting workflows.
-- [ ] **Florence-2** — Microsoft vision-language model for captioning, detection, segmentation. Powers an `auto_caption` task for img2img or IP-Adapter workflows.
+- [x] **Florence-2** — Microsoft vision-language model for captioning, detection, segmentation. Powers an `auto_caption` task for img2img or IP-Adapter workflows.
 - [ ] **PuLID / InstantID** — Identity-preserving face conditioning (better than IP-Adapter for faces). Works with Flux and SDXL.
 
 ## Video-Specific
