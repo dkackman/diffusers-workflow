@@ -72,10 +72,38 @@ All accept an `image` argument with processing parameters:
 | `resize_center_crop` | Resize with center crop | `width`, `height` |
 | `resize_resample` | Resample to nearest 64px multiple | |
 | `resize_rescale` | Resize to exact dimensions | `width`, `height` |
+| `resize_bucket` | Snap to closest model-native aspect ratio | `resolution`, `ratios`, `alignment` |
 | `crop_square` | Center crop to square | |
 | `add_border_and_mask` | Add border with alpha mask | |
 | `add_border_and_mask_with_size` | Border with specific dimensions | `width`, `height` |
 | `get_image_size` | Return `{width, height}` dict | |
+
+### Aspect Ratio Bucketing
+
+The `resize_bucket` command snaps an image to the closest model-native aspect ratio, then resizes with 64-pixel alignment. This avoids distortion and ensures the model generates at a resolution it was trained on.
+
+```json
+{
+    "task": {
+        "command": "resize_bucket",
+        "arguments": {
+            "image": "previous_result:input_image",
+            "resolution": 1024
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `resolution` | No | Target short-side size in pixels (default: 1024) |
+| `ratios` | No | Custom list of `[w, h]` ratio pairs (default: standard SDXL/Flux ratios) |
+| `alignment` | No | Round dimensions to this multiple (default: 64) |
+
+**Default ratios:** 1:1, 4:3, 3:4, 3:2, 2:3, 16:9, 9:16, 21:9, 9:21
+
+For example, a 1600x900 photo (16:9) at resolution 1024 becomes 1792x1024. A 800x600 photo (4:3) becomes 1344x1024.
 
 ## Video Processing
 
