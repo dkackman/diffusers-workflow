@@ -40,6 +40,12 @@ class Step:
             # This handles how results should be saved/processed
             result = Result(self.step_definition.get("result", {}))
 
+            # Collect metadata for embedding if enabled
+            result_def = self.step_definition.get("result", {})
+            if result_def.get("embed_metadata", False):
+                metadata = self._collect_metadata()
+                result.set_metadata(metadata)
+
             # Log what type of action we're executing (Pipeline/Task/Workflow)
             action_type = type(step_action).__name__
             logger.info(f"Running {action_type} {step_name}:{step_action.name}...")
@@ -114,3 +120,21 @@ class Step:
                 exc_info=True,
             )
             raise
+
+    def _collect_metadata(self):
+        """Collect step metadata for embedding in saved images."""
+        metadata = {"step_name": self.name}
+
+        if "pipeline" in self.step_definition:
+            pipeline_def = self.step_definition["pipeline"]
+            pretrained_args = pipeline_def.get("from_pretrained_arguments", {})
+            if "model_name" in pretrained_args:
+                metadata["model_name"] = pretrained_args["model_name"]
+            metadata["arguments"] = dict(pipeline_def.get("arguments", {}))
+
+        elif "task" in self.step_definition:
+            task_def = self.step_definition["task"]
+            metadata["task_command"] = task_def.get("command", "unknown")
+            metadata["arguments"] = dict(task_def.get("arguments", {}))
+
+        return metadata

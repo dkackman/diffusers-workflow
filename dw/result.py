@@ -32,7 +32,16 @@ class Result:
         """
         self.result_definition = result_definition
         self.result_list = []
+        self.metadata = None
         logger.debug(f"Initialized Result with definition: {result_definition}")
+
+    def set_metadata(self, metadata):
+        """Set metadata to embed in saved image artifacts.
+
+        Args:
+            metadata: Dict of generation parameters to embed
+        """
+        self.metadata = metadata
 
     def add_result(self, result):
         """Add one or more results to the result list.
@@ -226,7 +235,14 @@ class Result:
                 with open(output_path, "w") as file:
                     file.write(artifact)
             elif hasattr(artifact, "save"):
-                artifact.save(output_path)
+                if (
+                    self.metadata is not None
+                    and self.result_definition.get("embed_metadata", False)
+                    and content_type.startswith("image/")
+                ):
+                    self._save_image_with_metadata(artifact, output_path, content_type)
+                else:
+                    artifact.save(output_path)
             else:
                 raise ValueError(
                     f"Content type {content_type} does not match result type {type(artifact)}"
@@ -236,6 +252,45 @@ class Result:
                 f"Error saving artifact to {output_path}: {str(e)}", exc_info=True
             )
             raise
+
+    def _save_image_with_metadata(self, image, output_path, content_type):
+        """Save an image with embedded generation metadata.
+
+        Args:
+            image: PIL Image to save
+            output_path: Path to save the image to
+            content_type: MIME type of the image
+        """
+        metadata_json = json.dumps(self.metadata, default=str)
+
+        if content_type == "image/png":
+            from PIL.PngImagePlugin import PngInfo
+
+            png_info = PngInfo()
+            png_info.add_text("parameters", metadata_json)
+            image.save(output_path, pnginfo=png_info)
+            logger.debug(f"Embedded PNG metadata in {output_path}")
+        elif content_type in ("image/jpeg", "image/webp"):
+            try:
+                import piexif
+
+                exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}}
+                if hasattr(image, "info") and "exif" in image.info:
+                    exif_dict = piexif.load(image.info["exif"])
+                exif_dict["Exif"][piexif.ExifIFD.UserComment] = (
+                    piexif.helper.UserComment.dump(metadata_json)
+                )
+                exif_bytes = piexif.dump(exif_dict)
+                image.save(output_path, exif=exif_bytes)
+                logger.debug(f"Embedded EXIF metadata in {output_path}")
+            except ImportError:
+                logger.warning(
+                    "piexif not installed - saving without metadata. "
+                    "Install with: pip install piexif"
+                )
+                image.save(output_path)
+        else:
+            image.save(output_path)
 
 
 def get_artifact_list(result):
