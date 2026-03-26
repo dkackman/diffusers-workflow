@@ -23,7 +23,7 @@ Utilities and enhancements from the stable diffusion ecosystem.
 
 ## Workflow Utilities
 
-- [ ] **Prompt expansion via local LLM** — Task that takes a short prompt and expands it using a small language model (Llama 3.2 1B, Qwen2.5, etc.).
+- [x] **Prompt expansion via local LLM** — Task that takes a short prompt and expands it using a small language model (Llama 3.2 1B, Qwen2.5, etc.).
 - [ ] **Image comparison / SSIM / LPIPS scoring** — Task that scores similarity between images for iterative refinement workflows.
 - [ ] **Color palette extraction / transfer** — Extract dominant colors from a reference image or apply color grading from one image to another.
 - [ ] **Tiled generation / outpainting helper** — Automate the border+mask+generation loop for progressive outpainting.

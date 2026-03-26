@@ -297,6 +297,41 @@ For Florence-2's advanced task-token captioning (detailed captions, object detec
 - [ImageToTextBlip2.json](../examples/ImageToTextBlip2.json) — BLIP-2 with conditional prompt
 - [CaptionToImage.json](../examples/CaptionToImage.json) — Caption an image, then regenerate with Flux
 
+## Text Generation / Prompt Expansion
+
+Generate or expand text using a local language model. Useful for expanding short prompts into detailed image generation prompts, rewriting text, or other text-to-text tasks.
+
+```json
+{
+    "task": {
+        "command": "text_generation",
+        "arguments": {
+            "prompt": "a cat on a windowsill",
+            "system_prompt": "You are a helpful AI assistant that creates detailed prompts for text to image generative AI. When supplied input generate only the prompt, no other text."
+        }
+    },
+    "result": { "content_type": "text/plain" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `prompt` | Yes | The user message or short prompt to expand/transform |
+| `system_prompt` | No | System instruction for the model (e.g., "expand this into a detailed image prompt") |
+| `model_name` | No | HuggingFace model ID (default: `Qwen/Qwen2.5-1.5B-Instruct`) |
+| `max_new_tokens` | No | Maximum tokens to generate (default: 500) |
+
+Returns a text string. Save as `text/plain` for `.txt` output, or pass to a downstream step via `previous_result:` as a prompt for image generation.
+
+Any HuggingFace chat model works — Qwen2.5, Llama 3.2, Phi-3.5, etc. The default (Qwen2.5-1.5B-Instruct) is small enough to run alongside diffusion models.
+
+There is also a built-in `augment_prompt` workflow (`builtin:augment_prompt.json`) that does the same thing using a 3-step pipeline approach with Phi-3.5-mini. The `text_generation` task is the simpler single-step alternative.
+
+**Examples:**
+
+- [ExpandPrompt.json](../examples/ExpandPrompt.json) — Expand a short prompt and save as `.txt`
+- [ExpandAndGenerate.json](../examples/ExpandAndGenerate.json) — Expand prompt, then generate with Flux
+
 ## Frame Interpolation
 
 Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a list of video frames and inserts intermediate frames between each pair.
@@ -418,3 +453,5 @@ Canny edge detection followed by ControlNet generation:
 - [CaptionToImage.json](../examples/CaptionToImage.json) — Caption then regenerate
 - [InterpolateFrames.json](../examples/InterpolateFrames.json) — RIFE frame interpolation
 - [MetadataEmbed.json](../examples/MetadataEmbed.json) — Embed generation parameters in PNG
+- [ExpandPrompt.json](../examples/ExpandPrompt.json) — LLM prompt expansion
+- [ExpandAndGenerate.json](../examples/ExpandAndGenerate.json) — Expand prompt + generate image

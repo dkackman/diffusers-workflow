@@ -14,6 +14,7 @@ from .restore_faces import restore_faces
 from .segment import segment_image
 from .interpolate_frames import interpolate_frames
 from .image_to_text import image_to_text
+from .text_generation import generate_text
 
 logger = logging.getLogger("dw")
 
@@ -125,6 +126,14 @@ def _handle_image_to_text(task, arguments, previous_pipelines):
     logger.debug("Captioning image")
     image = arguments.pop("image")
     return image_to_text(image, device=task.device, **arguments)
+
+
+@register_command("text_generation")
+def _handle_text_generation(task, arguments, previous_pipelines):
+    """Generate text from a prompt using a local LLM"""
+    logger.debug("Generating text")
+    prompt = arguments.pop("prompt")
+    return generate_text(prompt, device=task.device, **arguments)
 
 
 @register_command("batch_decode_post_process")
