@@ -12,6 +12,7 @@ from .format_messages import (
 from .upscale import upscale_image
 from .restore_faces import restore_faces
 from .segment import segment_image
+from .interpolate_frames import interpolate_frames
 
 logger = logging.getLogger("dw")
 
@@ -107,6 +108,14 @@ def _handle_segment(task, arguments, previous_pipelines):
     image = arguments.pop("image")
     prompt = arguments.pop("prompt")
     return segment_image(image, prompt, device=task.device, **arguments)
+
+
+@register_command("interpolate_frames")
+def _handle_interpolate_frames(task, arguments, previous_pipelines):
+    """Interpolate video frames to increase frame rate"""
+    logger.debug("Interpolating frames")
+    video = arguments.pop("video")
+    return interpolate_frames(video, device=task.device, **arguments)
 
 
 @register_command("batch_decode_post_process")
