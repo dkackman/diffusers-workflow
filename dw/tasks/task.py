@@ -11,6 +11,7 @@ from .format_messages import (
 )
 from .upscale import upscale_image
 from .restore_faces import restore_faces
+from .segment import segment_image
 
 logger = logging.getLogger("dw")
 
@@ -97,6 +98,15 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
     image = arguments.pop("image")
     model_name = arguments.pop("model_name")
     return restore_faces(image, model_name, device=task.device, **arguments)
+
+
+@register_command("segment")
+def _handle_segment(task, arguments, previous_pipelines):
+    """Segment objects in an image using text prompt"""
+    logger.debug("Segmenting image")
+    image = arguments.pop("image")
+    prompt = arguments.pop("prompt")
+    return segment_image(image, prompt, device=task.device, **arguments)
 
 
 @register_command("batch_decode_post_process")
