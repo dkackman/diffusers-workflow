@@ -13,6 +13,7 @@ from .upscale import upscale_image
 from .restore_faces import restore_faces
 from .segment import segment_image
 from .interpolate_frames import interpolate_frames
+from .image_to_text import image_to_text
 
 logger = logging.getLogger("dw")
 
@@ -116,6 +117,14 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
     logger.debug("Interpolating frames")
     video = arguments.pop("video")
     return interpolate_frames(video, device=task.device, **arguments)
+
+
+@register_command("image_to_text")
+def _handle_image_to_text(task, arguments, previous_pipelines):
+    """Generate text caption from an image"""
+    logger.debug("Captioning image")
+    image = arguments.pop("image")
+    return image_to_text(image, device=task.device, **arguments)
 
 
 @register_command("batch_decode_post_process")
