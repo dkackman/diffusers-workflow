@@ -36,9 +36,9 @@ Utilities and enhancements from the stable diffusion ecosystem.
 ## Quick Wins
 
 - [x] **Image metadata embedding** — Store generation params in PNG info chunks for reproducibility.
-- [ ] **EXIF stripping** on input images — Privacy-safe preprocessing.
+- [x] **EXIF stripping** on input images — Privacy-safe preprocessing.
 - [ ] **Image hashing** (perceptual hash) — Dedup detection across workflow runs.
-- [ ] **Watermark embedding/detection** — Responsible AI compliance.
+- [x] **Watermark embedding/detection** — Responsible AI compliance.
 - [x] **Aspect ratio bucketing** — Auto-resize inputs to model-native aspect ratios.
 
 ## Architectural Enhancements
