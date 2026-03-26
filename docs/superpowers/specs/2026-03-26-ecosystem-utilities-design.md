@@ -88,7 +88,7 @@ Flow:
 8. Optionally invert
 9. Return as PIL Image (mode "L", 0/255 values)
 
-Lazy imports for `transformers` model classes (`AutoModelForZeroShotObjectDetection`, `AutoProcessor`, `Sam2Model`, `Sam2Processor`) — raises `ImportError` with install instructions if missing.
+Direct top-level imports for `transformers` model classes (`AutoModelForZeroShotObjectDetection`, `AutoProcessor`, `Sam2Model`, `Sam2Processor`) since `transformers` is a hard dependency of this project.
 
 ### Dependencies
 
