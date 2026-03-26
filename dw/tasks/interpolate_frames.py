@@ -70,10 +70,8 @@ def _interpolate_2x(frames, model):
     return result
 
 
-_RIFE_WEIGHTS_URL = (
-    "https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v4.6.pkl"
-)
-_RIFE_WEIGHTS_FILENAME = "flownet_v4.6.pkl"
+_DEFAULT_RIFE_REPO = "styler00dollar/RIFE-v4.6"
+_DEFAULT_RIFE_FILENAME = "flownet_v4.6.pkl"
 
 
 def _load_rife_model(device, model_name=None):
@@ -82,14 +80,16 @@ def _load_rife_model(device, model_name=None):
     Args:
         device: Target device string ("cuda", "mps", "cpu").
         model_name: Optional HuggingFace repo ID containing RIFE weights.
-            If None, weights are downloaded from the vs-rife GitHub release.
+            Defaults to styler00dollar/RIFE-v4.6.
 
     Returns:
         Callable that takes (frame1: PIL.Image, frame2: PIL.Image) -> PIL.Image
     """
     from .rife_model import IFNet
+    from huggingface_hub import hf_hub_download
 
-    model_path = _download_weights(model_name)
+    repo_id = model_name if model_name is not None else _DEFAULT_RIFE_REPO
+    model_path = hf_hub_download(repo_id=repo_id, filename=_DEFAULT_RIFE_FILENAME)
 
     logger.info(f"Loading RIFE IFNet v4.6 to {device}")
 
@@ -151,34 +151,3 @@ def _load_rife_model(device, model_name=None):
         return Image.fromarray(mid)
 
     return inference
-
-
-def _download_weights(model_name=None):
-    """Download RIFE weights and return the local file path.
-
-    If model_name is a HuggingFace repo ID, downloads from HF Hub.
-    Otherwise downloads the default weights from the vs-rife GitHub release.
-    """
-    if model_name is not None:
-        try:
-            from huggingface_hub import hf_hub_download
-        except ImportError:
-            raise ImportError(
-                "huggingface_hub is required for RIFE model download from HF. "
-                "Install with: pip install huggingface_hub"
-            )
-        return hf_hub_download(repo_id=model_name, filename=_RIFE_WEIGHTS_FILENAME)
-
-    # Download from GitHub releases, caching in torch hub dir
-    import os
-    import urllib.request
-
-    cache_dir = os.path.join(torch.hub.get_dir(), "checkpoints")
-    os.makedirs(cache_dir, exist_ok=True)
-    cached_path = os.path.join(cache_dir, _RIFE_WEIGHTS_FILENAME)
-
-    if not os.path.exists(cached_path):
-        logger.info(f"Downloading RIFE v4.6 weights to {cached_path}")
-        urllib.request.urlretrieve(_RIFE_WEIGHTS_URL, cached_path)
-
-    return cached_path
