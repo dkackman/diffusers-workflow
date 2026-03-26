@@ -70,32 +70,38 @@ def _interpolate_2x(frames, model):
     return result
 
 
+_RIFE_WEIGHTS_URL = (
+    "https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v4.6.pkl"
+)
+_RIFE_WEIGHTS_FILENAME = "flownet_v4.6.pkl"
+
+
 def _load_rife_model(device, model_name=None):
     """Load RIFE model and return a callable that interpolates two frames.
+
+    Args:
+        device: Target device string ("cuda", "mps", "cpu").
+        model_name: Optional HuggingFace repo ID containing RIFE weights.
+            If None, weights are downloaded from the vs-rife GitHub release.
 
     Returns:
         Callable that takes (frame1: PIL.Image, frame2: PIL.Image) -> PIL.Image
     """
-    try:
-        from huggingface_hub import hf_hub_download
-    except ImportError:
-        raise ImportError(
-            "huggingface_hub is required for RIFE model download. "
-            "Install with: pip install huggingface_hub"
-        )
+    from .rife_model import IFNet
 
-    if model_name is None:
-        model_name = (
-            "skytnt/anime-seg"  # Placeholder — replace with actual RIFE HF repo
-        )
+    model_path = _download_weights(model_name)
 
-    logger.info(f"Loading RIFE model from {model_name} to {device}")
+    logger.info(f"Loading RIFE IFNet v4.6 to {device}")
 
-    model_path = hf_hub_download(repo_id=model_name, filename="rife.pth")
+    net = IFNet()
+    state_dict = torch.load(model_path, map_location="cpu", weights_only=True)
 
-    net = _build_ifnet()
-    state_dict = torch.load(model_path, map_location=device, weights_only=True)
-    net.load_state_dict(state_dict)
+    # Strip "module." prefix that comes from DataParallel-saved checkpoints
+    cleaned = {}
+    for k, v in state_dict.items():
+        cleaned[k.removeprefix("module.")] = v
+
+    net.load_state_dict(cleaned)
     net.to(device)
 
     def inference(img1, img2):
@@ -112,10 +118,34 @@ def _load_rife_model(device, model_name=None):
         t1_padded = torch.nn.functional.pad(t1, padding)
         t2_padded = torch.nn.functional.pad(t2, padding)
 
-        with torch.inference_mode():
-            mid = net(t1_padded, t2_padded)
+        # Precompute warp grid and flow divisors for the padded resolution
+        tenFlow_div = torch.tensor([(pw - 1.0) / 2.0, (ph - 1.0) / 2.0], device=device)
+        backwarp_tenGrid = torch.cat(
+            [
+                torch.linspace(-1.0, 1.0, pw, device=device)
+                .view(1, 1, 1, pw)
+                .expand(-1, -1, ph, -1),
+                torch.linspace(-1.0, 1.0, ph, device=device)
+                .view(1, 1, ph, 1)
+                .expand(-1, -1, -1, pw),
+            ],
+            1,
+        )
 
-        mid = mid[:, :, :h, :w]
+        timestep = torch.full((1, 1, ph, pw), 0.5, dtype=torch.float32, device=device)
+        scale_list = [8, 4, 2, 1]
+
+        with torch.inference_mode():
+            _, _, merged = net(
+                t1_padded,
+                t2_padded,
+                timestep,
+                scale_list,
+                tenFlow_div,
+                backwarp_tenGrid,
+            )
+
+        mid = merged[3][:, :, :h, :w]
         mid = mid.squeeze(0).permute(1, 2, 0)
         mid = (mid.clamp(0, 1) * 255).byte().cpu().numpy()
         return Image.fromarray(mid)
@@ -123,14 +153,32 @@ def _load_rife_model(device, model_name=None):
     return inference
 
 
-def _build_ifnet():
-    """Build the RIFE IFNet architecture.
+def _download_weights(model_name=None):
+    """Download RIFE weights and return the local file path.
 
-    NOTE: This is a placeholder. The actual IFNet architecture will need to be
-    vendored or adapted from the RIFE repository (~200 lines of PyTorch).
-    See https://github.com/hzwer/ECCV2022-RIFE
+    If model_name is a HuggingFace repo ID, downloads from HF Hub.
+    Otherwise downloads the default weights from the vs-rife GitHub release.
     """
-    raise NotImplementedError(
-        "RIFE IFNet architecture needs to be vendored. "
-        "See https://github.com/hzwer/ECCV2022-RIFE for the source architecture."
-    )
+    if model_name is not None:
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError:
+            raise ImportError(
+                "huggingface_hub is required for RIFE model download from HF. "
+                "Install with: pip install huggingface_hub"
+            )
+        return hf_hub_download(repo_id=model_name, filename=_RIFE_WEIGHTS_FILENAME)
+
+    # Download from GitHub releases, caching in torch hub dir
+    import os
+    import urllib.request
+
+    cache_dir = os.path.join(torch.hub.get_dir(), "checkpoints")
+    os.makedirs(cache_dir, exist_ok=True)
+    cached_path = os.path.join(cache_dir, _RIFE_WEIGHTS_FILENAME)
+
+    if not os.path.exists(cached_path):
+        logger.info(f"Downloading RIFE v4.6 weights to {cached_path}")
+        urllib.request.urlretrieve(_RIFE_WEIGHTS_URL, cached_path)
+
+    return cached_path
