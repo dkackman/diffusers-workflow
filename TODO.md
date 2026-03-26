@@ -39,7 +39,7 @@ Utilities and enhancements from the stable diffusion ecosystem.
 - [ ] **EXIF stripping** on input images — Privacy-safe preprocessing.
 - [ ] **Image hashing** (perceptual hash) — Dedup detection across workflow runs.
 - [ ] **Watermark embedding/detection** — Responsible AI compliance.
-- [ ] **Aspect ratio bucketing** — Auto-resize inputs to model-native aspect ratios.
+- [x] **Aspect ratio bucketing** — Auto-resize inputs to model-native aspect ratios.
 
 ## Architectural Enhancements
 

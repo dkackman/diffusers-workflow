@@ -158,6 +158,9 @@ def process_image(image, processor, device, kwargs):
     if processor == "resize_rescale":
         return resize_rescale(image, **kwargs)
 
+    if processor == "resize_bucket":
+        return resize_bucket(image, **kwargs)
+
     raise Exception(f"Unknown image processor type: {processor}")
 
 
@@ -298,6 +301,66 @@ def resize_resample(image, resolution=1024):
     W = int(round(W / 64.0)) * 64
 
     return input_image.resize((W, H), resample=Image.LANCZOS)
+
+
+# Standard aspect ratios used by SDXL, Flux, and similar models.
+# Each entry is (width_ratio, height_ratio).
+_DEFAULT_RATIOS = [
+    (1, 1),
+    (4, 3),
+    (3, 4),
+    (3, 2),
+    (2, 3),
+    (16, 9),
+    (9, 16),
+    (21, 9),
+    (9, 21),
+]
+
+
+def resize_bucket(image, resolution=1024, ratios=None, alignment=64):
+    """Resize image to the closest model-native aspect ratio bucket.
+
+    Picks the standard ratio closest to the input image's natural aspect
+    ratio, then scales to fit within the target resolution (based on the
+    short side) with dimensions aligned to `alignment` pixels.
+
+    Args:
+        image: PIL Image to resize.
+        resolution: Target size for the short side in pixels (default: 1024).
+        ratios: Optional list of [w, h] ratio pairs. Defaults to standard
+            ratios used by SDXL/Flux (1:1, 4:3, 3:2, 16:9, etc.).
+        alignment: Round dimensions to this multiple (default: 64).
+
+    Returns:
+        PIL Image resized to the bucketed dimensions.
+    """
+    input_image = image.convert("RGB")
+    W, H = input_image.size
+    input_ratio = W / H
+
+    bucket_ratios = ratios if ratios is not None else _DEFAULT_RATIOS
+
+    # Find the closest aspect ratio
+    best_ratio = min(
+        bucket_ratios,
+        key=lambda r: abs((r[0] / r[1]) - input_ratio),
+    )
+
+    wr, hr = best_ratio
+    bucket_ratio = wr / hr
+
+    # Scale so the short side matches resolution, then align
+    if bucket_ratio >= 1.0:
+        # Landscape or square: height is the short side
+        out_h = int(round(resolution / alignment)) * alignment
+        out_w = int(round((out_h * bucket_ratio) / alignment)) * alignment
+    else:
+        # Portrait: width is the short side
+        out_w = int(round(resolution / alignment)) * alignment
+        out_h = int(round((out_w / bucket_ratio) / alignment)) * alignment
+
+    return input_image.resize((out_w, out_h), resample=Image.LANCZOS)
 
 
 ada_palette = np.asarray(
