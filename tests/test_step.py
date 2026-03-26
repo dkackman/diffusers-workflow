@@ -154,6 +154,147 @@ class TestStep:
         assert ("img2.jpg", "prompt A") in combinations
         assert ("img2.jpg", "prompt B") in combinations
 
+    # --- embed_metadata tests ---
+
+    def test_embed_metadata_disabled_by_default(self):
+        """embed_metadata not set → Result.metadata stays None"""
+        step_def = {"name": "test_step", "result": {}}
+        step = Step(step_def, default_seed=42)
+
+        mock_action = Mock()
+        mock_action.name = "mock_action"
+        mock_action.argument_template = {"prompt": "test"}
+        mock_action.run = Mock(return_value="result_value")
+
+        result = step.run({}, {}, mock_action)
+
+        assert result.metadata is None
+
+    def test_embed_metadata_false_leaves_metadata_none(self):
+        """embed_metadata explicitly False → Result.metadata stays None"""
+        step_def = {"name": "test_step", "result": {"embed_metadata": False}}
+        step = Step(step_def, default_seed=42)
+
+        mock_action = Mock()
+        mock_action.name = "mock_action"
+        mock_action.argument_template = {"prompt": "test"}
+        mock_action.run = Mock(return_value="result_value")
+
+        result = step.run({}, {}, mock_action)
+
+        assert result.metadata is None
+
+    def test_embed_metadata_true_pipeline_step(self):
+        """embed_metadata=True for a pipeline step → Result carries expected metadata"""
+        step_def = {
+            "name": "gen_step",
+            "pipeline": {
+                "from_pretrained_arguments": {"model_name": "my-org/my-model"},
+                "arguments": {"prompt": "a cat", "num_inference_steps": 25},
+            },
+            "result": {"embed_metadata": True},
+        }
+        step = Step(step_def, default_seed=42)
+
+        mock_action = Mock()
+        mock_action.name = "mock_action"
+        mock_action.argument_template = {"prompt": "a cat"}
+        mock_action.run = Mock(return_value="img.png")
+
+        result = step.run({}, {}, mock_action)
+
+        assert result.metadata is not None
+        assert result.metadata["step_name"] == "gen_step"
+        assert result.metadata["model_name"] == "my-org/my-model"
+        assert result.metadata["arguments"] == {"prompt": "a cat", "num_inference_steps": 25}
+
+    def test_embed_metadata_true_task_step(self):
+        """embed_metadata=True for a task step → Result carries task metadata"""
+        step_def = {
+            "name": "proc_step",
+            "task": {
+                "command": "process_image",
+                "arguments": {"operation": "resize", "width": 512},
+            },
+            "result": {"embed_metadata": True},
+        }
+        step = Step(step_def, default_seed=42)
+
+        mock_action = Mock()
+        mock_action.name = "mock_action"
+        mock_action.argument_template = {"operation": "resize"}
+        mock_action.run = Mock(return_value="out.png")
+
+        result = step.run({}, {}, mock_action)
+
+        assert result.metadata is not None
+        assert result.metadata["step_name"] == "proc_step"
+        assert result.metadata["task_command"] == "process_image"
+        assert result.metadata["arguments"] == {"operation": "resize", "width": 512}
+
+    def test_embed_metadata_pipeline_without_model_name(self):
+        """embed_metadata=True for pipeline step with no model_name → no model_name key"""
+        step_def = {
+            "name": "anon_step",
+            "pipeline": {
+                "from_pretrained_arguments": {},
+                "arguments": {"prompt": "test"},
+            },
+            "result": {"embed_metadata": True},
+        }
+        step = Step(step_def, default_seed=42)
+
+        mock_action = Mock()
+        mock_action.name = "mock_action"
+        mock_action.argument_template = {"prompt": "test"}
+        mock_action.run = Mock(return_value="out.png")
+
+        result = step.run({}, {}, mock_action)
+
+        assert result.metadata is not None
+        assert "model_name" not in result.metadata
+        assert result.metadata["step_name"] == "anon_step"
+
+    def test_embed_metadata_shared_across_all_iterations(self):
+        """With embed_metadata=True and multiple iterations the single Result carries metadata"""
+        step_def = {
+            "name": "multi_step",
+            "pipeline": {
+                "from_pretrained_arguments": {"model_name": "org/model"},
+                "arguments": {"image": "previous_result:images"},
+            },
+            "result": {"embed_metadata": True},
+        }
+        step = Step(step_def, default_seed=42)
+
+        mock_action = Mock()
+        mock_action.name = "mock_action"
+        mock_action.argument_template = {"image": "previous_result:images"}
+
+        call_count = 0
+
+        def mock_run(args, pipelines):
+            nonlocal call_count
+            call_count += 1
+            return f"result_{call_count}"
+
+        mock_action.run = Mock(side_effect=mock_run)
+
+        images_result = Result({})
+        images_result.add_result(["img1.jpg", "img2.jpg", "img3.jpg"])
+        previous_results = {"images": images_result}
+
+        result = step.run(previous_results, {}, mock_action)
+
+        # Three iterations should have all run
+        assert mock_action.run.call_count == 3
+        assert len(result.result_list) == 3
+
+        # Metadata is set once on the Result (not per-iteration)
+        assert result.metadata is not None
+        assert result.metadata["step_name"] == "multi_step"
+        assert result.metadata["model_name"] == "org/model"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
