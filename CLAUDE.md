@@ -65,6 +65,7 @@ JSON workflow → schema validation → variable substitution → sequential ste
 | `dw/tasks/task.py` | Task dispatcher (image processing, QR codes, gathering, video, segmentation, captioning, frame interpolation) |
 | `dw/tasks/segment.py` | GroundingDINO + SAM2 text-prompted object segmentation |
 | `dw/tasks/image_to_text.py` | Image captioning via transformers image-to-text pipeline (BLIP, BLIP-2, etc.) |
+| `dw/tasks/text_generation.py` | Text generation / prompt expansion via transformers text-generation pipeline |
 | `dw/tasks/interpolate_frames.py` | RIFE frame interpolation (2x/4x/8x) with vendored IFNet v4.6 |
 | `dw/tasks/rife_model.py` | Vendored RIFE IFNet v4.6 architecture (MIT License, Megvii Inc.) |
 | `dw/previous_results.py` | Cross-step data flow via cartesian products |
