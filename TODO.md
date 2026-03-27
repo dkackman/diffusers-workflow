@@ -4,7 +4,7 @@ Utilities and enhancements from the stable diffusion ecosystem.
 
 ## Post-Processing & Enhancement
 
-- [ ] **CCSR / StableSR** — Diffusion-based upscalers with better detail than ESRGAN-family, especially for faces and textures. New task type alongside existing Spandrel upscaler.
+- [x] **CCSR / StableSR** — Diffusion-based upscalers with better detail than ESRGAN-family, especially for faces and textures. New task type alongside existing Spandrel upscaler. *(Implemented as `diffusion_upscale` task wrapping StableDiffusionUpscalePipeline x4/x2)*
 - [ ] **Real-ESRGAN Video** — Frame-consistent video upscaling with temporal smoothing. Current upscaler is image-only.
 - [x] **RIFE / FILM frame interpolation** — Generate intermediate frames for smoother video output. Video post-processing task.
 
