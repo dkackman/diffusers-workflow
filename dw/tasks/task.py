@@ -15,6 +15,7 @@ from .segment import segment_image
 from .interpolate_frames import interpolate_frames
 from .image_to_text import image_to_text
 from .text_generation import generate_text
+from .diffusion_upscale import diffusion_upscale
 
 logger = logging.getLogger("dw")
 
@@ -92,6 +93,14 @@ def _handle_upscale(task, arguments, previous_pipelines):
     image = arguments.pop("image")
     model_name = arguments.pop("model_name")
     return upscale_image(image, model_name, device=task.device, **arguments)
+
+
+@register_command("diffusion_upscale")
+def _handle_diffusion_upscale(task, arguments, previous_pipelines):
+    """Upscale an image using a diffusion-based upscale pipeline"""
+    logger.debug("Diffusion upscaling image")
+    image = arguments.pop("image")
+    return diffusion_upscale(image, device=task.device, **arguments)
 
 
 @register_command("restore_faces")

@@ -218,6 +218,43 @@ Large images are automatically tiled to avoid GPU memory issues. Models can be l
 
 **Example:** [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
 
+## Diffusion Upscaling
+
+Upscale images using Stable Diffusion upscale pipelines. Text-guided upscaling with better detail recovery than traditional super-resolution, especially for faces and textures.
+
+Two modes are available:
+- **x4** (default): `StableDiffusionUpscalePipeline` — 4x upscale via `stabilityai/stable-diffusion-x4-upscaler`
+- **x2**: `StableDiffusionLatentUpscalePipeline` — 2x upscale via `stabilityai/sd-x2-latent-upscaler`
+
+```json
+{
+    "task": {
+        "command": "diffusion_upscale",
+        "arguments": {
+            "image": "previous_result:generate",
+            "prompt": "high quality, detailed",
+            "negative_prompt": "blurry, low quality, artifacts",
+            "mode": "x4"
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `image` | Yes | PIL Image or `previous_result:` reference |
+| `prompt` | No | Text guidance for upscaling (default: "") |
+| `negative_prompt` | No | Negative text guidance (default: none) |
+| `mode` | No | `"x4"` or `"x2"` (default: `"x4"`) |
+| `model_name` | No | Override the default model for the selected mode |
+| `num_inference_steps` | No | Denoising steps (default: 25) |
+| `guidance_scale` | No | Classifier-free guidance scale (default: 9.0) |
+| `noise_level` | No | Noise level for x4 mode (default: 20, ignored for x2) |
+
+**Examples:**
+- [DiffusionUpscaleX4.json](../examples/DiffusionUpscaleX4.json) — Generate at 512px, then 4x diffusion upscale to 2048px.
+- [DiffusionUpscaleX2.json](../examples/DiffusionUpscaleX2.json) — Generate at 512px, then 2x latent upscale to 1024px.
+
 ## Face Restoration
 
 Restore and enhance faces in images using spandrel-compatible face restoration models (GFPGAN, CodeFormer, RestoreFormer). Uses facexlib for face detection and alignment, then runs each detected face through the restoration model.
