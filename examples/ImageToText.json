@@ -1,0 +1,31 @@
+{
+    "id": "ImageToText",
+    "variables": {
+        "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true"
+    },
+    "steps": [
+        {
+            "name": "input_image",
+            "task": {
+                "command": "gather_images",
+                "arguments": {
+                    "urls": [
+                        "variable:image_url"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "caption",
+            "task": {
+                "command": "image_to_text",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "text/plain"
+            }
+        }
+    ]
+}

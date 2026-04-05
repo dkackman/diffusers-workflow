@@ -1,0 +1,35 @@
+{
+    "id": "Segment",
+    "variables": {
+        "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/model_doc/grounding_dino_example_input.png",
+        "prompt": "cat"
+    },
+    "steps": [
+        {
+            "name": "load_image",
+            "task": {
+                "command": "gather_images",
+                "arguments": {
+                    "urls": ["variable:image_url"]
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "save": false
+            }
+        },
+        {
+            "name": "segment",
+            "task": {
+                "command": "segment",
+                "arguments": {
+                    "image": "previous_result:load_image",
+                    "prompt": "variable:prompt"
+                }
+            },
+            "result": {
+                "content_type": "image/png"
+            }
+        }
+    ]
+}

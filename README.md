@@ -15,7 +15,8 @@ A declarative workflow engine for the [Hugging Face Diffusers library](https://g
 - **Prompt weighting** — A1111-style `(word:1.5)` syntax with long prompt support
 - **LoRA and IP-Adapter** support
 - **Composable workflows** from multiple JSON files with `builtin:` references
-- **Utility tasks** — background removal, upscaling, cropping, QR codes, LLM prompt augmentation
+- **Utility tasks** — upscaling, face restoration, segmentation, captioning, frame interpolation, QR codes, and more
+- **Metadata embedding** — store generation parameters in PNG/JPEG/WebP for reproducibility
 - **Interactive REPL** with persistent GPU model caching (2-4x faster iteration)
 - **Cross-platform** — CUDA, MPS (Apple Silicon), and CPU
 

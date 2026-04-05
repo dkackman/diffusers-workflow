@@ -72,10 +72,86 @@ All accept an `image` argument with processing parameters:
 | `resize_center_crop` | Resize with center crop | `width`, `height` |
 | `resize_resample` | Resample to nearest 64px multiple | |
 | `resize_rescale` | Resize to exact dimensions | `width`, `height` |
+| `resize_bucket` | Snap to closest model-native aspect ratio | `resolution`, `ratios`, `alignment` |
 | `crop_square` | Center crop to square | |
 | `add_border_and_mask` | Add border with alpha mask | |
 | `add_border_and_mask_with_size` | Border with specific dimensions | `width`, `height` |
+| `strip_exif` | Remove all EXIF/metadata from image | |
+| `add_watermark` | Add visible text watermark | `text`, `position`, `opacity`, `font_size`, `color`, `margin` |
 | `get_image_size` | Return `{width, height}` dict | |
+
+### EXIF Stripping
+
+Remove all EXIF metadata, GPS coordinates, camera info, and timestamps from images for privacy-safe preprocessing:
+
+```json
+{
+    "task": {
+        "command": "strip_exif",
+        "arguments": {
+            "image": "previous_result:input_image"
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+Returns a clean copy with pixel data only — no embedded metadata. Useful as a first step when processing user-uploaded images.
+
+### Watermark Embedding
+
+Add a visible text watermark to images for responsible AI compliance:
+
+```json
+{
+    "task": {
+        "command": "add_watermark",
+        "arguments": {
+            "image": "previous_result:generate",
+            "text": "AI Generated",
+            "position": "bottom-right",
+            "opacity": 128
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `text` | No | Watermark text (default: "AI Generated") |
+| `position` | No | "bottom-right", "bottom-left", "top-right", "top-left", or "center" (default: "bottom-right") |
+| `opacity` | No | Text opacity 0-255 (default: 128) |
+| `font_size` | No | Font size in pixels, 0 = auto-scale ~3% of image height (default: 0) |
+| `color` | No | RGB array for text color (default: white) |
+| `margin` | No | Pixel margin from edges (default: 10) |
+
+### Aspect Ratio Bucketing
+
+The `resize_bucket` command snaps an image to the closest model-native aspect ratio, then resizes with 64-pixel alignment. This avoids distortion and ensures the model generates at a resolution it was trained on.
+
+```json
+{
+    "task": {
+        "command": "resize_bucket",
+        "arguments": {
+            "image": "previous_result:input_image",
+            "resolution": 1024
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `resolution` | No | Target short-side size in pixels (default: 1024) |
+| `ratios` | No | Custom list of `[w, h]` ratio pairs (default: standard SDXL/Flux ratios) |
+| `alignment` | No | Round dimensions to this multiple (default: 64) |
+
+**Default ratios:** 1:1, 4:3, 3:4, 3:2, 2:3, 16:9, 9:16, 21:9, 9:21
+
+For example, a 1600x900 photo (16:9) at resolution 1024 becomes 1792x1024. A 800x600 photo (4:3) becomes 1344x1024.
 
 ## Video Processing
 
@@ -141,6 +217,43 @@ Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR
 Large images are automatically tiled to avoid GPU memory issues. Models can be loaded from HuggingFace Hub repos or local `.pth`/`.safetensors` files.
 
 **Example:** [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
+
+## Diffusion Upscaling
+
+Upscale images using Stable Diffusion upscale pipelines. Text-guided upscaling with better detail recovery than traditional super-resolution, especially for faces and textures.
+
+Two modes are available:
+- **x4** (default): `StableDiffusionUpscalePipeline` — 4x upscale via `stabilityai/stable-diffusion-x4-upscaler`
+- **x2**: `StableDiffusionLatentUpscalePipeline` — 2x upscale via `stabilityai/sd-x2-latent-upscaler`
+
+```json
+{
+    "task": {
+        "command": "diffusion_upscale",
+        "arguments": {
+            "image": "previous_result:generate",
+            "prompt": "high quality, detailed",
+            "negative_prompt": "blurry, low quality, artifacts",
+            "mode": "x4"
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `image` | Yes | PIL Image or `previous_result:` reference |
+| `prompt` | No | Text guidance for upscaling (default: "") |
+| `negative_prompt` | No | Negative text guidance (default: none) |
+| `mode` | No | `"x4"` or `"x2"` (default: `"x4"`) |
+| `model_name` | No | Override the default model for the selected mode |
+| `num_inference_steps` | No | Denoising steps (default: 25) |
+| `guidance_scale` | No | Classifier-free guidance scale (default: 9.0) |
+| `noise_level` | No | Noise level for x4 mode (default: 20, ignored for x2) |
+
+**Examples:**
+- [DiffusionUpscaleX4.json](../examples/DiffusionUpscaleX4.json) — Generate at 512px, then 4x diffusion upscale to 2048px.
+- [DiffusionUpscaleX2.json](../examples/DiffusionUpscaleX2.json) — Generate at 512px, then 2x latent upscale to 1024px.
 
 ## Face Restoration
 
@@ -220,6 +333,167 @@ You can chain upscaling and face restoration. Generate first, upscale the backgr
 
 This gives the best results: the super-resolution model handles background detail while the face model handles facial features, composited together at the upscaled resolution.
 
+## Object Segmentation
+
+Detect and segment objects using text prompts via GroundingDINO + SAM2. Returns a binary mask image suitable for inpainting workflows.
+
+```json
+{
+    "task": {
+        "command": "segment",
+        "arguments": {
+            "image": "previous_result:input_image",
+            "prompt": "dog"
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `image` | Yes | PIL Image or `previous_result:` reference |
+| `prompt` | Yes | Text description of object(s) to detect (e.g., "dog", "red car") |
+| `model_name` | No | GroundingDINO model ID (default: `IDEA-Research/grounding-dino-base`) |
+| `sam_model_name` | No | SAM2 model ID (default: `facebook/sam2-hiera-large`) |
+| `threshold` | No | Detection confidence threshold (default: 0.3) |
+| `invert` | No | Invert the output mask (default: false) |
+
+Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, black (0) for background. Use with inpainting pipelines like FluxFillPipeline.
+
+**Examples:**
+
+- [Segment.json](../examples/Segment.json) — Segment an object from an image
+- [SegmentAndInpaint.json](../examples/SegmentAndInpaint.json) — Segment, then inpaint the masked region
+
+## Image Captioning
+
+Generate text captions from images using HuggingFace image-to-text models (BLIP, BLIP-2, ViT-GPT2, GIT, etc.).
+
+```json
+{
+    "task": {
+        "command": "image_to_text",
+        "arguments": {
+            "image": "previous_result:input_image"
+        }
+    },
+    "result": { "content_type": "text/plain" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `image` | Yes | PIL Image or `previous_result:` reference |
+| `model_name` | No | HuggingFace model ID (default: `Salesforce/blip-image-captioning-base`) |
+| `prompt` | No | Text prompt for conditional captioning (supported by BLIP-2, etc.) |
+| `max_new_tokens` | No | Maximum tokens to generate (default: 50) |
+
+Returns a caption string. Save as `text/plain` for `.txt` output, or pass to a downstream step via `previous_result:` as a prompt for image generation.
+
+For Florence-2's advanced task-token captioning (detailed captions, object detection, OCR), use the built-in `describe_image` workflow instead:
+
+```json
+{
+    "name": "caption",
+    "workflow": {
+        "path": "builtin:describe_image.json",
+        "arguments": { "image": "previous_result:input_image" }
+    },
+    "result": { "content_type": "text/plain" }
+}
+```
+
+**Examples:**
+
+- [ImageToText.json](../examples/ImageToText.json) — Basic BLIP captioning, saves as `.txt`
+- [ImageToTextBlip2.json](../examples/ImageToTextBlip2.json) — BLIP-2 with conditional prompt
+- [CaptionToImage.json](../examples/CaptionToImage.json) — Caption an image, then regenerate with Flux
+
+## Text Generation / Prompt Expansion
+
+Generate or expand text using a local language model. Useful for expanding short prompts into detailed image generation prompts, rewriting text, or other text-to-text tasks.
+
+```json
+{
+    "task": {
+        "command": "text_generation",
+        "arguments": {
+            "prompt": "a cat on a windowsill",
+            "system_prompt": "You are a helpful AI assistant that creates detailed prompts for text to image generative AI. When supplied input generate only the prompt, no other text."
+        }
+    },
+    "result": { "content_type": "text/plain" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `prompt` | Yes | The user message or short prompt to expand/transform |
+| `system_prompt` | No | System instruction for the model (e.g., "expand this into a detailed image prompt") |
+| `model_name` | No | HuggingFace model ID (default: `Qwen/Qwen2.5-1.5B-Instruct`) |
+| `max_new_tokens` | No | Maximum tokens to generate (default: 500) |
+
+Returns a text string. Save as `text/plain` for `.txt` output, or pass to a downstream step via `previous_result:` as a prompt for image generation.
+
+Any HuggingFace chat model works — Qwen2.5, Llama 3.2, Phi-3.5, etc. The default (Qwen2.5-1.5B-Instruct) is small enough to run alongside diffusion models.
+
+There is also a built-in `augment_prompt` workflow (`builtin:augment_prompt.json`) that does the same thing using a 3-step pipeline approach with Phi-3.5-mini. The `text_generation` task is the simpler single-step alternative.
+
+**Examples:**
+
+- [ExpandPrompt.json](../examples/ExpandPrompt.json) — Expand a short prompt and save as `.txt`
+- [ExpandAndGenerate.json](../examples/ExpandAndGenerate.json) — Expand prompt, then generate with Flux
+
+## Frame Interpolation
+
+Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a list of video frames and inserts intermediate frames between each pair.
+
+```json
+{
+    "task": {
+        "command": "interpolate_frames",
+        "arguments": {
+            "video": "previous_result:generate_video",
+            "multiplier": 2
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 60 }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | List of PIL Images (video frames) or `previous_result:` reference |
+| `multiplier` | No | Frame count multiplier: 2, 4, or 8 (default: 2) |
+| `model_name` | No | HuggingFace repo with RIFE weights (default: `styler00dollar/RIFE-v4.6`) |
+
+Uses vendored IFNet v4.6 architecture. Weights are downloaded from HuggingFace Hub on first use.
+
+**Example:** [InterpolateFrames.json](../examples/InterpolateFrames.json) — Generate video with Mochi, then 2x interpolate from 30fps to 60fps.
+
+## Metadata Embedding
+
+Embed generation parameters in saved images. Enable by setting `embed_metadata: true` in a step's result configuration:
+
+```json
+{
+    "result": {
+        "content_type": "image/png",
+        "embed_metadata": true
+    }
+}
+```
+
+| Format | Storage | Notes |
+| ------ | ------- | ----- |
+| PNG | Text chunk (`parameters` key) | Always available |
+| JPEG/WebP | EXIF UserComment | Requires `pip install piexif` |
+
+Metadata includes step name, model name, and generation arguments (prompt, steps, guidance scale, etc.) as JSON.
+
+**Example:** [MetadataEmbed.json](../examples/MetadataEmbed.json) — Generate with Flux and embed parameters in PNG.
+
 ## QR Code Generation
 
 ```json
@@ -285,3 +559,12 @@ Canny edge detection followed by ControlNet generation:
 - [upscale.json](../examples/upscale.json) — Gather, resize, and diffusion upscale
 - [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate + spandrel 4x upscale
 - [FaceRestore.json](../examples/FaceRestore.json) — Generate portrait + GFPGAN face restoration
+- [Segment.json](../examples/Segment.json) — Text-prompted object segmentation
+- [SegmentAndInpaint.json](../examples/SegmentAndInpaint.json) — Segment + inpaint
+- [ImageToText.json](../examples/ImageToText.json) — BLIP image captioning
+- [ImageToTextBlip2.json](../examples/ImageToTextBlip2.json) — BLIP-2 conditional captioning
+- [CaptionToImage.json](../examples/CaptionToImage.json) — Caption then regenerate
+- [InterpolateFrames.json](../examples/InterpolateFrames.json) — RIFE frame interpolation
+- [MetadataEmbed.json](../examples/MetadataEmbed.json) — Embed generation parameters in PNG
+- [ExpandPrompt.json](../examples/ExpandPrompt.json) — LLM prompt expansion
+- [ExpandAndGenerate.json](../examples/ExpandAndGenerate.json) — Expand prompt + generate image
