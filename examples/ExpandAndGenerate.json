@@ -1,0 +1,43 @@
+{
+    "id": "ExpandAndGenerate",
+    "variables": {
+        "prompt": "a cat sitting on a windowsill"
+    },
+    "steps": [
+        {
+            "name": "expand",
+            "task": {
+                "command": "text_generation",
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "system_prompt": "You are a helpful AI assistant that creates detailed prompts for text to image generative AI. When supplied input generate only the prompt, no other text."
+                }
+            },
+            "result": {
+                "content_type": "text/plain",
+                "save": false
+            }
+        },
+        {
+            "name": "generate",
+            "pipeline": {
+                "configuration": {
+                    "offload": "model",
+                    "component_type": "FluxPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "previous_result:expand",
+                    "num_inference_steps": 25,
+                    "guidance_scale": 3.5
+                }
+            },
+            "result": {
+                "content_type": "image/png"
+            }
+        }
+    ]
+}

@@ -1,0 +1,40 @@
+{
+    "id": "MarigoldNormals",
+    "variables": {
+        "image_url": "https://marigoldmonodepth.github.io/images/einstein.jpg"
+    },
+    "steps": [
+        {
+            "name": "load_image",
+            "task": {
+                "command": "gather_images",
+                "arguments": {
+                    "urls": ["variable:image_url"]
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "save": false
+            }
+        },
+        {
+            "name": "normals",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "MarigoldNormalsPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "prs-eth/marigold-normals-lcm-v1-0",
+                    "torch_dtype": "torch.float16",
+                    "variant": "fp16"
+                },
+                "arguments": {
+                    "image": "previous_result:load_image"
+                }
+            },
+            "result": {
+                "content_type": "image/png"
+            }
+        }
+    ]
+}

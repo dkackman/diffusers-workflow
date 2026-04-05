@@ -1,0 +1,50 @@
+{
+    "id": "InterpolateFrames",
+    "variables": {
+        "prompt": "A cat walking across a sunlit room",
+        "multiplier": 2
+    },
+    "steps": [
+        {
+            "name": "generate_video",
+            "pipeline": {
+                "configuration": {
+                    "offload": "sequential",
+                    "component_type": "MochiPipeline",
+                    "vae": {
+                        "enable_tiling": true,
+                        "enable_slicing": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "genmo/mochi-1-preview",
+                    "variant": "bf16",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_frames": 85
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false,
+                "fps": 30
+            }
+        },
+        {
+            "name": "interpolate",
+            "task": {
+                "command": "interpolate_frames",
+                "arguments": {
+                    "video": "previous_result:generate_video",
+                    "multiplier": "variable:multiplier"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 60
+            }
+        }
+    ]
+}

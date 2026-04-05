@@ -11,6 +11,11 @@ from .format_messages import (
 )
 from .upscale import upscale_image
 from .restore_faces import restore_faces
+from .segment import segment_image
+from .interpolate_frames import interpolate_frames
+from .image_to_text import image_to_text
+from .text_generation import generate_text
+from .diffusion_upscale import diffusion_upscale
 
 logger = logging.getLogger("dw")
 
@@ -90,6 +95,14 @@ def _handle_upscale(task, arguments, previous_pipelines):
     return upscale_image(image, model_name, device=task.device, **arguments)
 
 
+@register_command("diffusion_upscale")
+def _handle_diffusion_upscale(task, arguments, previous_pipelines):
+    """Upscale an image using a diffusion-based upscale pipeline"""
+    logger.debug("Diffusion upscaling image")
+    image = arguments.pop("image")
+    return diffusion_upscale(image, device=task.device, **arguments)
+
+
 @register_command("restore_faces")
 def _handle_restore_faces(task, arguments, previous_pipelines):
     """Restore faces in an image using a spandrel-compatible face restoration model"""
@@ -97,6 +110,39 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
     image = arguments.pop("image")
     model_name = arguments.pop("model_name")
     return restore_faces(image, model_name, device=task.device, **arguments)
+
+
+@register_command("segment")
+def _handle_segment(task, arguments, previous_pipelines):
+    """Segment objects in an image using text prompt"""
+    logger.debug("Segmenting image")
+    image = arguments.pop("image")
+    prompt = arguments.pop("prompt")
+    return segment_image(image, prompt, device=task.device, **arguments)
+
+
+@register_command("interpolate_frames")
+def _handle_interpolate_frames(task, arguments, previous_pipelines):
+    """Interpolate video frames to increase frame rate"""
+    logger.debug("Interpolating frames")
+    video = arguments.pop("video")
+    return interpolate_frames(video, device=task.device, **arguments)
+
+
+@register_command("image_to_text")
+def _handle_image_to_text(task, arguments, previous_pipelines):
+    """Generate text caption from an image"""
+    logger.debug("Captioning image")
+    image = arguments.pop("image")
+    return image_to_text(image, device=task.device, **arguments)
+
+
+@register_command("text_generation")
+def _handle_text_generation(task, arguments, previous_pipelines):
+    """Generate text from a prompt using a local LLM"""
+    logger.debug("Generating text")
+    prompt = arguments.pop("prompt")
+    return generate_text(prompt, device=task.device, **arguments)
 
 
 @register_command("batch_decode_post_process")

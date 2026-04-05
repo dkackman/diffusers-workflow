@@ -1,0 +1,54 @@
+{
+    "id": "CaptionToImage",
+    "variables": {
+        "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true"
+    },
+    "steps": [
+        {
+            "name": "input_image",
+            "task": {
+                "command": "gather_images",
+                "arguments": {
+                    "urls": [
+                        "variable:image_url"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "caption",
+            "task": {
+                "command": "image_to_text",
+                "arguments": {
+                    "image": "previous_result:input_image",
+                    "max_new_tokens": 75
+                }
+            },
+            "result": {
+                "content_type": "text/plain",
+                "save": false
+            }
+        },
+        {
+            "name": "generate",
+            "pipeline": {
+                "configuration": {
+                    "offload": "model",
+                    "component_type": "FluxPipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "previous_result:caption",
+                    "num_inference_steps": 25,
+                    "guidance_scale": 3.5
+                }
+            },
+            "result": {
+                "content_type": "image/png"
+            }
+        }
+    ]
+}

@@ -1,0 +1,35 @@
+{
+    "id": "ImageToTextBlip2",
+    "variables": {
+        "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true",
+        "prompt": "Question: What is shown in this image? Answer:"
+    },
+    "steps": [
+        {
+            "name": "input_image",
+            "task": {
+                "command": "gather_images",
+                "arguments": {
+                    "urls": [
+                        "variable:image_url"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "caption",
+            "task": {
+                "command": "image_to_text",
+                "arguments": {
+                    "image": "previous_result:input_image",
+                    "model_name": "Salesforce/blip2-opt-2.7b",
+                    "prompt": "variable:prompt",
+                    "max_new_tokens": 100
+                }
+            },
+            "result": {
+                "content_type": "text/plain"
+            }
+        }
+    ]
+}

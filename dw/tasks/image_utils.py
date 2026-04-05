@@ -158,6 +158,15 @@ def process_image(image, processor, device, kwargs):
     if processor == "resize_rescale":
         return resize_rescale(image, **kwargs)
 
+    if processor == "resize_bucket":
+        return resize_bucket(image, **kwargs)
+
+    if processor == "strip_exif":
+        return strip_exif(image)
+
+    if processor == "add_watermark":
+        return add_watermark(image, **kwargs)
+
     raise Exception(f"Unknown image processor type: {processor}")
 
 
@@ -298,6 +307,137 @@ def resize_resample(image, resolution=1024):
     W = int(round(W / 64.0)) * 64
 
     return input_image.resize((W, H), resample=Image.LANCZOS)
+
+
+# Standard aspect ratios used by SDXL, Flux, and similar models.
+# Each entry is (width_ratio, height_ratio).
+_DEFAULT_RATIOS = [
+    (1, 1),
+    (4, 3),
+    (3, 4),
+    (3, 2),
+    (2, 3),
+    (16, 9),
+    (9, 16),
+    (21, 9),
+    (9, 21),
+]
+
+
+def resize_bucket(image, resolution=1024, ratios=None, alignment=64):
+    """Resize image to the closest model-native aspect ratio bucket.
+
+    Picks the standard ratio closest to the input image's natural aspect
+    ratio, then scales to fit within the target resolution (based on the
+    short side) with dimensions aligned to `alignment` pixels.
+
+    Args:
+        image: PIL Image to resize.
+        resolution: Target size for the short side in pixels (default: 1024).
+        ratios: Optional list of [w, h] ratio pairs. Defaults to standard
+            ratios used by SDXL/Flux (1:1, 4:3, 3:2, 16:9, etc.).
+        alignment: Round dimensions to this multiple (default: 64).
+
+    Returns:
+        PIL Image resized to the bucketed dimensions.
+    """
+    input_image = image.convert("RGB")
+    W, H = input_image.size
+    input_ratio = W / H
+
+    bucket_ratios = ratios if ratios is not None else _DEFAULT_RATIOS
+
+    # Find the closest aspect ratio
+    best_ratio = min(
+        bucket_ratios,
+        key=lambda r: abs((r[0] / r[1]) - input_ratio),
+    )
+
+    wr, hr = best_ratio
+    bucket_ratio = wr / hr
+
+    # Scale so the short side matches resolution, then align
+    if bucket_ratio >= 1.0:
+        # Landscape or square: height is the short side
+        out_h = int(round(resolution / alignment)) * alignment
+        out_w = int(round((out_h * bucket_ratio) / alignment)) * alignment
+    else:
+        # Portrait: width is the short side
+        out_w = int(round(resolution / alignment)) * alignment
+        out_h = int(round((out_w / bucket_ratio) / alignment)) * alignment
+
+    return input_image.resize((out_w, out_h), resample=Image.LANCZOS)
+
+
+def strip_exif(image):
+    """Remove all EXIF and metadata from an image.
+
+    Creates a clean copy with pixel data only — no GPS coordinates,
+    camera info, timestamps, or other embedded metadata.
+
+    Args:
+        image: PIL Image to strip.
+
+    Returns:
+        PIL Image with all metadata removed.
+    """
+    clean = Image.new(image.mode, image.size)
+    clean.paste(image)
+    return clean
+
+
+def add_watermark(image, text="AI Generated", position="bottom-right",
+                  opacity=128, font_size=0, margin=10, color=None):
+    """Add a visible text watermark to an image.
+
+    Args:
+        image: PIL Image to watermark.
+        text: Watermark text (default: "AI Generated").
+        position: Placement — "bottom-right", "bottom-left", "top-right",
+            "top-left", or "center" (default: "bottom-right").
+        opacity: Text opacity 0-255 (default: 128).
+        font_size: Font size in pixels. 0 = auto-scale to ~3% of image height.
+        margin: Pixel margin from edges (default: 10).
+        color: RGB tuple for text color (default: white).
+
+    Returns:
+        PIL Image with watermark applied.
+    """
+    from PIL import ImageDraw, ImageFont
+
+    base = image.convert("RGBA")
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    if color is None:
+        color = (255, 255, 255)
+    fill = (*color, int(opacity))
+
+    if font_size <= 0:
+        font_size = max(12, base.height // 30)
+
+    try:
+        font = ImageFont.truetype("Arial", font_size)
+    except (IOError, OSError):
+        font = ImageFont.load_default(size=font_size)
+
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+
+    positions = {
+        "bottom-right": (base.width - text_w - margin, base.height - text_h - margin),
+        "bottom-left": (margin, base.height - text_h - margin),
+        "top-right": (base.width - text_w - margin, margin),
+        "top-left": (margin, margin),
+        "center": ((base.width - text_w) // 2, (base.height - text_h) // 2),
+    }
+    xy = positions.get(position, positions["bottom-right"])
+
+    draw.text(xy, text, font=font, fill=fill)
+
+    result = Image.alpha_composite(base, overlay)
+    return result.convert("RGB")
 
 
 ada_palette = np.asarray(

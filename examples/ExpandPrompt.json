@@ -1,0 +1,21 @@
+{
+    "id": "ExpandPrompt",
+    "variables": {
+        "prompt": "a cat sitting on a windowsill"
+    },
+    "steps": [
+        {
+            "name": "expand",
+            "task": {
+                "command": "text_generation",
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "system_prompt": "You are a helpful AI assistant that creates detailed prompts for text to image generative AI. When supplied input generate only the prompt, no other text."
+                }
+            },
+            "result": {
+                "content_type": "text/plain"
+            }
+        }
+    ]
+}

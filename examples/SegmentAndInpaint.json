@@ -1,0 +1,63 @@
+{
+    "id": "SegmentAndInpaint",
+    "variables": {
+        "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/model_doc/grounding_dino_example_input.png",
+        "segment_prompt": "cat",
+        "inpaint_prompt": "a golden retriever puppy sitting on the grass"
+    },
+    "steps": [
+        {
+            "name": "load_image",
+            "task": {
+                "command": "gather_images",
+                "arguments": {
+                    "urls": ["variable:image_url"]
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "save": false
+            }
+        },
+        {
+            "name": "segment",
+            "task": {
+                "command": "segment",
+                "arguments": {
+                    "image": "previous_result:load_image",
+                    "prompt": "variable:segment_prompt"
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "save": true
+            }
+        },
+        {
+            "name": "inpaint",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "FluxFillPipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-Fill-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "image": "previous_result:load_image",
+                    "mask_image": "previous_result:segment",
+                    "prompt": "variable:inpaint_prompt",
+                    "height": 1024,
+                    "width": 1024,
+                    "guidance_scale": 30,
+                    "num_inference_steps": 50,
+                    "max_sequence_length": 512
+                }
+            },
+            "result": {
+                "content_type": "image/png"
+            }
+        }
+    ]
+}
