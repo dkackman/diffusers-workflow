@@ -24,7 +24,15 @@ def get_quantization_configuration(configuration):
             quantization_config_type = quantization_config["configuration"][
                 "config_type"
             ]
-            return quantization_config_type(**quantization_config["arguments"])
+            # Some quantization configs (e.g. TorchAoConfig) require argument values
+            # to be instances rather than classes. realize_args converts *_type keys to
+            # classes; instantiate them here with no args so callers can write e.g.
+            # "quant_type": "torchao.quantization.Int8WeightOnlyConfig" in JSON.
+            args = {
+                k: v() if isinstance(v, type) else v
+                for k, v in quantization_config["arguments"].items()
+            }
+            return quantization_config_type(**args)
         except Exception as e:
             logger.error(
                 f"Failed to create quantization_config: {str(e)}", exc_info=True
