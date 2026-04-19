@@ -5,17 +5,12 @@ import logging
 from .config_objects import (
     get_quantization_configuration,
     get_group_offload_configuration,
+    get_cache_configuration,
 )
 from .remote import remote_text_encoder
 from ..teacache import teacache_context
 from ..prompt_weighting import apply_prompt_weighting
 from diffusers import attention_backend
-from diffusers import (
-    FirstBlockCacheConfig,
-    FasterCacheConfig,
-    MagCacheConfig,
-    TaylorSeerCacheConfig,
-)
 
 logger = logging.getLogger("dw")
 
@@ -160,9 +155,9 @@ class Pipeline:
             apply_sdnq_optimizations(self.pipeline, sdnq_optimize)
 
         # Enable diffusers built-in cache acceleration on transformer
-        cache_config = self.configuration.get("cache", None)
+        cache_config = get_cache_configuration(self.configuration)
         if cache_config is not None:
-            enable_diffusers_cache(self.pipeline, cache_config)
+            enable_cache_on_transformer(self.pipeline, cache_config)
 
         # Configure scheduler if specified
         load_and_configure_scheduler(
@@ -604,12 +599,12 @@ def apply_sdnq_optimizations(pipeline, component_names):
             )
 
 
-def enable_diffusers_cache(pipeline, cache_config):
-    """Enable diffusers built-in cache acceleration on the pipeline's transformer.
+def enable_cache_on_transformer(pipeline, cache_config):
+    """Enable cache configuration on the pipeline's transformer.
 
     Args:
         pipeline: The loaded diffusers pipeline
-        cache_config: Dict with 'type' and type-specific parameters
+        cache_config: Cache configuration object from get_cache_configuration()
     """
     transformer = getattr(pipeline, "transformer", None)
     if transformer is None:
@@ -622,34 +617,5 @@ def enable_diffusers_cache(pipeline, cache_config):
         )
         return
 
-    cache_type = cache_config["type"]
-
-    if cache_type == "first_block":
-        config = FirstBlockCacheConfig(
-            threshold=cache_config.get("threshold", 0.05),
-        )
-    elif cache_type == "faster":
-        config = FasterCacheConfig()
-    elif cache_type == "mag":
-        kwargs = {}
-        if "threshold" in cache_config:
-            kwargs["threshold"] = cache_config["threshold"]
-        if "num_inference_steps" in cache_config:
-            kwargs["num_inference_steps"] = cache_config["num_inference_steps"]
-        if "max_skip_steps" in cache_config:
-            kwargs["max_skip_steps"] = cache_config["max_skip_steps"]
-        if "retention_ratio" in cache_config:
-            kwargs["retention_ratio"] = cache_config["retention_ratio"]
-        config = MagCacheConfig(**kwargs)
-    elif cache_type == "taylorseer":
-        kwargs = {}
-        if "cache_interval" in cache_config:
-            kwargs["cache_interval"] = cache_config["cache_interval"]
-        if "max_order" in cache_config:
-            kwargs["max_order"] = cache_config["max_order"]
-        config = TaylorSeerCacheConfig(**kwargs)
-    else:
-        raise ValueError(f"Unknown cache type: {cache_type}")
-
-    logger.info(f"Enabling {cache_type} cache on {transformer.__class__.__name__}")
-    transformer.enable_cache(config)
+    logger.info(f"Enabling {cache_config.__class__.__name__} on {transformer.__class__.__name__}")
+    transformer.enable_cache(cache_config)

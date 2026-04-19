@@ -2,22 +2,22 @@
     "variables": {
         "prompt": "A photorealistic, cinematic wide shot of a futuristic, bio-mechanical daffodil housed inside a massive, transparent glass dome on the dark ocean floor. The daffodil has iridescent, metallic petals and glowing fiber-optic stamens that emit a soft golden light. Outside the thick glass of the dome, the deep sea is filled with glowing, bioluminescent jellyfish and shimmering blue sea creatures, casting ethereal light patterns through the water. The ocean floor is covered in dark sand and ancient coral. Dramatic lighting with caustic light refractions from the water, high detail, 8k resolution, hyper-realistic.",
         "num_images_per_prompt": 1,
-        "num_inference_steps": 25,
-        "guidance_scale": 3.5,
-        "width": 768,
-        "height": 768
+        "num_inference_steps": 8,
+        "guidance_scale": 1.0,
+        "width": 848,
+        "height": 1264
     },
-    "id": "FluxDev",
+    "id": "ErnieImageTurbo",
     "steps": [
         {
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "component_type": "FluxPipeline",
+                    "component_type": "ErnieImagePipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "model_name": "Baidu/ERNIE-Image-Turbo",
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
@@ -27,7 +27,7 @@
                     "width": "variable:width",
                     "height": "variable:height",
                     "guidance_scale": "variable:guidance_scale",
-                    "max_sequence_length": 512
+                    "use_pe": true
                 }
             },
             "result": {
