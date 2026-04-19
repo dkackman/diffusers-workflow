@@ -276,9 +276,15 @@
                     "type": "object",
                     "properties": {
                         "type": {
-                            "description": "Cache algorithm: first_block (simplest, broadest support), faster (video-oriented, experimental), mag (magnitude-based, needs num_inference_steps), taylorseer (Taylor series approximation).",
+                            "description": "Cache algorithm: first_block (simplest, broadest support), faster (video-oriented, experimental), mag (magnitude-based, needs num_inference_steps), taylorseer (Taylor series approximation), text_kv (text key-value cache).",
                             "type": "string",
-                            "enum": ["first_block", "faster", "mag", "taylorseer"]
+                            "enum": [
+                                "first_block",
+                                "faster",
+                                "mag",
+                                "taylorseer",
+                                "text_kv"
+                            ]
                         },
                         "threshold": {
                             "description": "Cache threshold for first_block and mag types. Higher = more speedup, more quality loss. first_block default: 0.05, mag default: 0.06.",
@@ -305,7 +311,9 @@
                             "type": "integer"
                         }
                     },
-                    "required": ["type"]
+                    "required": [
+                        "type"
+                    ]
                 },
                 "teacache": {
                     "description": "Enable TeaCache inference acceleration. Auto-detects transformer type. Caches intermediate computations and skips redundant steps. Requires num_inference_steps in pipeline arguments. Currently supports FluxTransformer2DModel. Mutually exclusive with cache.",
