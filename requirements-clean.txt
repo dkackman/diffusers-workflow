@@ -40,7 +40,7 @@ kornia>=0.7.0
 pillow>=10.4.0
 scikit-image>=0.24.0
 timm>=0.6.7
-mediapipe>=0.10.18
+mediapipe>=0.10.35
 
 # Video processing
 imageio>=2.36.1
