@@ -1,13 +1,15 @@
 {
     "variables": {
-        "prompt": "an orange man, polaroid style",
+        "prompt": "an evil version of this image",
         "image": {
-            "location": "https://pbs.twimg.com/media/GgpcGssWwAACKKK?format=jpg&name=medium"
+            "location": "https://raw.githubusercontent.com/Hadamcik/sage-permission-probe/3e0f80d1fbed7ea0ad118be1771436b8dda59bba/public/icon.png"
         },
         "num_images_per_prompt": 1,
         "num_inference_steps": 15,
         "guidance_scale": 2.0,
-        "strength": 0.75
+        "strength": 0.75,
+        "width": 96,
+        "height": 96
     },
     "id": "FluxImg2Img",
     "steps": [
@@ -22,12 +24,6 @@
                     "model_name": "black-forest-labs/FLUX.1-dev",
                     "torch_dtype": "torch.bfloat16"
                 },
-                "loras": [
-                    {
-                        "model_name": "alvdansen/pola-photo-flux",
-                        "scake": 1.0
-                    }
-                ],
                 "arguments": {
                     "prompt": "variable:prompt",
                     "image": "variable:image",

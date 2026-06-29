@@ -38,7 +38,7 @@ python -m dw.test
 python -m dw.test
 ```
 
-The install scripts detect your Python version, create a virtual environment, and install all dependencies including platform-specific packages (bitsandbytes/kernels on CUDA, fp4-fp8-for-torch-mps on macOS).
+The install scripts detect your Python version, create a virtual environment, and install all dependencies including platform-specific packages (bitsandbytes on CUDA, fp4-fp8-for-torch-mps on macOS).
 
 ## Usage
 

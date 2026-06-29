@@ -1,11 +1,12 @@
 {
     "variables": {
-        "prompt": "A photorealistic, cinematic wide shot of a futuristic, bio-mechanical daffodil housed inside a massive, transparent glass dome on the dark ocean floor. The daffodil has iridescent, metallic petals and glowing fiber-optic stamens that emit a soft golden light. Outside the thick glass of the dome, the deep sea is filled with glowing, bioluminescent jellyfish and shimmering blue sea creatures, casting ethereal light patterns through the water. The ocean floor is covered in dark sand and ancient coral. Dramatic lighting with caustic light refractions from the water, high detail, 8k resolution, hyper-realistic.",
-        "num_images_per_prompt": 1,
+        "prompt": "a claustrophoibic set of grinding gears with a dark and moody atmosphere, in the style of a 19th century engraving. it should evoke oligarchy, oppression and an automatic system that operates without stop",
+        "negative_prompt": "colorful, photorealistic faces, modern UI, flat design, white background, sharp clean edges, high saturation, lens flare, bloom overexposed",
+        "num_images_per_prompt": 4,
         "num_inference_steps": 9,
         "guidance_scale": 0.0,
-        "width": 1024,
-        "height": 1024
+        "width": 800,
+        "height": 224
     },
     "id": "ZImage",
     "steps": [
@@ -13,7 +14,8 @@
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "component_type": "ZImagePipeline"
+                    "component_type": "ZImagePipeline",
+                    "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "Tongyi-MAI/Z-Image-Turbo",
@@ -22,6 +24,7 @@
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
+                    "negative_prompt": "variable:negative_prompt",
                     "num_inference_steps": "variable:num_inference_steps",
                     "num_images_per_prompt": "variable:num_images_per_prompt",
                     "width": "variable:width",

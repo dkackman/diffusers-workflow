@@ -183,6 +183,9 @@
                 "feature_extractor": {
                     "$ref": "#/$defs/pipeline_component"
                 },
+                "prompt_enhancer_head": {
+                    "$ref": "#/$defs/pipeline_component"
+                },
                 "controlnet": {
                     "$ref": "#/$defs/controlnet"
                 },

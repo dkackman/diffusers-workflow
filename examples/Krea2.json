@@ -1,0 +1,30 @@
+{
+    "variables": {
+        "prompt": "a picture of a marmot in a top hat, holding a sign saying the 'i for one welcome our new robot overlords'"
+    },
+    "id": "Krea2",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "Krea2Pipeline"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "krea/Krea-2-Turbo",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "height": 1024,
+                    "width": 1024,
+                    "num_inference_steps": 8,
+                    "guidance_scale": 0.0
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

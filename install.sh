@@ -148,8 +148,9 @@ if $MACOS; then
   # FP8/FP4 dtype support for MPS (auto-activates via torch.backends)
   pip install fp4-fp8-for-torch-mps
 else
-  # CUDA-only: bitsandbytes quantization, triton compiler, custom kernels
-  pip install bitsandbytes kernels
+  # CUDA-only: bitsandbytes quantization
+  # NOTE: `kernels` is optional and can break import compatibility in some environments.
+  pip install bitsandbytes
 fi
 
 # Install utility dependencies
