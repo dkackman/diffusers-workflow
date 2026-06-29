@@ -1,0 +1,38 @@
+{
+    "variables": {
+        "prompt": "a picture of a marmot in a top hat, holding a sign saying the 'i for one welcome our new robot overlords'"
+    },
+    "id": "Ideogram4",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "Ideogram4Pipeline"
+                },
+                "prompt_enhancer_head": {
+                    "configuration": {
+                        "component_type": "Ideogram4PromptEnhancerHead"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "diffusers/qwen3-vl-8b-instruct-lm-head",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "ideogram-ai/ideogram-4-nf4-diffusers",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "height": 1024,
+                    "width": 1024,
+                    "prompt_upsampling": true
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

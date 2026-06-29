@@ -36,7 +36,7 @@ pip install -r requirements.txt
 
 **All platforms:** peft, transformers, accelerate, safetensors, controlnet_aux, sentencepiece, torchsde, torchao, gguf, kornia, ftfy, sdnq
 
-**Linux/Windows (CUDA):** bitsandbytes, kernels
+**Linux/Windows (CUDA):** bitsandbytes
 
 **macOS (MPS):** fp4-fp8-for-torch-mps (FP8/FP4 dtype support for Metal)
 

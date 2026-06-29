@@ -28,6 +28,7 @@ optional_component_names = [
     "tokenizer_3",
     "image_encoder",
     "feature_extractor",
+    "prompt_enhancer_head",
     "model",
 ]
 
