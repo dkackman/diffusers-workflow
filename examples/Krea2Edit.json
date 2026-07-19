@@ -1,22 +1,32 @@
 {
     "variables": {
-        "prompt": "a picture of a marmot in a top hat, holding a visibly worn sign saying the 'i for one welcome our new robot overlords'"
+        "prompt": "make the woman blonde",
+        "input_image": "https://pbs.twimg.com/media/HNi-N_eWIAAJfTZ?format=jpg&name=900x900"
     },
-    "id": "Krea2",
+    "id": "Krea2Edit",
     "steps": [
         {
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "component_type": "Krea2Pipeline",
+                    "component_type": "DiffusionPipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "krea/Krea-2-Turbo",
-                    "torch_dtype": "torch.bfloat16"
+                    "torch_dtype": "torch.bfloat16",
+                    "custom_pipeline": "ostris/Krea2OstrisEdit",
+                    "trust_remote_code": true
                 },
+                "loras": [
+                    {
+                        "model_name": "ostris/krea2_turbo_style_reference",
+                        "weight_name": "krea2_style_reference.safetensors"
+                    }
+                ],
                 "arguments": {
                     "prompt": "variable:prompt",
+                    "image": "variable:input_image",
                     "height": 1024,
                     "width": 1024,
                     "num_inference_steps": 8,
