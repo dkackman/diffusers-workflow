@@ -9,6 +9,7 @@ from .config_objects import (
 )
 from .remote import remote_text_encoder
 from ..teacache import teacache_context
+from ..type_helpers import has_method
 from ..prompt_weighting import apply_prompt_weighting
 from diffusers import attention_backend
 
@@ -138,8 +139,15 @@ class Pipeline:
             self.device == "mps"
             and not self.configuration.get("disable_attention_slicing", False)
         ):
-            logger.debug("Enabling attention slicing for pipeline")
-            self.pipeline.enable_attention_slicing()
+            # Modular pipelines have no attention slicing - on MPS this is applied
+            # automatically, so skip rather than fail when the pipeline lacks it
+            if has_method(self.pipeline, "enable_attention_slicing"):
+                logger.debug("Enabling attention slicing for pipeline")
+                self.pipeline.enable_attention_slicing()
+            else:
+                logger.debug(
+                    f"{type(self.pipeline).__name__} does not support attention slicing, skipping"
+                )
 
         if self.configuration.get("xformers_memory_efficient_attention", False):
             logger.debug(
@@ -460,10 +468,59 @@ def load_and_configure_scheduler(scheduler_definition, pipeline):
         )
 
 
+def auto_cpu_offload_enabled(configuration):
+    """Whether the configuration asks its components manager to offload to the CPU."""
+    return configuration.get("components_manager", {}).get(
+        "enable_auto_cpu_offload", False
+    )
+
+
+def create_components_manager(configuration, device):
+    """Create the components manager for a modular pipeline, when one is configured.
+
+    A ComponentsManager tracks the components of a modular pipeline and can keep only
+    the ones currently running on the device, moving the rest to system memory.
+
+    Args:
+        configuration: Pipeline configuration dictionary
+        device: Device the pipeline runs on
+
+    Returns:
+        A configured ComponentsManager, or None when the pipeline does not use one
+    """
+    manager_configuration = configuration.get("components_manager", None)
+    if manager_configuration is None:
+        return None
+
+    # Imported here because importing modular diffusers warns that it is experimental
+    from diffusers import ComponentsManager
+
+    logger.info("Creating components manager")
+    components_manager = ComponentsManager()
+
+    if auto_cpu_offload_enabled(configuration):
+        offload_arguments = {}
+        memory_reserve_margin = manager_configuration.get("memory_reserve_margin", None)
+        if memory_reserve_margin is not None:
+            offload_arguments["memory_reserve_margin"] = memory_reserve_margin
+
+        # Enabled before the components load so each one is hooked as it is added
+        logger.info(f"Enabling components manager auto CPU offload on {device}")
+        components_manager.enable_auto_cpu_offload(device=device, **offload_arguments)
+
+    return components_manager
+
+
 def load_component(component_name, configuration, from_pretrained_arguments, device):
     """Load and configure a pipeline or component."""
     component_type = configuration["component_type"]
     component = None
+
+    # A modular pipeline can hand its components to a ComponentsManager, which then
+    # owns their device placement
+    components_manager = create_components_manager(configuration, device)
+    if components_manager is not None:
+        from_pretrained_arguments["components_manager"] = components_manager
 
     # MPS (Apple Silicon) has numerical instability with float16 matmul operations,
     # producing NaN values that result in black images. Auto-convert to float32.
@@ -500,6 +557,18 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
             logger.info(f"Creating new {component_name}")
             component = component_type(**from_pretrained_arguments)
 
+        # Modular pipelines load only their config in from_pretrained - the component
+        # weights are pulled separately by load_components()
+        load_components_arguments = configuration.get("load_components", None)
+        if load_components_arguments is not None:
+            if not has_method(component, "load_components"):
+                raise ValueError(
+                    f"load_components is only supported on modular pipelines, "
+                    f"{component_type.__name__} does not have it"
+                )
+            logger.info(f"Loading components for {component_name}")
+            component.load_components(**load_components_arguments)
+
         # Handle group_offload configuration
         group_offload_configuration = get_group_offload_configuration(
             configuration, device
@@ -527,6 +596,10 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
                 logger.debug(f"Excluding {component_name} from CPU offload")
                 component._exclude_from_cpu_offload.append(component_name)
             component.enable_sequential_cpu_offload()
+        elif components_manager is not None and auto_cpu_offload_enabled(configuration):
+            # Moving everything to the device here would defeat the offloading - the
+            # manager's hooks bring each component on device as the pipeline needs it
+            logger.debug("Device placement is owned by the components manager")
         elif hasattr(component, "to") and not do_not_send_to_device:
             logger.debug(f"Moving {component_name} to device: {device}")
             component = component.to(device)
@@ -618,5 +691,7 @@ def enable_cache_on_transformer(pipeline, cache_config):
         )
         return
 
-    logger.info(f"Enabling {cache_config.__class__.__name__} on {transformer.__class__.__name__}")
+    logger.info(
+        f"Enabling {cache_config.__class__.__name__} on {transformer.__class__.__name__}"
+    )
     transformer.enable_cache(cache_config)

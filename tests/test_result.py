@@ -7,8 +7,11 @@ import pytest
 import os
 import tempfile
 import json
+import numpy
+import soundfile
+import torch
 from PIL import Image
-from dw.result import Result, get_artifact_list, guess_extension
+from dw.result import Result, get_artifact_list, guess_extension, normalize_audio
 
 
 class TestResult:
@@ -158,6 +161,145 @@ class TestGetArtifactList:
         assert artifacts == ["embed1", "embed2"]
 
 
+class TestNormalizeAudio:
+    """Test conversion of pipeline audio output into writable waveforms"""
+
+    def test_mono_waveform_unchanged(self):
+        waveform = numpy.zeros(1000, dtype=numpy.float32)
+        waveforms = normalize_audio(waveform)
+        assert len(waveforms) == 1
+        assert waveforms[0].shape == (1000,)
+
+    def test_channels_first_is_transposed(self):
+        waveforms = normalize_audio(numpy.zeros((2, 1000), dtype=numpy.float32))
+        assert len(waveforms) == 1
+        assert waveforms[0].shape == (1000, 2)
+
+    def test_samples_first_is_left_alone(self):
+        waveforms = normalize_audio(numpy.zeros((1000, 2), dtype=numpy.float32))
+        assert waveforms[0].shape == (1000, 2)
+
+    def test_batch_is_split(self):
+        waveforms = normalize_audio(numpy.zeros((3, 2, 1000), dtype=numpy.float32))
+        assert len(waveforms) == 3
+        assert all(waveform.shape == (1000, 2) for waveform in waveforms)
+
+    def test_torch_tensor_converted(self):
+        waveforms = normalize_audio(torch.zeros((2, 1000), dtype=torch.bfloat16))
+        assert isinstance(waveforms[0], numpy.ndarray)
+        assert waveforms[0].shape == (1000, 2)
+
+    def test_unsupported_shape_raises(self):
+        with pytest.raises(ValueError):
+            normalize_audio(numpy.zeros((2, 2, 2, 1000), dtype=numpy.float32))
+
+
+class TestSaveAudio:
+    """Test saving audio results"""
+
+    def test_save_channels_first_waveform(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav", "sample_rate": 44100})
+            result.add_result(numpy.zeros((2, 4410), dtype=numpy.float32))
+
+            result.save(temp_dir, "song")
+
+            output_file = os.path.join(temp_dir, "song-0.0.wav")
+            assert os.path.exists(output_file)
+            data, sample_rate = soundfile.read(output_file)
+            assert sample_rate == 44100
+            assert data.shape == (4410, 2)
+
+    def test_save_batched_waveforms(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav"})
+            result.add_result(numpy.zeros((2, 2, 4410), dtype=numpy.float32))
+
+            result.save(temp_dir, "song")
+
+            assert os.path.exists(os.path.join(temp_dir, "song-0.0-0.wav"))
+            assert os.path.exists(os.path.join(temp_dir, "song-0.0-1.wav"))
+
+    def test_default_sample_rate(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav"})
+            result.add_result(numpy.zeros((2, 4410), dtype=numpy.float32))
+
+            result.save(temp_dir, "song")
+
+            _, sample_rate = soundfile.read(os.path.join(temp_dir, "song-0.0.wav"))
+            assert sample_rate == 44100
+
+
+class TestSaveCompressedAudio:
+    """Test saving audio in the compressed formats soundfile supports"""
+
+    def save(self, result_definition):
+        """Save a second of noise and return the path of the file it produced"""
+        temp_dir = tempfile.mkdtemp()
+        result = Result({"sample_rate": 44100, **result_definition})
+        # Noise rather than silence so that compression settings change the file size
+        waveform = numpy.random.default_rng(7).uniform(-1, 1, (2, 44100))
+        result.add_result(waveform.astype(numpy.float32))
+
+        result.save(temp_dir, "song")
+
+        extension = guess_extension(result_definition["content_type"])
+        output_file = os.path.join(temp_dir, f"song-0.0{extension}")
+        assert os.path.exists(output_file)
+        return output_file
+
+    def test_flac(self):
+        info = soundfile.info(self.save({"content_type": "audio/flac"}))
+        assert info.format == "FLAC"
+        assert info.samplerate == 44100
+        assert info.channels == 2
+
+    def test_mp3(self):
+        assert soundfile.info(self.save({"content_type": "audio/mpeg"})).format == "MP3"
+
+    def test_ogg_vorbis(self):
+        info = soundfile.info(self.save({"content_type": "audio/ogg"}))
+        assert info.format == "OGG"
+        assert info.subtype == "VORBIS"
+
+    def test_opus_uses_the_ogg_container(self):
+        # Opus has no extension of its own in libsndfile, and only encodes 48kHz audio
+        info = soundfile.info(
+            self.save({"content_type": "audio/opus", "sample_rate": 48000})
+        )
+        assert info.format == "OGG"
+        assert info.subtype == "OPUS"
+
+    def test_compressed_is_smaller_than_wav(self):
+        wav = self.save({"content_type": "audio/wav"})
+        mp3 = self.save({"content_type": "audio/mpeg"})
+        assert os.path.getsize(mp3) < os.path.getsize(wav)
+
+    def test_subtype_overrides_the_default(self):
+        info = soundfile.info(
+            self.save({"content_type": "audio/flac", "subtype": "PCM_24"})
+        )
+        assert info.subtype == "PCM_24"
+
+    def test_long_audio_does_not_crash_the_vorbis_encoder(self):
+        # libsndfile segfaults if handed more than 2**21 frames of vorbis in one call
+        temp_dir = tempfile.mkdtemp()
+        frames = (1 << 21) + 1000
+        result = Result({"content_type": "audio/ogg", "sample_rate": 44100})
+        result.add_result(numpy.zeros((2, frames), dtype=numpy.float32))
+
+        result.save(temp_dir, "song")
+
+        info = soundfile.info(os.path.join(temp_dir, "song-0.0.ogg"))
+        assert info.frames == frames
+
+    def test_compression_level_reaches_soundfile(self):
+        loose = self.save({"content_type": "audio/ogg", "compression_level": 0.1})
+        tight = self.save({"content_type": "audio/ogg", "compression_level": 1.0})
+        assert os.path.getsize(tight) < os.path.getsize(loose)
+
+
 class TestGuessExtension:
     """Test MIME type to file extension conversion"""
 
@@ -171,8 +313,20 @@ class TestGuessExtension:
         assert guess_extension("application/json") == ".json"
 
     def test_audio_wav(self):
-        # Special case handling
         assert guess_extension("audio/wav") == ".wav"
+
+    def test_audio_mpeg(self):
+        assert guess_extension("audio/mpeg") == ".mp3"
+
+    def test_audio_flac(self):
+        assert guess_extension("audio/flac") == ".flac"
+
+    def test_audio_ogg(self):
+        # mimetypes suggests '.oga', which soundfile does not recognize
+        assert guess_extension("audio/ogg") == ".ogg"
+
+    def test_audio_opus(self):
+        assert guess_extension("audio/opus") == ".ogg"
 
     def test_video_mp4(self):
         ext = guess_extension("video/mp4")
