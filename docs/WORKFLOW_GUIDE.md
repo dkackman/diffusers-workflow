@@ -129,9 +129,29 @@ Multiple `previous_result` references create a **cartesian product**: if step A 
 }
 ```
 
-Supported content types: `image/jpeg`, `image/png`, `image/webp`, `video/mp4`, `audio/wav`, `application/json`, `text/plain`.
+Supported content types: `image/jpeg`, `image/png`, `image/webp`, `video/mp4`, `audio/wav`, `audio/flac`, `audio/mpeg` (mp3), `audio/ogg`, `audio/opus`, `application/json`, `text/plain`.
 
 For video, add `"fps": 8`. For audio, add `"sample_rate": 44100`.
+
+### Audio Encoding
+
+Audio is written through soundfile, so both lossless and compressed containers work:
+
+```json
+"result": {
+    "content_type": "audio/mpeg",
+    "sample_rate": 44100,
+    "compression_level": 0.3
+}
+```
+
+- `subtype` — encoding subtype, such as `"PCM_24"` for wav and flac. Defaults to the
+  container's own default, which is `"PCM_16"` for wav and flac.
+- `compression_level` — 0.0 to 1.0 for flac, mp3 and ogg. Higher means smaller files.
+- `bitrate_mode` — `"CONSTANT"`, `"AVERAGE"` or `"VARIABLE"` for compressed formats.
+
+`audio/opus` writes an Opus stream in an ogg container, and only encodes at sample rates
+of 8000, 12000, 16000, 24000 or 48000.
 
 Output files are saved as `{output_dir}/{workflow_id}-{step_name}.{index}.{ext}`.
 
@@ -177,6 +197,30 @@ Device is auto-detected (CUDA > MPS > CPU). Dtype is set per-component:
 }
 ```
 
+### Modular Pipelines
+
+Modular pipelines (`ModularPipeline` and its subclasses) load their configuration and
+their component weights separately, so `from_pretrained_arguments` only names the model
+and `load_components` pulls the weights:
+
+```json
+"configuration": {
+    "component_type": "MiniMaxMusic3ModularPipeline",
+    "load_components": { "dtype": "torch.bfloat16" },
+    "components_manager": { "enable_auto_cpu_offload": true }
+}
+```
+
+- `load_components` — arguments for `load_components()`. Use `dtype` for the component
+  dtype and `names` to load only some of the components.
+- `components_manager` — attaches a `ComponentsManager`, which tracks the pipeline's
+  components. With `enable_auto_cpu_offload` it keeps only the running components on the
+  device and moves the rest to system memory, reserving `memory_reserve_margin`
+  (default `"3GB"`) of free device memory. It requires a device that reports free memory
+  (CUDA) and replaces `offload`, which modular pipelines do not support.
+
+See [examples/MiniMaxMusic.json](../examples/MiniMaxMusic.json) for a full example.
+
 ## Schedulers
 
 Override the default scheduler:
@@ -210,6 +254,6 @@ Set a seed for reproducibility at workflow or step level:
 
 Dynamic type conversion applies to certain values:
 
-- Keys ending in `_type` or `_dtype`: `"torch.bfloat16"` becomes `torch.bfloat16`
+- Keys ending in `_type` or `_dtype`, or named `dtype`: `"torch.bfloat16"` becomes `torch.bfloat16`
 - Dotted names: `"sdnq.SDNQConfig"` loads the class via importlib
 - Escape with braces to keep as string: `"{nf4}"` stays as `"nf4"`

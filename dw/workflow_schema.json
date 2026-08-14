@@ -267,6 +267,39 @@
                         "type": "string"
                     }
                 },
+                "load_components": {
+                    "description": "Arguments passed to a modular pipeline's load_components() - modular pipelines load their component weights separately from their config. Use 'dtype' to set the component dtype and 'names' to load a subset of components.",
+                    "type": "object",
+                    "properties": {
+                        "names": {
+                            "description": "Names of the components to load. All components are loaded when omitted.",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "dtype": {
+                            "description": "The torch dtype to load components in, e.g. 'torch.bfloat16'",
+                            "type": "string"
+                        }
+                    }
+                },
+                "components_manager": {
+                    "description": "Attach a ComponentsManager to a modular pipeline. The manager tracks the pipeline's components and, with auto CPU offload enabled, keeps only the running ones on the device. It replaces 'offload', which modular pipelines do not support.",
+                    "type": "object",
+                    "properties": {
+                        "enable_auto_cpu_offload": {
+                            "description": "Move components between the device and system memory as the pipeline runs. Requires a device that reports free memory (CUDA). When enabled the manager owns device placement, so the pipeline is not moved to the device directly.",
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "memory_reserve_margin": {
+                            "description": "Device memory to keep free when deciding what to offload, e.g. '3GB'",
+                            "type": "string",
+                            "default": "3GB"
+                        }
+                    }
+                },
                 "sdnq_optimize": {
                     "description": "List of pipeline component names to apply SDNQ quantized matmul optimization to (e.g., ['transformer', 'text_encoder']). Requires sdnq package and CUDA/XPU hardware.",
                     "type": "array",
@@ -662,7 +695,7 @@
             "type": "object",
             "properties": {
                 "content_type": {
-                    "description": "The content type of the result when serialized to disk",
+                    "description": "The content type of the result when serialized to disk. Audio can be written as 'audio/wav', 'audio/flac', 'audio/mpeg' (mp3), 'audio/ogg' or 'audio/opus'. Opus is written into an ogg container and only encodes sample rates of 8000, 12000, 16000, 24000 or 48000.",
                     "type": "string"
                 },
                 "save": {
@@ -679,10 +712,29 @@
                     "type": "integer",
                     "default": 8
                 },
-                "samplerate": {
+                "sample_rate": {
                     "description": "Audio sample rate - only used when output is audio",
                     "type": "integer",
                     "default": 44100
+                },
+                "subtype": {
+                    "description": "Audio encoding subtype, e.g. 'PCM_24' for wav and flac or 'VORBIS' for ogg. Defaults to the container's own default ('PCM_16' for wav and flac). Only used when output is audio.",
+                    "type": "string"
+                },
+                "compression_level": {
+                    "description": "Encoding compression level from 0.0 to 1.0 for compressed audio formats (flac, mp3, ogg). Higher means smaller files. Only used when output is audio.",
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                },
+                "bitrate_mode": {
+                    "description": "Bitrate mode for compressed audio formats: 'CONSTANT', 'AVERAGE' or 'VARIABLE'. Only used when output is audio.",
+                    "type": "string",
+                    "enum": [
+                        "CONSTANT",
+                        "AVERAGE",
+                        "VARIABLE"
+                    ]
                 },
                 "embed_metadata": {
                     "description": "Whether to embed generation parameters as metadata in saved images (PNG info chunks or EXIF). Only applies to image content types.",

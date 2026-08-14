@@ -88,7 +88,7 @@ The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`)
 ### Type System
 
 `arguments.py` + `type_helpers.py` handle dynamic type conversion during workflow loading:
-- Keys ending in `_type` or `_dtype` are auto-converted: `"FluxPipeline"` → loaded from `diffusers`, `"torch.bfloat16"` → `torch.bfloat16`
+- Keys ending in `_type` or `_dtype`, or named `dtype`, are auto-converted: `"FluxPipeline"` → loaded from `diffusers`, `"torch.bfloat16"` → `torch.bfloat16`
 - Values wrapped in `{}` are escaped (stay as strings): `"{nf4}"` → `"nf4"`
 - Dotted names use full module path: `"sdnq.SDNQConfig"` → `importlib.import_module("sdnq").SDNQConfig`
 

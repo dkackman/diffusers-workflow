@@ -1,4 +1,5 @@
 import os
+import numpy
 import soundfile
 import json
 import mimetypes
@@ -12,6 +13,28 @@ logger = logging.getLogger("dw")
 # Result saving constants
 MAX_BASE_NAME_LENGTH = 200
 DEFAULT_AUDIO_SAMPLE_RATE = 44100
+
+# Audio content types soundfile can write, mapped to their file extension and to any
+# write arguments the extension alone does not imply. Opus has no extension of its own
+# in libsndfile - it is a subtype of the ogg container.
+AUDIO_FORMATS = {
+    "audio/wav": (".wav", {}),
+    "audio/x-wav": (".wav", {}),
+    "audio/aiff": (".aiff", {}),
+    "audio/flac": (".flac", {}),
+    "audio/x-flac": (".flac", {}),
+    "audio/mpeg": (".mp3", {}),
+    "audio/mp3": (".mp3", {}),
+    "audio/ogg": (".ogg", {}),
+    "audio/vorbis": (".ogg", {}),
+    "audio/opus": (".ogg", {"format": "OGG", "subtype": "OPUS"}),
+}
+
+# Result definition keys passed through to soundfile - encoding quality controls
+AUDIO_WRITE_ARGUMENTS = ["subtype", "format", "compression_level", "bitrate_mode"]
+
+# Audio is written in chunks of this many frames - see write_audio
+AUDIO_WRITE_CHUNK_FRAMES = 1 << 20
 
 
 class Result:
@@ -221,12 +244,27 @@ class Result:
                     artifact, output_path, fps=self.result_definition.get("fps", 8)
                 )
             elif content_type.startswith("audio"):
-                soundfile.write(
+                waveforms = normalize_audio(artifact)
+                sample_rate = self.result_definition.get(
+                    "sample_rate",
+                    self.result_definition.get("samplerate", DEFAULT_AUDIO_SAMPLE_RATE),
+                )
+                # A batched waveform holds several songs - save each one separately
+                if len(waveforms) > 1:
+                    for k, waveform in enumerate(waveforms):
+                        self.save_artifact(
+                            validated_output_dir,
+                            waveform,
+                            f"{validated_base_name}-{k}",
+                            content_type,
+                            extension,
+                        )
+                    return
+                write_audio(
                     output_path,
-                    artifact,
-                    self.result_definition.get(
-                        "sample_rate", DEFAULT_AUDIO_SAMPLE_RATE
-                    ),
+                    waveforms[0],
+                    sample_rate,
+                    **self.get_audio_write_arguments(content_type),
                 )
             elif content_type.endswith("json"):
                 with open(output_path, "w") as file:
@@ -252,6 +290,28 @@ class Result:
                 f"Error saving artifact to {output_path}: {str(e)}", exc_info=True
             )
             raise
+
+    def get_audio_write_arguments(self, content_type):
+        """Collect the soundfile arguments for an audio content type.
+
+        The container comes from the content type and any encoding quality settings
+        from the result definition.
+
+        Args:
+            content_type: MIME type of the audio being written
+
+        Returns:
+            Dict of keyword arguments for soundfile.write
+        """
+        _, write_arguments = AUDIO_FORMATS.get(content_type, (None, {}))
+        write_arguments = dict(write_arguments)
+
+        for argument_name in AUDIO_WRITE_ARGUMENTS:
+            value = self.result_definition.get(argument_name, None)
+            if value is not None:
+                write_arguments[argument_name] = value
+
+        return write_arguments
 
     def _save_image_with_metadata(self, image, output_path, content_type):
         """Save an image with embedded generation metadata.
@@ -319,6 +379,66 @@ def get_artifact_list(result):
     return [result]
 
 
+def write_audio(output_path, waveform, sample_rate, **write_arguments):
+    """Write a single waveform to disk.
+
+    soundfile.write() hands the whole waveform to libsndfile in one call, whose vorbis
+    encoder segfaults past 2**21 frames - about 48 seconds of 44.1kHz audio. Writing in
+    chunks avoids that and bounds the encoder's working set for long audio.
+
+    Args:
+        output_path: Path of the file to write
+        waveform: Numpy array shaped (samples,) or (samples, channels)
+        sample_rate: Sample rate to record in the file
+        write_arguments: Container and encoding arguments for soundfile
+    """
+    channels = 1 if waveform.ndim == 1 else waveform.shape[1]
+
+    with soundfile.SoundFile(
+        output_path,
+        "w",
+        samplerate=sample_rate,
+        channels=channels,
+        **write_arguments,
+    ) as audio_file:
+        for start in range(0, len(waveform), AUDIO_WRITE_CHUNK_FRAMES):
+            audio_file.write(waveform[start : start + AUDIO_WRITE_CHUNK_FRAMES])
+
+
+def normalize_audio(artifact):
+    """Convert an audio artifact into waveforms soundfile can write.
+
+    Pipelines return audio as torch tensors or numpy arrays, channels first and
+    optionally batched. soundfile wants samples first, one waveform at a time.
+
+    Args:
+        artifact: Audio waveform(s) as a torch tensor or numpy array
+
+    Returns:
+        List of numpy arrays shaped (samples,) or (samples, channels)
+    """
+    # Torch tensors may be on the GPU and in a dtype numpy does not understand
+    if hasattr(artifact, "detach"):
+        artifact = artifact.detach().float().cpu().numpy()
+
+    waveform = numpy.asarray(artifact)
+
+    if waveform.ndim == 1:
+        return [waveform]
+
+    if waveform.ndim == 2:
+        # Channels first - a waveform always has far more samples than channels
+        if waveform.shape[0] < waveform.shape[1]:
+            waveform = waveform.T
+        return [waveform]
+
+    if waveform.ndim == 3:
+        # (batch, channels, samples) - one waveform per batch item
+        return [item.T for item in waveform]
+
+    raise ValueError(f"Cannot save audio with shape {waveform.shape}")
+
+
 def guess_extension(content_type):
     """Determine file extension from MIME type.
 
@@ -332,12 +452,13 @@ def guess_extension(content_type):
         logger.warning("No content type provided for extension guess")
         return ""
 
+    # Audio is looked up first - soundfile picks the container from the extension and
+    # does not recognize every extension mimetypes suggests, such as '.oga' for ogg
+    if content_type in AUDIO_FORMATS:
+        return AUDIO_FORMATS[content_type][0]
+
     ext = mimetypes.guess_extension(content_type)
     if ext is not None:
         return ext
-
-    # Handle special case for WAV files
-    if content_type == "audio/wav":
-        return ".wav"
 
     return ""

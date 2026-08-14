@@ -33,7 +33,9 @@ def realize_args(arg):
                 logger.debug(f"Loading video for key: {k}")
                 arg[k] = fetch_video(v)
             # Handle type references (except 'content_type')
-            elif (k.endswith("_type") or k.endswith("_dtype")) and k != "content_type":
+            elif (
+                k.endswith("_type") or k.endswith("_dtype") or k == "dtype"
+            ) and k != "content_type":
                 logger.debug(f"Processing type reference for key: {k}")
                 # Allow escaping type references using {} brackets
                 # this is for instances when the argument name is "something_type" but it is
