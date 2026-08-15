@@ -93,6 +93,7 @@ def _create_flux_teacache_forward(num_inference_steps, rel_l1_thresh, coefficien
     accumulated_rel_l1_distance = 0
     previous_modulated_input = None
     previous_residual = None
+    previous_timestep = None
     rescale_func = np.poly1d(coefficients)
 
     def teacache_forward(
@@ -110,7 +111,31 @@ def _create_flux_teacache_forward(num_inference_steps, rel_l1_thresh, coefficien
         return_dict: bool = True,
         controlnet_blocks_repeat: bool = False,
     ) -> typing.Union[torch.FloatTensor, Transformer2DModelOutput]:
-        nonlocal cnt, accumulated_rel_l1_distance, previous_modulated_input, previous_residual
+        nonlocal cnt, accumulated_rel_l1_distance, previous_modulated_input, previous_residual, previous_timestep
+
+        # TeaCache assumes exactly one transformer forward call per denoising
+        # step. Pipelines running true classifier-free guidance (e.g. Flux with
+        # negative_prompt + true_cfg_scale > 1) call the transformer twice per
+        # step -- once for the conditional pass and once for the unconditional
+        # pass -- using the identical timestep both times. That second call
+        # would silently share/corrupt previous_modulated_input and
+        # previous_residual across the two passes, so detect it and fail loudly
+        # instead of producing a corrupted image.
+        if (
+            timestep is not None
+            and previous_timestep is not None
+            and timestep.shape == previous_timestep.shape
+            and torch.equal(timestep, previous_timestep)
+        ):
+            raise RuntimeError(
+                "TeaCache does not support true classifier-free guidance "
+                "(negative_prompt with true_cfg_scale > 1); disable one of them. "
+                "Detected two transformer forward calls with an identical "
+                "timestep within a single denoising step, which would corrupt "
+                "TeaCache's cached state."
+            )
+        if timestep is not None:
+            previous_timestep = timestep.detach().clone()
 
         if joint_attention_kwargs is not None:
             joint_attention_kwargs = joint_attention_kwargs.copy()
