@@ -3,7 +3,7 @@ import numpy as np
 from transformers import pipeline
 from torchvision import transforms
 
-from .. import get_device_type
+from .. import preferred_task_dtype
 from .model_cache import cached_model
 
 
@@ -32,8 +32,7 @@ def make_hint_tensor(image, device, dtype=None):
     hint = detected_map.permute(2, 0, 1)
 
     if dtype is None:
-        # float16 produces NaN values on MPS and is unsupported by many CPU operations
-        dtype = torch.float16 if get_device_type(device) == "cuda" else torch.float32
+        dtype = preferred_task_dtype(device)
 
     return hint.unsqueeze(0).to(device=device, dtype=dtype)
 

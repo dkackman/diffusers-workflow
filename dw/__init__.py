@@ -122,6 +122,119 @@ def get_autocast_device_type():
     return "cpu"
 
 
+def preferred_task_dtype(device=None):
+    """
+    Get the preferred torch dtype for a lightweight inference task (captioning,
+    text generation, diffusion upscaling, depth estimation).
+
+    fp16 produces NaN values on MPS and is unsupported by many CPU operations,
+    so only CUDA gets it - everything else runs in fp32.
+
+    Args:
+        device: Device identifier, or None to use the device dw is running on
+
+    Returns:
+        torch.dtype: torch.float16 on CUDA, torch.float32 otherwise (or None
+            if torch isn't available)
+    """
+    if not _TORCH_AVAILABLE:
+        return None
+
+    return torch.float16 if get_device_type(device) == "cuda" else torch.float32
+
+
+def empty_device_cache(synchronize=False):
+    """
+    Empty the allocator cache of the device dw is configured for, if its
+    backend has one. A no-op on CPU.
+
+    Dispatch honors the DW_DEVICE/settings override (via get_device_type())
+    but also checks the backend's own availability before calling into it,
+    matching the belt-and-suspenders checks the call sites used to do
+    individually.
+
+    Args:
+        synchronize: Also block until pending device work completes before
+            returning. Skipped by default - it's expensive and callers on a
+            hot path (e.g. between-run cleanup) don't need it.
+    """
+    if not _TORCH_AVAILABLE:
+        return
+
+    device_type = get_device_type()
+    if device_type == "cuda" and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        if synchronize:
+            torch.cuda.synchronize()
+    elif (
+        device_type == "mps"
+        and hasattr(torch.backends, "mps")
+        and torch.backends.mps.is_available()
+    ):
+        if hasattr(torch.mps, "empty_cache"):
+            torch.mps.empty_cache()
+        if synchronize and hasattr(torch.mps, "synchronize"):
+            torch.mps.synchronize()
+
+
+def device_memory_stats():
+    """
+    Snapshot of allocator memory usage for the device dw is configured for.
+
+    Only CUDA exposes free/total figures (via torch.cuda.mem_get_info); MPS
+    has no equivalent API, so its snapshot reports zeroed, "known" values
+    instead. CPU, or a CUDA/MPS backend that isn't actually available despite
+    being the configured device type, results in an "unavailable" snapshot.
+
+    Returns:
+        dict with keys:
+            available (bool): whether the backend could be queried
+            device_name (str or None)
+            allocated_mb (float)
+            reserved_mb (float)
+            free_mb (float or None): None only when CUDA's mem_get_info call
+                itself fails
+            total_mb (float or None): None only when CUDA's mem_get_info call
+                itself fails
+    """
+    stats = {
+        "available": False,
+        "device_name": None,
+        "allocated_mb": 0.0,
+        "reserved_mb": 0.0,
+        "free_mb": None,
+        "total_mb": None,
+    }
+
+    if not _TORCH_AVAILABLE:
+        return stats
+
+    device_type = get_device_type()
+    if device_type == "cuda" and torch.cuda.is_available():
+        stats["available"] = True
+        stats["device_name"] = torch.cuda.get_device_name(0)
+        stats["allocated_mb"] = torch.cuda.memory_allocated() / 1024 / 1024
+        stats["reserved_mb"] = torch.cuda.memory_reserved() / 1024 / 1024
+        try:
+            free, total = torch.cuda.mem_get_info()
+            stats["free_mb"] = free / 1024 / 1024
+            stats["total_mb"] = total / 1024 / 1024
+        except (RuntimeError, AttributeError):
+            pass
+    elif (
+        device_type == "mps"
+        and hasattr(torch.backends, "mps")
+        and torch.backends.mps.is_available()
+    ):
+        # MPS doesn't provide detailed memory stats like CUDA
+        stats["available"] = True
+        stats["device_name"] = "Apple Silicon (MPS)"
+        stats["free_mb"] = 0.0
+        stats["total_mb"] = 0.0
+
+    return stats
+
+
 def startup(log_level=None):
     if not _TORCH_AVAILABLE:
         raise ImportError(
