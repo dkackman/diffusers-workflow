@@ -507,6 +507,91 @@ Metadata includes step name, model name, and generation arguments (prompt, steps
 }
 ```
 
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `qr_code_contents` | Yes | Data to encode (URL, text, etc.) |
+| `height` | No | Used with `width` to derive output resolution (default: 768) |
+| `width` | No | Used with `height` to derive output resolution (default: 768) |
+
+The QR code is generated then resampled to `max(height, width)`, aligned to the nearest 64px multiple.
+
+**Example:** [qr_code.json](../examples/qr_code.json) — QR code with artistic ControlNet
+
+## Chat/Dict Plumbing
+
+These small tasks glue together multi-step pipelines that mix raw `transformers` components with task steps — used internally by the builtin `augment_prompt` and `describe_image` workflows, but usable directly in any workflow.
+
+### format_chat_message
+
+Build a `text_inputs` chat message list from a system and user message, in the shape a `transformers.pipeline` text-generation call expects:
+
+```json
+{
+    "task": {
+        "command": "format_chat_message",
+        "arguments": {
+            "system_prompt": "You are a helpful assistant.",
+            "user_message": "variable:prompt"
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `system_prompt` | Yes | System instruction |
+| `user_message` | Yes | User message content |
+
+Returns `{"text_inputs": [{"role": "system", ...}, {"role": "user", ...}]}`. Pass the result to a `transformers.pipeline` step's `text_inputs` argument via `previous_result:`.
+
+### get_dict_value
+
+Extract a single value from a dictionary result (e.g., a `transformers` pipeline's output) for use in a later step:
+
+```json
+{
+    "task": {
+        "command": "get_dict_value",
+        "arguments": {
+            "dict": "previous_result:augment_prompt",
+            "key": "generated_text"
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `dict` | Yes | Dictionary (or `previous_result:` reference) to read from |
+| `key` | Yes | Key to extract |
+
+Returns the value at `key`, or `None` if the key is absent.
+
+### batch_decode_post_process
+
+Decode generated token IDs and run model-specific post-processing (e.g., Florence-2's task-token parsing), using the processor from an earlier pipeline step:
+
+```json
+{
+    "task": {
+        "command": "batch_decode_post_process",
+        "pipeline_reference": "describe_image_processor",
+        "arguments": {
+            "generated_ids": "previous_result:describe_image_model.generated_ids",
+            "task": "<DETAILED_CAPTION>"
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `pipeline_reference` | Yes | Name of an earlier pipeline step whose processor to reuse (sibling of `command`/`arguments`, not inside `arguments`) |
+| `generated_ids` | Yes | Token IDs to decode (e.g., a model step's `generated_ids` output) |
+| `task` | Yes | Task token to post-process for (e.g., `<DETAILED_CAPTION>`) |
+
+Calls `processor.batch_decode(...)` then `processor.post_process_generation(..., task=task)` and returns `parsed_answer[task]`. See the builtin `describe_image` workflow for the full Florence-2 pattern.
+
 ## Multi-Step Example
 
 Canny edge detection followed by ControlNet generation:

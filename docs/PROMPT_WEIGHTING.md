@@ -48,19 +48,25 @@ When enabled, prompts containing weighting syntax are intercepted before pipelin
 
 Prompts without any weighting syntax (`(`, `[`) pass through unchanged as plain strings.
 
+An optional `prompt_2` argument (Flux's T5 prompt, normally defaulting to `prompt`) is also consumed and weighted separately when present.
+
+Because diffusers rejects mixing a string `negative_prompt` with `prompt_embeds`, any `negative_prompt` argument is silently dropped once weighting kicks in.
+
 ## Supported Pipelines
 
-Currently supports Flux-based pipelines:
+Explicitly supports:
 
 - FluxPipeline
 - FluxImg2ImgPipeline
 - FluxInpaintPipeline
 - FluxControlNetPipeline
 
+Any other pipeline whose class name starts with `Flux` (e.g. `FluxKontextPipeline`, `FluxFillPipeline`, a custom subclass) is also supported automatically, provided it carries the same CLIP + T5 encoder stack (`tokenizer`, `tokenizer_2`, `text_encoder`, `text_encoder_2`). Non-Flux pipelines are not currently supported — the prompt is left as a plain string and a warning is logged.
+
 ## Requirements
 
 - The pipeline's text encoders must be loaded (not set to `null`)
-- Cannot be used with `remote_text_encoder` (mutually exclusive)
+- Cannot be used with `remote_text_encoder` (mutually exclusive — `remote_text_encoder` takes precedence if both are set)
 
 ## Example
 

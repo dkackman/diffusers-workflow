@@ -43,8 +43,10 @@ LoRA (Low-Rank Adaptation) models apply lightweight style or subject modificatio
 | `model_name` | Yes | HuggingFace Hub repo ID |
 | `weight_name` | No | Specific weight file in the repo |
 | `subfolder` | No | Subfolder within the repo |
-| `adapter_name` | No | Named identifier for the adapter |
+| `adapter_name` | No | Named identifier for the adapter. Defaults to the LoRA's position in the list (`"0"`, `"1"`, ...) if omitted |
 | `scale` | No | Blend strength (default: 1.0). Lower = less effect |
+
+Any other property (e.g. `revision`) is forwarded as-is to the underlying `load_lora_weights()` call.
 
 ## Multiple LoRAs
 

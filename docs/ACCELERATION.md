@@ -1,6 +1,6 @@
 # Inference Acceleration
 
-Speed up generation by caching intermediate computations and skipping redundant transformer steps. Two systems are available: diffusers built-in caching and TeaCache.
+Speed up generation by caching intermediate computations and skipping redundant transformer steps. Two systems are available: diffusers built-in caching and TeaCache. Beyond caching, attention backend selection, layerwise casting, and device-level settings (TF32, cuDNN) also affect throughput - see below. Memory offloading trades speed for VRAM and is covered in depth in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#memory-offloading).
 
 ## Diffusers Built-in Cache
 
@@ -131,3 +131,79 @@ Some models have multiple variants with different coefficients:
 They are **mutually exclusive** — use one or the other, not both.
 
 For most cases, start with `first_block` cache. Use TeaCache when you need fine-tuned control over Flux acceleration thresholds.
+
+## Attention Backends
+
+Select the attention implementation diffusers uses for the duration of each pipeline call, via a context manager wrapped around `pipeline(...)`:
+
+```json
+"configuration": {
+    "component_type": "FluxPipeline",
+    "attention_backend": "flash_hub"
+}
+```
+
+Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"xformers"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, `xformers`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use rather than needing a local install.
+
+**Example:** [Flux2Dev.json](../examples/Flux2Dev.json), [hunyuan15.json](../examples/hunyuan15.json), [Wan22TI2V5B.json](../examples/Wan22TI2V5B.json)
+
+## Attention Slicing
+
+```json
+"configuration": {
+    "component_type": "FluxPipeline",
+    "enable_attention_slicing": true
+}
+```
+
+Processes attention in slices to reduce memory at some cost to speed. Enabled automatically on MPS (unified memory benefits from slicing) unless `disable_attention_slicing` is set. Modular pipelines have no `enable_attention_slicing()` method - the setting is silently skipped rather than failing when the pipeline doesn't support it.
+
+`xformers_memory_efficient_attention: true` is also available as an alternative for pipelines/components that support it, applied via `enable_xformers_memory_efficient_attention()`. Not available on MPS (xFormers requires CUDA).
+
+## Layerwise Casting
+
+Store a component's weights in a narrow dtype and upcast only for compute, per component:
+
+```json
+"transformer": {
+    "configuration": { "component_type": "FluxTransformer2DModel" },
+    "enable_layerwise_casting": {
+        "storage_dtype": "torch.float8_e4m3fn",
+        "compute_dtype": "torch.bfloat16"
+    },
+    "from_pretrained_arguments": { ... }
+}
+```
+
+Both `storage_dtype` and `compute_dtype` are required. Applied via the component's own `enable_layerwise_casting()` right after it loads, so it composes with quantization and group offloading on the same component.
+
+## Memory Offloading
+
+`offload` (`"model"` or `"sequential"`) and `group_offload` trade speed for VRAM by streaming weights between system memory and the accelerator instead of keeping everything resident. `"model"` moves whole submodules and costs the least speed; `"sequential"` moves individual layers and is the slowest but uses the least memory; block/leaf-level `group_offload` sits between the two and is what a modular pipeline's self-loaded components use, since they aren't reachable in time for `offload`. Full configuration syntax is in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#memory-offloading). Omit both for the fastest run, when VRAM allows it.
+
+**Example:** [FluxDev.json](../examples/FluxDev.json) (`"offload": "model"`), [ZImage.json](../examples/ZImage.json) (`"offload": "sequential"`), [MiniMaxH3.json](../examples/MiniMaxH3.json) (`group_offload` per component)
+
+## TF32 and cuDNN
+
+Device-level settings, read once at startup from `~/.diffusers_helper/settings.json`:
+
+| Setting | Default | Effect |
+| ------- | ------- | ------ |
+| `enable_tf32` | `true` | Sets `torch.set_float32_matmul_precision("high")`, and on CUDA also `torch.backends.cuda.matmul.allow_tf32 = True`. ~2x faster matmuls on Ampere+ GPUs (RTX 30/40 series, A100, H100) with minor precision loss. No effect outside CUDA. |
+| `cudnn_benchmark` | `true` | CUDA only. Autotunes cuDNN algorithm selection - fastest for a workflow with fixed input sizes, can add overhead when sizes vary run to run. |
+| `cudnn_deterministic` | `false` | CUDA only. Set `true` to trade speed for reproducible output given the same seed. |
+
+```json
+{ "enable_tf32": true, "cudnn_benchmark": true, "cudnn_deterministic": false }
+```
+
+## MPS Notes
+
+Apple Silicon has narrower acceleration support than CUDA:
+
+- No xFormers, no flash-attn, no Triton, no bitsandbytes - `attention_backend` and `xformers_memory_efficient_attention` are effectively CUDA-only; use `"native"`-family backends or leave `attention_backend` unset on MPS.
+- No `torch.autocast` support - autocast-related warnings from other libraries are suppressed automatically rather than surfaced.
+- `enable_attention_slicing` is on by default (set `disable_attention_slicing` to turn it off).
+- `float16` produces NaN values on Apple Silicon - use `float32` or `bfloat16` for `torch_dtype` instead; dw only warns, it doesn't override the dtype for you.
+- `PYTORCH_MPS_HIGH_WATERMARK_RATIO` defaults to `0.0` (use all unified memory) unless already set in the environment.
+- Offloading has less benefit than on CUDA, since unified memory is already shared between CPU and GPU.

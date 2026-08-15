@@ -72,6 +72,17 @@ Weight-only quantization via TorchAO:
 
 **Example:** [FluxTorchAO.json](../examples/FluxTorchAO.json)
 
+Some TorchAO quant types are objects rather than strings (e.g.
+`torchao.quantization.Int8WeightOnlyConfig`). Name the class as a dotted `quant_type` and
+it is instantiated automatically with no arguments before being passed to `TorchAoConfig`:
+
+```json
+"arguments": {
+    "quant_type": "torchao.quantization.Int8WeightOnlyConfig",
+    "modules_to_not_convert": ["proj_in", "proj_out"]
+}
+```
+
 ## GGUF
 
 Load GGUF-format checkpoint files:
@@ -120,6 +131,36 @@ SDNQ uses pre-quantized models that load as complete pipelines. The `sdnq` modul
 - `sdnq_optimize` — Applies quantized matmul to listed components (CUDA/XPU only, skipped on MPS/CPU)
 
 **Example:** [ZImageSDNQ.json](../examples/ZImageSDNQ.json)
+
+## Modular Pipelines
+
+A modular pipeline pulls its component weights itself via `load_components()` rather than
+through `from_pretrained_arguments`, so quantization is keyed by component name under
+`load_components.quantization_config` instead of living on a separate component block:
+
+```json
+"configuration": {
+    "component_type": "MiniMaxMusic3ModularPipeline",
+    "load_components": {
+        "dtype": "torch.bfloat16",
+        "quantization_config": {
+            "transformer": {
+                "configuration": { "config_type": "TorchAoConfig" },
+                "arguments": { "quant_type": "torchao.quantization.Int8WeightOnlyConfig" }
+            },
+            "text_encoder": {
+                "configuration": { "config_type": "transformers.TorchAoConfig" },
+                "arguments": { "quant_type": "torchao.quantization.Int8WeightOnlyConfig" }
+            }
+        }
+    }
+}
+```
+
+A component the map does not name loads unquantized. Note that a transformers-based
+component (a text encoder, for example) takes the `transformers.TorchAoConfig` class,
+not the diffusers one - the `config_type` still resolves either via the dynamic import
+described below.
 
 ## Custom Quantization
 

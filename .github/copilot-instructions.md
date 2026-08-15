@@ -55,8 +55,8 @@ The REPL uses a **persistent worker subprocess** for workflow execution to maint
 ```json
 {
   "task": {
-    "command": "process_image",
-    "arguments": {"image": "previous_result:step1", "operation": "resize"}
+    "command": "resize_center_crop",
+    "arguments": {"image": "previous_result:step1", "height": 768, "width": 768}
   }
 }
 ```
@@ -67,7 +67,7 @@ The REPL uses a **persistent worker subprocess** for workflow execution to maint
 **Validation:** Use `python -m dw.validate workflow.json` to check schema compliance
 **Execution:** `python -m dw.run workflow.json variable1=value1`
 
-**Adding New Tasks:** Extend `dw/tasks/task.py.run()` method with new command handlers
+**Adding New Tasks:** Register a handler function in `dw/tasks/task.py` with the `@register_command("name")` decorator; `Task.run()` dispatches to the registry (falling back to image/video processor lookups for unregistered names)
 **Adding Pipeline Types:** Update `workflow_schema.json` and ensure proper component loading in `pipeline.py`
 
 ## Project-Specific Conventions
