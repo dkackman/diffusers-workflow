@@ -13,6 +13,16 @@ load_dotenv()  # Loads .env from current directory
 if "PYTORCH_MPS_HIGH_WATERMARK_RATIO" not in os.environ:
     os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
 
+# Let the CUDA allocator grow segments instead of fragmenting fixed-size ones.
+# Multi-step workflows churn differently-shaped allocations (generate, upscale,
+# interpolate), and fragmentation is what OOMs a card that nominally has room
+if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+# Load sharded checkpoints in parallel - a pure cold-start win
+if "HF_ENABLE_PARALLEL_LOADING" not in os.environ:
+    os.environ["HF_ENABLE_PARALLEL_LOADING"] = "true"
+
 # Suppress all common library warnings before any imports
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)

@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dw.workflow import Workflow
 from dw.pipeline_processors.pipeline import Pipeline
+from dw.step import Step
 from dw import get_device
 
 # Setup logging
@@ -220,6 +221,48 @@ def test_pipeline_caching_different_steps():
             logger.info("\n" + "=" * 60)
             logger.info("🎉 MULTI-STEP TEST PASSED!")
             logger.info("=" * 60)
+
+
+def _release_workflow_def():
+    def step(name, **extra):
+        return {
+            "name": name,
+            **extra,
+            "pipeline": {
+                # Escaped with {} so realize_args leaves it a string - load is
+                # mocked, the type is never used
+                "configuration": {"component_type": "{MockPipeline}"},
+                "from_pretrained_arguments": {"model_name": f"model-{name}"},
+                "arguments": {"prompt": "test"},
+            },
+        }
+
+    return {
+        "id": "test_release",
+        "steps": [step("generate", release_pipeline=True), step("keep")],
+    }
+
+
+def test_release_pipeline_evicts_after_step():
+    """A step with release_pipeline drops its pipeline from the cache; others stay."""
+
+    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    pipeline_cache = {}
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(
+            Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+        ):
+            with patch("dw.workflow.empty_device_cache") as empty_cache:
+                workflow.run({}, previous_pipelines=pipeline_cache)
+
+    assert "generate" not in pipeline_cache, "released pipeline should be evicted"
+    assert "keep" in pipeline_cache, "other pipelines stay cached"
+    # the between-step cleanup returns cached blocks to the device
+    assert empty_cache.call_count == len(_release_workflow_def()["steps"])
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from dw.arguments import realize_args
 from dw.pipeline_processors.pipeline import (
     Pipeline,
+    apply_compile,
     configure_components,
     get_component,
     load_component,
@@ -501,6 +502,95 @@ class TestConfigureComponents:
         assert "image_encoder" in caplog.text
         # the other component in the same map is still configured
         pipeline.transformer.to.assert_called_once_with("cuda")
+
+
+class TestCompileComponents:
+    """Test per-component torch.compile and attention backend pinning"""
+
+    def configure(self, components, pipeline=None, device="cuda"):
+        pipeline = pipeline if pipeline is not None else MagicMock()
+        with patch("diffusers.hooks.apply_group_offloading") as group_offload:
+            configure_components(pipeline, {"components": components}, device)
+
+        return pipeline, group_offload
+
+    def test_compile_options_are_passed_through(self):
+        pipeline, _ = self.configure(
+            {"transformer": {"compile": {"mode": "max-autotune", "fullgraph": True}}}
+        )
+
+        pipeline.transformer.compile.assert_called_once_with(
+            mode="max-autotune", fullgraph=True
+        )
+
+    def test_repeated_blocks_selects_regional_compilation(self):
+        pipeline, _ = self.configure(
+            {"transformer": {"compile": {"repeated_blocks": True, "fullgraph": True}}}
+        )
+
+        pipeline.transformer.compile_repeated_blocks.assert_called_once_with(
+            fullgraph=True
+        )
+        pipeline.transformer.compile.assert_not_called()
+
+    def test_repeated_blocks_requires_model_support(self):
+        component = MagicMock(spec=["compile"])
+
+        with pytest.raises(ValueError, match="repeated_blocks"):
+            apply_compile(component, "transformer", {"repeated_blocks": True}, "cuda")
+
+    def test_compile_is_skipped_on_mps(self, caplog):
+        pipeline = MagicMock()
+
+        with caplog.at_level(logging.WARNING, logger="dw"):
+            self.configure({"transformer": {"compile": {}}}, pipeline, device="mps")
+
+        pipeline.transformer.compile.assert_not_called()
+        assert "MPS" in caplog.text
+
+    def test_compile_runs_after_group_offloading(self):
+        # The compiled graph must capture the offload hooks, so the hooks are
+        # installed first
+        calls = []
+        pipeline = MagicMock()
+        pipeline.transformer.compile.side_effect = lambda **_: calls.append("compile")
+
+        with patch(
+            "diffusers.hooks.apply_group_offloading",
+            side_effect=lambda *a, **k: calls.append("offload"),
+        ):
+            configure_components(
+                pipeline,
+                {
+                    "components": {
+                        "transformer": {
+                            "group_offload": {"offload_type": "leaf_level"},
+                            "compile": {},
+                        }
+                    }
+                },
+                "cuda",
+            )
+
+        assert calls == ["offload", "compile"]
+
+    def test_attention_backend_is_pinned_on_the_component(self):
+        pipeline, _ = self.configure(
+            {"transformer": {"attention_backend": "flash_hub"}}
+        )
+
+        pipeline.transformer.set_attention_backend.assert_called_once_with("flash_hub")
+
+    def test_component_device_override_governs_the_mps_skip(self, caplog):
+        # The step may pin this component to another device than the pipeline's
+        pipeline = MagicMock()
+
+        with caplog.at_level(logging.WARNING, logger="dw"):
+            self.configure(
+                {"transformer": {"device": "mps", "compile": {}}}, pipeline, "cuda"
+            )
+
+        pipeline.transformer.compile.assert_not_called()
 
 
 class TestDtypeConversion:

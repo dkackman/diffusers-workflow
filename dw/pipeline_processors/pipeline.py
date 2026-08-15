@@ -191,12 +191,6 @@ class Pipeline:
                     f"{type(self.pipeline).__name__} does not support attention slicing, skipping"
                 )
 
-        if self.configuration.get("xformers_memory_efficient_attention", False):
-            logger.debug(
-                "Enabling attention xformers memory efficient attention for pipeline"
-            )
-            self.pipeline.enable_xformers_memory_efficient_attention()
-
         # configure components that are not shared
         self.configure_loaded_components()
 
@@ -414,21 +408,11 @@ class Pipeline:
             logger.debug("Setting UNet memory format")
             self.pipeline.unet.to(memory_format=torch.channels_last)
 
-        # Configure UNet attention processor (mutually exclusive options)
+        # Configure UNet attention processor
         if unet.get("attn_processor_type", None) is not None:
             logger.debug("Enabling UNet custom attention processor")
             attn_processor = unet["attn_processor_type"]()
             self.pipeline.unet.set_attn_processor(attn_processor)
-        elif unet.get("enable_xformers_memory_efficient_attention", False):
-            logger.info("Enabling xFormers memory efficient attention for UNet")
-            if hasattr(
-                self.pipeline.unet, "enable_xformers_memory_efficient_attention"
-            ):
-                self.pipeline.unet.enable_xformers_memory_efficient_attention()
-            else:
-                logger.warning(
-                    "UNet does not support xFormers memory efficient attention"
-                )
 
         # Configure transformer settings
         transformer = self.configuration.get("transformer", {})
@@ -436,16 +420,6 @@ class Pipeline:
             logger.debug("Enabling transformer custom attention processor")
             attn_processor = transformer["attn_processor_type"]()
             self.pipeline.transformer.set_attn_processor(attn_processor)
-        elif transformer.get("enable_xformers", False):
-            logger.info("Enabling xFormers memory efficient attention for transformer")
-            if hasattr(
-                self.pipeline.transformer, "enable_xformers_memory_efficient_attention"
-            ):
-                self.pipeline.transformer.enable_xformers_memory_efficient_attention()
-            else:
-                logger.warning(
-                    "Transformer does not support xFormers memory efficient attention"
-                )
 
         # configure optional components
         for component_name in declared_component_names(self.pipeline_definition):
@@ -514,6 +488,68 @@ def configure_components(pipeline, configuration, default_device):
         if device is not None:
             logger.info(f"Moving {component_name} to device: {device}")
             component.to(device)
+
+        # A compiled component should pin its attention backend - the per-call
+        # attention_backend context manager would switch implementations under a
+        # compiled graph and force a recompile on every run
+        component_attention_backend = component_configuration.get(
+            "attention_backend", None
+        )
+        if component_attention_backend is not None:
+            logger.info(
+                f"Setting {component_name} attention backend: {component_attention_backend}"
+            )
+            component.set_attention_backend(component_attention_backend)
+
+        # Compile last - the graph must capture final dtypes, adapters,
+        # quantization, and offload hooks
+        compile_configuration = component_configuration.get("compile", None)
+        if compile_configuration is not None:
+            apply_compile(
+                component,
+                component_name,
+                compile_configuration,
+                device if device is not None else default_device,
+            )
+
+
+def apply_compile(component, component_name, compile_configuration, device):
+    """Compile a component with torch.compile.
+
+    Compilation happens in place (nn.Module.compile) so the module stays registered
+    on its pipeline. With 'repeated_blocks' true, only the model's repeated block
+    classes are compiled (diffusers' regional compilation) - near the same speedup
+    as full compilation with a fraction of the cold-start cost.
+
+    Args:
+        component: The component to compile
+        component_name: Name of the component, for logging
+        compile_configuration: Dict of options - 'repeated_blocks' selects regional
+            compilation, everything else ('mode', 'fullgraph', 'dynamic', ...) is
+            passed to torch.compile
+        device: Device the component runs on
+    """
+    # Inductor support on MPS is too immature to be worth the compile time
+    if get_device_type(device) == "mps":
+        logger.warning(
+            f"torch.compile is not supported on MPS, skipping {component_name}"
+        )
+        return
+
+    options = dict(compile_configuration)
+    repeated_blocks = options.pop("repeated_blocks", False)
+
+    if repeated_blocks:
+        if not has_method(component, "compile_repeated_blocks"):
+            raise ValueError(
+                f"repeated_blocks compilation requires a diffusers model with "
+                f"repeated block support, {type(component).__name__} does not have it"
+            )
+        logger.info(f"Compiling repeated blocks of {component_name}")
+        component.compile_repeated_blocks(**options)
+    else:
+        logger.info(f"Compiling {component_name}")
+        component.compile(**options)
 
 
 _MISSING = object()

@@ -8,7 +8,15 @@
             "name": "main",
             "pipeline": {
                 "configuration": {
-                    "component_type": "FluxPipeline"
+                    "component_type": "FluxPipeline",
+                    "components": {
+                        "transformer": {
+                            "compile": {
+                                "repeated_blocks": true,
+                                "fullgraph": true
+                            }
+                        }
+                    }
                 },
                 "transformer": {
                     "configuration": {
@@ -19,7 +27,7 @@
                             "config_type": "TorchAoConfig"
                         },
                         "arguments": {
-                            "quant_type": "{int4wo}"
+                            "quant_type": "torchao.quantization.Int4WeightOnlyConfig"
                         }
                     },
                     "from_pretrained_arguments": {

@@ -11,7 +11,7 @@ from .schema import validate_data, load_schema
 from .variables import replace_variables, set_variables
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.task import Task
-from . import get_device
+from . import get_device, empty_device_cache
 from .security import (
     validate_workflow_path,
     validate_json_size,
@@ -222,8 +222,18 @@ class Workflow:
                     results, referenced_result_names(steps[i + 1 :])
                 )
 
-                # Cleanup between steps (but keep pipelines loaded)
+                # A released pipeline frees its memory for later steps - the
+                # alternative on a card that cannot hold two models is offloading
+                # everything, which taxes every run to survive one transition
+                if step_data.get("release_pipeline", False):
+                    logger.info(f"Releasing pipeline for step: {step.name}")
+                    pipelines.pop(step.name, None)
+
+                # Cleanup between steps (but keep pipelines loaded). Returning
+                # cached blocks to the device lets the next step's differently
+                # shaped allocations use them
                 gc.collect()
+                empty_device_cache()
 
             logger.debug(f"Workflow {workflow_id} completed successfully")
             # Return only the last step's results for child workflows

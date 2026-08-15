@@ -59,27 +59,39 @@ For 8-bit:
 
 ## TorchAO
 
-Weight-only quantization via TorchAO:
+Quantization via TorchAO. `quant_type` must be an `AOBaseConfig` class (diffusers no
+longer accepts string shorthands like `"int4wo"`). Name the class as a dotted
+`quant_type` and it is instantiated automatically with no arguments before being passed
+to `TorchAoConfig`:
 
 ```json
 "quantization_config": {
     "configuration": { "config_type": "TorchAoConfig" },
     "arguments": {
-        "quant_type": "{int4wo}"
+        "quant_type": "torchao.quantization.Int8WeightOnlyConfig",
+        "modules_to_not_convert": ["proj_in", "proj_out"]
     }
 }
 ```
 
+Common choices: `Int8WeightOnlyConfig` (any CUDA card), `Int4WeightOnlyConfig` (smallest),
+`Float8DynamicActivationFloat8WeightConfig` (fastest, requires compute capability 8.9+ -
+RTX 40-series/Ada or newer).
+
 **Example:** [FluxTorchAO.json](../examples/FluxTorchAO.json)
 
-Some TorchAO quant types are objects rather than strings (e.g.
-`torchao.quantization.Int8WeightOnlyConfig`). Name the class as a dotted `quant_type` and
-it is instantiated automatically with no arguments before being passed to `TorchAoConfig`:
+**Pair TorchAO with `torch.compile`.** Int8 weight-only and float8 dynamic-activation
+quant types get their fused-kernel speedups only under compilation - uncompiled they are
+a memory win but often a speed *loss*. Add a `compile` block to the quantized component
+(see [ACCELERATION.md](ACCELERATION.md#torchcompile)):
 
 ```json
-"arguments": {
-    "quant_type": "torchao.quantization.Int8WeightOnlyConfig",
-    "modules_to_not_convert": ["proj_in", "proj_out"]
+"configuration": {
+    "components": {
+        "transformer": {
+            "compile": { "repeated_blocks": true, "fullgraph": true }
+        }
+    }
 }
 ```
 

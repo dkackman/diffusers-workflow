@@ -277,6 +277,25 @@ For components the pipeline loads itself — which is all of a modular pipeline'
 - `do_not_send_to_device` belongs with this: the components are placed individually, so
   the pipeline itself must not be moved to the device afterwards.
 
+#### Releasing a pipeline mid-workflow
+
+Pipelines stay loaded for the whole run (and across REPL runs) so repeated steps reuse
+them. When a workflow chains two large models that cannot both fit - generate with one,
+upscale with another - release the first once its step completes instead of configuring
+offload on everything:
+
+```json
+{
+    "name": "generate",
+    "release_pipeline": true,
+    "pipeline": { ... }
+}
+```
+
+The step-level `release_pipeline` flag unloads the step's pipeline after its results are
+saved. A later `pipeline_reference` to a released step is an error, and the REPL's
+cross-run cache will not retain it.
+
 ### VAE Options
 
 ```json
@@ -356,7 +375,6 @@ between the two steps.
   automatically on MPS unless `disable_attention_slicing` is set.
 - `attention_backend` — selects a diffusers attention backend (e.g. `"flash_hub"`) for
   the duration of each pipeline call.
-- `xformers_memory_efficient_attention` — enables xFormers memory-efficient attention.
 - `prompt_weighting` — enables A1111-style prompt weighting (`(word:1.5)`, `[word]`,
   `((word))`) and prompts over 77 tokens. Currently supports Flux pipelines. Mutually
   exclusive with `remote_text_encoder`.

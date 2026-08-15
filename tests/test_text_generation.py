@@ -37,7 +37,9 @@ class TestTextGeneration(unittest.TestCase):
         pipe.return_value = [{"generated_text": "output"}]
         mock_pipeline.return_value = pipe
 
-        generate_text("test", device="cpu", model_name="meta-llama/Llama-3.2-1B-Instruct")
+        generate_text(
+            "test", device="cpu", model_name="meta-llama/Llama-3.2-1B-Instruct"
+        )
 
         call_kwargs = mock_pipeline.call_args
         self.assertEqual(call_kwargs[1]["model"], "meta-llama/Llama-3.2-1B-Instruct")
@@ -58,7 +60,9 @@ class TestTextGeneration(unittest.TestCase):
         messages = call_args[0][0]
         self.assertEqual(len(messages), 2)
         self.assertEqual(messages[0]["role"], "system")
-        self.assertEqual(messages[0]["content"], "You expand prompts for image generation.")
+        self.assertEqual(
+            messages[0]["content"], "You expand prompts for image generation."
+        )
         self.assertEqual(messages[1]["role"], "user")
         self.assertEqual(messages[1]["content"], "a cat")
 

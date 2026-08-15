@@ -64,6 +64,10 @@
                     "type": "integer",
                     "format": "int64"
                 },
+                "release_pipeline": {
+                    "description": "Unload this step's pipeline once the step completes, freeing its memory for later steps. A later pipeline_reference to this step is an error, and the REPL's cross-run cache will not retain it.",
+                    "type": "boolean"
+                },
                 "task": {
                     "$ref": "#/$defs/task"
                 },
@@ -273,10 +277,6 @@
                     "description": "The attention backend to use for the pipeline.",
                     "type": "string"
                 },
-                "xformers_memory_efficient_attention": {
-                    "description": "Whether to enable xformers memory efficient attention for the pipeline.",
-                    "type": "boolean"
-                },
                 "prompt_weighting": {
                     "description": "Enable A1111-style prompt weighting syntax: (word:1.5) for emphasis, [word] for de-emphasis, ((word)) for nested weighting. Also supports prompts longer than 77 tokens. Currently supports Flux pipelines. Mutually exclusive with remote_text_encoder.",
                     "type": "boolean"
@@ -324,6 +324,13 @@
                             "device": {
                                 "description": "The device to move this component to, e.g. 'cuda'. Only for components small enough to stay resident - the offloaded ones are placed by their own hooks.",
                                 "type": "string"
+                            },
+                            "attention_backend": {
+                                "description": "Pin this component's attention backend persistently via set_attention_backend, e.g. 'flash', 'sage', '_flash_3_hub'. Use this instead of the pipeline-level attention_backend when the component is compiled - the per-call context manager forces recompiles.",
+                                "type": "string"
+                            },
+                            "compile": {
+                                "$ref": "#/$defs/compile_config"
                             }
                         }
                     }
@@ -453,17 +460,14 @@
                         },
                         "attn_processor_type": {
                             "type": "string"
-                        },
-                        "enable_xformers_memory_efficient_attention": {
-                            "type": "boolean"
                         }
                     }
                 },
                 "transformer": {
-                    "description": "The type name of an attention processor",
                     "type": "object",
                     "properties": {
-                        "attn_processor": {
+                        "attn_processor_type": {
+                            "description": "The type name of an attention processor",
                             "type": "string"
                         }
                     }
@@ -844,6 +848,28 @@
             "required": [
                 "offload_type"
             ]
+        },
+        "compile_config": {
+            "description": "Compile the component with torch.compile once it is fully configured. Best paired with a pinned attention_backend - the per-call context manager forces recompiles.",
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "description": "torch.compile mode, e.g. 'default', 'reduce-overhead', 'max-autotune'.",
+                    "type": "string"
+                },
+                "fullgraph": {
+                    "description": "Require a single graph with no breaks. Fails fast on graph breaks instead of silently losing speedup.",
+                    "type": "boolean"
+                },
+                "dynamic": {
+                    "description": "Compile with dynamic shapes. Set true when resolutions or frame counts vary between runs to avoid recompiles.",
+                    "type": "boolean"
+                },
+                "repeated_blocks": {
+                    "description": "Compile only the model's repeated block classes (diffusers regional compilation) - near the same speedup as full compilation with a fraction of the cold-start cost.",
+                    "type": "boolean"
+                }
+            }
         }
     }
 }
