@@ -9,13 +9,11 @@ from .format_messages import (
     batch_decode_post_process,
     get_dict_value,
 )
-from .upscale import upscale_image
-from .restore_faces import restore_faces
-from .segment import segment_image
-from .interpolate_frames import interpolate_frames
-from .image_to_text import image_to_text
-from .text_generation import generate_text
-from .diffusion_upscale import diffusion_upscale
+
+# The model-backed handlers (upscale, restore_faces, segment, interpolate_frames,
+# image_to_text, text_generation, diffusion_upscale) are imported inside their
+# handlers - at module scope their transformers/model imports add seconds to
+# every startup for workflows that never run those tasks
 
 logger = logging.getLogger("dw")
 
@@ -92,6 +90,8 @@ def _handle_upscale(task, arguments, previous_pipelines):
     logger.debug("Upscaling image")
     image = arguments.pop("image")
     model_name = arguments.pop("model_name")
+    from .upscale import upscale_image
+
     return upscale_image(
         image, model_name, device=task.device_for(arguments), **arguments
     )
@@ -102,6 +102,8 @@ def _handle_diffusion_upscale(task, arguments, previous_pipelines):
     """Upscale an image using a diffusion-based upscale pipeline"""
     logger.debug("Diffusion upscaling image")
     image = arguments.pop("image")
+    from .diffusion_upscale import diffusion_upscale
+
     return diffusion_upscale(image, device=task.device_for(arguments), **arguments)
 
 
@@ -111,6 +113,8 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
     logger.debug("Restoring faces")
     image = arguments.pop("image")
     model_name = arguments.pop("model_name")
+    from .restore_faces import restore_faces
+
     return restore_faces(
         image, model_name, device=task.device_for(arguments), **arguments
     )
@@ -122,6 +126,8 @@ def _handle_segment(task, arguments, previous_pipelines):
     logger.debug("Segmenting image")
     image = arguments.pop("image")
     prompt = arguments.pop("prompt")
+    from .segment import segment_image
+
     return segment_image(image, prompt, device=task.device_for(arguments), **arguments)
 
 
@@ -130,6 +136,8 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
     """Interpolate video frames to increase frame rate"""
     logger.debug("Interpolating frames")
     video = arguments.pop("video")
+    from .interpolate_frames import interpolate_frames
+
     return interpolate_frames(video, device=task.device_for(arguments), **arguments)
 
 
@@ -138,6 +146,8 @@ def _handle_image_to_text(task, arguments, previous_pipelines):
     """Generate text caption from an image"""
     logger.debug("Captioning image")
     image = arguments.pop("image")
+    from .image_to_text import image_to_text
+
     return image_to_text(image, device=task.device_for(arguments), **arguments)
 
 
@@ -146,6 +156,8 @@ def _handle_text_generation(task, arguments, previous_pipelines):
     """Generate text from a prompt using a local LLM"""
     logger.debug("Generating text")
     prompt = arguments.pop("prompt")
+    from .text_generation import generate_text
+
     return generate_text(prompt, device=task.device_for(arguments), **arguments)
 
 

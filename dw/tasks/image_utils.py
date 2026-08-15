@@ -1,38 +1,17 @@
 from PIL import Image
-import cv2
 import numpy as np
-from controlnet_aux import (
-    MLSDdetector,
-    NormalBaeDetector,
-    LineartDetector,
-    OpenposeDetector,
-    HEDdetector,
-    PidiNetDetector,
-    ContentShuffleDetector,
-    MidasDetector,
-    ZoeDetector,
-    SamDetector,
-    LeresDetector,
-    TEEDdetector,
-    AnylineDetector,
-    CannyDetector,
-    LineartStandardDetector,
-    DWposeDetector,
-)
-from transformers import (
-    AutoImageProcessor,
-    UperNetForSemanticSegmentation,
-    DPTForDepthEstimation,
-    DPTImageProcessor,
-)
-from .zoe_depth import colorize, load_zoe
-from .background_remover import remove_background
-from .depth_estimator import make_hint_image, make_hint_tensor
 from .borders import add_border_and_mask, add_border_and_mask_with_size
 import torch
 
+# cv2, controlnet_aux, transformers and the model-backed task modules are imported
+# inside the functions that use them - at module scope they add seconds to every
+# startup (including the REPL worker spawn and dw.validate) for workflows that
+# never touch an image-processing task
+
 
 def process_image(image, processor, device, kwargs):
+    import controlnet_aux
+
     processor = processor.lower()
 
     if processor == "get_image_size":
@@ -45,105 +24,111 @@ def process_image(image, processor, device, kwargs):
         return add_border_and_mask_with_size(image, **kwargs)
 
     if processor == "remove_background":
+        from .background_remover import remove_background
+
         return remove_background(image, device, **kwargs)
 
     if processor == "canny_cv":
         return image_to_canny(image, **kwargs)
 
     if processor == "mlsd":
-        return MLSDdetector.from_pretrained("lllyasviel/Annotators").to(device)(
-            image, **kwargs
-        )
+        return controlnet_aux.MLSDdetector.from_pretrained("lllyasviel/Annotators").to(
+            device
+        )(image, **kwargs)
 
     if processor == "normal_bae":
-        return NormalBaeDetector.from_pretrained("lllyasviel/Annotators").to(device)(
-            image, **kwargs
-        )
+        return controlnet_aux.NormalBaeDetector.from_pretrained(
+            "lllyasviel/Annotators"
+        ).to(device)(image, **kwargs)
 
     if processor == "segmentation":
         return image_to_segmentation(image)
 
     if processor == "lineart":
-        return LineartDetector.from_pretrained("lllyasviel/Annotators").to(device)(
-            image, coarse=True, **kwargs
-        )
+        return controlnet_aux.LineartDetector.from_pretrained(
+            "lllyasviel/Annotators"
+        ).to(device)(image, coarse=True, **kwargs)
 
     if processor == "openpose":
-        return OpenposeDetector.from_pretrained("lllyasviel/Annotators").to(device)(
-            image, hand_and_face=True, **kwargs
-        )
+        return controlnet_aux.OpenposeDetector.from_pretrained(
+            "lllyasviel/Annotators"
+        ).to(device)(image, hand_and_face=True, **kwargs)
 
     if processor == "hed":
-        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(device)(
-            image, scribble=False, **kwargs
-        )
+        return controlnet_aux.HEDdetector.from_pretrained("lllyasviel/Annotators").to(
+            device
+        )(image, scribble=False, **kwargs)
 
     if processor == "scribble":
-        return HEDdetector.from_pretrained("lllyasviel/Annotators").to(device)(
-            image, scribble=True, **kwargs
-        )
+        return controlnet_aux.HEDdetector.from_pretrained("lllyasviel/Annotators").to(
+            device
+        )(image, scribble=True, **kwargs)
 
     if processor == "pidi":
-        return PidiNetDetector.from_pretrained("lllyasviel/Annotators").to(device)(
-            image, safe=True, **kwargs
-        )
+        return controlnet_aux.PidiNetDetector.from_pretrained(
+            "lllyasviel/Annotators"
+        ).to(device)(image, safe=True, **kwargs)
 
     if processor == "midas":
-        return MidasDetector.from_pretrained("lllyasviel/Annotators").to(device)(
-            image, **kwargs
-        )
+        return controlnet_aux.MidasDetector.from_pretrained("lllyasviel/Annotators").to(
+            device
+        )(image, **kwargs)
 
     if processor == "shuffle":
-        processor = ContentShuffleDetector()
+        processor = controlnet_aux.ContentShuffleDetector()
         return processor(image, **kwargs)
 
     if processor == "canny":
-        processor = CannyDetector()
+        processor = controlnet_aux.CannyDetector()
         return processor(image, **kwargs)
 
     if processor == "lineart_standard":
-        processor = LineartStandardDetector()
+        processor = controlnet_aux.LineartStandardDetector()
         return processor(image, **kwargs)
 
     if processor == "dw_pose":
-        processor = DWposeDetector(device=device)
+        processor = controlnet_aux.DWposeDetector(device=device)
         return processor(image, **kwargs)
 
     if processor == "zoe_depth":
         return get_zoe_depth_map(image, device)
 
     if processor == "zoe":
-        return ZoeDetector.from_pretrained("lllyasviel/Annotators").to(device)(
-            image, **kwargs
-        )
+        return controlnet_aux.ZoeDetector.from_pretrained("lllyasviel/Annotators").to(
+            device
+        )(image, **kwargs)
 
     if processor == "sam":
-        return SamDetector.from_pretrained(
+        return controlnet_aux.SamDetector.from_pretrained(
             "ybelkada/segment-anything", subfolder="checkpoints"
         )(image, **kwargs)
 
     if processor == "teed":
-        return TEEDdetector.from_pretrained("fal-ai/teed", filename="5_model.pth").to(
-            device
-        )(image, **kwargs)
+        return controlnet_aux.TEEDdetector.from_pretrained(
+            "fal-ai/teed", filename="5_model.pth"
+        ).to(device)(image, **kwargs)
 
     if processor == "anyline":
-        return AnylineDetector.from_pretrained(
+        return controlnet_aux.AnylineDetector.from_pretrained(
             "TheMistoAI/MistoLine", filename="MTEED.pth", subfolder="Anyline"
         ).to(device)(image, **kwargs)
 
     if processor == "leres":
-        return LeresDetector.from_pretrained("lllyasviel/Annotators").to(device)(
-            image, **kwargs
-        )
+        return controlnet_aux.LeresDetector.from_pretrained("lllyasviel/Annotators").to(
+            device
+        )(image, **kwargs)
 
     if processor == "depth":
         return image_to_depth(image, device, **kwargs)
 
     if processor == "depth_estimator_tensor":
+        from .depth_estimator import make_hint_tensor
+
         return make_hint_tensor(image, device, **kwargs)
 
     if processor == "depth_estimator":
+        from .depth_estimator import make_hint_image
+
         return make_hint_image(image, device, **kwargs)
 
     if processor == "resize_center_crop":
@@ -171,6 +156,8 @@ def process_image(image, processor, device, kwargs):
 
 
 def get_zoe_depth_map(image, device):
+    from .zoe_depth import colorize, load_zoe
+
     model_zoe_n = load_zoe(device)
     # MPS doesn't support autocast, so use 'cpu' for autocast when on MPS
     from dw import get_autocast_device_type
@@ -186,6 +173,8 @@ def get_zoe_depth_map(image, device):
 
 
 def image_to_canny(image, low_threshold=100, high_threshold=200):
+    import cv2
+
     image = np.array(image)
 
     image = cv2.Canny(image, low_threshold, high_threshold)
@@ -195,6 +184,8 @@ def image_to_canny(image, low_threshold=100, high_threshold=200):
 
 
 def image_to_depth(image, device, height=1024, width=1024):
+    from transformers import DPTForDepthEstimation, DPTImageProcessor
+
     size = (width, height)
     depth_estimator = DPTForDepthEstimation.from_pretrained(
         "Intel/dpt-hybrid-midas"
@@ -231,6 +222,8 @@ def image_to_depth(image, device, height=1024, width=1024):
 
 
 def image_to_segmentation(image):
+    from transformers import AutoImageProcessor, UperNetForSemanticSegmentation
+
     image_processor = AutoImageProcessor.from_pretrained(
         "openmmlab/upernet-convnext-small"
     )
@@ -386,8 +379,15 @@ def strip_exif(image):
     return clean
 
 
-def add_watermark(image, text="AI Generated", position="bottom-right",
-                  opacity=128, font_size=0, margin=10, color=None):
+def add_watermark(
+    image,
+    text="AI Generated",
+    position="bottom-right",
+    opacity=128,
+    font_size=0,
+    margin=10,
+    color=None,
+):
     """Add a visible text watermark to an image.
 
     Args:

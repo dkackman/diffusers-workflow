@@ -1,12 +1,5 @@
 import logging
 import torch
-from diffusers import (
-    FirstBlockCacheConfig,
-    FasterCacheConfig,
-    MagCacheConfig,
-    TaylorSeerCacheConfig,
-    TextKVCacheConfig,
-)
 
 logger = logging.getLogger("dw")
 
@@ -138,6 +131,16 @@ def get_cache_configuration(configuration):
 
     cache_config = configuration.get("cache", None)
     if cache_config is not None:
+        # Imported here rather than at module scope - the cache configs live in
+        # diffusers.hooks, which drags in peft (~2s) every startup otherwise
+        from diffusers import (
+            FirstBlockCacheConfig,
+            FasterCacheConfig,
+            MagCacheConfig,
+            TaylorSeerCacheConfig,
+            TextKVCacheConfig,
+        )
+
         logger.info("Loading cache configuration...")
         logger.debug(f"Cache parameters: {cache_config}")
         try:

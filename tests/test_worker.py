@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 """
-Test script for worker-based REPL implementation.
+Tests for the worker-based REPL implementation.
 This tests the persistent worker subprocess with GPU memory management.
+
+All tests spawn a real `multiprocessing.Process` running `worker_main`. The
+`worker_process` fixture owns the full lifecycle of that child process so
+that no test failure can ever leave it orphaned: a spawned worker that never
+receives (or never gets to process) a "shutdown" command blocks forever on
+its command queue, and since it is non-daemon, multiprocessing's atexit
+handler joins it forever at interpreter exit - hanging the whole pytest run.
 """
 
 import sys
 import os
-import time
 import multiprocessing
+
+import pytest
 
 # CRITICAL: Set spawn method before any other imports that might use multiprocessing
 if multiprocessing.get_start_method(allow_none=True) != "spawn":
@@ -21,246 +29,178 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dw.worker import worker_main
 
+# The first response after spawning must tolerate the child process importing
+# torch + diffusers before it can reply to anything - a few seconds warm,
+# much longer cold or when the machine is under load. This timeout is
+# generous specifically to absorb that one-time cost.
+WORKER_READY_TIMEOUT = 60
 
-def test_worker_lifecycle():
-    """Test basic worker startup and shutdown"""
-    print("Test 1: Worker lifecycle")
-    print("-" * 50)
+# Subsequent commands go to an already-imported, idle worker, so they should
+# be fast - but keep this a bit above the old 5s to tolerate a loaded machine.
+COMMAND_TIMEOUT = 10
 
+TEST_WORKFLOW_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "dw",
+    "workflows",
+    "test.json",
+)
+
+
+@pytest.fixture
+def worker_process():
+    """
+    Spawn a worker process plus its command/result queues, yield them to the
+    test, and unconditionally tear the worker down afterward.
+
+    Teardown never assumes the test left things in a clean state: it first
+    tries a graceful "shutdown" command (short join), then escalates to
+    terminate() and finally kill() if the process is still alive. This runs
+    in a `finally` so an assertion failure - or any other exception - can
+    never orphan the child.
+    """
     cmd_queue = multiprocessing.Queue()
     res_queue = multiprocessing.Queue()
 
     worker = multiprocessing.Process(
         target=worker_main, args=(cmd_queue, res_queue, "INFO")
     )
+    # Belt-and-braces: even if the teardown logic below were somehow skipped,
+    # a daemon process is killed automatically when the test process exits
+    # instead of being joined forever.
+    worker.daemon = True
     worker.start()
 
-    print("✓ Worker started")
+    try:
+        yield cmd_queue, res_queue, worker
+    finally:
+        if worker.is_alive():
+            try:
+                cmd_queue.put({"type": "shutdown"})
+                res_queue.get(timeout=COMMAND_TIMEOUT)
+            except Exception:
+                pass  # best-effort; escalation below handles a stuck worker
+            worker.join(timeout=5)
 
-    # Test ping
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=5)
+
+        if worker.is_alive():
+            worker.kill()
+            worker.join(timeout=5)
+
+        cmd_queue.close()
+        res_queue.close()
+
+
+def test_worker_lifecycle(worker_process):
+    """Worker starts, responds to ping, and shuts down gracefully."""
+    cmd_queue, res_queue, worker = worker_process
+
     cmd_queue.put({"type": "ping"})
-    result = res_queue.get(timeout=5)
+    result = res_queue.get(timeout=WORKER_READY_TIMEOUT)
     assert result["type"] == "pong"
-    print(f"✓ Worker responded to ping (run_count: {result['run_count']})")
+    assert result["run_count"] == 0
 
-    # Test shutdown
     cmd_queue.put({"type": "shutdown"})
-    result = res_queue.get(timeout=5)
+    result = res_queue.get(timeout=COMMAND_TIMEOUT)
     assert result["type"] == "shutdown_complete"
-    worker.join(timeout=5)
-    print("✓ Worker shutdown gracefully")
 
-    print("✓ Test 1 passed\n")
+    worker.join(timeout=COMMAND_TIMEOUT)
+    assert not worker.is_alive()
 
 
-def test_worker_memory_status():
-    """Test memory status reporting"""
-    print("Test 2: Memory status reporting")
-    print("-" * 50)
+def test_worker_memory_status(worker_process):
+    """Worker reports memory status on request."""
+    cmd_queue, res_queue, worker = worker_process
 
-    cmd_queue = multiprocessing.Queue()
-    res_queue = multiprocessing.Queue()
-
-    worker = multiprocessing.Process(
-        target=worker_main, args=(cmd_queue, res_queue, "INFO")
-    )
-    worker.start()
-
-    print("✓ Worker started")
-
-    # Request memory status
     cmd_queue.put({"type": "memory_status"})
-    result = res_queue.get(timeout=5)
+    result = res_queue.get(timeout=WORKER_READY_TIMEOUT)
 
     assert result["type"] == "memory_status"
     info = result["info"]
-
-    print(f"  GPU Available: {info['gpu_available']}")
+    assert "gpu_available" in info
     if info["gpu_available"]:
-        print(f"  Device: {info['gpu_device_name']}")
-        print(f"  Allocated: {info['gpu_memory_allocated_mb']:.1f} MB")
-        print(f"  Reserved: {info['gpu_memory_reserved_mb']:.1f} MB")
-
-    print("✓ Memory status retrieved")
-
-    # Shutdown
-    cmd_queue.put({"type": "shutdown"})
-    res_queue.get(timeout=5)
-    worker.join(timeout=5)
-    print("✓ Worker shutdown")
-
-    print("✓ Test 2 passed\n")
+        assert "gpu_device_name" in info
+        assert "gpu_memory_allocated_mb" in info
+        assert "gpu_memory_reserved_mb" in info
 
 
-def test_worker_with_simple_workflow():
-    """Test workflow execution if a simple workflow exists"""
-    print("Test 3: Simple workflow execution")
-    print("-" * 50)
+def test_worker_clear_memory(worker_process):
+    """Worker clears cached models/components on request."""
+    cmd_queue, res_queue, worker = worker_process
 
-    # Check if test workflow exists
-    test_workflow = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "dw",
-        "workflows",
-        "test.json",
-    )
+    cmd_queue.put({"type": "clear_memory"})
+    result = res_queue.get(timeout=WORKER_READY_TIMEOUT)
 
-    if not os.path.exists(test_workflow):
-        print("⊘ Test workflow not found, skipping")
-        print()
-        return
+    assert result["type"] == "memory_cleared"
+    info = result["info"]
+    assert "gpu_available" in info
 
-    cmd_queue = multiprocessing.Queue()
-    res_queue = multiprocessing.Queue()
 
-    worker = multiprocessing.Process(
-        target=worker_main, args=(cmd_queue, res_queue, "INFO")
-    )
-    worker.start()
+@pytest.mark.skipif(
+    not os.path.exists(TEST_WORKFLOW_PATH),
+    reason=f"test workflow not found: {TEST_WORKFLOW_PATH}",
+)
+def test_worker_with_simple_workflow(worker_process, tmp_path):
+    """Worker executes a real workflow and reuses cached models on a second run."""
+    cmd_queue, res_queue, worker = worker_process
 
-    print("✓ Worker started")
-
-    # Execute workflow
-    output_dir = "./test_outputs"
+    output_dir = str(tmp_path / "test_outputs")
     os.makedirs(output_dir, exist_ok=True)
 
     cmd_queue.put(
         {
             "type": "execute",
-            "workflow_path": test_workflow,
+            "workflow_path": TEST_WORKFLOW_PATH,
             "arguments": {},
             "output_dir": output_dir,
             "log_level": "INFO",
         }
     )
 
-    print("  Workflow execution started...")
-
-    # Collect results
+    # First message after spawn (or after a fresh command with no prior
+    # traffic) must tolerate child import cost; workflow execution itself
+    # (model load + inference) is also slow, so keep the generous timeout
+    # for every message in this loop rather than switching to the short one.
     success = False
+    saw_workflow_loaded = False
     while True:
-        result = res_queue.get(timeout=60)
+        result = res_queue.get(timeout=WORKER_READY_TIMEOUT)
         result_type = result.get("type")
 
-        if result_type == "output":
-            print(f"  {result['message']}")
-        elif result_type == "workflow_loaded":
-            print(f"  ✓ Workflow loaded: {result['workflow_name']}")
+        if result_type == "workflow_loaded":
+            saw_workflow_loaded = True
         elif result_type == "success":
-            print(f"  ✓ {result['message']}")
             success = True
             break
         elif result_type == "error":
-            print(f"  ✗ Error: {result['message']}")
-            break
+            pytest.fail(f"Workflow execution error: {result['message']}")
 
-    if success:
-        print("✓ Workflow executed successfully")
+    assert success
+    assert saw_workflow_loaded
 
-        # Execute again to test caching
-        print("  Running workflow again to test caching...")
-        cmd_queue.put(
-            {
-                "type": "execute",
-                "workflow_path": test_workflow,
-                "arguments": {},
-                "output_dir": output_dir,
-                "log_level": "INFO",
-            }
-        )
-
-        while True:
-            result = res_queue.get(timeout=60)
-            result_type = result.get("type")
-
-            if result_type == "output":
-                if "cache" in result["message"].lower():
-                    print(f"  ✓ {result['message']}")
-            elif result_type == "success":
-                print(f"  ✓ Second run completed (run_count: {result['run_count']})")
-                break
-            elif result_type == "error":
-                print(f"  ✗ Error on second run: {result['message']}")
-                break
-
-    # Shutdown
-    cmd_queue.put({"type": "shutdown"})
-    res_queue.get(timeout=5)
-    worker.join(timeout=5)
-    print("✓ Worker shutdown")
-
-    print("✓ Test 3 passed\n")
-
-
-def test_worker_clear_memory():
-    """Test memory clearing"""
-    print("Test 4: Memory clearing")
-    print("-" * 50)
-
-    cmd_queue = multiprocessing.Queue()
-    res_queue = multiprocessing.Queue()
-
-    worker = multiprocessing.Process(
-        target=worker_main, args=(cmd_queue, res_queue, "INFO")
+    # Run again to exercise the model-reuse/caching path.
+    cmd_queue.put(
+        {
+            "type": "execute",
+            "workflow_path": TEST_WORKFLOW_PATH,
+            "arguments": {},
+            "output_dir": output_dir,
+            "log_level": "INFO",
+        }
     )
-    worker.start()
 
-    print("✓ Worker started")
+    second_run_count = None
+    while True:
+        result = res_queue.get(timeout=WORKER_READY_TIMEOUT)
+        result_type = result.get("type")
 
-    # Clear memory
-    cmd_queue.put({"type": "clear_memory"})
-    result = res_queue.get(timeout=10)
+        if result_type == "success":
+            second_run_count = result["run_count"]
+            break
+        elif result_type == "error":
+            pytest.fail(f"Workflow execution error on second run: {result['message']}")
 
-    assert result["type"] == "memory_cleared"
-    print("✓ Memory cleared successfully")
-
-    info = result["info"]
-    if info["gpu_available"]:
-        print(f"  GPU memory after clear: {info['gpu_memory_allocated_mb']:.1f} MB")
-
-    # Shutdown
-    cmd_queue.put({"type": "shutdown"})
-    res_queue.get(timeout=5)
-    worker.join(timeout=5)
-    print("✓ Worker shutdown")
-
-    print("✓ Test 4 passed\n")
-
-
-def main():
-    """Run all tests"""
-    print("\n" + "=" * 50)
-    print("Worker Process Tests")
-    print("=" * 50 + "\n")
-
-    tests = [
-        test_worker_lifecycle,
-        test_worker_memory_status,
-        test_worker_clear_memory,
-        test_worker_with_simple_workflow,
-    ]
-
-    passed = 0
-    failed = 0
-
-    for test in tests:
-        try:
-            test()
-            passed += 1
-        except Exception as e:
-            print(f"✗ Test failed: {e}")
-            import traceback
-
-            traceback.print_exc()
-            failed += 1
-            print()
-
-    print("=" * 50)
-    print(f"Results: {passed} passed, {failed} failed")
-    print("=" * 50 + "\n")
-
-    return 0 if failed == 0 else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    assert second_run_count == 2
