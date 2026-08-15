@@ -178,15 +178,25 @@ def _group_tokens_and_weights(token_ids, weights, pad_last_block=True):
 def _get_device(pipeline):
     """Get the appropriate compute device for the pipeline."""
     device = pipeline.device
-    if device is not None and device.type != "cpu":
+    # Offloaded pipelines report cpu (model offload) or meta (sequential offload)
+    if device is not None and device.type not in ("cpu", "meta"):
         return device
 
-    # pipeline is on CPU (e.g., model offloading) — pick the best accelerator
-    if torch.cuda.is_available():
-        return torch.device("cuda:0")
-    elif torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
+    # Fall back to the device dw is running on, which honors the DW_DEVICE and
+    # settings overrides - never a hardcoded accelerator
+    from . import get_device
+
+    return torch.device(get_device())
+
+
+def _hook_managed(module):
+    """Whether accelerate offload hooks own this module's placement.
+
+    Moving a hooked module manually fights the hooks - and raises outright on the
+    meta tensors sequential offload leaves behind. The hooks bring the module to
+    its execution device on forward, so no manual move is needed.
+    """
+    return getattr(module, "_hf_hook", None) is not None
 
 
 def get_weighted_text_embeddings_flux(
@@ -212,9 +222,12 @@ def get_weighted_text_embeddings_flux(
 
     target_device = device if device is not None else _get_device(pipe)
 
-    # Move text encoders to device if pipeline is using CPU offloading
+    # Move text encoders to device if the pipeline sits on the CPU - unless
+    # offload hooks manage them, in which case they move themselves on forward
     encoders_moved = False
-    if pipe.device.type == "cpu":
+    if pipe.device.type == "cpu" and not (
+        _hook_managed(pipe.text_encoder) or _hook_managed(pipe.text_encoder_2)
+    ):
         pipe.text_encoder.to(target_device)
         pipe.text_encoder_2.to(target_device)
         encoders_moved = True
@@ -284,7 +297,7 @@ _PIPELINE_FUNCTIONS = {
 }
 
 
-def apply_prompt_weighting(pipeline, arguments):
+def apply_prompt_weighting(pipeline, arguments, device=None):
     """Apply prompt weighting to pipeline arguments if the prompt contains weight syntax.
 
     Checks if the prompt uses weighting syntax. If so, generates weighted embeddings
@@ -293,6 +306,9 @@ def apply_prompt_weighting(pipeline, arguments):
     Args:
         pipeline: The loaded diffusers pipeline
         arguments: Mutable dict of pipeline call arguments
+        device: The device the pipeline runs on - embeddings are created there.
+            Defaults to the pipeline's own device, or the dw device when offloading
+            parks the pipeline on the CPU
 
     Returns:
         True if weighting was applied, False if prompt was left as-is.
@@ -320,7 +336,7 @@ def apply_prompt_weighting(pipeline, arguments):
     prompt_str = arguments.pop("prompt")
 
     prompt_embeds, pooled_prompt_embeds = embed_fn(
-        pipeline, prompt=prompt_str, prompt2=prompt2
+        pipeline, prompt=prompt_str, prompt2=prompt2, device=device
     )
 
     arguments["prompt_embeds"] = prompt_embeds

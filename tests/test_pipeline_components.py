@@ -1,9 +1,12 @@
 """
-Unit tests for component-name discovery in pipeline definitions
+Unit tests for component-name discovery and cache wiring in pipeline definitions
 """
+
+from unittest.mock import MagicMock
 
 from dw.pipeline_processors.pipeline import (
     declared_component_names,
+    enable_cache_on_transformer,
     optional_component_names,
 )
 
@@ -60,3 +63,31 @@ class TestDeclaredComponentNames:
             }
         }
         assert "vocoder" in declared_component_names(definition)
+
+
+class TestFasterCacheWiring:
+    """FasterCache needs a current-timestep callback JSON cannot express"""
+
+    def test_callback_is_wired_to_the_pipeline(self):
+        from diffusers import FasterCacheConfig
+
+        config = FasterCacheConfig()
+        assert config.current_timestep_callback is None
+
+        pipeline = MagicMock()
+        pipeline._current_timestep = 17
+
+        enable_cache_on_transformer(pipeline, config)
+
+        pipeline.transformer.enable_cache.assert_called_once_with(config)
+        assert config.current_timestep_callback() == 17
+
+    def test_an_explicit_callback_is_left_alone(self):
+        from diffusers import FasterCacheConfig
+
+        callback = lambda: 3
+        config = FasterCacheConfig(current_timestep_callback=callback)
+
+        enable_cache_on_transformer(MagicMock(), config)
+
+        assert config.current_timestep_callback is callback
