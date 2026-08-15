@@ -86,6 +86,34 @@ class TestGatherImages:
         with pytest.raises(SecurityError):
             gather_images(urls=["file:///etc/passwd"])
 
+    def test_gather_images_disallowed_extension_raises(self, tmp_path):
+        """A glob match whose extension isn't in the image allowlist must raise,
+        not be silently loaded (this is what routes gather through fetch_image's
+        validate_file_extension check)."""
+        payload = tmp_path / "payload.svg"
+        payload.write_text("<svg></svg>")
+
+        glob_pattern = os.path.join(str(tmp_path), "*.svg")
+
+        with pytest.raises(SecurityError):
+            gather_images(glob=glob_pattern)
+
+    def test_gather_images_traversal_glob_raises(self, tmp_path):
+        """A glob pattern that walks outside its own directory via '..' must be
+        rejected by validate_path, not silently followed to read the target file."""
+        workflow_dir = tmp_path / "workflow"
+        workflow_dir.mkdir()
+        secret_dir = tmp_path / "secret"
+        secret_dir.mkdir()
+        Image.new("RGB", (10, 10), color="green").save(secret_dir / "target.png")
+
+        # Literally contains '..' in the matched path, which is what
+        # glob_lib.glob() hands back for a pattern like this
+        traversal_pattern = os.path.join(str(workflow_dir), "..", "secret", "*.png")
+
+        with pytest.raises(SecurityError):
+            gather_images(glob=traversal_pattern)
+
     def test_gather_images_none_defaults(self):
         """Test that None URLs parameter works (fixed mutable default)"""
         # This tests the fix for mutable default arguments
@@ -98,6 +126,20 @@ class TestGatherImages:
             images = gather_images(glob=glob_pattern)  # urls=None
 
             assert len(images) == 1
+
+    def test_gather_images_happy_path_tmp_path(self, tmp_path):
+        """Allowed-extension local files under a glob still load fine after
+        routing through fetch_image's validation."""
+        img1 = Image.new("RGB", (16, 16), color="red")
+        img2 = Image.new("RGB", (16, 16), color="blue")
+        img1.save(tmp_path / "a.png")
+        img2.save(tmp_path / "b.png")
+
+        glob_pattern = os.path.join(str(tmp_path), "*.png")
+        images = gather_images(glob=glob_pattern)
+
+        assert len(images) == 2
+        assert all(isinstance(img, Image.Image) for img in images)
 
 
 class TestGatherVideos:
@@ -139,6 +181,31 @@ class TestGatherVideos:
         """Test that invalid URLs are rejected"""
         with pytest.raises(SecurityError):
             gather_videos(urls=["ftp://example.com/video.mp4"])
+
+    def test_gather_videos_disallowed_extension_raises(self, tmp_path):
+        """A glob match whose extension isn't in the video allowlist must raise,
+        not be silently loaded."""
+        payload = tmp_path / "payload.txt"
+        payload.write_text("not a video")
+
+        glob_pattern = os.path.join(str(tmp_path), "*.txt")
+
+        with pytest.raises(SecurityError):
+            gather_videos(glob=glob_pattern)
+
+    def test_gather_videos_traversal_glob_raises(self, tmp_path):
+        """A glob pattern that walks outside its own directory via '..' must be
+        rejected, not silently followed to read the target file."""
+        workflow_dir = tmp_path / "workflow"
+        workflow_dir.mkdir()
+        secret_dir = tmp_path / "secret"
+        secret_dir.mkdir()
+        (secret_dir / "target.mp4").write_bytes(b"not a real video")
+
+        traversal_pattern = os.path.join(str(workflow_dir), "..", "secret", "*.mp4")
+
+        with pytest.raises(SecurityError):
+            gather_videos(glob=traversal_pattern)
 
 
 class TestGatherInputs:
