@@ -1,5 +1,8 @@
 import pytest
+import torch
+from unittest.mock import MagicMock
 from dw.workflow import Workflow, workflow_from_file
+from dw.pipeline_processors.pipeline import Pipeline
 import os
 
 
@@ -44,3 +47,73 @@ def test_workflow_security_validation():
     # Test path traversal protection
     with pytest.raises(SecurityError):
         workflow_from_file("../../../etc/passwd", "./output")
+
+
+class TestSeedResolution:
+    """Seeds resolve most-specific-first: pipeline > step > workflow"""
+
+    def step_definition(self, configuration=None, pipeline_seed=None):
+        pipeline = {"configuration": configuration or {}, "arguments": {}}
+        if pipeline_seed is not None:
+            pipeline["seed"] = pipeline_seed
+        return {"name": "gen", "pipeline": pipeline}
+
+    def cached_step_action(self, step_definition, seed, device="cpu"):
+        """Run create_step_action down the cached-pipeline path"""
+        workflow = Workflow({"id": "seeds", "steps": []}, "./output", "")
+        cached = Pipeline(step_definition["pipeline"], seed, device, MagicMock())
+        return workflow.create_step_action(
+            step_definition, {}, {step_definition["name"]: cached}, seed, device
+        )
+
+    def test_generator_is_seeded_with_the_step_seed(self):
+        action = self.cached_step_action(self.step_definition(), seed=222)
+        assert action.argument_template["generator"].initial_seed() == 222
+
+    def test_pipeline_seed_overrides_the_step_seed(self):
+        action = self.cached_step_action(
+            self.step_definition(pipeline_seed=333), seed=222
+        )
+        assert action.argument_template["generator"].initial_seed() == 333
+
+    def test_no_generator_false_still_creates_a_generator(self):
+        # no_generator is a boolean - an explicit false requests a generator
+        action = self.cached_step_action(
+            self.step_definition(configuration={"no_generator": False}), seed=1
+        )
+        assert "generator" in action.argument_template
+
+    def test_no_generator_true_disables_the_generator(self):
+        action = self.cached_step_action(
+            self.step_definition(configuration={"no_generator": True}), seed=1
+        )
+        assert "generator" not in action.argument_template
+
+    def test_cached_generator_lives_on_the_pipeline_device(self):
+        # The pipeline's own device override wins over the workflow default,
+        # matching the fresh-load path
+        action = self.cached_step_action(
+            self.step_definition(configuration={"device": "cpu"}),
+            seed=1,
+            device="cuda",
+        )
+        assert action.argument_template["generator"].device.type == "cpu"
+
+
+class TestGlobalRngIsolation:
+    """Workflow.run must not reseed the RNG the process may rely on"""
+
+    def run_empty_workflow(self, definition):
+        Workflow(definition, "./output", "").run({})
+
+    def test_run_with_an_explicit_seed_leaves_global_rng_alone(self):
+        torch.manual_seed(1234)
+        state = torch.get_rng_state()
+        self.run_empty_workflow({"id": "w", "seed": 42, "steps": []})
+        assert torch.equal(state, torch.get_rng_state())
+
+    def test_run_without_a_seed_leaves_global_rng_alone(self):
+        torch.manual_seed(1234)
+        state = torch.get_rng_state()
+        self.run_empty_workflow({"id": "w", "steps": []})
+        assert torch.equal(state, torch.get_rng_state())

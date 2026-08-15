@@ -201,8 +201,9 @@ class Pipeline:
         # installed before those would be fighting them
         configure_components(self.pipeline, self.configuration, self.device)
 
-        # Set up random generator if needed
-        if "no_generator" not in self.configuration:
+        # Set up random generator if needed - no_generator is a boolean, so an
+        # explicit false still gets a generator
+        if not self.configuration.get("no_generator", False):
             logger.debug("Setting up random generator")
             self.argument_template["generator"] = torch.Generator(
                 self.device
