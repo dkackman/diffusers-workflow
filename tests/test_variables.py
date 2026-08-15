@@ -81,3 +81,58 @@ def test_set_variables_invalid_name():
 
     with pytest.raises(SecurityError):
         set_variables(values, variables)
+
+
+@pytest.mark.parametrize("value", ["0", "no", "off", "No", "OFF"])
+def test_set_variables_boolean_false_aliases(value):
+    variables = {"flag": True}
+    values = {"flag": value}
+
+    set_variables(values, variables)
+    assert variables["flag"] is False
+
+
+@pytest.mark.parametrize("value", ["1", "yes", "on", "Yes", "ON"])
+def test_set_variables_boolean_true_aliases(value):
+    variables = {"flag": False}
+    values = {"flag": value}
+
+    set_variables(values, variables)
+    assert variables["flag"] is True
+
+
+def test_set_variables_boolean_invalid_raises():
+    variables = {"upscale": False}
+    values = {"upscale": "maybe"}
+
+    with pytest.raises(ValueError) as exc_info:
+        set_variables(values, variables)
+    assert "upscale" in str(exc_info.value)
+
+
+def test_set_variables_list_default_splits_on_comma():
+    variables = {"items": ["default"]}
+    values = {"items": "a,b"}
+
+    set_variables(values, variables)
+    assert variables["items"] == ["a", "b"]
+
+
+def test_set_variables_list_default_single_value():
+    variables = {"items": ["default"]}
+    values = {"items": "single"}
+
+    set_variables(values, variables)
+    assert variables["items"] == ["single"]
+
+
+def test_set_variables_unknown_name_raises():
+    variables = {"prompt": "a cat", "steps": 25}
+    values = {"promt": "a dog"}
+
+    with pytest.raises(ValueError) as exc_info:
+        set_variables(values, variables)
+    message = str(exc_info.value)
+    assert "promt" in message
+    assert "prompt" in message
+    assert "steps" in message
