@@ -45,8 +45,12 @@ def realize_args(arg, base_dir=None):
     if isinstance(arg, dict):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
         for k, v in arg.items():
+            # An explicit media reference loads under any argument name - the
+            # key conventions below only cover arguments named like their media
+            if is_media_reference(v):
+                arg[k] = fetch_media(v, base_dir)
             # Handle image loading for keys ending in '_image' or exactly 'image'
-            if k.endswith("_image") or k == "image":
+            elif k.endswith("_image") or k == "image":
                 logger.debug(f"Loading image for key: {k}")
                 arg[k] = fetch_image(v, base_dir)
             # Handle video loading for keys ending in '_video' or exactly 'video'
@@ -83,8 +87,46 @@ def realize_args(arg, base_dir=None):
     elif isinstance(arg, list):
         logger.debug("Processing list arguments")
         for i, item in enumerate(arg):
+            if is_media_reference(item):
+                arg[i] = fetch_media(item, base_dir)
+                continue
             realize_args(item, base_dir)
             arg[i] = realize_object(item, base_dir)
+
+
+def is_media_reference(value):
+    """Whether a value is an explicit media reference.
+
+    The form { "media_type": "image", "location": "subject.png" } says what the
+    media is instead of relying on what its argument is called, so a "mask" or
+    "depth_map" argument can load a file too. A bare {"location": ...} dict is
+    NOT treated as one - it stays whatever its consumer expects.
+    """
+    return isinstance(value, dict) and "media_type" in value and "location" in value
+
+
+def fetch_media(spec, base_dir=None):
+    """Load the media an explicit reference names.
+
+    Args:
+        spec: Dict with 'media_type' ('image' or 'video') and 'location'
+        base_dir: Directory relative paths are resolved against
+
+    Returns:
+        The loaded media - or the location string unchanged when it is a
+        deferred variable/previous_result reference
+
+    Raises:
+        ValueError: If media_type names neither image nor video
+        SecurityError: If the location fails validation
+    """
+    media_type = spec["media_type"]
+    location = {"location": spec["location"]}
+    if media_type == "image":
+        return fetch_image(location, base_dir)
+    if media_type == "video":
+        return fetch_video(location, base_dir)
+    raise ValueError(f"Unknown media_type {media_type!r} - use 'image' or 'video'")
 
 
 def realize_object(value, base_dir=None):
