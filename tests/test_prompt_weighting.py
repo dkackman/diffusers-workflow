@@ -39,6 +39,40 @@ class TestDeviceResolution:
         assert not _hook_managed(plain)
 
 
+class TestEmbeddingFunctionSelection:
+    """Flux-family pipelines with the same encoder stack are supported"""
+
+    def flux_like(self, name, missing=None):
+        pipeline = MagicMock(
+            spec=["tokenizer", "tokenizer_2", "text_encoder", "text_encoder_2"]
+        )
+        pipeline.__class__ = type(name, (), {})
+        if missing:
+            setattr(pipeline, missing, None)
+        return pipeline
+
+    def test_a_new_flux_variant_is_supported(self):
+        from dw.prompt_weighting import (
+            _select_embedding_function,
+            get_weighted_text_embeddings_flux,
+        )
+
+        pipeline = self.flux_like("FluxKontextPipeline")
+        assert _select_embedding_function(pipeline) is get_weighted_text_embeddings_flux
+
+    def test_a_flux_variant_missing_an_encoder_is_not(self):
+        from dw.prompt_weighting import _select_embedding_function
+
+        pipeline = self.flux_like("FluxKontextPipeline", missing="text_encoder_2")
+        assert _select_embedding_function(pipeline) is None
+
+    def test_non_flux_pipelines_are_not_supported(self):
+        from dw.prompt_weighting import _select_embedding_function
+
+        pipeline = self.flux_like("StableDiffusion3Pipeline")
+        assert _select_embedding_function(pipeline) is None
+
+
 class TestApplyPromptWeighting:
     def test_device_is_threaded_to_the_embedding_function(self):
         pipeline = MagicMock()

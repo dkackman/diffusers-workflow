@@ -276,10 +276,10 @@ def get_weighted_text_embeddings_flux(
         pipe.text_encoder.to("cpu")
         pipe.text_encoder_2.to("cpu")
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        elif torch.backends.mps.is_available():
-            torch.mps.empty_cache()
+
+        from . import empty_device_cache
+
+        empty_device_cache()
 
     return prompt_embeds, pooled_prompt_embeds
 
@@ -295,6 +295,33 @@ _PIPELINE_FUNCTIONS = {
     "FluxInpaintPipeline": get_weighted_text_embeddings_flux,
     "FluxControlNetPipeline": get_weighted_text_embeddings_flux,
 }
+
+# The encoder stack get_weighted_text_embeddings_flux drives - CLIP for pooled
+# embeddings, T5 for the main ones
+_FLUX_ENCODER_STACK = ("tokenizer", "tokenizer_2", "text_encoder", "text_encoder_2")
+
+
+def _select_embedding_function(pipeline):
+    """The weighted-embedding function for a pipeline, or None.
+
+    Exact class names first; any other Flux-family pipeline (FluxKontext,
+    FluxFill, a user subclass) carrying the same CLIP+T5 encoder stack uses the
+    flux function too, so support does not lag every new variant diffusers adds.
+    """
+    embed_fn = _PIPELINE_FUNCTIONS.get(pipeline.__class__.__name__)
+    if embed_fn is not None:
+        return embed_fn
+
+    if pipeline.__class__.__name__.startswith("Flux") and all(
+        getattr(pipeline, name, None) is not None for name in _FLUX_ENCODER_STACK
+    ):
+        logger.info(
+            f"{pipeline.__class__.__name__} carries the Flux encoder stack - "
+            f"applying flux prompt weighting"
+        )
+        return get_weighted_text_embeddings_flux
+
+    return None
 
 
 def apply_prompt_weighting(pipeline, arguments, device=None):
@@ -322,11 +349,12 @@ def apply_prompt_weighting(pipeline, arguments, device=None):
         return False
 
     class_name = pipeline.__class__.__name__
-    embed_fn = _PIPELINE_FUNCTIONS.get(class_name)
+    embed_fn = _select_embedding_function(pipeline)
     if embed_fn is None:
         logger.warning(
             f"Prompt weighting not supported for {class_name}. "
-            f"Supported: {', '.join(_PIPELINE_FUNCTIONS.keys())}. "
+            f"Supported: {', '.join(_PIPELINE_FUNCTIONS.keys())} and Flux-family "
+            f"pipelines with the CLIP+T5 encoder stack. "
             f"Passing prompt as plain text."
         )
         return False
