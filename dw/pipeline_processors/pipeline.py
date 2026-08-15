@@ -317,24 +317,10 @@ class Pipeline:
 
             return output
 
-        except (KeyError, ValueError, TypeError) as e:
-            # Missing arguments, invalid configuration, type mismatches
-            logger.error(f"Configuration error running pipeline: {e}", exc_info=True)
-            raise
-        except (OSError, IOError) as e:
-            # File operations, resource loading errors
-            logger.error(f"I/O error running pipeline: {e}", exc_info=True)
-            raise
-        except RuntimeError as e:
-            # CUDA OOM, model inference failures, torch errors
-            logger.error(f"Runtime error running pipeline: {e}", exc_info=True)
-            raise
         except Exception as e:
-            # Catch-all for unexpected errors
-            logger.error(
-                f"Unexpected error ({type(e).__name__}) running pipeline: {e}",
-                exc_info=True,
-            )
+            # One log line with the full traceback - every error class was
+            # logged and re-raised identically
+            logger.error(f"{type(e).__name__} running pipeline: {e}", exc_info=True)
             raise
 
     def _execute_pipeline(self, arguments):
@@ -464,8 +450,19 @@ class Pipeline:
         # configure optional components
         for component_name in declared_component_names(self.pipeline_definition):
             component_configuration = self.configuration.get(component_name, None)
-            component = getattr(self.pipeline, component_name, None)
-            if component_configuration is not None and component is not None:
+            if component_configuration is None:
+                continue
+
+            # get_component() raises on a genuinely missing attribute (a typo) and
+            # returns None for one that is registered but unloaded - both cases are
+            # unconfigurable, so both are skipped here exactly as a plain missing
+            # component always was
+            try:
+                component = get_component(self.pipeline, component_name)
+            except ValueError:
+                component = None
+
+            if component is not None:
                 logger.debug(f"Configuring optional component: {component_name}")
                 torch_dtype = component_configuration.get("torch_dtype", None)
                 if torch_dtype is not None:
@@ -491,6 +488,15 @@ def configure_components(pipeline, configuration, default_device):
         "components", {}
     ).items():
         component = get_component(pipeline, component_name)
+        if component is None:
+            # Registered but unloaded (e.g. a components map reused across workflow
+            # selections, or a component diffusers warned-and-skipped past at load) -
+            # skip just this entry rather than aborting the whole run
+            logger.warning(
+                f"Component '{component_name}' is not loaded (workflow selection "
+                "may not use it) - skipping its configuration"
+            )
+            continue
 
         group_offload_configuration = get_group_offload_configuration(
             component_configuration, default_device
@@ -510,6 +516,9 @@ def configure_components(pipeline, configuration, default_device):
             component.to(device)
 
 
+_MISSING = object()
+
+
 def get_component(pipeline, component_name):
     """Look a component up on a pipeline, by name or by a dotted path into it.
 
@@ -517,23 +526,33 @@ def get_component(pipeline, component_name):
     holds the model rather than being one - a transformers model wrapping its own - is
     offloaded.
 
+    A modular pipeline registers a component it has not loaded (a workflow selection
+    that does not use it, or one diffusers warned-and-skipped past) as a None-valued
+    attribute rather than omitting it entirely - that is a real attribute, not a typo,
+    so it is returned as None rather than raising. A missing attribute is still a hard
+    error: it means the name itself is wrong. Callers decide what "unloaded" should
+    mean for them (skip with a warning, skip silently, ...); this just tells them apart.
+
     Args:
         pipeline: The loaded pipeline
         component_name: Name of the component, e.g. 'vae' or 'text_encoder.model'
 
     Returns:
-        The named component
+        The named component, or None if it (or a step along a dotted path) is
+        registered but not loaded
 
     Raises:
-        ValueError: If the pipeline has no such component
+        ValueError: If the pipeline has no attribute by that name (or dotted path)
     """
     component = pipeline
     for attribute_name in component_name.split("."):
-        component = getattr(component, attribute_name, None)
-        if component is None:
+        component = getattr(component, attribute_name, _MISSING)
+        if component is _MISSING:
             raise ValueError(
                 f"{type(pipeline).__name__} has no component '{component_name}'"
             )
+        if component is None:
+            return None
 
     return component
 
@@ -822,26 +841,10 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
 
         return component
 
-    except (KeyError, ValueError, TypeError) as e:
-        # Missing configuration, invalid values, type mismatches
-        logger.error(
-            f"Configuration error loading {component_name}: {e}", exc_info=True
-        )
-        raise
-    except (OSError, IOError) as e:
-        # Model file not found, download failures, disk errors
-        logger.error(f"I/O error loading {component_name}: {e}", exc_info=True)
-        raise
-    except RuntimeError as e:
-        # CUDA OOM during model loading, incompatible model format
-        logger.error(f"Runtime error loading {component_name}: {e}", exc_info=True)
-        raise
     except Exception as e:
-        # Catch-all for unexpected errors
-        logger.error(
-            f"Unexpected error ({type(e).__name__}) loading {component_name}: {e}",
-            exc_info=True,
-        )
+        # One log line with the full traceback - every error class was logged
+        # and re-raised identically
+        logger.error(f"{type(e).__name__} loading {component_name}: {e}", exc_info=True)
         raise
 
 
@@ -875,7 +878,13 @@ def apply_sdnq_optimizations(pipeline, component_names):
         return
 
     for name in component_names:
-        component = getattr(pipeline, name, None)
+        # A missing name (typo) and a registered-but-unloaded one both mean "nothing
+        # to optimize here" for this call - same warn-and-skip either way
+        try:
+            component = get_component(pipeline, name)
+        except ValueError:
+            component = None
+
         if component is not None:
             logger.info(f"Applying SDNQ quantized matmul to {name}")
             setattr(
