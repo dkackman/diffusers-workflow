@@ -1,12 +1,8 @@
 import glob as glob_lib
 import logging
 from diffusers.utils import load_image, load_video
-from ..security import (
-    validate_path,
-    validate_url,
-    SecurityError,
-    ALLOWED_IMAGE_EXTENSIONS,
-)
+from ..arguments import fetch_image, fetch_video
+from ..security import validate_url, SecurityError
 
 logger = logging.getLogger("dw")
 
@@ -39,7 +35,9 @@ def gather_images(glob=None, urls=None):
         for path in image_paths:
             try:
                 logger.debug(f"Loading image from: {path}")
-                images.append(load_image(path))
+                images.append(fetch_image(path))
+            except SecurityError:
+                raise
             except Exception as e:
                 logger.error(
                     f"Failed to load image from {path}: {str(e)}", exc_info=True
@@ -94,7 +92,9 @@ def gather_videos(glob=None, urls=None):
         for path in video_paths:
             try:
                 logger.debug(f"Loading video from: {path}")
-                videos.append(load_video(path))
+                videos.append(fetch_video(path))
+            except SecurityError:
+                raise
             except Exception as e:
                 logger.error(
                     f"Failed to load video from {path}: {str(e)}", exc_info=True
