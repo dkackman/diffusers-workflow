@@ -66,6 +66,32 @@ class TestResult:
         assert len(prop_values) == 1
         assert prop_values == ["value1"]
 
+    def test_get_artifact_properties_raises_on_string_result_substring_present(self):
+        # "prop1" is a substring of the caption - a membership test would wrongly
+        # treat that as the property being present and then fail trying to index a
+        # string with a non-integer key
+        result = Result({})
+        result.add_result("a caption mentioning prop1 by name")
+
+        with pytest.raises(ValueError, match="prop1"):
+            result.get_artifact_properties("prop1")
+
+    def test_get_artifact_properties_raises_on_string_result_substring_absent(self):
+        # Not a substring either - previously this silently produced an empty list
+        # instead of surfacing that the referenced step has no such property
+        result = Result({})
+        result.add_result("a plain caption")
+
+        with pytest.raises(ValueError, match="text"):
+            result.get_artifact_properties("text")
+
+    def test_get_artifact_properties_error_names_the_actual_type(self):
+        result = Result({})
+        result.add_result("a caption")
+
+        with pytest.raises(ValueError, match="str"):
+            result.get_artifact_properties("text")
+
     def test_save_json_content(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             result_def = {"content_type": "application/json", "save": True}
@@ -167,6 +193,29 @@ class TestGetArtifactList:
 
         artifacts = get_artifact_list(MockResult())
         assert artifacts == ["embed1", "embed2"]
+
+    def test_result_with_numpy_audios(self):
+        # Under the diffusers default output_type='np', AudioPipelineOutput.audios is
+        # already a numpy ndarray (AudioLDM2/StableAudio call .numpy() before returning),
+        # so it has no .float()/.cpu() - only .T/.astype()
+        class MockResult:
+            audios = numpy.zeros((1, 2, 100), dtype=numpy.float32)
+
+        artifacts = get_artifact_list(MockResult())
+        assert len(artifacts) == 1
+        assert isinstance(artifacts[0], numpy.ndarray)
+        assert artifacts[0].shape == (100, 2)
+        assert artifacts[0].dtype == numpy.float32
+
+    def test_result_with_torch_audios(self):
+        class MockResult:
+            audios = torch.zeros((1, 2, 100), dtype=torch.bfloat16)
+
+        artifacts = get_artifact_list(MockResult())
+        assert len(artifacts) == 1
+        assert isinstance(artifacts[0], numpy.ndarray)
+        assert artifacts[0].shape == (100, 2)
+        assert artifacts[0].dtype == numpy.float32
 
 
 class TestAudioVideoArtifacts:
@@ -462,6 +511,41 @@ class TestSaveAudio:
 
             _, sample_rate = soundfile.read(os.path.join(temp_dir, "song-0.0.wav"))
             assert sample_rate == 44100
+
+    def test_numpy_audios_output_saves_without_attribute_error(self):
+        # Regression test: AudioPipelineOutput.audios is a numpy ndarray under the
+        # default output_type='np', which has no .float()/.cpu() - saving used to raise
+        # AttributeError and the audio was never written
+        class MockResult:
+            audios = numpy.zeros((1, 2, 4410), dtype=numpy.float32)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav", "sample_rate": 44100})
+            result.add_result(MockResult())
+
+            result.save(temp_dir, "song")
+
+            output_file = os.path.join(temp_dir, "song-0.0.wav")
+            assert os.path.exists(output_file)
+            data, sample_rate = soundfile.read(output_file)
+            assert sample_rate == 44100
+            assert data.shape == (4410, 2)
+
+    def test_torch_audios_output_still_saves(self):
+        class MockResult:
+            audios = torch.zeros((1, 2, 4410), dtype=torch.bfloat16)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav", "sample_rate": 44100})
+            result.add_result(MockResult())
+
+            result.save(temp_dir, "song")
+
+            output_file = os.path.join(temp_dir, "song-0.0.wav")
+            assert os.path.exists(output_file)
+            data, sample_rate = soundfile.read(output_file)
+            assert sample_rate == 44100
+            assert data.shape == (4410, 2)
 
 
 class TestSaveCompressedAudio:
