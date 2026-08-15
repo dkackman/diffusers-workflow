@@ -11,7 +11,7 @@ from diffusers.utils import (
     encode_video,
     is_av_available,
 )
-from collections.abc import Iterable
+from collections.abc import Mapping
 from .security import validate_output_path, validate_string_input, SecurityError
 
 logger = logging.getLogger("dw")
@@ -138,15 +138,22 @@ class Result:
 
         Returns:
             List of property values from results where property exists
+
+        Raises:
+            ValueError: If a result is not a dict-like (Mapping) object - a plain string
+                or other scalar/list result has no properties to look up, and staying
+                quiet about that (or doing a membership/substring test instead of a key
+                lookup) would silently drop data or raise a confusing TypeError.
         """
         values = []
         for result in self.result_list:
-            if isinstance(result, Iterable):
+            if isinstance(result, Mapping):
                 if property_name in result:
                     values.append(result[property_name])
             else:
-                logger.warning(
-                    f"Skipping non-dict result when getting property {property_name}: {type(result)}"
+                raise ValueError(
+                    f"result has no property '{property_name}' "
+                    f"(it is a {type(result).__name__}, not a dict)"
                 )
 
         logger.debug(f"Retrieved {len(values)} values for property: {property_name}")
@@ -462,7 +469,7 @@ def get_artifact_list(result):
             )
         return result.frames
     if hasattr(result, "audios"):
-        return [audio.T.float().cpu().numpy() for audio in result.audios]
+        return [as_waveform_array(audio) for audio in result.audios]
     if isinstance(result, dict):
         # A modular pipeline asked for several outputs returns them keyed
         artifacts = modular_artifacts(result)
@@ -551,6 +558,26 @@ def pair_audio_with_frames(videos, audio, sample_rate):
         AudioVideo(frames, audio[i] if i < len(audio) else None, sample_rate)
         for i, frames in enumerate(videos)
     ]
+
+
+def as_waveform_array(audio):
+    """Transpose one batch item of a pipeline's `.audios` output to (samples, channels).
+
+    `.audios` is shaped (batch, channels, samples). Under the diffusers default
+    `output_type='np'`, pipelines such as AudioLDM2 and StableAudio already call
+    `.numpy()` before returning, so each item here is a numpy ndarray rather than a
+    torch tensor - it has no `.float()`/`.cpu()` methods, only `.T`/`.astype()`.
+
+    Args:
+        audio: One batch item, shaped (channels, samples), as a torch tensor or numpy array
+
+    Returns:
+        Numpy float32 array shaped (samples, channels)
+    """
+    if isinstance(audio, torch.Tensor):
+        return audio.T.float().cpu().numpy()
+
+    return numpy.asarray(audio).T.astype(numpy.float32, copy=False)
 
 
 def as_audio_track(audio):
