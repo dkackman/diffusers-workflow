@@ -38,6 +38,39 @@ optional_component_names = [
     "model",
 ]
 
+# Pipeline-definition keys that can never name a component
+_NON_COMPONENT_KEYS = {
+    "configuration",
+    "from_pretrained_arguments",
+    "arguments",
+    "scheduler",
+    "loras",
+    "ip_adapter",
+    "seed",
+    "remote_text_encoder",
+}
+
+
+def declared_component_names(pipeline_definition):
+    """The component names a pipeline definition can load or configure.
+
+    The known names plus any other key shaped like a component - a dict carrying
+    'from_pretrained_arguments' (a scheduler carries 'from_config_args' instead).
+    Diffusers grows new component names faster than the list above; a workflow
+    naming one gets it loaded rather than silently dropped.
+    """
+    names = list(optional_component_names)
+    for key, value in pipeline_definition.items():
+        if (
+            key not in names
+            and key not in _NON_COMPONENT_KEYS
+            and isinstance(value, dict)
+            and "from_pretrained_arguments" in value
+        ):
+            logger.info(f"Treating '{key}' as a component definition")
+            names.append(key)
+    return names
+
 
 class Pipeline:
     """
@@ -100,8 +133,9 @@ class Pipeline:
                 reused_component_name
             ]
 
-        # Load optional components (controlnet, vae, unet, etc.)
-        for component_name in optional_component_names:
+        # Load optional components (controlnet, vae, unet, etc.), including any
+        # component-shaped key outside the known names
+        for component_name in declared_component_names(self.pipeline_definition):
             self.load_optional_component(
                 component_name, from_pretrained_arguments, device
             )
@@ -426,7 +460,7 @@ class Pipeline:
                 )
 
         # configure optional components
-        for component_name in optional_component_names:
+        for component_name in declared_component_names(self.pipeline_definition):
             component_configuration = self.configuration.get(component_name, None)
             component = getattr(self.pipeline, component_name, None)
             if component_configuration is not None and component is not None:
