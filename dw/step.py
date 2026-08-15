@@ -14,6 +14,7 @@ class Step:
     def __init__(self, step_definition, default_seed):
         """Initialize step with its configuration and seed value"""
         self.step_definition = step_definition
+        self.iteration = None
 
         # Get step-specific seed or use default if not specified
         self.default_seed = self.step_definition.get("seed", default_seed)
@@ -64,59 +65,21 @@ class Step:
                 logger.debug(
                     f"Running iteration {i}/{len(iterations)} with arguments: {arguments}"
                 )
-
-                try:
-                    iteration_result = step_action.run(arguments, previous_pipelines)
-                    result.add_result(iteration_result)
-
-                except (KeyError, ValueError, TypeError) as e:
-                    # Missing arguments, invalid values, type mismatches
-                    logger.error(
-                        f"Configuration error in iteration {i} of step {step_name}: {e}",
-                        exc_info=True,
-                    )
-                    raise
-                except (OSError, IOError) as e:
-                    # File operations, resource loading failures
-                    logger.error(
-                        f"I/O error in iteration {i} of step {step_name}: {e}",
-                        exc_info=True,
-                    )
-                    raise
-                except RuntimeError as e:
-                    # CUDA OOM, model loading failures, torch errors
-                    logger.error(
-                        f"Runtime error in iteration {i} of step {step_name}: {e}",
-                        exc_info=True,
-                    )
-                    raise
-                except Exception as e:
-                    # Catch-all for unexpected errors from pipeline/task/workflow execution
-                    logger.error(
-                        f"Unexpected error ({type(e).__name__}) in iteration {i} of step {step_name}: {e}",
-                        exc_info=True,
-                    )
-                    raise
+                self.iteration = i
+                iteration_result = step_action.run(arguments, previous_pipelines)
+                result.add_result(iteration_result)
 
             logger.debug(f"Successfully completed step: {step_name}")
             return result
 
-        except (KeyError, ValueError, TypeError) as e:
-            # Missing keys, invalid step configuration, type mismatches
-            logger.error(f"Configuration error in step {self.name}: {e}", exc_info=True)
-            raise
-        except (OSError, IOError) as e:
-            # File operations, resource loading errors
-            logger.error(f"I/O error in step {self.name}: {e}", exc_info=True)
-            raise
-        except RuntimeError as e:
-            # CUDA OOM, model loading failures, torch errors
-            logger.error(f"Runtime error in step {self.name}: {e}", exc_info=True)
-            raise
         except Exception as e:
-            # Catch-all for unexpected errors
+            # One log line with the full traceback - callers decide handling.
+            # (Configuration, I/O, runtime and unexpected errors all logged and
+            # re-raised identically, so one clause replaces the old four)
+            iteration = getattr(self, "iteration", None)
+            where = f"iteration {iteration} of " if iteration else ""
             logger.error(
-                f"Unexpected error ({type(e).__name__}) in step {self.name}: {e}",
+                f"{type(e).__name__} in {where}step {self.name}: {e}",
                 exc_info=True,
             )
             raise

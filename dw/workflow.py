@@ -230,33 +230,17 @@ class Workflow:
             return last_result.result_list if last_result is not None else []
 
         except (SecurityError, PathTraversalError, InvalidInputError) as e:
-            # Security validation failures - these should fail fast
+            # Security validation failures - these should fail fast, without the
+            # traceback noise of the general handler
             workflow_id = self.workflow_definition.get("id", "unknown")
             logger.error(f"Security error in workflow {workflow_id}: {e}")
             raise
-        except (KeyError, ValueError, TypeError) as e:
-            # Expected errors: missing keys, invalid values, type mismatches
-            workflow_id = self.workflow_definition.get("id", "unknown")
-            logger.error(
-                f"Configuration error in workflow {workflow_id}: {e}", exc_info=True
-            )
-            raise
-        except (OSError, IOError) as e:
-            # File operations, resource loading errors
-            workflow_id = self.workflow_definition.get("id", "unknown")
-            logger.error(f"I/O error in workflow {workflow_id}: {e}", exc_info=True)
-            raise
-        except RuntimeError as e:
-            # CUDA OOM, model loading failures, torch errors
-            workflow_id = self.workflow_definition.get("id", "unknown")
-            logger.error(f"Runtime error in workflow {workflow_id}: {e}", exc_info=True)
-            raise
         except Exception as e:
-            # Catch-all for unexpected errors
+            # One log line with the full traceback - the step already logged its
+            # own context, and every clause here did the same log-and-reraise
             workflow_id = self.workflow_definition.get("id", "unknown")
             logger.error(
-                f"Unexpected error ({type(e).__name__}) in workflow {workflow_id}: {e}",
-                exc_info=True,
+                f"{type(e).__name__} in workflow {workflow_id}: {e}", exc_info=True
             )
             raise
 

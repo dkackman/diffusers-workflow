@@ -8,6 +8,7 @@ Contains all the command implementations organized by category:
 - Workflow commands
 """
 
+import contextlib
 import os
 import logging
 from .security import (
@@ -434,80 +435,77 @@ class WorkflowCommands:
             print(f"File: {self.repl.current_workflow.file_spec}")
             print()
 
+    @contextlib.contextmanager
+    def _history_suppressed(self):
+        """Readline auto-history off for one input, so values are not saved"""
+        readline = None
+        try:
+            import readline
+        except ImportError:
+            pass
+
+        suppress = readline is not None and hasattr(readline, "set_auto_history")
+        if suppress:
+            readline.set_auto_history(False)
+        try:
+            yield
+        finally:
+            if suppress:
+                readline.set_auto_history(True)
+
+    def _prompt_for_argument(self, arg_name):
+        """Ask the user for one workflow argument's value.
+
+        Returns:
+            True when the value was set, False on invalid input or cancel
+        """
+        # Validate that the argument exists in the workflow's variables
+        if arg_name not in self.repl.current_workflow.variables:
+            print(f"Error: '{arg_name}' is not defined in workflow variables")
+            print(
+                f"Available variables: {', '.join(self.repl.current_workflow.variables.keys())}"
+            )
+            return False
+
+        try:
+            with self._history_suppressed():
+                user_value = input(f"Enter value for '{arg_name}': ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelled")
+            return False
+
+        try:
+            validated_name = validate_variable_name(arg_name)
+            validated_value = validate_string_input(
+                user_value,
+                max_length=MAX_VARIABLE_VALUE_LENGTH,
+                allow_empty=True,
+            )
+        except InvalidInputError as e:
+            print(f"Error: Invalid input: {e}")
+            return False
+
+        self.repl.workflow_args[validated_name] = validated_value
+        print(f"Set argument {validated_name}={validated_value}")
+        print()
+        return True
+
     def _workflow_run(self, arg: str):
         """Run the currently loaded workflow with set arguments"""
         if not self.repl.current_workflow:
             print("Error: No workflow loaded. Use 'workflow load' command first")
             return
 
-        # Handle "run ask <arg_name>" subcommand
+        # Handle "run ask <arg_name>" subcommand. "ask" with nothing after it
+        # (any amount of whitespace) is caught here, so the name is never empty
         if arg.strip() == "ask":
             print("Error: Please specify an argument name")
             print("Usage: workflow run ask <arg_name>")
             return
 
         if arg.startswith("ask "):
-            arg_name = arg[4:].strip()  # Remove "ask " prefix
-            if not arg_name:
-                print("Error: Please specify an argument name")
-                print("Usage: workflow run ask <arg_name>")
+            if not self._prompt_for_argument(arg[4:].strip()):
                 return
-
-            # Validate that the argument exists in the workflow's variables
-            if arg_name not in self.repl.current_workflow.variables:
-                print(f"Error: '{arg_name}' is not defined in workflow variables")
-                print(
-                    f"Available variables: {', '.join(self.repl.current_workflow.variables.keys())}"
-                )
-                return
-
-            # Prompt user for the value
-            # Temporarily disable readline history to prevent the input value from being saved
-            readline_available = False
-            try:
-                import readline
-
-                readline_available = True
-                # Disable auto-history for this input
-                if hasattr(readline, "set_auto_history"):
-                    readline.set_auto_history(False)
-            except (ImportError, AttributeError):
-                pass
-
-            try:
-                prompt_text = f"Enter value for '{arg_name}': "
-                user_value = input(prompt_text).strip()
-
-                # Validate the input
-                try:
-                    validated_name = validate_variable_name(arg_name)
-                    validated_value = validate_string_input(
-                        user_value,
-                        max_length=MAX_VARIABLE_VALUE_LENGTH,
-                        allow_empty=True,
-                    )
-                except InvalidInputError as e:
-                    print(f"Error: Invalid input: {e}")
-                    return
-
-                # Set the argument
-                self.repl.workflow_args[validated_name] = validated_value
-                print(f"Set argument {validated_name}={validated_value}")
-                print()
-
-            except (EOFError, KeyboardInterrupt):
-                print("\nCancelled")
-                return
-            finally:
-                # Always re-enable readline history after input
-                if readline_available:
-                    try:
-                        import readline
-
-                        if hasattr(readline, "set_auto_history"):
-                            readline.set_auto_history(True)
-                    except (ImportError, AttributeError):
-                        pass
 
         try:
             # Validate inputs
