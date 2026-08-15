@@ -303,6 +303,40 @@ class TestRealizeArgs:
 
         assert args["group_offload"]["offload_type"] == "leaf_level"
 
+    def test_explicit_media_reference_loads_under_any_key(self):
+        # A "mask" argument names no media in its key - the explicit form
+        # says what it is instead
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Image.new("RGB", (50, 50)).save(os.path.join(temp_dir, "mask.png"))
+
+            args = {"mask": {"media_type": "image", "location": "mask.png"}}
+            realize_args(args, base_dir=temp_dir)
+
+            assert isinstance(args["mask"], Image.Image)
+
+    def test_explicit_media_reference_in_a_list(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Image.new("RGB", (50, 50)).save(os.path.join(temp_dir, "m.png"))
+
+            args = {"masks": [{"media_type": "image", "location": "m.png"}]}
+            realize_args(args, base_dir=temp_dir)
+
+            assert isinstance(args["masks"][0], Image.Image)
+
+    def test_unknown_media_type_raises(self):
+        args = {"mask": {"media_type": "audio", "location": "m.wav"}}
+        with pytest.raises(ValueError) as exc_info:
+            realize_args(args)
+
+        assert "media_type" in str(exc_info.value)
+
+    def test_bare_location_dict_is_left_alone_under_other_keys(self):
+        # Without media_type, a dict with a location key belongs to its consumer
+        args = {"config": {"location": "somewhere", "other": 1}}
+        realize_args(args)
+
+        assert args["config"] == {"location": "somewhere", "other": 1}
+
     def test_realize_image_relative_to_base_dir(self):
         # Workflow files name their media relative to themselves
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -15,9 +15,17 @@ where feasible).
 #6 `72a2f76`, #7 `446e454`.
 **DONE — P1:** #9+#10 `2631c54`, #11+#13 `2f173b3`, #12+#14 `6896b41`, #15 `9b8274e`,
 #16 `5e617f2`. #8 in progress.
-**DONE — P2:** #20 (Phase T, `0a185ba`).
-**Remaining:** #8 (in flight), P2 #17-#19/#21, P3 #22-#29, P4 #30-#33, staged-diff
-follow-ups S7/S9.
+**DONE — P1 (all):** #8 `d8b423c`.
+**DONE — P2 (all):** #17 `3148d12`, #18 `0224885`, #19 `a26074e`, #20 (Phase T,
+`0a185ba`), #21 `6e1d00c`.
+**DONE — P3/P4 (all) + S7/S9:** #22-#33 and the staged-diff follow-ups, committed
+2026-08-15 (see git log). Every finding from the 2026-08-15 review is now addressed;
+this file remains as the record and for the open question below.
+
+**Open question (from #21 work):** vendored `dw/tasks/rife_model.py` block0 is declared
+for 23 input channels but its forward concatenates 39 (3+3+16+16+1) — flagged by an
+agent, unverified; if real, some IFNet path would crash at runtime. Verify against
+upstream RIFE v4.6 before touching.
 
 ---
 
