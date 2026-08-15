@@ -205,6 +205,21 @@ class WorkflowWorker:
                     {"type": "output", "message": "Reusing loaded models from cache"}
                 )
 
+                # The workflow itself is unchanged and its models stay
+                # cached, but the caller may have pointed us at a new
+                # output_dir (e.g. via `config set output_dir`) since the
+                # last execute. The cache-hit path skips workflow_from_file,
+                # which is otherwise the only place output_dir gets applied,
+                # so update it explicitly here or results keep silently
+                # saving to the old directory.
+                if output_dir != self.output_dir:
+                    logger.info(
+                        f"Output directory changed: {self.output_dir} -> "
+                        f"{output_dir}"
+                    )
+                    self.output_dir = output_dir
+                    self.current_workflow.output_dir = output_dir
+
             # Execute workflow with cached pipelines
             self.result_queue.put(
                 {
