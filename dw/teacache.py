@@ -385,12 +385,32 @@ def teacache_context(
     if coefficients is None:
         coefficients = model_info["coefficients"]
 
-    original_forward = transformer.forward
-
     teacache_forward_fn = factory(num_inference_steps, rel_l1_thresh, coefficients)
-    transformer.forward = teacache_forward_fn.__get__(
-        transformer, transformer.__class__
-    )
+
+    # accelerate's enable_model_cpu_offload/enable_sequential_cpu_offload installs
+    # an AlignDevicesHook via add_hook_to_module (accelerate/hooks.py), which
+    # replaces transformer.forward with a wrapper closing over module and the
+    # true original forward (stashed as transformer._old_forward, still bound to
+    # the instance). That wrapper is what moves the module's weights to the
+    # execution device in its pre_forward before calling _old_forward. If we
+    # clobber transformer.forward like the no-hook path below, we remove that
+    # wrapper entirely: the CPU-resident module then receives CUDA inputs and
+    # raises a device-mismatch RuntimeError. Instead, when a hook is present we
+    # wrap what the hook considers "the real forward" -- _old_forward -- so the
+    # call chain stays hook.forward -> pre_forward (places weights) ->
+    # teacache_forward -> post_forward.
+    has_hook = hasattr(transformer, "_hf_hook") and hasattr(transformer, "_old_forward")
+
+    if has_hook:
+        original_forward = transformer._old_forward
+        transformer._old_forward = teacache_forward_fn.__get__(
+            transformer, transformer.__class__
+        )
+    else:
+        original_forward = transformer.forward
+        transformer.forward = teacache_forward_fn.__get__(
+            transformer, transformer.__class__
+        )
 
     logger.info(
         f"TeaCache enabled for {class_name}: "
@@ -400,5 +420,8 @@ def teacache_context(
     try:
         yield pipeline
     finally:
-        transformer.forward = original_forward
+        if has_hook:
+            transformer._old_forward = original_forward
+        else:
+            transformer.forward = original_forward
         logger.debug("TeaCache disabled, original forward restored")
