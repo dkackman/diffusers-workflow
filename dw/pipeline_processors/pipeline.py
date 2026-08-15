@@ -297,7 +297,9 @@ class Pipeline:
             elif self.configuration.get("prompt_weighting", False):
                 from ..prompt_weighting import apply_prompt_weighting
 
-                apply_prompt_weighting(self.pipeline, arguments)
+                # The step's device override travels with the call - embeddings
+                # must land where the transformer runs
+                apply_prompt_weighting(self.pipeline, arguments, self.device)
 
             # Run standard pipeline
             logger.debug("Running standard pipeline")
@@ -904,6 +906,17 @@ def enable_cache_on_transformer(pipeline, cache_config):
             f"{transformer.__class__.__name__} does not support enable_cache(), skipping"
         )
         return
+
+    # FasterCache decides skipping from the pipeline's current timestep. The
+    # callback is a callable, which workflow JSON cannot express, and diffusers
+    # calls it unconditionally on every denoiser forward - left None, the first
+    # inference step dies. Wire it to the pipeline here, where both exist
+    if (
+        cache_config.__class__.__name__ == "FasterCacheConfig"
+        and getattr(cache_config, "current_timestep_callback", None) is None
+    ):
+        logger.debug("Wiring FasterCache current_timestep_callback to the pipeline")
+        cache_config.current_timestep_callback = lambda: pipeline._current_timestep
 
     logger.info(
         f"Enabling {cache_config.__class__.__name__} on {transformer.__class__.__name__}"
