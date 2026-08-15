@@ -27,7 +27,7 @@ python -m dw.test
 # Interactive REPL
 python -m dw.repl
 
-# Run all tests (260+ tests)
+# Run all tests (580+ tests)
 pytest -v
 
 # Run a single test file or test

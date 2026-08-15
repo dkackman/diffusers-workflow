@@ -25,7 +25,7 @@ var_name = validate_variable_name("bad;name")        # raises InvalidInputError
 value = validate_string_input(user_input, max_length=1000)
 url = validate_url(user_url)                         # http/https only
 
-# Subprocess
+# Subprocess (dw/ doesn't currently shell out anywhere - pattern for if/when it does)
 import subprocess
 cmd = sanitize_command_args(["python", "-m", "dw.run", validated_path])
 subprocess.Popen(cmd, shell=False)
@@ -69,7 +69,7 @@ Invalid: file:///etc/passwd, ftp://server/file
 
 | Error | Cause | Fix |
 | ----- | ----- | --- |
-| `Path contains dangerous pattern: ../` | Path traversal | Use absolute or `./` relative paths |
+| `Path contains dangerous pattern matching \.\.` | Path traversal | Use absolute or `./` relative paths |
 | `Invalid variable name: my.var` | Special characters | Use `my_var` instead |
-| `URL scheme not allowed: file` | Non-http scheme | Use https or local file path |
-| `Argument contains dangerous characters` | Shell metacharacters | Remove `;` `\|` `&` `$` `` ` `` |
+| `Invalid URL: URL scheme not allowed: file` | Non-http scheme | Use https or local file path |
+| `Argument contains dangerous characters: ...` | Shell metacharacters | Remove `` ` `` `$` `\|` `&` `;` `>` `<` |

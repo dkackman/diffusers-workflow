@@ -64,11 +64,11 @@ python -m dw.repl
 ```text
 dw> workflow load FluxDev
 dw> arg set prompt="a beautiful sunset"
-dw> model run
+dw> workflow run
 [... models load once ...]
 
 dw> arg set prompt="a starry night"
-dw> model run
+dw> workflow run
 Reusing loaded models from cache
 [... 2-4x faster ...]
 

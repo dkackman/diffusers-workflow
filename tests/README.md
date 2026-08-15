@@ -6,10 +6,12 @@ Comprehensive test suite for the diffusers-workflow project covering core functi
 
 ## Test Organization
 
+37 files, ~580 tests as of this writing (`pytest tests/ --collect-only -q` for the current count).
+
 ### Unit Tests
 - `test_security.py` - Security validation and input sanitization
 - `test_variables.py` - Variable substitution and type conversion
-- `test_workflow.py` - Workflow loading and validation
+- `test_workflow.py` - Workflow loading, validation, result eviction, seed resolution
 - `test_task.py` - Task execution
 - `test_schema.py` - JSON schema validation
 - `test_previous_results.py` - Result reference handling and cartesian products
@@ -17,12 +19,23 @@ Comprehensive test suite for the diffusers-workflow project covering core functi
 - `test_arguments.py` - Argument realization and resource loading
 - `test_step.py` - Step execution and iteration handling
 - `test_type_helpers.py` - Dynamic type loading
+- `test_device.py` / `test_device_helpers.py` - Device selection and shared device/dtype helpers
+- `test_gather.py` - Resource gathering from files and URLs
+- `test_worker.py` - REPL worker subprocess (spawns a real `multiprocessing.Process`)
+- `test_repl_commands.py` / `test_repl_hierarchical.py` / `test_repl_reorganization.py` - REPL command structure
+- `test_pipeline_caching.py` / `test_pipeline_components.py` / `test_modular_pipeline.py` - Pipeline caching, component discovery, `load_components`
+- `test_model_cache.py` - Shared task model cache (`dw.tasks.model_cache`)
+- `test_image_utils.py` / `test_resize_bucket.py` / `test_strip_exif_and_watermark.py` / `test_tensor_image.py` / `test_list_images.py` - Image processing task commands
+- `test_diffusion_upscale.py` / `test_interpolate_frames.py` / `test_depth_estimator.py` / `test_segment.py` - Diffusion upscale, RIFE interpolation, depth hints, segmentation
+- `test_image_to_text.py` / `test_text_generation.py` - Captioning and text-generation tasks
+- `test_prompt_weighting.py` / `test_teacache.py` - Prompt weighting device handling, TeaCache forward guard
+- `test_argument_updates.py` - Cached pipelines pick up fresh arguments across runs
 
 ### Integration Tests
 - `test_integration.py` - End-to-end workflow execution scenarios
 
 ### Test Examples
-- `test_examples.py` - Example workflow validation
+- `test_examples.py` - Validates every workflow in `examples/` against the schema (one parametrized test per file)
 
 ## Running Tests
 
@@ -38,12 +51,12 @@ python -m pytest tests/test_security.py -v
 
 ### Run Specific Test Class
 ```bash
-python -m pytest tests/test_security.py::TestPathValidation -v
+python -m pytest tests/test_task.py::TestTaskDevice -v
 ```
 
 ### Run Specific Test
 ```bash
-python -m pytest tests/test_security.py::TestPathValidation::test_path_traversal -v
+python -m pytest tests/test_task.py::TestTaskDevice::test_defaults_to_the_workflow_device -v
 ```
 
 ### Run with Coverage
@@ -91,6 +104,7 @@ The test suite covers:
 ## Fixtures
 
 Available in `conftest.py`:
+- `_clear_task_model_cache` - **Autouse.** Clears `dw.tasks.model_cache` before and after every test, so a cache hit in one test can't starve a later test's mocked loader of the call it expects. Applies automatically; no need to request it.
 - `test_data_dir` - Path to test data directory
 - `temp_output_dir` - Temporary directory for test outputs
 - `temp_image` - Temporary test image file

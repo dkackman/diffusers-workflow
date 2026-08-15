@@ -11,15 +11,22 @@ python -m dw.repl -l DEBUG    # with debug logging
 
 ## Commands
 
-### workflow — Manage workflow files
+### workflow — Manage and run workflows
 
 ```text
-workflow load <file>    Load a workflow from JSON file
-workflow reload         Reload current workflow from disk
-workflow status         Show current workflow information
+workflow load <file>     Load a workflow from JSON file
+workflow reload          Reload current workflow from disk
+workflow status          Show current workflow information
+workflow run             Execute the currently loaded workflow
+workflow run ask <arg>   Prompt for one argument's value, then run
+workflow restart         Restart the worker process (clears GPU cache)
 ```
 
 `workflow load` searches `./examples` by default, so `workflow load FluxDev` works.
+
+`workflow run ask <arg>` prompts you interactively for `<arg>`'s value (the
+value is not saved to shell/readline history) before running — a shortcut
+for `arg set` followed by `workflow run`.
 
 ### arg — Set workflow variables
 
@@ -27,13 +34,6 @@ workflow status         Show current workflow information
 arg show                Show available variables and current values
 arg set <name>=<value>  Set a variable value
 arg clear               Clear all variable values
-```
-
-### model — Execute workflows
-
-```text
-model run               Execute the loaded workflow
-model restart           Restart worker process (clears GPU cache)
 ```
 
 ### memory — Monitor GPU memory
@@ -65,9 +65,9 @@ exit / quit  Exit the REPL
 dw> workflow load FluxDev
 dw> arg show
 dw> arg set prompt="a majestic mountain landscape"
-dw> model run
+dw> workflow run
 dw> arg set prompt="a serene beach at sunset"
-dw> model run
+dw> workflow run
 dw> memory show
 dw> exit
 ```
@@ -75,9 +75,8 @@ dw> exit
 ## Quick Reference
 
 ```text
-workflow ── load <file> | reload | status
+workflow ── load <file> | reload | status | run [ask <arg>] | restart
 arg      ── show | set <name>=<value> | clear
-model    ── run | restart
 memory   ── show | clear
 config   ── show | set <name>=<value>
 ```

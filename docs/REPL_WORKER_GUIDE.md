@@ -15,9 +15,9 @@ python -m dw.repl
 ```text
 dw> workflow load FluxDev
 dw> arg set prompt="a cat wearing a hat"
-dw> model run            # first run — loads model (~30-60s)
+dw> workflow run         # first run — loads model (~30-60s)
 dw> arg set prompt="a dog in a park"
-dw> model run            # instant start — model cached
+dw> workflow run         # instant start — model cached
 dw> memory show          # check GPU memory
 dw> memory clear         # free GPU memory
 ```
@@ -26,10 +26,11 @@ dw> memory clear         # free GPU memory
 
 The REPL process handles user input and validation. The worker process handles model loading, caching, and inference. They communicate via multiprocessing queues.
 
-- **First `model run`**: Worker starts and loads the model
+- **First `workflow run`**: Worker starts and loads the model
 - **Subsequent runs**: Worker reuses cached models
 - **Workflow file edited**: Worker detects the change (SHA256 hash) and reloads
 - **`workflow load` (different file)**: Worker shuts down, restarts on next run
+- **`workflow restart`**: Worker shuts down immediately; a fresh one starts on the next run
 - **`memory clear`**: Frees GPU memory, models reload on next run
 - **`exit`**: Worker shuts down gracefully
 
@@ -39,7 +40,7 @@ The worker cleans up automatically between runs (garbage collection + GPU cache 
 
 ## Troubleshooting
 
-**Worker crashes**: The REPL detects it and starts a fresh worker on the next `model run`. Error messages are shown in the REPL.
+**Worker crashes**: The REPL detects it and starts a fresh worker on the next `workflow run`. Error messages are shown in the REPL.
 
 **Execution errors**: The worker stays alive (models cached) so you can fix the issue and re-run immediately.
 
