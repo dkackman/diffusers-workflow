@@ -6,9 +6,8 @@ with the transformers image-to-text pipeline.
 """
 
 import logging
-import torch
 from transformers import pipeline as hf_pipeline
-from .. import get_device_type
+from .. import preferred_task_dtype
 from .model_cache import cached_model
 
 logger = logging.getLogger("dw")
@@ -34,7 +33,7 @@ def image_to_text(image, device="cpu", **kwargs):
     prompt = kwargs.get("prompt", None)
     max_new_tokens = int(kwargs.get("max_new_tokens", 50))
 
-    dtype = torch.float16 if get_device_type(device) == "cuda" else torch.float32
+    dtype = preferred_task_dtype(device)
 
     def load_pipe():
         logger.info(f"Captioning image with {model_name} on {device}")

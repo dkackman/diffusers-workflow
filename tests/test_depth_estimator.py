@@ -19,23 +19,25 @@ def estimator_returning_depth():
 class TestHintDtype:
     """Test the dtype of the hint tensor a controlnet pipeline consumes"""
 
-    def make(self, device, device_type=None, **kwargs):
+    def make(self, device, dtype_choice=None, **kwargs):
         with patch("dw.tasks.depth_estimator.pipeline", estimator_returning_depth()):
-            if device_type is None:
+            if dtype_choice is None:
                 return make_hint_tensor(Image.new("RGB", (8, 8)), device, **kwargs)
 
-            # Exercise a backend's dtype choice without needing that hardware
+            # Exercise a backend's dtype choice without needing that hardware -
+            # preferred_task_dtype() is what make_hint_tensor defers to.
             with patch(
-                "dw.tasks.depth_estimator.get_device_type", return_value=device_type
+                "dw.tasks.depth_estimator.preferred_task_dtype",
+                return_value=dtype_choice,
             ):
                 return make_hint_tensor(Image.new("RGB", (8, 8)), device, **kwargs)
 
     def test_cuda_uses_float16(self):
-        assert self.make("cpu", device_type="cuda").dtype == torch.float16
+        assert self.make("cpu", dtype_choice=torch.float16).dtype == torch.float16
 
     def test_mps_uses_float32(self):
         # float16 produces NaN values on Apple Silicon
-        assert self.make("cpu", device_type="mps").dtype == torch.float32
+        assert self.make("cpu", dtype_choice=torch.float32).dtype == torch.float32
 
     def test_cpu_uses_float32(self):
         assert self.make("cpu").dtype == torch.float32

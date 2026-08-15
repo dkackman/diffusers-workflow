@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dw.workflow import workflow_from_file
 from dw.log_setup import setup_logging
-from dw import get_device_type
+from dw import get_device_type, empty_device_cache, device_memory_stats
 
 logger = logging.getLogger("dw.worker")
 
@@ -291,22 +291,10 @@ class WorkflowWorker:
         # Force garbage collection
         gc.collect()
 
-        # Clean up GPU cache if available (CUDA or MPS)
+        # Clean up GPU cache if available (CUDA or MPS). Don't synchronize
+        # here as it's expensive and unnecessary.
         try:
-            import torch
-
-            device_type = get_device_type()
-            if device_type == "cuda" and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                # Don't synchronize here as it's expensive and unnecessary
-            elif (
-                device_type == "mps"
-                and hasattr(torch.backends, "mps")
-                and torch.backends.mps.is_available()
-            ):
-                # MPS cache cleanup - limited API compared to CUDA
-                if hasattr(torch.mps, "empty_cache"):
-                    torch.mps.empty_cache()
+            empty_device_cache()
         except Exception as e:
             logger.warning(f"Could not clean GPU cache: {e}")
 
@@ -348,34 +336,20 @@ class WorkflowWorker:
         for _ in range(3):
             gc.collect()
 
-        # Aggressive GPU cleanup (CUDA or MPS)
+        # Aggressive GPU cleanup (CUDA or MPS) - empty cache and synchronize
+        # to ensure all operations complete before we go on to reset stats.
         try:
-            import torch
+            empty_device_cache(synchronize=True)
 
-            device_type = get_device_type()
-            if device_type == "cuda" and torch.cuda.is_available():
-                # Empty cache
-                torch.cuda.empty_cache()
+            # Try to reset CUDA memory stats - no MPS equivalent exists
+            if get_device_type() == "cuda":
+                import torch
 
-                # Synchronize to ensure all operations complete
-                torch.cuda.synchronize()
-
-                # Try to reset memory stats
                 try:
                     torch.cuda.reset_peak_memory_stats()
                     torch.cuda.reset_accumulated_memory_stats()
                 except (RuntimeError, AttributeError) as e:
                     logger.debug(f"Could not reset memory stats: {e}")
-            elif (
-                device_type == "mps"
-                and hasattr(torch.backends, "mps")
-                and torch.backends.mps.is_available()
-            ):
-                # MPS cleanup - limited API compared to CUDA
-                if hasattr(torch.mps, "empty_cache"):
-                    torch.mps.empty_cache()
-                if hasattr(torch.mps, "synchronize"):
-                    torch.mps.synchronize()
 
         except Exception as e:
             logger.warning(f"Could not perform GPU cleanup: {e}")
@@ -428,19 +402,7 @@ class WorkflowWorker:
             Memory usage in MB, or 0 if not available
         """
         try:
-            import torch
-
-            device_type = get_device_type()
-            if device_type == "cuda" and torch.cuda.is_available():
-                return torch.cuda.memory_allocated() / 1024 / 1024
-            elif (
-                device_type == "mps"
-                and hasattr(torch.backends, "mps")
-                and torch.backends.mps.is_available()
-            ):
-                # MPS doesn't have a direct memory_allocated() equivalent
-                # Return 0 to indicate we can't measure it accurately
-                return 0.0
+            return device_memory_stats()["allocated_mb"]
         except (RuntimeError, AttributeError) as e:
             logger.debug(f"Could not get GPU memory: {e}")
         return 0.0
@@ -462,38 +424,18 @@ class WorkflowWorker:
         }
 
         try:
-            import torch
-
-            device_type = get_device_type()
-            if device_type == "cuda" and torch.cuda.is_available():
-                info["gpu_available"] = True
-                info["gpu_device_name"] = torch.cuda.get_device_name(0)
-                info["gpu_memory_allocated_mb"] = (
-                    torch.cuda.memory_allocated() / 1024 / 1024
-                )
-                info["gpu_memory_reserved_mb"] = (
-                    torch.cuda.memory_reserved() / 1024 / 1024
-                )
-
-                # Try to get free memory
-                try:
-                    free, total = torch.cuda.mem_get_info()
-                    info["gpu_memory_free_mb"] = free / 1024 / 1024
-                    info["gpu_memory_total_mb"] = total / 1024 / 1024
-                except (RuntimeError, AttributeError) as e:
-                    logger.debug(f"Could not get GPU memory info: {e}")
-            elif (
-                device_type == "mps"
-                and hasattr(torch.backends, "mps")
-                and torch.backends.mps.is_available()
-            ):
-                info["gpu_available"] = True
-                info["gpu_device_name"] = "Apple Silicon (MPS)"
-                # MPS doesn't provide detailed memory stats like CUDA
-                info["gpu_memory_allocated_mb"] = 0.0
-                info["gpu_memory_reserved_mb"] = 0.0
-                info["gpu_memory_free_mb"] = 0.0
-                info["gpu_memory_total_mb"] = 0.0
+            stats = device_memory_stats()
+            info["gpu_available"] = stats["available"]
+            info["gpu_device_name"] = stats["device_name"]
+            info["gpu_memory_allocated_mb"] = stats["allocated_mb"]
+            info["gpu_memory_reserved_mb"] = stats["reserved_mb"]
+            # free/total are only ever None when CUDA's mem_get_info call
+            # itself failed - leave gpu_memory_free_mb at its 0.0 default and
+            # gpu_memory_total_mb unset in that case, same as before.
+            if stats["free_mb"] is not None:
+                info["gpu_memory_free_mb"] = stats["free_mb"]
+            if stats["total_mb"] is not None:
+                info["gpu_memory_total_mb"] = stats["total_mb"]
         except (ImportError, RuntimeError, AttributeError) as e:
             logger.debug(f"Could not access GPU: {e}")
 
