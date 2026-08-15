@@ -282,8 +282,35 @@
                         "dtype": {
                             "description": "The torch dtype to load components in, e.g. 'torch.bfloat16'",
                             "type": "string"
+                        },
+                        "quantization_config": {
+                            "description": "Quantization configuration per component, keyed by component name (e.g. 'transformer', 'text_encoder'). A component not named here loads unquantized.",
+                            "type": "object",
+                            "additionalProperties": {
+                                "$ref": "#/$defs/quantization_config"
+                            }
                         }
                     }
+                },
+                "components": {
+                    "description": "Configuration applied to components once the pipeline has loaded them. This is where a modular pipeline's components are placed, since it pulls their weights itself. Keys name a component, optionally as a dotted path into one, e.g. 'text_encoder.model'.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "group_offload": {
+                                "$ref": "#/$defs/group_offload"
+                            },
+                            "device": {
+                                "description": "The device to move this component to, e.g. 'cuda'. Only for components small enough to stay resident - the offloaded ones are placed by their own hooks.",
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "do_not_send_to_device": {
+                    "description": "Whether to leave the pipeline where it loaded rather than moving it to the device. Needed when the pipeline's components are placed individually, e.g. by group offloading them.",
+                    "type": "boolean"
                 },
                 "components_manager": {
                     "description": "Attach a ComponentsManager to a modular pipeline. The manager tracks the pipeline's components and, with auto CPU offload enabled, keeps only the running ones on the device. It replaces 'offload', which modular pipelines do not support.",

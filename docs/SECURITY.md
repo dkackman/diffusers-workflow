@@ -31,7 +31,7 @@ diffusers-workflow validates all file paths, user inputs, URLs, and subprocess a
 | `workflow.py` | Workflow file paths, JSON size, output directories, sub-workflow paths |
 | `run.py`, `validate.py` | CLI arguments, variable names and values |
 | `repl.py` | All user input, subprocess commands |
-| `arguments.py` | Image/video URLs, file paths, file extensions |
+| `arguments.py` | Image/video/audio URLs, file paths, file extensions |
 | `result.py` | Output directories and filenames |
 
 ## Exception Hierarchy

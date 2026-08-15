@@ -172,6 +172,38 @@ Control how models use memory:
 - `"sequential"` — Moves individual layers. Slowest but uses least GPU memory.
 - Omit for no offloading (fastest, requires enough VRAM).
 
+For components the pipeline loads itself — which is all of a modular pipeline's — use
+`components`, applied once the pipeline is loaded:
+
+```json
+"configuration": {
+    "component_type": "ModularPipeline",
+    "do_not_send_to_device": true,
+    "components": {
+        "transformer": {
+            "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 1,
+                "use_stream": true
+            }
+        },
+        "text_encoder.model": {
+            "group_offload": { "offload_type": "leaf_level", "use_stream": true }
+        },
+        "audio_vae": { "device": "cuda" }
+    }
+}
+```
+
+- `group_offload` — streams the component between system memory and the accelerator a
+  block or a leaf module at a time, which is what fits a component larger than the
+  device. `onload_device` defaults to the pipeline's device.
+- `device` — moves a component that is small enough to stay resident.
+- A dotted key reaches a module inside a component, for a component that holds the model
+  rather than being one.
+- `do_not_send_to_device` belongs with this: the components are placed individually, so
+  the pipeline itself must not be moved to the device afterwards.
+
 ### VAE Options
 
 ```json
@@ -212,14 +244,64 @@ and `load_components` pulls the weights:
 ```
 
 - `load_components` — arguments for `load_components()`. Use `dtype` for the component
-  dtype and `names` to load only some of the components.
+  dtype and `names` to load only some of the components. `quantization_config` is keyed
+  by component name, since a modular pipeline loads each component itself:
+
+  ```json
+  "load_components": {
+      "dtype": "torch.bfloat16",
+      "quantization_config": {
+          "transformer": {
+              "configuration": { "config_type": "TorchAoConfig" },
+              "arguments": {
+                  "quant_type": "torchao.quantization.Int8WeightOnlyConfig",
+                  "modules_to_not_convert": ["proj_in", "proj_out"]
+              }
+          },
+          "text_encoder": {
+              "configuration": { "config_type": "transformers.TorchAoConfig" },
+              "arguments": { "quant_type": "torchao.quantization.Int8WeightOnlyConfig" }
+          }
+      }
+  }
+  ```
+
+  A component the map does not name loads unquantized. Note which `TorchAoConfig` each
+  component takes: the diffusers one for its own models, the transformers one for a
+  transformers model such as a conditioner.
 - `components_manager` — attaches a `ComponentsManager`, which tracks the pipeline's
   components. With `enable_auto_cpu_offload` it keeps only the running components on the
   device and moves the rest to system memory, reserving `memory_reserve_margin`
   (default `"3GB"`) of free device memory. It requires a device that reports free memory
   (CUDA) and replaces `offload`, which modular pipelines do not support.
 
-See [examples/MiniMaxMusic.json](../examples/MiniMaxMusic.json) for a full example.
+A modular pipeline returns whatever its `output` argument asks for — one output by name,
+or several of them together:
+
+```json
+"arguments": {
+    "prompt": "variable:prompt",
+    "output": ["videos", "audio", "sampling_rate"]
+}
+```
+
+Asked for several, the outputs come back keyed by name. Video generated with its own
+soundtrack is muxed into a single `video/mp4` file, the same way a video pipeline's own
+output is, and a later step can still reference any of the outputs by name.
+
+Some repositories hold more than one task's weights. `workflow` names the task, which
+prunes the pipeline to the blocks that task runs, so only the components it needs are
+downloaded and loaded:
+
+```json
+"from_pretrained_arguments": {
+    "model_name": "MiniMaxAI/MiniMax-H3",
+    "workflow": "t2va"
+}
+```
+
+See [examples/MiniMaxMusic.json](../examples/MiniMaxMusic.json) and
+[examples/MiniMaxH3.json](../examples/MiniMaxH3.json) for full examples.
 
 ## Schedulers
 
@@ -257,3 +339,29 @@ Dynamic type conversion applies to certain values:
 - Keys ending in `_type` or `_dtype`, or named `dtype`: `"torch.bfloat16"` becomes `torch.bfloat16`
 - Dotted names: `"sdnq.SDNQConfig"` loads the class via importlib
 - Escape with braces to keep as string: `"{nf4}"` stays as `"nf4"`
+
+### Objects Built From a File
+
+Some pipelines take arguments that are objects rather than plain media. An argument that
+names a type and a `from_file` is constructed by that type's own `from_file()`:
+
+```json
+"references": [
+    {
+        "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+        "from_file": "subject.png"
+    },
+    {
+        "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+        "from_file": "voice.wav"
+    }
+]
+```
+
+Loading the media this way rather than as a plain `image` or `video` argument is what
+brings its frame rate or sample rate along with it, which MiniMax-H3 resamples a
+reference from. Any other keys in the object are passed to `from_file()` as arguments —
+`"fps": 30.0` to correct a container whose metadata is wrong, for instance. The file may
+be a path or a URL, and is validated like any other media the workflow names.
+
+See [examples/MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json) for a full example.

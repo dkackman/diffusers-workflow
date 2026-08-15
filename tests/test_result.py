@@ -215,6 +215,71 @@ class TestAudioVideoArtifacts:
         assert track.device.type == "cpu"
 
 
+class TestModularOutputs:
+    """Test artifacts from the outputs a modular pipeline returns together"""
+
+    def test_videos_are_paired_with_their_own_audio(self):
+        artifacts = get_artifact_list(
+            {
+                "videos": ["video1", "video2"],
+                "audio": ["audio1", "audio2"],
+                "sampling_rate": 16000,
+            }
+        )
+
+        assert [(a.frames, a.audio, a.sample_rate) for a in artifacts] == [
+            ("video1", "audio1", 16000),
+            ("video2", "audio2", 16000),
+        ]
+
+    def test_videos_without_audio_are_the_artifacts(self):
+        artifacts = get_artifact_list({"videos": ["video1", "video2"]})
+        assert artifacts == ["video1", "video2"]
+
+    def test_unrequested_sample_rate_is_none(self):
+        artifacts = get_artifact_list({"videos": ["video1"], "audio": ["audio1"]})
+        assert artifacts[0].sample_rate is None
+
+    def test_audio_sample_rate_names_the_rate_too(self):
+        artifacts = get_artifact_list(
+            {"videos": ["video1"], "audio": ["audio1"], "audio_sample_rate": 48000}
+        )
+        assert artifacts[0].sample_rate == 48000
+
+    def test_outputs_without_video_are_left_alone(self):
+        # Saved key by key, as any other dictionary result is
+        outputs = {"images": ["image1"], "latents": "latents"}
+        assert get_artifact_list(outputs) == [outputs]
+
+    def test_generated_audio_is_muxed_into_the_video(self):
+        outputs = {
+            "videos": ["frames"],
+            "audio": torch.zeros((1, 2, 100)),
+            "sampling_rate": 16000,
+        }
+        result = Result({"content_type": "video/mp4", "fps": 24})
+        result.add_result(outputs)
+
+        with (
+            patch("dw.result.encode_video") as encode,
+            patch("dw.result.export_to_video") as export,
+            patch("dw.result.is_av_available", return_value=True),
+            tempfile.TemporaryDirectory() as temp_dir,
+        ):
+            result.save(temp_dir, "test")
+
+        export.assert_not_called()
+        assert encode.call_args.kwargs["audio_sample_rate"] == 16000
+        assert encode.call_args.kwargs["audio"].shape == (2, 100)
+
+    def test_outputs_are_still_available_by_name(self):
+        # The outputs stay a dictionary, so a later step can reference one of them
+        result = Result({"content_type": "video/mp4"})
+        result.add_result({"videos": ["video1"], "sampling_rate": 16000})
+
+        assert result.get_artifact_properties("sampling_rate") == [16000]
+
+
 class TestSaveAudioVideo:
     """Test muxing generated audio into the saved video file"""
 

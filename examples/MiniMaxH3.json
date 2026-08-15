@@ -1,0 +1,107 @@
+{
+    "id": "MiniMaxH3",
+    "variables": {
+        "prompt": "A red fox trotting through a snowy pine forest, snow crunching underfoot",
+        "num_frames": 124,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 50,
+        "quant_type": "torchao.quantization.Int8WeightOnlyConfig"
+    },
+    "seed": 42,
+    "steps": [
+        {
+            "name": "text_to_video_audio",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "do_not_send_to_device": true,
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "TorchAoConfig"
+                                },
+                                "arguments": {
+                                    "quant_type": "variable:quant_type",
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "transformers.TorchAoConfig"
+                                },
+                                "arguments": {
+                                    "quant_type": "variable:quant_type",
+                                    "modules_to_not_convert": [
+                                        "model.visual",
+                                        "model.language_model.embed_tokens",
+                                        "model.language_model.norm",
+                                        "lm_head"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true
+                            }
+                        },
+                        "text_encoder.model": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "vae": {
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "audio_vae": {
+                            "device": "cuda"
+                        }
+                    },
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

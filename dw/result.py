@@ -45,6 +45,13 @@ AUDIO_WRITE_CHUNK_FRAMES = 1 << 20
 # The only container encode_video writes - it always encodes h264 video
 MUXED_VIDEO_CONTENT_TYPE = "video/mp4"
 
+# The names a modular pipeline's outputs go by. Asked for more than one output it returns
+# them in a dict rather than on a pipeline output object, so its videos and the soundtrack
+# generated alongside them arrive keyed instead of as attributes.
+MODULAR_VIDEO_KEYS = ("videos", "frames")
+MODULAR_AUDIO_KEYS = ("audio", "audios")
+MODULAR_SAMPLE_RATE_KEYS = ("sampling_rate", "audio_sample_rate")
+
 
 class AudioVideo:
     """A generated video together with the audio track generated alongside it.
@@ -450,33 +457,78 @@ def get_artifact_list(result):
     if hasattr(result, "frames"):
         # Some video pipelines generate an audio track along with the frames
         if getattr(result, "audio", None) is not None:
-            return pair_audio_with_frames(result)
+            return pair_audio_with_frames(
+                result.frames, result.audio, getattr(result, "audio_sample_rate", None)
+            )
         return result.frames
     if hasattr(result, "audios"):
         return [audio.T.float().cpu().numpy() for audio in result.audios]
+    if isinstance(result, dict):
+        # A modular pipeline asked for several outputs returns them keyed
+        artifacts = modular_artifacts(result)
+        if artifacts is not None:
+            return artifacts
     if isinstance(result, list):
         return result
     return [result]
 
 
-def pair_audio_with_frames(result):
-    """Pair each generated video in a pipeline output with its own audio track.
+def modular_artifacts(result):
+    """Extract the artifacts from the outputs a modular pipeline returns together.
 
-    Both are batched - frames[i] and audio[i] belong to the same generation. The sample
-    rate is attached to the output by the pipeline, since only its vocoder knows it.
+    Asked for several outputs - `"output": ["videos", "audio", "sampling_rate"]` - a
+    modular pipeline returns them in a dict instead of on one output object. Pairing the
+    videos with the audio generated alongside them here saves them the same way a video
+    pipeline's own output is saved, muxed into a single file.
 
     Args:
-        result: Pipeline output with 'frames' and 'audio' attributes
+        result: Dict of outputs returned by a modular pipeline
+
+    Returns:
+        List of artifacts, or None when the outputs hold no video - those are saved one
+        output at a time instead
+    """
+    videos = first_value(result, MODULAR_VIDEO_KEYS)
+    if videos is None:
+        return None
+
+    audio = first_value(result, MODULAR_AUDIO_KEYS)
+    if audio is None:
+        return videos
+
+    return pair_audio_with_frames(
+        videos, audio, first_value(result, MODULAR_SAMPLE_RATE_KEYS)
+    )
+
+
+def first_value(values, keys):
+    """The value of the first of `keys` present in `values`, or None when none of them are."""
+    for key in keys:
+        value = values.get(key, None)
+        if value is not None:
+            return value
+
+    return None
+
+
+def pair_audio_with_frames(videos, audio, sample_rate):
+    """Pair each generated video with its own audio track.
+
+    Both are batched - videos[i] and audio[i] belong to the same generation. Only the
+    pipeline knows the sample rate its vocoder produced the audio at, so it comes along
+    rather than being guessed at here.
+
+    Args:
+        videos: The generated videos, one list of frames per generation
+        audio: The generated waveforms, one per generation
+        sample_rate: Sample rate of the waveforms, or None if the pipeline did not report one
 
     Returns:
         List of AudioVideo artifacts, one per generated video
     """
-    sample_rate = getattr(result, "audio_sample_rate", None)
-    audio = result.audio
-
     return [
         AudioVideo(frames, audio[i] if i < len(audio) else None, sample_rate)
-        for i, frames in enumerate(result.frames)
+        for i, frames in enumerate(videos)
     ]
 
 

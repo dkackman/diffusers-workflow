@@ -7,6 +7,7 @@ from .config_objects import (
     get_quantization_configuration,
     get_group_offload_configuration,
     get_cache_configuration,
+    get_load_components_arguments,
 )
 from .remote import remote_text_encoder
 from ..teacache import teacache_context
@@ -14,6 +15,7 @@ from ..type_helpers import has_method
 from .. import get_device_type
 from ..prompt_weighting import apply_prompt_weighting
 from diffusers import attention_backend
+from diffusers.hooks import apply_group_offloading
 
 logger = logging.getLogger("dw")
 
@@ -192,6 +194,11 @@ class Pipeline:
 
         # Load and configure IP-Adapter
         load_ip_adapter(self.pipeline_definition.get("ip_adapter", None), self.pipeline)
+
+        # Place the components the pipeline loaded itself, once everything that alters
+        # them - dtypes, adapters, quantized matmuls - has been applied. Offloading hooks
+        # installed before those would be fighting them
+        configure_components(self.pipeline, self.configuration, self.device)
 
         # Set up random generator if needed
         if "no_generator" not in self.configuration:
@@ -426,6 +433,69 @@ class Pipeline:
                     component.to(torch_dtype)
 
 
+def configure_components(pipeline, configuration, default_device):
+    """Place the components a pipeline loaded for itself.
+
+    A modular pipeline pulls its own component weights, so they are only reachable once
+    the pipeline is loaded - too late for the offloading load_component sets up. Group
+    offloading a component here streams it between system memory and the accelerator a
+    piece at a time, which is what fits a pipeline whose components are each larger than
+    the device.
+
+    Args:
+        pipeline: The loaded pipeline
+        configuration: Pipeline configuration dictionary
+        default_device: Device the pipeline runs on
+    """
+    for component_name, component_configuration in configuration.get(
+        "components", {}
+    ).items():
+        component = get_component(pipeline, component_name)
+
+        group_offload_configuration = get_group_offload_configuration(
+            component_configuration, default_device
+        )
+        if group_offload_configuration is not None:
+            # apply_group_offloading rather than the component's own
+            # enable_group_offload - a component may be a transformers model, or a
+            # module inside one, and only diffusers models have the method
+            logger.info(f"Group offloading {component_name}")
+            apply_group_offloading(component, **group_offload_configuration)
+
+        device = component_configuration.get("device", None)
+        if device is not None:
+            logger.info(f"Moving {component_name} to device: {device}")
+            component.to(device)
+
+
+def get_component(pipeline, component_name):
+    """Look a component up on a pipeline, by name or by a dotted path into it.
+
+    A dotted path reaches a module inside a component, which is how a component that
+    holds the model rather than being one - a transformers model wrapping its own - is
+    offloaded.
+
+    Args:
+        pipeline: The loaded pipeline
+        component_name: Name of the component, e.g. 'vae' or 'text_encoder.model'
+
+    Returns:
+        The named component
+
+    Raises:
+        ValueError: If the pipeline has no such component
+    """
+    component = pipeline
+    for attribute_name in component_name.split("."):
+        component = getattr(component, attribute_name, None)
+        if component is None:
+            raise ValueError(
+                f"{type(pipeline).__name__} has no component '{component_name}'"
+            )
+
+    return component
+
+
 def attach_audio_sample_rate(pipeline, output):
     """Record the vocoder's sample rate on an output that carries generated audio.
 
@@ -625,7 +695,7 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
 
             # Modular pipelines load only their config in from_pretrained - the component
             # weights are pulled separately by load_components()
-            load_components_arguments = configuration.get("load_components", None)
+            load_components_arguments = get_load_components_arguments(configuration)
             if load_components_arguments is not None:
                 if not has_method(component, "load_components"):
                     raise ValueError(
