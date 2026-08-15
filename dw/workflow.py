@@ -47,6 +47,47 @@ def workflow_from_file(file_spec, output_dir):
         raise
 
 
+def referenced_result_names(steps):
+    """Every previous_result reference the given steps make, as full names.
+
+    Scans nested dicts and lists, so references inside pipeline arguments,
+    task arguments and sub-workflow argument maps are all found.
+    """
+    prefix = "previous_result:"
+    names = set()
+
+    def scan(value):
+        if isinstance(value, str) and value.startswith(prefix):
+            names.add(value[len(prefix) :])
+        elif isinstance(value, dict):
+            for item in value.values():
+                scan(item)
+        elif isinstance(value, list):
+            for item in value:
+                scan(item)
+
+    for step in steps:
+        scan(step)
+    return names
+
+
+def release_unreferenced_results(results, remaining_refs):
+    """Drop results no remaining reference can resolve to.
+
+    A reference resolves to a result whose name it equals or extends with a
+    property ('step.mask'), so any result that is such a prefix stays. Saved
+    artifacts are already on disk - holding every intermediate image and frame
+    list in RAM until the workflow ends is what OOMs long chains.
+    """
+    for name in [
+        n
+        for n in results
+        if not any(ref == n or ref.startswith(n + ".") for ref in remaining_refs)
+    ]:
+        logger.debug(f"Releasing result: {name}")
+        del results[name]
+
+
 class Workflow:
     """
     Main class for managing and executing workflows defined in JSON format
@@ -174,6 +215,12 @@ class Workflow:
                 results[step.name] = result
                 result.save(self.output_dir, f"{workflow_id}-{step.name}.{i}")
                 logger.debug(f"Step {step.name} completed with result: {result}")
+
+                # Release results no later step references - saved to disk
+                # already, and last_result keeps the workflow's return value
+                release_unreferenced_results(
+                    results, referenced_result_names(steps[i + 1 :])
+                )
 
                 # Cleanup between steps (but keep pipelines loaded)
                 gc.collect()

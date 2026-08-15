@@ -1,7 +1,12 @@
 import pytest
 import torch
 from unittest.mock import MagicMock
-from dw.workflow import Workflow, workflow_from_file
+from dw.workflow import (
+    Workflow,
+    workflow_from_file,
+    referenced_result_names,
+    release_unreferenced_results,
+)
 from dw.pipeline_processors.pipeline import Pipeline
 import os
 
@@ -47,6 +52,41 @@ def test_workflow_security_validation():
     # Test path traversal protection
     with pytest.raises(SecurityError):
         workflow_from_file("../../../etc/passwd", "./output")
+
+
+class TestResultEviction:
+    """Results no later step references are released after saving"""
+
+    def test_references_are_found_wherever_they_nest(self):
+        steps = [
+            {
+                "name": "later",
+                "pipeline": {
+                    "arguments": {
+                        "image": "previous_result:gen",
+                        "masks": [{"mask": "previous_result:segment.mask"}],
+                    }
+                },
+            }
+        ]
+        assert referenced_result_names(steps) == {"gen", "segment.mask"}
+
+    def test_unreferenced_results_are_released(self):
+        results = {"gen": object(), "old": object()}
+        release_unreferenced_results(results, {"gen"})
+        assert list(results) == ["gen"]
+
+    def test_property_references_keep_their_result(self):
+        # 'segment.mask' must keep the result named 'segment' - and a step
+        # literally named 'segment.mask' as well
+        results = {"segment": object(), "segment.mask": object(), "old": object()}
+        release_unreferenced_results(results, {"segment.mask"})
+        assert sorted(results) == ["segment", "segment.mask"]
+
+    def test_no_references_releases_everything(self):
+        results = {"a": object(), "b": object()}
+        release_unreferenced_results(results, set())
+        assert results == {}
 
 
 class TestSeedResolution:
