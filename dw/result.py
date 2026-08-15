@@ -47,9 +47,15 @@ MUXED_VIDEO_CONTENT_TYPE = "video/mp4"
 
 # The names a modular pipeline's outputs go by. Asked for more than one output it returns
 # them in a dict rather than on a pipeline output object, so its videos and the soundtrack
-# generated alongside them arrive keyed instead of as attributes.
-MODULAR_VIDEO_KEYS = ("videos", "frames")
-MODULAR_AUDIO_KEYS = ("audio", "audios")
+# generated alongside them arrive keyed instead of as attributes. Every diffusers modular
+# pipeline (minimax_h3, ltx2, ...) names these "videos"/"audio"/"sampling_rate" - kept as
+# tuples, rather than plain strings, only so the lookup goes through first_item like the
+# other key sets. "audio_sample_rate" is real too: it is the name dw's own
+# attach_audio_sample_rate (pipeline_processors/pipeline.py) gives the rate when it
+# attaches it to a non-modular output - a modular result carrying it under that name is
+# tested (TestModularOutputs.test_audio_sample_rate_names_the_rate_too) and kept for it.
+MODULAR_VIDEO_KEYS = ("videos",)
+MODULAR_AUDIO_KEYS = ("audio",)
 MODULAR_SAMPLE_RATE_KEYS = ("sampling_rate", "audio_sample_rate")
 
 
@@ -236,25 +242,16 @@ class Result:
         """Save individual artifact to file based on its type.
 
         Args:
-            output_dir: Directory to save file in
+            output_dir: Directory to save file in, already validated by save()
             artifact: The artifact to save
-            file_base_name: Base name for the file
+            file_base_name: Base name for the file, derived from names save()
+                validated
             content_type: MIME type of the content
             extension: File extension to use
         """
         if artifact is None:
             logger.warning(f"Skipping None artifact for {file_base_name}")
             return
-
-        try:
-            # Validate inputs
-            validated_output_dir = validate_output_path(output_dir, None)
-            validated_base_name = validate_string_input(
-                file_base_name, max_length=MAX_BASE_NAME_LENGTH
-            )
-        except SecurityError as e:
-            logger.error(f"Security validation failed for artifact save: {e}")
-            raise
 
         if isinstance(artifact, dict):
             # Recursively save dictionary items
@@ -263,17 +260,15 @@ class Result:
             )
             for k, v in artifact.items():
                 self.save_artifact(
-                    validated_output_dir,
+                    output_dir,
                     v,
-                    f"{validated_base_name}-{k}",
+                    f"{file_base_name}-{k}",
                     content_type,
                     extension,
                 )
             return
 
-        output_path = os.path.join(
-            validated_output_dir, f"{validated_base_name}{extension}"
-        )
+        output_path = os.path.join(output_dir, f"{file_base_name}{extension}")
         logger.info(f"Saving artifact to {output_path}")
 
         try:
@@ -298,9 +293,9 @@ class Result:
                 if len(waveforms) > 1:
                     for k, waveform in enumerate(waveforms):
                         self.save_artifact(
-                            validated_output_dir,
+                            output_dir,
                             waveform,
-                            f"{validated_base_name}-{k}",
+                            f"{file_base_name}-{k}",
                             content_type,
                             extension,
                         )
@@ -441,6 +436,37 @@ class Result:
             image.save(output_path)
 
 
+def _frames_from_attributes(result):
+    """The frames extractor for a pipeline output that carries `.frames` directly.
+
+    Some video pipelines (LTX-2) generate an audio track along with the frames, exposed
+    as `.audio` and `.audio_sample_rate` attributes alongside `.frames`.
+    """
+    return frames_with_audio(
+        result.frames,
+        getattr(result, "audio", None),
+        getattr(result, "audio_sample_rate", None),
+    )
+
+
+def _audios_from_attribute(result):
+    return [as_waveform_array(audio) for audio in result.audios]
+
+
+# Diffusers output fields get_artifact_list knows how to turn into artifacts, tried in
+# this order. A result is dispatched to the first field it has - images wins over frames
+# if a result somehow has both, matching the fixed hasattr chain this replaced. Supporting
+# a new diffusers output field (e.g. a standalone "depth" attribute) is one more entry
+# here, instead of another branch threaded through the chain.
+OUTPUT_FIELD_EXTRACTORS = [
+    ("images", lambda result: result.images),
+    ("image_embeds", lambda result: result.image_embeds),
+    ("image_embeddings", lambda result: result.image_embeddings),
+    ("frames", _frames_from_attributes),
+    ("audios", _audios_from_attribute),
+]
+
+
 def get_artifact_list(result):
     """Extract list of artifacts from a result object.
 
@@ -452,32 +478,44 @@ def get_artifact_list(result):
     Returns:
         List of artifacts
     """
-    # Already a paired video and audio track - it has frames, but they are one artifact
+    # Already a paired video and audio track - it has a .frames attribute of its own,
+    # but the pair is one artifact, not something to run back through frame extraction
     if isinstance(result, AudioVideo):
         return [result]
-    if hasattr(result, "images"):
-        return result.images
-    if hasattr(result, "image_embeds"):
-        return result.image_embeds
-    if hasattr(result, "image_embeddings"):
-        return result.image_embeddings
-    if hasattr(result, "frames"):
-        # Some video pipelines generate an audio track along with the frames
-        if getattr(result, "audio", None) is not None:
-            return pair_audio_with_frames(
-                result.frames, result.audio, getattr(result, "audio_sample_rate", None)
-            )
-        return result.frames
-    if hasattr(result, "audios"):
-        return [as_waveform_array(audio) for audio in result.audios]
+
+    for field_name, extract in OUTPUT_FIELD_EXTRACTORS:
+        if hasattr(result, field_name):
+            return extract(result)
+
     if isinstance(result, dict):
         # A modular pipeline asked for several outputs returns them keyed
         artifacts = modular_artifacts(result)
         if artifacts is not None:
             return artifacts
+
     if isinstance(result, list):
         return result
+
+    if hasattr(result, "to_tuple") or hasattr(result, "__dataclass_fields__"):
+        # A diffusers output (BaseOutput subclasses have to_tuple; plain dataclasses
+        # have __dataclass_fields__) whose fields matched none of the extractors above -
+        # log what it actually looks like so the resulting content-type mismatch on save
+        # is diagnosable instead of a bare "does not match result type" surprise.
+        logger.warning(
+            f"Don't know how to extract artifacts from a {type(result).__name__} - "
+            f"treating it as a single artifact. Its fields are: {output_field_names(result)}"
+        )
+
     return [result]
+
+
+def output_field_names(result):
+    """Best-effort list of field names on a diffusers-style output object, for logging."""
+    if hasattr(result, "keys"):
+        return list(result.keys())
+    if hasattr(result, "__dataclass_fields__"):
+        return list(result.__dataclass_fields__.keys())
+    return []
 
 
 def modular_artifacts(result):
@@ -504,13 +542,13 @@ def modular_artifacts(result):
     consumed_keys = {video_key}
 
     audio_key, audio = first_item(result, MODULAR_AUDIO_KEYS)
-    if audio is None:
-        artifacts = videos
-    else:
+    sample_rate = None
+    if audio is not None:
         consumed_keys.add(audio_key)
         rate_key, sample_rate = first_item(result, MODULAR_SAMPLE_RATE_KEYS)
         consumed_keys.add(rate_key)
-        artifacts = pair_audio_with_frames(videos, audio, sample_rate)
+
+    artifacts = frames_with_audio(videos, audio, sample_rate)
 
     # Keys the video/audio pairing above did not consume still need to be saved, not
     # dropped - carry them along as one extra artifact, saved key by key like any other
@@ -537,6 +575,29 @@ def first_item(values, keys):
             return key, value
 
     return None, None
+
+
+def frames_with_audio(frames, audio, sample_rate):
+    """Pair frames with the audio track generated alongside them, if there is one.
+
+    The one place that decides whether frames need pairing with audio at all - used by
+    both routes a pipeline's frames-plus-audio output can take: attributes on a pipeline
+    output object (`_frames_from_attributes`), and keys in the dict a modular pipeline
+    returns (`modular_artifacts`). Frames without audio are returned unchanged; actually
+    pairing them is `pair_audio_with_frames`'s job.
+
+    Args:
+        frames: The generated video(s), one list of frames per generation
+        audio: The generated waveform(s), or None if the pipeline produced no audio
+        sample_rate: Sample rate of the waveform(s), or None if unknown
+
+    Returns:
+        `frames` unchanged if `audio` is None, otherwise the list of AudioVideo pairs
+        `pair_audio_with_frames` produces
+    """
+    if audio is None:
+        return frames
+    return pair_audio_with_frames(frames, audio, sample_rate)
 
 
 def pair_audio_with_frames(videos, audio, sample_rate):
