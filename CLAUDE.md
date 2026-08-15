@@ -6,8 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `diffusers-workflow` is a declarative workflow engine for HuggingFace Diffusers. Users define AI image/video generation pipelines in JSON — variable substitution, multi-step composition, cross-step data flow, and utility tasks — without writing Python. Supports CUDA (NVIDIA), MPS (Apple Silicon), and CPU.
 
-**Version:** 0.37.0 | **Python:** 3.10-3.14 | **PyTorch:** 2.0+
-
 ## Common Commands
 
 ```bash
@@ -42,40 +40,6 @@ black dw/ tests/
 ```
 
 ## Architecture
-
-### Core Data Flow
-
-```
-JSON workflow → schema validation → variable substitution → sequential step execution → results
-```
-
-1. `workflow.py` loads JSON, validates against `workflow_schema.json`, substitutes `variable:name` references
-2. `step.py` executes each step — generating argument combinations via `previous_results.py` (cartesian product of `previous_result:step_name` references)
-3. Each step dispatches to one of: **Pipeline** (HuggingFace inference), **Task** (utility operation), or **Sub-Workflow** (recursive)
-4. `result.py` saves outputs as `{output_dir}/{workflow_id}-{step_name}.{index}.{ext}` — supports image, video, audio, text, and JSON content types. Optional `embed_metadata` stores generation parameters in PNG info chunks or JPEG/WebP EXIF. Pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV.
-
-### Key Modules
-
-| Module | Role |
-|--------|------|
-| `dw/workflow.py` | Orchestrator: load, validate, variable substitution, step sequencing |
-| `dw/step.py` | Step executor: generates iterations, dispatches to pipeline/task/workflow |
-| `dw/pipeline_processors/pipeline.py` | Pipeline loading, components, quantization, LoRA, schedulers, offloading |
-| `dw/pipeline_processors/config_objects.py` | Quantization and group offload config creation |
-| `dw/tasks/task.py` | Task dispatcher (image processing, QR codes, gathering, video, segmentation, captioning, text generation, diffusion upscaling, frame interpolation) |
-| `dw/tasks/segment.py` | GroundingDINO + SAM2 text-prompted object segmentation |
-| `dw/tasks/image_to_text.py` | Image captioning via transformers image-to-text pipeline (BLIP, BLIP-2, etc.) |
-| `dw/tasks/text_generation.py` | Text generation / prompt expansion via transformers text-generation pipeline |
-| `dw/tasks/diffusion_upscale.py` | Diffusion-based image upscaling via SD upscale pipelines (x2/x4) |
-| `dw/tasks/interpolate_frames.py` | RIFE frame interpolation (2x/4x/8x) with vendored IFNet v4.6 |
-| `dw/tasks/rife_model.py` | Vendored RIFE IFNet v4.6 architecture (MIT License, Megvii Inc.) |
-| `dw/previous_results.py` | Cross-step data flow via cartesian products |
-| `dw/arguments.py` | Argument processing, resource loading, dynamic type conversion |
-| `dw/type_helpers.py` | Dynamic type loading: `"FluxPipeline"` → class, `"torch.bfloat16"` → dtype |
-| `dw/security.py` | Path validation, input sanitization, URL validation, command safety |
-| `dw/variables.py` | Variable substitution system |
-| `dw/schema.py` | JSON schema validation |
-| `dw/settings.py` | User settings from `~/.diffusers_helper/settings.json` |
 
 ### REPL Architecture
 
@@ -129,6 +93,7 @@ All entry points use `dw/security.py`. When adding features:
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
 - **MPS differences from CUDA**: no autocast, no xformers, no bitsandbytes, no flash_attn, no triton. Model offloading has less benefit on unified memory.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
+- **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
 
 ## JSON Workflow Structure
 
