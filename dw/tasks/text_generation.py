@@ -9,6 +9,7 @@ other text-to-text tasks.
 import logging
 import torch
 from transformers import pipeline as hf_pipeline
+from .. import get_device_type
 
 logger = logging.getLogger("dw")
 
@@ -35,7 +36,7 @@ def generate_text(prompt, device="cpu", **kwargs):
 
     logger.info(f"Generating text with {model_name} on {device}")
 
-    dtype = torch.float16 if device == "cuda" else torch.float32
+    dtype = torch.float16 if get_device_type(device) == "cuda" else torch.float32
     pipe = hf_pipeline(
         "text-generation",
         model=model_name,
