@@ -141,10 +141,10 @@ def process_image(image, processor, device, kwargs):
         return image_to_depth(image, device, **kwargs)
 
     if processor == "depth_estimator_tensor":
-        return make_hint_tensor(image, device)
+        return make_hint_tensor(image, device, **kwargs)
 
     if processor == "depth_estimator":
-        return make_hint_image(image, device)
+        return make_hint_image(image, device, **kwargs)
 
     if processor == "resize_center_crop":
         return resize_center_crop(image, **kwargs)

@@ -258,10 +258,13 @@ class Pipeline:
             logger.debug("Running standard pipeline")
             output = self._execute_pipeline(arguments)
 
-            # Ensure output is on correct device
+            # A raw tensor result - latents, embeddings - is held for the rest of the
+            # workflow, so it rests in system memory instead of occupying the
+            # accelerator that the next step needs. Pipelines consuming it place it back
+            # on their own device.
             if hasattr(output, "to"):
-                logger.debug(f"Moving output to {self.device}")
-                output = output.to(self.device)
+                logger.debug("Moving tensor output to system memory")
+                output = output.to("cpu")
 
             attach_audio_sample_rate(self.pipeline, output)
 
@@ -583,7 +586,9 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
         from_pretrained_arguments["components_manager"] = components_manager
 
     # MPS (Apple Silicon) has numerical instability with float16 matmul operations,
-    # producing NaN values that result in black images. Auto-convert to float32.
+    # producing NaN values that result in black images. The dtype is left as asked for -
+    # silently loading a model in a dtype the workflow did not request would be worse -
+    # so this only warns.
     if (
         get_device_type(device) == "mps"
         and from_pretrained_arguments.get("torch_dtype") == torch.float16
@@ -648,15 +653,23 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
         do_not_send_to_device = configuration.get("do_not_send_to_device", False)
         offload = configuration.get("offload", None)
 
+        # Offloading streams a model between system memory and an accelerator - there is
+        # nothing to stream to when the run is on the CPU
+        if offload is not None and get_device_type(device) == "cpu":
+            logger.warning(
+                f"Ignoring '{offload}' offload - {device} is not an accelerator"
+            )
+            offload = None
+
         if offload == "model":
-            logger.debug("Enabling model CPU offload")
-            component.enable_model_cpu_offload()
+            logger.debug(f"Enabling model CPU offload onto {device}")
+            component.enable_model_cpu_offload(device=device)
         elif offload == "sequential":
-            logger.debug("Enabling sequential CPU offload")
+            logger.debug(f"Enabling sequential CPU offload onto {device}")
             for component_name in configuration.get("exclude_from_cpu_offload", []):
                 logger.debug(f"Excluding {component_name} from CPU offload")
                 component._exclude_from_cpu_offload.append(component_name)
-            component.enable_sequential_cpu_offload()
+            component.enable_sequential_cpu_offload(device=device)
         elif components_manager is not None and auto_cpu_offload_enabled(configuration):
             # Moving everything to the device here would defeat the offloading - the
             # manager's hooks bring each component on device as the pipeline needs it
