@@ -204,3 +204,99 @@ def test_worker_with_simple_workflow(worker_process, tmp_path):
             pytest.fail(f"Workflow execution error on second run: {result['message']}")
 
     assert second_run_count == 2
+
+
+@pytest.mark.skipif(
+    not os.path.exists(TEST_WORKFLOW_PATH),
+    reason=f"test workflow not found: {TEST_WORKFLOW_PATH}",
+)
+def test_worker_cache_hit_applies_new_output_dir(worker_process, tmp_path):
+    """
+    A second execute for the same (unchanged) workflow file is a cache hit -
+    it skips the reload branch entirely. But the caller can still pass a
+    different output_dir (e.g. after `config set output_dir` in the REPL),
+    and results must land there rather than silently continuing to save to
+    the directory the workflow was originally loaded with.
+    """
+    cmd_queue, res_queue, worker = worker_process
+
+    first_output_dir = str(tmp_path / "first_outputs")
+    os.makedirs(first_output_dir, exist_ok=True)
+
+    cmd_queue.put(
+        {
+            "type": "execute",
+            "workflow_path": TEST_WORKFLOW_PATH,
+            "arguments": {},
+            "output_dir": first_output_dir,
+            "log_level": "INFO",
+        }
+    )
+
+    saw_workflow_loaded = False
+    while True:
+        result = res_queue.get(timeout=WORKER_READY_TIMEOUT)
+        result_type = result.get("type")
+
+        if result_type == "workflow_loaded":
+            saw_workflow_loaded = True
+        elif result_type == "success":
+            break
+        elif result_type == "error":
+            pytest.fail(f"Workflow execution error: {result['message']}")
+
+    assert saw_workflow_loaded
+
+    first_run_files = os.listdir(first_output_dir)
+    assert len(first_run_files) > 0
+
+    # Same workflow file (unchanged content/path) -> cache hit, but a new
+    # output_dir.
+    second_output_dir = str(tmp_path / "second_outputs")
+
+    cmd_queue.put(
+        {
+            "type": "execute",
+            "workflow_path": TEST_WORKFLOW_PATH,
+            "arguments": {},
+            "output_dir": second_output_dir,
+            "log_level": "INFO",
+        }
+    )
+
+    saw_cache_reused = False
+    saw_workflow_loaded_second = False
+    second_run_count = None
+    while True:
+        result = res_queue.get(timeout=WORKER_READY_TIMEOUT)
+        result_type = result.get("type")
+
+        if result_type == "output" and "Reusing loaded models" in result.get(
+            "message", ""
+        ):
+            saw_cache_reused = True
+        elif result_type == "workflow_loaded":
+            saw_workflow_loaded_second = True
+        elif result_type == "success":
+            second_run_count = result["run_count"]
+            break
+        elif result_type == "error":
+            pytest.fail(f"Workflow execution error on second run: {result['message']}")
+
+    # This must genuinely be the cache-hit path, not a reload - otherwise the
+    # test wouldn't exercise the bug at all.
+    assert saw_cache_reused
+    assert not saw_workflow_loaded_second
+    assert second_run_count == 2
+
+    # The bug: on a cache hit the workflow kept the OLD output_dir, so
+    # results silently saved to first_output_dir instead of second_output_dir.
+    assert os.path.isdir(second_output_dir), (
+        "results were not saved to the new output_dir after a cache-hit "
+        "execute with a changed output_dir"
+    )
+    second_run_files = os.listdir(second_output_dir)
+    assert len(second_run_files) > 0, (
+        "second_output_dir exists but is empty - results kept going to the "
+        "original output_dir"
+    )
