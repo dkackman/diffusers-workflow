@@ -116,6 +116,55 @@ class TestConfiguredDevice:
         assert [call.args[3] for call in load.call_args_list] == ["cpu", "cuda"]
 
 
+class TestTensorResults:
+    """Test where a raw tensor result rests once a pipeline has produced it"""
+
+    def run(self, output):
+        pipeline = Pipeline({"configuration": {}, "arguments": {}}, 42, "cuda")
+        pipeline.pipeline = MagicMock(return_value=output, spec=["__call__", "vocoder"])
+        return pipeline.run({})
+
+    def test_tensor_results_rest_in_system_memory(self):
+        # Held for the whole workflow, they would otherwise occupy the accelerator the
+        # next step needs
+        result = self.run(torch.ones(2, 2))
+        assert result.device.type == "cpu"
+
+    def test_other_results_are_left_alone(self):
+        images = ["an image"]
+        assert self.run(images) is images
+
+
+class TestOffloadDevice:
+    """Test the accelerator components are offloaded onto"""
+
+    def load(self, configuration, device):
+        component = MagicMock()
+        configuration = {
+            "component_type": make_component_type(component),
+            **configuration,
+        }
+
+        load_component("pipeline", configuration, {"model_name": "test-model"}, device)
+
+        return component
+
+    def test_model_offload_targets_the_configured_device(self):
+        component = self.load({"offload": "model"}, "cuda:1")
+        component.enable_model_cpu_offload.assert_called_once_with(device="cuda:1")
+
+    def test_sequential_offload_targets_the_configured_device(self):
+        component = self.load({"offload": "sequential"}, "mps")
+        component.enable_sequential_cpu_offload.assert_called_once_with(device="mps")
+
+    def test_offload_is_skipped_on_the_cpu(self):
+        # There is no accelerator to stream the model onto
+        component = self.load({"offload": "sequential"}, "cpu")
+
+        component.enable_sequential_cpu_offload.assert_not_called()
+        component.to.assert_called_once_with("cpu")
+
+
 class TestLoadingDevice:
     """Test the device component weights are materialized on while loading"""
 
