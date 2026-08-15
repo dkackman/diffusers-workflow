@@ -3,7 +3,7 @@
     "variables": {
         "prompt": "The character speaks in time with the reference recording, natural lip movement",
         "subject": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg",
-        "voice": "voice.wav",
+        "voice": "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav",
         "num_frames": 124,
         "width": 960,
         "height": 544,

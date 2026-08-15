@@ -13,9 +13,10 @@ from .remote import remote_text_encoder
 from ..teacache import teacache_context
 from ..type_helpers import has_method
 from .. import get_device_type
-from ..prompt_weighting import apply_prompt_weighting
 from diffusers import attention_backend
-from diffusers.hooks import apply_group_offloading
+
+# dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
+# imported where they are used - at module scope they add seconds to every startup
 
 logger = logging.getLogger("dw")
 
@@ -259,6 +260,8 @@ class Pipeline:
                 )
                 arguments["prompt_embeds"] = prompt_embeds
             elif self.configuration.get("prompt_weighting", False):
+                from ..prompt_weighting import apply_prompt_weighting
+
                 apply_prompt_weighting(self.pipeline, arguments)
 
             # Run standard pipeline
@@ -459,6 +462,8 @@ def configure_components(pipeline, configuration, default_device):
             # apply_group_offloading rather than the component's own
             # enable_group_offload - a component may be a transformers model, or a
             # module inside one, and only diffusers models have the method
+            from diffusers.hooks import apply_group_offloading
+
             logger.info(f"Group offloading {component_name}")
             apply_group_offloading(component, **group_offload_configuration)
 
@@ -618,6 +623,28 @@ def create_components_manager(configuration, device):
     return components_manager
 
 
+def has_component_group_offload(configuration):
+    """Whether a per-component entry configures group offloading.
+
+    The 'components' block is applied by configure_components() after the pipeline is
+    loaded, but load_component() has to decide where to materialize weights and whether
+    to move the pipeline to the device before that block is ever read. A workflow whose
+    only offload configuration lives under components.*.group_offload still needs both
+    of those earlier decisions to treat it as offloading.
+
+    Args:
+        configuration: Configuration of the component being loaded
+
+    Returns:
+        True when any per-component entry configures group offloading
+    """
+    components = configuration.get("components") or {}
+    return any(
+        isinstance(settings, dict) and settings.get("group_offload") is not None
+        for settings in components.values()
+    )
+
+
 def loading_device(configuration):
     """The device a component's weights are materialized on while it loads.
 
@@ -635,6 +662,7 @@ def loading_device(configuration):
     offloads = (
         configuration.get("offload", None) is not None
         or configuration.get("group_offload", None) is not None
+        or has_component_group_offload(configuration)
     )
 
     if offloads:
@@ -744,6 +772,13 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
             # Moving everything to the device here would defeat the offloading - the
             # manager's hooks bring each component on device as the pipeline needs it
             logger.debug("Device placement is owned by the components manager")
+        elif has_component_group_offload(configuration):
+            # configure_components() installs group-offload hooks per-component after
+            # this returns - moving the whole pipeline to the device now would load it
+            # in full before those hooks exist, defeating the offloading
+            logger.info(
+                f"components configure group offloading - not moving pipeline to {device}"
+            )
         elif hasattr(component, "to") and not do_not_send_to_device:
             logger.debug(f"Moving {component_name} to device: {device}")
             component = component.to(device)

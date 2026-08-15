@@ -362,6 +362,11 @@ Loading the media this way rather than as a plain `image` or `video` argument is
 brings its frame rate or sample rate along with it, which MiniMax-H3 resamples a
 reference from. Any other keys in the object are passed to `from_file()` as arguments —
 `"fps": 30.0` to correct a container whose metadata is wrong, for instance. The file may
-be a path or a URL, and is validated like any other media the workflow names.
+be a path — relative to the workflow file, like all media a workflow names — or a URL,
+and is validated like any other media. `variable:` references work as the file location;
+`previous_result:` references do not — the object is built when the workflow loads,
+before any step has run, so reference a saved file's path or a URL instead. A dict that
+merely contains a `from_file` key without a `*_type` key is not an object description
+and is passed through untouched.
 
 See [examples/MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json) for a full example.
