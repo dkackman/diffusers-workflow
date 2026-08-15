@@ -9,6 +9,16 @@ P4 = cleanup.
 Checked-off items should also be removed from this file once verified fixed (with a test
 where feasible).
 
+## Progress (2026-08-15)
+
+**DONE — P0 (all):** #1 `99fa7ba`, #2 `6ff9621`, #3+#4 `6896b41`, #5 `5e617f2`,
+#6 `72a2f76`, #7 `446e454`.
+**DONE — P1:** #9+#10 `2631c54`, #11+#13 `2f173b3`, #12+#14 `6896b41`, #15 `9b8274e`,
+#16 `5e617f2`. #8 in progress.
+**DONE — P2:** #20 (Phase T, `0a185ba`).
+**Remaining:** #8 (in flight), P2 #17-#19/#21, P3 #22-#29, P4 #30-#33, staged-diff
+follow-ups S7/S9.
+
 ---
 
 ## P0 — Security & silently wrong results
