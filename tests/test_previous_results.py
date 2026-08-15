@@ -85,6 +85,52 @@ class TestGetPreviousResults:
             get_previous_results(previous_results, "step_missing.text")
 
         assert "step_missing" in str(exc_info.value)
+        assert "Available results" in str(exc_info.value)
+
+    def test_dotted_step_name_with_property(self):
+        """Step names may themselves contain dots (e.g. 'v1.0')."""
+        result = Result({})
+        result.add_result(
+            [{"mask": "mask1.png", "value": 1}, {"mask": "mask2.png", "value": 2}]
+        )
+        previous_results = {"v1.0": result}
+
+        masks = get_previous_results(previous_results, "v1.0.mask")
+        assert masks == ["mask1.png", "mask2.png"]
+
+    def test_dotted_step_name_without_property(self):
+        """A dotted step name referenced with no property is not mis-split."""
+        result = Result({})
+        result.add_result(["item1", "item2"])
+        previous_results = {"v1.0": result}
+
+        artifacts = get_previous_results(previous_results, "v1.0")
+        assert artifacts == ["item1", "item2"]
+
+    def test_longest_matching_step_name_wins(self):
+        """When multiple known step names could be a prefix, prefer the longest."""
+        short_result = Result({})
+        short_result.add_result([{"text": "wrong"}])
+
+        long_result = Result({})
+        long_result.add_result([{"text": "right"}])
+
+        previous_results = {"step": short_result, "step.sub": long_result}
+
+        texts = get_previous_results(previous_results, "step.sub.text")
+        assert texts == ["right"]
+
+    def test_multi_dot_property_does_not_raise_unpack_error(self):
+        """A property name containing dots should resolve the step name
+        correctly and not raise a ValueError from a naive two-part split.
+        The downstream property lookup treats "a.b" as a literal (missing)
+        key and returns no values rather than erroring."""
+        result = Result({})
+        result.add_result([{"a": {"b": "nested"}}, {"a.b": "literal"}])
+        previous_results = {"step": result}
+
+        values = get_previous_results(previous_results, "step.a.b")
+        assert values == ["literal"]
 
 
 class TestGetIterations:
