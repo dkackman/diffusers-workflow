@@ -1,4 +1,5 @@
 import torch
+import contextlib
 import copy
 import importlib
 import logging
@@ -258,6 +259,8 @@ class Pipeline:
                 logger.debug(f"Moving output to {self.device}")
                 output = output.to(self.device)
 
+            attach_audio_sample_rate(self.pipeline, output)
+
             return output
 
         except (KeyError, ValueError, TypeError) as e:
@@ -416,6 +419,33 @@ class Pipeline:
                     component.to(torch_dtype)
 
 
+def attach_audio_sample_rate(pipeline, output):
+    """Record the vocoder's sample rate on an output that carries generated audio.
+
+    Pipelines that generate audio with their video (LTX-2) return the waveform without
+    its sample rate - only the vocoder that produced it knows that. Saving the video
+    needs the rate to mux the audio, so it travels with the output.
+
+    Args:
+        pipeline: The pipeline that produced the output
+        output: The pipeline output
+    """
+    if getattr(output, "audio", None) is None:
+        return
+
+    vocoder_config = getattr(getattr(pipeline, "vocoder", None), "config", None)
+    sample_rate = getattr(vocoder_config, "output_sampling_rate", None)
+    if sample_rate is None:
+        logger.warning(
+            "Pipeline generated audio but has no vocoder sample rate - "
+            "set 'audio_sample_rate' in the step result to save it with the video"
+        )
+        return
+
+    logger.debug(f"Generated audio has a sample rate of {sample_rate}Hz")
+    output.audio_sample_rate = sample_rate
+
+
 def load_loras(loras, pipeline):
     """Load and configure LoRA models."""
     adapter_names = []
@@ -511,6 +541,32 @@ def create_components_manager(configuration, device):
     return components_manager
 
 
+def loading_device(configuration):
+    """The device a component's weights are materialized on while it loads.
+
+    Offloading brings each part of a model onto the device only while it runs, so the
+    weights have to land in system memory first. dw sets a default torch device at
+    startup, which would otherwise create every module directly on the GPU - a large
+    pipeline runs the card out of memory before its offload hooks are ever installed.
+
+    Args:
+        configuration: Configuration of the component being loaded
+
+    Returns:
+        A context manager active for the duration of the load
+    """
+    offloads = (
+        configuration.get("offload", None) is not None
+        or configuration.get("group_offload", None) is not None
+    )
+
+    if offloads:
+        logger.debug("Loading into system memory - the component will be offloaded")
+        return torch.device("cpu")
+
+    return contextlib.nullcontext()
+
+
 def load_component(component_name, configuration, from_pretrained_arguments, device):
     """Load and configure a pipeline or component."""
     component_type = configuration["component_type"]
@@ -534,40 +590,41 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
         )
 
     try:
-        # Load from model name
-        if "model_name" in from_pretrained_arguments:
-            model_name = from_pretrained_arguments.pop("model_name")
-            logger.info(f"Loading {component_name} from model: {model_name}")
-            component = component_type.from_pretrained(
-                model_name, **from_pretrained_arguments
-            )
-
-        # Load from single file
-        elif "from_single_file" in from_pretrained_arguments:
-            from_single_file = from_pretrained_arguments.pop("from_single_file")
-            logger.info(
-                f"Loading {component_name} from single file: {from_single_file}"
-            )
-            component = component_type.from_single_file(
-                from_single_file, **from_pretrained_arguments
-            )
-
-        # Create new component
-        else:
-            logger.info(f"Creating new {component_name}")
-            component = component_type(**from_pretrained_arguments)
-
-        # Modular pipelines load only their config in from_pretrained - the component
-        # weights are pulled separately by load_components()
-        load_components_arguments = configuration.get("load_components", None)
-        if load_components_arguments is not None:
-            if not has_method(component, "load_components"):
-                raise ValueError(
-                    f"load_components is only supported on modular pipelines, "
-                    f"{component_type.__name__} does not have it"
+        with loading_device(configuration):
+            # Load from model name
+            if "model_name" in from_pretrained_arguments:
+                model_name = from_pretrained_arguments.pop("model_name")
+                logger.info(f"Loading {component_name} from model: {model_name}")
+                component = component_type.from_pretrained(
+                    model_name, **from_pretrained_arguments
                 )
-            logger.info(f"Loading components for {component_name}")
-            component.load_components(**load_components_arguments)
+
+            # Load from single file
+            elif "from_single_file" in from_pretrained_arguments:
+                from_single_file = from_pretrained_arguments.pop("from_single_file")
+                logger.info(
+                    f"Loading {component_name} from single file: {from_single_file}"
+                )
+                component = component_type.from_single_file(
+                    from_single_file, **from_pretrained_arguments
+                )
+
+            # Create new component
+            else:
+                logger.info(f"Creating new {component_name}")
+                component = component_type(**from_pretrained_arguments)
+
+            # Modular pipelines load only their config in from_pretrained - the component
+            # weights are pulled separately by load_components()
+            load_components_arguments = configuration.get("load_components", None)
+            if load_components_arguments is not None:
+                if not has_method(component, "load_components"):
+                    raise ValueError(
+                        f"load_components is only supported on modular pipelines, "
+                        f"{component_type.__name__} does not have it"
+                    )
+                logger.info(f"Loading components for {component_name}")
+                component.load_components(**load_components_arguments)
 
         # Handle group_offload configuration
         group_offload_configuration = get_group_offload_configuration(

@@ -1,10 +1,16 @@
 import os
 import numpy
+import torch
 import soundfile
 import json
 import mimetypes
 import logging
-from diffusers.utils import export_to_video, export_to_gif
+from diffusers.utils import (
+    export_to_video,
+    export_to_gif,
+    encode_video,
+    is_av_available,
+)
 from collections.abc import Iterable
 from .security import validate_output_path, validate_string_input, SecurityError
 
@@ -35,6 +41,28 @@ AUDIO_WRITE_ARGUMENTS = ["subtype", "format", "compression_level", "bitrate_mode
 
 # Audio is written in chunks of this many frames - see write_audio
 AUDIO_WRITE_CHUNK_FRAMES = 1 << 20
+
+# The only container encode_video writes - it always encodes h264 video
+MUXED_VIDEO_CONTENT_TYPE = "video/mp4"
+
+
+class AudioVideo:
+    """A generated video together with the audio track generated alongside it.
+
+    Pipelines like LTX-2 return audio next to their frames. Keeping the two paired lets
+    the result mux them into one file instead of dropping the audio on the floor.
+    """
+
+    def __init__(self, frames, audio, sample_rate):
+        """
+        Args:
+            frames: The video, as PIL images or an array of frames
+            audio: Waveform for this video, shaped (channels, samples)
+            sample_rate: Sample rate of the waveform, or None if the pipeline did not report one
+        """
+        self.frames = frames
+        self.audio = audio
+        self.sample_rate = sample_rate
 
 
 class Result:
@@ -236,9 +264,12 @@ class Result:
 
         try:
             if content_type.startswith("video"):
-                export_to_video(
-                    artifact, output_path, fps=self.result_definition.get("fps", 8)
-                )
+                if isinstance(artifact, AudioVideo):
+                    self.save_audio_video(artifact, output_path, content_type)
+                else:
+                    export_to_video(
+                        artifact, output_path, fps=self.result_definition.get("fps", 8)
+                    )
             elif content_type == "image/gif":
                 export_to_gif(
                     artifact, output_path, fps=self.result_definition.get("fps", 8)
@@ -290,6 +321,49 @@ class Result:
                 f"Error saving artifact to {output_path}: {str(e)}", exc_info=True
             )
             raise
+
+    def save_audio_video(self, artifact, output_path, content_type):
+        """Write a video and the audio generated with it into a single file.
+
+        encode_video muxes the two into an h264/mp4 file with PyAV. When PyAV is missing,
+        the container is not mp4, or nothing told us the sample rate, the video is written
+        on its own and the audio is dropped.
+
+        Args:
+            artifact: AudioVideo holding the frames and their waveform
+            output_path: Path of the file to write
+            content_type: MIME type of the video being written
+        """
+        fps = self.result_definition.get("fps", 8)
+        # The pipeline reports the sample rate of what it generated - the result
+        # definition can still override it
+        sample_rate = self.result_definition.get(
+            "audio_sample_rate", artifact.sample_rate
+        )
+
+        reason = None
+        if artifact.audio is None:
+            reason = "the pipeline returned no audio"
+        elif sample_rate is None:
+            reason = "the audio sample rate is unknown"
+        elif content_type != MUXED_VIDEO_CONTENT_TYPE:
+            reason = f"audio can only be muxed into {MUXED_VIDEO_CONTENT_TYPE}"
+        elif not is_av_available():
+            reason = "PyAV is not installed - install it with: pip install av"
+
+        if reason is not None:
+            logger.warning(f"Saving {output_path} without its audio because {reason}")
+            export_to_video(artifact.frames, output_path, fps=fps)
+            return
+
+        logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")
+        encode_video(
+            artifact.frames,
+            fps=fps,
+            output_path=output_path,
+            audio=as_audio_track(artifact.audio),
+            audio_sample_rate=sample_rate,
+        )
 
     def get_audio_write_arguments(self, content_type):
         """Collect the soundfile arguments for an audio content type.
@@ -364,6 +438,9 @@ def get_artifact_list(result):
     Returns:
         List of artifacts
     """
+    # Already a paired video and audio track - it has frames, but they are one artifact
+    if isinstance(result, AudioVideo):
+        return [result]
     if hasattr(result, "images"):
         return result.images
     if hasattr(result, "image_embeds"):
@@ -371,12 +448,54 @@ def get_artifact_list(result):
     if hasattr(result, "image_embeddings"):
         return result.image_embeddings
     if hasattr(result, "frames"):
+        # Some video pipelines generate an audio track along with the frames
+        if getattr(result, "audio", None) is not None:
+            return pair_audio_with_frames(result)
         return result.frames
     if hasattr(result, "audios"):
         return [audio.T.float().cpu().numpy() for audio in result.audios]
     if isinstance(result, list):
         return result
     return [result]
+
+
+def pair_audio_with_frames(result):
+    """Pair each generated video in a pipeline output with its own audio track.
+
+    Both are batched - frames[i] and audio[i] belong to the same generation. The sample
+    rate is attached to the output by the pipeline, since only its vocoder knows it.
+
+    Args:
+        result: Pipeline output with 'frames' and 'audio' attributes
+
+    Returns:
+        List of AudioVideo artifacts, one per generated video
+    """
+    sample_rate = getattr(result, "audio_sample_rate", None)
+    audio = result.audio
+
+    return [
+        AudioVideo(frames, audio[i] if i < len(audio) else None, sample_rate)
+        for i, frames in enumerate(result.frames)
+    ]
+
+
+def as_audio_track(audio):
+    """Convert a generated waveform into the tensor encode_video expects.
+
+    encode_video wants a float torch tensor on the CPU shaped (channels, samples) -
+    pipelines hand back bfloat16 tensors that are still on the GPU, or numpy arrays.
+
+    Args:
+        audio: Waveform as a torch tensor or numpy array
+
+    Returns:
+        Float CPU torch tensor holding the waveform
+    """
+    if not isinstance(audio, torch.Tensor):
+        audio = torch.from_numpy(numpy.asarray(audio))
+
+    return audio.detach().float().cpu()
 
 
 def write_audio(output_path, waveform, sample_rate, **write_arguments):

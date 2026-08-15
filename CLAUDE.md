@@ -52,7 +52,7 @@ JSON workflow → schema validation → variable substitution → sequential ste
 1. `workflow.py` loads JSON, validates against `workflow_schema.json`, substitutes `variable:name` references
 2. `step.py` executes each step — generating argument combinations via `previous_results.py` (cartesian product of `previous_result:step_name` references)
 3. Each step dispatches to one of: **Pipeline** (HuggingFace inference), **Task** (utility operation), or **Sub-Workflow** (recursive)
-4. `result.py` saves outputs as `{output_dir}/{workflow_id}-{step_name}.{index}.{ext}` — supports image, video, audio, text, and JSON content types. Optional `embed_metadata` stores generation parameters in PNG info chunks or JPEG/WebP EXIF.
+4. `result.py` saves outputs as `{output_dir}/{workflow_id}-{step_name}.{index}.{ext}` — supports image, video, audio, text, and JSON content types. Optional `embed_metadata` stores generation parameters in PNG info chunks or JPEG/WebP EXIF. Pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV.
 
 ### Key Modules
 

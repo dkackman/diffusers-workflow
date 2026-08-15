@@ -47,6 +47,8 @@ mediapipe>=0.10.18
 imageio>=2.36.1
 imageio-ffmpeg>=0.5.1
 moviepy>=2.1.1
+# Muxing generated audio into generated video (LTX-2)
+av>=13.0.0
 
 # Audio processing
 soundfile>=0.12.1
