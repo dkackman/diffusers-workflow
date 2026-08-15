@@ -1,6 +1,6 @@
 import os
 import logging
-from .type_helpers import load_type_from_name
+from .type_helpers import load_type_from_name, has_method
 from diffusers.utils import load_image, load_video
 from .security import (
     validate_path,
@@ -8,9 +8,23 @@ from .security import (
     SecurityError,
     ALLOWED_IMAGE_EXTENSIONS,
     ALLOWED_VIDEO_EXTENSIONS,
+    ALLOWED_AUDIO_EXTENSIONS,
 )
 
 logger = logging.getLogger("dw")
+
+# Keys that end in '_type' but name a category rather than a python type. Any other such
+# key can be escaped where it is used, by wrapping its value in braces
+NON_TYPE_KEYS = {"content_type", "offload_type"}
+
+# The key naming the file an argument object is constructed from
+FROM_FILE_KEY = "from_file"
+
+# The media such an object may be built from - it opens the file itself, so the
+# extension is all that is checked here
+ALLOWED_FROM_FILE_EXTENSIONS = (
+    ALLOWED_IMAGE_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS | ALLOWED_AUDIO_EXTENSIONS
+)
 
 
 # Helper functions for processing and loading workflow arguments
@@ -20,6 +34,7 @@ def realize_args(arg):
     1. Convert type references into actual Python types
     2. Load images from file paths/URLs
     3. Load videos from file paths/URLs
+    4. Construct objects that name a type and the file to build it from
     """
     if isinstance(arg, dict):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
@@ -32,10 +47,10 @@ def realize_args(arg):
             elif k.endswith("_video") or k == "video":
                 logger.debug(f"Loading video for key: {k}")
                 arg[k] = fetch_video(v)
-            # Handle type references (except 'content_type')
+            # Handle type references, except the keys that only look like one
             elif (
                 k.endswith("_type") or k.endswith("_dtype") or k == "dtype"
-            ) and k != "content_type":
+            ) and k not in NON_TYPE_KEYS:
                 logger.debug(f"Processing type reference for key: {k}")
                 # Allow escaping type references using {} brackets
                 # this is for instances when the argument name is "something_type" but it is
@@ -48,15 +63,96 @@ def realize_args(arg):
                 elif isinstance(v, type):
                     # the value already a type
                     arg[k] = v
-            # Recursively process nested dictionaries
+            # Recursively process nested dictionaries, then build any object they
+            # describe - the type reference it names is realized by the recursion
             else:
                 realize_args(v)
+                arg[k] = realize_object(v)
 
     # Recursively process lists
     elif isinstance(arg, list):
         logger.debug("Processing list arguments")
-        for item in arg:
+        for i, item in enumerate(arg):
             realize_args(item)
+            arg[i] = realize_object(item)
+
+
+def realize_object(value):
+    """Construct an argument that names a type and a file to build it from.
+
+    Some pipelines take arguments that are objects rather than plain media - MiniMax-H3's
+    references, which carry the frame rate or the sample rate of the media they hold.
+    Those are written as a type and a file:
+
+        { "reference_type": "...MiniMaxH3ImageReference", "from_file": "subject.png" }
+
+    and built by the type's own from_file(), since only it knows what to bring along with
+    the media. Any other keys are passed to from_file() as keyword arguments.
+
+    Args:
+        value: An already realized argument - anything but a dict naming a type and a
+            'from_file' is returned unchanged
+
+    Returns:
+        The constructed object, or value unchanged
+
+    Raises:
+        ValueError: If the dict names no type, or a type that cannot be built from a file
+        SecurityError: If the file it names fails validation
+    """
+    if not isinstance(value, dict) or FROM_FILE_KEY not in value:
+        return value
+
+    arguments = {k: v for k, v in value.items() if k != FROM_FILE_KEY}
+    type_names = [k for k, v in arguments.items() if isinstance(v, type)]
+    if len(type_names) != 1:
+        raise ValueError(
+            f"'{FROM_FILE_KEY}' needs exactly one '_type' argument naming the type to "
+            f"construct, got {list(value.keys())}"
+        )
+
+    object_type = arguments.pop(type_names[0])
+    if not has_method(object_type, FROM_FILE_KEY):
+        raise ValueError(
+            f"{object_type.__name__} cannot be constructed from a file - "
+            f"it has no {FROM_FILE_KEY}()"
+        )
+
+    location = validate_media_location(value[FROM_FILE_KEY])
+    logger.info(f"Constructing {object_type.__name__} from {location}")
+
+    return object_type.from_file(location, **arguments)
+
+
+def validate_media_location(location):
+    """Validate the media file an argument object is constructed from.
+
+    The object decodes the file itself, so only where it comes from is checked here.
+
+    Args:
+        location: Path or URL of the media file
+
+    Returns:
+        The validated path or URL
+
+    Raises:
+        ValueError: If the location is not a string
+        SecurityError: If the path, URL or file extension is not allowed
+    """
+    if not isinstance(location, str):
+        raise ValueError(
+            f"'{FROM_FILE_KEY}' must be a path or a URL, got {type(location)}"
+        )
+
+    if location.startswith("http://") or location.startswith("https://"):
+        return validate_url(location)
+
+    validated_path = validate_path(location, allow_create=False)
+    ext = os.path.splitext(validated_path)[1].lower()
+    if ext not in ALLOWED_FROM_FILE_EXTENSIONS:
+        raise SecurityError(f"Media file extension not allowed: {ext}")
+
+    return validated_path
 
 
 def fetch_image(img_spec):

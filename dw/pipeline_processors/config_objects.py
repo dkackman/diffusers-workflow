@@ -24,30 +24,73 @@ def get_quantization_configuration(configuration):
     logger.debug(f"Processing quantization configuration: {configuration}")
 
     quantization_config = configuration.get("quantization_config", None)
-    if quantization_config is not None:
-        logger.info("Loading quantization configuration...")
-        logger.debug(f"Quantization parameters: {quantization_config}")
-        try:
-            quantization_config_type = quantization_config["configuration"][
-                "config_type"
-            ]
-            # Some quantization configs (e.g. TorchAoConfig) require argument values
-            # to be instances rather than classes. realize_args converts *_type keys to
-            # classes; instantiate them here with no args so callers can write e.g.
-            # "quant_type": "torchao.quantization.Int8WeightOnlyConfig" in JSON.
-            args = {
-                k: v() if isinstance(v, type) else v
-                for k, v in quantization_config["arguments"].items()
-            }
-            return quantization_config_type(**args)
-        except Exception as e:
-            logger.error(
-                f"Failed to create quantization_config: {str(e)}", exc_info=True
-            )
-            raise
+    if quantization_config is None:
+        logger.debug("No quantization configuration found")
+        return None
 
-    logger.debug("No quantization configuration found")
-    return None
+    return create_quantization_config(quantization_config)
+
+
+def create_quantization_config(quantization_config):
+    """
+    Create a quantization configuration object from its definition.
+
+    Args:
+        quantization_config: Dictionary holding the config type and its arguments
+
+    Returns:
+        Quantization configuration object
+    """
+    logger.info("Loading quantization configuration...")
+    logger.debug(f"Quantization parameters: {quantization_config}")
+    try:
+        quantization_config_type = quantization_config["configuration"]["config_type"]
+        # Some quantization configs (e.g. TorchAoConfig) require argument values
+        # to be instances rather than classes. realize_args converts *_type keys to
+        # classes; instantiate them here with no args so callers can write e.g.
+        # "quant_type": "torchao.quantization.Int8WeightOnlyConfig" in JSON.
+        args = {
+            k: v() if isinstance(v, type) else v
+            for k, v in quantization_config["arguments"].items()
+        }
+        return quantization_config_type(**args)
+    except Exception as e:
+        logger.error(f"Failed to create quantization_config: {str(e)}", exc_info=True)
+        raise
+
+
+def get_load_components_arguments(configuration):
+    """
+    Get the arguments for a modular pipeline's load_components(), with any quantization
+    configurations built from their definitions.
+
+    load_components() hands its arguments to each component's from_pretrained, looking a
+    dict value up under the component's own name - so quantization is declared per
+    component, and a component the map does not name is loaded unquantized.
+
+    Args:
+        configuration: Pipeline configuration dictionary
+
+    Returns:
+        Dictionary of arguments for load_components(), or None when the pipeline does not
+        load its components separately
+    """
+    load_components_arguments = configuration.get("load_components", None)
+    if load_components_arguments is None:
+        return None
+
+    load_components_arguments = dict(load_components_arguments)
+    quantization_configs = load_components_arguments.get("quantization_config", None)
+    if quantization_configs is not None:
+        logger.debug(
+            f"Building quantization configurations for: {list(quantization_configs.keys())}"
+        )
+        load_components_arguments["quantization_config"] = {
+            component_name: create_quantization_config(definition)
+            for component_name, definition in quantization_configs.items()
+        }
+
+    return load_components_arguments
 
 
 def get_group_offload_configuration(configuration, default_device):

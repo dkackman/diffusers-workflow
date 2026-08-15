@@ -8,7 +8,12 @@ import torch
 from unittest.mock import MagicMock, patch
 
 from dw.arguments import realize_args
-from dw.pipeline_processors.pipeline import Pipeline, load_component
+from dw.pipeline_processors.pipeline import (
+    Pipeline,
+    configure_components,
+    get_component,
+    load_component,
+)
 
 
 def make_component_type(component):
@@ -271,6 +276,157 @@ class TestComponentsManager:
         self.load({"components_manager": {}}, component)
 
         component.to.assert_called_once_with("cuda")
+
+
+class FakeQuantizationConfig:
+    """Stands in for a quantization config, e.g. TorchAoConfig"""
+
+    def __init__(self, **arguments):
+        self.arguments = arguments
+
+
+class FakeQuantType:
+    """Stands in for a quantization type, e.g. Int8WeightOnlyConfig"""
+
+
+class TestComponentQuantization:
+    """Test quantization declared per component for a modular pipeline's load_components"""
+
+    def transformer_configuration(self):
+        return {
+            "configuration": {"config_type": FakeQuantizationConfig},
+            "arguments": {"quant_type": FakeQuantType},
+        }
+
+    def load(self, load_components):
+        component = MagicMock()
+        configuration = {
+            "component_type": make_component_type(component),
+            "load_components": load_components,
+        }
+
+        load_component("pipeline", configuration, {"model_name": "test-model"}, "cpu")
+
+        return component.load_components.call_args.kwargs
+
+    def test_configuration_is_built_for_the_named_component(self):
+        arguments = self.load(
+            {
+                "dtype": torch.bfloat16,
+                "quantization_config": {
+                    "transformer": self.transformer_configuration()
+                },
+            }
+        )
+
+        assert arguments["dtype"] == torch.bfloat16
+        config = arguments["quantization_config"]["transformer"]
+        assert isinstance(config, FakeQuantizationConfig)
+        # A quantization type is instantiated, not passed as the class
+        assert isinstance(config.arguments["quant_type"], FakeQuantType)
+
+    def test_components_that_are_not_named_stay_unquantized(self):
+        arguments = self.load(
+            {"quantization_config": {"transformer": self.transformer_configuration()}}
+        )
+
+        assert list(arguments["quantization_config"]) == ["transformer"]
+
+    def test_load_components_without_quantization_is_unchanged(self):
+        assert self.load({"dtype": torch.bfloat16}) == {"dtype": torch.bfloat16}
+
+    def test_the_definition_is_left_as_written(self):
+        # Built configurations must not leak back into the workflow definition, which is
+        # loaded once and run repeatedly
+        definition = self.transformer_configuration()
+        self.load({"quantization_config": {"transformer": definition}})
+
+        assert definition == self.transformer_configuration()
+
+    def test_config_type_is_converted(self):
+        from diffusers import TorchAoConfig
+
+        arguments = {
+            "load_components": {
+                "quantization_config": {
+                    "transformer": {
+                        "configuration": {"config_type": "TorchAoConfig"},
+                        "arguments": {},
+                    }
+                }
+            }
+        }
+        realize_args(arguments)
+
+        quantization_config = arguments["load_components"]["quantization_config"]
+        assert quantization_config["transformer"]["configuration"]["config_type"] is (
+            TorchAoConfig
+        )
+
+
+class TestConfigureComponents:
+    """Test placement of the components a pipeline loaded for itself"""
+
+    def configure(self, components, pipeline=None, device="cuda"):
+        pipeline = pipeline if pipeline is not None else MagicMock()
+        with patch(
+            "dw.pipeline_processors.pipeline.apply_group_offloading"
+        ) as group_offload:
+            configure_components(pipeline, {"components": components}, device)
+
+        return pipeline, group_offload
+
+    def test_group_offload_targets_the_pipeline_device(self):
+        pipeline, group_offload = self.configure(
+            {
+                "transformer": {
+                    "group_offload": {
+                        "offload_type": "block_level",
+                        "num_blocks_per_group": 1,
+                        "use_stream": True,
+                    }
+                }
+            }
+        )
+
+        group_offload.assert_called_once_with(
+            pipeline.transformer,
+            offload_type="block_level",
+            num_blocks_per_group=1,
+            use_stream=True,
+            onload_device=torch.device("cuda"),
+            offload_device=torch.device("cpu"),
+        )
+
+    def test_a_dotted_name_offloads_a_module_inside_a_component(self):
+        pipeline, group_offload = self.configure(
+            {"text_encoder.model": {"group_offload": {"offload_type": "leaf_level"}}}
+        )
+
+        assert group_offload.call_args.args[0] is pipeline.text_encoder.model
+
+    def test_a_component_can_be_moved_to_a_device(self):
+        pipeline, _ = self.configure({"audio_vae": {"device": "cuda"}})
+
+        pipeline.audio_vae.to.assert_called_once_with("cuda")
+
+    def test_components_are_left_alone_by_default(self):
+        pipeline, group_offload = self.configure({})
+
+        group_offload.assert_not_called()
+        pipeline.to.assert_not_called()
+
+    def test_an_unknown_component_raises(self):
+        pipeline = MagicMock(spec=["vae"])
+
+        with pytest.raises(ValueError, match="transformer"):
+            self.configure({"transformer": {"device": "cuda"}}, pipeline)
+
+    def test_get_component_follows_a_dotted_path(self):
+        pipeline = MagicMock()
+        assert get_component(pipeline, "text_encoder.model") is (
+            pipeline.text_encoder.model
+        )
 
 
 class TestDtypeConversion:

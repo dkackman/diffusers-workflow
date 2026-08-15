@@ -288,6 +288,13 @@ class TestRealizeArgs:
 
         assert args["content_type"] == "image/jpeg"
 
+    def test_realize_offload_type_not_converted(self):
+        # offload_type names a group offloading strategy, not a python type
+        args = {"group_offload": {"offload_type": "leaf_level"}}
+        realize_args(args)
+
+        assert args["group_offload"]["offload_type"] == "leaf_level"
+
     def test_realize_nested_dict(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             test_image = Image.new("RGB", (50, 50))
@@ -321,6 +328,111 @@ class TestRealizeArgs:
         realize_args(args)
 
         assert args["scheduler_type"] == mock_type
+
+
+class Reference:
+    """Stands in for a pipeline argument built from a file, e.g. MiniMaxH3ImageReference"""
+
+    def __init__(self, location, **arguments):
+        self.location = location
+        self.arguments = arguments
+
+    @classmethod
+    def from_file(cls, media, **arguments):
+        return cls(media, **arguments)
+
+
+class TestRealizeObject:
+    """Test constructing arguments that name a type and the file to build it from"""
+
+    def reference_argument(self, location, **arguments):
+        return {"reference_type": Reference, "from_file": location, **arguments}
+
+    def test_object_is_constructed_from_a_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            audio_path = os.path.join(temp_dir, "voice.wav")
+            open(audio_path, "w").close()
+
+            args = {"references": [self.reference_argument(audio_path)]}
+            realize_args(args)
+
+            reference = args["references"][0]
+            assert isinstance(reference, Reference)
+            assert reference.location == audio_path
+
+    def test_remaining_keys_are_passed_to_from_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video_path = os.path.join(temp_dir, "motion.mp4")
+            open(video_path, "w").close()
+
+            args = {"reference": self.reference_argument(video_path, fps=30.0)}
+            realize_args(args)
+
+            assert args["reference"].arguments == {"fps": 30.0}
+
+    @patch("dw.arguments.validate_url")
+    def test_object_is_constructed_from_a_url(self, mock_validate_url):
+        url = "https://example.com/subject.jpg"
+        mock_validate_url.return_value = url
+
+        args = {"reference": self.reference_argument(url)}
+        realize_args(args)
+
+        assert args["reference"].location == url
+
+    def test_type_reference_is_resolved_before_construction(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = os.path.join(temp_dir, "subject.png")
+            Image.new("RGB", (10, 10)).save(image_path)
+
+            args = {
+                "reference": {
+                    "reference_type": "tests.test_arguments.Reference",
+                    "from_file": image_path,
+                }
+            }
+            realize_args(args)
+
+            assert isinstance(args["reference"], Reference)
+
+    def test_without_a_type_it_raises(self):
+        args = {"reference": {"from_file": "subject.png"}}
+        with pytest.raises(ValueError) as exc_info:
+            realize_args(args)
+
+        assert "_type" in str(exc_info.value)
+
+    def test_a_type_without_from_file_raises(self):
+        args = {
+            "reference": {"reference_type": Image.Image, "from_file": "subject.png"}
+        }
+        with pytest.raises(ValueError) as exc_info:
+            realize_args(args)
+
+        assert "from_file" in str(exc_info.value)
+
+    def test_disallowed_extension_raises(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            script_path = os.path.join(temp_dir, "subject.sh")
+            open(script_path, "w").close()
+
+            args = {"reference": self.reference_argument(script_path)}
+            with pytest.raises(SecurityError):
+                realize_args(args)
+
+    def test_path_traversal_raises(self):
+        args = {"reference": self.reference_argument("../../../etc/passwd.wav")}
+        with pytest.raises(SecurityError):
+            realize_args(args)
+
+    def test_dicts_without_from_file_are_untouched(self):
+        args = {"configuration": {"component_type": Reference, "offload": "model"}}
+        realize_args(args)
+
+        assert args["configuration"] == {
+            "component_type": Reference,
+            "offload": "model",
+        }
 
 
 if __name__ == "__main__":
