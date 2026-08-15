@@ -3,6 +3,8 @@ Unit tests for modular pipeline support
 Tests load_components handling in component loading
 """
 
+import logging
+
 import pytest
 import torch
 from unittest.mock import MagicMock, patch
@@ -462,6 +464,43 @@ class TestConfigureComponents:
         assert get_component(pipeline, "text_encoder.model") is (
             pipeline.text_encoder.model
         )
+
+    def test_get_component_returns_none_for_a_registered_but_unloaded_component(self):
+        # ModularPipeline registers a component it did not load as a None-valued
+        # attribute rather than omitting it - that is not a typo, so no raise
+        pipeline = MagicMock()
+        pipeline.image_encoder = None
+
+        assert get_component(pipeline, "image_encoder") is None
+
+    def test_get_component_returns_none_at_the_unloaded_step_of_a_dotted_path(self):
+        pipeline = MagicMock()
+        pipeline.text_encoder = None
+
+        assert get_component(pipeline, "text_encoder.model") is None
+
+    def test_get_component_still_raises_for_a_truly_missing_attribute(self):
+        pipeline = MagicMock(spec=["vae"])
+
+        with pytest.raises(ValueError, match="transformer"):
+            get_component(pipeline, "transformer")
+
+    def test_none_valued_component_is_skipped_with_a_warning_not_a_raise(self, caplog):
+        pipeline = MagicMock()
+        pipeline.image_encoder = None
+
+        with caplog.at_level(logging.WARNING, logger="dw"):
+            pipeline, group_offload = self.configure(
+                {
+                    "image_encoder": {"device": "cuda"},
+                    "transformer": {"device": "cuda"},
+                },
+                pipeline,
+            )
+
+        assert "image_encoder" in caplog.text
+        # the other component in the same map is still configured
+        pipeline.transformer.to.assert_called_once_with("cuda")
 
 
 class TestDtypeConversion:
