@@ -4,13 +4,20 @@ import matplotlib.cm
 import numpy as np
 from PIL import Image
 
+from .model_cache import cached_model
+
 
 def load_zoe(device="cuda"):
-    torch.hub.help(
-        "intel-isl/MiDaS", "DPT_BEiT_L_384"
-    )  # Triggers fresh download of MiDaS repo
-    model_zoe_n = torch.hub.load("isl-org/ZoeDepth", "ZoeD_NK", pretrained=True).eval()
-    return model_zoe_n.to(device)
+    def load():
+        torch.hub.help(
+            "intel-isl/MiDaS", "DPT_BEiT_L_384"
+        )  # Triggers fresh download of MiDaS repo
+        model_zoe_n = torch.hub.load(
+            "isl-org/ZoeDepth", "ZoeD_NK", pretrained=True
+        ).eval()
+        return model_zoe_n.to(device)
+
+    return cached_model(("zoe_depth", str(device)), load)
 
 
 def colorize(

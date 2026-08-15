@@ -330,12 +330,14 @@ class WorkflowWorker:
         Called when workflow changes or on shutdown.
         """
         import gc
+        from .tasks.model_cache import clear_model_cache
 
         logger.info("Performing full cleanup")
 
-        # Clear pipeline cache
+        # Clear pipeline cache and any models task handlers cached
         self.loaded_pipelines.clear()
         self.shared_components.clear()
+        clear_model_cache()
 
         # Reset state
         self.current_workflow = None

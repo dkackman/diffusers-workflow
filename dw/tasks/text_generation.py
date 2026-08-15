@@ -10,6 +10,7 @@ import logging
 import torch
 from transformers import pipeline as hf_pipeline
 from .. import get_device_type
+from .model_cache import cached_model
 
 logger = logging.getLogger("dw")
 
@@ -34,14 +35,19 @@ def generate_text(prompt, device="cpu", **kwargs):
     system_prompt = kwargs.get("system_prompt", None)
     max_new_tokens = int(kwargs.get("max_new_tokens", 500))
 
-    logger.info(f"Generating text with {model_name} on {device}")
-
     dtype = torch.float16 if get_device_type(device) == "cuda" else torch.float32
-    pipe = hf_pipeline(
-        "text-generation",
-        model=model_name,
-        device_map=device,
-        torch_dtype=dtype,
+
+    def load_pipe():
+        logger.info(f"Generating text with {model_name} on {device}")
+        return hf_pipeline(
+            "text-generation",
+            model=model_name,
+            device_map=device,
+            torch_dtype=dtype,
+        )
+
+    pipe = cached_model(
+        ("text_generation", model_name, str(device), str(dtype)), load_pipe
     )
 
     messages = []

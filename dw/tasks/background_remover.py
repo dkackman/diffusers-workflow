@@ -3,14 +3,22 @@ import torch
 from torchvision import transforms
 from transformers import AutoModelForImageSegmentation
 
+from .model_cache import cached_model
+
+_MODEL_NAME = "briaai/RMBG-2.0"
+
 
 def remove_background(image: Image, device) -> Image:
     # Model settings
-    model = AutoModelForImageSegmentation.from_pretrained(
-        "briaai/RMBG-2.0", trust_remote_code=True
-    )
-    model.to(device)
-    model.eval()
+    def load_model():
+        model = AutoModelForImageSegmentation.from_pretrained(
+            _MODEL_NAME, trust_remote_code=True
+        )
+        model.to(device)
+        model.eval()
+        return model
+
+    model = cached_model(("background_remover", _MODEL_NAME, str(device)), load_model)
 
     # Data settings
     transform_image = transforms.Compose(

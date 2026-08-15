@@ -13,6 +13,7 @@ import logging
 import torch
 import diffusers
 from .. import get_device_type
+from .model_cache import cached_model
 
 logger = logging.getLogger("dw")
 
@@ -60,14 +61,27 @@ def diffusion_upscale(image, device="cpu", **kwargs):
 
     pipeline_class = getattr(diffusers, config["pipeline_class"])
 
-    logger.info(f"Loading {config['pipeline_class']} from {model_name} to {device}")
-
     dtype = torch.float16 if get_device_type(device) == "cuda" else torch.float32
-    pipe = pipeline_class.from_pretrained(
-        model_name,
-        torch_dtype=dtype,
+
+    def load_pipe():
+        logger.info(f"Loading {config['pipeline_class']} from {model_name} to {device}")
+        pipe = pipeline_class.from_pretrained(
+            model_name,
+            torch_dtype=dtype,
+        )
+        pipe.to(device)
+        return pipe
+
+    pipe = cached_model(
+        (
+            "diffusion_upscale",
+            config["pipeline_class"],
+            model_name,
+            str(device),
+            str(dtype),
+        ),
+        load_pipe,
     )
-    pipe.to(device)
 
     call_kwargs = {
         "prompt": prompt,
