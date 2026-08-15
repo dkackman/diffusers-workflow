@@ -97,6 +97,13 @@ class Workflow:
             workflow_id = workflow_def["id"]
             logger.debug(f"Processing workflow: {workflow_id}")
 
+            # File paths in workflows are relative to the workflow file
+            base_dir = (
+                os.path.dirname(os.path.abspath(self.file_spec))
+                if self.file_spec
+                else None
+            )
+
             # Handle variable substitution if variables are defined
             variables = workflow_def.get("variables", None)
             if variables is not None:
@@ -105,7 +112,7 @@ class Workflow:
                 # these may come form the command line or form a parent workflow
                 set_variables(arguments, variables)
                 # realize the variables, initialiting downloads of images etc
-                realize_args(variables)
+                realize_args(variables, base_dir)
                 ## then replace any variable references in the workflow definition with the actual values
                 replace_variables(workflow_def, variables)
 
@@ -136,7 +143,7 @@ class Workflow:
                 logger.warning(f"Workflow {workflow_id} has no steps defined")
                 return []
 
-            realize_args(steps)
+            realize_args(steps, base_dir)
 
             # Execute each step in sequence
             for i, step_data in enumerate(steps):

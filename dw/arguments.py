@@ -5,6 +5,7 @@ from diffusers.utils import load_image, load_video
 from .security import (
     validate_path,
     validate_url,
+    validate_file_extension,
     SecurityError,
     ALLOWED_IMAGE_EXTENSIONS,
     ALLOWED_VIDEO_EXTENSIONS,
@@ -28,13 +29,18 @@ ALLOWED_FROM_FILE_EXTENSIONS = (
 
 
 # Helper functions for processing and loading workflow arguments
-def realize_args(arg):
+def realize_args(arg, base_dir=None):
     """
     Recursively processes workflow arguments to:
     1. Convert type references into actual Python types
     2. Load images from file paths/URLs
     3. Load videos from file paths/URLs
     4. Construct objects that name a type and the file to build it from
+
+    Args:
+        arg: The arguments to process, modified in place
+        base_dir: Directory relative file paths are resolved against - the
+            workflow file's directory. Defaults to the process working directory
     """
     if isinstance(arg, dict):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
@@ -42,15 +48,19 @@ def realize_args(arg):
             # Handle image loading for keys ending in '_image' or exactly 'image'
             if k.endswith("_image") or k == "image":
                 logger.debug(f"Loading image for key: {k}")
-                arg[k] = fetch_image(v)
+                arg[k] = fetch_image(v, base_dir)
             # Handle video loading for keys ending in '_video' or exactly 'video'
             elif k.endswith("_video") or k == "video":
                 logger.debug(f"Loading video for key: {k}")
-                arg[k] = fetch_video(v)
-            # Handle type references, except the keys that only look like one
-            elif (
-                k.endswith("_type") or k.endswith("_dtype") or k == "dtype"
-            ) and k not in NON_TYPE_KEYS:
+                arg[k] = fetch_video(v, base_dir)
+            # Handle type references, and the keys that only look like one
+            elif k.endswith("_type") or k.endswith("_dtype") or k == "dtype":
+                if k in NON_TYPE_KEYS:
+                    # The value stays a string, but the {} escape is still honored
+                    # so both the escaped and the bare spelling name the category
+                    if isinstance(v, str) and v.startswith("{") and v.endswith("}"):
+                        arg[k] = v.strip("{}")
+                    continue
                 logger.debug(f"Processing type reference for key: {k}")
                 # Allow escaping type references using {} brackets
                 # this is for instances when the argument name is "something_type" but it is
@@ -66,18 +76,18 @@ def realize_args(arg):
             # Recursively process nested dictionaries, then build any object they
             # describe - the type reference it names is realized by the recursion
             else:
-                realize_args(v)
-                arg[k] = realize_object(v)
+                realize_args(v, base_dir)
+                arg[k] = realize_object(v, base_dir)
 
     # Recursively process lists
     elif isinstance(arg, list):
         logger.debug("Processing list arguments")
         for i, item in enumerate(arg):
-            realize_args(item)
-            arg[i] = realize_object(item)
+            realize_args(item, base_dir)
+            arg[i] = realize_object(item, base_dir)
 
 
-def realize_object(value):
+def realize_object(value, base_dir=None):
     """Construct an argument that names a type and a file to build it from.
 
     Some pipelines take arguments that are objects rather than plain media - MiniMax-H3's
@@ -90,47 +100,78 @@ def realize_object(value):
     the media. Any other keys are passed to from_file() as keyword arguments.
 
     Args:
-        value: An already realized argument - anything but a dict naming a type and a
-            'from_file' is returned unchanged
+        value: An already realized argument - anything but a dict naming a '_type'
+            and a 'from_file' is returned unchanged
+        base_dir: Directory a relative 'from_file' path is resolved against
 
     Returns:
         The constructed object, or value unchanged
 
     Raises:
-        ValueError: If the dict names no type, or a type that cannot be built from a file
+        ValueError: If the dict names more than one type, a type that cannot be built
+            from a file, or a file location that cannot be resolved
         SecurityError: If the file it names fails validation
     """
     if not isinstance(value, dict) or FROM_FILE_KEY not in value:
         return value
 
-    arguments = {k: v for k, v in value.items() if k != FROM_FILE_KEY}
-    type_names = [k for k, v in arguments.items() if isinstance(v, type)]
-    if len(type_names) != 1:
+    # The type to construct is named by a '*_type' key, matching the convention
+    # realize_args resolves. Without one the dict is not an object description -
+    # it is left for whatever consumes it, exactly as it was before this feature
+    type_keys = [k for k in value if k.endswith("_type") and k not in NON_TYPE_KEYS]
+    if not type_keys:
+        return value
+    if len(type_keys) > 1:
         raise ValueError(
             f"'{FROM_FILE_KEY}' needs exactly one '_type' argument naming the type to "
-            f"construct, got {list(value.keys())}"
+            f"construct, got {type_keys}"
         )
 
-    object_type = arguments.pop(type_names[0])
+    object_type = value[type_keys[0]]
+    if not isinstance(object_type, type):
+        raise ValueError(
+            f"'{type_keys[0]}' must name a type to construct, got {object_type!r}"
+        )
     if not has_method(object_type, FROM_FILE_KEY):
         raise ValueError(
             f"{object_type.__name__} cannot be constructed from a file - "
             f"it has no {FROM_FILE_KEY}()"
         )
 
-    location = validate_media_location(value[FROM_FILE_KEY])
+    location = value[FROM_FILE_KEY]
+    if isinstance(location, str):
+        # These resolve per step iteration, after objects are already built -
+        # a clear error here beats a path-validation failure naming the wrong cause
+        if location.startswith("previous_result:"):
+            raise ValueError(
+                f"'{FROM_FILE_KEY}' cannot reference a previous step's result - "
+                f"it names a file the object is constructed from. Reference a "
+                f"saved file's path or a URL instead"
+            )
+        if location.startswith("variable:"):
+            raise ValueError(
+                f"'{FROM_FILE_KEY}' references {location!r} but no such "
+                f"variable is defined"
+            )
+
+    location = validate_media_location(location, base_dir)
     logger.info(f"Constructing {object_type.__name__} from {location}")
 
+    arguments = {
+        k: v for k, v in value.items() if k not in (FROM_FILE_KEY, type_keys[0])
+    }
     return object_type.from_file(location, **arguments)
 
 
-def validate_media_location(location):
+def validate_media_location(location, base_dir=None):
     """Validate the media file an argument object is constructed from.
 
     The object decodes the file itself, so only where it comes from is checked here.
 
     Args:
         location: Path or URL of the media file
+        base_dir: Directory a relative path is resolved against - the workflow
+            file's directory. Defaults to the process working directory
 
     Returns:
         The validated path or URL
@@ -147,20 +188,31 @@ def validate_media_location(location):
     if location.startswith("http://") or location.startswith("https://"):
         return validate_url(location)
 
-    validated_path = validate_path(location, allow_create=False)
-    ext = os.path.splitext(validated_path)[1].lower()
-    if ext not in ALLOWED_FROM_FILE_EXTENSIONS:
-        raise SecurityError(f"Media file extension not allowed: {ext}")
-
-    return validated_path
+    validated_path = validate_path(
+        resolve_relative_path(location, base_dir), allow_create=False
+    )
+    return validate_file_extension(validated_path, ALLOWED_FROM_FILE_EXTENSIONS)
 
 
-def fetch_image(img_spec):
+def resolve_relative_path(path, base_dir):
+    """Resolve a relative file path against the workflow file's directory.
+
+    Workflow files name their media relative to themselves; absolute paths and
+    callers with no base_dir keep the path as given (process working directory).
+    """
+    if base_dir and not os.path.isabs(os.path.expanduser(path)):
+        return os.path.join(base_dir, path)
+    return path
+
+
+def fetch_image(img_spec, base_dir=None):
     """
     Load image from file path or URL with security validation.
 
     Args:
         img_spec: Image specification (file path, URL, dict with 'location' key, PIL Image, or list of any of these)
+        base_dir: Directory relative file paths are resolved against - the
+            workflow file's directory. Defaults to the process working directory
 
     Returns:
         Loaded PIL Image, list of PIL Images, or None if img_spec is None
@@ -175,7 +227,7 @@ def fetch_image(img_spec):
     # Handle lists of images (recursively process each)
     if isinstance(img_spec, list):
         logger.debug(f"Loading list of {len(img_spec)} images")
-        return [fetch_image(img) for img in img_spec]
+        return [fetch_image(img, base_dir) for img in img_spec]
 
     # If already a PIL Image, return as-is (allows multiple realize_args calls)
     if hasattr(img_spec, "mode") and hasattr(img_spec, "size"):
@@ -208,8 +260,10 @@ def fetch_image(img_spec):
             validated_url = validate_url(img_spec)
             return load_image(validated_url)
         else:
-            # Treat as file path
-            validated_path = validate_path(str(img_spec), allow_create=False)
+            # Treat as file path, relative to the workflow file
+            validated_path = validate_path(
+                resolve_relative_path(str(img_spec), base_dir), allow_create=False
+            )
             # Validate file extension
             ext = os.path.splitext(validated_path)[1].lower()
             if ext not in ALLOWED_IMAGE_EXTENSIONS:
@@ -223,12 +277,14 @@ def fetch_image(img_spec):
         raise
 
 
-def fetch_video(video_spec):
+def fetch_video(video_spec, base_dir=None):
     """
     Load video from file path or URL with security validation.
 
     Args:
         video_spec: Video specification (file path, URL, dict with 'location' key, loaded frames, or list of any of these)
+        base_dir: Directory relative file paths are resolved against - the
+            workflow file's directory. Defaults to the process working directory
 
     Returns:
         Loaded video frames, list of video frames, or None if video_spec is None
@@ -246,7 +302,7 @@ def fetch_video(video_spec):
         # If first element is a dict with 'location' or a string, treat as list of video specs
         if isinstance(video_spec[0], (dict, str)):
             logger.debug(f"Loading list of {len(video_spec)} videos")
-            return [fetch_video(vid) for vid in video_spec]
+            return [fetch_video(vid, base_dir) for vid in video_spec]
         # Otherwise assume it's already loaded video frames
         else:
             logger.debug(f"Video frames already loaded, returning as-is")
@@ -285,8 +341,10 @@ def fetch_video(video_spec):
             validated_url = validate_url(video_spec)
             return load_video(validated_url)
         else:
-            # Treat as file path
-            validated_path = validate_path(str(video_spec), allow_create=False)
+            # Treat as file path, relative to the workflow file
+            validated_path = validate_path(
+                resolve_relative_path(str(video_spec), base_dir), allow_create=False
+            )
             # Validate file extension
             ext = os.path.splitext(validated_path)[1].lower()
             if ext not in ALLOWED_VIDEO_EXTENSIONS:

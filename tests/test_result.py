@@ -279,6 +279,42 @@ class TestModularOutputs:
 
         assert result.get_artifact_properties("sampling_rate") == [16000]
 
+    def test_extra_outputs_alongside_video_are_not_dropped(self):
+        # images/latents are not part of the video/audio pairing, so they must still be
+        # saved - not silently lost, as they were before the leftover dict was added
+        artifacts = get_artifact_list(
+            {
+                "videos": ["video1"],
+                "audio": ["audio1"],
+                "sampling_rate": 16000,
+                "images": ["image1"],
+            }
+        )
+
+        assert len(artifacts) == 2
+        assert isinstance(artifacts[0], AudioVideo)
+        assert (artifacts[0].frames, artifacts[0].audio, artifacts[0].sample_rate) == (
+            "video1",
+            "audio1",
+            16000,
+        )
+        assert artifacts[1] == {"images": ["image1"]}
+
+    def test_consumed_keys_do_not_reappear_in_the_leftovers(self):
+        # videos/audio/sampling_rate were already saved as the paired AudioVideo -
+        # repeating them in the leftover dict would save them a second time
+        artifacts = get_artifact_list(
+            {
+                "videos": ["video1"],
+                "audio": ["audio1"],
+                "sampling_rate": 16000,
+                "latents": "latents",
+            }
+        )
+
+        leftovers = artifacts[-1]
+        assert set(leftovers.keys()) == {"latents"}
+
 
 class TestSaveAudioVideo:
     """Test muxing generated audio into the saved video file"""

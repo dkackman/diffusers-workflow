@@ -169,6 +169,30 @@ class TestOffloadDevice:
         component.enable_sequential_cpu_offload.assert_not_called()
         component.to.assert_called_once_with("cpu")
 
+    def test_component_group_offload_is_not_moved_to_device(self):
+        # configure_components() installs the per-component group-offload hooks after
+        # load_component() returns - moving the whole pipeline to the device here would
+        # load it in full first, defeating the offloading
+        component = self.load(
+            {
+                "components": {
+                    "transformer": {"group_offload": {"offload_type": "leaf_level"}}
+                }
+            },
+            "cuda",
+        )
+
+        component.to.assert_not_called()
+
+    def test_components_without_group_offload_still_move_to_device(self):
+        # A 'components' block that only moves a component to a device, with no
+        # group_offload anywhere, should not change the pipeline's own placement
+        component = self.load(
+            {"components": {"transformer": {"device": "cuda"}}}, "cuda"
+        )
+
+        component.to.assert_called_once_with("cuda")
+
 
 class TestLoadingDevice:
     """Test the device component weights are materialized on while loading"""
@@ -212,6 +236,18 @@ class TestLoadingDevice:
 
     def test_default_device_is_used_without_offloading(self, default_device_is_not_cpu):
         assert self.load_and_record_device({}) == "meta"
+
+    def test_component_group_offload_loads_into_system_memory(
+        self, default_device_is_not_cpu
+    ):
+        # Only a per-component group_offload entry is configured - no top-level offload
+        # or group_offload - but the pipeline itself still has to land in system memory
+        configuration = {
+            "components": {
+                "transformer": {"group_offload": {"offload_type": "leaf_level"}}
+            }
+        }
+        assert self.load_and_record_device(configuration) == "cpu"
 
 
 class TestComponentsManager:
@@ -369,9 +405,8 @@ class TestConfigureComponents:
 
     def configure(self, components, pipeline=None, device="cuda"):
         pipeline = pipeline if pipeline is not None else MagicMock()
-        with patch(
-            "dw.pipeline_processors.pipeline.apply_group_offloading"
-        ) as group_offload:
+        # Patched at its source - pipeline.py imports it at the call site
+        with patch("diffusers.hooks.apply_group_offloading") as group_offload:
             configure_components(pipeline, {"components": components}, device)
 
         return pipeline, group_offload

@@ -295,6 +295,24 @@ class TestRealizeArgs:
 
         assert args["group_offload"]["offload_type"] == "leaf_level"
 
+    def test_realize_escaped_offload_type_is_unescaped(self):
+        # The previously mandatory {} escape keeps working after the key
+        # was excluded from type conversion
+        args = {"group_offload": {"offload_type": "{leaf_level}"}}
+        realize_args(args)
+
+        assert args["group_offload"]["offload_type"] == "leaf_level"
+
+    def test_realize_image_relative_to_base_dir(self):
+        # Workflow files name their media relative to themselves
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Image.new("RGB", (50, 50)).save(os.path.join(temp_dir, "subject.png"))
+
+            args = {"image": "subject.png"}
+            realize_args(args, base_dir=temp_dir)
+
+            assert isinstance(args["image"], Image.Image)
+
     def test_realize_nested_dict(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             test_image = Image.new("RGB", (50, 50))
@@ -395,12 +413,60 @@ class TestRealizeObject:
 
             assert isinstance(args["reference"], Reference)
 
-    def test_without_a_type_it_raises(self):
+    def test_without_a_type_the_dict_is_left_untouched(self):
+        # A dict that merely contains a 'from_file' key is not an object
+        # description - it belongs to whatever consumes it
         args = {"reference": {"from_file": "subject.png"}}
+        realize_args(args)
+
+        assert args["reference"] == {"from_file": "subject.png"}
+
+    def test_with_two_types_it_raises(self):
+        args = {
+            "reference": {
+                "reference_type": Reference,
+                "other_type": Reference,
+                "from_file": "subject.png",
+            }
+        }
         with pytest.raises(ValueError) as exc_info:
             realize_args(args)
 
-        assert "_type" in str(exc_info.value)
+        assert "exactly one" in str(exc_info.value)
+
+    def test_with_an_escaped_type_it_raises(self):
+        # An escaped '_type' stays a string, which cannot be constructed
+        args = {
+            "reference": {"reference_type": "{Reference}", "from_file": "subject.png"}
+        }
+        with pytest.raises(ValueError) as exc_info:
+            realize_args(args)
+
+        assert "must name a type" in str(exc_info.value)
+
+    def test_previous_result_reference_raises_a_clear_error(self):
+        args = {"reference": self.reference_argument("previous_result:generate_voice")}
+        with pytest.raises(ValueError) as exc_info:
+            realize_args(args)
+
+        assert "previous step's result" in str(exc_info.value)
+
+    def test_unresolved_variable_raises_a_clear_error(self):
+        args = {"reference": self.reference_argument("variable:voice")}
+        with pytest.raises(ValueError) as exc_info:
+            realize_args(args)
+
+        assert "variable" in str(exc_info.value)
+
+    def test_relative_path_resolves_against_base_dir(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            audio_path = os.path.join(temp_dir, "voice.wav")
+            open(audio_path, "w").close()
+
+            args = {"reference": self.reference_argument("voice.wav")}
+            realize_args(args, base_dir=temp_dir)
+
+            assert args["reference"].location == os.path.realpath(audio_path)
 
     def test_a_type_without_from_file_raises(self):
         args = {

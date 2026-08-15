@@ -479,7 +479,9 @@ def modular_artifacts(result):
     Asked for several outputs - `"output": ["videos", "audio", "sampling_rate"]` - a
     modular pipeline returns them in a dict instead of on one output object. Pairing the
     videos with the audio generated alongside them here saves them the same way a video
-    pipeline's own output is saved, muxed into a single file.
+    pipeline's own output is saved, muxed into a single file. Any other requested output
+    - "images" or "latents", say - is not part of that pairing, so it is carried along as
+    one extra dict artifact, saved key by key the same way any other dictionary result is.
 
     Args:
         result: Dict of outputs returned by a modular pipeline
@@ -488,27 +490,46 @@ def modular_artifacts(result):
         List of artifacts, or None when the outputs hold no video - those are saved one
         output at a time instead
     """
-    videos = first_value(result, MODULAR_VIDEO_KEYS)
+    video_key, videos = first_item(result, MODULAR_VIDEO_KEYS)
     if videos is None:
         return None
 
-    audio = first_value(result, MODULAR_AUDIO_KEYS)
+    consumed_keys = {video_key}
+
+    audio_key, audio = first_item(result, MODULAR_AUDIO_KEYS)
     if audio is None:
-        return videos
+        artifacts = videos
+    else:
+        consumed_keys.add(audio_key)
+        rate_key, sample_rate = first_item(result, MODULAR_SAMPLE_RATE_KEYS)
+        consumed_keys.add(rate_key)
+        artifacts = pair_audio_with_frames(videos, audio, sample_rate)
 
-    return pair_audio_with_frames(
-        videos, audio, first_value(result, MODULAR_SAMPLE_RATE_KEYS)
-    )
+    # Keys the video/audio pairing above did not consume still need to be saved, not
+    # dropped - carry them along as one extra artifact, saved key by key like any other
+    # dictionary result
+    leftovers = {
+        key: value
+        for key, value in result.items()
+        if key not in consumed_keys and value is not None
+    }
+    if leftovers:
+        artifacts = list(artifacts) + [leftovers]
+
+    return artifacts
 
 
-def first_value(values, keys):
-    """The value of the first of `keys` present in `values`, or None when none of them are."""
+def first_item(values, keys):
+    """The key and value of the first of `keys` present in `values`.
+
+    Returns (None, None) when none of them are.
+    """
     for key in keys:
         value = values.get(key, None)
         if value is not None:
-            return value
+            return key, value
 
-    return None
+    return None, None
 
 
 def pair_audio_with_frames(videos, audio, sample_rate):
