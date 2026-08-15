@@ -199,6 +199,12 @@ def _handle_video_processing(task, arguments, previous_pipelines):
     )
 
 
+# Command names process_video (video_utils.py) accepts. video_utils dispatches
+# via a plain if-chain rather than a lookup table, so this list is maintained
+# by hand - keep it in sync with the branches in process_video().
+_VIDEO_PROCESSOR_COMMANDS = sorted(["get_frame", "get_last_frame", "get_first_frame"])
+
+
 class Task:
     """
     Represents a task that can be executed as part of a workflow.
@@ -282,17 +288,25 @@ class Task:
                 handler = _COMMAND_REGISTRY[self.command]
                 return handler(self, arguments, previous_pipelines)
 
-            # Fallback: check for image/video processing (generic handlers)
-            if "image" in arguments:
+            # Not a registered command - check whether it names an image or
+            # video processor instead. Imported lazily here to preserve
+            # image_utils' lazy-import discipline for callers that never
+            # touch image processing.
+            from .image_utils import available_processors
+
+            if self.command in available_processors():
                 return _handle_image_processing(self, arguments, previous_pipelines)
 
-            if "video" in arguments:
+            if self.command in _VIDEO_PROCESSOR_COMMANDS:
                 return _handle_video_processing(self, arguments, previous_pipelines)
 
-            # Unknown command
+            # Unknown command - not in the registry, and not a known image or
+            # video processor name either
             error_msg = (
                 f"Unknown task command: '{self.command}'. "
-                f"Registered commands: {sorted(_COMMAND_REGISTRY.keys())}"
+                f"Registered commands: {sorted(_COMMAND_REGISTRY.keys())}. "
+                f"Image processors: {available_processors()}. "
+                f"Video processors: {_VIDEO_PROCESSOR_COMMANDS}"
             )
             logger.error(error_msg)
             raise ValueError(error_msg)

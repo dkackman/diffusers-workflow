@@ -23,6 +23,48 @@ def test_unknown_task():
     assert "Unknown task" in str(exc_info.value)
 
 
+def test_unknown_task_with_an_image_argument_still_raises():
+    # A typo'd command used to be silently routed into process_image whenever
+    # an "image" argument was present, dying with a misleading "Unknown image
+    # processor type" error instead of the task-level "Unknown task command".
+    task_def = {"command": "resize_rescle", "arguments": {}}  # typo: rescle
+
+    task = Task(task_def, "cpu")
+    with pytest.raises(ValueError) as exc_info:
+        task.run({"image": Image.new("RGB", (4, 4))})
+
+    assert "Unknown task command" in str(exc_info.value)
+    assert "Unknown image processor" not in str(exc_info.value)
+
+
+def test_unknown_task_error_lists_known_commands():
+    task_def = {"command": "totally_bogus_command", "arguments": {}}
+
+    task = Task(task_def, "cpu")
+    with pytest.raises(ValueError) as exc_info:
+        task.run({})
+
+    message = str(exc_info.value)
+    assert "Registered commands" in message
+    assert "qr_code" in message  # a registered command
+    assert "Image processors" in message
+    assert "resize_rescale" in message  # a known image processor
+    assert "Video processors" in message
+    assert "get_frame" in message  # a known video processor
+
+
+def test_image_processor_command_dispatches_without_registry_entry():
+    # resize_rescale is not in _COMMAND_REGISTRY - it must still resolve via
+    # image_utils.available_processors() rather than raising.
+    task_def = {"command": "resize_rescale", "arguments": {}}
+    task = Task(task_def, "cpu")
+
+    result = task.run({"image": Image.new("RGB", (8, 8)), "height": 4, "width": 4})
+
+    assert isinstance(result, Image.Image)
+    assert result.size == (4, 4)
+
+
 @pytest.mark.skip(reason="Requires network access to external URLs which may be flaky")
 def test_gather_images_task():
     task_def = {
