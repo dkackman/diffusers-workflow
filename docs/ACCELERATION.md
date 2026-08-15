@@ -1,6 +1,8 @@
 # Inference Acceleration
 
-Speed up generation by caching intermediate computations and skipping redundant transformer steps. Two systems are available: diffusers built-in caching and TeaCache. Beyond caching, attention backend selection, layerwise casting, and device-level settings (TF32, cuDNN) also affect throughput - see below. Memory offloading trades speed for VRAM and is covered in depth in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#memory-offloading).
+Speed up generation by caching intermediate computations and skipping redundant transformer steps. Two systems are available: diffusers built-in caching and TeaCache. Beyond caching, `torch.compile`, attention backend selection, layerwise casting, and device-level settings (TF32, cuDNN) also affect throughput - see below. Memory offloading trades speed for VRAM and is covered in depth in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#memory-offloading).
+
+For ready-made configurations that combine these levers per model family, see [RECIPES_24GB.md](RECIPES_24GB.md).
 
 ## Diffusers Built-in Cache
 
@@ -103,7 +105,7 @@ Model coefficients and defaults are stored in [teacache_models.json](../dw/teaca
 
 - **Flux** (FluxTransformer2DModel) — thresholds: 0.25 (~1.5x), 0.4 (~1.8x), 0.6 (~2.0x), 0.8 (~2.25x)
 
-Registry includes coefficients for Mochi, LTX-Video, CogVideoX, HunyuanVideo, Wan2.1, and Lumina2 (forward functions pending).
+Registry includes coefficients for Mochi, LTX-Video, CogVideoX, HunyuanVideo, Wan2.1, and Lumina2 (forward functions pending). For any model other than Flux, use the [diffusers built-in caches](#diffusers-built-in-cache) instead - `first_block` or `mag` cover the models the registry lists.
 
 ### Variants
 
@@ -143,7 +145,19 @@ Select the attention implementation diffusers uses for the duration of each pipe
 }
 ```
 
-Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"xformers"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, `xformers`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use rather than needing a local install.
+Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use rather than needing a local install.
+
+A component can also pin its backend persistently instead, via `set_attention_backend`:
+
+```json
+"configuration": {
+    "components": {
+        "transformer": { "attention_backend": "flash_hub" }
+    }
+}
+```
+
+Prefer the pinned form for a compiled component - the per-call context manager switches implementations under the compiled graph and forces a recompile on every run.
 
 **Example:** [Flux2Dev.json](../examples/Flux2Dev.json), [hunyuan15.json](../examples/hunyuan15.json), [Wan22TI2V5B.json](../examples/Wan22TI2V5B.json)
 
@@ -158,7 +172,40 @@ Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"xformers"`, `
 
 Processes attention in slices to reduce memory at some cost to speed. Enabled automatically on MPS (unified memory benefits from slicing) unless `disable_attention_slicing` is set. Modular pipelines have no `enable_attention_slicing()` method - the setting is silently skipped rather than failing when the pipeline doesn't support it.
 
-`xformers_memory_efficient_attention: true` is also available as an alternative for pipelines/components that support it, applied via `enable_xformers_memory_efficient_attention()`. Not available on MPS (xFormers requires CUDA).
+## torch.compile
+
+Compile a component once it is fully configured - the graph captures final dtypes, adapters, quantization, and offload hooks. Configured per component under `components`:
+
+```json
+"configuration": {
+    "component_type": "FluxPipeline",
+    "components": {
+        "transformer": {
+            "compile": {
+                "repeated_blocks": true,
+                "fullgraph": true
+            }
+        }
+    }
+}
+```
+
+| Property | Description |
+| -------- | ----------- |
+| `repeated_blocks` | Compile only the model's repeated block classes (diffusers regional compilation). Near the same speedup as full compilation with a fraction of the cold-start cost. Recommended. |
+| `mode` | torch.compile mode: `"default"`, `"reduce-overhead"`, `"max-autotune"`. |
+| `fullgraph` | Require a single graph with no breaks - fails fast instead of silently losing speedup. |
+| `dynamic` | Compile with dynamic shapes. Set `true` when resolutions or frame counts vary between runs to avoid recompiles. |
+
+Typical gains are 1.3-1.5x on diffusion transformers, and compilation stacks with the caches above. Notes:
+
+- **First run pays the compile cost.** The [REPL](REPL_COMMANDS.md)'s persistent worker keeps compiled pipelines loaded between runs, so the cost is paid once per session rather than once per generation.
+- **Pin the attention backend** on a compiled component (`"attention_backend"` in the same `components` entry) rather than using the pipeline-level per-call context manager, which forces recompiles.
+- **Composes with offloading**: apply `group_offload` and `compile` on the same component and the offload hooks are installed first, as required. Skipped with a warning on MPS.
+- **Don't combine `fullgraph` with a `cache`**: the cache hooks decide skip-or-compute per step, a data-dependent branch diffusers wraps in `torch.compiler.disable` - it needs the graph break that `fullgraph: true` forbids. Compile with the default (partial) graph mode when a cache is active.
+- **TorchAO quantization needs compile to be fast** - see [QUANTIZATION.md](QUANTIZATION.md#torchao).
+
+**Example:** [FluxDevFast.json](../examples/FluxDevFast.json), [FluxTorchAO.json](../examples/FluxTorchAO.json)
 
 ## Layerwise Casting
 
@@ -197,11 +244,23 @@ Device-level settings, read once at startup from `~/.diffusers_helper/settings.j
 { "enable_tf32": true, "cudnn_benchmark": true, "cudnn_deterministic": false }
 ```
 
+## Environment Defaults
+
+Set automatically at import unless already present in the environment (export your own value to override):
+
+| Variable | Default | Effect |
+| -------- | ------- | ------ |
+| `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | Lets the CUDA allocator grow segments instead of fragmenting fixed-size ones. Multi-step workflows churn differently-shaped allocations (generate, upscale, interpolate); fragmentation is what OOMs a card that nominally has room. |
+| `HF_ENABLE_PARALLEL_LOADING` | `true` | Loads sharded checkpoints in parallel - faster cold starts. |
+| `PYTORCH_MPS_HIGH_WATERMARK_RATIO` | `0.0` | MPS only - use all available unified memory. |
+
+For faster model downloads, optionally `pip install hf_transfer` and set `HF_HUB_ENABLE_HF_TRANSFER=1`. Not enabled automatically - it bypasses the Python HTTP stack and breaks some proxy setups.
+
 ## MPS Notes
 
 Apple Silicon has narrower acceleration support than CUDA:
 
-- No xFormers, no flash-attn, no Triton, no bitsandbytes - `attention_backend` and `xformers_memory_efficient_attention` are effectively CUDA-only; use `"native"`-family backends or leave `attention_backend` unset on MPS.
+- No flash-attn, no Triton, no bitsandbytes - `attention_backend` is effectively CUDA-only; use `"native"`-family backends or leave it unset on MPS. `compile` is skipped with a warning (inductor support on MPS is immature).
 - No `torch.autocast` support - autocast-related warnings from other libraries are suppressed automatically rather than surfaced.
 - `enable_attention_slicing` is on by default (set `disable_attention_slicing` to turn it off).
 - `float16` produces NaN values on Apple Silicon - use `float32` or `bfloat16` for `torch_dtype` instead; dw only warns, it doesn't override the dtype for you.

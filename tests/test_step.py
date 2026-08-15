@@ -206,7 +206,10 @@ class TestStep:
         assert result.metadata is not None
         assert result.metadata["step_name"] == "gen_step"
         assert result.metadata["model_name"] == "my-org/my-model"
-        assert result.metadata["arguments"] == {"prompt": "a cat", "num_inference_steps": 25}
+        assert result.metadata["arguments"] == {
+            "prompt": "a cat",
+            "num_inference_steps": 25,
+        }
 
     def test_embed_metadata_true_task_step(self):
         """embed_metadata=True for a task step → Result carries task metadata"""

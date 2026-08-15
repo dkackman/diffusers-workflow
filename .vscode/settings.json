@@ -16,7 +16,6 @@
         "safetensors",
         "unet",
         "upscaler",
-        "vram",
-        "xformers"
+        "vram"
     ]
 }

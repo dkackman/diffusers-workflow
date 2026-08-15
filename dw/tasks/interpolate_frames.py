@@ -152,7 +152,9 @@ def _load_rife_model(device, model_name=None, filename=None):
         net.to(device)
         return net
 
-    net = cached_model(("interpolate_frames", repo_id, weights_file, str(device)), load_net)
+    net = cached_model(
+        ("interpolate_frames", repo_id, weights_file, str(device)), load_net
+    )
 
     return _build_inference(net, device)
 

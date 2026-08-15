@@ -220,7 +220,8 @@ See [examples/](examples/) for more workflow files.
 
 - [Workflow Guide](docs/WORKFLOW_GUIDE.md) — JSON structure, variables, steps, data flow
 - [Quantization](docs/QUANTIZATION.md) — BitsAndBytes, TorchAO, GGUF, SDNQ
-- [Inference Acceleration](docs/ACCELERATION.md) — FirstBlockCache, MagCache, TaylorSeer, TeaCache
+- [Inference Acceleration](docs/ACCELERATION.md) — torch.compile, FirstBlockCache, MagCache, TaylorSeer, TeaCache
+- [Fast on 24GB](docs/RECIPES_24GB.md) — Recommended speed/memory configurations per model family
 - [LoRA](docs/LORAS.md) — Loading and stacking LoRA adapters
 - [IP-Adapter](docs/IP_ADAPTER.md) — Image-prompt conditioning
 - [Prompt Weighting](docs/PROMPT_WEIGHTING.md) — A1111-style syntax

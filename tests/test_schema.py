@@ -45,3 +45,57 @@ def test_validate_required_fields():
     status, message = validate_data(incomplete_data, schema)
     assert status is False
     assert "steps" in message  # Error should mention missing 'steps' field
+
+
+def _pipeline_step(configuration, **step_extra):
+    return {
+        "id": "test_workflow",
+        "steps": [
+            {
+                "name": "main",
+                **step_extra,
+                "pipeline": {
+                    "configuration": {"component_type": "FluxPipeline"} | configuration,
+                    "from_pretrained_arguments": {"model_name": "test"},
+                    "arguments": {"prompt": "test"},
+                },
+            }
+        ],
+    }
+
+
+def test_component_compile_configuration_validates():
+    schema = load_schema("workflow")
+    workflow = _pipeline_step(
+        {
+            "components": {
+                "transformer": {
+                    "compile": {
+                        "repeated_blocks": True,
+                        "fullgraph": True,
+                        "mode": "max-autotune",
+                        "dynamic": False,
+                    },
+                    "attention_backend": "flash_hub",
+                }
+            }
+        }
+    )
+    status, message = validate_data(workflow, schema)
+    assert status is True, message
+
+
+def test_compile_options_are_typed():
+    schema = load_schema("workflow")
+    workflow = _pipeline_step(
+        {"components": {"transformer": {"compile": {"fullgraph": "yes"}}}}
+    )
+    status, _ = validate_data(workflow, schema)
+    assert status is False
+
+
+def test_release_pipeline_step_flag_validates():
+    schema = load_schema("workflow")
+    workflow = _pipeline_step({}, release_pipeline=True)
+    status, message = validate_data(workflow, schema)
+    assert status is True, message
