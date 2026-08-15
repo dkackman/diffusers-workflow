@@ -228,14 +228,15 @@ frames and starve the host RAM CPU-offloading depends on.
 `previous_result:<name>` refs; after each step, `del` results no longer referenced, then
 `gc.collect()` (already called between steps).
 
-### 20. Heavy imports at module load — paid even by `dw.validate`
-**File:** `dw/tasks/image_utils.py:2-27`; chain: `dw/validate.py:3` → `workflow.py:13` →
-`task.py:4` → `image_utils`
-`cv2`, 17 `controlnet_aux` detector classes, and transformers model classes import at module
-top level, so schema-only validation and every REPL worker spawn pay seconds of import and
-tens of MB. The file already demonstrates the fix (lazy `PIL.ImageDraw` in `add_watermark`).
-**Fix:** move detector/transformers/cv2 imports inside the branches that use them (pairs
-naturally with #26's dispatch-table refactor).
+### 20. Heavy imports at module load — paid even by `dw.validate` — **DONE 2026-08-15**
+Fixed as part of the test-reliability pass (see "Phase T" below): lazy imports in
+`image_utils.py` (cv2/controlnet_aux/transformers/zoe/background_remover/depth_estimator),
+`task.py` (7 model-backed handlers), `config_objects.py` (diffusers cache configs → peft),
+and `pipeline.py` (`diffusers.hooks` → peft/bitsandbytes, `dw.prompt_weighting` →
+transformers). `import dw.workflow`: 5.6s → 2.6s (floor is torch + diffusers core).
+Two tests re-targeted their patches to source modules (`test_modular_pipeline.py`,
+`test_task.py`). Residual idea for #26: dispatch-table refactor can consolidate the
+per-branch imports.
 
 ### 21. RIFE rebuilds constant tensors per frame pair
 **File:** `dw/tasks/interpolate_frames.py:122-135` (grid/divisor/timestep), `:109-112`
@@ -365,6 +366,206 @@ already-validated values; N images → N+1 identical realpath/pattern validation
 `SecurityError` handler only logs and re-raises.
 **Fix:** validate once in `save()`; have `save_artifact` trust its (internal, derived)
 arguments; drop the redundant handler.
+
+---
+
+## S — Staged-diff findings (MiniMax-H3 modular pipeline work, reviewed 2026-08-15)
+
+Review of the staged diff (modular `components` block, `from_file` argument mechanism,
+modular result handling, MiniMax-H3 examples/docs). Verified against diffusers 0.40.0.dev0
+modular-pipeline source and `git show HEAD:` for pre-change behavior.
+
+**STATUS 2026-08-15: S1–S6 and S8 are FIXED in the working tree (Phase 0 executed):**
+- S1/S2: `validate_media_location` + `fetch_image`/`fetch_video` now resolve relative
+  paths against the workflow file's dir (`realize_args(arg, base_dir)`, threaded from
+  `Workflow.run`); `previous_result:`/unresolved `variable:` refs in `from_file` raise
+  clear errors at load (full deferred construction is a follow-up, see below);
+  `MiniMaxH3Ref2VA.json` voice default switched to a stable HF URL (from_file downloads
+  URLs itself). Extension check now reuses `security.validate_file_extension`.
+- S3: `modular_artifacts` appends leftover dict keys as one extra artifact (saved via the
+  existing dict recursion); `first_value` → `first_item` tracks consumed keys.
+- S4: new `has_component_group_offload()` feeds both `loading_device()` and the
+  `.to(device)` gate, so `components.*.group_offload` no longer needs a manual
+  `do_not_send_to_device`.
+- S5: object construction now keys on a single `*_type` key (NON_TYPE_KEYS excluded);
+  dicts with `from_file` but no `_type` key pass through untouched.
+- S6: `{}` escape is honored for NON_TYPE_KEYS (`offload_type`), so both spellings work.
+- S8: LTX2I2V `num_frames` 484 → 481 (8k+1).
+- Docs: WORKFLOW_GUIDE from_file section updated (relative paths, reference semantics).
+
+**Follow-up (not yet done):** S7, S9 items, and deferred `from_file` construction from
+`previous_result:` references (needs nested-ref substitution in previous_results.py plus
+per-iteration realization — design alongside todo #23).
+
+### S1. `validate_media_location` rejects deferred references (breaks cross-step flow)
+**File:** `dw/arguments.py:142`
+`fetch_image`/`fetch_video` both early-return on `previous_result:`/`variable:` prefixes
+(resolved later, at step-run time); `validate_media_location` does not, so
+`"from_file": "previous_result:tts_step"` dies at load with a misleading
+"Path does not exist" SecurityError. Also bites `from_file` objects in the `variables`
+block (realize_args runs before replace_variables there — `MiniMaxH3Ref2VA.json` works only
+because its reference sits in `steps`).
+**Fix:** same guard as the siblings, ideally factored into one shared
+"resolve media location" helper (deferred-skip + URL/path validation + extension set) used
+by all three callers. Test: workflow with `from_file: previous_result:x` loads.
+
+### S2. `from_file` paths resolve against cwd; `MiniMaxH3Ref2VA.json` unrunnable as shipped
+**File:** `dw/arguments.py:150`; `examples/MiniMaxH3Ref2VA.json` (`"voice": "voice.wav"`)
+`validate_path(location, allow_create=False)` is called without `base_dir` → cwd-relative,
+contradicting CLAUDE.md's "file paths in workflows are relative to the workflow file". No
+`voice.wav` exists in the repo, so the example fails at load from any cwd; placing the file
+next to the JSON does not help. Note: `fetch_image`/`fetch_video` have the same pre-existing
+cwd behavior — the real fix threads the workflow dir into all media loading.
+**Fix:** pass the workflow file's dir as `base_dir` through realize_args → media loaders
+(workflow.py already knows it, see the sub-workflow handling at workflow.py:298-300); ship a
+`voice.wav` (or switch the example to a URL/HF asset). Test: example loads from repo root.
+
+### S3. `modular_artifacts` silently drops non-video dict keys
+**File:** `dw/result.py:491` (dict branch triggers at 466 on key-name match)
+Returns only videos (+paired audio); before the change a dict fell to `return [result]` and
+`save_artifact` recursed over `items()` writing one file per key. `"output": ["videos",
+"images"]` now silently loses `images` from disk and from `get_artifacts()` (still reachable
+by-name via `get_artifact_properties`). No warning. Staged test only covers dicts without a
+video key.
+**Fix:** after extracting video+audio, route the remaining keys through the existing dict
+recursion (or at minimum `logger.warning` the dropped keys). Test: dict with
+videos+images saves both.
+
+### S4. `components.*.group_offload` unenforced pairing with `do_not_send_to_device`
+**File:** `dw/pipeline_processors/pipeline.py:747` (`.to(device)` gate), `:635-644`
+(`loading_device`), `:201` (configure_components runs after)
+`ModularPipeline.to()` moves all loaded components; the `.to(device)` fires before
+`configure_components` installs group-offload hooks unless the user *also* sets
+`do_not_send_to_device: true`. The pairing is documented in WORKFLOW_GUIDE and honored by
+the three examples, but enforced nowhere — omitting it moves e.g. MiniMax-H3's ~62GB
+transformer to CUDA and OOMs, the exact failure the config prevents, with no diagnostic.
+**Fix:** derive it — if any `components` entry has `group_offload`, skip the `.to()` (and
+have `loading_device()` treat it like top-level `group_offload`); or schema-enforce the
+pairing with a clear validation error.
+
+### S5. `realize_object`/`from_file` trigger is too broad, detection too clever
+**File:** `dw/arguments.py:80` (trigger), `:103-112` (type detection)
+(a) Any dict anywhere in steps carrying a literal `from_file` key without exactly one
+class-valued sibling now hard-aborts at load ("needs exactly one '_type' argument") where it
+previously passed through inert — runtime-verified. (b) The constructed type is picked by
+`isinstance(v, type)` over ALL keys rather than `*_type`-named keys, so a second
+class-valued kwarg trips the "exactly one" error (narrow: torch dtypes aren't `type`
+instances).
+**Fix:** select the type by key convention (`k.endswith("_type")`, matching realize_args and
+the error message); if a dict has `from_file` but no `_type` key, leave it untouched
+(recurse as before) rather than raising.
+
+### S6. `offload_type` brace-escape regression
+**File:** `dw/arguments.py:18` (`NON_TYPE_KEYS`)
+Adding `offload_type` fixes the pre-existing crash for the bare spelling
+(`load_type_from_name("leaf_level")` → AttributeError), but the documented — and previously
+*mandatory* — escape `"{leaf_level}"` now bypasses the only brace-strip site and reaches
+diffusers verbatim → `ValueError: '{leaf_level}' is not a valid GroupOffloadingType`.
+In-repo nothing used it; external user workflows that followed the docs break.
+**Fix:** strip `{}` for NON_TYPE_KEYS values too (unescape regardless of which branch
+handles the key). Test both spellings.
+
+### S7. `get_component` raises on None-valued modular components (PLAUSIBLE)
+**File:** `dw/pipeline_processors/pipeline.py:492`
+diffusers ModularPipeline registers unloaded components as None-valued attributes
+(`load_components` itself tests `getattr(self, name, None) is None`); `get_component`
+raises ValueError on None and `configure_components` applies the map unconditionally.
+Shipped examples are safe (verified: each selected workflow loads every named component),
+but a components map reused across workflow selections, or a component diffusers
+warned-and-continued past at load, aborts with a misleading "has no component".
+**Fix:** distinguish missing attribute (typo → raise, fail-fast is right) from
+attribute-present-but-None (unloaded → warn and skip, naming the workflow selection).
+
+### S8. `examples/LTX2I2V.json` num_frames 484 is not 8k+1 (PLAUSIBLE, pre-existing scaled)
+LTX-2: latent frames = (n-1)//8+1, decodes (l-1)*8+1 frames; audio duration = n/frame_rate.
+484 → 481 video frames vs 484/24s audio → ~0.13s trailing audio in the muxed mp4. 242 had
+the same defect at 1 frame (~0.04s); the change tripled it. No validation anywhere.
+**Fix:** use 481 (or 485); consider a dw-side warning for non-8k+1 values on LTX-2
+pipelines (ties into todo #7's component/config validation theme).
+
+### S9. Smaller items from this diff
+- **`dw/arguments.py:148`** — URL branch of `validate_media_location` skips the extension
+  allowlist (local-only enforcement). Matches pre-existing fetch_image/fetch_video design;
+  resolve deliberately repo-wide (check URL path extensions, or document URLs as trusted).
+- **`dw/pipeline_processors/pipeline.py:436`** — `configure_components`
+  (`configuration.components.<name>`) is a second per-component config namespace parallel to
+  `configure_loaded_components` (`configuration.<name>`), disjoint keys, no cross-checking;
+  MiniMaxH3.json configures `vae` in both. Unify or cross-validate (relates to todo #7).
+- **`dw/arguments.py:151-153`** — extension check re-implements
+  `security.validate_file_extension`; use the helper (raises InvalidInputError, a
+  SecurityError subclass — staged test still passes).
+- **`dw/result.py:51-53`** — `MODULAR_*_KEYS` alias tuples support spellings nothing
+  produces; deepens the output-sniffing chain todo #22 wants replaced with a registry —
+  fold this dict branch into that refactor when doing #22.
+- **`dw/pipeline_processors/pipeline.py:471`** — route `configure_loaded_components` and
+  `apply_sdnq_optimizations` lookups through the new `get_component` for dotted-name
+  support and one consistent miss behavior.
+
+### Verified non-issues in this diff
+- `pair_audio_with_frames` signature change: single caller path, LTX-2 behavior unchanged.
+- `config_objects.py` quantization move: line-for-line identical.
+- `get_load_components_arguments` shallow copy and `get_group_offload_configuration`
+  in-place mutation: safe (Workflow.run deepcopies per run; cached pipelines skip load()).
+- Channel-major audio mux corruption claim: refuted — all shipped dict-path sources emit
+  batch-major audio (MiniMax-H3 decoder permutes to (1,2,N); LTX-2 vocoder documents
+  (batch, channels, samples)), and a mismatched shape fails loudly in _write_audio, not
+  silently. Latent shape-assumption hazard only.
+- twimg example URLs: in-convention for this repo's examples.
+
+---
+
+## Phase T — test reliability pass (DONE 2026-08-15)
+
+Executed between Phase 0 and Phase 1 after the suite was found to hang indefinitely at
+exit. Root cause: `test_worker.py` used 5s queue timeouts racing the worker child's
+~6s import cost; on `_queue.Empty` failure the non-daemon child was never stopped and
+multiprocessing's atexit join hung pytest forever (2-hour-old hung pytest processes and
+a dozen orphaned workers were found and killed).
+
+- Worker spawn/import cost: see item #20 (5.6s → 2.6s).
+- `tests/test_worker.py`: lifecycle fixture guarantees shutdown → terminate → kill in
+  teardown; daemon=True; 60s readiness timeout (covers child imports), 10s thereafter.
+- `dw/worker.py`: command loop polls with a 5s timeout and exits cleanly when its parent
+  pid changes/dies, so orphaned workers self-terminate instead of lingering.
+- Full suite: 439 passed, 2 skipped, ~33s, exits cleanly — verified twice; worker tests
+  verified twice more in isolation. No stray processes after runs.
+
+## Remediation plan
+
+Ordered so each phase leaves the tree working; one focused commit per cluster, each with a
+regression test; `pytest -v` + `black dw/ tests/` before every commit.
+
+**Phase 0 — land the staged work cleanly (S1–S6 + S8 example tweak).** These are
+regressions in uncommitted work; fix them in/with the staged commit rather than on top.
+Order: S1+S2 together (both live in `validate_media_location` — add the deferred guard and
+`base_dir` threading in one pass, factoring the shared media-location helper), then S5+S6
+(both in the realize_object/from_file trigger), then S3, S4, S8. S7/S9 items can trail as a
+follow-up commit.
+
+**Phase 1 — P0 correctness (items 1–7).** Suggested clusters:
+(a) seed/generator semantics: #3 + #4 + #12 + #14 share one resolution chain — fix
+together, add a reproducibility test matrix (workflow/step/pipeline seed × fresh/cached ×
+no_generator true/false/absent);
+(b) #1 gather validation (reuse fetch_image/fetch_video per match — dovetails with the
+Phase-0 media-location helper);
+(c) #2 TeaCache×true-CFG: minimum safe fix is refusing the combination loudly;
+(d) #5 bool/list coercion + #16 unknown-variable error (same file);
+(e) #6 REPL output_dir; (f) #7 component whitelist (schema `additionalProperties` or
+dynamic detection — coordinate with S9's namespace unification).
+
+**Phase 2 — P1 crashes (items 8–15).** #8 teacache×offload (wrap the hook's inner forward)
+and #9 prompt-weighting devices (delete `_get_device`, pass `Pipeline.self.device`) are the
+highest-value; #10 FasterCache needs the pipeline-reference plumbing; #11 audio save is a
+small type branch; #13/#15 are error-handling hardening.
+
+**Phase 3 — P2 performance (items 17–21).** #17 task-model cache first (largest win;
+mirrors `previous_pipelines`, needs an unload hook wired to `memory clear`), then #18
+shallow-copy, #19 result eviction, #20 lazy imports, #21 RIFE hoisting.
+
+**Phase 4 — P3/P4 (items 22–33).** Group by file to avoid churn: `image_utils.py` trio
+(#26 dispatch table + #20 lazy imports + per-detector caching from #17); `result.py`
+registry (#22 + S9 alias-tuple fold-in); worker/device helpers (#29 + #27); exception
+ladders (#30); the rest opportunistically when touching those files.
 
 ---
 

@@ -5,6 +5,7 @@ Keeps models loaded in GPU memory across multiple runs.
 
 import os
 import sys
+import queue
 import hashlib
 import logging
 import traceback
@@ -21,6 +22,11 @@ logger = logging.getLogger("dw.worker")
 
 # Memory management constants
 MEMORY_GROWTH_THRESHOLD_MB = 500  # Warn if GPU memory grows by more than this
+
+# How often (in seconds) the main loop wakes up to check whether the parent
+# process is still alive when no command has arrived. Short enough that an
+# orphaned worker exits promptly, long enough to avoid busy-waiting.
+COMMAND_POLL_TIMEOUT_SECONDS = 5
 
 
 class WorkflowWorker:
@@ -40,6 +46,11 @@ class WorkflowWorker:
         """
         self.command_queue = command_queue
         self.result_queue = result_queue
+
+        # Capture the parent PID at startup so the main loop can detect
+        # orphaning (parent died/was killed without sending "shutdown") and
+        # exit cleanly instead of blocking forever on the command queue.
+        self.parent_pid = os.getppid()
 
         # Setup logging
         setup_logging(log_level)
@@ -69,8 +80,26 @@ class WorkflowWorker:
         try:
             while True:
                 try:
-                    # Wait for command from REPL
-                    command = self.command_queue.get()
+                    # Wait for a command from the REPL, but poll with a
+                    # timeout rather than blocking forever. If nothing
+                    # arrives, check whether the parent process is still
+                    # alive - if it has died (e.g. crashed or was killed)
+                    # without sending "shutdown", we'd otherwise sit here
+                    # forever as an orphaned, unkillable-by-normal-means
+                    # child. Exit cleanly instead.
+                    try:
+                        command = self.command_queue.get(
+                            timeout=COMMAND_POLL_TIMEOUT_SECONDS
+                        )
+                    except queue.Empty:
+                        if self._parent_is_dead():
+                            logger.info(
+                                f"Parent process (pid {self.parent_pid}) is gone - "
+                                "worker exiting"
+                            )
+                            break
+                        continue
+
                     command_type = command.get("type")
 
                     logger.debug(f"Received command: {command_type}")
@@ -335,6 +364,21 @@ class WorkflowWorker:
             logger.warning(f"Could not perform GPU cleanup: {e}")
 
         logger.info("Full cleanup complete")
+
+    def _parent_is_dead(self) -> bool:
+        """
+        Check whether the process that spawned this worker is still around.
+
+        On POSIX, a process gets reparented to init (traditionally pid 1,
+        though some systems use a subreaper) once its original parent exits,
+        so a changed getppid() is the standard signal that we've been
+        orphaned.
+
+        Returns:
+            True if the parent appears to be gone, False otherwise.
+        """
+        current_ppid = os.getppid()
+        return current_ppid != self.parent_pid or current_ppid == 1
 
     def _compute_file_hash(self, path: str) -> Optional[str]:
         """

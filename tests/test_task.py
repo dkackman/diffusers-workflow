@@ -134,7 +134,8 @@ class TestTaskDevice:
         # collide with it rather than override it
         task = Task({"command": "image_to_text", "arguments": {}}, "cuda")
 
-        with patch("dw.tasks.task.image_to_text") as image_to_text:
+        # Patched at its source - task.py imports it inside the handler
+        with patch("dw.tasks.image_to_text.image_to_text") as image_to_text:
             task.run({"image": "an image", "device": "cpu"})
 
         assert image_to_text.call_args.kwargs["device"] == "cpu"
