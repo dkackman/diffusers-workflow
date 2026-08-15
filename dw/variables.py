@@ -70,6 +70,17 @@ def set_variables(values, variables):
             # Validate variable name
             validated_name = validate_variable_name(k)
 
+            # The workflow must have already declared this variable (with a default
+            # value/type) - reject unknown names instead of raising a bare KeyError
+            if validated_name not in variables:
+                declared = ", ".join(sorted(variables.keys()))
+                logger.error(
+                    f"Unknown variable '{validated_name}'; declared variables: {declared}"
+                )
+                raise ValueError(
+                    f"Unknown variable '{validated_name}'; declared variables: {declared}"
+                )
+
             # Validate string values
             if isinstance(v, str):
                 validated_value = validate_string_input(
@@ -83,7 +94,7 @@ def set_variables(values, variables):
             )
             # Use the type of the existing variable to convert the new value
             variables[validated_name] = get_value(
-                validated_value, type(variables[validated_name])
+                validated_value, type(variables[validated_name]), validated_name
             )
 
         except SecurityError as e:
@@ -91,12 +102,13 @@ def set_variables(values, variables):
             raise
 
 
-def get_value(v, desired_type):
+def get_value(v, desired_type, name=None):
     """
     Converts a value to the desired type, with special handling for booleans
     Args:
         v: Value to convert
         desired_type: Target type for conversion
+        name: Name of the variable being converted, used for error messages
     Returns:
         Converted value, or original value if conversion fails
     """
@@ -106,13 +118,24 @@ def get_value(v, desired_type):
         logger.warning("No type specified for conversion, returning original value")
         return v
 
-    # Special handling for boolean string values
+    # Special handling for boolean string values - bool("0") and bool("no") are
+    # both truthy in Python, which would silently invert the user's intent, so
+    # only a known set of true/false spellings is accepted here
     if isinstance(v, str) and desired_type is bool:
-        if v.lower() == "true":
+        lowered = v.lower()
+        if lowered in ("true", "1", "yes", "on"):
             return True
-        if v.lower() == "false":
+        if lowered in ("false", "0", "no", "off"):
             return False
-        # If not "true" or "false", fall through to regular conversion
+        var_label = name if name is not None else "<unknown>"
+        message = f"Cannot interpret '{v}' as true/false for variable '{var_label}'"
+        logger.error(message)
+        raise ValueError(message)
+
+    # Special handling for list string values - list("cat") would mangle the
+    # string into ['c', 'a', 't'], so a comma-separated string is split instead
+    if isinstance(v, str) and desired_type is list:
+        return [item.strip() for item in v.split(",")]
 
     # special handling for images that have already been realized
     if isinstance(v, PIL.Image.Image):
