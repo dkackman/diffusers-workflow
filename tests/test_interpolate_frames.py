@@ -78,6 +78,43 @@ class TestInterpolateFrames:
             interpolate_frames(_make_test_frames(1), multiplier=2)
 
 
+class TestIFNetArchitecture:
+    def test_forward_channel_widths_are_self_consistent(self):
+        """The real IFNet must run a forward pass with randomly initialized
+        weights — the declared IFBlock input widths must match what forward()
+        actually concatenates (this once regressed: a mangled encode head made
+        block0 receive 39 channels instead of its declared 23)."""
+        from dw.tasks.rife_model import IFNet
+        from dw.tasks.interpolate_frames import _make_flow_context
+
+        net = IFNet().eval()
+        h = w = 64
+        img0 = torch.rand(1, 3, h, w)
+        img1 = torch.rand(1, 3, h, w)
+        tenFlow_div, backwarp_tenGrid, timestep = _make_flow_context(h, w, "cpu")
+
+        with torch.inference_mode():
+            flow_list, mask_list, merged = net(
+                img0, img1, timestep, [8, 4, 2, 1], tenFlow_div, backwarp_tenGrid
+            )
+
+        assert len(merged) == 4
+        assert merged[3].shape == (1, 3, h, w)
+
+    def test_matches_v4_13_checkpoint_layout(self):
+        """Parameter names and shapes must match the v4.13.2 checkpoint the
+        loader downloads, or load_state_dict would reject the real weights."""
+        from dw.tasks.rife_model import IFNet
+
+        shapes = {k: tuple(v.shape) for k, v in IFNet().state_dict().items()}
+        # Spot-check the shapes that pin the architecture version
+        assert shapes["block0.conv0.0.0.weight"] == (96, 23, 3, 3)
+        assert shapes["block1.conv0.0.0.weight"] == (64, 28, 3, 3)
+        assert shapes["block0.lastconv.0.weight"] == (192, 24, 4, 4)
+        assert shapes["encode.cnn0.weight"] == (32, 3, 3, 3)
+        assert shapes["encode.cnn3.weight"] == (32, 8, 4, 4)
+
+
 class TestInterpolateFramesRegistration:
     def test_interpolate_frames_command_registered(self):
         from dw.tasks.task import _COMMAND_REGISTRY
@@ -89,11 +126,8 @@ class _FakeRifeNet:
     """Stand-in for the real IFNet with the same call signature.
 
     Exercises the real padding / flow-context / tensor-carry plumbing in
-    `_build_inference` deterministically, without depending on the actual
-    (randomly-initialized, unrelated) IFNet architecture — its declared
-    block0 input width doesn't match what its own forward() concatenates,
-    a pre-existing issue in the vendored dw/tasks/rife_model.py that is out
-    of scope here.
+    `_build_inference` deterministically, without depending on a
+    randomly-initialized IFNet's output.
     """
 
     def __call__(self, img0, img1, timestep, scale_list, tenFlow_div, backwarp_tenGrid):

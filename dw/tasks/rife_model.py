@@ -1,8 +1,9 @@
 """
-RIFE IFNet v4.6 — Real-Time Intermediate Flow Estimation.
+RIFE IFNet v4.13 — Real-Time Intermediate Flow Estimation.
 
 Vendored from https://github.com/hzwer/Practical-RIFE
 Original architecture by Zhewei Huang et al.
+Matches the v4.13.2 checkpoint layout (feature-encode Head + four IFBlocks).
 
 MIT License — Copyright (c) Megvii Inc.
 
@@ -77,6 +78,24 @@ class ResConv(nn.Module):
         return self.relu(self.conv(x) * self.beta + x)
 
 
+class Head(nn.Module):
+    """Feature encoder — 8-channel per-image features consumed by the IFBlocks."""
+
+    def __init__(self):
+        super().__init__()
+        self.cnn0 = nn.Conv2d(3, 32, 3, 2, 1)
+        self.cnn1 = nn.Conv2d(32, 32, 3, 1, 1)
+        self.cnn2 = nn.Conv2d(32, 32, 3, 1, 1)
+        self.cnn3 = nn.ConvTranspose2d(32, 8, 4, 2, 1)
+        self.relu = nn.LeakyReLU(0.2, True)
+
+    def forward(self, x):
+        x = self.relu(self.cnn0(x))
+        x = self.relu(self.cnn1(x))
+        x = self.relu(self.cnn2(x))
+        return self.cnn3(x)
+
+
 class IFBlock(nn.Module):
     def __init__(self, in_planes, c=64):
         super().__init__()
@@ -126,12 +145,7 @@ class IFNet(nn.Module):
         self.block1 = IFBlock(8 + 4 + 16, c=128)
         self.block2 = IFBlock(8 + 4 + 16, c=96)
         self.block3 = IFBlock(8 + 4 + 16, c=64)
-        self.encode = nn.Sequential(
-            nn.Conv2d(3, 16, 3, 2, 1),
-            nn.ConvTranspose2d(16, 4, 4, 2, 1),
-            nn.LeakyReLU(0.2, True),
-            nn.Conv2d(4, 16, 3, 1, 1),
-        )
+        self.encode = Head()
 
     def forward(self, img0, img1, timestep, scale_list, tenFlow_div, backwarp_tenGrid):
         f0 = self.encode(img0[:, :3])

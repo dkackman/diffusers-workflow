@@ -10,7 +10,10 @@
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "component_type": "FluxPipeline"
+                    "component_type": "FluxPipeline",
+                    "teacache": {
+                        "rel_l1_thresh": 0.4
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",
