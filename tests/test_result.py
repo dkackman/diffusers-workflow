@@ -7,6 +7,7 @@ import pytest
 import os
 import tempfile
 import json
+import logging
 import numpy
 import soundfile
 import torch
@@ -217,6 +218,41 @@ class TestGetArtifactList:
         assert artifacts[0].shape == (100, 2)
         assert artifacts[0].dtype == numpy.float32
 
+    def test_images_take_precedence_over_frames(self):
+        # The output-field registry is consulted in order - a result exposing both
+        # (which nothing real does, but the registry order must still be deterministic)
+        # is dispatched on "images", matching the old hasattr chain's ordering.
+        class MockResult:
+            images = ["img1", "img2"]
+            frames = ["frame1", "frame2"]
+
+        artifacts = get_artifact_list(MockResult())
+        assert artifacts == ["img1", "img2"]
+
+    def test_unknown_output_logs_a_warning_and_falls_back_to_one_artifact(self, caplog):
+        # A diffusers output shaped like BaseOutput (to_tuple + dict-like keys()) whose
+        # field ("depth") no registered extractor knows about. The failure this produces
+        # downstream is a confusing content-type mismatch on save - the warning here is
+        # what makes that diagnosable.
+        class UnknownOutput:
+            def __init__(self, depth):
+                self.depth = depth
+
+            def to_tuple(self):
+                return (self.depth,)
+
+            def keys(self):
+                return ["depth"]
+
+        result = UnknownOutput(depth=["depth_map"])
+
+        with caplog.at_level(logging.WARNING, logger="dw"):
+            artifacts = get_artifact_list(result)
+
+        assert artifacts == [result]
+        assert "UnknownOutput" in caplog.text
+        assert "depth" in caplog.text
+
 
 class TestAudioVideoArtifacts:
     """Test pairing of generated video with the audio generated alongside it"""
@@ -363,6 +399,30 @@ class TestModularOutputs:
 
         leftovers = artifacts[-1]
         assert set(leftovers.keys()) == {"latents"}
+
+    def test_attribute_and_dict_paths_pair_audio_identically(self):
+        # Attribute-based pipeline outputs (LTX-2) and modular pipelines' dict outputs
+        # both hand frames-plus-audio off to the same frames_with_audio/
+        # pair_audio_with_frames logic - equivalent inputs down each route must produce
+        # equivalent results.
+        class MockResult:
+            frames = ["video1", "video2"]
+            audio = ["audio1", "audio2"]
+            audio_sample_rate = 48000
+
+        attribute_path = get_artifact_list(MockResult())
+        dict_path = get_artifact_list(
+            {
+                "videos": ["video1", "video2"],
+                "audio": ["audio1", "audio2"],
+                "sampling_rate": 48000,
+            }
+        )
+
+        def as_tuples(artifacts):
+            return [(a.frames, a.audio, a.sample_rate) for a in artifacts]
+
+        assert as_tuples(attribute_path) == as_tuples(dict_path)
 
 
 class TestSaveAudioVideo:
