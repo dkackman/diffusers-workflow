@@ -1,4 +1,3 @@
-import copy
 import logging
 from itertools import product
 
@@ -33,7 +32,12 @@ def get_iterations(argument_template, previous_results):
     # If no references found, return the template as-is
     if not result_refs:
         logger.debug("No result references found in template")
-        return [copy.deepcopy(argument_template)]
+        # Shallow copy: realize_args may have already loaded large media
+        # (PIL images, full video frame lists) into the template, so a deep
+        # copy would multiply memory use. Contract: iteration dicts may only
+        # be mutated at the top level (key pop/assign); nested values are
+        # shared across iterations and must never be mutated in place.
+        return [dict(argument_template)]
 
     logger.debug(f"Found {len(result_refs)} result references: {result_refs}")
 
@@ -51,8 +55,13 @@ def get_iterations(argument_template, previous_results):
     # Use itertools.product to create cartesian product of all possible values
     # Example: if ref_results has 2 images and 2 prompts, creates 4 combinations
     for values in product(*[ref_results[k] for k in keys]):
-        # Create fresh copy of template for each combination
-        arguments = copy.deepcopy(argument_template)
+        # Create fresh shallow copy of template for each combination.
+        # Nested values (e.g. loaded PIL images, video frame lists) are
+        # shared across iterations, not deep-copied, to avoid multiplying
+        # media memory usage by the iteration count. Contract: iteration
+        # dicts may only be mutated at the top level (key pop/assign);
+        # nested values must never be mutated in place.
+        arguments = dict(argument_template)
 
         # Replace each reference with its actual value
         for key, value in zip(keys, values):

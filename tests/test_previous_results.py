@@ -225,6 +225,55 @@ class TestGetIterations:
         assert ("a", "x", 1) in combinations
         assert ("b", "y", 2) in combinations
 
+    def test_nested_values_shared_not_copied_no_references(self):
+        """Iteration dicts are shallow copies: nested values (e.g. loaded
+        PIL images or video frame lists already realized into the template)
+        must be the *same* object, not deep-copied, to avoid multiplying
+        media memory usage."""
+        marker = ["frame1", "frame2"]
+        template = {"prompt": "test", "marker": marker}
+        previous_results = {}
+
+        iterations = get_iterations(template, previous_results)
+        assert len(iterations) == 1
+        assert iterations[0]["marker"] is marker
+
+    def test_nested_values_shared_not_copied_with_references(self):
+        """Same sharing contract applies to the cartesian-product path."""
+        result = Result({})
+        result.add_result(["img1.jpg", "img2.jpg"])
+        previous_results = {"step1": result}
+
+        marker = ["frame1", "frame2"]
+        template = {"image": "previous_result:step1", "marker": marker}
+        iterations = get_iterations(template, previous_results)
+
+        assert len(iterations) == 2
+        assert iterations[0]["marker"] is marker
+        assert iterations[1]["marker"] is marker
+        assert iterations[0]["marker"] is iterations[1]["marker"]
+
+    def test_top_level_mutation_is_independent_per_iteration(self):
+        """Popping/assigning a top-level key on one iteration must not leak
+        to other iterations or back into the original template (matches how
+        task handlers pop 'image'/'device' and pipeline.py pops 'prompt')."""
+        result = Result({})
+        result.add_result(["img1.jpg", "img2.jpg"])
+        previous_results = {"step1": result}
+
+        template = {"image": "previous_result:step1", "device": "cuda"}
+        iterations = get_iterations(template, previous_results)
+
+        iterations[0].pop("device")
+        iterations[0]["prompt_embeds"] = "embedded"
+
+        assert "device" not in iterations[0]
+        assert "prompt_embeds" in iterations[0]
+        assert iterations[1]["device"] == "cuda"
+        assert "prompt_embeds" not in iterations[1]
+        assert "device" in template
+        assert "prompt_embeds" not in template
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
