@@ -116,8 +116,14 @@ class Workflow:
                 ## then replace any variable references in the workflow definition with the actual values
                 replace_variables(workflow_def, variables)
 
-            # Set up random seed for reproducibility
-            default_seed = workflow_def.get("seed", torch.seed())
+            # Set up random seed for reproducibility. Resolved lazily - as a
+            # dict.get default, torch.seed() would run on every call and reseed
+            # the global RNG even when the workflow names an explicit seed
+            default_seed = workflow_def.get("seed")
+            if default_seed is None:
+                # A fresh generator draws a random seed without touching the
+                # global RNG the process may have seeded for reproducibility
+                default_seed = torch.Generator().seed()
             workflow_def["seed"] = default_seed
 
             # Initialize collections for sharing state between steps
@@ -149,7 +155,10 @@ class Workflow:
             for i, step_data in enumerate(steps):
                 logger.debug(f"Running step {i+1}/{len(steps)}: {step_data['name']}")
 
-                step = Step(step_data, default_seed)
+                # Seeds resolve most-specific-first: pipeline > step > workflow
+                step_seed = step_data.get("seed", default_seed)
+
+                step = Step(step_data, step_seed)
                 result = step.run(
                     results,
                     pipelines,
@@ -157,7 +166,7 @@ class Workflow:
                         step_data,
                         shared_components,
                         pipelines,
-                        default_seed,
+                        step_seed,
                         get_device(),
                     ),
                 )
@@ -235,16 +244,17 @@ class Workflow:
                     device,
                     cached_pipeline.pipeline,  # Reuse the actual loaded model
                 )
-                # Set up generator with potentially new seed
-                if not "no_generator" in new_pipeline_wrapper.configuration:
-                    import torch
-
+                # Set up generator with potentially new seed. no_generator is a
+                # boolean - only an explicit true disables the generator - and the
+                # generator lives on the pipeline's own device, which may override
+                # the workflow default (the fresh-load path resolves it the same way)
+                if not new_pipeline_wrapper.configuration.get("no_generator", False):
                     logger.debug(
                         "Setting up generator for cached pipeline with new arguments"
                     )
                     new_pipeline_wrapper.argument_template[
                         "generator"
-                    ] = torch.Generator(device).manual_seed(
+                    ] = torch.Generator(new_pipeline_wrapper.device).manual_seed(
                         new_pipeline_wrapper.pipeline_definition.get(
                             "seed", default_seed
                         )
