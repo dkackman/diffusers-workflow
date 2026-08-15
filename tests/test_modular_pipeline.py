@@ -77,7 +77,8 @@ class TestLoadingDevice:
 
     @pytest.fixture
     def default_device_is_not_cpu(self):
-        # Stands in for the CUDA default device dw sets at startup
+        # Stands in for a default device set outside of dw - loading an offloaded
+        # component still has to land in system memory
         torch.set_default_device("meta")
         yield
         torch.set_default_device(None)

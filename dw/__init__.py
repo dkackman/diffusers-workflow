@@ -84,8 +84,12 @@ def startup(log_level=None):
             "Activate the venv: source venv/bin/activate"
         )
 
+    # The default torch device is deliberately left alone. Diffusers loads weights into
+    # system memory and then places them - moving them to the device, or hooking them
+    # for offloading. A default device of 'cuda' pre-empts that by building every module
+    # directly in VRAM, which runs a large pipeline out of memory before its offload
+    # hooks are ever installed. Device placement is explicit throughout dw instead.
     device = get_device()
-    torch.set_default_device(device)
 
     # MPS-specific configuration (Apple Silicon)
     if device == "mps":

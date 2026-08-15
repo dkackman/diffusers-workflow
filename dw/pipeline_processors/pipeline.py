@@ -545,9 +545,9 @@ def loading_device(configuration):
     """The device a component's weights are materialized on while it loads.
 
     Offloading brings each part of a model onto the device only while it runs, so the
-    weights have to land in system memory first. dw sets a default torch device at
-    startup, which would otherwise create every module directly on the GPU - a large
-    pipeline runs the card out of memory before its offload hooks are ever installed.
+    weights have to land in system memory first. A default torch device pointing at the
+    GPU would build every module directly in VRAM instead, running a large pipeline out
+    of memory before its offload hooks are ever installed.
 
     Args:
         configuration: Configuration of the component being loaded
