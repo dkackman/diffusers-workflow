@@ -72,6 +72,49 @@ class TestLoadComponents:
             )
 
 
+class TestLoadingDevice:
+    """Test the device component weights are materialized on while loading"""
+
+    @pytest.fixture
+    def default_device_is_not_cpu(self):
+        # Stands in for the CUDA default device dw sets at startup
+        torch.set_default_device("meta")
+        yield
+        torch.set_default_device(None)
+
+    def load_and_record_device(self, configuration):
+        """Load a component that records the default device it was created under"""
+        recorded = {}
+
+        def from_pretrained(model_name, **kwargs):
+            recorded["device"] = torch.empty(1).device.type
+            return MagicMock()
+
+        component_type = MagicMock()
+        component_type.__name__ = "MockPipeline"
+        component_type.from_pretrained.side_effect = from_pretrained
+        configuration["component_type"] = component_type
+
+        load_component("pipeline", configuration, {"model_name": "test-model"}, "cuda")
+
+        return recorded["device"]
+
+    def test_sequential_offload_loads_into_system_memory(
+        self, default_device_is_not_cpu
+    ):
+        assert self.load_and_record_device({"offload": "sequential"}) == "cpu"
+
+    def test_model_offload_loads_into_system_memory(self, default_device_is_not_cpu):
+        assert self.load_and_record_device({"offload": "model"}) == "cpu"
+
+    def test_group_offload_loads_into_system_memory(self, default_device_is_not_cpu):
+        configuration = {"group_offload": {"offload_type": "leaf_level"}}
+        assert self.load_and_record_device(configuration) == "cpu"
+
+    def test_default_device_is_used_without_offloading(self, default_device_is_not_cpu):
+        assert self.load_and_record_device({}) == "meta"
+
+
 class TestComponentsManager:
     """Test components manager creation for modular pipelines"""
 

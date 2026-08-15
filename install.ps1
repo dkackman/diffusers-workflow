@@ -95,7 +95,7 @@ pip install bitsandbytes kernels
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Install utility dependencies
-pip install aiohttp matplotlib opencv-python-headless concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black python-dotenv
+pip install av aiohttp matplotlib opencv-python-headless concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black python-dotenv
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Output ""

@@ -11,7 +11,15 @@ import numpy
 import soundfile
 import torch
 from PIL import Image
-from dw.result import Result, get_artifact_list, guess_extension, normalize_audio
+from unittest.mock import patch
+from dw.result import (
+    AudioVideo,
+    Result,
+    as_audio_track,
+    get_artifact_list,
+    guess_extension,
+    normalize_audio,
+)
 
 
 class TestResult:
@@ -159,6 +167,130 @@ class TestGetArtifactList:
 
         artifacts = get_artifact_list(MockResult())
         assert artifacts == ["embed1", "embed2"]
+
+
+class TestAudioVideoArtifacts:
+    """Test pairing of generated video with the audio generated alongside it"""
+
+    class MockResult:
+        """Stands in for an LTX2PipelineOutput"""
+
+        def __init__(self, frames, audio, sample_rate=None):
+            self.frames = frames
+            self.audio = audio
+            if sample_rate is not None:
+                self.audio_sample_rate = sample_rate
+
+    def test_frames_without_audio_are_unchanged(self):
+        artifacts = get_artifact_list(self.MockResult(["frame1", "frame2"], None))
+        assert artifacts == ["frame1", "frame2"]
+
+    def test_each_video_is_paired_with_its_own_audio(self):
+        result = self.MockResult(["video1", "video2"], ["audio1", "audio2"], 48000)
+
+        artifacts = get_artifact_list(result)
+
+        assert [(a.frames, a.audio, a.sample_rate) for a in artifacts] == [
+            ("video1", "audio1", 48000),
+            ("video2", "audio2", 48000),
+        ]
+
+    def test_missing_sample_rate_is_none(self):
+        artifacts = get_artifact_list(self.MockResult(["video1"], ["audio1"]))
+        assert artifacts[0].sample_rate is None
+
+    def test_video_without_a_matching_waveform_gets_no_audio(self):
+        artifacts = get_artifact_list(self.MockResult(["video1", "video2"], ["audio1"]))
+        assert artifacts[1].audio is None
+
+    def test_numpy_waveform_becomes_a_float_tensor(self):
+        track = as_audio_track(numpy.zeros((2, 100), dtype=numpy.int16))
+        assert isinstance(track, torch.Tensor)
+        assert track.dtype == torch.float32
+        assert track.shape == (2, 100)
+
+    def test_tensor_waveform_is_converted_to_float(self):
+        track = as_audio_track(torch.zeros((2, 100), dtype=torch.bfloat16))
+        assert track.dtype == torch.float32
+        assert track.device.type == "cpu"
+
+
+class TestSaveAudioVideo:
+    """Test muxing generated audio into the saved video file"""
+
+    def save(self, result_definition, artifact, content_type="video/mp4"):
+        result = Result(result_definition)
+        result.add_result(artifact)
+        with (
+            patch("dw.result.encode_video") as encode,
+            patch("dw.result.export_to_video") as export,
+            patch("dw.result.is_av_available", return_value=True),
+        ):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                result.save(temp_dir, "test")
+        return encode, export
+
+    def test_audio_is_muxed_into_the_video(self):
+        audio = torch.zeros((2, 100))
+        artifact = AudioVideo("frames", audio, 48000)
+
+        encode, export = self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+
+        export.assert_not_called()
+        encode.assert_called_once()
+        arguments = encode.call_args.kwargs
+        assert encode.call_args.args[0] == "frames"
+        assert arguments["fps"] == 24
+        assert arguments["audio_sample_rate"] == 48000
+        assert arguments["output_path"].endswith(".mp4")
+
+    def test_result_definition_overrides_the_sample_rate(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+
+        encode, _ = self.save(
+            {"content_type": "video/mp4", "audio_sample_rate": 24000}, artifact
+        )
+
+        assert encode.call_args.kwargs["audio_sample_rate"] == 24000
+
+    def test_video_without_audio_falls_back_to_export(self):
+        artifact = AudioVideo("frames", None, 48000)
+
+        encode, export = self.save({"content_type": "video/mp4"}, artifact)
+
+        encode.assert_not_called()
+        export.assert_called_once()
+
+    def test_video_without_a_sample_rate_falls_back_to_export(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), None)
+
+        encode, export = self.save({"content_type": "video/mp4"}, artifact)
+
+        encode.assert_not_called()
+        export.assert_called_once()
+
+    def test_other_containers_fall_back_to_export(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+
+        encode, export = self.save({"content_type": "video/webm"}, artifact)
+
+        encode.assert_not_called()
+        export.assert_called_once()
+
+    def test_missing_pyav_falls_back_to_export(self):
+        result = Result({"content_type": "video/mp4"})
+        result.add_result(AudioVideo("frames", torch.zeros((2, 100)), 48000))
+
+        with (
+            patch("dw.result.encode_video") as encode,
+            patch("dw.result.export_to_video") as export,
+            patch("dw.result.is_av_available", return_value=False),
+        ):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                result.save(temp_dir, "test")
+
+        encode.assert_not_called()
+        export.assert_called_once()
 
 
 class TestNormalizeAudio:

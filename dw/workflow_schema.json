@@ -717,6 +717,10 @@
                     "type": "integer",
                     "default": 44100
                 },
+                "audio_sample_rate": {
+                    "description": "Sample rate of the audio generated with a video, muxed into 'video/mp4' output. Defaults to the rate reported by the pipeline's vocoder - only set this to override it.",
+                    "type": "integer"
+                },
                 "subtype": {
                     "description": "Audio encoding subtype, e.g. 'PCM_24' for wav and flac or 'VORBIS' for ogg. Defaults to the container's own default ('PCM_16' for wav and flac). Only used when output is audio.",
                     "type": "string"
