@@ -1,6 +1,7 @@
 from PIL import Image
 import numpy as np
 from .borders import add_border_and_mask, add_border_and_mask_with_size
+from .model_cache import cached_model
 import torch
 
 # cv2, controlnet_aux, transformers and the model-backed task modules are imported
@@ -9,150 +10,126 @@ import torch
 # never touch an image-processing task
 
 
-def process_image(image, processor, device, kwargs):
+def _import_controlnet_aux():
     import controlnet_aux
 
-    processor = processor.lower()
+    return controlnet_aux
 
-    if processor == "get_image_size":
-        return get_image_size(image)
 
-    if processor == "add_border_and_mask":
-        return add_border_and_mask(image, **kwargs)
+# ---------------------------------------------------------------------------
+# controlnet_aux detector dispatch
+#
+# Most controlnet_aux detectors follow one shape:
+#   getattr(controlnet_aux, attr).from_pretrained(*repo_args, **repo_kwargs).to(device)(image, **call_kwargs, **kwargs)
+# The table below drives a single generic loader for that shape instead of a
+# hand-written branch per detector. Loaded detectors are cached by
+# (attr, device) via cached_model so repeated process_image calls - e.g. once
+# per cartesian-product iteration in step.py - reuse the loaded weights
+# instead of reloading them from disk every time.
+# ---------------------------------------------------------------------------
 
-    if processor == "add_border_and_mask_with_size":
-        return add_border_and_mask_with_size(image, **kwargs)
+# name -> (controlnet_aux attribute, from_pretrained positional args,
+#          from_pretrained kwargs, fixed call() kwargs)
+_PRETRAINED_DETECTOR_SPECS = {
+    "mlsd": ("MLSDdetector", ("lllyasviel/Annotators",), {}, {}),
+    "normal_bae": ("NormalBaeDetector", ("lllyasviel/Annotators",), {}, {}),
+    "lineart": ("LineartDetector", ("lllyasviel/Annotators",), {}, {"coarse": True}),
+    "openpose": (
+        "OpenposeDetector",
+        ("lllyasviel/Annotators",),
+        {},
+        {"hand_and_face": True},
+    ),
+    "hed": ("HEDdetector", ("lllyasviel/Annotators",), {}, {"scribble": False}),
+    "scribble": ("HEDdetector", ("lllyasviel/Annotators",), {}, {"scribble": True}),
+    "pidi": ("PidiNetDetector", ("lllyasviel/Annotators",), {}, {"safe": True}),
+    "midas": ("MidasDetector", ("lllyasviel/Annotators",), {}, {}),
+    "zoe": ("ZoeDetector", ("lllyasviel/Annotators",), {}, {}),
+    "teed": ("TEEDdetector", ("fal-ai/teed",), {"filename": "5_model.pth"}, {}),
+    "anyline": (
+        "AnylineDetector",
+        ("TheMistoAI/MistoLine",),
+        {"filename": "MTEED.pth", "subfolder": "Anyline"},
+        {},
+    ),
+    "leres": ("LeresDetector", ("lllyasviel/Annotators",), {}, {}),
+    # sam is the one from_pretrained detector that is never moved to device -
+    # see _PROCESSORS registration below.
+}
 
-    if processor == "remove_background":
-        from .background_remover import remove_background
+# Detectors constructed with no from_pretrained call at all.
+_ZERO_ARG_DETECTOR_SPECS = {
+    "shuffle": "ContentShuffleDetector",
+    # controlnet_aux CannyDetector: plain cv2 Canny internally, but resizes
+    # the input to 512px first. Kept distinct from "canny_cv" below, which
+    # runs cv2 directly at the image's native resolution - same algorithm,
+    # different output size, so both names are intentional, not duplicates.
+    "canny": "CannyDetector",
+    "lineart_standard": "LineartStandardDetector",
+}
 
-        return remove_background(image, device, **kwargs)
 
-    if processor == "canny_cv":
-        return image_to_canny(image, **kwargs)
+def _build_pretrained_detector(attr, repo_args, repo_kwargs, to_device, device):
+    controlnet_aux = _import_controlnet_aux()
+    detector = getattr(controlnet_aux, attr).from_pretrained(*repo_args, **repo_kwargs)
+    if to_device:
+        detector = detector.to(device)
+    return detector
 
-    if processor == "mlsd":
-        return controlnet_aux.MLSDdetector.from_pretrained("lllyasviel/Annotators").to(
-            device
-        )(image, **kwargs)
 
-    if processor == "normal_bae":
-        return controlnet_aux.NormalBaeDetector.from_pretrained(
-            "lllyasviel/Annotators"
-        ).to(device)(image, **kwargs)
+def _build_zero_arg_detector(attr):
+    controlnet_aux = _import_controlnet_aux()
+    return getattr(controlnet_aux, attr)()
 
-    if processor == "segmentation":
-        return image_to_segmentation(image)
 
-    if processor == "lineart":
-        return controlnet_aux.LineartDetector.from_pretrained(
-            "lllyasviel/Annotators"
-        ).to(device)(image, coarse=True, **kwargs)
+def _make_pretrained_handler(attr, repo_args, repo_kwargs, call_kwargs, to_device=True):
+    def handler(image, device, kwargs):
+        detector = cached_model(
+            ("image_processor", attr, str(device)),
+            lambda: _build_pretrained_detector(
+                attr, repo_args, repo_kwargs, to_device, device
+            ),
+        )
+        return detector(image, **call_kwargs, **kwargs)
 
-    if processor == "openpose":
-        return controlnet_aux.OpenposeDetector.from_pretrained(
-            "lllyasviel/Annotators"
-        ).to(device)(image, hand_and_face=True, **kwargs)
+    return handler
 
-    if processor == "hed":
-        return controlnet_aux.HEDdetector.from_pretrained("lllyasviel/Annotators").to(
-            device
-        )(image, scribble=False, **kwargs)
 
-    if processor == "scribble":
-        return controlnet_aux.HEDdetector.from_pretrained("lllyasviel/Annotators").to(
-            device
-        )(image, scribble=True, **kwargs)
+def _make_zero_arg_handler(attr):
+    def handler(image, device, kwargs):
+        detector = cached_model(
+            ("image_processor", attr, str(device)),
+            lambda: _build_zero_arg_detector(attr),
+        )
+        return detector(image, **kwargs)
 
-    if processor == "pidi":
-        return controlnet_aux.PidiNetDetector.from_pretrained(
-            "lllyasviel/Annotators"
-        ).to(device)(image, safe=True, **kwargs)
+    return handler
 
-    if processor == "midas":
-        return controlnet_aux.MidasDetector.from_pretrained("lllyasviel/Annotators").to(
-            device
-        )(image, **kwargs)
 
-    if processor == "shuffle":
-        processor = controlnet_aux.ContentShuffleDetector()
-        return processor(image, **kwargs)
+def _dw_pose_handler(image, device, kwargs):
+    detector = cached_model(
+        ("image_processor", "DWposeDetector", str(device)),
+        lambda: _import_controlnet_aux().DWposeDetector(device=device),
+    )
+    return detector(image, **kwargs)
 
-    if processor == "canny":
-        processor = controlnet_aux.CannyDetector()
-        return processor(image, **kwargs)
 
-    if processor == "lineart_standard":
-        processor = controlnet_aux.LineartStandardDetector()
-        return processor(image, **kwargs)
+def _remove_background_handler(image, device, kwargs):
+    from .background_remover import remove_background
 
-    if processor == "dw_pose":
-        processor = controlnet_aux.DWposeDetector(device=device)
-        return processor(image, **kwargs)
+    return remove_background(image, device, **kwargs)
 
-    if processor == "zoe_depth":
-        return get_zoe_depth_map(image, device)
 
-    if processor == "zoe":
-        return controlnet_aux.ZoeDetector.from_pretrained("lllyasviel/Annotators").to(
-            device
-        )(image, **kwargs)
+def _depth_estimator_tensor_handler(image, device, kwargs):
+    from .depth_estimator import make_hint_tensor
 
-    if processor == "sam":
-        return controlnet_aux.SamDetector.from_pretrained(
-            "ybelkada/segment-anything", subfolder="checkpoints"
-        )(image, **kwargs)
+    return make_hint_tensor(image, device, **kwargs)
 
-    if processor == "teed":
-        return controlnet_aux.TEEDdetector.from_pretrained(
-            "fal-ai/teed", filename="5_model.pth"
-        ).to(device)(image, **kwargs)
 
-    if processor == "anyline":
-        return controlnet_aux.AnylineDetector.from_pretrained(
-            "TheMistoAI/MistoLine", filename="MTEED.pth", subfolder="Anyline"
-        ).to(device)(image, **kwargs)
+def _depth_estimator_handler(image, device, kwargs):
+    from .depth_estimator import make_hint_image
 
-    if processor == "leres":
-        return controlnet_aux.LeresDetector.from_pretrained("lllyasviel/Annotators").to(
-            device
-        )(image, **kwargs)
-
-    if processor == "depth":
-        return image_to_depth(image, device, **kwargs)
-
-    if processor == "depth_estimator_tensor":
-        from .depth_estimator import make_hint_tensor
-
-        return make_hint_tensor(image, device, **kwargs)
-
-    if processor == "depth_estimator":
-        from .depth_estimator import make_hint_image
-
-        return make_hint_image(image, device, **kwargs)
-
-    if processor == "resize_center_crop":
-        return resize_center_crop(image, **kwargs)
-
-    if processor == "resize_resample":
-        return resize_resample(image, **kwargs)
-
-    if processor == "crop_square":
-        return crop_square(image, **kwargs)
-
-    if processor == "resize_rescale":
-        return resize_rescale(image, **kwargs)
-
-    if processor == "resize_bucket":
-        return resize_bucket(image, **kwargs)
-
-    if processor == "strip_exif":
-        return strip_exif(image)
-
-    if processor == "add_watermark":
-        return add_watermark(image, **kwargs)
-
-    raise Exception(f"Unknown image processor type: {processor}")
+    return make_hint_image(image, device, **kwargs)
 
 
 def get_zoe_depth_map(image, device):
@@ -173,6 +150,9 @@ def get_zoe_depth_map(image, device):
 
 
 def image_to_canny(image, low_threshold=100, high_threshold=200):
+    # Raw cv2.Canny at the image's native resolution - intentionally kept
+    # separate from the "canny" controlnet_aux CannyDetector above, which
+    # resizes to 512px first. See comment on _ZERO_ARG_DETECTOR_SPECS["canny"].
     import cv2
 
     image = np.array(image)
@@ -438,6 +418,90 @@ def add_watermark(
 
     result = Image.alpha_composite(base, overlay)
     return result.convert("RGB")
+
+
+# ---------------------------------------------------------------------------
+# process_image dispatch table
+#
+# Every handler has the uniform signature (image, device, kwargs) -> result,
+# so process_image is just a lookup + call. Built once at import time from
+# the detector spec tables above plus direct entries for the plain PIL/task
+# functions.
+# ---------------------------------------------------------------------------
+
+_PROCESSORS = {
+    "get_image_size": lambda image, device, kwargs: get_image_size(image),
+    "add_border_and_mask": lambda image, device, kwargs: add_border_and_mask(
+        image, **kwargs
+    ),
+    "add_border_and_mask_with_size": lambda image, device, kwargs: add_border_and_mask_with_size(
+        image, **kwargs
+    ),
+    "remove_background": _remove_background_handler,
+    # Raw cv2 Canny at native resolution - see image_to_canny() docstring
+    # comment for how this differs from "canny" below.
+    "canny_cv": lambda image, device, kwargs: image_to_canny(image, **kwargs),
+    "segmentation": lambda image, device, kwargs: image_to_segmentation(image),
+    "zoe_depth": lambda image, device, kwargs: get_zoe_depth_map(image, device),
+    "depth": lambda image, device, kwargs: image_to_depth(image, device, **kwargs),
+    "depth_estimator_tensor": _depth_estimator_tensor_handler,
+    "depth_estimator": _depth_estimator_handler,
+    "resize_center_crop": lambda image, device, kwargs: resize_center_crop(
+        image, **kwargs
+    ),
+    "resize_resample": lambda image, device, kwargs: resize_resample(image, **kwargs),
+    "crop_square": lambda image, device, kwargs: crop_square(image, **kwargs),
+    "resize_rescale": lambda image, device, kwargs: resize_rescale(image, **kwargs),
+    "resize_bucket": lambda image, device, kwargs: resize_bucket(image, **kwargs),
+    "strip_exif": lambda image, device, kwargs: strip_exif(image),
+    "add_watermark": lambda image, device, kwargs: add_watermark(image, **kwargs),
+}
+
+for _name, (
+    _attr,
+    _repo_args,
+    _repo_kwargs,
+    _call_kwargs,
+) in _PRETRAINED_DETECTOR_SPECS.items():
+    _PROCESSORS[_name] = _make_pretrained_handler(
+        _attr, _repo_args, _repo_kwargs, _call_kwargs
+    )
+
+# sam is the one from_pretrained detector never moved to device - matches
+# the pre-refactor behavior, which called it straight off from_pretrained().
+_PROCESSORS["sam"] = _make_pretrained_handler(
+    "SamDetector",
+    ("ybelkada/segment-anything",),
+    {"subfolder": "checkpoints"},
+    {},
+    to_device=False,
+)
+
+for _name, _attr in _ZERO_ARG_DETECTOR_SPECS.items():
+    _PROCESSORS[_name] = _make_zero_arg_handler(_attr)
+
+_PROCESSORS["dw_pose"] = _dw_pose_handler
+
+del _name, _attr, _repo_args, _repo_kwargs, _call_kwargs
+
+
+def available_processors():
+    """Return the sorted list of processor names process_image accepts.
+
+    Used by command registration to enumerate supported image processors
+    without duplicating this dispatch table.
+    """
+    return sorted(_PROCESSORS)
+
+
+def process_image(image, processor, device, kwargs):
+    processor = processor.lower()
+
+    handler = _PROCESSORS.get(processor)
+    if handler is None:
+        raise Exception(f"Unknown image processor type: {processor}")
+
+    return handler(image, device, kwargs)
 
 
 ada_palette = np.asarray(
