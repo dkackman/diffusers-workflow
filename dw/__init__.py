@@ -40,9 +40,9 @@ __version__ = "0.37.0"
 settings = load_settings()
 
 
-def get_device():
+def detect_device():
     """
-    Detect and return the best available device for PyTorch operations.
+    Detect the best device available on this machine.
     Priority: CUDA > MPS > CPU
 
     Returns:
@@ -60,6 +60,53 @@ def get_device():
     return "cpu"
 
 
+def get_device():
+    """
+    Get the device to run on.
+
+    An explicit choice wins over detection - the DW_DEVICE environment variable for a
+    single run, or the 'device' setting for a standing one. Either can name a specific
+    accelerator ('cuda:1'), force a CPU run to rule out a GPU-specific problem, or pin
+    a machine that has both to one backend.
+
+    Returns:
+        str: Device identifier ('cuda', 'cuda:1', 'mps', 'cpu', ...)
+    """
+    if not _TORCH_AVAILABLE:
+        return "cpu"
+
+    configured_device = os.environ.get("DW_DEVICE") or settings.device
+    if configured_device:
+        try:
+            # Only checks that torch understands the name - whether the machine has
+            # that device surfaces when a model is loaded onto it
+            torch.device(configured_device)
+            return configured_device
+        except (RuntimeError, TypeError, ValueError) as e:
+            logging.warning(f"Ignoring invalid configured device: {e}")
+
+    return detect_device()
+
+
+def get_device_type(device=None):
+    """
+    Get the backend a device belongs to - 'cuda' for 'cuda:1', 'mps' for 'mps'.
+
+    A device identifier can carry an index, so comparisons against a backend name have
+    to be made on the type alone or a device like 'cuda:1' matches nothing.
+
+    Args:
+        device: Device identifier, or None to use the device dw is running on
+
+    Returns:
+        str: Backend name ('cuda', 'mps', 'xpu', 'cpu', ...)
+    """
+    if not _TORCH_AVAILABLE:
+        return "cpu"
+
+    return torch.device(device if device is not None else get_device()).type
+
+
 def get_autocast_device_type():
     """
     Get the device type to use for torch.autocast.
@@ -68,8 +115,7 @@ def get_autocast_device_type():
     Returns:
         str: Device type for autocast ('cuda' or 'cpu')
     """
-    device = get_device()
-    if device == "cuda":
+    if get_device_type() == "cuda":
         return "cuda"
 
     # MPS and CPU both use 'cpu' for autocast
@@ -90,9 +136,10 @@ def startup(log_level=None):
     # directly in VRAM, which runs a large pipeline out of memory before its offload
     # hooks are ever installed. Device placement is explicit throughout dw instead.
     device = get_device()
+    device_type = get_device_type(device)
 
     # MPS-specific configuration (Apple Silicon)
-    if device == "mps":
+    if device_type == "mps":
         # Suppress autocast warnings (MPS doesn't support autocast,
         # and libraries may try to use it with 'cuda' device_type)
         warnings.filterwarnings(
@@ -108,7 +155,7 @@ def startup(log_level=None):
         )
 
     # Check if we have a GPU backend (CUDA or MPS)
-    if device == "cpu":
+    if device_type == "cpu":
         logging.warning(
             "No GPU backend available (CUDA or MPS). Running on CPU may be slow."
         )
@@ -136,14 +183,14 @@ def startup(log_level=None):
     # Provides ~2x speedup for matmul operations with minimal precision loss
     if settings.enable_tf32:
         torch.set_float32_matmul_precision("high")
-        if device == "cuda":
+        if device_type == "cuda":
             torch.backends.cuda.matmul.allow_tf32 = True
         logging.debug("TF32 precision enabled for faster matmul operations")
     else:
         logging.debug("TF32 precision disabled (full FP32 precision)")
 
     # CUDA-specific optimizations
-    if device == "cuda":
+    if device_type == "cuda":
         # cuDNN autotuner - benchmarks algorithms and selects fastest
         # Best for fixed input sizes, may slow down variable-size workflows
         torch.backends.cudnn.benchmark = settings.cudnn_benchmark

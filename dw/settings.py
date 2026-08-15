@@ -8,6 +8,11 @@ class Settings:
     log_filename: str = "log/dw.log"
     log_to_console: bool = False
 
+    # Device to run on - None detects the best one available. Set to pick a specific
+    # accelerator ('cuda:1') or force a backend ('cpu', 'mps'). The DW_DEVICE
+    # environment variable overrides this for a single run.
+    device: str = None
+
     # PyTorch optimization settings
     enable_tf32: bool = True  # TensorFloat-32 for faster matmul on Ampere+ GPUs
     cudnn_benchmark: bool = True  # cuDNN autotuner (faster for fixed sizes)
@@ -28,6 +33,8 @@ def load_settings():
     settings.log_level = settings_dict.get("log_level", "WARNING")
     settings.log_filename = settings_dict.get("log_filename", "log/dw.log")
     settings.log_to_console = settings_dict.get("log_to_console", False)
+
+    settings.device = settings_dict.get("device", None)
 
     # PyTorch optimization settings
     settings.enable_tf32 = settings_dict.get("enable_tf32", True)

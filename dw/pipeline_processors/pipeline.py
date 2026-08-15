@@ -11,6 +11,7 @@ from .config_objects import (
 from .remote import remote_text_encoder
 from ..teacache import teacache_context
 from ..type_helpers import has_method
+from .. import get_device_type
 from ..prompt_weighting import apply_prompt_weighting
 from diffusers import attention_backend
 
@@ -48,14 +49,17 @@ class Pipeline:
         Args:
             pipeline_definition: Dictionary containing pipeline configuration
             default_seed: Seed value for reproducibility
-            device: Device to run pipeline on (e.g., 'cuda', 'mps', 'cpu')
+            device: Device to run pipeline on (e.g., 'cuda', 'mps', 'cpu') - the
+                configuration's own 'device' takes precedence over it
             pipeline: Optional existing pipeline to use
         """
         self.pipeline_definition = pipeline_definition
         self.default_seed = default_seed
-        self.device = device
+        # A step can pin itself to a device, overriding the one dw is running on. It
+        # becomes the default for this pipeline's components as well
+        self.device = self.configuration.get("device", device)
         self.pipeline = pipeline
-        logger.debug(f"Initialized pipeline with device: {device}")
+        logger.debug(f"Initialized pipeline with device: {self.device}")
 
     @property
     def configuration(self):
@@ -137,7 +141,7 @@ class Pipeline:
         # Enable attention slicing if explicitly requested or automatically on MPS
         # MPS benefits from slicing since Metal shares system RAM with the GPU
         if self.configuration.get("enable_attention_slicing", False) or (
-            self.device == "mps"
+            get_device_type(self.device) == "mps"
             and not self.configuration.get("disable_attention_slicing", False)
         ):
             # Modular pipelines have no attention slicing - on MPS this is applied
@@ -581,7 +585,7 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
     # MPS (Apple Silicon) has numerical instability with float16 matmul operations,
     # producing NaN values that result in black images. Auto-convert to float32.
     if (
-        device == "mps"
+        get_device_type(device) == "mps"
         and from_pretrained_arguments.get("torch_dtype") == torch.float16
     ):
         logger.warning(

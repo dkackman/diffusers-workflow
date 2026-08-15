@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 from dw.tasks.task import Task
 from PIL import Image
 
@@ -106,3 +107,34 @@ def test_batch_decode_post_process_task():
         "decoded-foo",
         "decoded-bar",
     ], "Should return batch-decoded strings"
+
+
+class TestTaskDevice:
+    """Test the device a task runs on"""
+
+    def test_defaults_to_the_workflow_device(self):
+        task = Task({"command": "upscale", "arguments": {}}, "cuda")
+        assert task.device_for({}) == "cuda"
+
+    def test_arguments_can_override_the_device(self):
+        task = Task({"command": "upscale", "arguments": {}}, "cuda")
+        assert task.device_for({"device": "cpu"}) == "cpu"
+
+    def test_the_override_is_consumed(self):
+        # Left in place it would reach the command as a duplicate argument
+        task = Task({"command": "upscale", "arguments": {}}, "cuda")
+        arguments = {"device": "cpu", "model_name": "test"}
+
+        task.device_for(arguments)
+
+        assert arguments == {"model_name": "test"}
+
+    def test_a_command_accepts_a_device_argument(self):
+        # image_to_text takes device as a keyword - a device in the arguments used to
+        # collide with it rather than override it
+        task = Task({"command": "image_to_text", "arguments": {}}, "cuda")
+
+        with patch("dw.tasks.task.image_to_text") as image_to_text:
+            task.run({"image": "an image", "device": "cpu"})
+
+        assert image_to_text.call_args.kwargs["device"] == "cpu"

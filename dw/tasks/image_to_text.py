@@ -8,6 +8,7 @@ with the transformers image-to-text pipeline.
 import logging
 import torch
 from transformers import pipeline as hf_pipeline
+from .. import get_device_type
 
 logger = logging.getLogger("dw")
 
@@ -34,7 +35,7 @@ def image_to_text(image, device="cpu", **kwargs):
 
     logger.info(f"Captioning image with {model_name} on {device}")
 
-    dtype = torch.float16 if device == "cuda" else torch.float32
+    dtype = torch.float16 if get_device_type(device) == "cuda" else torch.float32
     # Use device_map instead of device to avoid caching_allocator_warmup
     # buffer pre-allocation failures on MPS and with larger models.
     pipe = hf_pipeline(

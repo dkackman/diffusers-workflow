@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dw.workflow import workflow_from_file
 from dw.log_setup import setup_logging
-from dw import get_device
+from dw import get_device_type
 
 logger = logging.getLogger("dw.worker")
 
@@ -251,12 +251,12 @@ class WorkflowWorker:
         try:
             import torch
 
-            device = get_device()
-            if device == "cuda" and torch.cuda.is_available():
+            device_type = get_device_type()
+            if device_type == "cuda" and torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 # Don't synchronize here as it's expensive and unnecessary
             elif (
-                device == "mps"
+                device_type == "mps"
                 and hasattr(torch.backends, "mps")
                 and torch.backends.mps.is_available()
             ):
@@ -306,8 +306,8 @@ class WorkflowWorker:
         try:
             import torch
 
-            device = get_device()
-            if device == "cuda" and torch.cuda.is_available():
+            device_type = get_device_type()
+            if device_type == "cuda" and torch.cuda.is_available():
                 # Empty cache
                 torch.cuda.empty_cache()
 
@@ -321,7 +321,7 @@ class WorkflowWorker:
                 except (RuntimeError, AttributeError) as e:
                     logger.debug(f"Could not reset memory stats: {e}")
             elif (
-                device == "mps"
+                device_type == "mps"
                 and hasattr(torch.backends, "mps")
                 and torch.backends.mps.is_available()
             ):
@@ -369,11 +369,11 @@ class WorkflowWorker:
         try:
             import torch
 
-            device = get_device()
-            if device == "cuda" and torch.cuda.is_available():
+            device_type = get_device_type()
+            if device_type == "cuda" and torch.cuda.is_available():
                 return torch.cuda.memory_allocated() / 1024 / 1024
             elif (
-                device == "mps"
+                device_type == "mps"
                 and hasattr(torch.backends, "mps")
                 and torch.backends.mps.is_available()
             ):
@@ -403,8 +403,8 @@ class WorkflowWorker:
         try:
             import torch
 
-            device = get_device()
-            if device == "cuda" and torch.cuda.is_available():
+            device_type = get_device_type()
+            if device_type == "cuda" and torch.cuda.is_available():
                 info["gpu_available"] = True
                 info["gpu_device_name"] = torch.cuda.get_device_name(0)
                 info["gpu_memory_allocated_mb"] = (
@@ -422,7 +422,7 @@ class WorkflowWorker:
                 except (RuntimeError, AttributeError) as e:
                     logger.debug(f"Could not get GPU memory info: {e}")
             elif (
-                device == "mps"
+                device_type == "mps"
                 and hasattr(torch.backends, "mps")
                 and torch.backends.mps.is_available()
             ):

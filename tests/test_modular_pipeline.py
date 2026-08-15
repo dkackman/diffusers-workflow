@@ -8,7 +8,7 @@ import torch
 from unittest.mock import MagicMock, patch
 
 from dw.arguments import realize_args
-from dw.pipeline_processors.pipeline import load_component
+from dw.pipeline_processors.pipeline import Pipeline, load_component
 
 
 def make_component_type(component):
@@ -70,6 +70,50 @@ class TestLoadComponents:
             load_component(
                 "pipeline", configuration, {"model_name": "test-model"}, "cpu"
             )
+
+
+class TestConfiguredDevice:
+    """Test the device a pipeline and its components are placed on"""
+
+    def test_workflow_device_is_used_by_default(self):
+        pipeline = Pipeline({"configuration": {}, "arguments": {}}, 42, "cuda")
+        assert pipeline.device == "cuda"
+
+    def test_configuration_device_overrides_the_workflow_device(self):
+        definition = {"configuration": {"device": "cpu"}, "arguments": {}}
+        assert Pipeline(definition, 42, "cuda").device == "cpu"
+
+    def test_components_inherit_the_pipeline_device(self):
+        definition = {
+            "configuration": {"device": "cpu", "component_type": MagicMock()},
+            "vae": {
+                "configuration": {"component_type": MagicMock()},
+                "from_pretrained_arguments": {"model_name": "test-vae"},
+            },
+            "arguments": {},
+        }
+
+        with patch("dw.pipeline_processors.pipeline.load_component") as load:
+            Pipeline(definition, 42, "cuda").load({})
+
+        # The component is loaded before the pipeline that holds it
+        assert [call.args[0] for call in load.call_args_list] == ["vae", "pipeline"]
+        assert [call.args[3] for call in load.call_args_list] == ["cpu", "cpu"]
+
+    def test_a_component_can_pin_itself_to_another_device(self):
+        definition = {
+            "configuration": {"component_type": MagicMock()},
+            "vae": {
+                "configuration": {"component_type": MagicMock(), "device": "cpu"},
+                "from_pretrained_arguments": {"model_name": "test-vae"},
+            },
+            "arguments": {},
+        }
+
+        with patch("dw.pipeline_processors.pipeline.load_component") as load:
+            Pipeline(definition, 42, "cuda").load({})
+
+        assert [call.args[3] for call in load.call_args_list] == ["cpu", "cuda"]
 
 
 class TestLoadingDevice:

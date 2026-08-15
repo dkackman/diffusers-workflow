@@ -92,7 +92,9 @@ def _handle_upscale(task, arguments, previous_pipelines):
     logger.debug("Upscaling image")
     image = arguments.pop("image")
     model_name = arguments.pop("model_name")
-    return upscale_image(image, model_name, device=task.device, **arguments)
+    return upscale_image(
+        image, model_name, device=task.device_for(arguments), **arguments
+    )
 
 
 @register_command("diffusion_upscale")
@@ -100,7 +102,7 @@ def _handle_diffusion_upscale(task, arguments, previous_pipelines):
     """Upscale an image using a diffusion-based upscale pipeline"""
     logger.debug("Diffusion upscaling image")
     image = arguments.pop("image")
-    return diffusion_upscale(image, device=task.device, **arguments)
+    return diffusion_upscale(image, device=task.device_for(arguments), **arguments)
 
 
 @register_command("restore_faces")
@@ -109,7 +111,9 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
     logger.debug("Restoring faces")
     image = arguments.pop("image")
     model_name = arguments.pop("model_name")
-    return restore_faces(image, model_name, device=task.device, **arguments)
+    return restore_faces(
+        image, model_name, device=task.device_for(arguments), **arguments
+    )
 
 
 @register_command("segment")
@@ -118,7 +122,7 @@ def _handle_segment(task, arguments, previous_pipelines):
     logger.debug("Segmenting image")
     image = arguments.pop("image")
     prompt = arguments.pop("prompt")
-    return segment_image(image, prompt, device=task.device, **arguments)
+    return segment_image(image, prompt, device=task.device_for(arguments), **arguments)
 
 
 @register_command("interpolate_frames")
@@ -126,7 +130,7 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
     """Interpolate video frames to increase frame rate"""
     logger.debug("Interpolating frames")
     video = arguments.pop("video")
-    return interpolate_frames(video, device=task.device, **arguments)
+    return interpolate_frames(video, device=task.device_for(arguments), **arguments)
 
 
 @register_command("image_to_text")
@@ -134,7 +138,7 @@ def _handle_image_to_text(task, arguments, previous_pipelines):
     """Generate text caption from an image"""
     logger.debug("Captioning image")
     image = arguments.pop("image")
-    return image_to_text(image, device=task.device, **arguments)
+    return image_to_text(image, device=task.device_for(arguments), **arguments)
 
 
 @register_command("text_generation")
@@ -142,7 +146,7 @@ def _handle_text_generation(task, arguments, previous_pipelines):
     """Generate text from a prompt using a local LLM"""
     logger.debug("Generating text")
     prompt = arguments.pop("prompt")
-    return generate_text(prompt, device=task.device, **arguments)
+    return generate_text(prompt, device=task.device_for(arguments), **arguments)
 
 
 @register_command("batch_decode_post_process")
@@ -162,10 +166,11 @@ def _handle_batch_decode(task, arguments, previous_pipelines):
 def _handle_image_processing(task, arguments, previous_pipelines):
     """Handle image processing commands"""
     logger.debug("Processing image")
+    device = task.device_for(arguments)
     return process_image(
         arguments.pop("image"),
         task.command,
-        task.device,
+        device,
         arguments,
     )
 
@@ -173,10 +178,11 @@ def _handle_image_processing(task, arguments, previous_pipelines):
 def _handle_video_processing(task, arguments, previous_pipelines):
     """Handle video processing commands"""
     logger.debug("Processing video")
+    device = task.device_for(arguments)
     return process_video(
         arguments.pop("video"),
         task.command,
-        task.device,
+        device,
         arguments,
     )
 
@@ -203,6 +209,21 @@ class Task:
     def name(self):
         """Get task name from command property"""
         return self.command
+
+    def device_for(self, arguments):
+        """Get the device this task runs on, consuming any override in its arguments.
+
+        A task can pin itself to a device - a captioning model on the CPU while the GPU
+        holds a pipeline, for instance. The argument is removed either way so it does
+        not reach the command as a duplicate.
+
+        Args:
+            arguments: Arguments for this run of the task
+
+        Returns:
+            Device identifier the task should run on
+        """
+        return arguments.pop("device", self.device)
 
     @property
     def argument_template(self):
