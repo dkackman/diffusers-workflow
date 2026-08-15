@@ -27,7 +27,6 @@ import numpy as np
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.utils import (
     USE_PEFT_BACKEND,
-    is_torch_version,
     scale_lora_layers,
     unscale_lora_layers,
 )
@@ -215,40 +214,16 @@ def _create_flux_teacache_forward(num_inference_steps, rel_l1_thresh, coefficien
         else:
             ori_hidden_states = hidden_states.clone()
 
+            # No gradient-checkpointing branch: this forward only runs under
+            # Pipeline.run's @torch.inference_mode(), so grads are never enabled
             for index_block, block in enumerate(self.transformer_blocks):
-                if torch.is_grad_enabled() and self.gradient_checkpointing:
-
-                    def create_custom_forward(module, return_dict=None):
-                        def custom_forward(*inputs):
-                            if return_dict is not None:
-                                return module(*inputs, return_dict=return_dict)
-                            return module(*inputs)
-
-                        return custom_forward
-
-                    ckpt_kwargs: typing.Dict[str, typing.Any] = (
-                        {"use_reentrant": False}
-                        if is_torch_version(">=", "1.11.0")
-                        else {}
-                    )
-                    encoder_hidden_states, hidden_states = (
-                        torch.utils.checkpoint.checkpoint(
-                            create_custom_forward(block),
-                            hidden_states,
-                            encoder_hidden_states,
-                            temb,
-                            image_rotary_emb,
-                            **ckpt_kwargs,
-                        )
-                    )
-                else:
-                    encoder_hidden_states, hidden_states = block(
-                        hidden_states=hidden_states,
-                        encoder_hidden_states=encoder_hidden_states,
-                        temb=temb,
-                        image_rotary_emb=image_rotary_emb,
-                        joint_attention_kwargs=joint_attention_kwargs,
-                    )
+                encoder_hidden_states, hidden_states = block(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+                    temb=temb,
+                    image_rotary_emb=image_rotary_emb,
+                    joint_attention_kwargs=joint_attention_kwargs,
+                )
 
                 if controlnet_block_samples is not None:
                     interval_control = len(self.transformer_blocks) / len(
@@ -269,39 +244,13 @@ def _create_flux_teacache_forward(num_inference_steps, rel_l1_thresh, coefficien
                         )
 
             for index_block, block in enumerate(self.single_transformer_blocks):
-                if torch.is_grad_enabled() and self.gradient_checkpointing:
-
-                    def create_custom_forward(module, return_dict=None):
-                        def custom_forward(*inputs):
-                            if return_dict is not None:
-                                return module(*inputs, return_dict=return_dict)
-                            return module(*inputs)
-
-                        return custom_forward
-
-                    ckpt_kwargs: typing.Dict[str, typing.Any] = (
-                        {"use_reentrant": False}
-                        if is_torch_version(">=", "1.11.0")
-                        else {}
-                    )
-                    encoder_hidden_states, hidden_states = (
-                        torch.utils.checkpoint.checkpoint(
-                            create_custom_forward(block),
-                            hidden_states,
-                            encoder_hidden_states,
-                            temb,
-                            image_rotary_emb,
-                            **ckpt_kwargs,
-                        )
-                    )
-                else:
-                    encoder_hidden_states, hidden_states = block(
-                        hidden_states=hidden_states,
-                        encoder_hidden_states=encoder_hidden_states,
-                        temb=temb,
-                        image_rotary_emb=image_rotary_emb,
-                        joint_attention_kwargs=joint_attention_kwargs,
-                    )
+                encoder_hidden_states, hidden_states = block(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+                    temb=temb,
+                    image_rotary_emb=image_rotary_emb,
+                    joint_attention_kwargs=joint_attention_kwargs,
+                )
 
                 if controlnet_single_block_samples is not None:
                     interval_control = len(self.single_transformer_blocks) / len(
