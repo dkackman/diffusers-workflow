@@ -4,6 +4,7 @@ from transformers import pipeline
 from torchvision import transforms
 
 from .. import get_device_type
+from .model_cache import cached_model
 
 
 def make_hint_tensor(image, device, dtype=None):
@@ -18,7 +19,10 @@ def make_hint_tensor(image, device, dtype=None):
     Returns:
         Depth hint as a tensor of shape (1, 3, height, width)
     """
-    depth_estimator = pipeline("depth-estimation", device=device)
+    depth_estimator = cached_model(
+        ("depth_estimator", str(device)),
+        lambda: pipeline("depth-estimation", device=device),
+    )
 
     image = depth_estimator(image)["depth"]
     image = np.array(image)

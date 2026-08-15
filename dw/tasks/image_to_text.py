@@ -9,6 +9,7 @@ import logging
 import torch
 from transformers import pipeline as hf_pipeline
 from .. import get_device_type
+from .model_cache import cached_model
 
 logger = logging.getLogger("dw")
 
@@ -33,16 +34,21 @@ def image_to_text(image, device="cpu", **kwargs):
     prompt = kwargs.get("prompt", None)
     max_new_tokens = int(kwargs.get("max_new_tokens", 50))
 
-    logger.info(f"Captioning image with {model_name} on {device}")
-
     dtype = torch.float16 if get_device_type(device) == "cuda" else torch.float32
-    # Use device_map instead of device to avoid caching_allocator_warmup
-    # buffer pre-allocation failures on MPS and with larger models.
-    pipe = hf_pipeline(
-        "image-to-text",
-        model=model_name,
-        device_map=device,
-        torch_dtype=dtype,
+
+    def load_pipe():
+        logger.info(f"Captioning image with {model_name} on {device}")
+        # Use device_map instead of device to avoid caching_allocator_warmup
+        # buffer pre-allocation failures on MPS and with larger models.
+        return hf_pipeline(
+            "image-to-text",
+            model=model_name,
+            device_map=device,
+            torch_dtype=dtype,
+        )
+
+    pipe = cached_model(
+        ("image_to_text", model_name, str(device), str(dtype)), load_pipe
     )
 
     generate_kwargs = {"max_new_tokens": max_new_tokens}

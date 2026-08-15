@@ -9,6 +9,22 @@ from PIL import Image
 warnings.filterwarnings("ignore", category=FutureWarning, module="timm")
 
 
+@pytest.fixture(autouse=True)
+def _clear_task_model_cache():
+    """Ensure dw.tasks.model_cache is empty at the start of every test.
+
+    Task modules (segment, image_to_text, etc.) route model loading through
+    a process-wide cache keyed on (task, model name, device, ...). Without
+    resetting it between tests, a cache hit in one test can starve a later
+    test's mocked loader of the call it expects.
+    """
+    from dw.tasks.model_cache import clear_model_cache
+
+    clear_model_cache()
+    yield
+    clear_model_cache()
+
+
 @pytest.fixture
 def test_data_dir():
     """Get path to test data directory"""

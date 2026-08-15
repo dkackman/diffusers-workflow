@@ -11,6 +11,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+from .model_cache import cached_model
+
 logger = logging.getLogger("dw")
 
 
@@ -53,8 +55,16 @@ def restore_faces(image, model_name, device="cpu", **kwargs):
     upsample_img = kwargs.get("upsample_img", None)
 
     # Load the face restoration model via spandrel
-    model_path = _resolve_model_path(model_name, filename)
-    descriptor = _load_face_model(model_path, device)
+    def load_descriptor():
+        model_path = _resolve_model_path(model_name, filename)
+        result = _load_face_model(model_path, device)
+        if device != "cpu" and result.supports_half:
+            result.model.half()
+        return result
+
+    descriptor = cached_model(
+        ("restore_faces", model_name, filename, str(device)), load_descriptor
+    )
 
     # Set up facexlib helper
     face_helper = FaceRestoreHelper(
@@ -85,10 +95,8 @@ def restore_faces(image, model_name, device="cpu", **kwargs):
     # Align and warp faces to face_size x face_size
     face_helper.align_warp_face()
 
-    # Use half precision on GPU if supported
+    # Half precision was applied at load time (see load_descriptor above) if supported
     use_half = device != "cpu" and descriptor.supports_half
-    if use_half:
-        descriptor.model.half()
     model_dtype = torch.float16 if use_half else torch.float32
 
     # Restore each face

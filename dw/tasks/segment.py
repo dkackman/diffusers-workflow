@@ -15,6 +15,7 @@ from transformers import (
     Sam2Model,
     Sam2Processor,
 )
+from .model_cache import cached_model
 
 logger = logging.getLogger("dw")
 
@@ -45,10 +46,16 @@ def segment_image(image, prompt, device="cpu", **kwargs):
 
     width, height = image.size
 
-    logger.info(f"Loading GroundingDINO from {model_name}")
-    dino_processor = AutoProcessor.from_pretrained(model_name)
-    dino_model = AutoModelForZeroShotObjectDetection.from_pretrained(model_name).to(
-        device
+    def load_dino():
+        logger.info(f"Loading GroundingDINO from {model_name}")
+        processor = AutoProcessor.from_pretrained(model_name)
+        model = AutoModelForZeroShotObjectDetection.from_pretrained(model_name).to(
+            device
+        )
+        return processor, model
+
+    dino_processor, dino_model = cached_model(
+        ("segment_dino", model_name, str(device)), load_dino
     )
 
     inputs = dino_processor(images=image, text=prompt, return_tensors="pt").to(device)
@@ -75,9 +82,15 @@ def segment_image(image, prompt, device="cpu", **kwargs):
             mask_image = ImageOps.invert(mask_image)
         return mask_image
 
-    logger.info(f"Loading SAM2 from {sam_model_name}")
-    sam_processor = Sam2Processor.from_pretrained(sam_model_name)
-    sam_model = Sam2Model.from_pretrained(sam_model_name).to(device)
+    def load_sam():
+        logger.info(f"Loading SAM2 from {sam_model_name}")
+        processor = Sam2Processor.from_pretrained(sam_model_name)
+        model = Sam2Model.from_pretrained(sam_model_name).to(device)
+        return processor, model
+
+    sam_processor, sam_model = cached_model(
+        ("segment_sam", sam_model_name, str(device)), load_sam
+    )
 
     input_boxes = [boxes.cpu().tolist()]
 

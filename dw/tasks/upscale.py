@@ -12,6 +12,8 @@ import torch
 import numpy as np
 from PIL import Image
 
+from .model_cache import cached_model
+
 logger = logging.getLogger("dw")
 
 # Maximum tile size before we switch to tiled processing
@@ -45,31 +47,40 @@ def upscale_image(image, model_name, device="cpu", **kwargs):
     tile_size = kwargs.get("tile_size", 512)
     tile_overlap = kwargs.get("tile_overlap", 32)
 
-    model_path = _resolve_model_path(model_name, filename)
+    def load_descriptor():
+        model_path = _resolve_model_path(model_name, filename)
 
-    logger.info(f"Loading upscale model from {model_path}")
-    loader = ModelLoader(device=torch.device(device))
-    descriptor = loader.load_from_file(model_path)
+        logger.info(f"Loading upscale model from {model_path}")
+        loader = ModelLoader(device=torch.device(device))
+        result = loader.load_from_file(model_path)
 
-    if not isinstance(descriptor, ImageModelDescriptor):
-        raise ValueError(
-            f"Model is not an image model (got {type(descriptor).__name__}). "
-            f"Only image super-resolution models are supported."
+        if not isinstance(result, ImageModelDescriptor):
+            raise ValueError(
+                f"Model is not an image model (got {type(result).__name__}). "
+                f"Only image super-resolution models are supported."
+            )
+
+        logger.info(
+            f"Loaded {result.architecture.name} "
+            f"(scale: {result.scale}x, "
+            f"input: {result.input_channels}ch, "
+            f"output: {result.output_channels}ch)"
         )
 
-    logger.info(
-        f"Loaded {descriptor.architecture.name} "
-        f"(scale: {descriptor.scale}x, "
-        f"input: {descriptor.input_channels}ch, "
-        f"output: {descriptor.output_channels}ch)"
-    )
+        # Use half precision if supported and on GPU
+        if device != "cpu" and result.supports_half:
+            result.model.half()
 
-    # Use half precision if supported and on GPU
-    if device != "cpu" and descriptor.supports_half:
-        descriptor.model.half()
-        model_dtype = torch.float16
-    else:
-        model_dtype = torch.float32
+        return result
+
+    descriptor = cached_model(
+        ("upscale", model_name, filename, str(device)), load_descriptor
+    )
+    model_dtype = (
+        torch.float16
+        if (device != "cpu" and descriptor.supports_half)
+        else torch.float32
+    )
 
     # Convert PIL to tensor
     img_array = np.array(image.convert("RGB")).astype(np.float32) / 255.0
