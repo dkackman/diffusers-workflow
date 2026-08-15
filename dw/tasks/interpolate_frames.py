@@ -9,8 +9,8 @@ Model weights are downloaded from HuggingFace Hub on first use.
 
 import logging
 import torch
-import numpy as np
-from PIL import Image
+
+from .tensor_image import pil_to_float_tensor as _pil_to_tensor, float_tensor_to_pil
 
 logger = logging.getLogger("dw")
 
@@ -72,12 +72,6 @@ def _interpolate_2x(frames, model):
 
 _DEFAULT_RIFE_REPO = "styler00dollar/RIFE-v4.6"
 _DEFAULT_RIFE_FILENAME = "flownet_v4.6.pkl"
-
-
-def _pil_to_tensor(img, device):
-    """Convert a PIL frame to a normalized (1, 3, H, W) tensor on device."""
-    arr = np.array(img.convert("RGB")).astype(np.float32) / 255.0
-    return torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).to(device)
 
 
 def _pad_tensor(t, ph, pw):
@@ -214,8 +208,6 @@ def _build_inference(net, device):
             )
 
         mid = merged[3][:, :, :h, :w]
-        mid = mid.squeeze(0).permute(1, 2, 0)
-        mid = (mid.clamp(0, 1) * 255).byte().cpu().numpy()
-        return Image.fromarray(mid)
+        return float_tensor_to_pil(mid)
 
     return inference

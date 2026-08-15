@@ -9,10 +9,9 @@ Models can be loaded from local files or HuggingFace Hub repos.
 
 import logging
 import torch
-import numpy as np
-from PIL import Image
 
 from .model_cache import cached_model
+from .tensor_image import pil_to_float_tensor, float_tensor_to_pil
 
 logger = logging.getLogger("dw")
 
@@ -83,9 +82,7 @@ def upscale_image(image, model_name, device="cpu", **kwargs):
     )
 
     # Convert PIL to tensor
-    img_array = np.array(image.convert("RGB")).astype(np.float32) / 255.0
-    tensor = torch.from_numpy(img_array).permute(2, 0, 1).unsqueeze(0)
-    tensor = tensor.to(device=device, dtype=model_dtype)
+    tensor = pil_to_float_tensor(image, device, dtype=model_dtype)
 
     h, w = tensor.shape[2], tensor.shape[3]
 
@@ -98,9 +95,7 @@ def upscale_image(image, model_name, device="cpu", **kwargs):
         output = _tiled_inference(descriptor, tensor, tile_size, tile_overlap)
 
     # Convert back to PIL
-    output = output.squeeze(0).permute(1, 2, 0)
-    output = (output.clamp(0, 1) * 255).byte().cpu().numpy()
-    result = Image.fromarray(output)
+    result = float_tensor_to_pil(output)
 
     logger.info(f"Upscaled {w}x{h} -> {result.width}x{result.height}")
     return result

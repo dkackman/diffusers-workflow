@@ -114,9 +114,13 @@ def restore_faces(image, model_name, device="cpu", **kwargs):
         with torch.inference_mode():
             restored_tensor = descriptor(face_tensor)
 
-        # Tensor -> BGR uint8 numpy
+        # Tensor -> BGR uint8 numpy. Rounds rather than truncates when
+        # quantizing (matches diffusers' VaeImageProcessor.numpy_to_pil
+        # behavior) so exact 8-bit values don't drift down a level; this
+        # stays local rather than using tensor_image's shared helpers
+        # because the data here is BGR numpy (facexlib's format), not PIL/RGB.
         restored = restored_tensor.squeeze(0).permute(1, 2, 0)
-        restored = (restored.clamp(0, 1) * 255).byte().cpu().numpy()
+        restored = restored.mul(255).round().clamp(0, 255).byte().cpu().numpy()
 
         # Resize to expected face_size if model output differs
         if restored.shape[:2] != (face_size, face_size):
