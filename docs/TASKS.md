@@ -466,9 +466,10 @@ Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). T
 | -------- | -------- | ----------- |
 | `video` | Yes | List of PIL Images (video frames) or `previous_result:` reference |
 | `multiplier` | No | Frame count multiplier: 2, 4, or 8 (default: 2) |
-| `model_name` | No | HuggingFace repo with RIFE weights (default: `styler00dollar/RIFE-v4.6`) |
+| `model_name` | No | HuggingFace repo with RIFE v4.13 weights (default: `imaginairy/rife-interpolation`) |
+| `filename` | No | Weights filename within the repo (default: `rife-flownet-4.13.2.safetensors`) |
 
-Uses vendored IFNet v4.6 architecture. Weights are downloaded from HuggingFace Hub on first use.
+Uses vendored IFNet v4.13 architecture. Weights are downloaded from HuggingFace Hub on first use.
 
 **Example:** [InterpolateFrames.json](../examples/InterpolateFrames.json) — Generate video with Mochi, then 2x interpolate from 30fps to 60fps.
 

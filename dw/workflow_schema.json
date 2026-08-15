@@ -201,6 +201,19 @@
                 "from_pretrained_arguments": {
                     "$ref": "#/$defs/from_pretrained_arguments"
                 },
+                "remote_text_encoder": {
+                    "description": "Encode prompts with a remote text-encoder service instead of loading the text encoder locally. The pipeline's text_encoder is set to None, the prompt is POSTed to the service (authenticated with the HuggingFace token), and the returned embeddings are passed to the pipeline as prompt_embeds. Mutually exclusive with prompt_weighting.",
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "description": "URL of the remote text encoder endpoint, e.g. a HuggingFace inference endpoint.",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "url"
+                    ]
+                },
                 "seed": {
                     "description": "The seed for this pipeline",
                     "type": "integer",
@@ -225,6 +238,13 @@
                         "model",
                         "sequential"
                     ]
+                },
+                "exclude_from_cpu_offload": {
+                    "description": "Component names (e.g. 'vae', 'text_encoder') to keep resident on the accelerator instead of offloading. Only applies when offload is 'sequential'.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "group_offload": {
                     "$ref": "#/$defs/group_offload"

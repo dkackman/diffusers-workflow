@@ -25,13 +25,15 @@ def interpolate_frames(video, device="cpu", **kwargs):
         device: Target device ("cuda", "mps", "cpu")
         **kwargs:
             multiplier: Frame count multiplier — 2, 4, or 8 (default: 2)
-            model_name: HuggingFace repo with RIFE weights (default: auto)
+            model_name: HuggingFace repo with RIFE v4.13 weights (default: auto)
+            filename: Weights filename within the repo (default: auto)
 
     Returns:
         List of PIL Images with interpolated frames inserted.
     """
     multiplier = int(kwargs.get("multiplier", 2))
     model_name = kwargs.get("model_name", None)
+    filename = kwargs.get("filename", None)
 
     if multiplier not in _VALID_MULTIPLIERS:
         raise ValueError(
@@ -45,7 +47,7 @@ def interpolate_frames(video, device="cpu", **kwargs):
         f"Interpolating {len(video)} frames with {multiplier}x multiplier on {device}"
     )
 
-    model = _load_rife_model(device, model_name)
+    model = _load_rife_model(device, model_name, filename)
 
     passes = {2: 1, 4: 2, 8: 3}[multiplier]
     frames = list(video)
@@ -70,8 +72,8 @@ def _interpolate_2x(frames, model):
     return result
 
 
-_DEFAULT_RIFE_REPO = "styler00dollar/RIFE-v4.6"
-_DEFAULT_RIFE_FILENAME = "flownet_v4.6.pkl"
+_DEFAULT_RIFE_REPO = "imaginairy/rife-interpolation"
+_DEFAULT_RIFE_FILENAME = "rife-flownet-4.13.2.safetensors"
 
 
 def _pad_tensor(t, ph, pw):
@@ -106,13 +108,16 @@ def _make_flow_context(ph, pw, device):
     return tenFlow_div, backwarp_tenGrid, timestep
 
 
-def _load_rife_model(device, model_name=None):
+def _load_rife_model(device, model_name=None, filename=None):
     """Load RIFE model and return a callable that interpolates two frames.
 
     Args:
         device: Target device string ("cuda", "mps", "cpu").
-        model_name: Optional HuggingFace repo ID containing RIFE weights.
-            Defaults to styler00dollar/RIFE-v4.6.
+        model_name: Optional HuggingFace repo ID containing RIFE v4.13 weights.
+            Defaults to imaginairy/rife-interpolation.
+        filename: Optional weights filename within the repo. Defaults to
+            rife-flownet-4.13.2.safetensors. Both .safetensors and torch
+            checkpoint formats (.pkl/.pth) are supported.
 
     Returns:
         Callable that takes (frame1: PIL.Image, frame2: PIL.Image) -> PIL.Image
@@ -122,25 +127,32 @@ def _load_rife_model(device, model_name=None):
     from .model_cache import cached_model
 
     repo_id = model_name if model_name is not None else _DEFAULT_RIFE_REPO
+    weights_file = filename if filename is not None else _DEFAULT_RIFE_FILENAME
 
     def load_net():
-        model_path = hf_hub_download(repo_id=repo_id, filename=_DEFAULT_RIFE_FILENAME)
+        model_path = hf_hub_download(repo_id=repo_id, filename=weights_file)
 
-        logger.info(f"Loading RIFE IFNet v4.6 to {device}")
+        logger.info(f"Loading RIFE IFNet v4.13 to {device}")
 
-        net = IFNet()
-        state_dict = torch.load(model_path, map_location="cpu", weights_only=True)
+        if weights_file.endswith(".safetensors"):
+            from safetensors.torch import load_file
+
+            state_dict = load_file(model_path)
+        else:
+            state_dict = torch.load(model_path, map_location="cpu", weights_only=True)
 
         # Strip "module." prefix that comes from DataParallel-saved checkpoints
         cleaned = {}
         for k, v in state_dict.items():
             cleaned[k.removeprefix("module.")] = v
 
+        net = IFNet()
         net.load_state_dict(cleaned)
+        net.eval()
         net.to(device)
         return net
 
-    net = cached_model(("interpolate_frames", repo_id, str(device)), load_net)
+    net = cached_model(("interpolate_frames", repo_id, weights_file, str(device)), load_net)
 
     return _build_inference(net, device)
 
