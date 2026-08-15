@@ -74,6 +74,44 @@ _DEFAULT_RIFE_REPO = "styler00dollar/RIFE-v4.6"
 _DEFAULT_RIFE_FILENAME = "flownet_v4.6.pkl"
 
 
+def _pil_to_tensor(img, device):
+    """Convert a PIL frame to a normalized (1, 3, H, W) tensor on device."""
+    arr = np.array(img.convert("RGB")).astype(np.float32) / 255.0
+    return torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).to(device)
+
+
+def _pad_tensor(t, ph, pw):
+    """Zero-pad a (1, 3, H, W) tensor on the bottom/right to (ph, pw)."""
+    h, w = t.shape[2], t.shape[3]
+    padding = (0, pw - w, 0, ph - h)
+    return torch.nn.functional.pad(t, padding)
+
+
+def _padded_size(h, w, multiple=32):
+    """Round (h, w) up to the next multiple (RIFE requires dims divisible by 32)."""
+    ph = ((h - 1) // multiple + 1) * multiple
+    pw = ((w - 1) // multiple + 1) * multiple
+    return ph, pw
+
+
+def _make_flow_context(ph, pw, device):
+    """Build the warp grid and flow divisors for one padded resolution."""
+    tenFlow_div = torch.tensor([(pw - 1.0) / 2.0, (ph - 1.0) / 2.0], device=device)
+    backwarp_tenGrid = torch.cat(
+        [
+            torch.linspace(-1.0, 1.0, pw, device=device)
+            .view(1, 1, 1, pw)
+            .expand(-1, -1, ph, -1),
+            torch.linspace(-1.0, 1.0, ph, device=device)
+            .view(1, 1, ph, 1)
+            .expand(-1, -1, -1, pw),
+        ],
+        1,
+    )
+    timestep = torch.full((1, 1, ph, pw), 0.5, dtype=torch.float32, device=device)
+    return tenFlow_div, backwarp_tenGrid, timestep
+
+
 def _load_rife_model(device, model_name=None):
     """Load RIFE model and return a callable that interpolates two frames.
 
@@ -87,53 +125,83 @@ def _load_rife_model(device, model_name=None):
     """
     from .rife_model import IFNet
     from huggingface_hub import hf_hub_download
+    from .model_cache import cached_model
 
     repo_id = model_name if model_name is not None else _DEFAULT_RIFE_REPO
-    model_path = hf_hub_download(repo_id=repo_id, filename=_DEFAULT_RIFE_FILENAME)
 
-    logger.info(f"Loading RIFE IFNet v4.6 to {device}")
+    def load_net():
+        model_path = hf_hub_download(repo_id=repo_id, filename=_DEFAULT_RIFE_FILENAME)
 
-    net = IFNet()
-    state_dict = torch.load(model_path, map_location="cpu", weights_only=True)
+        logger.info(f"Loading RIFE IFNet v4.6 to {device}")
 
-    # Strip "module." prefix that comes from DataParallel-saved checkpoints
-    cleaned = {}
-    for k, v in state_dict.items():
-        cleaned[k.removeprefix("module.")] = v
+        net = IFNet()
+        state_dict = torch.load(model_path, map_location="cpu", weights_only=True)
 
-    net.load_state_dict(cleaned)
-    net.to(device)
+        # Strip "module." prefix that comes from DataParallel-saved checkpoints
+        cleaned = {}
+        for k, v in state_dict.items():
+            cleaned[k.removeprefix("module.")] = v
+
+        net.load_state_dict(cleaned)
+        net.to(device)
+        return net
+
+    net = cached_model(("interpolate_frames", repo_id, str(device)), load_net)
+
+    return _build_inference(net, device)
+
+
+def _build_inference(net, device):
+    """Build the (img1, img2) -> mid_frame callable for a loaded RIFE net.
+
+    All frames of a video share one padded resolution, so the flow-warp
+    context (tenFlow_div, backwarp grid, timestep) is computed once per
+    (padded_h, padded_w) and reused for every pair instead of being rebuilt
+    on every call.
+
+    `_interpolate_2x` walks frames pairwise: (f0, f1), (f1, f2), (f2, f3), ...
+    — the second frame of one pair is the same PIL object as the first frame
+    of the next. This closure carries the padded tensor it produced for a
+    pair's second frame forward, so that when that exact frame object shows
+    up again as a pair's first frame, its tensor is reused instead of being
+    re-derived from the PIL image (re-decoded, re-normalized, re-padded). A
+    cache miss (non-matching object, e.g. across separate interpolation
+    passes) simply falls back to a fresh conversion, so this is a pure
+    optimization with no behavioral effect — the reused tensor is bit-for-bit
+    what a fresh conversion of the same frame would produce.
+    """
+    scale_list = [8, 4, 2, 1]
+    flow_context_cache = {}
+    carry = {"img": None}
+
+    def get_flow_context(ph, pw):
+        key = (ph, pw)
+        ctx = flow_context_cache.get(key)
+        if ctx is None:
+            ctx = _make_flow_context(ph, pw, device)
+            flow_context_cache[key] = ctx
+        return ctx
 
     def inference(img1, img2):
         """Interpolate a single frame between two input frames."""
-        arr1 = np.array(img1.convert("RGB")).astype(np.float32) / 255.0
-        arr2 = np.array(img2.convert("RGB")).astype(np.float32) / 255.0
-        t1 = torch.from_numpy(arr1).permute(2, 0, 1).unsqueeze(0).to(device)
-        t2 = torch.from_numpy(arr2).permute(2, 0, 1).unsqueeze(0).to(device)
+        if img1 is carry["img"]:
+            t1_padded = carry["tensor"]
+            h, w, ph, pw = carry["h"], carry["w"], carry["ph"], carry["pw"]
+        else:
+            t1 = _pil_to_tensor(img1, device)
+            h, w = t1.shape[2], t1.shape[3]
+            ph, pw = _padded_size(h, w)
+            t1_padded = _pad_tensor(t1, ph, pw)
 
-        h, w = t1.shape[2], t1.shape[3]
-        ph = ((h - 1) // 32 + 1) * 32
-        pw = ((w - 1) // 32 + 1) * 32
-        padding = (0, pw - w, 0, ph - h)
-        t1_padded = torch.nn.functional.pad(t1, padding)
-        t2_padded = torch.nn.functional.pad(t2, padding)
+        t2 = _pil_to_tensor(img2, device)
+        t2_padded = _pad_tensor(t2, ph, pw)
 
-        # Precompute warp grid and flow divisors for the padded resolution
-        tenFlow_div = torch.tensor([(pw - 1.0) / 2.0, (ph - 1.0) / 2.0], device=device)
-        backwarp_tenGrid = torch.cat(
-            [
-                torch.linspace(-1.0, 1.0, pw, device=device)
-                .view(1, 1, 1, pw)
-                .expand(-1, -1, ph, -1),
-                torch.linspace(-1.0, 1.0, ph, device=device)
-                .view(1, 1, ph, 1)
-                .expand(-1, -1, -1, pw),
-            ],
-            1,
-        )
+        # Carry img2's padded tensor forward in case it's the next pair's img1.
+        carry["img"] = img2
+        carry["tensor"] = t2_padded
+        carry["h"], carry["w"], carry["ph"], carry["pw"] = h, w, ph, pw
 
-        timestep = torch.full((1, 1, ph, pw), 0.5, dtype=torch.float32, device=device)
-        scale_list = [8, 4, 2, 1]
+        tenFlow_div, backwarp_tenGrid, timestep = get_flow_context(ph, pw)
 
         with torch.inference_mode():
             _, _, merged = net(
