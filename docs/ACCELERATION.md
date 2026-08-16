@@ -28,11 +28,12 @@ Higher threshold = more speedup, more quality loss. Start with `0.05` and increa
 
 ### MagCache
 
-Magnitude-based caching with error accumulation. Requires `num_inference_steps` to match the pipeline arguments:
+Magnitude-based caching with error accumulation. Requires `num_inference_steps` to match the pipeline arguments, and `mag_ratios` — the per-step magnitude ratios, which are checkpoint-dependent:
 
 ```json
 "cache": {
     "type": "mag",
+    "mag_ratios": "flux",
     "threshold": 0.06,
     "num_inference_steps": 28,
     "max_skip_steps": 3,
@@ -42,10 +43,25 @@ Magnitude-based caching with error accumulation. Requires `num_inference_steps` 
 
 | Property | Default | Description |
 | -------- | ------- | ----------- |
+| `mag_ratios` | required | Preset name or explicit per-step ratio array — see below |
 | `threshold` | 0.06 | Accumulated error threshold for skipping |
 | `num_inference_steps` | required | Must match pipeline arguments |
 | `max_skip_steps` | 3 | Max consecutive steps to skip |
 | `retention_ratio` | 0.2 | Fraction of initial steps where skipping is disabled |
+| `calibrate` | false | Measure ratios for a new model instead of skipping — see below |
+
+#### Supplying `mag_ratios`
+
+MagCache needs to know how each denoising step's output magnitude typically behaves for *your* checkpoint, so unlike the other cache types it cannot run on defaults alone. Give it either:
+
+- **A preset name** — `"mag_ratios": "flux"` resolves to the ratios diffusers ships for Flux. Any preset a later diffusers release adds is usable by name without a change here.
+- **An explicit array** — `"mag_ratios": [1.0, 0.98, 0.96, ...]`. The array is interpolated automatically when its length differs from `num_inference_steps`, so ratios measured at one step count can be reused at another.
+
+For a model with no preset, run once with `"calibrate": true`. Calibration skips nothing and logs the measured ratios at the end of the run; paste that array into `mag_ratios` and drop the `calibrate` flag for subsequent runs.
+
+```json
+"cache": { "type": "mag", "calibrate": true, "num_inference_steps": 28 }
+```
 
 ### TaylorSeerCache
 

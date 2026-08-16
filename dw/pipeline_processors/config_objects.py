@@ -117,6 +117,53 @@ def get_group_offload_configuration(configuration, default_device):
     return None
 
 
+def _resolve_mag_ratios(mag_ratios):
+    """Resolve a mag_ratios declaration into what MagCacheConfig accepts.
+
+    The ratios are checkpoint-dependent, so a workflow either spells them out as
+    a per-step array or names one of the presets diffusers ships in
+    diffusers.hooks.mag_cache - "flux" resolving to FLUX_MAG_RATIOS. The lookup
+    is dynamic, so a preset added by a later diffusers release works here with no
+    change, the same way quantization config_type does.
+
+    Args:
+        mag_ratios: A preset name, or a list of per-step ratios
+
+    Returns:
+        The ratios to hand to MagCacheConfig
+    """
+    if not isinstance(mag_ratios, str):
+        return mag_ratios
+
+    from diffusers.hooks import mag_cache
+
+    ratios = getattr(mag_cache, f"{mag_ratios.upper()}_MAG_RATIOS", None)
+    if ratios is None:
+        available = sorted(
+            name.removesuffix("_MAG_RATIOS").lower()
+            for name in dir(mag_cache)
+            if name.endswith("_MAG_RATIOS")
+        )
+        raise ValueError(
+            f"Unknown mag_ratios preset: {mag_ratios}. "
+            f"Available presets: {available}. "
+            f"A list of per-step ratios can be given instead."
+        )
+    return ratios
+
+
+# Arguments each cache type forwards to its diffusers config, when present.
+# Anything omitted keeps the diffusers default.
+_MAG_CACHE_KEYS = (
+    "threshold",
+    "num_inference_steps",
+    "max_skip_steps",
+    "retention_ratio",
+    "calibrate",
+)
+_TAYLORSEER_CACHE_KEYS = ("cache_interval", "max_order")
+
+
 def get_cache_configuration(configuration):
     """
     Get the appropriate diffusers cache configuration based on the input configuration.
@@ -155,22 +202,24 @@ def get_cache_configuration(configuration):
             elif cache_type == "text_kv":
                 config = TextKVCacheConfig()
             elif cache_type == "mag":
-                kwargs = {}
-                if "threshold" in cache_config:
-                    kwargs["threshold"] = cache_config["threshold"]
-                if "num_inference_steps" in cache_config:
-                    kwargs["num_inference_steps"] = cache_config["num_inference_steps"]
-                if "max_skip_steps" in cache_config:
-                    kwargs["max_skip_steps"] = cache_config["max_skip_steps"]
-                if "retention_ratio" in cache_config:
-                    kwargs["retention_ratio"] = cache_config["retention_ratio"]
+                kwargs = {
+                    key: cache_config[key]
+                    for key in _MAG_CACHE_KEYS
+                    if key in cache_config
+                }
+                # Checkpoint-dependent, and required unless calibrating - without
+                # forwarding it MagCacheConfig rejects every configuration
+                if "mag_ratios" in cache_config:
+                    kwargs["mag_ratios"] = _resolve_mag_ratios(
+                        cache_config["mag_ratios"]
+                    )
                 config = MagCacheConfig(**kwargs)
             elif cache_type == "taylorseer":
-                kwargs = {}
-                if "cache_interval" in cache_config:
-                    kwargs["cache_interval"] = cache_config["cache_interval"]
-                if "max_order" in cache_config:
-                    kwargs["max_order"] = cache_config["max_order"]
+                kwargs = {
+                    key: cache_config[key]
+                    for key in _TAYLORSEER_CACHE_KEYS
+                    if key in cache_config
+                }
                 config = TaylorSeerCacheConfig(**kwargs)
             else:
                 raise ValueError(f"Unknown cache type: {cache_type}")
