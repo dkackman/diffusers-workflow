@@ -161,6 +161,84 @@ For example, a 1600x900 photo (16:9) at resolution 1024 becomes 1792x1024. A 800
 | `get_last_frame` | Extract last video frame | |
 | `get_frame` | Extract frame at index | `frame_index` |
 
+The frame commands accept videos in any shape a result carries them: PIL frame
+lists, numpy or torch frame arrays, and audio+video pairs (LTX-2, MiniMax H3).
+The extracted frame is always a PIL image.
+
+### concat_videos
+
+Concatenate videos - and the audio generated with them - into one video. The
+standalone counterpart of a chained pipeline step's stitching (see "Chained
+video generation" in the workflow guide):
+
+```json
+{
+    "task": {
+        "command": "concat_videos",
+        "arguments": {
+            "videos": "previous_result:gather",
+            "trim_frames": 1,
+            "crossfade_ms": 75,
+            "fps": 24
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 24 }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `videos` | Yes | The videos to join, in order (from `gather_videos` or `previous_result`) |
+| `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
+| `crossfade_ms` | No | Equal-power crossfade at each audio seam (default: 75) |
+| `fps` | No | Frame rate of the videos - required to join audio when trimming |
+
+### slice_audio
+
+Cut a slice out of an audio track, addressed in seconds or in video frames.
+Slices reaching past the end of the track are zero-padded:
+
+```json
+{
+    "task": {
+        "command": "slice_audio",
+        "arguments": {
+            "audio": "./soundtrack.wav",
+            "start_frame": 124,
+            "num_frames": 124,
+            "fps": 24
+        }
+    },
+    "result": { "content_type": "audio/wav", "sample_rate": 44100 }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file, or a waveform from a previous step |
+| `start_seconds` / `duration_seconds` | One pair | The slice in seconds |
+| `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+### crossfade_audio
+
+Join audio tracks with an equal-power crossfade. Each seam overlaps the two
+tracks by the fade window:
+
+```json
+{
+    "task": {
+        "command": "crossfade_audio",
+        "arguments": {
+            "audios": "previous_result:slices",
+            "crossfade_ms": 75,
+            "sample_rate": 44100
+        }
+    },
+    "result": { "content_type": "audio/wav", "sample_rate": 44100 }
+}
+```
+
 ## Data Gathering
 
 ### gather_images

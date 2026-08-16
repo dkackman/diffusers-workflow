@@ -284,43 +284,59 @@ class Pipeline:
                 logger.debug("Running generation pipeline")
                 return {"generated_ids": self.pipeline.generate(**arguments)}
 
-            if self.pipeline_definition.get("remote_text_encoder", None) is not None:
-                logger.info("Invoking remote text encoder")
-                remote_config = self.pipeline_definition["remote_text_encoder"]
-                prompt_embeds = remote_text_encoder(
-                    arguments.pop("prompt"),
-                    remote_config.get("url"),
-                    device=self.device,
-                )
-                arguments["prompt_embeds"] = prompt_embeds
-            elif self.configuration.get("prompt_weighting", False):
-                from ..prompt_weighting import apply_prompt_weighting
+            chain_definition = self.pipeline_definition.get("chain", None)
+            if chain_definition is not None:
+                from .chain import run_chain
 
-                # The step's device override travels with the call - embeddings
-                # must land where the transformer runs
-                apply_prompt_weighting(self.pipeline, arguments, self.device)
+                logger.debug("Running chained pipeline")
+                return run_chain(self, chain_definition, arguments)
 
-            # Run standard pipeline
-            logger.debug("Running standard pipeline")
-            output = self._execute_pipeline(arguments)
-
-            # A raw tensor result - latents, embeddings - is held for the rest of the
-            # workflow, so it rests in system memory instead of occupying the
-            # accelerator that the next step needs. Pipelines consuming it place it back
-            # on their own device.
-            if hasattr(output, "to"):
-                logger.debug("Moving tensor output to system memory")
-                output = output.to("cpu")
-
-            attach_audio_sample_rate(self.pipeline, output)
-
-            return output
+            return self._run_once(arguments)
 
         except Exception as e:
             # One log line with the full traceback - every error class was
             # logged and re-raised identically
             logger.error(f"{type(e).__name__} running pipeline: {e}", exc_info=True)
             raise
+
+    def _run_once(self, arguments):
+        """Run one standard pipeline invocation with fully resolved arguments.
+
+        This is the whole per-call execution path - prompt encoding, the
+        pipeline call itself, and output normalization - shared by the single
+        run and every segment of a chained run.
+        """
+        if self.pipeline_definition.get("remote_text_encoder", None) is not None:
+            logger.info("Invoking remote text encoder")
+            remote_config = self.pipeline_definition["remote_text_encoder"]
+            prompt_embeds = remote_text_encoder(
+                arguments.pop("prompt"),
+                remote_config.get("url"),
+                device=self.device,
+            )
+            arguments["prompt_embeds"] = prompt_embeds
+        elif self.configuration.get("prompt_weighting", False):
+            from ..prompt_weighting import apply_prompt_weighting
+
+            # The step's device override travels with the call - embeddings
+            # must land where the transformer runs
+            apply_prompt_weighting(self.pipeline, arguments, self.device)
+
+        # Run standard pipeline
+        logger.debug("Running standard pipeline")
+        output = self._execute_pipeline(arguments)
+
+        # A raw tensor result - latents, embeddings - is held for the rest of the
+        # workflow, so it rests in system memory instead of occupying the
+        # accelerator that the next step needs. Pipelines consuming it place it back
+        # on their own device.
+        if hasattr(output, "to"):
+            logger.debug("Moving tensor output to system memory")
+            output = output.to("cpu")
+
+        attach_audio_sample_rate(self.pipeline, output)
+
+        return output
 
     def _execute_pipeline(self, arguments):
         """Execute the pipeline with optional TeaCache and attention backend contexts."""

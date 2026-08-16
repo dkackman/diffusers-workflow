@@ -6,11 +6,14 @@ separate hand-written list of the names it accepts, so the two are tested
 against each other here.
 """
 
+import numpy
 import pytest
+import torch
 from PIL import Image
 
+from dw.result import AudioVideo
 from dw.tasks.task import _VIDEO_PROCESSOR_COMMANDS, Task
-from dw.tasks.video_utils import get_frame, process_video
+from dw.tasks.video_utils import extract_frame, frame_count, get_frame, process_video
 
 
 @pytest.fixture
@@ -66,6 +69,112 @@ class TestProcessVideo:
         frames = [Image.new("RGB", (8, 8))]
 
         assert process_video(frames, "get_last_frame", "cpu", {}) is frames[0]
+
+
+class TestExtractFrame:
+    """extract_frame must pull a PIL frame out of every shape results carry."""
+
+    def test_pil_frames_are_returned_by_identity(self, video):
+        assert extract_frame(video, 2) is video[2]
+
+    def test_negative_indexes_count_from_the_end(self, video):
+        assert extract_frame(video, -1) is video[3]
+
+    def test_uint8_numpy_frames(self):
+        frames = numpy.zeros((4, 8, 8, 3), dtype=numpy.uint8)
+        frames[2, :, :, 0] = 255  # frame 2 is solid red
+
+        frame = extract_frame(frames, 2)
+
+        assert isinstance(frame, Image.Image)
+        assert frame.getpixel((0, 0)) == (255, 0, 0)
+
+    def test_float_numpy_frames_are_scaled_from_unit_range(self):
+        frames = numpy.zeros((4, 8, 8, 3), dtype=numpy.float32)
+        frames[-1, :, :, 1] = 1.0  # last frame is solid green
+
+        frame = extract_frame(frames, -1)
+
+        assert frame.getpixel((0, 0)) == (0, 255, 0)
+
+    def test_float_values_are_clipped_before_scaling(self):
+        frames = numpy.full((1, 8, 8, 3), 1.5, dtype=numpy.float32)
+
+        assert extract_frame(frames, 0).getpixel((0, 0)) == (255, 255, 255)
+
+    def test_channels_first_tensor_frames(self):
+        frames = torch.zeros((4, 3, 8, 8))
+        frames[1, 2] = 1.0  # frame 1 is solid blue
+
+        frame = extract_frame(frames, 1)
+
+        assert frame.getpixel((0, 0)) == (0, 0, 255)
+
+    def test_channels_last_tensor_frames(self):
+        frames = torch.zeros((4, 8, 8, 3))
+        frames[0, :, :, 0] = 1.0
+
+        assert extract_frame(frames, 0).getpixel((0, 0)) == (255, 0, 0)
+
+    def test_audio_video_unwraps_to_its_frames(self, video):
+        artifact = AudioVideo(video, audio=None, sample_rate=None)
+
+        assert extract_frame(artifact, -1) is video[3]
+
+    def test_a_one_video_batch_list_unwraps(self, video):
+        assert extract_frame([video], -1) is video[3]
+
+    def test_a_one_video_batch_of_numpy_frames_unwraps(self):
+        frames = numpy.zeros((1, 4, 8, 8, 3), dtype=numpy.uint8)
+
+        assert isinstance(extract_frame(frames, 3), Image.Image)
+
+    def test_a_single_frame_video_is_not_unwrapped(self):
+        frames = [Image.new("RGB", (8, 8))]
+
+        assert extract_frame(frames, 0) is frames[0]
+
+    def test_an_out_of_range_index_raises(self, video):
+        with pytest.raises(IndexError):
+            extract_frame(video, 99)
+
+    def test_an_unsupported_type_raises(self):
+        with pytest.raises(TypeError, match="Cannot extract frames"):
+            extract_frame("not a video", 0)
+
+
+class TestFrameCount:
+    def test_counts_a_pil_list(self, video):
+        assert frame_count(video) == 4
+
+    def test_counts_numpy_frames(self):
+        assert frame_count(numpy.zeros((7, 8, 8, 3), dtype=numpy.uint8)) == 7
+
+    def test_counts_tensor_frames(self):
+        assert frame_count(torch.zeros((5, 3, 8, 8))) == 5
+
+    def test_counts_through_audio_video(self, video):
+        assert frame_count(AudioVideo(video, None, None)) == 4
+
+    def test_a_lone_numpy_frame_counts_as_one(self):
+        assert frame_count(numpy.zeros((8, 8, 3), dtype=numpy.uint8)) == 1
+
+
+class TestProcessVideoOverArtifactShapes:
+    """The registered task commands must accept what pipelines actually return."""
+
+    def test_get_last_frame_of_an_audio_video(self, video):
+        artifact = AudioVideo(video, audio=None, sample_rate=None)
+
+        assert process_video(artifact, "get_last_frame", "cpu", {}) is video[3]
+
+    def test_get_last_frame_of_numpy_frames(self):
+        frames = numpy.zeros((4, 8, 8, 3), dtype=numpy.float32)
+        frames[-1, :, :, 0] = 1.0
+
+        frame = process_video(frames, "get_last_frame", "cpu", {})
+
+        assert frame.getpixel((0, 0)) == (255, 0, 0)
 
 
 class TestVideoCommandRegistration:

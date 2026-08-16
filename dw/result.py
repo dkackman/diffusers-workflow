@@ -361,7 +361,10 @@ class Result:
             reason = "PyAV is not installed - install it with: pip install av"
 
         if reason is not None:
-            logger.warning(f"Saving {output_path} without its audio because {reason}")
+            # No audio at all is an expected shape - video-only chains and
+            # concatenations - so it logs quietly; losing audio we do have warns
+            log = logger.debug if artifact.audio is None else logger.warning
+            log(f"Saving {output_path} without its audio because {reason}")
             export_to_video(artifact.frames, output_path, fps=fps)
             return
 

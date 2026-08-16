@@ -514,6 +514,69 @@ downloaded and loaded:
 See [examples/MiniMaxMusic.json](../examples/MiniMaxMusic.json) and
 [examples/MiniMaxH3.json](../examples/MiniMaxH3.json) for full examples.
 
+### Chained Video Generation
+
+Video pipelines generate short clips - a `chain` block on a pipeline step runs the
+pipeline once per segment and stitches the segments into one long video. The model
+loads once; each segment's last frame is carried into the next segment as its
+keyframe, the duplicated boundary frames are trimmed, and frames and audio are
+joined into a single file:
+
+```json
+"pipeline": {
+    "configuration": { "component_type": "LTX2ImageToVideoPipeline" },
+    "from_pretrained_arguments": { "model_name": "Lightricks/LTX-2.5-Diffusers" },
+    "chain": {
+        "segments": 3,
+        "trim_frames": 2,
+        "crossfade_ms": 80
+    },
+    "arguments": { "prompt": "variable:prompt", "image": "variable:image" }
+}
+```
+
+- `segments` — how many times the pipeline runs. Total length is roughly
+  `segments * num_frames`, minus `trim_frames` per seam.
+- `match_audio` — instead of a count, derive the length from the audio reference in
+  the step's arguments. The audio is sliced into frame-aligned per-segment chunks,
+  each segment is generated against its slice, and the final video is muxed with the
+  **original, unsliced track** - so the soundtrack has no seams at all. Requires
+  `num_frames` (the per-segment length) and a frame rate. Exactly one of `segments`
+  or `match_audio` must be given.
+- `continuity` — how visual continuity carries across segments. `last_frame` (the
+  default and currently only mode) extracts each segment's last frame and passes it
+  to the next segment.
+- `segment_argument` — where the carried frame lands: `image` (default) for
+  image-to-video pipelines, or `references` for reference-conditioned modular
+  pipelines, where it is appended as an image reference alongside the workflow's own.
+- `trim_frames` — image-to-video pipelines reproduce their keyframe as frame 0, so
+  this many frames are dropped from the head of every segment after the first
+  (default 1). The matching audio is used as crossfade material, so video and audio
+  stay exactly in sync. It also bounds the crossfade window: `trim_frames / fps`
+  seconds (at 24 fps, `trim_frames: 2` allows the full default 75 ms fade).
+- `crossfade_ms` — equal-power crossfade applied to *generated* audio at each seam
+  (default 75). Not used with `match_audio`, which keeps the original track.
+- `fps` — frame rate for the chain's audio math. Defaults to the pipeline's
+  `frame_rate` argument; pipelines with a fixed rate need it set (MiniMax H3: 24).
+- `frame_snap` — the constraint the pipeline puts on `num_frames`, used to snap the
+  final `match_audio` segment to a valid length. MiniMax H3 accepts `17n+5` frames
+  between 124 and 345: `{ "modulus": 17, "remainder": 5, "min_frames": 124,
+  "max_frames": 345 }`.
+- `prompts` — optional per-segment prompt list for narrative progression; segment
+  `i` uses `prompts[min(i, len - 1)]`.
+
+The chain runs inside one iteration of the step, so it composes with
+`previous_result` fan-out (three keyframes in, three chained videos out), and a
+`pipeline_reference` step can carry its own `chain`. Seeds behave like a normal run:
+the step's generator advances across segments, so one seed reproduces the whole
+chain. Expect some visual drift across many segments with `last_frame` continuity -
+it is single-frame conditioning; richer continuity modes are the extension point.
+
+See [examples/LTX2I2VChained.json](../examples/LTX2I2VChained.json),
+[examples/MiniMaxH3I2VChained.json](../examples/MiniMaxH3I2VChained.json), and
+[examples/MiniMaxH3Ref2VAChained.json](../examples/MiniMaxH3Ref2VAChained.json)
+(audio-matched lip-sync of arbitrary length).
+
 ## Schedulers
 
 Override the default scheduler:
