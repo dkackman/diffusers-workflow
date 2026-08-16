@@ -135,7 +135,7 @@ python -m pip install --upgrade pip
 pip install wheel setuptools
 
 # Install PyTorch - use standard install (CUDA auto-detected on Linux, MPS on macOS)
-pip install torch torchvision
+pip install torch torchvision torchaudio
 
 # Install Diffusers from GitHub (latest version)
 pip install --upgrade git+https://github.com/huggingface/diffusers
@@ -146,7 +146,7 @@ pip install peft transformers accelerate safetensors controlnet_aux sentencepiec
 # Install platform-specific dependencies
 if $MACOS; then
   # FP8/FP4 dtype support for MPS (auto-activates via torch.backends)
-  pip install fp4-fp8-for-torch-mps
+  pip install fp4-fp8-for-torch-mps fluidtop
 else
   # CUDA-only: bitsandbytes quantization
   # NOTE: `kernels` is optional and can break import compatibility in some environments.
