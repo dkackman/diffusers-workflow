@@ -335,8 +335,8 @@
                         }
                     }
                 },
-                "do_not_send_to_device": {
-                    "description": "Whether to leave the pipeline where it loaded rather than moving it to the device. Needed when the pipeline's components are placed individually, e.g. by group offloading them.",
+                "preserve_device_placement": {
+                    "description": "Whether to leave the component where it loaded rather than moving it to the device. Needed when the component is loaded already placed - by a 'device_map', or by a quantization that pins its tensors to one device. A 'components' block that group offloads already keeps the pipeline off the device on its own. Renamed from 'do_not_send_to_device', which is no longer recognized.",
                     "type": "boolean"
                 },
                 "components_manager": {
