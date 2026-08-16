@@ -231,6 +231,16 @@
                         "type": "string"
                     },
                     "minItems": 1
+                },
+                "save_segments": {
+                    "description": "Write each completed segment to the output directory as a playable mp4 and free its frames, bounding memory to one segment - a crashed chain leaves the finished segments behind. The final video is streamed from the segment files. Requires PyAV and a frame rate.",
+                    "type": "boolean",
+                    "default": false
+                },
+                "keep_segments": {
+                    "description": "Leave the segment files in place after the final video is written (default: they are removed once it saves successfully). Only meaningful with save_segments.",
+                    "type": "boolean",
+                    "default": false
                 }
             },
             "oneOf": [

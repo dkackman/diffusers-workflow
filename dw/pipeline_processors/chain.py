@@ -20,12 +20,16 @@ previous_result fan-out: three keyframes in, three chained videos out.
 import gc
 import logging
 import math
+import os
 from dataclasses import dataclass
 
+import numpy
 import torch
+from diffusers.utils import encode_video, is_av_available
 
 from .. import empty_device_cache
 from ..result import AudioVideo, get_artifact_list
+from ..security import validate_output_path
 from ..tasks.audio_utils import (
     as_channels_samples,
     equal_power_crossfade_join,
@@ -72,6 +76,134 @@ class Segment:
     head_trim: int  # frames dropped from its head on the output timeline
 
 
+class SegmentedFrames:
+    """Chained segments spilled to disk, replayed at save time.
+
+    Iterating yields one uint8 (frames, height, width, 3) torch tensor per
+    segment file - the chunk shape encode_video streams from - so the final
+    video is written holding only one segment in memory at a time.
+    """
+
+    def __init__(self, paths, total_frames=None, keep_files=False):
+        """
+        Args:
+            paths: The segment files, in output order
+            total_frames: Frames to yield in total - the match_audio tail trim.
+                None yields every stored frame
+            keep_files: Leave the segment files in place after cleanup()
+        """
+        self.paths = list(paths)
+        self.total_frames = total_frames
+        self.keep_files = keep_files
+
+    def __len__(self):
+        """Chunk count - one per segment file."""
+        return len(self.paths)
+
+    def __iter__(self):
+        remaining = self.total_frames
+        for path in self.paths:
+            frames = _decode_segment(path)
+            if remaining is not None:
+                frames = frames[:remaining]
+                remaining -= len(frames)
+            if len(frames):
+                yield frames
+            if remaining == 0:
+                return
+
+    def cleanup(self):
+        """Remove the segment files once the final video is safely written."""
+        if self.keep_files:
+            return
+        for path in self.paths:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+
+
+class SegmentSpill:
+    """Writes each completed segment to disk as a playable mp4.
+
+    Files are named {prefix}.{iteration}.segment-{index:03d}.mp4 in the
+    workflow's output directory - a crashed chain leaves them behind, ready to
+    salvage with gather_videos + concat_videos.
+    """
+
+    def __init__(self, pipeline, config):
+        output_dir = getattr(pipeline, "output_dir", None)
+        file_prefix = getattr(pipeline, "file_prefix", None)
+        if not output_dir or not file_prefix:
+            raise ValueError(
+                "save_segments needs the workflow's output directory - it is "
+                "only available when the chain runs through a workflow"
+            )
+        if not is_av_available():
+            raise ValueError(
+                "save_segments writes mp4 segment files with PyAV - install "
+                "it with: pip install av"
+            )
+        if config.fps is None:
+            raise ValueError(
+                "save_segments needs the frame rate to encode segment files - "
+                "set 'fps' on the chain or a 'frame_rate' pipeline argument"
+            )
+
+        # The same step can chain more than once (previous_result fan-out) -
+        # a per-wrapper counter keeps each iteration's files apart
+        iteration = getattr(pipeline, "_chain_iteration", -1) + 1
+        pipeline._chain_iteration = iteration
+
+        self.output_dir = output_dir
+        self.base_name = f"{file_prefix}.{iteration}"
+        self.fps = config.fps
+        self.paths = []
+
+    def write(self, frames, audio, sample_rate):
+        """Encode one trimmed segment to disk and record its path.
+
+        Args:
+            frames: The segment's on-timeline PIL frames
+            audio: The segment's on-timeline generated audio as
+                (channels, samples) numpy, or None - muxed in so a crashed
+                chain leaves fully playable segments
+            sample_rate: Sample rate of that audio
+        """
+        path = validate_output_path(
+            os.path.join(
+                self.output_dir,
+                f"{self.base_name}.segment-{len(self.paths):03d}.mp4",
+            ),
+            self.output_dir,
+        )
+
+        audio_track = None
+        if audio is not None and audio.shape[1] and sample_rate is not None:
+            audio_track = torch.from_numpy(numpy.ascontiguousarray(audio))
+
+        encode_video(
+            frames,
+            fps=self.fps,
+            output_path=path,
+            audio=audio_track,
+            audio_sample_rate=sample_rate if audio_track is not None else None,
+        )
+        self.paths.append(path)
+        logger.info(f"Saved chain segment to {path}")
+
+
+def _decode_segment(path):
+    """Read a segment file back as a uint8 (frames, height, width, 3) tensor."""
+    import av
+
+    with av.open(path) as container:
+        frames = [
+            frame.to_ndarray(format="rgb24") for frame in container.decode(video=0)
+        ]
+    return torch.from_numpy(numpy.stack(frames, axis=0))
+
+
 def run_chain(pipeline, chain_definition, arguments):
     """Run a pipeline's chain and stitch the segments into one video.
 
@@ -88,7 +220,12 @@ def run_chain(pipeline, chain_definition, arguments):
     config = ChainConfig(chain_definition, arguments)
     continuity = CONTINUITY_MODES[config.continuity]()
 
-    frames = []  # PIL frames on the output timeline
+    # With save_segments, each completed segment is written to disk and its
+    # frames freed, bounding memory to one segment - a crash leaves the
+    # finished segments behind as playable files
+    spill = SegmentSpill(pipeline, config) if config.save_segments else None
+
+    frames = []  # PIL frames on the output timeline (unspilled chains)
     audio = None  # joined generated audio, (channels, samples) float32
     audio_rate = None
     carry = None
@@ -122,24 +259,42 @@ def run_chain(pipeline, chain_definition, arguments):
         segment_frames = frames_as_pil_list(artifact)
         segment_audio, segment_rate = _generated_audio(artifact)
 
-        frames.extend(segment_frames[segment.head_trim :])
+        kept_frames = segment_frames[segment.head_trim :]
+        if spill is not None:
+            spill.write(
+                kept_frames,
+                _on_timeline_audio(segment_audio, segment, config, segment_rate),
+                segment_rate,
+            )
+        else:
+            frames.extend(kept_frames)
 
         if config.source_audio is None and segment_audio is not None:
             audio, audio_rate = _joined_audio(
                 audio, audio_rate, segment_audio, segment_rate, segment, config
             )
 
-        # The segment's raw output is finished with - the frames live on as
-        # PIL images and the carry frame is extracted. Free it before the next
-        # segment needs the accelerator.
-        del output, artifact, segment_frames, segment_audio
+        # The segment's raw output is finished with - the frames live on
+        # (in RAM or on disk) and the carry frame is extracted. Free it
+        # before the next segment needs the accelerator.
+        del output, artifact, segment_frames, segment_audio, kept_frames
         gc.collect()
         empty_device_cache()
+
+    if spill is not None:
+        # match_audio overshoots by design - the tail trim happens as the
+        # lazy frames replay, so the files themselves stay whole
+        frames = SegmentedFrames(
+            spill.paths,
+            config.total_frames if config.source_audio is not None else None,
+            config.keep_segments,
+        )
 
     if config.source_audio is not None:
         # The video matches the track's duration; the original, unsliced audio
         # is muxed in so the soundtrack has no seams
-        frames = frames[: config.total_frames]
+        if spill is None:
+            frames = frames[: config.total_frames]
         return AudioVideo(frames, config.source_audio, config.source_rate)
 
     return AudioVideo(frames, audio, audio_rate)
@@ -167,6 +322,8 @@ class ChainConfig:
         self.prompts = chain_definition.get("prompts", None)
         self.fps = _resolve_fps(chain_definition, arguments)
         self.frame_snap = chain_definition.get("frame_snap", None)
+        self.save_segments = bool(chain_definition.get("save_segments", False))
+        self.keep_segments = bool(chain_definition.get("keep_segments", False))
 
         self.source_audio = None
         self.source_rate = None
@@ -420,6 +577,19 @@ def _generated_audio(artifact):
     if isinstance(artifact, AudioVideo) and artifact.audio is not None:
         return as_channels_samples(artifact.audio), artifact.sample_rate
     return None, None
+
+
+def _on_timeline_audio(segment_audio, segment, config, segment_rate):
+    """The part of a segment's generated audio that survives the head trim.
+
+    Muxed into the segment's spill file so a crashed chain leaves fully
+    playable segments; the final soundtrack still comes from the accumulated
+    crossfaded track (or the original match_audio track).
+    """
+    if segment_audio is None:
+        return None
+    trim_samples = frames_to_samples(segment.head_trim, config.fps, segment_rate)
+    return segment_audio[:, trim_samples:]
 
 
 def _joined_audio(audio, audio_rate, segment_audio, segment_rate, segment, config):

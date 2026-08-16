@@ -83,7 +83,15 @@ class Pipeline:
     Handles loading of models, schedulers, and adapters.
     """
 
-    def __init__(self, pipeline_definition, default_seed, device, pipeline=None):
+    def __init__(
+        self,
+        pipeline_definition,
+        default_seed,
+        device,
+        pipeline=None,
+        output_dir=None,
+        file_prefix=None,
+    ):
         """
         Initialize pipeline with configuration and device settings.
 
@@ -93,6 +101,10 @@ class Pipeline:
             device: Device to run pipeline on (e.g., 'cuda', 'mps', 'cpu') - the
                 configuration's own 'device' takes precedence over it
             pipeline: Optional existing pipeline to use
+            output_dir: The workflow's output directory - where a chained run
+                with save_segments writes its segment files
+            file_prefix: Naming prefix for those files, matching the step's
+                result naming (workflow id + step name)
         """
         self.pipeline_definition = pipeline_definition
         self.default_seed = default_seed
@@ -100,6 +112,8 @@ class Pipeline:
         # becomes the default for this pipeline's components as well
         self.device = self.configuration.get("device", device)
         self.pipeline = pipeline
+        self.output_dir = output_dir
+        self.file_prefix = file_prefix
         logger.debug(f"Initialized pipeline with device: {self.device}")
 
     @property

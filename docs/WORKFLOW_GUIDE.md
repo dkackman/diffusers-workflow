@@ -564,6 +564,14 @@ joined into a single file:
   "max_frames": 345 }`.
 - `prompts` — optional per-segment prompt list for narrative progression; segment
   `i` uses `prompts[min(i, len - 1)]`.
+- `save_segments` — write each completed segment to the output directory as a
+  playable mp4 and free its frames, bounding memory to roughly one segment
+  regardless of chain length. The final video is streamed from the segment files
+  at save time, and they are removed once it is written (`keep_segments: true`
+  retains them). A crashed chain leaves the finished segments behind - stitch
+  them by hand with `gather_videos` + `concat_videos` (`trim_frames: 0`, the
+  trim was already applied). Requires PyAV and a frame rate. The trade-off is
+  one extra encode/decode cycle through h264 for the segment files.
 
 The chain runs inside one iteration of the step, so it composes with
 `previous_result` fan-out (three keyframes in, three chained videos out), and a

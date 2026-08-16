@@ -798,5 +798,69 @@ class TestMetadataEmbedding:
             assert "parameters" not in saved_img.info
 
 
+class TestSegmentBackedSave:
+    """Saving an AudioVideo whose frames replay from chain segment files."""
+
+    def make_segments(self, tmp_path, counts=(4, 3)):
+        from diffusers.utils import encode_video
+
+        from dw.pipeline_processors.chain import SegmentedFrames
+
+        paths = []
+        for index, count in enumerate(counts):
+            frames = [Image.new("RGB", (16, 16), (index * 80, 0, 0))] * count
+            path = str(tmp_path / f"segment-{index}.mp4")
+            encode_video(frames, fps=4, output_path=path)
+            paths.append(path)
+        return SegmentedFrames(paths)
+
+    def decode_frame_count(self, path):
+        import av
+
+        with av.open(str(path)) as container:
+            return sum(1 for _ in container.decode(video=0))
+
+    def test_streams_segments_into_one_video(self, tmp_path):
+        frames = self.make_segments(tmp_path)
+        result = Result({"content_type": "video/mp4", "fps": 4})
+        result.add_result(AudioVideo(frames, None, None))
+
+        result.save(str(tmp_path), "final")
+
+        output = tmp_path / "final-0.0.mp4"
+        assert output.exists()
+        assert self.decode_frame_count(output) == 7
+
+    def test_the_segment_files_are_removed_after_a_successful_save(self, tmp_path):
+        frames = self.make_segments(tmp_path)
+        result = Result({"content_type": "video/mp4", "fps": 4})
+        result.add_result(AudioVideo(frames, None, None))
+
+        result.save(str(tmp_path), "final")
+
+        assert list(tmp_path.glob("segment-*.mp4")) == []
+
+    def test_audio_is_muxed_into_the_streamed_video(self, tmp_path):
+        import av
+
+        frames = self.make_segments(tmp_path)
+        audio = numpy.zeros((2, int(7 / 4 * 8000)), dtype=numpy.float32)
+        result = Result({"content_type": "video/mp4", "fps": 4})
+        result.add_result(AudioVideo(frames, audio, 8000))
+
+        result.save(str(tmp_path), "final")
+
+        with av.open(str(tmp_path / "final-0.0.mp4")) as container:
+            assert len(container.streams.audio) == 1
+
+    def test_a_non_mp4_content_type_raises(self, tmp_path):
+        frames = self.make_segments(tmp_path)
+        result = Result({"content_type": "video/gif", "fps": 4})
+        result.add_result(AudioVideo(frames, None, None))
+
+        with pytest.raises(ValueError, match="video/mp4"):
+            result.save(str(tmp_path), "final")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
