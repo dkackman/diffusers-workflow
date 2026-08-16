@@ -350,7 +350,7 @@ class Pipeline:
         """Call the pipeline with optional attention backend and cache contexts."""
         with contextlib.ExitStack() as stack:
             if attn_backend is not None:
-                logger.debug(f"Using attention backend: {attn_backend}")
+                logger.info(f"Using attention backend: {attn_backend}")
                 stack.enter_context(attention_backend(attn_backend))
 
             stack.enter_context(stateful_cache_context(self.pipeline))
