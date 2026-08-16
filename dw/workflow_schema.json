@@ -849,6 +849,7 @@
             ]
         },
         "group_offload": {
+            "description": "Stream a model between system memory and the accelerator a group of layers at a time. Anything beyond the keys named here is passed through to apply_group_offloading, e.g. 'use_stream', 'num_blocks_per_group', 'low_cpu_mem_usage', 'offload_to_disk_path'.",
             "type": "object",
             "properties": {
                 "onload_device": {
@@ -860,9 +861,9 @@
                 },
                 "offload_type": {
                     "type": "string"
-                },
-                "additionalProperties": true
+                }
             },
+            "additionalProperties": true,
             "required": [
                 "offload_type"
             ]
