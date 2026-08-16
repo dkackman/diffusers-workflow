@@ -50,8 +50,10 @@ class FakeAudioReference:
 class FakePipeline:
     """Stands in for a loaded Pipeline wrapper - records every call."""
 
-    def __init__(self, output_factory):
+    def __init__(self, output_factory, output_dir=None, file_prefix=None):
         self.output_factory = output_factory
+        self.output_dir = output_dir
+        self.file_prefix = file_prefix
         self.calls = []
 
     def _run_once(self, arguments):
@@ -355,6 +357,120 @@ class TestMatchAudioMode:
 
         with pytest.raises(ValueError, match="sample rate"):
             run_chain(pipeline, self.chain(), arguments)
+
+
+class TestSaveSegments:
+    """Incremental segment saving - segments spill to disk as they complete."""
+
+    def chain(self, **overrides):
+        return {
+            "segments": 3,
+            "trim_frames": 1,
+            "fps": 4,
+            "save_segments": True,
+        } | overrides
+
+    def make_pipeline(self, tmp_path, factory=video_output):
+        return FakePipeline(factory, output_dir=str(tmp_path), file_prefix="wf-step")
+
+    def test_each_segment_is_written_to_disk(self, tmp_path):
+        pipeline = self.make_pipeline(tmp_path)
+
+        run_chain(pipeline, self.chain(), {})
+
+        files = sorted(tmp_path.glob("wf-step.0.segment-*.mp4"))
+        assert len(files) == 3
+
+    def test_the_frames_replay_from_disk(self, tmp_path):
+        pipeline = self.make_pipeline(tmp_path)
+
+        result = run_chain(pipeline, self.chain(), {})
+
+        chunks = list(result.frames)
+        assert len(chunks) == 3  # one tensor chunk per segment file
+        assert sum(len(chunk) for chunk in chunks) == 4 + 3 + 3
+        assert all(chunk.dtype == torch.uint8 for chunk in chunks)
+        assert chunks[0].shape[1:] == (8, 8, 3)
+
+    def test_cleanup_removes_the_segment_files(self, tmp_path):
+        pipeline = self.make_pipeline(tmp_path)
+
+        result = run_chain(pipeline, self.chain(), {})
+        result.frames.cleanup()
+
+        assert list(tmp_path.glob("*.mp4")) == []
+
+    def test_keep_segments_survives_cleanup(self, tmp_path):
+        pipeline = self.make_pipeline(tmp_path)
+
+        result = run_chain(pipeline, self.chain(keep_segments=True), {})
+        result.frames.cleanup()
+
+        assert len(list(tmp_path.glob("*.mp4"))) == 3
+
+    def test_generated_audio_is_muxed_into_the_segment_files(self, tmp_path):
+        import av
+
+        # AAC only accepts standard sample rates - use one, unlike the other
+        # tests' toy 100Hz
+        def output(arguments, index):
+            return modular_output(arguments, index, sample_rate=8000)
+
+        pipeline = self.make_pipeline(tmp_path, output)
+
+        run_chain(pipeline, self.chain(trim_frames=2), {"num_frames": 8})
+
+        for path in sorted(tmp_path.glob("*.mp4")):
+            with av.open(str(path)) as container:
+                assert len(container.streams.audio) == 1
+
+    def test_match_audio_tail_trims_during_replay(self, tmp_path):
+        # 4.6s at 4 fps -> 18 output frames, but 20 are stored across the
+        # segment files; the lazy replay stops at 18
+        subject = FakeImageReference(solid_frame((9, 9, 9)))
+        voice = FakeAudioReference(torch.zeros(2, int(4.6 * 8000)), 8000)
+        arguments = {
+            "num_frames": 8,
+            "references": [subject, voice],
+        }
+        chain = self.chain(trim_frames=2, segment_argument="references")
+        del chain["segments"]
+        chain["match_audio"] = True
+
+        def output(arguments, index):
+            return modular_output(arguments, index, sample_rate=8000)
+
+        pipeline = self.make_pipeline(tmp_path, output)
+
+        result = run_chain(pipeline, chain, arguments)
+
+        assert sum(len(chunk) for chunk in result.frames) == 18
+        # the original track is still the soundtrack
+        assert result.audio.shape == (2, int(4.6 * 8000))
+
+    def test_repeated_chain_runs_use_distinct_files(self, tmp_path):
+        # the same step chains once per cartesian iteration
+        pipeline = self.make_pipeline(tmp_path)
+
+        run_chain(pipeline, self.chain(), {})
+        run_chain(pipeline, self.chain(), {})
+
+        assert len(list(tmp_path.glob("wf-step.0.segment-*.mp4"))) == 3
+        assert len(list(tmp_path.glob("wf-step.1.segment-*.mp4"))) == 3
+
+    def test_without_a_workflow_output_dir_raises(self):
+        pipeline = FakePipeline(video_output)
+
+        with pytest.raises(ValueError, match="output directory"):
+            run_chain(pipeline, self.chain(), {})
+
+    def test_without_a_frame_rate_raises(self, tmp_path):
+        pipeline = self.make_pipeline(tmp_path)
+        chain = self.chain()
+        del chain["fps"]
+
+        with pytest.raises(ValueError, match="frame rate"):
+            run_chain(pipeline, chain, {})
 
 
 class TestValidation:

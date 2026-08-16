@@ -111,6 +111,12 @@ class Workflow:
     def variables(self):
         return self.workflow_definition.get("variables", {})
 
+    def step_file_prefix(self, step_name):
+        """Naming prefix for files a step writes on its own (chain segment
+        spills), matching the workflow-id-step naming its results are saved
+        under."""
+        return f"{self.name}-{step_name}"
+
     def validate(self):
         """Validates workflow definition against JSON schema"""
         logger.debug(f"Validating workflow: {self.name}")
@@ -284,6 +290,8 @@ class Workflow:
                     default_seed,
                     device,
                     cached_pipeline.pipeline,  # Reuse the actual loaded model
+                    output_dir=self.output_dir,
+                    file_prefix=self.step_file_prefix(step_name),
                 )
                 # Set up generator with potentially new seed. no_generator is a
                 # boolean - only an explicit true disables the generator - and the
@@ -309,6 +317,8 @@ class Workflow:
                 step_definition["pipeline"],
                 default_seed,
                 device,
+                output_dir=self.output_dir,
+                file_prefix=self.step_file_prefix(step_name),
             )
             pipeline.load(shared_components)
             previous_pipelines[step_name] = pipeline
@@ -326,6 +336,8 @@ class Workflow:
                 default_seed,
                 device,
                 previous_pipeline.pipeline,
+                output_dir=self.output_dir,
+                file_prefix=self.step_file_prefix(step_definition["name"]),
             )
 
         # Handle sub-workflow

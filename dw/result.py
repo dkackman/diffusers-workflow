@@ -350,6 +350,38 @@ class Result:
             "audio_sample_rate", artifact.sample_rate
         )
 
+        # Segment-backed frames (a chained step with save_segments) replay from
+        # disk one segment at a time, so the final video is streamed instead of
+        # materialized - and the segment files are removed once it is written
+        if hasattr(artifact.frames, "cleanup"):
+            if content_type != MUXED_VIDEO_CONTENT_TYPE:
+                raise ValueError(
+                    f"Segment-backed video can only be written as "
+                    f"{MUXED_VIDEO_CONTENT_TYPE}, not {content_type}"
+                )
+            if not is_av_available():
+                raise ValueError(
+                    "Writing segment-backed video needs PyAV - install it "
+                    "with: pip install av"
+                )
+
+            audio = None
+            if artifact.audio is not None and sample_rate is not None:
+                audio = as_audio_track(artifact.audio)
+            logger.debug(
+                f"Streaming {len(artifact.frames)} segments into {output_path}"
+            )
+            encode_video(
+                iter(artifact.frames),
+                fps=fps,
+                output_path=output_path,
+                audio=audio,
+                audio_sample_rate=sample_rate if audio is not None else None,
+                video_chunks_number=len(artifact.frames),
+            )
+            artifact.frames.cleanup()
+            return
+
         reason = None
         if artifact.audio is None:
             reason = "the pipeline returned no audio"
