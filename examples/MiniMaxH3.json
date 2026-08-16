@@ -1,13 +1,15 @@
 {
     "id": "MiniMaxH3",
     "variables": {
-        "prompt": "A red fox trotting through a snowy pine forest, snow crunching underfoot",
+        "prompt": "A cinematic shot of a fox walking through a snowy forest at dawn, the camera tracking alongside, snow crunching underfoot. a choir singing 'mini max h3' in the background, cinematic lighting, 8k, ultra-detailed, photorealistic in the distance",
+        "negative_prompt": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, wrong gaze direction, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts.",
         "num_frames": 124,
         "width": 960,
         "height": 544,
         "num_inference_steps": 20,
         "weights_dtype": "{int4}"
     },
+    "seed": 42,
     "steps": [
         {
             "name": "text_to_video_audio",
@@ -17,10 +19,6 @@
                     "pre_load_modules": [
                         "sdnq"
                     ],
-                    "cache": {
-                        "type": "first_block",
-                        "threshold": 0.05
-                    },
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
@@ -76,7 +74,9 @@
                         },
                         "text_encoder.model": {
                             "group_offload": {
-                                "offload_type": "leaf_level"
+                                "offload_type": "leaf_level",
+                                "use_stream": true,
+                                "record_stream": true
                             }
                         },
                         "vae": {
@@ -85,9 +85,6 @@
                         "audio_vae": {
                             "device": "cuda"
                         }
-                    },
-                    "vae": {
-                        "enable_tiling": true
                     }
                 },
                 "from_pretrained_arguments": {
@@ -96,6 +93,7 @@
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
+                    "negative_prompt": "variable:negative_prompt",
                     "num_frames": "variable:num_frames",
                     "width": "variable:width",
                     "height": "variable:height",
