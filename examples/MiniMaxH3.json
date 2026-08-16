@@ -1,5 +1,5 @@
 {
-    "id": "MiniMaxH3-cache",
+    "id": "MiniMaxH3",
     "variables": {
         "prompt": "A red fox trotting through a snowy pine forest, snow crunching underfoot",
         "num_frames": 124,
@@ -8,7 +8,6 @@
         "num_inference_steps": 20,
         "weights_dtype": "{int4}"
     },
-    "seed": 42,
     "steps": [
         {
             "name": "text_to_video_audio",
@@ -77,10 +76,7 @@
                         },
                         "text_encoder.model": {
                             "group_offload": {
-                                "offload_type": "leaf_level",
-                                "use_stream": true,
-                                "record_stream": true,
-                                "low_cpu_mem_usage": true
+                                "offload_type": "leaf_level"
                             }
                         },
                         "vae": {
