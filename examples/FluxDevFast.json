@@ -38,7 +38,7 @@
                 "transformer": {
                     "configuration": {
                         "component_type": "FluxTransformer2DModel",
-                        "do_not_send_to_device": true
+                        "preserve_device_placement": true
                     },
                     "quantization_config": {
                         "configuration": {

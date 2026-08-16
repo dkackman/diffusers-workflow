@@ -847,7 +847,9 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
             component.enable_layerwise_casting(**enable_layerwise_casting_configuration)
 
         # Configure component device settings
-        do_not_send_to_device = configuration.get("do_not_send_to_device", False)
+        preserve_device_placement = configuration.get(
+            "preserve_device_placement", False
+        )
         offload = configuration.get("offload", None)
 
         # Offloading streams a model between system memory and an accelerator - there is
@@ -878,7 +880,7 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
             logger.info(
                 f"components configure group offloading - not moving pipeline to {device}"
             )
-        elif hasattr(component, "to") and not do_not_send_to_device:
+        elif hasattr(component, "to") and not preserve_device_placement:
             logger.debug(f"Moving {component_name} to device: {device}")
             component = component.to(device)
 

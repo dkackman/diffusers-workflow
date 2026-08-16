@@ -277,15 +277,15 @@ For components the pipeline loads itself — which is all of a modular pipeline'
   the device - the components are placed individually, so moving the whole pipeline would
   load it in full before the offload hooks exist. Nothing extra is needed for that.
 
-`do_not_send_to_device` covers the case that is left: a component loaded already placed,
-which must not be moved afterwards. A `device_map` load or a quantization that pins its
-tensors to one device is the usual reason.
+`preserve_device_placement` covers the case that is left: a component loaded already
+placed, which must not be moved afterwards. A `device_map` load or a quantization that
+pins its tensors to one device is the usual reason.
 
 ```json
 "transformer": {
     "configuration": {
         "component_type": "FluxTransformer2DModel",
-        "do_not_send_to_device": true
+        "preserve_device_placement": true
     },
     "from_pretrained_arguments": {
         "model_name": "black-forest-labs/FLUX.1-dev",
@@ -294,6 +294,10 @@ tensors to one device is the usual reason.
     }
 }
 ```
+
+> **Renamed:** this setting was `do_not_send_to_device`. The old name is no longer
+> recognized - a workflow still using it will load the component and then move it to the
+> device anyway, since an unknown key is ignored rather than rejected. Rename the key.
 
 #### Releasing a pipeline mid-workflow
 
