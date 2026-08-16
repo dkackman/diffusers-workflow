@@ -10,6 +10,7 @@ from .config_objects import (
     get_load_components_arguments,
 )
 from .remote import remote_text_encoder
+from ..cache_blocks import register_cache_blocks
 from ..teacache import teacache_context
 from ..type_helpers import has_method
 from .. import get_device_type
@@ -19,6 +20,10 @@ from diffusers import attention_backend
 # imported where they are used - at module scope they add seconds to every startup
 
 logger = logging.getLogger("dw")
+
+# Names the cache state a run accumulates. Any stable string works - it only has to
+# match itself across the steps of one call
+_CACHE_CONTEXT_NAME = "dw"
 
 optional_component_names = [
     "controlnet",
@@ -342,12 +347,14 @@ class Pipeline:
             return self._call_pipeline(arguments, attn_backend)
 
     def _call_pipeline(self, arguments, attn_backend):
-        """Call the pipeline with optional attention backend context."""
-        if attn_backend is None:
-            return self.pipeline(**arguments)
+        """Call the pipeline with optional attention backend and cache contexts."""
+        with contextlib.ExitStack() as stack:
+            if attn_backend is not None:
+                logger.debug(f"Using attention backend: {attn_backend}")
+                stack.enter_context(attention_backend(attn_backend))
 
-        logger.debug(f"Using attention backend: {attn_backend}")
-        with attention_backend(attn_backend):
+            stack.enter_context(stateful_cache_context(self.pipeline))
+
             return self.pipeline(**arguments)
 
     def load_optional_component(
@@ -934,6 +941,40 @@ def apply_sdnq_optimizations(pipeline, component_names):
             )
 
 
+@contextlib.contextmanager
+def stateful_cache_context(pipeline):
+    """Provide the context a stateful cache hook reads its state through.
+
+    first_block, mag and layer_skip keep per-context state, and their hooks go
+    through diffusers' StateManager, which raises "No context is set" unless a
+    context is active. A DiffusionPipeline sets one around each denoising step and
+    clears the state afterwards in maybe_free_model_hooks; ModularPipeline is not a
+    DiffusionPipeline and does neither, so caching a modular pipeline dies on the
+    first step - and would otherwise carry the previous run's residuals into the
+    next run of a pipeline this process keeps loaded.
+
+    One context spans the whole call rather than each step. The state is keyed by
+    context name, so re-entering per step only re-reads the same entry. Pipelines
+    that run separate conditional and unconditional passes name a context per pass
+    to keep their caches apart, which a shared context would defeat - but a modular
+    pipeline that needed that would be setting its own contexts already, and this
+    is a no-op for pipelines whose cache is not enabled.
+    """
+    transformer = getattr(pipeline, "transformer", None)
+    if transformer is None or not getattr(transformer, "is_cache_enabled", False):
+        yield
+        return
+
+    logger.debug(f"Entering cache context for {transformer.__class__.__name__}")
+    try:
+        with transformer.cache_context(_CACHE_CONTEXT_NAME):
+            yield
+    finally:
+        # Private, but it is what diffusers' own pipelines call and there is no
+        # public equivalent. Also clears the context an errored call left set
+        transformer._reset_stateful_cache()
+
+
 def enable_cache_on_transformer(pipeline, cache_config):
     """Enable cache configuration on the pipeline's transformer.
 
@@ -962,6 +1003,11 @@ def enable_cache_on_transformer(pipeline, cache_config):
     ):
         logger.debug("Wiring FasterCache current_timestep_callback to the pipeline")
         cache_config.current_timestep_callback = lambda: pipeline._current_timestep
+
+    # first_block, mag and layer_skip resolve the transformer's block class
+    # through diffusers' registry and raise when it is absent - fill in the
+    # blocks diffusers has not registered before handing the config over
+    register_cache_blocks()
 
     logger.info(
         f"Enabling {cache_config.__class__.__name__} on {transformer.__class__.__name__}"
