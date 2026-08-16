@@ -686,6 +686,16 @@ def auto_cpu_offload_enabled(configuration):
     )
 
 
+def auto_cpu_offload_active(configuration, device):
+    """Whether the components manager actually owns device placement.
+
+    Mirrors the MPS skip in create_components_manager() - on MPS the manager
+    never installs its offload hooks, so callers must not assume it owns
+    device placement there.
+    """
+    return auto_cpu_offload_enabled(configuration) and get_device_type(device) != "mps"
+
+
 def create_components_manager(configuration, device):
     """Create the components manager for a modular pipeline, when one is configured.
 
@@ -710,14 +720,26 @@ def create_components_manager(configuration, device):
     components_manager = ComponentsManager()
 
     if auto_cpu_offload_enabled(configuration):
-        offload_arguments = {}
-        memory_reserve_margin = manager_configuration.get("memory_reserve_margin", None)
-        if memory_reserve_margin is not None:
-            offload_arguments["memory_reserve_margin"] = memory_reserve_margin
+        # ComponentsManager.enable_auto_cpu_offload() calls device.mem_get_info(),
+        # which torch does not implement for MPS. Unified memory also makes the
+        # feature far less useful there than on CUDA, so skip it rather than fail.
+        if get_device_type(device) == "mps":
+            logger.warning(
+                "components_manager auto CPU offload is not supported on MPS, skipping"
+            )
+        else:
+            offload_arguments = {}
+            memory_reserve_margin = manager_configuration.get(
+                "memory_reserve_margin", None
+            )
+            if memory_reserve_margin is not None:
+                offload_arguments["memory_reserve_margin"] = memory_reserve_margin
 
-        # Enabled before the components load so each one is hooked as it is added
-        logger.info(f"Enabling components manager auto CPU offload on {device}")
-        components_manager.enable_auto_cpu_offload(device=device, **offload_arguments)
+            # Enabled before the components load so each one is hooked as it is added
+            logger.info(f"Enabling components manager auto CPU offload on {device}")
+            components_manager.enable_auto_cpu_offload(
+                device=device, **offload_arguments
+            )
 
     return components_manager
 
@@ -867,7 +889,9 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
                 logger.debug(f"Excluding {component_name} from CPU offload")
                 component._exclude_from_cpu_offload.append(component_name)
             component.enable_sequential_cpu_offload(device=device)
-        elif components_manager is not None and auto_cpu_offload_enabled(configuration):
+        elif components_manager is not None and auto_cpu_offload_active(
+            configuration, device
+        ):
             # Moving everything to the device here would defeat the offloading - the
             # manager's hooks bring each component on device as the pipeline needs it
             logger.debug("Device placement is owned by the components manager")
