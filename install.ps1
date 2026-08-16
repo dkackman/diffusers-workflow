@@ -79,7 +79,7 @@ pip install wheel setuptools
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Install PyTorch - use standard install (CUDA auto-detected on Windows)
-pip install torch torchvision
+pip install torch torchvision torchaudio
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Install Diffusers from GitHub (latest version)
