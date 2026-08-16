@@ -7,25 +7,35 @@
         "num_frames": 124,
         "width": 960,
         "height": 544,
-        "num_inference_steps": 50,
-        "quant_type": "torchao.quantization.Int8WeightOnlyConfig"
+        "num_inference_steps": 20,
+        "weights_dtype": "{int4}"
     },
-    "seed": 42,
     "steps": [
         {
             "name": "reference_to_video_audio",
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "cache": {
+                        "type": "first_block",
+                        "threshold": 0.05
+                    },
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
                             "transformer_ref": {
                                 "configuration": {
-                                    "config_type": "TorchAoConfig"
+                                    "config_type": "sdnq.SDNQConfig"
                                 },
                                 "arguments": {
-                                    "quant_type": "variable:quant_type",
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
                                     "modules_to_not_convert": [
                                         "proj_in",
                                         "audio_proj_in",
@@ -41,16 +51,30 @@
                             },
                             "text_encoder": {
                                 "configuration": {
-                                    "config_type": "transformers.TorchAoConfig"
+                                    "config_type": "sdnq.SDNQConfig"
                                 },
                                 "arguments": {
-                                    "quant_type": "variable:quant_type",
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
                                     "modules_to_not_convert": [
-                                        "model.visual",
-                                        "model.language_model.embed_tokens",
-                                        "model.language_model.norm",
+                                        ".model.visual",
                                         "lm_head"
                                     ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
                                 }
                             }
                         }
@@ -60,19 +84,18 @@
                             "group_offload": {
                                 "offload_type": "block_level",
                                 "num_blocks_per_group": 1,
-                                "use_stream": true
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
                             }
                         },
                         "text_encoder.model": {
                             "group_offload": {
-                                "offload_type": "leaf_level",
-                                "use_stream": true
+                                "offload_type": "leaf_level"
                             }
                         },
                         "vae": {
-                            "group_offload": {
-                                "offload_type": "leaf_level"
-                            }
+                            "device": "cuda"
                         },
                         "audio_vae": {
                             "device": "cuda"
