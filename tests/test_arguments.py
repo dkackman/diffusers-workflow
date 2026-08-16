@@ -281,6 +281,34 @@ class TestRealizeArgs:
 
         assert args["category_type"] == "clothing"
 
+    def test_realize_escaped_type_reference_survives_second_pass(self):
+        # Variables are realized before the steps they are substituted into, so an
+        # escaped value under a type-like key gets realized twice - the second pass
+        # must not load the unescaped name as a type
+        args = {"weights_dtype": "{int4}"}
+        realize_args(args)
+        realize_args(args)
+
+        assert args["weights_dtype"] == "int4"
+
+    def test_realize_escaped_variable_substituted_into_type_key(self):
+        # The MiniMaxH3 shape: a variable named like a type key, substituted into
+        # an argument of the same name
+        variables = {"weights_dtype": "{int4}"}
+        realize_args(variables)
+
+        steps = {"arguments": {"weights_dtype": variables["weights_dtype"]}}
+        realize_args(steps)
+
+        assert steps["arguments"]["weights_dtype"] == "int4"
+
+    def test_realize_escaped_offload_type_survives_second_pass(self):
+        args = {"group_offload": {"offload_type": "{leaf_level}"}}
+        realize_args(args)
+        realize_args(args)
+
+        assert args["group_offload"]["offload_type"] == "leaf_level"
+
     def test_realize_content_type_not_converted(self):
         # content_type should not be treated as a type reference
         args = {"content_type": "image/jpeg"}

@@ -18,6 +18,23 @@ logger = logging.getLogger("dw")
 # key can be escaped where it is used, by wrapping its value in braces
 NON_TYPE_KEYS = {"content_type", "offload_type"}
 
+
+class EscapedString(str):
+    """A string whose {} escape has already been consumed.
+
+    Arguments are realized twice - once for the workflow's variables, and again for
+    the steps the variables are substituted into. A variable's own name can look
+    like a type reference ("weights_dtype": "{int4}"), so the first pass strips the
+    braces and the second would load the bare name as a type. Marking the stripped
+    value keeps the second pass from touching it, while it stays an ordinary string
+    everywhere else.
+    """
+
+
+def is_escaped(value):
+    """Whether a value is a type reference escaped with {} braces"""
+    return isinstance(value, str) and value.startswith("{") and value.endswith("}")
+
 # The key naming the file an argument object is constructed from
 FROM_FILE_KEY = "from_file"
 
@@ -59,19 +76,22 @@ def realize_args(arg, base_dir=None):
                 arg[k] = fetch_video(v, base_dir)
             # Handle type references, and the keys that only look like one
             elif k.endswith("_type") or k.endswith("_dtype") or k == "dtype":
+                if isinstance(v, EscapedString):
+                    # An earlier pass already consumed this value's escape
+                    continue
                 if k in NON_TYPE_KEYS:
                     # The value stays a string, but the {} escape is still honored
                     # so both the escaped and the bare spelling name the category
-                    if isinstance(v, str) and v.startswith("{") and v.endswith("}"):
-                        arg[k] = v.strip("{}")
+                    if is_escaped(v):
+                        arg[k] = EscapedString(v.strip("{}"))
                     continue
                 logger.debug(f"Processing type reference for key: {k}")
                 # Allow escaping type references using {} brackets
                 # this is for instances when the argument name is "something_type" but it is
                 # not a reference to a python type, but rather a category or something else
                 if isinstance(v, str):
-                    if v.startswith("{") and v.endswith("}"):
-                        arg[k] = v.strip("{}")
+                    if is_escaped(v):
+                        arg[k] = EscapedString(v.strip("{}"))
                     else:
                         arg[k] = load_type_from_name(v)
                 elif isinstance(v, type):
