@@ -35,6 +35,7 @@ def is_escaped(value):
     """Whether a value is a type reference escaped with {} braces"""
     return isinstance(value, str) and value.startswith("{") and value.endswith("}")
 
+
 # The key naming the file an argument object is constructed from
 FROM_FILE_KEY = "from_file"
 
