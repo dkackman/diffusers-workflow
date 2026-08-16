@@ -393,6 +393,24 @@
                             "description": "Fraction of initial steps where skipping is disabled for mag cache. Default: 0.2.",
                             "type": "number"
                         },
+                        "mag_ratios": {
+                            "description": "Per-step magnitude ratios for mag cache. Required unless calibrate is true, and checkpoint-dependent. Either a preset name shipped by diffusers ('flux') or an explicit array of per-step ratios. Interpolated automatically when its length differs from num_inference_steps.",
+                            "oneOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "number"
+                                    }
+                                }
+                            ]
+                        },
+                        "calibrate": {
+                            "description": "Run mag cache in calibration mode: skip nothing, and log the magnitude ratios for this model at the end of the run so they can be pasted into mag_ratios. Default: false.",
+                            "type": "boolean"
+                        },
                         "cache_interval": {
                             "description": "Full computation every N steps for taylorseer cache. Default: 5.",
                             "type": "integer"
