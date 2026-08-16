@@ -15,7 +15,6 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",
-                    "do_not_send_to_device": true,
                     "pre_load_modules": [
                         "sdnq"
                     ],

@@ -251,7 +251,6 @@ For components the pipeline loads itself — which is all of a modular pipeline'
 ```json
 "configuration": {
     "component_type": "ModularPipeline",
-    "do_not_send_to_device": true,
     "components": {
         "transformer": {
             "group_offload": {
@@ -274,8 +273,27 @@ For components the pipeline loads itself — which is all of a modular pipeline'
 - `device` — moves a component that is small enough to stay resident.
 - A dotted key reaches a module inside a component, for a component that holds the model
   rather than being one.
-- `do_not_send_to_device` belongs with this: the components are placed individually, so
-  the pipeline itself must not be moved to the device afterwards.
+- A `components` block that group offloads anything already keeps the pipeline itself off
+  the device - the components are placed individually, so moving the whole pipeline would
+  load it in full before the offload hooks exist. Nothing extra is needed for that.
+
+`do_not_send_to_device` covers the case that is left: a component loaded already placed,
+which must not be moved afterwards. A `device_map` load or a quantization that pins its
+tensors to one device is the usual reason.
+
+```json
+"transformer": {
+    "configuration": {
+        "component_type": "FluxTransformer2DModel",
+        "do_not_send_to_device": true
+    },
+    "from_pretrained_arguments": {
+        "model_name": "black-forest-labs/FLUX.1-dev",
+        "subfolder": "transformer",
+        "device_map": "cuda"
+    }
+}
+```
 
 #### Releasing a pipeline mid-workflow
 
