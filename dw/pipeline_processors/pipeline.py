@@ -997,6 +997,27 @@ def apply_sdnq_optimizations(pipeline, component_names):
             )
 
 
+def get_cache_transformer(pipeline):
+    """Find the denoiser a cache hook attaches to.
+
+    Most pipelines register theirs as 'transformer', but a modular pipeline names
+    it after the workflow it serves - MiniMax-H3's ref2va denoises through
+    'transformer_ref'. Looking only for 'transformer' silently skips caching on
+    those, so try the alternates diffusers' modular pipelines actually use.
+
+    Args:
+        pipeline: The loaded diffusers pipeline
+
+    Returns:
+        The transformer component, or None when the pipeline has none
+    """
+    for name in ("transformer", "transformer_ref"):
+        transformer = getattr(pipeline, name, None)
+        if transformer is not None:
+            return transformer
+    return None
+
+
 @contextlib.contextmanager
 def stateful_cache_context(pipeline):
     """Provide the context a stateful cache hook reads its state through.
@@ -1016,7 +1037,7 @@ def stateful_cache_context(pipeline):
     pipeline that needed that would be setting its own contexts already, and this
     is a no-op for pipelines whose cache is not enabled.
     """
-    transformer = getattr(pipeline, "transformer", None)
+    transformer = get_cache_transformer(pipeline)
     if transformer is None or not getattr(transformer, "is_cache_enabled", False):
         yield
         return
@@ -1038,7 +1059,7 @@ def enable_cache_on_transformer(pipeline, cache_config):
         pipeline: The loaded diffusers pipeline
         cache_config: Cache configuration object from get_cache_configuration()
     """
-    transformer = getattr(pipeline, "transformer", None)
+    transformer = get_cache_transformer(pipeline)
     if transformer is None:
         logger.warning("Pipeline has no transformer, skipping cache configuration")
         return

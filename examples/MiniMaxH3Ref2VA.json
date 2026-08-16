@@ -91,7 +91,9 @@
                         },
                         "text_encoder.model": {
                             "group_offload": {
-                                "offload_type": "leaf_level"
+                                "offload_type": "leaf_level",
+                                "use_stream": true,
+                                "record_stream": true
                             }
                         },
                         "vae": {
