@@ -1,5 +1,6 @@
 {
     "id": "MiniMaxH3I2VChained",
+    "description": "Getting past the model's fixed clip length by running one pipeline repeatedly and stitching the output. The simplest form of 'chain': a fixed segment count with 'last_frame' continuity, where each segment's final frame becomes the next segment's keyframe. Also shows the bookkeeping a stitched video needs - 'frame_snap' to keep every segment a length the model accepts, 'trim_frames' to drop the duplicated keyframe at each seam, and a crossfade over the generated audio so the joins are not audible.",
     "variables": {
         "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field, one continuous shot. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles writhe without pause, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, speaks steadily throughout, <d>[English] Rise now. The old ones are listening.</d> Its central mass swells and contracts with the cadence of the words, and the caustics on the surface below ripple in time. The camera holds a static shot, letting the tentacles move through the frame edges.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch, continuous and unhurried from the first frame to the last.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, holding an even intensity with no discernible melody or pulse.",
         "image": {
@@ -9,8 +10,12 @@
         "segments": 3,
         "width": 960,
         "height": 544,
-        "num_inference_steps": 20,
-        "weights_dtype": "{int4}"
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo"
     },
     "steps": [
         {
@@ -111,6 +116,14 @@
                     "model_name": "MiniMaxAI/MiniMax-H3",
                     "workflow": "fl2va"
                 },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
                 "chain": {
                     "segments": "variable:segments",
                     "continuity": "last_frame",

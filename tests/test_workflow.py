@@ -1,3 +1,4 @@
+import json
 import pytest
 import torch
 from unittest.mock import MagicMock
@@ -138,6 +139,45 @@ class TestSeedResolution:
             device="cuda",
         )
         assert action.argument_template["generator"].device.type == "cpu"
+
+
+class TestSubWorkflowSeedInheritance:
+    """A delegated workflow runs under the parent's seed unless it names one.
+
+    Left to itself a child draws its own random seed, which would put the work a
+    workflow delegates outside the reach of the seed it was given.
+    """
+
+    def step_definition(self, path):
+        return {"name": "child", "workflow": {"path": path, "arguments": {}}}
+
+    def child_steps(self):
+        return [
+            {
+                "name": "noop",
+                "task": {"command": "get_image_size", "arguments": {}},
+            }
+        ]
+
+    def child_action(self, child_definition, seed, tmp_path):
+        child = tmp_path / "child.json"
+        child.write_text(json.dumps(child_definition))
+        parent = Workflow({"id": "parent", "steps": []}, str(tmp_path), "")
+        return parent.create_step_action(
+            self.step_definition(str(child)), {}, {}, seed, "cpu"
+        )
+
+    def test_child_inherits_the_parent_seed(self, tmp_path):
+        action = self.child_action(
+            {"id": "c", "steps": self.child_steps()}, 4242, tmp_path
+        )
+        assert action.workflow_definition["seed"] == 4242
+
+    def test_child_seed_wins(self, tmp_path):
+        action = self.child_action(
+            {"id": "c", "seed": 99, "steps": self.child_steps()}, 4242, tmp_path
+        )
+        assert action.workflow_definition["seed"] == 99
 
 
 class TestGlobalRngIsolation:

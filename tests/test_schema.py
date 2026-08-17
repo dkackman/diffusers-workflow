@@ -101,6 +101,29 @@ def test_release_pipeline_step_flag_validates():
     assert status is True, message
 
 
+def test_null_variable_declares_an_optional_argument():
+    """A workflow exposing an argument a caller may omit declares it null."""
+    schema = load_schema("workflow")
+    workflow = _pipeline_step({})
+    workflow["variables"] = {"image": None, "prompt": "a cat"}
+    status, message = validate_data(workflow, schema)
+    assert status is True, message
+
+
+def test_release_models_step_flag_validates():
+    schema = load_schema("workflow")
+    workflow = _pipeline_step({}, release_models=True)
+    status, message = validate_data(workflow, schema)
+    assert status is True, message
+
+
+def test_release_models_step_flag_is_typed():
+    schema = load_schema("workflow")
+    workflow = _pipeline_step({}, release_models="yes")
+    status, _ = validate_data(workflow, schema)
+    assert status is False
+
+
 def _chained_workflow(chain):
     workflow = _pipeline_step({})
     workflow["steps"][0]["pipeline"]["chain"] = chain

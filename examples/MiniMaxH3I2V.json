@@ -1,5 +1,6 @@
 {
     "id": "MiniMaxH3I2V",
+    "description": "Conditioning generation on a supplied still. The same model is loaded under its 'fl2va' workflow and given only an 'image', so the picture becomes the video's first frame - the frame-conditioned form of the baseline. Also stacks the two acceleration mechanisms that apply to any of these pipelines: a step-distillation LoRA, which composes with per-component quantization and offloading to cut the step count, and 'cache', where the transformer reuses block output between similar steps.",
     "variables": {
         "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles, until now still, begin to writhe, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, says <d>[English] Rise now. The old ones are listening.</d> As the words land its central mass swells and contracts once, and the caustics on the surface below ripple with it. The camera pushes in with small amplitude at slow speed toward the figure's core through the final seconds, holding the writhing tentacles at the edges of frame.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch. A distant, slow swell of moving air rises beneath the voice and falls away after it.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, rising very slowly in intensity across the clip with no discernible melody or pulse.",
         "image": {
@@ -8,8 +9,12 @@
         "num_frames": 124,
         "width": 960,
         "height": 544,
-        "num_inference_steps": 20,
-        "weights_dtype": "{int4}"
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo"
     },
     "steps": [
         {
@@ -110,6 +115,14 @@
                     "model_name": "MiniMaxAI/MiniMax-H3",
                     "workflow": "fl2va"
                 },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
                 "arguments": {
                     "prompt": "variable:prompt",
                     "image": "variable:image",

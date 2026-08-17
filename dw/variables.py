@@ -114,8 +114,10 @@ def get_value(v, desired_type, name=None):
     """
     logger.debug(f"Converting value {v} to type {desired_type}")
 
+    # A variable declared null is an optional one the workflow states no type
+    # for - passing a value to it is the expected case, not a suspicious one
     if desired_type is None or desired_type is type(None):
-        logger.warning("No type specified for conversion, returning original value")
+        logger.debug("Variable has no declared type, using the value as given")
         return v
 
     # Special handling for boolean string values - bool("0") and bool("no") are

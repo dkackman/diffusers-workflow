@@ -1,5 +1,6 @@
 {
     "id": "MiniMaxH3FL2VA",
+    "description": "Conditioning on both ends of the clip at once. The 'fl2va' workflow is given an 'image' and a 'last_image', pinning the first and final frames so the model interpolates the motion between two fixed states rather than inventing an ending. Pointing both at the same picture is what makes a clip that returns to where it started, the building block for a seamless loop.",
     "variables": {
         "prompt": "How the reference pictures align with the target video - Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the 5.17-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field, one continuous shot from the first frame to the last. The video opens on <Picture 1>: a translucent blown glass figure centred against a dark, softly graded background, its tentacles curled in close to the body, cool rim light running along every curve and small caustics pooling on the surface beneath it. The tentacles unfurl outward and upward through the first half of the clip, reaching their widest span near the midpoint with the glass flexing as though molten while staying perfectly clear, and the caustics below spreading with them. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, says <d>[English] Rise now. The old ones are listening.</d> Through the second half the tentacles draw steadily back in along the same paths, the span narrowing and the caustics contracting, until the figure settles into exactly the pose, position and lighting of <Picture 2> as the video ends. The camera holds a static shot throughout so the opening and closing frames match.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak that rises as the limbs spread and falls as they close, with an occasional soft chime as two limbs touch.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, swelling as the tentacles reach their widest span and returning to its opening level as they close, with no discernible melody or pulse.",
         "image": {
@@ -11,8 +12,12 @@
         "num_frames": 124,
         "width": 544,
         "height": 544,
-        "num_inference_steps": 20,
-        "weights_dtype": "{int4}"
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo"
     },
     "steps": [
         {
@@ -113,6 +118,14 @@
                     "model_name": "MiniMaxAI/MiniMax-H3",
                     "workflow": "fl2va"
                 },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
                 "arguments": {
                     "prompt": "variable:prompt",
                     "image": "variable:image",

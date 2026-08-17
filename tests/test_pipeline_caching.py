@@ -7,6 +7,7 @@ This test demonstrates GPU model persistence in the worker process.
 import os
 import sys
 import logging
+import pytest
 from unittest.mock import Mock, patch, MagicMock
 
 # Add parent directory to path
@@ -15,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dw.workflow import Workflow
 from dw.pipeline_processors.pipeline import Pipeline
 from dw.step import Step
+from dw.tasks.model_cache import _cache as _model_cache, cached_model, clear_model_cache
 from dw import get_device
 
 # Setup logging
@@ -263,6 +265,54 @@ def test_release_pipeline_evicts_after_step():
     assert "keep" in pipeline_cache, "other pipelines stay cached"
     # the between-step cleanup returns cached blocks to the device
     assert empty_cache.call_count == len(_release_workflow_def()["steps"])
+
+
+def _release_models_workflow_def(release):
+    """A task step ahead of a pipeline step - the shape release_models exists for."""
+    return {
+        "id": "test_release_models",
+        "steps": [
+            {
+                "name": "expand_prompt",
+                **({"release_models": True} if release else {}),
+                "task": {"command": "text_generation", "arguments": {"prompt": "hi"}},
+            },
+            {
+                "name": "generate",
+                "pipeline": {
+                    "configuration": {"component_type": "{MockPipeline}"},
+                    "from_pretrained_arguments": {"model_name": "model-generate"},
+                    "arguments": {"prompt": "test"},
+                },
+            },
+        ],
+    }
+
+
+@pytest.mark.parametrize("release,expect_cached", [(True, False), (False, True)])
+def test_release_models_evicts_task_models_after_step(release, expect_cached):
+    """release_models drops cached task models; without it they stay for the run."""
+
+    workflow = Workflow(
+        _release_models_workflow_def(release), "/tmp/test_output", "test.json"
+    )
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+
+    # Stand in for the model a task handler would have loaded on its device
+    cached_model(("text_generation", "some-model", "cuda"), MagicMock)
+    try:
+        with patch.object(Pipeline, "load", mock_pipeline_load):
+            with patch.object(
+                Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+            ):
+                with patch("dw.workflow.empty_device_cache"):
+                    workflow.run({}, previous_pipelines={})
+
+        assert bool(_model_cache) is expect_cached
+    finally:
+        clear_model_cache()
 
 
 if __name__ == "__main__":

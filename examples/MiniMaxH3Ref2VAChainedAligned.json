@@ -1,0 +1,177 @@
+{
+    "id": "MiniMaxH3Ref2VAChainedAligned",
+    "description": "The chaining features used together, for a long clip driven by a supplied soundtrack. 'match_audio' sizes the chain to the audio while 'last_segment' continuity carries motion and framing across the seams, with 'carry_audio' off because the segments already take their audio from the supplied track rather than from each other. Also shows 'prompts', which lets a chain say something different on its opening segment than on its continuations, and 'save_segments', which writes each finished segment to disk so memory stays bounded to one segment and a crashed run keeps its progress.",
+    "seed": 12345,
+    "variables": {
+        "first_segment_prompt": "subject_definitions:\n<Subject 1> is the cartoon astronaut in <Picture 1>, whose face, hair, clothing and proportions define their appearance for the whole video.\n<Audio 1> is the speech track <Subject 1> (S1) is lip-synchronised to: a single continuous recorded voiceover, even in level and unhurried in delivery.\n\nsummary:\n[image reference + audio speech reference] The target video shows <Subject 1> delivering the speech carried by <Audio 1> directly to camera in the setting of <Picture 1>, in one continuous take that runs to the end of the clip without resolving.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, hair, clothing and proportions of <Picture 1> are kept exactly, with the head, jaw and shoulders newly animated to speak.\n<Audio 1>: partially_copy - the segment of the recording covering this part of the timeline is reused as <Subject 1>'s speech, and the mouth is synchronised to it.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium close-up frames <Subject 1> from the chest up, centred and facing camera in the setting of <Picture 1>, held as one continuous shot. The lighting of <Picture 1> is kept exactly as it is, steady and unchanging across the whole clip, and the background sits well behind in shallow focus. <Subject 1> (S1) speaks continuously, the jaw and lips moving in natural synchronisation with <Audio 1> and pausing only where the recording pauses. Between phrases <Subject 1> shifts weight very slightly and the head drifts a few degrees off centre and back, with the eyes staying on the lens and blinking at a natural rate. The camera holds a static shot throughout. The clip ends mid-delivery with <Subject 1> still speaking, the pose, framing and lighting unchanged from the rest of the shot.\n\noverall_soundscape:\nA quiet, close room tone at an even level from the first frame to the last, with no doors, footsteps or movement in the room, and faint clothing rustle as <Subject 1> shifts weight.\n\nnon_diegetic_music:\nNone.",
+        "continuation_prompt": "subject_definitions:\n<Subject 1> is the cartoon astronaut in <Picture 1>, whose face, hair, clothing and proportions define their appearance for the whole video.\n<Audio 1> is the speech track <Subject 1> (S1) is lip-synchronised to: a single continuous recorded voiceover, even in level and unhurried in delivery.\n<Video 1> is the tail of the shot immediately preceding this one, and it is the same continuous take: it carries <Subject 1>'s pose, head angle, weight, framing, lighting and speaking rhythm at the moment this clip begins.\n\nsummary:\n[image reference + audio speech reference + video continuation] The target video continues the unbroken take of <Video 1> without a cut, picking up <Subject 1>'s exact pose, framing, lighting and speaking rhythm at the frame <Video 1> ends on, and carrying the delivery of <Audio 1> onward to the end of the clip.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, hair, clothing and proportions of <Picture 1> are kept exactly, unchanged from <Video 1>.\n<Video 1>: reference - the pose, head angle, weight distribution, framing, camera position, lighting and speaking rhythm at its final frame are continued directly into the first frame of this clip; none of its frames are reused.\n<Audio 1>: partially_copy - the segment of the recording covering this part of the timeline is reused as <Subject 1>'s speech, and the mouth is synchronised to it.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] The same medium close-up as <Video 1>, framing <Subject 1> from the chest up, centred and facing camera in the setting of <Picture 1>, held as one continuous shot. The first frame of this clip continues directly from the last frame of <Video 1>: the head angle, the weight on each foot, the position of the hands, the direction of the gaze and the state of the mouth all carry over without a jump, and the lighting and background are identical and stay unchanged across the whole clip. <Subject 1> (S1) speaks continuously, the jaw and lips moving in natural synchronisation with <Audio 1> and pausing only where the recording pauses, in the same unhurried delivery as <Video 1>. Between phrases <Subject 1> shifts weight very slightly and the head drifts a few degrees off centre and back, with the eyes staying on the lens and blinking at a natural rate. The camera holds the same static shot throughout, with no reframing, no cut and no change in scale. The clip ends mid-delivery with <Subject 1> still speaking, the pose, framing and lighting unchanged.\n\noverall_soundscape:\nA quiet, close room tone identical to <Video 1> and at the same even level from the first frame to the last, with no doors, footsteps or movement in the room, and faint clothing rustle as <Subject 1> shifts weight.\n\nnon_diegetic_music:\nNone.",
+        "subject": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg",
+        "voice": "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav",
+        "num_frames": 124,
+        "carry_frames": 48,
+        "trim_frames": 6,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0
+    },
+    "steps": [
+        {
+            "name": "audio_aligned_chained_reference_to_video_audio",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "cache": {
+                        "type": "first_block",
+                        "threshold": 0.1
+                    },
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer_ref": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer_ref": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder.model": {
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    },
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "ref2va"
+                },
+                "chain": {
+                    "match_audio": true,
+                    "continuity": "last_segment",
+                    "segment_argument": "references",
+                    "carry_frames": "variable:carry_frames",
+                    "carry_audio": false,
+                    "trim_frames": "variable:trim_frames",
+                    "fps": 24,
+                    "frame_snap": {
+                        "modulus": 17,
+                        "remainder": 5,
+                        "min_frames": 124,
+                        "max_frames": 345
+                    },
+                    "prompts": [
+                        "variable:first_segment_prompt",
+                        "variable:continuation_prompt"
+                    ],
+                    "save_segments": true
+                },
+                "loras": [
+                    {
+                        "model_name": "lightx2v/Minimax-h3-Turbo",
+                        "weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+                        "adapter_name": "turbo",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:first_segment_prompt",
+                    "references": [
+                        {
+                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+                            "from_file": "variable:subject"
+                        },
+                        {
+                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+                            "from_file": "variable:voice"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

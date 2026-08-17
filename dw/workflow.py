@@ -10,6 +10,7 @@ from .step import Step
 from .schema import validate_data, load_schema
 from .variables import replace_variables, set_variables
 from .pipeline_processors.pipeline import Pipeline
+from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
 from . import get_device, empty_device_cache
 from .security import (
@@ -235,6 +236,15 @@ class Workflow:
                     logger.info(f"Releasing pipeline for step: {step.name}")
                     pipelines.pop(step.name, None)
 
+                # Task models are cached for the life of the process - the cache
+                # exists so a step's cartesian product loads its model once, and
+                # nothing else evicts it. A prompt-expanding language model
+                # feeding a generation step would otherwise hold its weights on
+                # the device for the whole run
+                if step_data.get("release_models", False):
+                    logger.info(f"Releasing task models for step: {step.name}")
+                    clear_model_cache()
+
                 # Cleanup between steps (but keep pipelines loaded). Returning
                 # cached blocks to the device lets the next step's differently
                 # shaped allocations use them
@@ -382,6 +392,11 @@ class Workflow:
             workflow.workflow_definition["argument_template"] = workflow_reference.get(
                 "arguments", {}
             )
+            # A child left to itself draws its own random seed, which makes the
+            # parent's seed stop short of the work it delegates. Inheriting it
+            # keeps one seed reproducing the whole run; a child that names its
+            # own still wins, the same way a step overrides its workflow
+            workflow.workflow_definition.setdefault("seed", default_seed)
             workflow.validate()
             return workflow
 
