@@ -7,7 +7,7 @@ The general recipe, in order of impact:
 1. **Fit the transformer first.** If it fits in bf16 with room for activations, don't quantize. If it doesn't, prefer float8/int8 quantization (TorchAO, GGUF Q8) over offloading - quantization costs quality once, offloading costs speed every step.
 2. **Compile the transformer** (`"compile": {"repeated_blocks": true}`). 1.3-1.5x, stacks with everything below. The REPL worker keeps compiled pipelines loaded, so the compile cost is paid once per session. Add `fullgraph: true` only when no cache is configured - cache hooks need a graph break.
 3. **Cache** (`"cache": {"type": "first_block"}`). Another 1.5-2x at mild quality cost; raise `threshold` to taste.
-4. **Offload only what doesn't fit.** Text encoders and VAE tolerate `offload: "model"` cheaply - they run once per generation, not once per step.
+4. **Offload only what doesn't fit.** Text encoders and VAE tolerate `offload: "model"` cheaply - they run once per generation, not once per step. In a modular pipeline the same components take `"residency": "on_demand"`, which frees their VRAM for the denoise loop at the cost of one pair of transfers per call.
 5. **Pin the attention backend** on compiled components (`"attention_backend": "flash_hub"` or `"sage_hub"` - fetched from the Hub, no local build).
 
 ## Flux dev (12B)
@@ -40,6 +40,28 @@ Too large for bf16 on 24GB. Quantize the transformer (TorchAO int8/float8 or GGU
 Same shape as Flux: quantize the transformer (GGUF Q6/Q8, or TorchAO int8/float8 per the Flux table) + `offload: "model"` + `vae.enable_tiling`. The Llama text encoder benefits from group offload. Use `first_block` cache - video steps are expensive, caching pays off more than on images.
 
 **Examples:** [HunyuanVideoGguf.json](../examples/archive/HunyuanVideoGguf.json), [hunyuan15.json](../examples/archive/hunyuan15.json)
+
+## MiniMax-H3
+
+A modular pipeline, so everything is per component in `components` rather than a
+pipeline-level `offload`. The working 24GB configuration at 960x544:
+
+| Component | Config |
+| --------- | ------ |
+| `transformer` / `transformer_ref` | SDNQ int4 (`quantization_device: "cuda"`, `return_device: "cpu"`), `group_offload` `block_level` with `num_blocks_per_group: 1-2` and `use_stream: true` |
+| `text_encoder.model` | SDNQ int4, `group_offload` `leaf_level` |
+| `vae`, `audio_vae` | SDNQ int8, `device: "cuda"` |
+| pipeline | `cache: first_block` (`threshold: 0.1`), `vae.enable_tiling` |
+
+The VAEs are the piece worth calling out. They hold roughly 3GiB, are used only to
+encode references and decode the result, and group offloading them is worse than useless
+because tiled decode restreams the model once per tile. The reference workflows, which
+carry the most conditioning, add `"residency": "on_demand"` to both and go from 23.2GiB
+peak reserved with 40 allocator retries to 18.9GiB with none, for about 1% in wall time.
+Spend the headroom on length: carrying a frame between chained segments adds a reference
+and ~1.9GiB, which is what made the chained variants OOM on their second segment before.
+
+**Examples:** [MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json), [MiniMaxH3Ref2VAChained.json](../examples/MiniMaxH3Ref2VAChained.json), [MiniMaxH3I2V.json](../examples/MiniMaxH3I2V.json)
 
 ## SDXL (2.6B UNet)
 
