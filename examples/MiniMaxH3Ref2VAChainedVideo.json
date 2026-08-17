@@ -88,7 +88,7 @@
                                 "offload_type": "block_level",
                                 "num_blocks_per_group": 1,
                                 "use_stream": true,
-                                "record_stream": true,
+                                "record_stream": false,
                                 "low_cpu_mem_usage": true
                             }
                         },
