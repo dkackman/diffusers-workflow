@@ -10,6 +10,7 @@ A declarative workflow engine for the [Hugging Face Diffusers library](https://g
 
 - **Declarative JSON workflows** with variable substitution and cross-step data flow
 - **Multi-step pipelines** — chain text-to-image, image-to-video, inpainting, ControlNet
+- **Long-video chaining** — run a video pipeline once per segment and stitch the segments into one clip, with audio-driven length and frame-to-frame continuity
 - **Quantization** — BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto
 - **Inference acceleration** — TeaCache, FirstBlockCache, FasterCache, MagCache, TaylorSeerCache
 - **Prompt weighting** — A1111-style `(word:1.5)` syntax with long prompt support
@@ -45,14 +46,14 @@ The install scripts detect your Python version, create a virtual environment, an
 ### Run a Workflow
 
 ```bash
-python -m dw.run examples/FluxDev.json
-python -m dw.run examples/FluxDev.json prompt="a cat" num_images_per_prompt=4
+python -m dw.run examples/flux/FluxDev.json
+python -m dw.run examples/flux/FluxDev.json prompt="a cat" num_images_per_prompt=4
 ```
 
 ### Validate a Workflow
 
 ```bash
-python -m dw.validate examples/FluxDev.json
+python -m dw.validate examples/flux/FluxDev.json
 ```
 
 ### Interactive REPL

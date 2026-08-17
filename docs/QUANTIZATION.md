@@ -55,7 +55,7 @@ For 8-bit:
 "arguments": { "load_in_8bit": true }
 ```
 
-**Example:** [bnb_quant.json](../examples/bnb_quant.json)
+**Example:** [bnb_quant.json](../examples/archive/bnb_quant.json)
 
 ## TorchAO
 
@@ -78,7 +78,7 @@ Common choices: `Int8WeightOnlyConfig` (any CUDA card), `Int4WeightOnlyConfig` (
 `Float8DynamicActivationFloat8WeightConfig` (fastest, requires compute capability 8.9+ -
 RTX 40-series/Ada or newer).
 
-**Example:** [FluxTorchAO.json](../examples/FluxTorchAO.json)
+**Example:** [FluxTorchAO.json](../examples/flux/FluxTorchAO.json)
 
 **Pair TorchAO with `torch.compile`.** Int8 weight-only and float8 dynamic-activation
 quant types get their fused-kernel speedups only under compilation - uncompiled they are
@@ -117,7 +117,7 @@ GGUF models load from single files using `from_single_file`:
 }
 ```
 
-**Example:** [FluxGGUF.json](../examples/FluxGGUF.json)
+**Example:** [FluxGGUF.json](../examples/flux/FluxGGUF.json)
 
 ## SDNQ (SD.Next Quantization)
 

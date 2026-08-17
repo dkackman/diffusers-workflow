@@ -72,7 +72,7 @@ inverted latents:
 ```
 
 `reference_name` must name a step earlier in the same workflow that has a `pipeline`.
-See [examples/FluxRFInversion.json](../examples/FluxRFInversion.json) for a full example.
+See [examples/flux/FluxRFInversion.json](../examples/flux/FluxRFInversion.json) for a full example.
 
 ### Task Steps
 
@@ -262,6 +262,7 @@ For components the pipeline loads itself — which is all of a modular pipeline'
         "text_encoder.model": {
             "group_offload": { "offload_type": "leaf_level", "use_stream": true }
         },
+        "vae": { "device": "cuda", "residency": "on_demand" },
         "audio_vae": { "device": "cuda" }
     }
 }
@@ -271,11 +272,15 @@ For components the pipeline loads itself — which is all of a modular pipeline'
   block or a leaf module at a time, which is what fits a component larger than the
   device. `onload_device` defaults to the pipeline's device.
 - `device` — moves a component that is small enough to stay resident.
+- `residency` — `"resident"` (the default) leaves the component on its device for the
+  whole run; `"on_demand"` rests it in system memory and moves it to the device only
+  while one of its own calls runs. See [On-demand components](#on-demand-components).
 - A dotted key reaches a module inside a component, for a component that holds the model
   rather than being one.
-- A `components` block that group offloads anything already keeps the pipeline itself off
-  the device - the components are placed individually, so moving the whole pipeline would
-  load it in full before the offload hooks exist. Nothing extra is needed for that.
+- A `components` block that group offloads anything, or marks anything `on_demand`,
+  already keeps the pipeline itself off the device - the components are placed
+  individually, so moving the whole pipeline would load it in full before the hooks and
+  wrappers exist. Nothing extra is needed for that.
 
 `preserve_device_placement` covers the case that is left: a component loaded already
 placed, which must not be moved afterwards. A `device_map` load or a quantization that
@@ -298,6 +303,47 @@ pins its tensors to one device is the usual reason.
 > **Renamed:** this setting was `do_not_send_to_device`. The old name is no longer
 > recognized - a workflow still using it will load the component and then move it to the
 > device anyway, since an unknown key is ignored rather than rejected. Rename the key.
+
+#### On-demand components
+
+`"residency": "on_demand"` sits between the two placements above. A `device` component
+holds VRAM for the whole run, wasted on a component used twice; group offloading
+streams per submodule forward, so it restreams the model once per call of every leaf -
+ruinous for a VAE, whose tiled decode calls its blocks once per tile. On-demand moves the
+model as a whole around each call, so a tiling loop sits inside a single pair of
+transfers.
+
+```json
+"components": {
+    "vae": { "device": "cuda", "residency": "on_demand" },
+    "audio_vae": { "device": "cuda", "residency": "on_demand" }
+}
+```
+
+The component rests on the CPU and is moved to `device` around whichever of `forward`,
+`encode` and `decode` it defines, then moved back and the freed VRAM released to the
+driver. Nested calls are counted, so a `decode` that calls `forward` internally is moved
+once, not twice.
+
+- **Use it for a component that is large but called a handful of times** - a VAE that
+  encodes references at the start and decodes the result at the end. Freeing it for the
+  denoise loop is the whole point.
+- **Not for a component called every step.** A denoising transformer would pay per-call
+  transfers 20-50 times; group offloading is the tool for those.
+- **Cannot be combined with `group_offload`** on the same component - a group offloaded
+  module holds one group at a time and ignores whole-model moves, so the two cannot both
+  own its placement. Configuring both is rejected at load.
+- **Ignored when the component's device is the CPU**, where there is nothing to move it
+  off of.
+
+On a 24GB card, `MiniMaxH3Ref2VA.json` peaks at 18.9GiB of reserved VRAM with on-demand
+VAEs against 23.2GiB resident, and the tighter resident fit costs 40 allocator retries -
+cache flushes forced by a failed allocation - where the on-demand run has none. The
+headroom is also what lets the chained variant run: its later segments carry an extra
+reference and need ~1.9GiB more than the first.
+
+**Example:** [MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json),
+[MiniMaxH3Ref2VAChained.json](../examples/MiniMaxH3Ref2VAChained.json)
 
 #### Releasing a pipeline mid-workflow
 
@@ -348,7 +394,7 @@ Attach one or more LoRAs to a pipeline with `loras`, a sibling of `configuration
 - `adapter_name` — name passed to `set_adapters()`. Defaults to the LoRA's index in the list.
 - `scale` — the adapter's weight, passed to `set_adapters()`. Defaults to `1.0`.
 
-See [examples/FluxLora.json](../examples/FluxLora.json) for a full example.
+See [examples/flux/FluxLora.json](../examples/flux/FluxLora.json) for a full example.
 
 ### IP-Adapter
 
@@ -362,7 +408,7 @@ See [examples/FluxLora.json](../examples/FluxLora.json) for a full example.
 
 `model_name` is required; `weight_name`, `subfolder` and `scale` are optional. The
 adapter image itself is passed as a normal `ip_adapter_image` pipeline argument. See
-[examples/ip-adapter.json](../examples/ip-adapter.json).
+[examples/archive/ip-adapter.json](../examples/archive/ip-adapter.json).
 
 ### Sharing Components Across Steps
 
@@ -418,7 +464,7 @@ Two mutually exclusive ways to speed up inference by skipping redundant computat
 `num_inference_steps`, `max_skip_steps`, `retention_ratio`, `cache_interval`,
 `max_order` — see [dw/workflow_schema.json](../dw/workflow_schema.json) for which
 fields apply to which type). See
-[examples/FluxDevFirstBlockCache.json](../examples/FluxDevFirstBlockCache.json).
+[examples/flux/FluxDevFirstBlockCache.json](../examples/flux/FluxDevFirstBlockCache.json).
 
 ```json
 "configuration": {
@@ -513,6 +559,77 @@ downloaded and loaded:
 
 See [examples/MiniMaxMusic.json](../examples/MiniMaxMusic.json) and
 [examples/MiniMaxH3.json](../examples/MiniMaxH3.json) for full examples.
+
+### Chained Video Generation
+
+Video pipelines generate short clips - a `chain` block on a pipeline step runs the
+pipeline once per segment and stitches the segments into one long video. The model
+loads once; each segment's last frame is carried into the next segment as its
+keyframe, the duplicated boundary frames are trimmed, and frames and audio are
+joined into a single file:
+
+```json
+"pipeline": {
+    "configuration": { "component_type": "LTX2ImageToVideoPipeline" },
+    "from_pretrained_arguments": { "model_name": "Lightricks/LTX-2.5-Diffusers" },
+    "chain": {
+        "segments": 3,
+        "trim_frames": 2,
+        "crossfade_ms": 80
+    },
+    "arguments": { "prompt": "variable:prompt", "image": "variable:image" }
+}
+```
+
+- `segments` — how many times the pipeline runs. Total length is roughly
+  `segments * num_frames`, minus `trim_frames` per seam.
+- `match_audio` — instead of a count, derive the length from the audio reference in
+  the step's arguments. The audio is sliced into frame-aligned per-segment chunks,
+  each segment is generated against its slice, and the final video is muxed with the
+  **original, unsliced track** - so the soundtrack has no seams at all. Requires
+  `num_frames` (the per-segment length) and a frame rate. Exactly one of `segments`
+  or `match_audio` must be given.
+- `continuity` — how visual continuity carries across segments. `last_frame` (the
+  default and currently only mode) extracts each segment's last frame and passes it
+  to the next segment.
+- `segment_argument` — where the carried frame lands: `image` (default) for
+  image-to-video pipelines, or `references` for reference-conditioned modular
+  pipelines, where it is appended as an image reference alongside the workflow's own.
+- `trim_frames` — image-to-video pipelines reproduce their keyframe as frame 0, so
+  this many frames are dropped from the head of every segment after the first
+  (default 1). The matching audio is used as crossfade material, so video and audio
+  stay exactly in sync. It also bounds the crossfade window: `trim_frames / fps`
+  seconds (at 24 fps, `trim_frames: 2` allows the full default 75 ms fade).
+- `crossfade_ms` — equal-power crossfade applied to *generated* audio at each seam
+  (default 75). Not used with `match_audio`, which keeps the original track.
+- `fps` — frame rate for the chain's audio math. Defaults to the pipeline's
+  `frame_rate` argument; pipelines with a fixed rate need it set (MiniMax H3: 24).
+- `frame_snap` — the constraint the pipeline puts on `num_frames`, used to snap the
+  final `match_audio` segment to a valid length. MiniMax H3 accepts `17n+5` frames
+  between 124 and 345: `{ "modulus": 17, "remainder": 5, "min_frames": 124,
+  "max_frames": 345 }`.
+- `prompts` — optional per-segment prompt list for narrative progression; segment
+  `i` uses `prompts[min(i, len - 1)]`.
+- `save_segments` — write each completed segment to the output directory as a
+  playable mp4 and free its frames, bounding memory to roughly one segment
+  regardless of chain length. The final video is streamed from the segment files
+  at save time, and they are removed once it is written (`keep_segments: true`
+  retains them). A crashed chain leaves the finished segments behind - stitch
+  them by hand with `gather_videos` + `concat_videos` (`trim_frames: 0`, the
+  trim was already applied). Requires PyAV and a frame rate. The trade-off is
+  one extra encode/decode cycle through h264 for the segment files.
+
+The chain runs inside one iteration of the step, so it composes with
+`previous_result` fan-out (three keyframes in, three chained videos out), and a
+`pipeline_reference` step can carry its own `chain`. Seeds behave like a normal run:
+the step's generator advances across segments, so one seed reproduces the whole
+chain. Expect some visual drift across many segments with `last_frame` continuity -
+it is single-frame conditioning; richer continuity modes are the extension point.
+
+See [examples/LTX2I2VChained.json](../examples/LTX2I2VChained.json),
+[examples/MiniMaxH3I2VChained.json](../examples/MiniMaxH3I2VChained.json), and
+[examples/MiniMaxH3Ref2VAChained.json](../examples/MiniMaxH3Ref2VAChained.json)
+(audio-matched lip-sync of arbitrary length).
 
 ## Schedulers
 

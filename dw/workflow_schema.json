@@ -130,6 +130,9 @@
                 "reference_name": {
                     "type": "string"
                 },
+                "chain": {
+                    "$ref": "#/$defs/chain"
+                },
                 "arguments": {
                     "$ref": "#/$defs/arguments"
                 }
@@ -139,6 +142,135 @@
                 "arguments"
             ]
         },
+        "chain": {
+            "description": "Run this pipeline repeatedly, carrying visual continuity from each segment into the next, and stitch the segments into one long video. Specify the length with exactly one of 'segments' or 'match_audio'.",
+            "type": "object",
+            "properties": {
+                "segments": {
+                    "description": "Number of segments to generate and stitch. Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string"
+                    ],
+                    "minimum": 1
+                },
+                "match_audio": {
+                    "description": "Derive the segment count from the duration of the audio reference in this step's arguments, slicing it into frame-aligned per-segment chunks; the final video is muxed with the original, unsliced audio track.",
+                    "type": "boolean"
+                },
+                "continuity": {
+                    "description": "How continuity is carried from one segment into the next. 'last_frame' carries the segment's final frame as the next one's keyframe. 'last_segment' carries the segment itself - its frames and the soundtrack generated with them - as a video reference, which keeps motion, camera and voice across the seam instead of appearance alone; it needs a 'segment_argument' holding a references list.",
+                    "type": "string",
+                    "enum": [
+                        "last_frame",
+                        "last_segment"
+                    ],
+                    "default": "last_frame"
+                },
+                "segment_argument": {
+                    "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image or video reference.",
+                    "type": "string",
+                    "default": "image"
+                },
+                "carry_frames": {
+                    "description": "'last_segment' only - carry just this many frames from the tail of each segment rather than all of them, cutting the reference's soundtrack to the same span. A shorter carry costs less sequence length and memory (MiniMax H3 conditions on reference clips of 2 seconds and up, i.e. 48 frames at its 24 fps). Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string"
+                    ],
+                    "minimum": 1
+                },
+                "carry_audio": {
+                    "description": "'last_segment' only - whether the carried video reference brings the soundtrack generated with it, which is what carries a voice across the seam. Turn it off when the segments are already conditioned on a supplied audio track, as in a 'match_audio' chain.",
+                    "type": "boolean",
+                    "default": true
+                },
+                "trim_frames": {
+                    "description": "Frames removed from the head of every segment after the first (an image-to-video segment reproduces its keyframe as frame 0). Also bounds the audio crossfade window to trim_frames / fps seconds. Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string"
+                    ],
+                    "minimum": 0,
+                    "default": 1
+                },
+                "crossfade_ms": {
+                    "description": "Equal-power crossfade applied to generated audio at segment boundaries, clamped to the trim_frames / fps window. Accepts a 'variable:' reference.",
+                    "type": [
+                        "number",
+                        "string"
+                    ],
+                    "minimum": 0,
+                    "default": 75
+                },
+                "fps": {
+                    "description": "Frame rate used for the chain's audio math - trimming, crossfading, and match_audio planning. Defaults to the pipeline's 'frame_rate' argument when present; pipelines with a fixed rate (MiniMax H3: 24) need it set here. Accepts a 'variable:' reference.",
+                    "type": [
+                        "number",
+                        "string"
+                    ],
+                    "exclusiveMinimum": 0
+                },
+                "frame_snap": {
+                    "description": "Constraint the pipeline places on num_frames - counts must equal modulus * n + remainder within the bounds (MiniMax H3: modulus 17, remainder 5, min 124, max 345). Used to snap the final match_audio segment to a valid length.",
+                    "type": "object",
+                    "properties": {
+                        "modulus": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "remainder": {
+                            "type": "integer",
+                            "minimum": 0
+                        },
+                        "min_frames": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "max_frames": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    "required": [
+                        "modulus",
+                        "remainder"
+                    ],
+                    "additionalProperties": false
+                },
+                "prompts": {
+                    "description": "Per-segment prompt overrides; segment i uses prompts[min(i, len(prompts) - 1)].",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1
+                },
+                "save_segments": {
+                    "description": "Write each completed segment to the output directory as a playable mp4 and free its frames, bounding memory to one segment - a crashed chain leaves the finished segments behind. The final video is streamed from the segment files. Requires PyAV and a frame rate.",
+                    "type": "boolean",
+                    "default": false
+                },
+                "keep_segments": {
+                    "description": "Leave the segment files in place after the final video is written (default: they are removed once it saves successfully). Only meaningful with save_segments.",
+                    "type": "boolean",
+                    "default": false
+                }
+            },
+            "oneOf": [
+                {
+                    "required": [
+                        "segments"
+                    ]
+                },
+                {
+                    "required": [
+                        "match_audio"
+                    ]
+                }
+            ],
+            "additionalProperties": false
+        },
         "pipeline": {
             "type": "object",
             "properties": {
@@ -146,6 +278,9 @@
                     "$ref": "#/$defs/pipeline_configuration"
                 },
                 "scheduler": {
+                    "$ref": "#/$defs/scheduler"
+                },
+                "audio_scheduler": {
                     "$ref": "#/$defs/scheduler"
                 },
                 "model": {
@@ -222,6 +357,9 @@
                     "description": "The seed for this pipeline",
                     "type": "integer",
                     "format": "int64"
+                },
+                "chain": {
+                    "$ref": "#/$defs/chain"
                 },
                 "arguments": {
                     "$ref": "#/$defs/arguments"
@@ -324,6 +462,14 @@
                             "device": {
                                 "description": "The device to move this component to, e.g. 'cuda'. Only for components small enough to stay resident - the offloaded ones are placed by their own hooks.",
                                 "type": "string"
+                            },
+                            "residency": {
+                                "description": "Whether the component stays on its device for the whole run ('resident', the default) or rests in system memory and is moved to the device only while one of its own calls runs ('on_demand'). Use on_demand for a component that is large but called a handful of times, like a VAE that only encodes references and decodes the result - it frees the device for the rest of the run and, unlike group_offload, moves the model whole, so a tiled decode costs one pair of transfers rather than one per tile. Not for a component called every step, and cannot be combined with group_offload.",
+                                "type": "string",
+                                "enum": [
+                                    "resident",
+                                    "on_demand"
+                                ]
                             },
                             "attention_backend": {
                                 "description": "Pin this component's attention backend persistently via set_attention_backend, e.g. 'flash', 'sage', '_flash_3_hub'. Use this instead of the pipeline-level attention_backend when the component is compiled - the per-call context manager forces recompiles.",
@@ -533,10 +679,27 @@
                 },
                 "from_config_args": {
                     "$ref": "#/$defs/arguments"
+                },
+                "shift": {
+                    "description": "Exponential sigma shift applied to this scheduler's schedule, for schedulers that take one (MiniMax H3: 12.0 for video, 3.0 for audio in the released checkpoint). Lower it when running few steps - a high shift packs the whole grid near sigma 1 and leaves one enormous final step, which a short schedule cannot absorb. Accepts a 'variable:' reference.",
+                    "type": [
+                        "number",
+                        "string"
+                    ],
+                    "exclusiveMinimum": 0
                 }
             },
-            "required": [
-                "configuration"
+            "anyOf": [
+                {
+                    "required": [
+                        "configuration"
+                    ]
+                },
+                {
+                    "required": [
+                        "shift"
+                    ]
+                }
             ]
         },
         "pipeline_component": {
@@ -658,8 +821,11 @@
                     "type": "string"
                 },
                 "scale": {
-                    "description": "The scale factor of the lora when fusing.",
-                    "type": "number",
+                    "description": "The scale factor of the lora when fusing. Accepts a 'variable:' reference.",
+                    "type": [
+                        "number",
+                        "string"
+                    ],
                     "format": "float"
                 },
                 "adapter_name": {

@@ -15,6 +15,7 @@ from dw.pipeline_processors.pipeline import (
     apply_compile,
     configure_components,
     get_component,
+    has_component_group_offload,
     load_component,
 )
 
@@ -591,6 +592,145 @@ class TestCompileComponents:
             )
 
         pipeline.transformer.compile.assert_not_called()
+
+
+class FakeVae:
+    """A component with a VAE's shape: encode/decode, and a device it can move to."""
+
+    def __init__(self):
+        self.device = "cpu"
+        self.moves = []
+        self.device_while_running = []
+
+    def to(self, device):
+        self.device = str(device)
+        self.moves.append(str(device))
+        return self
+
+    def encode(self, pixels, return_dict=True):
+        self.device_while_running.append(self.device)
+        return f"encoded:{pixels}"
+
+    def decode(self, latents, return_dict=True):
+        self.device_while_running.append(self.device)
+        return f"decoded:{latents}"
+
+
+class TestOnDemandResidency:
+    """Test the placement that moves a component in only while its own calls run"""
+
+    def configure(self, components, pipeline=None, device="cuda"):
+        pipeline = pipeline if pipeline is not None else MagicMock()
+        with patch("diffusers.hooks.apply_group_offloading"):
+            configure_components(pipeline, {"components": components}, device)
+        return pipeline
+
+    def on_demand_vae(self, device="cuda"):
+        pipeline = MagicMock()
+        pipeline.vae = FakeVae()
+        self.configure({"vae": {"residency": "on_demand"}}, pipeline, device)
+        return pipeline.vae
+
+    def test_the_component_rests_off_the_device(self):
+        vae = self.on_demand_vae()
+        assert vae.device == "cpu"
+
+    def test_a_call_runs_on_the_device_and_leaves_it(self):
+        vae = self.on_demand_vae()
+        assert vae.decode("latents") == "decoded:latents"
+        assert vae.device_while_running == ["cuda"]
+        assert vae.device == "cpu"
+
+    def test_every_entry_point_is_placed(self):
+        vae = self.on_demand_vae()
+        vae.encode("pixels")
+        vae.decode("latents")
+        assert vae.device_while_running == ["cuda", "cuda"]
+
+    def test_a_nested_call_does_not_offload_early(self):
+        # decode() calling forward() must not put the model back on the host
+        # while decode() is still running - the tiled decode path does exactly this
+        class NestingVae(FakeVae):
+            def forward(self, x):
+                self.device_while_running.append(self.device)
+                return x
+
+            def decode(self, latents, return_dict=True):
+                self.device_while_running.append(self.device)
+                inner = self.forward(latents)
+                # Still mid-decode: the model has to still be on the device
+                self.device_while_running.append(self.device)
+                return inner
+
+        pipeline = MagicMock()
+        pipeline.vae = NestingVae()
+        self.configure({"vae": {"residency": "on_demand"}}, pipeline, "cuda")
+
+        pipeline.vae.decode("latents")
+        assert pipeline.vae.device_while_running == ["cuda", "cuda", "cuda"]
+        assert pipeline.vae.device == "cpu"
+
+    def test_the_wrapped_signature_survives(self):
+        # Callers introspect these: MiniMax H3's denoiser decides which arguments
+        # to pass by reading signature(transformer.forward).parameters
+        import inspect
+
+        vae = self.on_demand_vae()
+        assert list(inspect.signature(vae.decode).parameters) == [
+            "latents",
+            "return_dict",
+        ]
+
+    def test_group_offload_and_on_demand_together_are_rejected(self):
+        pipeline = MagicMock()
+        pipeline.vae = FakeVae()
+        with pytest.raises(ValueError, match="pick one"):
+            self.configure(
+                {
+                    "vae": {
+                        "residency": "on_demand",
+                        "group_offload": {"offload_type": "leaf_level"},
+                    }
+                },
+                pipeline,
+            )
+
+    def test_a_component_with_no_entry_points_is_rejected(self):
+        class Inert:
+            def to(self, device):
+                return self
+
+        pipeline = MagicMock()
+        pipeline.vae = Inert()
+        with pytest.raises(ValueError, match="no call to move it around"):
+            self.configure({"vae": {"residency": "on_demand"}}, pipeline)
+
+    def test_on_demand_is_a_no_op_on_cpu(self):
+        vae = self.on_demand_vae("cpu")
+        vae.decode("latents")
+        assert vae.moves == []
+
+    def test_on_demand_keeps_the_pipeline_off_the_device_at_load(self):
+        # load_component() decides where to materialize weights before the
+        # components block is read. On-demand residency has to count as
+        # offloading there, or the pipeline is moved to the device in full -
+        # loading exactly what the setting exists to avoid holding
+        assert has_component_group_offload(
+            {"components": {"vae": {"residency": "on_demand"}}}
+        )
+        assert not has_component_group_offload(
+            {"components": {"vae": {"residency": "resident"}}}
+        )
+        assert not has_component_group_offload({"components": {"vae": {}}})
+
+    def test_resident_is_the_default(self):
+        pipeline = MagicMock()
+        pipeline.vae = FakeVae()
+        self.configure({"vae": {"device": "cuda"}}, pipeline)
+        assert pipeline.vae.device == "cuda"
+
+        pipeline.vae.decode("latents")
+        assert pipeline.vae.device == "cuda"
 
 
 class TestDtypeConversion:

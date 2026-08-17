@@ -1,6 +1,8 @@
 import torch
 import contextlib
 import copy
+import functools
+import gc
 import importlib
 import logging
 from .config_objects import (
@@ -13,7 +15,7 @@ from .remote import remote_text_encoder
 from ..cache_blocks import register_cache_blocks
 from ..teacache import teacache_context
 from ..type_helpers import has_method
-from .. import get_device_type
+from .. import empty_device_cache, get_device_type
 from diffusers import attention_backend
 
 # dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
@@ -83,7 +85,15 @@ class Pipeline:
     Handles loading of models, schedulers, and adapters.
     """
 
-    def __init__(self, pipeline_definition, default_seed, device, pipeline=None):
+    def __init__(
+        self,
+        pipeline_definition,
+        default_seed,
+        device,
+        pipeline=None,
+        output_dir=None,
+        file_prefix=None,
+    ):
         """
         Initialize pipeline with configuration and device settings.
 
@@ -93,6 +103,10 @@ class Pipeline:
             device: Device to run pipeline on (e.g., 'cuda', 'mps', 'cpu') - the
                 configuration's own 'device' takes precedence over it
             pipeline: Optional existing pipeline to use
+            output_dir: The workflow's output directory - where a chained run
+                with save_segments writes its segment files
+            file_prefix: Naming prefix for those files, matching the step's
+                result naming (workflow id + step name)
         """
         self.pipeline_definition = pipeline_definition
         self.default_seed = default_seed
@@ -100,6 +114,8 @@ class Pipeline:
         # becomes the default for this pipeline's components as well
         self.device = self.configuration.get("device", device)
         self.pipeline = pipeline
+        self.output_dir = output_dir
+        self.file_prefix = file_prefix
         logger.debug(f"Initialized pipeline with device: {self.device}")
 
     @property
@@ -209,9 +225,15 @@ class Pipeline:
         if cache_config is not None:
             enable_cache_on_transformer(self.pipeline, cache_config)
 
-        # Configure scheduler if specified
+        # Configure the schedulers if specified - a pipeline that denoises two
+        # modalities against two schedules configures each of them separately
         load_and_configure_scheduler(
             self.pipeline_definition.get("scheduler", None), self.pipeline
+        )
+        load_and_configure_scheduler(
+            self.pipeline_definition.get("audio_scheduler", None),
+            self.pipeline,
+            "audio_scheduler",
         )
 
         # Store components that will be shared with other pipelines
@@ -241,6 +263,16 @@ class Pipeline:
             self.argument_template["generator"] = torch.Generator(
                 self.device
             ).manual_seed(self.pipeline_definition.get("seed", self.default_seed))
+
+        # Hand the first run a clean allocator. Loading churns the device even
+        # when little of the pipeline stays there - a quantization pass with
+        # 'quantization_device' set works on the accelerator and returns the
+        # weights to the host, and group offloading moves components off it
+        # again - and the cached blocks left behind are the wrong shape for
+        # inference. workflow.py does this between steps; a one-step workflow
+        # would otherwise run its only step on top of the loading debris
+        gc.collect()
+        empty_device_cache()
 
         logger.debug("Pipeline loaded successfully")
 
@@ -284,43 +316,59 @@ class Pipeline:
                 logger.debug("Running generation pipeline")
                 return {"generated_ids": self.pipeline.generate(**arguments)}
 
-            if self.pipeline_definition.get("remote_text_encoder", None) is not None:
-                logger.info("Invoking remote text encoder")
-                remote_config = self.pipeline_definition["remote_text_encoder"]
-                prompt_embeds = remote_text_encoder(
-                    arguments.pop("prompt"),
-                    remote_config.get("url"),
-                    device=self.device,
-                )
-                arguments["prompt_embeds"] = prompt_embeds
-            elif self.configuration.get("prompt_weighting", False):
-                from ..prompt_weighting import apply_prompt_weighting
+            chain_definition = self.pipeline_definition.get("chain", None)
+            if chain_definition is not None:
+                from .chain import run_chain
 
-                # The step's device override travels with the call - embeddings
-                # must land where the transformer runs
-                apply_prompt_weighting(self.pipeline, arguments, self.device)
+                logger.debug("Running chained pipeline")
+                return run_chain(self, chain_definition, arguments)
 
-            # Run standard pipeline
-            logger.debug("Running standard pipeline")
-            output = self._execute_pipeline(arguments)
-
-            # A raw tensor result - latents, embeddings - is held for the rest of the
-            # workflow, so it rests in system memory instead of occupying the
-            # accelerator that the next step needs. Pipelines consuming it place it back
-            # on their own device.
-            if hasattr(output, "to"):
-                logger.debug("Moving tensor output to system memory")
-                output = output.to("cpu")
-
-            attach_audio_sample_rate(self.pipeline, output)
-
-            return output
+            return self._run_once(arguments)
 
         except Exception as e:
             # One log line with the full traceback - every error class was
             # logged and re-raised identically
             logger.error(f"{type(e).__name__} running pipeline: {e}", exc_info=True)
             raise
+
+    def _run_once(self, arguments):
+        """Run one standard pipeline invocation with fully resolved arguments.
+
+        This is the whole per-call execution path - prompt encoding, the
+        pipeline call itself, and output normalization - shared by the single
+        run and every segment of a chained run.
+        """
+        if self.pipeline_definition.get("remote_text_encoder", None) is not None:
+            logger.info("Invoking remote text encoder")
+            remote_config = self.pipeline_definition["remote_text_encoder"]
+            prompt_embeds = remote_text_encoder(
+                arguments.pop("prompt"),
+                remote_config.get("url"),
+                device=self.device,
+            )
+            arguments["prompt_embeds"] = prompt_embeds
+        elif self.configuration.get("prompt_weighting", False):
+            from ..prompt_weighting import apply_prompt_weighting
+
+            # The step's device override travels with the call - embeddings
+            # must land where the transformer runs
+            apply_prompt_weighting(self.pipeline, arguments, self.device)
+
+        # Run standard pipeline
+        logger.debug("Running standard pipeline")
+        output = self._execute_pipeline(arguments)
+
+        # A raw tensor result - latents, embeddings - is held for the rest of the
+        # workflow, so it rests in system memory instead of occupying the
+        # accelerator that the next step needs. Pipelines consuming it place it back
+        # on their own device.
+        if hasattr(output, "to"):
+            logger.debug("Moving tensor output to system memory")
+            output = output.to("cpu")
+
+        attach_audio_sample_rate(self.pipeline, output)
+
+        return output
 
     def _execute_pipeline(self, arguments):
         """Execute the pipeline with optional TeaCache and attention backend contexts."""
@@ -492,7 +540,15 @@ def configure_components(pipeline, configuration, default_device):
             apply_group_offloading(component, **group_offload_configuration)
 
         device = component_configuration.get("device", None)
-        if device is not None:
+        residency = component_configuration.get("residency", "resident")
+        if residency == "on_demand":
+            apply_on_demand_placement(
+                component,
+                component_name,
+                device if device is not None else default_device,
+                group_offload_configuration is not None,
+            )
+        elif device is not None:
             logger.info(f"Moving {component_name} to device: {device}")
             component.to(device)
 
@@ -518,6 +574,99 @@ def configure_components(pipeline, configuration, default_device):
                 compile_configuration,
                 device if device is not None else default_device,
             )
+
+
+# The calls that mean "this component is working now". A component is moved to
+# the accelerator around whichever of these it actually defines
+_ON_DEMAND_ENTRY_POINTS = ("forward", "encode", "decode")
+
+
+def apply_on_demand_placement(
+    component, component_name, device, group_offloaded, offload_device="cpu"
+):
+    """Keep a component in system memory and move it to the device only while it runs.
+
+    Sits between the two placements dw already has. A 'device' component is resident
+    for the whole run, which wastes the accelerator on something used twice; group
+    offloading streams per submodule forward, which restreams the whole model once
+    per call of every leaf - ruinous for a VAE, whose tiled decode calls its blocks
+    once per tile. This moves the model as a whole around each entry point, so a
+    tiling loop sits inside a single pair of transfers.
+
+    That trade only pays for components called a handful of times per run. A
+    denoising transformer is called once per step, so per-call transfers would cost
+    far more than they save - group offloading is the tool for those.
+
+    Args:
+        component: The component to place
+        component_name: Name of the component, for logging
+        device: Device to run the component on
+        group_offloaded: Whether group offloading was applied to this component
+        offload_device: Where the component rests between calls
+
+    Raises:
+        ValueError: If the component is also group offloaded
+    """
+    if group_offloaded:
+        raise ValueError(
+            f"Component '{component_name}' sets both 'group_offload' and "
+            "'residency: on_demand'. A group offloaded module holds one group at a "
+            "time and ignores the whole-model moves on-demand placement makes, so "
+            "the two cannot both own its placement - pick one"
+        )
+
+    if get_device_type(device) == "cpu":
+        # Nothing to move it off of, so the wrappers would be pure overhead
+        logger.debug(
+            f"Ignoring 'residency: on_demand' for {component_name} - {device} is the "
+            "device it would rest on anyway"
+        )
+        return
+
+    component.to(offload_device)
+
+    # One depth counter for the whole component, not one per entry point: decode()
+    # calls forward() internally, and an inner return must not offload the model
+    # out from under the call that is still running
+    state = {"depth": 0}
+
+    def wrap(entry_point):
+        original = getattr(component, entry_point, None)
+        if not callable(original):
+            return False
+
+        @functools.wraps(original)
+        def on_demand(*args, **kwargs):
+            if state["depth"] == 0:
+                component.to(device)
+            state["depth"] += 1
+            try:
+                return original(*args, **kwargs)
+            finally:
+                state["depth"] -= 1
+                if state["depth"] == 0:
+                    component.to(offload_device)
+                    # Hand the freed space back to the driver rather than leaving it
+                    # reserved - the headroom is the entire point of doing this
+                    empty_device_cache()
+
+        # functools.wraps carries __wrapped__, so inspect.signature() still reports
+        # the real parameters. Callers introspect them: MiniMax H3's denoiser picks
+        # which arguments to pass by reading signature(transformer.forward)
+        setattr(component, entry_point, on_demand)
+        return True
+
+    wrapped = [name for name in _ON_DEMAND_ENTRY_POINTS if wrap(name)]
+    if not wrapped:
+        raise ValueError(
+            f"Component '{component_name}' sets 'residency: on_demand' but defines "
+            f"none of {', '.join(_ON_DEMAND_ENTRY_POINTS)}, so there is no call to "
+            "move it around"
+        )
+    logger.info(
+        f"Placing {component_name} on demand: resting on {offload_device}, "
+        f"running on {device} around {', '.join(wrapped)}"
+    )
 
 
 def apply_compile(component, component_name, compile_configuration, device):
@@ -640,8 +789,10 @@ def load_loras(loras, pipeline):
         adapter_name = lora.pop("adapter_name", str(i))
         adapter_names.append(adapter_name)
 
-        # Extract scale for adapter weights
-        scale = lora.pop("scale", 1.0)
+        # Extract scale for adapter weights - float() because the schema takes a
+        # 'variable:' reference here, and a variable declared as a string default
+        # substitutes as one
+        scale = float(lora.pop("scale", 1.0))
         adapter_weights.append(scale)
 
         # Load the LoRA with the adapter name
@@ -666,17 +817,64 @@ def load_ip_adapter(ip_adapter_definition, pipeline):
             pipeline.set_ip_adapter_scale(scale)
 
 
-def load_and_configure_scheduler(scheduler_definition, pipeline):
-    """Load and configure custom scheduler if specified."""
-    if scheduler_definition is not None:
-        scheduler_configuration = scheduler_definition.get("configuration", None)
-        from_config_args = scheduler_definition.get("from_config_args", {})
-        scheduler_type = scheduler_configuration.get("scheduler_type", None)
-        logger.info(f"Loading scheduler: {scheduler_type}")
+def load_and_configure_scheduler(
+    scheduler_definition, pipeline, component_name="scheduler"
+):
+    """Load and configure a pipeline's scheduler if specified.
 
-        pipeline.scheduler = scheduler_type.from_config(
-            pipeline.scheduler.config, **from_config_args
+    A definition does either or both of two things, in that order: replace the
+    scheduler with one built from another type's config, and set the sigma
+    shift on whatever scheduler the pipeline then holds.
+
+    The component is named rather than assumed because a pipeline can carry
+    more than one. MiniMax-H3 steps video and audio latents down two schedules
+    inside a single transformer call - 'scheduler' and 'audio_scheduler', whose
+    shifts (12.0 and 3.0 in the released checkpoint) are set independently, and
+    the video one is what a few-step schedule has to lower: at the checkpoint's
+    12.0 a five-point sigma grid spends every step above 0.8 and then drops to
+    zero in one, which denoises to noise.
+
+    Args:
+        scheduler_definition: The step's scheduler block, or None
+        pipeline: The loaded pipeline
+        component_name: Which scheduler the definition configures
+    """
+    if scheduler_definition is None:
+        return
+
+    scheduler_configuration = scheduler_definition.get("configuration", None) or {}
+    scheduler_type = scheduler_configuration.get("scheduler_type", None)
+    if scheduler_type is not None:
+        from_config_args = scheduler_definition.get("from_config_args", {})
+        logger.info(f"Loading {component_name}: {scheduler_type}")
+        setattr(
+            pipeline,
+            component_name,
+            scheduler_type.from_config(
+                get_component(pipeline, component_name).config, **from_config_args
+            ),
         )
+
+    shift = scheduler_definition.get("shift", None)
+    if shift is None:
+        return
+
+    scheduler = get_component(pipeline, component_name)
+    if scheduler is None:
+        raise ValueError(
+            f"Cannot set a shift on '{component_name}' - the pipeline registers "
+            "it but has not loaded it"
+        )
+    if not has_method(scheduler, "set_shift"):
+        raise ValueError(
+            f"{type(scheduler).__name__} does not take a sigma shift - "
+            f"'{component_name}' has no set_shift()"
+        )
+
+    # Instance state the scheduler keeps until its next set_timesteps, which is
+    # the run itself - so this survives loading and every later run of the step
+    logger.info(f"Setting {component_name} shift: {shift}")
+    scheduler.set_shift(float(shift))
 
 
 def auto_cpu_offload_enabled(configuration):
@@ -745,23 +943,31 @@ def create_components_manager(configuration, device):
 
 
 def has_component_group_offload(configuration):
-    """Whether a per-component entry configures group offloading.
+    """Whether a per-component entry keeps its component off the device.
 
     The 'components' block is applied by configure_components() after the pipeline is
     loaded, but load_component() has to decide where to materialize weights and whether
     to move the pipeline to the device before that block is ever read. A workflow whose
-    only offload configuration lives under components.*.group_offload still needs both
-    of those earlier decisions to treat it as offloading.
+    only offload configuration lives under components.* still needs both of those
+    earlier decisions to treat it as offloading.
+
+    Group offloading and on-demand residency both qualify: each leaves its component in
+    system memory between uses, so materializing the pipeline on the device first would
+    load in full exactly what these were configured to avoid holding.
 
     Args:
         configuration: Configuration of the component being loaded
 
     Returns:
-        True when any per-component entry configures group offloading
+        True when any per-component entry keeps its component off the device
     """
     components = configuration.get("components") or {}
     return any(
-        isinstance(settings, dict) and settings.get("group_offload") is not None
+        isinstance(settings, dict)
+        and (
+            settings.get("group_offload") is not None
+            or settings.get("residency") == "on_demand"
+        )
         for settings in components.values()
     )
 
@@ -967,6 +1173,27 @@ def apply_sdnq_optimizations(pipeline, component_names):
             )
 
 
+def get_cache_transformer(pipeline):
+    """Find the denoiser a cache hook attaches to.
+
+    Most pipelines register theirs as 'transformer', but a modular pipeline names
+    it after the workflow it serves - MiniMax-H3's ref2va denoises through
+    'transformer_ref'. Looking only for 'transformer' silently skips caching on
+    those, so try the alternates diffusers' modular pipelines actually use.
+
+    Args:
+        pipeline: The loaded diffusers pipeline
+
+    Returns:
+        The transformer component, or None when the pipeline has none
+    """
+    for name in ("transformer", "transformer_ref"):
+        transformer = getattr(pipeline, name, None)
+        if transformer is not None:
+            return transformer
+    return None
+
+
 @contextlib.contextmanager
 def stateful_cache_context(pipeline):
     """Provide the context a stateful cache hook reads its state through.
@@ -986,7 +1213,7 @@ def stateful_cache_context(pipeline):
     pipeline that needed that would be setting its own contexts already, and this
     is a no-op for pipelines whose cache is not enabled.
     """
-    transformer = getattr(pipeline, "transformer", None)
+    transformer = get_cache_transformer(pipeline)
     if transformer is None or not getattr(transformer, "is_cache_enabled", False):
         yield
         return
@@ -1008,7 +1235,7 @@ def enable_cache_on_transformer(pipeline, cache_config):
         pipeline: The loaded diffusers pipeline
         cache_config: Cache configuration object from get_cache_configuration()
     """
-    transformer = getattr(pipeline, "transformer", None)
+    transformer = get_cache_transformer(pipeline)
     if transformer is None:
         logger.warning("Pipeline has no transformer, skipping cache configuration")
         return

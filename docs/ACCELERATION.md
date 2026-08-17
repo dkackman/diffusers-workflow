@@ -24,7 +24,7 @@ Simplest and broadest support. Compares first-block residuals to decide whether 
 
 Higher threshold = more speedup, more quality loss. Start with `0.05` and increase to taste.
 
-**Example:** [FluxDevFirstBlockCache.json](../examples/FluxDevFirstBlockCache.json)
+**Example:** [FluxDevFirstBlockCache.json](../examples/flux/FluxDevFirstBlockCache.json)
 
 ### MagCache
 
@@ -134,7 +134,7 @@ Some models have multiple variants with different coefficients:
 }
 ```
 
-**Example:** [FluxDevTeaCache.json](../examples/FluxDevTeaCache.json)
+**Example:** [FluxDevTeaCache.json](../examples/flux/FluxDevTeaCache.json)
 
 ## Cache vs TeaCache
 
@@ -175,7 +175,7 @@ A component can also pin its backend persistently instead, via `set_attention_ba
 
 Prefer the pinned form for a compiled component - the per-call context manager switches implementations under the compiled graph and forces a recompile on every run.
 
-**Example:** [Flux2Dev.json](../examples/Flux2Dev.json), [hunyuan15.json](../examples/hunyuan15.json), [Wan22TI2V5B.json](../examples/Wan22TI2V5B.json)
+**Example:** [Flux2Dev.json](../examples/flux/Flux2Dev.json), [hunyuan15.json](../examples/archive/hunyuan15.json), [Wan22TI2V5B.json](../examples/archive/Wan22TI2V5B.json)
 
 ## Attention Slicing
 
@@ -221,7 +221,7 @@ Typical gains are 1.3-1.5x on diffusion transformers, and compilation stacks wit
 - **Don't combine `fullgraph` with a `cache`**: the cache hooks decide skip-or-compute per step, a data-dependent branch diffusers wraps in `torch.compiler.disable` - it needs the graph break that `fullgraph: true` forbids. Compile with the default (partial) graph mode when a cache is active.
 - **TorchAO quantization needs compile to be fast** - see [QUANTIZATION.md](QUANTIZATION.md#torchao).
 
-**Example:** [FluxDevFast.json](../examples/FluxDevFast.json), [FluxTorchAO.json](../examples/FluxTorchAO.json)
+**Example:** [FluxDevFast.json](../examples/flux/FluxDevFast.json), [FluxTorchAO.json](../examples/flux/FluxTorchAO.json)
 
 ## Layerwise Casting
 
@@ -244,7 +244,9 @@ Both `storage_dtype` and `compute_dtype` are required. Applied via the component
 
 `offload` (`"model"` or `"sequential"`) and `group_offload` trade speed for VRAM by streaming weights between system memory and the accelerator instead of keeping everything resident. `"model"` moves whole submodules and costs the least speed; `"sequential"` moves individual layers and is the slowest but uses the least memory; block/leaf-level `group_offload` sits between the two and is what a modular pipeline's self-loaded components use, since they aren't reachable in time for `offload`. Full configuration syntax is in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#memory-offloading). Omit both for the fastest run, when VRAM allows it.
 
-**Example:** [FluxDev.json](../examples/FluxDev.json) (`"offload": "model"`), [ZImage.json](../examples/ZImage.json) (`"offload": "sequential"`), [MiniMaxH3.json](../examples/MiniMaxH3.json) (`group_offload` per component)
+`"residency": "on_demand"` on a component is the cheap case of the same trade: the model rests in system memory and is moved to the device whole around each of its own calls. That is a bad deal for anything called once per step, and a good one for a VAE called twice a run - it frees the VAE's VRAM for the denoise loop at the cost of two transfers, where group offloading the same VAE would restream it once per decode tile. See [On-demand components](WORKFLOW_GUIDE.md#on-demand-components).
+
+**Example:** [FluxDev.json](../examples/flux/FluxDev.json) (`"offload": "model"`), [ZImage.json](../examples/ZImage.json) (`"offload": "sequential"`), [MiniMaxH3.json](../examples/MiniMaxH3.json) (`group_offload` per component), [MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json) (`group_offload` for the transformer, `on_demand` for the VAEs)
 
 ## TF32 and cuDNN
 
