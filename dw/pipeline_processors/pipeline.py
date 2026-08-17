@@ -1,6 +1,7 @@
 import torch
 import contextlib
 import copy
+import gc
 import importlib
 import logging
 from .config_objects import (
@@ -13,7 +14,7 @@ from .remote import remote_text_encoder
 from ..cache_blocks import register_cache_blocks
 from ..teacache import teacache_context
 from ..type_helpers import has_method
-from .. import get_device_type
+from .. import empty_device_cache, get_device_type
 from diffusers import attention_backend
 
 # dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
@@ -255,6 +256,16 @@ class Pipeline:
             self.argument_template["generator"] = torch.Generator(
                 self.device
             ).manual_seed(self.pipeline_definition.get("seed", self.default_seed))
+
+        # Hand the first run a clean allocator. Loading churns the device even
+        # when little of the pipeline stays there - a quantization pass with
+        # 'quantization_device' set works on the accelerator and returns the
+        # weights to the host, and group offloading moves components off it
+        # again - and the cached blocks left behind are the wrong shape for
+        # inference. workflow.py does this between steps; a one-step workflow
+        # would otherwise run its only step on top of the loading debris
+        gc.collect()
+        empty_device_cache()
 
         logger.debug("Pipeline loaded successfully")
 

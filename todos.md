@@ -8,8 +8,16 @@
 - Chained prompt-embed reuse — LTX2I2VChained only. chain.py:255 re-runs the full prompt through the 14 GB Gemma once per segment; at 3 segments that's two redundant encodes per run. Engine change, not config.
 - audio prompt for entire clip that transitoins from segment to segment
 - or per segment audio prompt that transitions from segment to segment
+- add compile step?
 
 ## performance
 
 - Save a pre-quantized checkpoint. The 45 s SDNQ pass re-quantizes identical weights on every cold start. Save once locally, point model_name at it, and cold starts drop to plain weight loading. Also speeds the REPL's first load. This is the one real remaining structural win for non-REPL use.
+- save compiled checkpoint like above
 - torch.compile with repeated_blocks. Attacks the 25 s denoise across 48 repeated blocks. It only became viable when the transformer went resident — compile and group-offload hooks fight each other, and that's gone now. But first-run compilation costs more than it saves, so it only pays off paired with #1, where the graph survives between runs.
+- speed up minimax j3 with lora
+
+## capability
+
+- explore and round out native features of h3 and ltx 2.5
+- explore model native inline prompt enhancers for both

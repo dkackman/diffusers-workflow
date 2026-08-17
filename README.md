@@ -45,14 +45,14 @@ The install scripts detect your Python version, create a virtual environment, an
 ### Run a Workflow
 
 ```bash
-python -m dw.run examples/FluxDev.json
-python -m dw.run examples/FluxDev.json prompt="a cat" num_images_per_prompt=4
+python -m dw.run examples/flux/FluxDev.json
+python -m dw.run examples/flux/FluxDev.json prompt="a cat" num_images_per_prompt=4
 ```
 
 ### Validate a Workflow
 
 ```bash
-python -m dw.validate examples/FluxDev.json
+python -m dw.validate examples/flux/FluxDev.json
 ```
 
 ### Interactive REPL

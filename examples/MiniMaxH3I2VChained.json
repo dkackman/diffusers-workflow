@@ -1,7 +1,7 @@
 {
     "id": "MiniMaxH3I2VChained",
     "variables": {
-        "prompt": "The blown glass figure's tentacles writhe as it speaks in a deep, echoing voice, calling forth the ancient ones.",
+        "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field, one continuous shot. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles writhe without pause, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, speaks steadily throughout, <d>[English] Rise now. The old ones are listening.</d> Its central mass swells and contracts with the cadence of the words, and the caustics on the surface below ripple in time. The camera holds a static shot, letting the tentacles move through the frame edges.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch, continuous and unhurried from the first frame to the last.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, holding an even intensity with no discernible melody or pulse.",
         "image": {
             "location": "https://pbs.twimg.com/profile_images/1961215773080211456/nILQt5Fv_400x400.jpg"
         },
@@ -93,9 +93,7 @@
                         },
                         "text_encoder.model": {
                             "group_offload": {
-                                "offload_type": "leaf_level",
-                                "use_stream": true,
-                                "record_stream": true
+                                "offload_type": "leaf_level"
                             }
                         },
                         "vae": {
