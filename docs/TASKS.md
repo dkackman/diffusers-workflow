@@ -294,7 +294,7 @@ Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR
 
 Large images are automatically tiled to avoid GPU memory issues. Models can be loaded from HuggingFace Hub repos or local `.pth`/`.safetensors` files.
 
-**Example:** [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
+**Example:** [SpandrelUpscale.json](../examples/archive/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
 
 ## Diffusion Upscaling
 
@@ -330,8 +330,8 @@ Two modes are available:
 | `noise_level` | No | Noise level for x4 mode (default: 20, ignored for x2) |
 
 **Examples:**
-- [DiffusionUpscaleX4.json](../examples/DiffusionUpscaleX4.json) — Generate at 512px, then 4x diffusion upscale to 2048px.
-- [DiffusionUpscaleX2.json](../examples/DiffusionUpscaleX2.json) — Generate at 512px, then 2x latent upscale to 1024px.
+- [DiffusionUpscaleX4.json](../examples/archive/DiffusionUpscaleX4.json) — Generate at 512px, then 4x diffusion upscale to 2048px.
+- [DiffusionUpscaleX2.json](../examples/archive/DiffusionUpscaleX2.json) — Generate at 512px, then 2x latent upscale to 1024px.
 
 ## Face Restoration
 
@@ -365,7 +365,7 @@ Restore and enhance faces in images using spandrel-compatible face restoration m
 
 Models are loaded via spandrel, so any `.pth`/`.safetensors` face restoration weights work. CodeFormer requires `pip install spandrel-extra-arches` (non-commercial license).
 
-**Example:** [FaceRestore.json](../examples/FaceRestore.json) — Generate a portrait, then restore faces with GFPGAN v1.4.
+**Example:** [FaceRestore.json](../examples/tasks/FaceRestore.json) — Generate a portrait, then restore faces with GFPGAN v1.4.
 
 ### Combining with Upscaling
 
@@ -441,8 +441,8 @@ Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, b
 
 **Examples:**
 
-- [Segment.json](../examples/Segment.json) — Segment an object from an image
-- [SegmentAndInpaint.json](../examples/SegmentAndInpaint.json) — Segment, then inpaint the masked region
+- [Segment.json](../examples/archive/Segment.json) — Segment an object from an image
+- [SegmentAndInpaint.json](../examples/archive/SegmentAndInpaint.json) — Segment, then inpaint the masked region
 
 ## Image Captioning
 
@@ -484,9 +484,9 @@ For Florence-2's advanced task-token captioning (detailed captions, object detec
 
 **Examples:**
 
-- [ImageToText.json](../examples/ImageToText.json) — Basic BLIP captioning, saves as `.txt`
-- [ImageToTextBlip2.json](../examples/ImageToTextBlip2.json) — BLIP-2 with conditional prompt
-- [CaptionToImage.json](../examples/CaptionToImage.json) — Caption an image, then regenerate with Flux
+- [ImageToText.json](../examples/tasks/ImageToText.json) — Basic BLIP captioning, saves as `.txt`
+- [ImageToTextBlip2.json](../examples/tasks/ImageToTextBlip2.json) — BLIP-2 with conditional prompt
+- [CaptionToImage.json](../examples/tasks/CaptionToImage.json) — Caption an image, then regenerate with Flux
 
 ## Text Generation / Prompt Expansion
 
@@ -520,8 +520,8 @@ There is also a built-in `augment_prompt` workflow (`builtin:augment_prompt.json
 
 **Examples:**
 
-- [ExpandPrompt.json](../examples/ExpandPrompt.json) — Expand a short prompt and save as `.txt`
-- [ExpandAndGenerate.json](../examples/ExpandAndGenerate.json) — Expand prompt, then generate with Flux
+- [ExpandPrompt.json](../examples/tasks/ExpandPrompt.json) — Expand a short prompt and save as `.txt`
+- [ExpandAndGenerate.json](../examples/tasks/ExpandAndGenerate.json) — Expand prompt, then generate with Flux
 
 ## Frame Interpolation
 
@@ -571,7 +571,7 @@ Embed generation parameters in saved images. Enable by setting `embed_metadata: 
 
 Metadata includes step name, model name, and generation arguments (prompt, steps, guidance scale, etc.) as JSON.
 
-**Example:** [MetadataEmbed.json](../examples/MetadataEmbed.json) — Generate with Flux and embed parameters in PNG.
+**Example:** [MetadataEmbed.json](../examples/tasks/MetadataEmbed.json) — Generate with Flux and embed parameters in PNG.
 
 ## QR Code Generation
 
@@ -594,7 +594,7 @@ Metadata includes step name, model name, and generation arguments (prompt, steps
 
 The QR code is generated then resampled to `max(height, width)`, aligned to the nearest 64px multiple.
 
-**Example:** [qr_code.json](../examples/qr_code.json) — QR code with artistic ControlNet
+**Example:** [qr_code.json](../examples/archive/qr_code.json) — QR code with artistic ControlNet
 
 ## Chat/Dict Plumbing
 
@@ -717,18 +717,18 @@ Canny edge detection followed by ControlNet generation:
 
 ## Examples
 
-- [FluxCanny.json](../examples/FluxCanny.json) — Canny edge ControlNet
-- [FluxDepth.json](../examples/FluxDepth.json) — Depth-guided generation
-- [qr_code.json](../examples/qr_code.json) — QR code with artistic ControlNet
-- [upscale.json](../examples/upscale.json) — Gather, resize, and diffusion upscale
-- [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate + spandrel 4x upscale
-- [FaceRestore.json](../examples/FaceRestore.json) — Generate portrait + GFPGAN face restoration
-- [Segment.json](../examples/Segment.json) — Text-prompted object segmentation
-- [SegmentAndInpaint.json](../examples/SegmentAndInpaint.json) — Segment + inpaint
-- [ImageToText.json](../examples/ImageToText.json) — BLIP image captioning
-- [ImageToTextBlip2.json](../examples/ImageToTextBlip2.json) — BLIP-2 conditional captioning
-- [CaptionToImage.json](../examples/CaptionToImage.json) — Caption then regenerate
+- [FluxCanny.json](../examples/flux/FluxCanny.json) — Canny edge ControlNet
+- [FluxDepth.json](../examples/flux/FluxDepth.json) — Depth-guided generation
+- [qr_code.json](../examples/archive/qr_code.json) — QR code with artistic ControlNet
+- [upscale.json](../examples/archive/upscale.json) — Gather, resize, and diffusion upscale
+- [SpandrelUpscale.json](../examples/archive/SpandrelUpscale.json) — Generate + spandrel 4x upscale
+- [FaceRestore.json](../examples/tasks/FaceRestore.json) — Generate portrait + GFPGAN face restoration
+- [Segment.json](../examples/archive/Segment.json) — Text-prompted object segmentation
+- [SegmentAndInpaint.json](../examples/archive/SegmentAndInpaint.json) — Segment + inpaint
+- [ImageToText.json](../examples/tasks/ImageToText.json) — BLIP image captioning
+- [ImageToTextBlip2.json](../examples/tasks/ImageToTextBlip2.json) — BLIP-2 conditional captioning
+- [CaptionToImage.json](../examples/tasks/CaptionToImage.json) — Caption then regenerate
 - [InterpolateFrames.json](../examples/InterpolateFrames.json) — RIFE frame interpolation
-- [MetadataEmbed.json](../examples/MetadataEmbed.json) — Embed generation parameters in PNG
-- [ExpandPrompt.json](../examples/ExpandPrompt.json) — LLM prompt expansion
-- [ExpandAndGenerate.json](../examples/ExpandAndGenerate.json) — Expand prompt + generate image
+- [MetadataEmbed.json](../examples/tasks/MetadataEmbed.json) — Embed generation parameters in PNG
+- [ExpandPrompt.json](../examples/tasks/ExpandPrompt.json) — LLM prompt expansion
+- [ExpandAndGenerate.json](../examples/tasks/ExpandAndGenerate.json) — Expand prompt + generate image

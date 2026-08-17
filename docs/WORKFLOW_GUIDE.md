@@ -72,7 +72,7 @@ inverted latents:
 ```
 
 `reference_name` must name a step earlier in the same workflow that has a `pipeline`.
-See [examples/FluxRFInversion.json](../examples/FluxRFInversion.json) for a full example.
+See [examples/flux/FluxRFInversion.json](../examples/flux/FluxRFInversion.json) for a full example.
 
 ### Task Steps
 
@@ -348,7 +348,7 @@ Attach one or more LoRAs to a pipeline with `loras`, a sibling of `configuration
 - `adapter_name` — name passed to `set_adapters()`. Defaults to the LoRA's index in the list.
 - `scale` — the adapter's weight, passed to `set_adapters()`. Defaults to `1.0`.
 
-See [examples/FluxLora.json](../examples/FluxLora.json) for a full example.
+See [examples/flux/FluxLora.json](../examples/flux/FluxLora.json) for a full example.
 
 ### IP-Adapter
 
@@ -362,7 +362,7 @@ See [examples/FluxLora.json](../examples/FluxLora.json) for a full example.
 
 `model_name` is required; `weight_name`, `subfolder` and `scale` are optional. The
 adapter image itself is passed as a normal `ip_adapter_image` pipeline argument. See
-[examples/ip-adapter.json](../examples/ip-adapter.json).
+[examples/archive/ip-adapter.json](../examples/archive/ip-adapter.json).
 
 ### Sharing Components Across Steps
 
@@ -418,7 +418,7 @@ Two mutually exclusive ways to speed up inference by skipping redundant computat
 `num_inference_steps`, `max_skip_steps`, `retention_ratio`, `cache_interval`,
 `max_order` — see [dw/workflow_schema.json](../dw/workflow_schema.json) for which
 fields apply to which type). See
-[examples/FluxDevFirstBlockCache.json](../examples/FluxDevFirstBlockCache.json).
+[examples/flux/FluxDevFirstBlockCache.json](../examples/flux/FluxDevFirstBlockCache.json).
 
 ```json
 "configuration": {

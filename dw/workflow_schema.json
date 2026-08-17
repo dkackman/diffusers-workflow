@@ -159,17 +159,31 @@
                     "type": "boolean"
                 },
                 "continuity": {
-                    "description": "How visual continuity is carried from one segment into the next.",
+                    "description": "How continuity is carried from one segment into the next. 'last_frame' carries the segment's final frame as the next one's keyframe. 'last_segment' carries the segment itself - its frames and the soundtrack generated with them - as a video reference, which keeps motion, camera and voice across the seam instead of appearance alone; it needs a 'segment_argument' holding a references list.",
                     "type": "string",
                     "enum": [
-                        "last_frame"
+                        "last_frame",
+                        "last_segment"
                     ],
                     "default": "last_frame"
                 },
                 "segment_argument": {
-                    "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image reference.",
+                    "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image or video reference.",
                     "type": "string",
                     "default": "image"
+                },
+                "carry_frames": {
+                    "description": "'last_segment' only - carry just this many frames from the tail of each segment rather than all of them, cutting the reference's soundtrack to the same span. A shorter carry costs less sequence length and memory (MiniMax H3 conditions on reference clips of 2 seconds and up, i.e. 48 frames at its 24 fps). Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string"
+                    ],
+                    "minimum": 1
+                },
+                "carry_audio": {
+                    "description": "'last_segment' only - whether the carried video reference brings the soundtrack generated with it, which is what carries a voice across the seam. Turn it off when the segments are already conditioned on a supplied audio track, as in a 'match_audio' chain.",
+                    "type": "boolean",
+                    "default": true
                 },
                 "trim_frames": {
                     "description": "Frames removed from the head of every segment after the first (an image-to-video segment reproduces its keyframe as frame 0). Also bounds the audio crossfade window to trim_frames / fps seconds. Accepts a 'variable:' reference.",

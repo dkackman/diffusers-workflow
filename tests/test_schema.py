@@ -130,6 +130,25 @@ class TestChainSchema:
         status, message = validate_data(_chained_workflow(chain), schema)
         assert status is True, message
 
+    def test_a_last_segment_chain_validates(self):
+        schema = load_schema("workflow")
+        chain = {
+            "segments": 3,
+            "continuity": "last_segment",
+            "segment_argument": "references",
+            "carry_frames": 48,
+            "carry_audio": True,
+        }
+        status, message = validate_data(_chained_workflow(chain), schema)
+        assert status is True, message
+
+    def test_a_zero_carry_frames_is_rejected(self):
+        schema = load_schema("workflow")
+        status, _ = validate_data(
+            _chained_workflow({"segments": 2, "carry_frames": 0}), schema
+        )
+        assert status is False
+
     def test_segments_and_match_audio_together_are_rejected(self):
         schema = load_schema("workflow")
         status, _ = validate_data(

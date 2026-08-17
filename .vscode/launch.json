@@ -2,8 +2,37 @@
   // Use IntelliSense to learn about possible attributes.
   // Hover to view descriptions of existing attributes.
   // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  //
+  // The examples tree has subfolders (flux/, tasks/, archive/, projects/), so
+  // the "current workflow file" configurations below are the ones to reach for:
+  // open the JSON and run it, wherever it lives. The prompting configurations
+  // take a path relative to examples/, subfolders included - "flux/FluxDev".
   "version": "0.2.0",
   "configurations": [
+    {
+      "name": "run current workflow file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dw.run",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "--log_level",
+        "INFO",
+        "${file}"
+      ]
+    },
+    {
+      "name": "validate current workflow file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dw.validate",
+      "cwd": "${workspaceFolder}/",
+      "justMyCode": true,
+      "args": [
+        "${file}"
+      ]
+    },
     {
       "name": "Python Debugger: Current File",
       "type": "debugpy",
@@ -61,22 +90,9 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./dw/test_job.json",
+        "./dw/workflows/test.json",
         "prompt=an orange",
         "num_images_per_prompt=4"
-      ]
-    },
-    {
-      "name": "scratch",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "dw.run",
-      "cwd": "${workspaceFolder}/",
-      "justMyCode": true,
-      "args": [
-        "--log_level",
-        "INFO",
-        "./examples/scratch.json"
       ]
     },
     {
@@ -97,8 +113,8 @@
     {
       "id": "workflowName",
       "type": "promptString",
-      "description": "Enter the workflow name:",
-      "default": "scratch"
+      "description": "Workflow path relative to examples/, without .json (e.g. ZImage or flux/FluxDev):",
+      "default": "??"
     }
   ]
 }

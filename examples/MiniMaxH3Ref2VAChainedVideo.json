@@ -1,11 +1,13 @@
 {
-    "id": "MiniMaxH3I2V",
+    "id": "MiniMaxH3Ref2VAChainedVideo",
+    "seed": 12345,
     "variables": {
-        "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles, until now still, begin to writhe, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, says <d>[English] Rise now. The old ones are listening.</d> As the words land its central mass swells and contracts once, and the caustics on the surface below ripple with it. The camera pushes in with small amplitude at slow speed toward the figure's core through the final seconds, holding the writhing tentacles at the edges of frame.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch. A distant, slow swell of moving air rises beneath the voice and falls away after it.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, rising very slowly in intensity across the clip with no discernible melody or pulse.",
-        "image": {
-            "location": "https://pbs.twimg.com/profile_images/1961215773080211456/nILQt5Fv_400x400.jpg"
-        },
+        "prompt": "subject_definitions:\n<Subject 1> is the astronaut in <Picture 1>, in a white hard-shell suit with a gold-mirrored visor, an orange chest harness and a soft-sided life-support pack.\n<Audio 1> is the voice timbre reference for <Subject 1> (S1): a recorded male voiceover, mid-range in pitch, measured and formal in delivery.\n\nsummary:\n[image reference + audio voice reference + continuation] The target video continues an unbroken take of <Subject 1> speaking to camera in the setting of <Picture 1>, picking up from the state, framing and voice of the reference video that precedes it.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the suit, visor, harness and proportions of <Picture 1> are kept exactly, with the head and shoulders animated to speak.\n<Audio 1>: reference - only the timbre, pitch and measured delivery of the recorded male voice are referenced for <Subject 1>'s speech; none of its content is reused.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium close-up frames <Subject 1> from the chest up, centred and facing camera in the setting of <Picture 1>, held as one continuous take. Warm low sunlight rakes across the left of the suit and reflects off the gold visor as a long soft highlight; the background sits well behind in shallow focus. <Subject 1> (S1) speaks steadily in a measured, formal male voice, his jaw and lips moving in natural synchronisation behind the open visor, pausing only briefly between phrases. Between phrases he shifts his weight very slightly and his head drifts a few degrees off centre and back, keeping his eyes on the lens. The camera holds a static shot throughout, and the pose, framing, lighting and vocal delivery continue without a break from the reference video that precedes this one.\n\noverall_soundscape:\nA broad, open outdoor room tone with a steady low wind moving across the microphone. The suit fabric and harness give a dry creak as he shifts his weight, and a faint regulator hiss cycles quietly under the speech from the first frame to the last, at an even level with no change in the room.\n\nnon_diegetic_music:\nA slow, sparse orchestral bed of sustained low strings under a single held horn note, mixed well beneath the voice at an even level throughout, with no build and no resolution.",
+        "subject": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg",
+        "voice": "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav",
         "num_frames": 124,
+        "segments": 3,
+        "carry_frames": 48,
         "width": 960,
         "height": 544,
         "num_inference_steps": 20,
@@ -13,7 +15,7 @@
     },
     "steps": [
         {
-            "name": "keyframe_to_video_audio",
+            "name": "chained_reference_to_video_audio",
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",
@@ -22,12 +24,12 @@
                     ],
                     "cache": {
                         "type": "first_block",
-                        "threshold": 0.05
+                        "threshold": 0.15
                     },
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
-                            "transformer": {
+                            "transformer_ref": {
                                 "configuration": {
                                     "config_type": "sdnq.SDNQConfig"
                                 },
@@ -81,10 +83,10 @@
                         }
                     },
                     "components": {
-                        "transformer": {
+                        "transformer_ref": {
                             "group_offload": {
                                 "offload_type": "block_level",
-                                "num_blocks_per_group": 5,
+                                "num_blocks_per_group": 1,
                                 "use_stream": true,
                                 "record_stream": true,
                                 "low_cpu_mem_usage": true
@@ -108,11 +110,36 @@
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",
-                    "workflow": "fl2va"
+                    "workflow": "ref2va"
+                },
+                "chain": {
+                    "segments": "variable:segments",
+                    "continuity": "last_segment",
+                    "segment_argument": "references",
+                    "carry_frames": "variable:carry_frames",
+                    "carry_audio": true,
+                    "trim_frames": 2,
+                    "crossfade_ms": 80,
+                    "fps": 24,
+                    "frame_snap": {
+                        "modulus": 17,
+                        "remainder": 5,
+                        "min_frames": 124,
+                        "max_frames": 345
+                    }
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
-                    "image": "variable:image",
+                    "references": [
+                        {
+                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+                            "from_file": "variable:subject"
+                        },
+                        {
+                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+                            "from_file": "variable:voice"
+                        }
+                    ],
                     "num_frames": "variable:num_frames",
                     "width": "variable:width",
                     "height": "variable:height",

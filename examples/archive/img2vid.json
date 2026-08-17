@@ -23,7 +23,7 @@
                 "arguments": {
                     "prompt": "Sparkles and fire",
                     "image": {
-                        "location": "sovariable:urce_image"
+                        "location": "variable:source_image"
                     },
                     "num_videos_per_prompt": 1,
                     "num_inference_steps": 25,

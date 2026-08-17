@@ -61,5 +61,5 @@ An autouse `_clear_task_model_cache` fixture clears `dw.tasks.model_cache` befor
 python -m dw.test
 
 # Validate a workflow against schema
-python -m dw.validate examples/FluxDev.json
+python -m dw.validate examples/flux/FluxDev.json
 ```

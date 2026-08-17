@@ -1,7 +1,7 @@
 {
     "id": "MiniMaxH3Ref2VA",
     "variables": {
-        "prompt": "The character speaks in time with the reference recording, natural lip movement",
+        "prompt": "subject_definitions:\n<Subject 1> is the astronaut in <Picture 1>, in a white hard-shell suit with a gold-mirrored visor, an orange chest harness and a soft-sided life-support pack.\n<Audio 1> is the voice timbre reference for <Subject 1> (S1): a recorded male voiceover, mid-range in pitch, measured and formal in delivery.\n\nsummary:\n[image reference + audio voice reference] The target video shows <Subject 1> speaking directly to camera in the setting of <Picture 1>. The lip and jaw movement is synchronised to the generated dialogue, and the voice timbre references <Audio 1>.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the suit, visor, harness and proportions of <Picture 1> are kept exactly, with the head and shoulders newly animated to speak.\n<Audio 1>: reference - only the timbre, pitch and measured delivery of the recorded male voice are referenced for <Subject 1>'s speech; none of its content is reused.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium close-up frames <Subject 1> from the chest up, centred and facing camera, in the setting of <Picture 1>. Warm low sunlight rakes across the left of the suit and reflects off the gold visor as a long soft highlight; the background sits well behind in shallow focus. <Subject 1> (S1) speaks in a measured, formal male voice, his jaw and lips moving in natural synchronisation behind the open visor, <d>[English] We have come a long way, and the way ahead is longer still.</d> As he delivers the line he lifts his chin slightly and turns a few degrees toward the light, one gloved hand rising into the lower frame to settle on the chest harness. Exactly as his voice stops his mouth closes and holds, and he looks past the lens toward the horizon. The camera pushes in with small amplitude at slow speed across the whole shot.\n\noverall_soundscape:\nA broad, open outdoor room tone with a steady low wind moving across the microphone. The suit fabric and harness give a dry creak as he turns and as his glove meets his chest, and a faint regulator hiss cycles quietly under the dialogue throughout.\n\nnon_diegetic_music:\nA slow, sparse orchestral bed of sustained low strings under a single held horn note, mixed well beneath the voice, swelling gently as he turns toward the light and settling back into stillness at the end of the clip.",
         "subject": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg",
         "voice": "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav",
         "num_frames": 124,
@@ -91,9 +91,7 @@
                         },
                         "text_encoder.model": {
                             "group_offload": {
-                                "offload_type": "leaf_level",
-                                "use_stream": true,
-                                "record_stream": true
+                                "offload_type": "leaf_level"
                             }
                         },
                         "vae": {

@@ -1,0 +1,24 @@
+{
+    "id": "MiniMaxH3ContextIR",
+    "variables": {
+        "idea": "Task: I2VA. Duration: 5.17 seconds. Idea: a blown glass figure's tentacles writhe as it speaks in a deep, echoing voice, calling forth the ancient ones.",
+        "device": "cuda",
+        "model_name": "Qwen/Qwen3-4B-Instruct-2507"
+    },
+    "steps": [
+        {
+            "name": "context_ir",
+            "workflow": {
+                "path": "builtin:h3_context_ir.json",
+                "arguments": {
+                    "prompt": "variable:idea",
+                    "device": "variable:device",
+                    "model_name": "variable:model_name"
+                }
+            },
+            "result": {
+                "content_type": "text/plain"
+            }
+        }
+    ]
+}

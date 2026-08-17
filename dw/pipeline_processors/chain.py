@@ -2,9 +2,15 @@
 pipelines that generate short clips.
 
 A "chain" block on a pipeline step runs the pipeline once per segment,
-carries visual continuity from each segment into the next (the last frame
-becomes the next segment's keyframe), trims the duplicated boundary frames,
-and stitches the segments' frames and audio into one video.
+carries continuity from each segment into the next, trims the duplicated
+boundary frames, and stitches the segments' frames and audio into one video.
+
+Two ways to carry continuity:
+- last_frame - the last frame becomes the next segment's keyframe, which is
+  what a keyframe-conditioned pipeline takes
+- last_segment - the previous segment's frames and the soundtrack generated
+  with them become a video reference, which carries motion, camera and voice
+  across the seam rather than appearance alone
 
 Two ways to specify the length:
 - segments: N - run the pipeline N times as configured
@@ -21,6 +27,7 @@ import gc
 import logging
 import math
 import os
+import sys
 from dataclasses import dataclass
 
 import numpy
@@ -48,6 +55,9 @@ MAX_SEGMENTS = 1000
 class LastFrameContinuity:
     """Carry the last frame of each segment into the next as its keyframe."""
 
+    def __init__(self, config):
+        self.config = config
+
     def extract(self, artifact):
         return extract_frame(artifact, -1)
 
@@ -61,9 +71,69 @@ class LastFrameContinuity:
             arguments[segment_argument] = carry
 
 
-# Later modes - conditioning on the tail frames of the previous segment, or a
-# full video reference carrying frames and audio - register here
-CONTINUITY_MODES = {"last_frame": LastFrameContinuity}
+class LastSegmentContinuity:
+    """Carry the whole previous segment into the next as a video reference.
+
+    A still frame carries pose and colour and nothing else. A reference-
+    conditioned pipeline (MiniMax H3's ref2va) can take the previous segment
+    itself - its frames and the soundtrack generated with them - which carries
+    motion, camera and voice across the seam instead of just appearance.
+
+    Only the tail of the segment is worth carrying: 'carry_frames' bounds it,
+    and the soundtrack is cut to the same span so the reference's own audio and
+    video stay aligned. The generated media is already at the pipeline's own
+    rates, so the reference declares no rate of its own and nothing is
+    resampled on the way back in.
+    """
+
+    def __init__(self, config):
+        self.config = config
+
+    def extract(self, artifact):
+        frames = frames_as_pil_list(artifact)
+        audio, sample_rate = _generated_audio(artifact)
+
+        carry_frames = self.config.carry_frames
+        if carry_frames is not None and carry_frames < len(frames):
+            if audio is not None:
+                if self.config.fps is None:
+                    raise ValueError(
+                        "Trimming a last_segment carry needs the frame rate - "
+                        "set 'fps' on the chain or a 'frame_rate' pipeline argument"
+                    )
+                samples = frames_to_samples(carry_frames, self.config.fps, sample_rate)
+                audio = audio[:, -samples:]
+            frames = frames[-carry_frames:]
+
+        if not self.config.carry_audio:
+            audio, sample_rate = None, None
+
+        return _SegmentCarry(frames, audio, sample_rate)
+
+    def inject(self, arguments, carry, segment_argument):
+        target = arguments.get(segment_argument)
+        if not isinstance(target, list):
+            raise ValueError(
+                f"The 'last_segment' continuity carries a video reference, so "
+                f"'{segment_argument}' must be a references list, not a "
+                f"{type(target).__name__}"
+            )
+        arguments[segment_argument] = _with_carry_video(target, carry)
+
+
+CONTINUITY_MODES = {
+    "last_frame": LastFrameContinuity,
+    "last_segment": LastSegmentContinuity,
+}
+
+
+@dataclass
+class _SegmentCarry:
+    """The part of a finished segment a last_segment chain conditions on."""
+
+    frames: list
+    audio: object  # (channels, samples) numpy, or None
+    sample_rate: int
 
 
 @dataclass
@@ -218,7 +288,7 @@ def run_chain(pipeline, chain_definition, arguments):
         generated audio, the original match_audio track, or no audio at all
     """
     config = ChainConfig(chain_definition, arguments)
-    continuity = CONTINUITY_MODES[config.continuity]()
+    continuity = CONTINUITY_MODES[config.continuity](config)
 
     # With save_segments, each completed segment is written to disk and its
     # frames freed, bounding memory to one segment - a crash leaves the
@@ -317,6 +387,14 @@ class ChainConfig:
             )
 
         self.segment_argument = chain_definition.get("segment_argument", "image")
+        self.carry_frames = chain_definition.get("carry_frames", None)
+        if self.carry_frames is not None:
+            self.carry_frames = int(self.carry_frames)
+            if self.carry_frames < 1:
+                raise ValueError(
+                    f"Chain 'carry_frames' must be at least 1, got {self.carry_frames}"
+                )
+        self.carry_audio = bool(chain_definition.get("carry_audio", True))
         self.trim_frames = int(chain_definition.get("trim_frames", 1))
         self.crossfade_ms = float(chain_definition.get("crossfade_ms", 75))
         self.prompts = chain_definition.get("prompts", None)
@@ -542,6 +620,47 @@ def _with_carry_reference(references, carry):
             "reference to model the new one on"
         )
     return list(references) + [type(image_reference)(image=carry)]
+
+
+def _with_carry_video(references, carry):
+    """A copy of a references list with the carry segment appended as a video
+    reference of the same family the workflow already uses."""
+    reference_type = _video_reference_type(references)
+    arguments = {"frames": carry.frames}
+    if carry.audio is not None:
+        arguments["audio"] = torch.from_numpy(carry.audio)
+        arguments["sample_rate"] = carry.sample_rate
+    return list(references) + [reference_type(**arguments)]
+
+
+def _video_reference_type(references):
+    """The video reference class of the family the workflow's references come from.
+
+    A workflow that already passes a video reference names the class outright.
+    Otherwise it is the video-kind class living beside the references it does
+    pass - the chain never imports a pipeline's reference types itself, the way
+    _with_carry_reference models its carry on the list it was given.
+    """
+    if not references:
+        raise ValueError(
+            "Cannot carry a segment into an empty references list - a "
+            "last_segment chain needs the workflow's own references to model "
+            "the carry on"
+        )
+
+    for reference in references:
+        if getattr(reference, "kind", None) == "video":
+            return type(reference)
+
+    module = sys.modules.get(type(references[0]).__module__, None)
+    for candidate in vars(module).values() if module else ():
+        if isinstance(candidate, type) and getattr(candidate, "kind", None) == "video":
+            return candidate
+
+    raise ValueError(
+        f"Cannot carry a segment as a video reference - no video reference type "
+        f"found alongside {type(references[0]).__name__}"
+    )
 
 
 def _single_artifact(output):

@@ -47,6 +47,16 @@ class FakeAudioReference:
     kind = "audio"
 
 
+@dataclass
+class FakeVideoReference:
+    frames: object
+    fps: float = None
+    audio: object = None
+    sample_rate: int = None
+
+    kind = "video"
+
+
 class FakePipeline:
     """Stands in for a loaded Pipeline wrapper - records every call."""
 
@@ -473,6 +483,111 @@ class TestSaveSegments:
             run_chain(pipeline, chain, {})
 
 
+class TestLastSegmentContinuity:
+    def make_arguments(self, num_frames=8):
+        subject = FakeImageReference(solid_frame((9, 9, 9)))
+        return {"prompt": "test", "num_frames": num_frames, "references": [subject]}
+
+    def chain(self, **overrides):
+        return {
+            "segments": 3,
+            "continuity": "last_segment",
+            "segment_argument": "references",
+            "fps": 4,
+            "trim_frames": 2,
+        } | overrides
+
+    def carried(self, call):
+        return [r for r in call["references"] if r.kind == "video"]
+
+    def test_later_segments_carry_the_previous_segment_as_a_video_reference(self):
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(), self.make_arguments())
+
+        assert self.carried(pipeline.calls[0]) == []
+        # the workflow's own reference plus one carry - never more
+        for call in pipeline.calls[1:]:
+            assert len(call["references"]) == 2
+            assert len(self.carried(call)) == 1
+
+    def test_the_carry_holds_the_whole_segment_and_its_soundtrack(self):
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(), self.make_arguments())
+
+        carry = self.carried(pipeline.calls[1])[0]
+        assert len(carry.frames) == 8
+        # 8 frames at 4 fps and 100Hz - the segment's own generated audio
+        assert carry.audio.shape == (2, 200)
+        assert carry.sample_rate == 100
+
+    def test_carry_frames_limits_the_carry_to_the_tail(self):
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(carry_frames=4), self.make_arguments())
+
+        carry = self.carried(pipeline.calls[1])[0]
+        assert len(carry.frames) == 4
+        # the soundtrack is cut to the same span, 4 frames at 4 fps and 100Hz
+        assert carry.audio.shape == (2, 100)
+
+    def test_a_carry_longer_than_the_segment_keeps_every_frame(self):
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(carry_frames=99), self.make_arguments())
+
+        assert len(self.carried(pipeline.calls[1])[0].frames) == 8
+
+    def test_carry_audio_false_carries_motion_alone(self):
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(carry_audio=False), self.make_arguments())
+
+        carry = self.carried(pipeline.calls[1])[0]
+        assert carry.audio is None
+        assert len(carry.frames) == 8
+
+    def test_an_existing_video_reference_names_the_carry_type(self):
+        arguments = self.make_arguments()
+        arguments["references"] = [FakeVideoReference([solid_frame((1, 1, 1))], 24.0)]
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(), arguments)
+
+        assert len(self.carried(pipeline.calls[1])) == 2
+
+    def test_the_original_references_list_is_never_mutated(self):
+        arguments = self.make_arguments()
+        original_references = arguments["references"]
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(), arguments)
+
+        assert arguments["references"] is original_references
+        assert len(original_references) == 1
+
+    def test_a_segment_argument_that_is_not_a_list_raises(self):
+        pipeline = FakePipeline(modular_output)
+
+        with pytest.raises(ValueError, match="references list"):
+            run_chain(
+                pipeline,
+                self.chain(segment_argument="image"),
+                {"prompt": "test", "num_frames": 8},
+            )
+
+    def test_an_empty_references_list_raises(self):
+        pipeline = FakePipeline(modular_output)
+
+        with pytest.raises(ValueError, match="empty references list"):
+            run_chain(
+                pipeline,
+                self.chain(),
+                {"prompt": "test", "num_frames": 8, "references": []},
+            )
+
+
 class TestValidation:
     def test_segments_and_match_audio_together_raise(self):
         with pytest.raises(ValueError, match="exactly one of"):
@@ -485,6 +600,10 @@ class TestValidation:
     def test_an_unknown_continuity_mode_raises(self):
         with pytest.raises(ValueError, match="Unknown chain continuity"):
             ChainConfig({"segments": 2, "continuity": "teleport"}, {})
+
+    def test_a_zero_carry_frames_raises(self):
+        with pytest.raises(ValueError, match="carry_frames"):
+            ChainConfig({"segments": 2, "carry_frames": 0}, {})
 
     def test_a_zero_segment_chain_raises(self):
         with pytest.raises(ValueError, match="between 1 and"):
