@@ -1,5 +1,5 @@
 {
-    "id": "LTX2I2V",
+    "id": "LTX2I2VChained",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
@@ -8,14 +8,15 @@
         "width": 768,
         "height": 768,
         "frame_rate": 24.0,
-        "num_frames": 481,
+        "num_frames": 121,
+        "segments": 3,
         "image": {
             "location": "https://pbs.twimg.com/media/HPxFgsIXIAAjtUu?format=jpg&name=medium"
         }
     },
     "steps": [
         {
-            "name": "image_to_video",
+            "name": "chained_image_to_video",
             "pipeline": {
                 "configuration": {
                     "component_type": "LTX2ImageToVideoPipeline",
@@ -108,6 +109,14 @@
                         "subfolder": "text_encoder",
                         "torch_dtype": "torch.bfloat16"
                     }
+                },
+                "chain": {
+                    "segments": "variable:segments",
+                    "continuity": "last_frame",
+                    "segment_argument": "image",
+                    "trim_frames": 2,
+                    "crossfade_ms": 80,
+                    "save_segments": true
                 },
                 "arguments": {
                     "prompt": "variable:prompt",

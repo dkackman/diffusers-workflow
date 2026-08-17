@@ -1,12 +1,13 @@
 {
-    "id": "MiniMaxH3",
+    "id": "MiniMaxH3Turbo",
     "variables": {
         "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, a medium tracking shot moves alongside a red fox at ground level through a snow-covered pine forest at dawn. Low golden light rakes between the trunks and throws long blue shadows across untouched snow, and fine ice crystals drift through the air. The fox trots steadily from frame left to frame right, its breath condensing in small white puffs, its brush held level behind it, each paw breaking through the crust. The camera holds a tracking shot at slow speed, matching the animal's pace as pine trunks pass through the foreground. An unseen mixed choir (S1) sings in sustained close harmony, <d>[English] MiniMax H3.</d> [Shot 2] At 00:03.000, the camera cuts to a low close-up of the fox's paws sinking into the powder, then tilts up with small amplitude at slow speed to its face as it pauses, ears swivelling toward an off-screen sound, and looks directly into the lens before continuing forward.\n\noverall_soundscape: A quiet, wide forest room tone under a faint high-frequency hiss of wind moving through pine needles. Every footfall lands as a crisp, dry crunch of compacted snow, evenly spaced with the fox's trot and closer in the second shot. Soft nasal breathing from the animal, and the occasional dry rustle of a laden branch releasing snow in the distance.\n\nnon_diegetic_music: A distant wordless choir sustains open, close-harmony vowels at a slow tempo, mixed low and reverberant behind the ambience, swelling gently as the camera rises to the fox's face and settling back as the shot ends.",
-        "num_frames": 124,
+        "num_frames": 345,
         "width": 960,
         "height": 544,
-        "num_inference_steps": 20,
-        "weights_dtype": "{int4}"
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0
     },
     "seed": 42,
     "steps": [
@@ -18,6 +19,10 @@
                     "pre_load_modules": [
                         "sdnq"
                     ],
+                    "cache": {
+                        "type": "first_block",
+                        "threshold": 0.15
+                    },
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
@@ -104,6 +109,14 @@
                     "model_name": "MiniMaxAI/MiniMax-H3",
                     "workflow": "t2va"
                 },
+                "loras": [
+                    {
+                        "model_name": "lightx2v/Minimax-h3-Turbo",
+                        "weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+                        "adapter_name": "turbo",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
                 "arguments": {
                     "prompt": "variable:prompt",
                     "num_frames": "variable:num_frames",

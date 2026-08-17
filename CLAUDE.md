@@ -73,6 +73,8 @@ Detection is overridden by the `DW_DEVICE` environment variable (single run) or 
 
 A step can override the device it runs on: `device` in a pipeline `configuration` (also the default for that pipeline's components), in a component `configuration`, or in a task's `arguments`.
 
+A `components` entry can additionally set `residency: "on_demand"`, which rests the component on the CPU and wraps its `forward`/`encode`/`decode` to move it to the device around each call (`apply_on_demand_placement` in `pipeline.py`). The wrappers use `functools.wraps` because callers introspect the signature — MiniMax H3's denoiser picks its arguments from `signature(transformer.forward)`. It is mutually exclusive with `group_offload` on the same component, and like `group_offload` it suppresses the wholesale `pipeline.to(device)` at load.
+
 Settings in `~/.diffusers_helper/settings.json`: `device`, `enable_tf32`, `cudnn_benchmark`, `cudnn_deterministic`, `log_level`, `log_filename`.
 
 ## Security Rules

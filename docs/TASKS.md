@@ -161,6 +161,84 @@ For example, a 1600x900 photo (16:9) at resolution 1024 becomes 1792x1024. A 800
 | `get_last_frame` | Extract last video frame | |
 | `get_frame` | Extract frame at index | `frame_index` |
 
+The frame commands accept videos in any shape a result carries them: PIL frame
+lists, numpy or torch frame arrays, and audio+video pairs (LTX-2, MiniMax H3).
+The extracted frame is always a PIL image.
+
+### concat_videos
+
+Concatenate videos - and the audio generated with them - into one video. The
+standalone counterpart of a chained pipeline step's stitching (see "Chained
+video generation" in the workflow guide):
+
+```json
+{
+    "task": {
+        "command": "concat_videos",
+        "arguments": {
+            "videos": "previous_result:gather",
+            "trim_frames": 1,
+            "crossfade_ms": 75,
+            "fps": 24
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 24 }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `videos` | Yes | The videos to join, in order (from `gather_videos` or `previous_result`) |
+| `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
+| `crossfade_ms` | No | Equal-power crossfade at each audio seam (default: 75) |
+| `fps` | No | Frame rate of the videos - required to join audio when trimming |
+
+### slice_audio
+
+Cut a slice out of an audio track, addressed in seconds or in video frames.
+Slices reaching past the end of the track are zero-padded:
+
+```json
+{
+    "task": {
+        "command": "slice_audio",
+        "arguments": {
+            "audio": "./soundtrack.wav",
+            "start_frame": 124,
+            "num_frames": 124,
+            "fps": 24
+        }
+    },
+    "result": { "content_type": "audio/wav", "sample_rate": 44100 }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file, or a waveform from a previous step |
+| `start_seconds` / `duration_seconds` | One pair | The slice in seconds |
+| `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+### crossfade_audio
+
+Join audio tracks with an equal-power crossfade. Each seam overlaps the two
+tracks by the fade window:
+
+```json
+{
+    "task": {
+        "command": "crossfade_audio",
+        "arguments": {
+            "audios": "previous_result:slices",
+            "crossfade_ms": 75,
+            "sample_rate": 44100
+        }
+    },
+    "result": { "content_type": "audio/wav", "sample_rate": 44100 }
+}
+```
+
 ## Data Gathering
 
 ### gather_images
@@ -216,7 +294,7 @@ Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR
 
 Large images are automatically tiled to avoid GPU memory issues. Models can be loaded from HuggingFace Hub repos or local `.pth`/`.safetensors` files.
 
-**Example:** [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
+**Example:** [SpandrelUpscale.json](../examples/archive/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
 
 ## Diffusion Upscaling
 
@@ -252,8 +330,8 @@ Two modes are available:
 | `noise_level` | No | Noise level for x4 mode (default: 20, ignored for x2) |
 
 **Examples:**
-- [DiffusionUpscaleX4.json](../examples/DiffusionUpscaleX4.json) — Generate at 512px, then 4x diffusion upscale to 2048px.
-- [DiffusionUpscaleX2.json](../examples/DiffusionUpscaleX2.json) — Generate at 512px, then 2x latent upscale to 1024px.
+- [DiffusionUpscaleX4.json](../examples/archive/DiffusionUpscaleX4.json) — Generate at 512px, then 4x diffusion upscale to 2048px.
+- [DiffusionUpscaleX2.json](../examples/archive/DiffusionUpscaleX2.json) — Generate at 512px, then 2x latent upscale to 1024px.
 
 ## Face Restoration
 
@@ -287,7 +365,7 @@ Restore and enhance faces in images using spandrel-compatible face restoration m
 
 Models are loaded via spandrel, so any `.pth`/`.safetensors` face restoration weights work. CodeFormer requires `pip install spandrel-extra-arches` (non-commercial license).
 
-**Example:** [FaceRestore.json](../examples/FaceRestore.json) — Generate a portrait, then restore faces with GFPGAN v1.4.
+**Example:** [FaceRestore.json](../examples/tasks/FaceRestore.json) — Generate a portrait, then restore faces with GFPGAN v1.4.
 
 ### Combining with Upscaling
 
@@ -363,8 +441,8 @@ Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, b
 
 **Examples:**
 
-- [Segment.json](../examples/Segment.json) — Segment an object from an image
-- [SegmentAndInpaint.json](../examples/SegmentAndInpaint.json) — Segment, then inpaint the masked region
+- [Segment.json](../examples/archive/Segment.json) — Segment an object from an image
+- [SegmentAndInpaint.json](../examples/archive/SegmentAndInpaint.json) — Segment, then inpaint the masked region
 
 ## Image Captioning
 
@@ -406,9 +484,9 @@ For Florence-2's advanced task-token captioning (detailed captions, object detec
 
 **Examples:**
 
-- [ImageToText.json](../examples/ImageToText.json) — Basic BLIP captioning, saves as `.txt`
-- [ImageToTextBlip2.json](../examples/ImageToTextBlip2.json) — BLIP-2 with conditional prompt
-- [CaptionToImage.json](../examples/CaptionToImage.json) — Caption an image, then regenerate with Flux
+- [ImageToText.json](../examples/tasks/ImageToText.json) — Basic BLIP captioning, saves as `.txt`
+- [ImageToTextBlip2.json](../examples/tasks/ImageToTextBlip2.json) — BLIP-2 with conditional prompt
+- [CaptionToImage.json](../examples/tasks/CaptionToImage.json) — Caption an image, then regenerate with Flux
 
 ## Text Generation / Prompt Expansion
 
@@ -442,8 +520,8 @@ There is also a built-in `augment_prompt` workflow (`builtin:augment_prompt.json
 
 **Examples:**
 
-- [ExpandPrompt.json](../examples/ExpandPrompt.json) — Expand a short prompt and save as `.txt`
-- [ExpandAndGenerate.json](../examples/ExpandAndGenerate.json) — Expand prompt, then generate with Flux
+- [ExpandPrompt.json](../examples/tasks/ExpandPrompt.json) — Expand a short prompt and save as `.txt`
+- [ExpandAndGenerate.json](../examples/tasks/ExpandAndGenerate.json) — Expand prompt, then generate with Flux
 
 ## Frame Interpolation
 
@@ -493,7 +571,7 @@ Embed generation parameters in saved images. Enable by setting `embed_metadata: 
 
 Metadata includes step name, model name, and generation arguments (prompt, steps, guidance scale, etc.) as JSON.
 
-**Example:** [MetadataEmbed.json](../examples/MetadataEmbed.json) — Generate with Flux and embed parameters in PNG.
+**Example:** [MetadataEmbed.json](../examples/tasks/MetadataEmbed.json) — Generate with Flux and embed parameters in PNG.
 
 ## QR Code Generation
 
@@ -516,7 +594,7 @@ Metadata includes step name, model name, and generation arguments (prompt, steps
 
 The QR code is generated then resampled to `max(height, width)`, aligned to the nearest 64px multiple.
 
-**Example:** [qr_code.json](../examples/qr_code.json) — QR code with artistic ControlNet
+**Example:** [qr_code.json](../examples/archive/qr_code.json) — QR code with artistic ControlNet
 
 ## Chat/Dict Plumbing
 
@@ -639,18 +717,18 @@ Canny edge detection followed by ControlNet generation:
 
 ## Examples
 
-- [FluxCanny.json](../examples/FluxCanny.json) — Canny edge ControlNet
-- [FluxDepth.json](../examples/FluxDepth.json) — Depth-guided generation
-- [qr_code.json](../examples/qr_code.json) — QR code with artistic ControlNet
-- [upscale.json](../examples/upscale.json) — Gather, resize, and diffusion upscale
-- [SpandrelUpscale.json](../examples/SpandrelUpscale.json) — Generate + spandrel 4x upscale
-- [FaceRestore.json](../examples/FaceRestore.json) — Generate portrait + GFPGAN face restoration
-- [Segment.json](../examples/Segment.json) — Text-prompted object segmentation
-- [SegmentAndInpaint.json](../examples/SegmentAndInpaint.json) — Segment + inpaint
-- [ImageToText.json](../examples/ImageToText.json) — BLIP image captioning
-- [ImageToTextBlip2.json](../examples/ImageToTextBlip2.json) — BLIP-2 conditional captioning
-- [CaptionToImage.json](../examples/CaptionToImage.json) — Caption then regenerate
+- [FluxCanny.json](../examples/flux/FluxCanny.json) — Canny edge ControlNet
+- [FluxDepth.json](../examples/flux/FluxDepth.json) — Depth-guided generation
+- [qr_code.json](../examples/archive/qr_code.json) — QR code with artistic ControlNet
+- [upscale.json](../examples/archive/upscale.json) — Gather, resize, and diffusion upscale
+- [SpandrelUpscale.json](../examples/archive/SpandrelUpscale.json) — Generate + spandrel 4x upscale
+- [FaceRestore.json](../examples/tasks/FaceRestore.json) — Generate portrait + GFPGAN face restoration
+- [Segment.json](../examples/archive/Segment.json) — Text-prompted object segmentation
+- [SegmentAndInpaint.json](../examples/archive/SegmentAndInpaint.json) — Segment + inpaint
+- [ImageToText.json](../examples/tasks/ImageToText.json) — BLIP image captioning
+- [ImageToTextBlip2.json](../examples/tasks/ImageToTextBlip2.json) — BLIP-2 conditional captioning
+- [CaptionToImage.json](../examples/tasks/CaptionToImage.json) — Caption then regenerate
 - [InterpolateFrames.json](../examples/InterpolateFrames.json) — RIFE frame interpolation
-- [MetadataEmbed.json](../examples/MetadataEmbed.json) — Embed generation parameters in PNG
-- [ExpandPrompt.json](../examples/ExpandPrompt.json) — LLM prompt expansion
-- [ExpandAndGenerate.json](../examples/ExpandAndGenerate.json) — Expand prompt + generate image
+- [MetadataEmbed.json](../examples/tasks/MetadataEmbed.json) — Embed generation parameters in PNG
+- [ExpandPrompt.json](../examples/tasks/ExpandPrompt.json) — LLM prompt expansion
+- [ExpandAndGenerate.json](../examples/tasks/ExpandAndGenerate.json) — Expand prompt + generate image

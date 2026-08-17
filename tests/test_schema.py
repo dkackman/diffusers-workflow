@@ -99,3 +99,161 @@ def test_release_pipeline_step_flag_validates():
     workflow = _pipeline_step({}, release_pipeline=True)
     status, message = validate_data(workflow, schema)
     assert status is True, message
+
+
+def _chained_workflow(chain):
+    workflow = _pipeline_step({})
+    workflow["steps"][0]["pipeline"]["chain"] = chain
+    return workflow
+
+
+class TestSchedulerSchema:
+    def _with_scheduler(self, **blocks):
+        workflow = _pipeline_step({})
+        workflow["steps"][0]["pipeline"].update(blocks)
+        return workflow
+
+    def test_a_shift_only_scheduler_validates(self):
+        schema = load_schema("workflow")
+        status, message = validate_data(
+            self._with_scheduler(scheduler={"shift": 6}), schema
+        )
+        assert status is True, message
+
+    def test_both_schedulers_validate(self):
+        schema = load_schema("workflow")
+        status, message = validate_data(
+            self._with_scheduler(scheduler={"shift": 6}, audio_scheduler={"shift": 3}),
+            schema,
+        )
+        assert status is True, message
+
+    def test_a_variable_reference_shift_validates(self):
+        # Schema validation runs before variable substitution
+        schema = load_schema("workflow")
+        status, message = validate_data(
+            self._with_scheduler(scheduler={"shift": "variable:flow_shift"}), schema
+        )
+        assert status is True, message
+
+    def test_a_scheduler_type_replacement_still_validates(self):
+        schema = load_schema("workflow")
+        status, message = validate_data(
+            self._with_scheduler(
+                scheduler={"configuration": {"scheduler_type": "DDIMScheduler"}}
+            ),
+            schema,
+        )
+        assert status is True, message
+
+    def test_an_empty_scheduler_block_is_rejected(self):
+        schema = load_schema("workflow")
+        status, _ = validate_data(self._with_scheduler(scheduler={}), schema)
+        assert status is False
+
+    def test_a_negative_shift_is_rejected(self):
+        schema = load_schema("workflow")
+        status, _ = validate_data(self._with_scheduler(scheduler={"shift": -1}), schema)
+        assert status is False
+
+
+class TestChainSchema:
+    def test_a_segment_count_chain_validates(self):
+        schema = load_schema("workflow")
+        status, message = validate_data(
+            _chained_workflow({"segments": 4, "trim_frames": 2}), schema
+        )
+        assert status is True, message
+
+    def test_a_match_audio_chain_with_frame_snap_validates(self):
+        schema = load_schema("workflow")
+        chain = {
+            "match_audio": True,
+            "segment_argument": "references",
+            "frame_snap": {
+                "modulus": 17,
+                "remainder": 5,
+                "min_frames": 124,
+                "max_frames": 345,
+            },
+        }
+        status, message = validate_data(_chained_workflow(chain), schema)
+        assert status is True, message
+
+    def test_a_last_segment_chain_validates(self):
+        schema = load_schema("workflow")
+        chain = {
+            "segments": 3,
+            "continuity": "last_segment",
+            "segment_argument": "references",
+            "carry_frames": 48,
+            "carry_audio": True,
+        }
+        status, message = validate_data(_chained_workflow(chain), schema)
+        assert status is True, message
+
+    def test_a_zero_carry_frames_is_rejected(self):
+        schema = load_schema("workflow")
+        status, _ = validate_data(
+            _chained_workflow({"segments": 2, "carry_frames": 0}), schema
+        )
+        assert status is False
+
+    def test_segments_and_match_audio_together_are_rejected(self):
+        schema = load_schema("workflow")
+        status, _ = validate_data(
+            _chained_workflow({"segments": 4, "match_audio": True}), schema
+        )
+        assert status is False
+
+    def test_a_chain_without_a_length_is_rejected(self):
+        schema = load_schema("workflow")
+        status, _ = validate_data(
+            _chained_workflow({"continuity": "last_frame"}), schema
+        )
+        assert status is False
+
+    def test_an_unknown_continuity_mode_is_rejected(self):
+        schema = load_schema("workflow")
+        status, _ = validate_data(
+            _chained_workflow({"segments": 2, "continuity": "teleport"}), schema
+        )
+        assert status is False
+
+    def test_a_variable_reference_segment_count_validates(self):
+        # Schema validation runs before variable substitution
+        schema = load_schema("workflow")
+        status, message = validate_data(
+            _chained_workflow({"segments": "variable:segments"}), schema
+        )
+        assert status is True, message
+
+    def test_an_unknown_chain_property_is_rejected(self):
+        schema = load_schema("workflow")
+        status, _ = validate_data(
+            _chained_workflow({"segments": 2, "overlap": 3}), schema
+        )
+        assert status is False
+
+    def test_per_segment_prompts_validate(self):
+        schema = load_schema("workflow")
+        status, message = validate_data(
+            _chained_workflow({"segments": 2, "prompts": ["first", "second"]}), schema
+        )
+        assert status is True, message
+
+    def test_a_pipeline_reference_accepts_a_chain(self):
+        schema = load_schema("workflow")
+        workflow = _pipeline_step({})
+        workflow["steps"].append(
+            {
+                "name": "chained",
+                "pipeline_reference": {
+                    "reference_name": "main",
+                    "chain": {"segments": 3},
+                    "arguments": {"prompt": "test"},
+                },
+            }
+        )
+        status, message = validate_data(workflow, schema)
+        assert status is True, message

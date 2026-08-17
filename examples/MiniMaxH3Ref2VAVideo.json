@@ -1,27 +1,33 @@
 {
-    "id": "MiniMaxH3",
+    "id": "MiniMaxH3Ref2VAVideo",
+    "seed": 12345,
     "variables": {
-        "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, a medium tracking shot moves alongside a red fox at ground level through a snow-covered pine forest at dawn. Low golden light rakes between the trunks and throws long blue shadows across untouched snow, and fine ice crystals drift through the air. The fox trots steadily from frame left to frame right, its breath condensing in small white puffs, its brush held level behind it, each paw breaking through the crust. The camera holds a tracking shot at slow speed, matching the animal's pace as pine trunks pass through the foreground. An unseen mixed choir (S1) sings in sustained close harmony, <d>[English] MiniMax H3.</d> [Shot 2] At 00:03.000, the camera cuts to a low close-up of the fox's paws sinking into the powder, then tilts up with small amplitude at slow speed to its face as it pauses, ears swivelling toward an off-screen sound, and looks directly into the lens before continuing forward.\n\noverall_soundscape: A quiet, wide forest room tone under a faint high-frequency hiss of wind moving through pine needles. Every footfall lands as a crisp, dry crunch of compacted snow, evenly spaced with the fox's trot and closer in the second shot. Soft nasal breathing from the animal, and the occasional dry rustle of a laden branch releasing snow in the distance.\n\nnon_diegetic_music: A distant wordless choir sustains open, close-harmony vowels at a slow tempo, mixed low and reverberant behind the ambience, swelling gently as the camera rises to the fox's face and settling back as the shot ends.",
+        "prompt": "subject_definitions:\n<Subject 1> is the astronaut in <Picture 1>, in a white hard-shell suit with a gold-mirrored visor, an orange chest harness and a soft-sided life-support pack.\n<Video 1> is the camera and staging reference for the target video: a wide backlit shot of a lone hiker standing in profile on a rocky outcrop above a layered mountain range at sunset, the sun low behind the ridge, the figure held in near silhouette on the right of frame with the valley falling away to the left.\n\nsummary:\n[image subject reference + video camera and staging reference] The target video places <Subject 1> into the shot described by <Video 1>: the astronaut stands in profile on the same clifftop at sunset, framed and lit the way <Video 1> frames and lights its hiker, and speaks one line to the horizon.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the suit, visor, harness and proportions of <Picture 1> are kept exactly, with the body newly posed standing in profile and the head newly animated to speak.\n<Video 1>: reference - only its framing, its backlit sunset lighting, its clifftop-and-mountains setting and its slow held camera are referenced; its hiker is replaced by <Subject 1> and none of its frames are reused.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A wide shot frames <Subject 1> standing in profile on a rocky outcrop on the right of frame, facing left toward a layered range of mountains that recedes into haze, exactly the staging of <Video 1>. The sun sits low and just behind the ridge, so the astronaut is held in near silhouette with a hard warm rim running down the back of the suit and a broad flare washing across the gold visor; the valley falls away to the left in bands of shadow and gold. <Subject 1> stands still with his weight on his back foot, then turns his head a few degrees toward the sun. <Subject 1> (S1), a measured, formal male voice, mid-range in pitch, says <d>[English] We have come a long way, and the way ahead is longer still.</d> As the line ends he lifts his chin and holds his gaze on the horizon, one gloved hand settling onto the chest harness. The camera holds a static shot with a very slight drift throughout, matching the held camera of <Video 1>.\n\noverall_soundscape:\nA broad, open, high-altitude room tone with a steady low wind moving across the microphone and gusting once as he turns his head. The suit fabric and harness give a dry creak as his glove meets his chest, and a faint regulator hiss cycles quietly under the dialogue from the first frame to the last.\n\nnon_diegetic_music:\nA slow, sparse orchestral bed of sustained low strings under a single held horn note, mixed well beneath the voice, swelling gently as he turns toward the sun and settling back into stillness at the end of the clip.",
+        "subject": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg",
+        "motion": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/hiker.mp4",
         "num_frames": 124,
         "width": 960,
         "height": 544,
         "num_inference_steps": 20,
         "weights_dtype": "{int4}"
     },
-    "seed": 42,
     "steps": [
         {
-            "name": "text_to_video_audio",
+            "name": "video_reference_to_video_audio",
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",
                     "pre_load_modules": [
                         "sdnq"
                     ],
+                    "cache": {
+                        "type": "first_block",
+                        "threshold": 0.1
+                    },
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
-                            "transformer": {
+                            "transformer_ref": {
                                 "configuration": {
                                     "config_type": "sdnq.SDNQConfig"
                                 },
@@ -75,10 +81,10 @@
                         }
                     },
                     "components": {
-                        "transformer": {
+                        "transformer_ref": {
                             "group_offload": {
                                 "offload_type": "block_level",
-                                "num_blocks_per_group": 2,
+                                "num_blocks_per_group": 1,
                                 "use_stream": true,
                                 "record_stream": true,
                                 "low_cpu_mem_usage": true
@@ -90,10 +96,12 @@
                             }
                         },
                         "vae": {
-                            "device": "cuda"
+                            "device": "cuda",
+                            "residency": "on_demand"
                         },
                         "audio_vae": {
-                            "device": "cuda"
+                            "device": "cuda",
+                            "residency": "on_demand"
                         }
                     },
                     "vae": {
@@ -102,10 +110,20 @@
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",
-                    "workflow": "t2va"
+                    "workflow": "ref2va"
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
+                    "references": [
+                        {
+                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+                            "from_file": "variable:subject"
+                        },
+                        {
+                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3VideoReference",
+                            "from_file": "variable:motion"
+                        }
+                    ],
                     "num_frames": "variable:num_frames",
                     "width": "variable:width",
                     "height": "variable:height",

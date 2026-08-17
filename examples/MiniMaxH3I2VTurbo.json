@@ -1,23 +1,30 @@
 {
-    "id": "MiniMaxH3",
+    "id": "MiniMaxH3I2VTurbo",
     "variables": {
-        "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, a medium tracking shot moves alongside a red fox at ground level through a snow-covered pine forest at dawn. Low golden light rakes between the trunks and throws long blue shadows across untouched snow, and fine ice crystals drift through the air. The fox trots steadily from frame left to frame right, its breath condensing in small white puffs, its brush held level behind it, each paw breaking through the crust. The camera holds a tracking shot at slow speed, matching the animal's pace as pine trunks pass through the foreground. An unseen mixed choir (S1) sings in sustained close harmony, <d>[English] MiniMax H3.</d> [Shot 2] At 00:03.000, the camera cuts to a low close-up of the fox's paws sinking into the powder, then tilts up with small amplitude at slow speed to its face as it pauses, ears swivelling toward an off-screen sound, and looks directly into the lens before continuing forward.\n\noverall_soundscape: A quiet, wide forest room tone under a faint high-frequency hiss of wind moving through pine needles. Every footfall lands as a crisp, dry crunch of compacted snow, evenly spaced with the fox's trot and closer in the second shot. Soft nasal breathing from the animal, and the occasional dry rustle of a laden branch releasing snow in the distance.\n\nnon_diegetic_music: A distant wordless choir sustains open, close-harmony vowels at a slow tempo, mixed low and reverberant behind the ambience, swelling gently as the camera rises to the fox's face and settling back as the shot ends.",
+        "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles, until now still, begin to writhe, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, says <d>[English] Rise now. The old ones are listening.</d> As the words land its central mass swells and contracts once, and the caustics on the surface below ripple with it. The camera pushes in with small amplitude at slow speed toward the figure's core through the final seconds, holding the writhing tentacles at the edges of frame.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch. A distant, slow swell of moving air rises beneath the voice and falls away after it.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, rising very slowly in intensity across the clip with no discernible melody or pulse.",
+        "image": {
+            "location": "https://pbs.twimg.com/profile_images/1961215773080211456/nILQt5Fv_400x400.jpg"
+        },
         "num_frames": 124,
         "width": 960,
         "height": 544,
-        "num_inference_steps": 20,
-        "weights_dtype": "{int4}"
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0
     },
-    "seed": 42,
     "steps": [
         {
-            "name": "text_to_video_audio",
+            "name": "keyframe_to_video_audio",
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",
                     "pre_load_modules": [
                         "sdnq"
                     ],
+                    "cache": {
+                        "type": "first_block",
+                        "threshold": 0.15
+                    },
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
@@ -78,7 +85,7 @@
                         "transformer": {
                             "group_offload": {
                                 "offload_type": "block_level",
-                                "num_blocks_per_group": 2,
+                                "num_blocks_per_group": 5,
                                 "use_stream": true,
                                 "record_stream": true,
                                 "low_cpu_mem_usage": true
@@ -102,10 +109,19 @@
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",
-                    "workflow": "t2va"
+                    "workflow": "fl2va"
                 },
+                "loras": [
+                    {
+                        "model_name": "lightx2v/Minimax-h3-Turbo",
+                        "weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+                        "adapter_name": "turbo",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
                 "arguments": {
                     "prompt": "variable:prompt",
+                    "image": "variable:image",
                     "num_frames": "variable:num_frames",
                     "width": "variable:width",
                     "height": "variable:height",

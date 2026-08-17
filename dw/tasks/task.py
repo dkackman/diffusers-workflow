@@ -70,6 +70,33 @@ def _handle_gather_inputs(task, arguments, previous_pipelines):
     return gather_inputs(arguments)
 
 
+@register_command("concat_videos")
+def _handle_concat_videos(task, arguments, previous_pipelines):
+    """Concatenate videos - and the audio generated with them - into one"""
+    logger.debug("Concatenating videos")
+    from .concat_videos import concat_videos
+
+    return concat_videos(**arguments)
+
+
+@register_command("slice_audio")
+def _handle_slice_audio(task, arguments, previous_pipelines):
+    """Cut a time- or frame-aligned slice out of an audio track"""
+    logger.debug("Slicing audio")
+    from .audio_utils import slice_audio
+
+    return slice_audio(**arguments)
+
+
+@register_command("crossfade_audio")
+def _handle_crossfade_audio(task, arguments, previous_pipelines):
+    """Join audio tracks with an equal-power crossfade"""
+    logger.debug("Crossfading audio")
+    from .audio_utils import crossfade_audio
+
+    return crossfade_audio(**arguments)
+
+
 @register_command("format_chat_message")
 def _handle_format_chat_message(task, arguments, previous_pipelines):
     """Format chat message for LLM input"""
