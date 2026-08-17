@@ -35,8 +35,13 @@ def extract_sections(text, sections, keep_preamble=True):
     if not sections:
         return text.strip()
 
+    # Matched case-insensitively because the models capitalise labels however
+    # they please - one writes overall_soundscape, another Overall_soundscape,
+    # and dropping a section over its first letter would lose real content. The
+    # declared spelling is what gets written back out
     labels = "|".join(re.escape(name) for name in sections)
-    matches = list(re.finditer(rf"^({labels}):", text, re.M))
+    matches = list(re.finditer(rf"^({labels}):", text, re.M | re.I))
+    canonical = {name.lower(): name for name in sections}
 
     if not matches:
         logger.warning(
@@ -46,7 +51,7 @@ def extract_sections(text, sections, keep_preamble=True):
 
     bodies = {}
     for index, match in enumerate(matches):
-        name = match.group(1)
+        name = canonical[match.group(1).lower()]
         if name in bodies:
             # A repeat is the model starting over, not new content
             continue

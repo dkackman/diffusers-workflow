@@ -575,6 +575,8 @@ Generation stays greedy so a workflow reproduces, but greedy decoding against a 
 
 A penalty reins the looping in but does not guarantee the model stops where the format ends; for that, trim the output with `extract_sections` below.
 
+There is a limit to what a small model will follow. Against the MiniMax H3 spec, neither Qwen3-VL-4B nor 8B produces the `<d>[Language]...</d>` dialogue tag or the `(S1)` speaker ids, whether the idea implies speech or supplies the line verbatim; the 8B is worse on layout, capitalising its section labels. Showing a complete worked example does produce them - by copying the example word for word, which is useless - and a placeholder skeleton does not produce them at all. The visual description these models write is grounded and usable; the dialogue markup is not. Write prompts by hand where a subject has to speak.
+
 For anything the arguments above do not cover, `generate_kwargs` goes straight to `generate()`:
 
 ```json
