@@ -1,21 +1,18 @@
 {
-    "id": "MiniMaxH3Ref2VAChainedVideo",
-    "seed": 12345,
+    "id": "MiniMaxH3Turbo",
     "variables": {
-        "prompt": "subject_definitions:\n<Subject 1> is the astronaut in <Picture 1>, in a white hard-shell suit with a gold-mirrored visor, an orange chest harness and a soft-sided life-support pack.\n<Audio 1> is the voice timbre reference for <Subject 1> (S1): a recorded male voiceover, mid-range in pitch, measured and formal in delivery.\n\nsummary:\n[image reference + audio voice reference + continuation] The target video continues an unbroken take of <Subject 1> speaking to camera in the setting of <Picture 1>, picking up from the state, framing and voice of the reference video that precedes it.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the suit, visor, harness and proportions of <Picture 1> are kept exactly, with the head and shoulders animated to speak.\n<Audio 1>: reference - only the timbre, pitch and measured delivery of the recorded male voice are referenced for <Subject 1>'s speech; none of its content is reused.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium close-up frames <Subject 1> from the chest up, centred and facing camera in the setting of <Picture 1>, held as one continuous take. Warm low sunlight rakes across the left of the suit and reflects off the gold visor as a long soft highlight; the background sits well behind in shallow focus. <Subject 1> (S1) speaks steadily in a measured, formal male voice, his jaw and lips moving in natural synchronisation behind the open visor, pausing only briefly between phrases. Between phrases he shifts his weight very slightly and his head drifts a few degrees off centre and back, keeping his eyes on the lens. The camera holds a static shot throughout, and the pose, framing, lighting and vocal delivery continue without a break from the reference video that precedes this one.\n\noverall_soundscape:\nA broad, open outdoor room tone with a steady low wind moving across the microphone. The suit fabric and harness give a dry creak as he shifts his weight, and a faint regulator hiss cycles quietly under the speech from the first frame to the last, at an even level with no change in the room.\n\nnon_diegetic_music:\nA slow, sparse orchestral bed of sustained low strings under a single held horn note, mixed well beneath the voice at an even level throughout, with no build and no resolution.",
-        "subject": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg",
-        "voice": "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav",
-        "num_frames": 124,
-        "segments": 3,
-        "carry_frames": 48,
+        "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, a medium tracking shot moves alongside a red fox at ground level through a snow-covered pine forest at dawn. Low golden light rakes between the trunks and throws long blue shadows across untouched snow, and fine ice crystals drift through the air. The fox trots steadily from frame left to frame right, its breath condensing in small white puffs, its brush held level behind it, each paw breaking through the crust. The camera holds a tracking shot at slow speed, matching the animal's pace as pine trunks pass through the foreground. An unseen mixed choir (S1) sings in sustained close harmony, <d>[English] MiniMax H3.</d> [Shot 2] At 00:03.000, the camera cuts to a low close-up of the fox's paws sinking into the powder, then tilts up with small amplitude at slow speed to its face as it pauses, ears swivelling toward an off-screen sound, and looks directly into the lens before continuing forward.\n\noverall_soundscape: A quiet, wide forest room tone under a faint high-frequency hiss of wind moving through pine needles. Every footfall lands as a crisp, dry crunch of compacted snow, evenly spaced with the fox's trot and closer in the second shot. Soft nasal breathing from the animal, and the occasional dry rustle of a laden branch releasing snow in the distance.\n\nnon_diegetic_music: A distant wordless choir sustains open, close-harmony vowels at a slow tempo, mixed low and reverberant behind the ambience, swelling gently as the camera rises to the fox's face and settling back as the shot ends.",
+        "num_frames": 362,
         "width": 960,
         "height": 544,
-        "num_inference_steps": 20,
-        "weights_dtype": "{int4}"
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0
     },
+    "seed": 42,
     "steps": [
         {
-            "name": "chained_reference_to_video_audio",
+            "name": "text_to_video_audio",
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",
@@ -24,12 +21,12 @@
                     ],
                     "cache": {
                         "type": "first_block",
-                        "threshold": 0.1
+                        "threshold": 0.15
                     },
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
-                            "transformer_ref": {
+                            "transformer": {
                                 "configuration": {
                                     "config_type": "sdnq.SDNQConfig"
                                 },
@@ -83,10 +80,10 @@
                         }
                     },
                     "components": {
-                        "transformer_ref": {
+                        "transformer": {
                             "group_offload": {
                                 "offload_type": "block_level",
-                                "num_blocks_per_group": 1,
+                                "num_blocks_per_group": 2,
                                 "use_stream": true,
                                 "record_stream": true,
                                 "low_cpu_mem_usage": true
@@ -110,36 +107,18 @@
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",
-                    "workflow": "ref2va"
+                    "workflow": "t2va"
                 },
-                "chain": {
-                    "segments": "variable:segments",
-                    "continuity": "last_segment",
-                    "segment_argument": "references",
-                    "carry_frames": "variable:carry_frames",
-                    "carry_audio": true,
-                    "trim_frames": 2,
-                    "crossfade_ms": 80,
-                    "fps": 24,
-                    "frame_snap": {
-                        "modulus": 17,
-                        "remainder": 5,
-                        "min_frames": 124,
-                        "max_frames": 345
+                "loras": [
+                    {
+                        "model_name": "lightx2v/Minimax-h3-Turbo",
+                        "weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+                        "adapter_name": "turbo",
+                        "scale": "variable:lora_scale"
                     }
-                },
+                ],
                 "arguments": {
                     "prompt": "variable:prompt",
-                    "references": [
-                        {
-                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
-                            "from_file": "variable:subject"
-                        },
-                        {
-                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
-                            "from_file": "variable:voice"
-                        }
-                    ],
                     "num_frames": "variable:num_frames",
                     "width": "variable:width",
                     "height": "variable:height",

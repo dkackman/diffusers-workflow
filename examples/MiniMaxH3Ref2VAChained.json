@@ -21,7 +21,7 @@
                     ],
                     "cache": {
                         "type": "first_block",
-                        "threshold": 0.05
+                        "threshold": 0.1
                     },
                     "load_components": {
                         "dtype": "torch.bfloat16",

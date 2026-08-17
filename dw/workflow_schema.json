@@ -280,6 +280,9 @@
                 "scheduler": {
                     "$ref": "#/$defs/scheduler"
                 },
+                "audio_scheduler": {
+                    "$ref": "#/$defs/scheduler"
+                },
                 "model": {
                     "$ref": "#/$defs/pipeline_component"
                 },
@@ -668,10 +671,27 @@
                 },
                 "from_config_args": {
                     "$ref": "#/$defs/arguments"
+                },
+                "shift": {
+                    "description": "Exponential sigma shift applied to this scheduler's schedule, for schedulers that take one (MiniMax H3: 12.0 for video, 3.0 for audio in the released checkpoint). Lower it when running few steps - a high shift packs the whole grid near sigma 1 and leaves one enormous final step, which a short schedule cannot absorb. Accepts a 'variable:' reference.",
+                    "type": [
+                        "number",
+                        "string"
+                    ],
+                    "exclusiveMinimum": 0
                 }
             },
-            "required": [
-                "configuration"
+            "anyOf": [
+                {
+                    "required": [
+                        "configuration"
+                    ]
+                },
+                {
+                    "required": [
+                        "shift"
+                    ]
+                }
             ]
         },
         "pipeline_component": {
@@ -793,8 +813,11 @@
                     "type": "string"
                 },
                 "scale": {
-                    "description": "The scale factor of the lora when fusing.",
-                    "type": "number",
+                    "description": "The scale factor of the lora when fusing. Accepts a 'variable:' reference.",
+                    "type": [
+                        "number",
+                        "string"
+                    ],
                     "format": "float"
                 },
                 "adapter_name": {
