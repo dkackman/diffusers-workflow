@@ -188,6 +188,15 @@ def _handle_text_generation(task, arguments, previous_pipelines):
     return generate_text(prompt, device=task.device_for(arguments), **arguments)
 
 
+@register_command("extract_sections")
+def _handle_extract_sections(task, arguments, previous_pipelines):
+    """Reduce generated text to a known set of labelled sections"""
+    logger.debug("Extracting sections")
+    from .text_sections import extract_sections
+
+    return extract_sections(**arguments)
+
+
 @register_command("batch_decode_post_process")
 def _handle_batch_decode(task, arguments, previous_pipelines):
     """Batch decode post-processing with pipeline reference"""
