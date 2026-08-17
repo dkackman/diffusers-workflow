@@ -7,6 +7,9 @@
         "id": {
             "type": "string"
         },
+        "description": {
+            "type": "string"
+        },
         "variables": {
             "$ref": "#/$defs/arguments"
         },
@@ -68,6 +71,10 @@
                     "description": "Unload this step's pipeline once the step completes, freeing its memory for later steps. A later pipeline_reference to this step is an error, and the REPL's cross-run cache will not retain it.",
                     "type": "boolean"
                 },
+                "release_models": {
+                    "description": "Unload every cached task model once the step completes, freeing their memory for later steps. Task models otherwise stay loaded for the life of the process; set this on a task or sub-workflow step whose model is not needed again, such as a prompt expander running ahead of a generation step. A later step using the same model reloads it.",
+                    "type": "boolean"
+                },
                 "task": {
                     "$ref": "#/$defs/task"
                 },
@@ -114,13 +121,15 @@
         "arguments": {
             "type": "object",
             "additionalProperties": {
+                "description": "null declares an argument that is optional - a workflow can expose a variable a caller may pass without inventing a sentinel value for its absence.",
                 "type": [
                     "string",
                     "integer",
                     "number",
                     "object",
                     "array",
-                    "boolean"
+                    "boolean",
+                    "null"
                 ]
             }
         },

@@ -1,30 +1,45 @@
 {
-    "id": "MiniMaxH3I2VTurbo",
+    "id": "MiniMaxH3EnhancePrompt",
+    "description": "Feeding one step's output into the next as an argument. A 'workflow' step delegates to the built-in prompt enhancer and the pipeline step draws its prompt from 'previous_result' instead of a variable, so a one-line idea is expanded into the structured, multi-section format H3 expects without anyone writing it by hand. What crosses the step boundary is data, so the producing step can be a pipeline, a task or - as here - an entire sub-workflow. Also shows 'release_models', which frees the language model once its step is done so it is not holding device memory while the generation step runs. The generated prompt is saved beside the video, leaving a record of what the model was actually given.",
     "variables": {
-        "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles, until now still, begin to writhe, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, says <d>[English] Rise now. The old ones are listening.</d> As the words land its central mass swells and contracts once, and the caustics on the surface below ripple with it. The camera pushes in with small amplitude at slow speed toward the figure's core through the final seconds, holding the writhing tentacles at the edges of frame.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch. A distant, slow swell of moving air rises beneath the voice and falls away after it.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, rising very slowly in intensity across the clip with no discernible melody or pulse.",
-        "image": {
-            "location": "https://pbs.twimg.com/profile_images/1961215773080211456/nILQt5Fv_400x400.jpg"
-        },
+        "idea": "Task: T2VA. Duration: 5.17 seconds. Idea: a blown glass figure's tentacles writhe as it speaks in a deep, echoing voice, calling forth the ancient ones.",
+        "enhancer_model_name": "Qwen/Qwen3-4B-Instruct-2507",
+        "enhancer_device": "cuda",
         "num_frames": 124,
         "width": 960,
         "height": 544,
         "num_inference_steps": 9,
         "weights_dtype": "{int4}",
-        "lora_scale": 1.0
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo"
     },
+    "seed": 42,
     "steps": [
         {
-            "name": "keyframe_to_video_audio",
+            "name": "prompt_enhancer",
+            "release_models": true,
+            "workflow": {
+                "path": "builtin:h3_context_ir.json",
+                "arguments": {
+                    "prompt": "variable:idea",
+                    "device": "variable:enhancer_device",
+                    "model_name": "variable:enhancer_model_name"
+                }
+            },
+            "result": {
+                "content_type": "text/plain"
+            }
+        },
+        {
+            "name": "text_to_video_audio",
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",
                     "pre_load_modules": [
                         "sdnq"
                     ],
-                    "cache": {
-                        "type": "first_block",
-                        "threshold": 0.15
-                    },
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
@@ -85,7 +100,7 @@
                         "transformer": {
                             "group_offload": {
                                 "offload_type": "block_level",
-                                "num_blocks_per_group": 5,
+                                "num_blocks_per_group": 2,
                                 "use_stream": true,
                                 "record_stream": true,
                                 "low_cpu_mem_usage": true
@@ -109,19 +124,18 @@
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",
-                    "workflow": "fl2va"
+                    "workflow": "t2va"
                 },
                 "loras": [
                     {
-                        "model_name": "lightx2v/Minimax-h3-Turbo",
-                        "weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
-                        "adapter_name": "turbo",
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
                         "scale": "variable:lora_scale"
                     }
                 ],
                 "arguments": {
-                    "prompt": "variable:prompt",
-                    "image": "variable:image",
+                    "prompt": "previous_result:prompt_enhancer",
                     "num_frames": "variable:num_frames",
                     "width": "variable:width",
                     "height": "variable:height",

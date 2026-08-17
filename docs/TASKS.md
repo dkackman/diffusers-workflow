@@ -446,7 +446,9 @@ Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, b
 
 ## Image Captioning
 
-Generate text captions from images using HuggingFace image-to-text models (BLIP, BLIP-2, ViT-GPT2, GIT, etc.).
+Generate text captions from images using a vision-language model.
+
+Transformers 5 removed the dedicated `image-to-text` pipeline this task used to build, along with the BLIP/ViT-GPT2/GIT captioning models that ran on it. Captioning now goes through the same `image-text-to-text` pipeline as any other VLM, so `model_name` needs a vision-language model (SmolVLM, Qwen2.5-VL, LLaVA, etc.) and `prompt` is a question put to the model rather than a text fragment to continue.
 
 ```json
 {
@@ -462,10 +464,13 @@ Generate text captions from images using HuggingFace image-to-text models (BLIP,
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `image` | Yes | PIL Image or `previous_result:` reference |
-| `model_name` | No | HuggingFace model ID (default: `Salesforce/blip-image-captioning-base`) |
-| `prompt` | No | Text prompt for conditional captioning (supported by BLIP-2, etc.) |
+| `image` | Yes | PIL Image, URL/path, or `previous_result:` reference |
+| `model_name` | No | HuggingFace vision-language model ID (default: `HuggingFaceTB/SmolVLM-256M-Instruct`) |
+| `prompt` | No | What to ask about the image (default: `Describe this image.`) — ask a narrower question for a narrower caption |
+| `system_prompt` | No | System instruction for the model |
 | `max_new_tokens` | No | Maximum tokens to generate (default: 50) |
+
+The default model is deliberately tiny, matching the footprint of the old captioning default; it produces short, plain captions. Point `model_name` at something larger for detail.
 
 Returns a caption string. Save as `text/plain` for `.txt` output, or pass to a downstream step via `previous_result:` as a prompt for image generation.
 
@@ -484,8 +489,8 @@ For Florence-2's advanced task-token captioning (detailed captions, object detec
 
 **Examples:**
 
-- [ImageToText.json](../examples/tasks/ImageToText.json) — Basic BLIP captioning, saves as `.txt`
-- [ImageToTextBlip2.json](../examples/tasks/ImageToTextBlip2.json) — BLIP-2 with conditional prompt
+- [ImageToText.json](../examples/tasks/ImageToText.json) — Basic captioning with the default model, saves as `.txt`
+- [ImageToTextVLM.json](../examples/tasks/ImageToTextVLM.json) — Larger VLM answering a specific question
 - [CaptionToImage.json](../examples/tasks/CaptionToImage.json) — Caption an image, then regenerate with Flux
 
 ## Text Generation / Prompt Expansion
@@ -509,14 +514,46 @@ Generate or expand text using a local language model. Useful for expanding short
 | -------- | -------- | ----------- |
 | `prompt` | Yes | The user message or short prompt to expand/transform |
 | `system_prompt` | No | System instruction for the model (e.g., "expand this into a detailed image prompt") |
-| `model_name` | No | HuggingFace model ID (default: `Qwen/Qwen2.5-1.5B-Instruct`) |
+| `model_name` | No | HuggingFace model ID (default: `Qwen/Qwen2.5-1.5B-Instruct`, or `HuggingFaceTB/SmolVLM-256M-Instruct` when an image is supplied) |
+| `image` | No | PIL Image, URL/path, or `previous_result:` reference — see below |
+| `repetition_penalty` | No | Vision path only (default: 1.15) — see below |
+| `generate_kwargs` | No | Anything else to pass to the model's `generate()` — `no_repeat_ngram_size`, `top_p`, `min_new_tokens`. Merged last, so it overrides the settings above |
 | `max_new_tokens` | No | Maximum tokens to generate (default: 500) |
 
-Returns a text string. Save as `text/plain` for `.txt` output, or pass to a downstream step via `previous_result:` as a prompt for image generation.
+### Writing a prompt from a picture
 
-Any HuggingFace chat model works — Qwen2.5, Llama 3.2, Phi-3.5, etc. The default (Qwen2.5-1.5B-Instruct) is small enough to run alongside diffusion models.
+Supplying `image` switches the task to a vision-language model, so the generated text describes what is actually in the picture instead of what the prompt guesses is there. `model_name` must then name a VLM — a text-only model cannot be loaded as one.
 
-There is also a built-in `augment_prompt` workflow (`builtin:augment_prompt.json`) that does the same thing using a 3-step pipeline approach with Phi-3.5-mini. The `text_generation` task is the simpler single-step alternative.
+```json
+{
+    "task": {
+        "command": "text_generation",
+        "arguments": {
+            "prompt": "Write a video prompt that starts from this picture.",
+            "image": "previous_result:input_image",
+            "model_name": "Qwen/Qwen3-VL-4B-Instruct"
+        }
+    },
+    "result": { "content_type": "text/plain" }
+}
+```
+
+This matters most ahead of an image-conditioned generation step. Those pipelines pin the supplied picture as the first frame, so a prompt written without seeing it will describe a scene the keyframe contradicts and the two conditionings pull against each other. Pass the same image to both and the prompt agrees with the frame it opens on.
+
+A vision model is large enough to be worth releasing before the generation model loads — see `release_models` in the workflow guide.
+
+Generation stays greedy so a workflow reproduces, but greedy decoding against a long, rigid format specification makes these models loop — emitting a complete answer and then repeating its closing sections until the token budget runs out. The vision path applies a `repetition_penalty` of 1.15 to stop that. Measured on Qwen3-VL against the MiniMax H3 prompt spec, 1.05 still looped through the whole budget while 1.15 ended on its own at a length matching the format's own guidance. Raise it if a model still repeats itself, or set `1.0` to disable.
+
+For anything the arguments above do not cover, `generate_kwargs` goes straight to `generate()`:
+
+```json
+"arguments": {
+    "prompt": "a cat on a windowsill",
+    "generate_kwargs": { "no_repeat_ngram_size": 25 }
+}
+```
+
+It is merged after everything else, so it can override `repetition_penalty` and the sampling settings as well as add to them.
 
 **Examples:**
 
@@ -726,7 +763,7 @@ Canny edge detection followed by ControlNet generation:
 - [Segment.json](../examples/archive/Segment.json) — Text-prompted object segmentation
 - [SegmentAndInpaint.json](../examples/archive/SegmentAndInpaint.json) — Segment + inpaint
 - [ImageToText.json](../examples/tasks/ImageToText.json) — BLIP image captioning
-- [ImageToTextBlip2.json](../examples/tasks/ImageToTextBlip2.json) — BLIP-2 conditional captioning
+- [ImageToTextVLM.json](../examples/tasks/ImageToTextVLM.json) — VLM captioning with a specific question
 - [CaptionToImage.json](../examples/tasks/CaptionToImage.json) — Caption then regenerate
 - [InterpolateFrames.json](../examples/InterpolateFrames.json) — RIFE frame interpolation
 - [MetadataEmbed.json](../examples/tasks/MetadataEmbed.json) — Embed generation parameters in PNG

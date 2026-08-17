@@ -131,6 +131,21 @@ Reference workflow variables with `variable:name`:
 "prompt": "variable:prompt"
 ```
 
+A variable's declared value is both its default and its type — a value passed in is
+converted to the type of the default, so declaring `25` and `"25"` are different things
+(see the schema note under Variables). Declaring `null` opts out of that: the variable
+becomes optional and untyped, taking whatever it is given and staying `null` when it is
+given nothing.
+
+```json
+"variables": { "image": null }
+```
+
+This is how a workflow exposes an argument a caller *may* pass without inventing a
+sentinel for its absence — a sub-workflow that behaves differently when handed an image,
+say. A caller can only set variables the workflow declares, so an optional argument still
+has to be declared to be passable.
+
 ### Previous Result References
 
 Pass output from one step to another with `previous_result:step_name`:
@@ -363,6 +378,29 @@ offload on everything:
 The step-level `release_pipeline` flag unloads the step's pipeline after its results are
 saved. A later `pipeline_reference` to a released step is an error, and the REPL's
 cross-run cache will not retain it.
+
+#### Releasing task models mid-workflow
+
+Task models - the checkpoints behind `text_generation`, `segment`, `depth_estimator` and
+the rest - are cached separately from pipelines, so that a step running its task once per
+result does not reload the same weights on every iteration. Nothing evicts that cache
+during a run, which matters when a task loads a large model on the device ahead of a
+generation step: a prompt-expanding language model would hold its weights for the whole
+run. `release_models` clears it once the step completes:
+
+```json
+{
+    "name": "expand_prompt",
+    "release_models": true,
+    "workflow": { "path": "builtin:h3_context_ir.json", "arguments": { ... } }
+}
+```
+
+The flag applies to any step type, and on a `workflow` step it fires once the whole
+sub-workflow has finished. It clears every cached task model, not only this step's, and a
+later step needing one of them reloads it.
+
+**Example:** [MiniMaxH3EnhancePrompt.json](../examples/MiniMaxH3EnhancePrompt.json)
 
 ### VAE Options
 
@@ -662,6 +700,11 @@ a pipeline's own `seed` overrides its step's, which overrides the workflow's:
 ```
 
 Omit `seed` entirely to let the workflow draw a random one at run time.
+
+The seed also reaches sub-workflows: a delegated `workflow` step runs the child under
+the parent's seed unless the child names its own. Without that a child draws its own
+random seed, and a workflow whose real generation happens inside a sub-workflow would
+not reproduce from the seed it was given.
 
 ## Type System
 

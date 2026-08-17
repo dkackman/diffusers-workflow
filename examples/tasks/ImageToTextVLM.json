@@ -1,8 +1,8 @@
 {
-    "id": "ImageToTextBlip2",
+    "id": "ImageToTextVLM",
     "variables": {
         "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true",
-        "prompt": "Question: What is shown in this image? Answer:"
+        "prompt": "What is shown in this image? Answer in one sentence."
     },
     "steps": [
         {
@@ -22,7 +22,7 @@
                 "command": "image_to_text",
                 "arguments": {
                     "image": "previous_result:input_image",
-                    "model_name": "Salesforce/blip2-opt-2.7b",
+                    "model_name": "Qwen/Qwen2.5-VL-3B-Instruct",
                     "prompt": "variable:prompt",
                     "max_new_tokens": 100
                 }

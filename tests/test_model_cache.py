@@ -93,7 +93,9 @@ class TestImageToTextIntegration:
     def _make_image(self):
         return Image.new("RGB", (32, 32), color="green")
 
-    @patch("dw.tasks.image_to_text.hf_pipeline")
+    # image_to_text captions through text_generation's vision path, so the
+    # pipeline loader is patched where it actually lives
+    @patch("dw.tasks.text_generation.hf_pipeline")
     def test_second_call_does_not_reload_pipeline(self, mock_hf_pipeline):
         from dw.tasks.image_to_text import image_to_text
 
@@ -109,7 +111,7 @@ class TestImageToTextIntegration:
         mock_hf_pipeline.assert_called_once()
         assert pipe.call_count == 2
 
-    @patch("dw.tasks.image_to_text.hf_pipeline")
+    @patch("dw.tasks.text_generation.hf_pipeline")
     def test_different_model_name_reloads(self, mock_hf_pipeline):
         from dw.tasks.image_to_text import image_to_text
 

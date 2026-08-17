@@ -1,9 +1,9 @@
 {
     "id": "MiniMaxMusic",
+    "description": "Audio-only generation, showing that a pipeline's output need not be visual - the step declares an 'audios' output and an audio result type, and the engine encodes it at the given sample rate. Also the minimal way to run a modular pipeline: rather than placing components by hand, a 'components_manager' with auto CPU offload takes ownership of device placement and keeps only the running components resident, so no quantization or per-component offload configuration is needed.",
     "variables": {
         "prompt": "Genre: acoustic pop, folk-tinged. BPM: 96. Key: C major. Emotional progression: warm and intimate in the verses, lifting into an open, anthemic chorus. Listening scenario: solo reflective listening. Production profile: close, organic, minimal reverb. Vocals: soft female lead, close-mic breathy timbre, restrained delivery in verses; light stacked harmonies doubling the melody in the chorus. Arrangement: verses \u2014 fingerpicked banjo and electric piano, sparse and spacious. Chorus \u2014 brushed drums and upright bass enter, subtle string pad swells underneath. Groove stays gentle throughout; no heavy percussion. Outro returns to solo banjo and voice.",
         "lyrics": "[verse]\nMining farms burning through the grid all day\nChia swapped the furnace for the plots you lay\nNo more e-waste piling up when the rigs retire\nGreen space farming puts out yesterday's fire\n[chorus]\nChia fixes this\nChia fixes this\nEnergy waste, ASIC greed, centralized control\nChia fixes this\n[verse]\nOffer files trade without a middleman in sight\nChialisp writes the rules and locks the CAT in tight\nMarmots watch the validators keep it fair and slow\nNo more trusting strangers with the coins you owe\n[chorus]\nChia fixes this\nChia fixes this\nEnergy waste, ASIC greed, centralized control\nChia fixes this",
-        "num_inference_steps": 30,
         "audio_duration": 120
     },
     "steps": [
