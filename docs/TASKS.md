@@ -493,6 +493,35 @@ For Florence-2's advanced task-token captioning (detailed captions, object detec
 - [ImageToTextVLM.json](../examples/tasks/ImageToTextVLM.json) — Larger VLM answering a specific question
 - [CaptionToImage.json](../examples/tasks/CaptionToImage.json) — Caption an image, then regenerate with Flux
 
+## Extracting Sections
+
+Reduce generated text to a known set of labelled sections, dropping anything else:
+
+```json
+{
+    "task": {
+        "command": "extract_sections",
+        "arguments": {
+            "text": "previous_result:expand",
+            "sections": ["integrated_multimodal_description", "overall_soundscape", "non_diegetic_music"]
+        }
+    },
+    "result": { "content_type": "text/plain" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `text` | Yes | The generated text, usually a `previous_result:` reference |
+| `sections` | Yes | Section labels to keep, in the order they should appear |
+| `keep_preamble` | No | Keep any text before the first label (default: `true`) |
+
+A section runs from its `label:` to the end of that paragraph, so a blank line ends one and a single newline does not — a field holding one line per item stays intact. Repeats are dropped, missing sections are skipped, and text with no recognised label is returned unchanged.
+
+This exists because a model asked for a rigid format usually produces it and then keeps going — restating the description, appending a summary, or looping until it runs out of tokens. Prompting against that is unreliable, and at small model sizes adding rules to an already long specification can make adherence worse. Trailing text is not free either: a prompt is conditioning, and a pipeline that does not truncate spends memory and attention on whatever arrives. Keeping the fields that were asked for is deterministic where prompting is not.
+
+The built-in `h3_context_ir` workflow applies this to its own output, so a workflow delegating to it receives only the fields MiniMax H3 expects.
+
 ## Text Generation / Prompt Expansion
 
 Generate or expand text using a local language model. Useful for expanding short prompts into detailed image generation prompts, rewriting text, or other text-to-text tasks.
@@ -543,6 +572,8 @@ This matters most ahead of an image-conditioned generation step. Those pipelines
 A vision model is large enough to be worth releasing before the generation model loads — see `release_models` in the workflow guide.
 
 Generation stays greedy so a workflow reproduces, but greedy decoding against a long, rigid format specification makes these models loop — emitting a complete answer and then repeating its closing sections until the token budget runs out. The vision path applies a `repetition_penalty` of 1.15 to stop that. Measured on Qwen3-VL against the MiniMax H3 prompt spec, 1.05 still looped through the whole budget while 1.15 ended on its own at a length matching the format's own guidance. Raise it if a model still repeats itself, or set `1.0` to disable.
+
+A penalty reins the looping in but does not guarantee the model stops where the format ends; for that, trim the output with `extract_sections` below.
 
 For anything the arguments above do not cover, `generate_kwargs` goes straight to `generate()`:
 
