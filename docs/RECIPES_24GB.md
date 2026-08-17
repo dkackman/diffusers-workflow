@@ -50,14 +50,16 @@ pipeline-level `offload`. The working 24GB configuration at 960x544:
 | --------- | ------ |
 | `transformer` / `transformer_ref` | SDNQ int4 (`quantization_device: "cuda"`, `return_device: "cpu"`), `group_offload` `block_level` with `num_blocks_per_group: 1-2` and `use_stream: true` |
 | `text_encoder.model` | SDNQ int4, `group_offload` `leaf_level` |
-| `vae`, `audio_vae` | SDNQ int8, `device: "cuda"` |
+| `vae`, `audio_vae` | SDNQ int8, `device: "cuda"`, `residency: "on_demand"` |
 | pipeline | `cache: first_block` (`threshold: 0.1`), `vae.enable_tiling` |
 
 The VAEs are the piece worth calling out. They hold roughly 3GiB, are used only to
 encode references and decode the result, and group offloading them is worse than useless
-because tiled decode restreams the model once per tile. The reference workflows, which
-carry the most conditioning, add `"residency": "on_demand"` to both and go from 23.2GiB
-peak reserved with 40 allocator retries to 18.9GiB with none, for about 1% in wall time.
+because tiled decode restreams the model once per tile. Every H3 workflow adds
+`"residency": "on_demand"` to both. The reference workflows, which carry the most
+conditioning, go from 23.2GiB peak reserved with 40 allocator retries to 18.9GiB with
+none; the frame-conditioned ones from 22.7GiB with 22 retries to 18.0GiB with none. Both
+for about 1% in wall time.
 Spend the headroom on length: carrying a frame between chained segments adds a reference
 and ~1.9GiB, which is what made the chained variants OOM on their second segment before.
 
