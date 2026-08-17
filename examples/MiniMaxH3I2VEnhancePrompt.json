@@ -119,10 +119,12 @@
                             }
                         },
                         "vae": {
-                            "device": "cuda"
+                            "device": "cuda",
+                            "residency": "on_demand"
                         },
                         "audio_vae": {
-                            "device": "cuda"
+                            "device": "cuda",
+                            "residency": "on_demand"
                         }
                     },
                     "vae": {

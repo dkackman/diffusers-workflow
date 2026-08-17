@@ -357,8 +357,22 @@ cache flushes forced by a failed allocation - where the on-demand run has none. 
 headroom is also what lets the chained variant run: its later segments carry an extra
 reference and need ~1.9GiB more than the first.
 
+The same holds for the frame-conditioned workflows. Generating 124 frames at 960x544
+from a keyframe, with everything else held equal:
+
+| VAE placement | peak reserved | allocator retries |
+| ------------- | ------------- | ----------------- |
+| resident      | 22.71GiB      | 22                |
+| on-demand     | 18.03GiB      | 0                 |
+
+The resident run also logs a `memory mapping failed with OOM` warning per retry, with as
+little as 3MB free while it tries to map 20MB. It completes - the allocator flushes its
+cache and succeeds on the retry - but each one is a synchronising stall, and a run that
+close to the limit fails outright on any workload that needs slightly more. Every
+MiniMax H3 example uses on-demand VAEs for this reason.
+
 **Example:** [MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json),
-[MiniMaxH3Ref2VAChained.json](../examples/MiniMaxH3Ref2VAChained.json)
+[MiniMaxH3I2V.json](../examples/MiniMaxH3I2V.json)
 
 #### Releasing a pipeline mid-workflow
 
