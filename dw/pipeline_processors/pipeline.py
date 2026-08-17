@@ -224,9 +224,15 @@ class Pipeline:
         if cache_config is not None:
             enable_cache_on_transformer(self.pipeline, cache_config)
 
-        # Configure scheduler if specified
+        # Configure the schedulers if specified - a pipeline that denoises two
+        # modalities against two schedules configures each of them separately
         load_and_configure_scheduler(
             self.pipeline_definition.get("scheduler", None), self.pipeline
+        )
+        load_and_configure_scheduler(
+            self.pipeline_definition.get("audio_scheduler", None),
+            self.pipeline,
+            "audio_scheduler",
         )
 
         # Store components that will be shared with other pipelines
@@ -681,8 +687,10 @@ def load_loras(loras, pipeline):
         adapter_name = lora.pop("adapter_name", str(i))
         adapter_names.append(adapter_name)
 
-        # Extract scale for adapter weights
-        scale = lora.pop("scale", 1.0)
+        # Extract scale for adapter weights - float() because the schema takes a
+        # 'variable:' reference here, and a variable declared as a string default
+        # substitutes as one
+        scale = float(lora.pop("scale", 1.0))
         adapter_weights.append(scale)
 
         # Load the LoRA with the adapter name
@@ -707,17 +715,64 @@ def load_ip_adapter(ip_adapter_definition, pipeline):
             pipeline.set_ip_adapter_scale(scale)
 
 
-def load_and_configure_scheduler(scheduler_definition, pipeline):
-    """Load and configure custom scheduler if specified."""
-    if scheduler_definition is not None:
-        scheduler_configuration = scheduler_definition.get("configuration", None)
-        from_config_args = scheduler_definition.get("from_config_args", {})
-        scheduler_type = scheduler_configuration.get("scheduler_type", None)
-        logger.info(f"Loading scheduler: {scheduler_type}")
+def load_and_configure_scheduler(
+    scheduler_definition, pipeline, component_name="scheduler"
+):
+    """Load and configure a pipeline's scheduler if specified.
 
-        pipeline.scheduler = scheduler_type.from_config(
-            pipeline.scheduler.config, **from_config_args
+    A definition does either or both of two things, in that order: replace the
+    scheduler with one built from another type's config, and set the sigma
+    shift on whatever scheduler the pipeline then holds.
+
+    The component is named rather than assumed because a pipeline can carry
+    more than one. MiniMax-H3 steps video and audio latents down two schedules
+    inside a single transformer call - 'scheduler' and 'audio_scheduler', whose
+    shifts (12.0 and 3.0 in the released checkpoint) are set independently, and
+    the video one is what a few-step schedule has to lower: at the checkpoint's
+    12.0 a five-point sigma grid spends every step above 0.8 and then drops to
+    zero in one, which denoises to noise.
+
+    Args:
+        scheduler_definition: The step's scheduler block, or None
+        pipeline: The loaded pipeline
+        component_name: Which scheduler the definition configures
+    """
+    if scheduler_definition is None:
+        return
+
+    scheduler_configuration = scheduler_definition.get("configuration", None) or {}
+    scheduler_type = scheduler_configuration.get("scheduler_type", None)
+    if scheduler_type is not None:
+        from_config_args = scheduler_definition.get("from_config_args", {})
+        logger.info(f"Loading {component_name}: {scheduler_type}")
+        setattr(
+            pipeline,
+            component_name,
+            scheduler_type.from_config(
+                get_component(pipeline, component_name).config, **from_config_args
+            ),
         )
+
+    shift = scheduler_definition.get("shift", None)
+    if shift is None:
+        return
+
+    scheduler = get_component(pipeline, component_name)
+    if scheduler is None:
+        raise ValueError(
+            f"Cannot set a shift on '{component_name}' - the pipeline registers "
+            "it but has not loaded it"
+        )
+    if not has_method(scheduler, "set_shift"):
+        raise ValueError(
+            f"{type(scheduler).__name__} does not take a sigma shift - "
+            f"'{component_name}' has no set_shift()"
+        )
+
+    # Instance state the scheduler keeps until its next set_timesteps, which is
+    # the run itself - so this survives loading and every later run of the step
+    logger.info(f"Setting {component_name} shift: {shift}")
+    scheduler.set_shift(float(shift))
 
 
 def auto_cpu_offload_enabled(configuration):
