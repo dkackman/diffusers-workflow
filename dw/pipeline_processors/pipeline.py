@@ -1,6 +1,7 @@
 import torch
 import contextlib
 import copy
+import functools
 import gc
 import importlib
 import logging
@@ -539,7 +540,15 @@ def configure_components(pipeline, configuration, default_device):
             apply_group_offloading(component, **group_offload_configuration)
 
         device = component_configuration.get("device", None)
-        if device is not None:
+        residency = component_configuration.get("residency", "resident")
+        if residency == "on_demand":
+            apply_on_demand_placement(
+                component,
+                component_name,
+                device if device is not None else default_device,
+                group_offload_configuration is not None,
+            )
+        elif device is not None:
             logger.info(f"Moving {component_name} to device: {device}")
             component.to(device)
 
@@ -565,6 +574,99 @@ def configure_components(pipeline, configuration, default_device):
                 compile_configuration,
                 device if device is not None else default_device,
             )
+
+
+# The calls that mean "this component is working now". A component is moved to
+# the accelerator around whichever of these it actually defines
+_ON_DEMAND_ENTRY_POINTS = ("forward", "encode", "decode")
+
+
+def apply_on_demand_placement(
+    component, component_name, device, group_offloaded, offload_device="cpu"
+):
+    """Keep a component in system memory and move it to the device only while it runs.
+
+    Sits between the two placements dw already has. A 'device' component is resident
+    for the whole run, which wastes the accelerator on something used twice; group
+    offloading streams per submodule forward, which restreams the whole model once
+    per call of every leaf - ruinous for a VAE, whose tiled decode calls its blocks
+    once per tile. This moves the model as a whole around each entry point, so a
+    tiling loop sits inside a single pair of transfers.
+
+    That trade only pays for components called a handful of times per run. A
+    denoising transformer is called once per step, so per-call transfers would cost
+    far more than they save - group offloading is the tool for those.
+
+    Args:
+        component: The component to place
+        component_name: Name of the component, for logging
+        device: Device to run the component on
+        group_offloaded: Whether group offloading was applied to this component
+        offload_device: Where the component rests between calls
+
+    Raises:
+        ValueError: If the component is also group offloaded
+    """
+    if group_offloaded:
+        raise ValueError(
+            f"Component '{component_name}' sets both 'group_offload' and "
+            "'residency: on_demand'. A group offloaded module holds one group at a "
+            "time and ignores the whole-model moves on-demand placement makes, so "
+            "the two cannot both own its placement - pick one"
+        )
+
+    if get_device_type(device) == "cpu":
+        # Nothing to move it off of, so the wrappers would be pure overhead
+        logger.debug(
+            f"Ignoring 'residency: on_demand' for {component_name} - {device} is the "
+            "device it would rest on anyway"
+        )
+        return
+
+    component.to(offload_device)
+
+    # One depth counter for the whole component, not one per entry point: decode()
+    # calls forward() internally, and an inner return must not offload the model
+    # out from under the call that is still running
+    state = {"depth": 0}
+
+    def wrap(entry_point):
+        original = getattr(component, entry_point, None)
+        if not callable(original):
+            return False
+
+        @functools.wraps(original)
+        def on_demand(*args, **kwargs):
+            if state["depth"] == 0:
+                component.to(device)
+            state["depth"] += 1
+            try:
+                return original(*args, **kwargs)
+            finally:
+                state["depth"] -= 1
+                if state["depth"] == 0:
+                    component.to(offload_device)
+                    # Hand the freed space back to the driver rather than leaving it
+                    # reserved - the headroom is the entire point of doing this
+                    empty_device_cache()
+
+        # functools.wraps carries __wrapped__, so inspect.signature() still reports
+        # the real parameters. Callers introspect them: MiniMax H3's denoiser picks
+        # which arguments to pass by reading signature(transformer.forward)
+        setattr(component, entry_point, on_demand)
+        return True
+
+    wrapped = [name for name in _ON_DEMAND_ENTRY_POINTS if wrap(name)]
+    if not wrapped:
+        raise ValueError(
+            f"Component '{component_name}' sets 'residency: on_demand' but defines "
+            f"none of {', '.join(_ON_DEMAND_ENTRY_POINTS)}, so there is no call to "
+            "move it around"
+        )
+    logger.info(
+        f"Placing {component_name} on demand: resting on {offload_device}, "
+        f"running on {device} around {', '.join(wrapped)}"
+    )
 
 
 def apply_compile(component, component_name, compile_configuration, device):
@@ -841,23 +943,31 @@ def create_components_manager(configuration, device):
 
 
 def has_component_group_offload(configuration):
-    """Whether a per-component entry configures group offloading.
+    """Whether a per-component entry keeps its component off the device.
 
     The 'components' block is applied by configure_components() after the pipeline is
     loaded, but load_component() has to decide where to materialize weights and whether
     to move the pipeline to the device before that block is ever read. A workflow whose
-    only offload configuration lives under components.*.group_offload still needs both
-    of those earlier decisions to treat it as offloading.
+    only offload configuration lives under components.* still needs both of those
+    earlier decisions to treat it as offloading.
+
+    Group offloading and on-demand residency both qualify: each leaves its component in
+    system memory between uses, so materializing the pipeline on the device first would
+    load in full exactly what these were configured to avoid holding.
 
     Args:
         configuration: Configuration of the component being loaded
 
     Returns:
-        True when any per-component entry configures group offloading
+        True when any per-component entry keeps its component off the device
     """
     components = configuration.get("components") or {}
     return any(
-        isinstance(settings, dict) and settings.get("group_offload") is not None
+        isinstance(settings, dict)
+        and (
+            settings.get("group_offload") is not None
+            or settings.get("residency") == "on_demand"
+        )
         for settings in components.values()
     )
 

@@ -463,6 +463,14 @@
                                 "description": "The device to move this component to, e.g. 'cuda'. Only for components small enough to stay resident - the offloaded ones are placed by their own hooks.",
                                 "type": "string"
                             },
+                            "residency": {
+                                "description": "Whether the component stays on its device for the whole run ('resident', the default) or rests in system memory and is moved to the device only while one of its own calls runs ('on_demand'). Use on_demand for a component that is large but called a handful of times, like a VAE that only encodes references and decodes the result - it frees the device for the rest of the run and, unlike group_offload, moves the model whole, so a tiled decode costs one pair of transfers rather than one per tile. Not for a component called every step, and cannot be combined with group_offload.",
+                                "type": "string",
+                                "enum": [
+                                    "resident",
+                                    "on_demand"
+                                ]
+                            },
                             "attention_backend": {
                                 "description": "Pin this component's attention backend persistently via set_attention_backend, e.g. 'flash', 'sage', '_flash_3_hub'. Use this instead of the pipeline-level attention_backend when the component is compiled - the per-call context manager forces recompiles.",
                                 "type": "string"

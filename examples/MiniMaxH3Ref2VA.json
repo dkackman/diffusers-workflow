@@ -85,7 +85,7 @@
                                 "offload_type": "block_level",
                                 "num_blocks_per_group": 1,
                                 "use_stream": true,
-                                "record_stream": false,
+                                "record_stream": true,
                                 "low_cpu_mem_usage": true
                             }
                         },
@@ -95,10 +95,12 @@
                             }
                         },
                         "vae": {
-                            "device": "cuda"
+                            "device": "cuda",
+                            "residency": "on_demand"
                         },
                         "audio_vae": {
-                            "device": "cuda"
+                            "device": "cuda",
+                            "residency": "on_demand"
                         }
                     },
                     "vae": {

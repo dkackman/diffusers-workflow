@@ -262,6 +262,7 @@ For components the pipeline loads itself — which is all of a modular pipeline'
         "text_encoder.model": {
             "group_offload": { "offload_type": "leaf_level", "use_stream": true }
         },
+        "vae": { "device": "cuda", "residency": "on_demand" },
         "audio_vae": { "device": "cuda" }
     }
 }
@@ -271,11 +272,15 @@ For components the pipeline loads itself — which is all of a modular pipeline'
   block or a leaf module at a time, which is what fits a component larger than the
   device. `onload_device` defaults to the pipeline's device.
 - `device` — moves a component that is small enough to stay resident.
+- `residency` — `"resident"` (the default) leaves the component on its device for the
+  whole run; `"on_demand"` rests it in system memory and moves it to the device only
+  while one of its own calls runs. See [On-demand components](#on-demand-components).
 - A dotted key reaches a module inside a component, for a component that holds the model
   rather than being one.
-- A `components` block that group offloads anything already keeps the pipeline itself off
-  the device - the components are placed individually, so moving the whole pipeline would
-  load it in full before the offload hooks exist. Nothing extra is needed for that.
+- A `components` block that group offloads anything, or marks anything `on_demand`,
+  already keeps the pipeline itself off the device - the components are placed
+  individually, so moving the whole pipeline would load it in full before the hooks and
+  wrappers exist. Nothing extra is needed for that.
 
 `preserve_device_placement` covers the case that is left: a component loaded already
 placed, which must not be moved afterwards. A `device_map` load or a quantization that
@@ -298,6 +303,47 @@ pins its tensors to one device is the usual reason.
 > **Renamed:** this setting was `do_not_send_to_device`. The old name is no longer
 > recognized - a workflow still using it will load the component and then move it to the
 > device anyway, since an unknown key is ignored rather than rejected. Rename the key.
+
+#### On-demand components
+
+`"residency": "on_demand"` sits between the two placements above. A `device` component
+holds VRAM for the whole run, wasted on a component used twice; group offloading
+streams per submodule forward, so it restreams the model once per call of every leaf -
+ruinous for a VAE, whose tiled decode calls its blocks once per tile. On-demand moves the
+model as a whole around each call, so a tiling loop sits inside a single pair of
+transfers.
+
+```json
+"components": {
+    "vae": { "device": "cuda", "residency": "on_demand" },
+    "audio_vae": { "device": "cuda", "residency": "on_demand" }
+}
+```
+
+The component rests on the CPU and is moved to `device` around whichever of `forward`,
+`encode` and `decode` it defines, then moved back and the freed VRAM released to the
+driver. Nested calls are counted, so a `decode` that calls `forward` internally is moved
+once, not twice.
+
+- **Use it for a component that is large but called a handful of times** - a VAE that
+  encodes references at the start and decodes the result at the end. Freeing it for the
+  denoise loop is the whole point.
+- **Not for a component called every step.** A denoising transformer would pay per-call
+  transfers 20-50 times; group offloading is the tool for those.
+- **Cannot be combined with `group_offload`** on the same component - a group offloaded
+  module holds one group at a time and ignores whole-model moves, so the two cannot both
+  own its placement. Configuring both is rejected at load.
+- **Ignored when the component's device is the CPU**, where there is nothing to move it
+  off of.
+
+On a 24GB card, `MiniMaxH3Ref2VA.json` peaks at 18.9GiB of reserved VRAM with on-demand
+VAEs against 23.2GiB resident, and the tighter resident fit costs 40 allocator retries -
+cache flushes forced by a failed allocation - where the on-demand run has none. The
+headroom is also what lets the chained variant run: its later segments carry an extra
+reference and need ~1.9GiB more than the first.
+
+**Example:** [MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json),
+[MiniMaxH3Ref2VAChained.json](../examples/MiniMaxH3Ref2VAChained.json)
 
 #### Releasing a pipeline mid-workflow
 
