@@ -116,3 +116,16 @@ class TestExtractSectionsRegistration:
         from dw.tasks.task import _COMMAND_REGISTRY
 
         assert "extract_sections" in _COMMAND_REGISTRY
+
+
+def test_labels_match_regardless_of_case():
+    # Models capitalise labels however they please - one wrote
+    # Overall_soundscape where the spec says overall_soundscape, and dropping
+    # the section over its first letter would lose real content
+    text = "Alpha: one\n\nBETA: two\n\ngamma: three"
+    assert extract_sections(text, SECTIONS) == "alpha: one\n\nbeta: two\n\ngamma: three"
+
+
+def test_a_case_variant_repeat_is_still_a_repeat():
+    text = "alpha: one\n\nAlpha: one again\n\nbeta: two"
+    assert extract_sections(text, SECTIONS) == "alpha: one\n\nbeta: two"
