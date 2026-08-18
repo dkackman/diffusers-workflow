@@ -286,6 +286,12 @@
                 "configuration": {
                     "$ref": "#/$defs/pipeline_configuration"
                 },
+                "shared_components": {
+                    "$ref": "#/$defs/shared_components"
+                },
+                "reused_components": {
+                    "$ref": "#/$defs/reused_components"
+                },
                 "scheduler": {
                     "$ref": "#/$defs/scheduler"
                 },
@@ -457,6 +463,20 @@
                                 "$ref": "#/$defs/quantization_config"
                             }
                         }
+                    }
+                },
+                "configs": {
+                    "description": "Values a modular pipeline's blocks declare and read while they run - not components, and not call arguments. Keys are whatever the pipeline itself declares, so what may be set here depends on the model: MiniMax-H3 declares 'canvas_short_edge', 'canvas_max_pixels' and 'reference_image_short_edge'. A name the pipeline does not declare is an error rather than a setting that quietly did nothing.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "integer",
+                            "number",
+                            "boolean",
+                            "array",
+                            "null"
+                        ]
                     }
                 },
                 "components": {
@@ -654,23 +674,41 @@
                     }
                 },
                 "shared_components": {
-                    "description": "The names of pipeline components to be shared across for future iterations.",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
+                    "$ref": "#/$defs/shared_components"
                 },
                 "reused_components": {
-                    "description": "The names of pipeline components to be reused from previous iterations.",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
+                    "$ref": "#/$defs/reused_components"
+                },
+                "enable_layerwise_casting": {
+                    "$ref": "#/$defs/enable_layerwise_casting"
+                },
+                "inversion": {
+                    "description": "Run the pipeline's invert() rather than the pipeline itself, returning the inverted latents. Only for pipelines that have one.",
+                    "type": "boolean"
+                },
+                "generate": {
+                    "description": "Run the pipeline's generate() rather than the pipeline itself, returning the generated ids. Only for pipelines that have one, such as a conditioner used on its own.",
+                    "type": "boolean"
                 }
             },
+            "additionalProperties": false,
             "required": [
                 "component_type"
             ]
+        },
+        "shared_components": {
+            "description": "The names of components this step loads and later steps may reuse. A modular pipeline is given them after it is built, so the components it shares are the ones it actually loaded.",
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "reused_components": {
+            "description": "The names of components an earlier step shared, reused here instead of being loaded again. A reused component keeps the device placement the step that shared it gave it.",
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
         },
         "scheduler": {
             "type": "object",

@@ -1,5 +1,6 @@
 import os
 import logging
+from inspect import Parameter, signature
 from .type_helpers import load_type_from_name, has_method
 from diffusers.utils import load_image, load_video
 from .security import (
@@ -39,11 +40,19 @@ def is_escaped(value):
 # The key naming the file an argument object is constructed from
 FROM_FILE_KEY = "from_file"
 
+# The key naming the step whose output an argument object is constructed from
+FROM_PREVIOUS_RESULT_KEY = "from_previous_result"
+
 # The media such an object may be built from - it opens the file itself, so the
 # extension is all that is checked here
 ALLOWED_FROM_FILE_EXTENSIONS = (
     ALLOWED_IMAGE_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS | ALLOWED_AUDIO_EXTENSIONS
 )
+
+# The media kinds an object built from a previous step's output can carry. A type
+# declares which one it is with a 'kind' attribute, the way MiniMax-H3's reference
+# classes do, and that is what says which of its fields the media goes into
+MEDIA_KINDS = ("image", "video", "audio")
 
 
 # Helper functions for processing and loading workflow arguments
@@ -150,17 +159,52 @@ def fetch_media(spec, base_dir=None):
     raise ValueError(f"Unknown media_type {media_type!r} - use 'image' or 'video'")
 
 
+def object_type_key(value, from_key):
+    """The '*_type' key of an object description, or None if it is not one.
+
+    The type to construct is named by a '*_type' key, matching the convention
+    realize_args resolves. Without one the dict is not an object description - it
+    is left for whatever consumes it, exactly as it was before this feature.
+
+    Args:
+        value: The dict to inspect
+        from_key: The key that marked it as an object description, named in errors
+
+    Returns:
+        The name of the key holding the type, or None
+
+    Raises:
+        ValueError: If the dict names more than one type
+    """
+    type_keys = [k for k in value if k.endswith("_type") and k not in NON_TYPE_KEYS]
+    if not type_keys:
+        return None
+    if len(type_keys) > 1:
+        raise ValueError(
+            f"'{from_key}' needs exactly one '_type' argument naming the type to "
+            f"construct, got {type_keys}"
+        )
+    return type_keys[0]
+
+
 def realize_object(value, base_dir=None):
-    """Construct an argument that names a type and a file to build it from.
+    """Construct an argument that names a type and the media to build it from.
 
     Some pipelines take arguments that are objects rather than plain media - MiniMax-H3's
     references, which carry the frame rate or the sample rate of the media they hold.
-    Those are written as a type and a file:
+    Those are written as a type and where the media comes from, either a file:
 
         { "reference_type": "...MiniMaxH3ImageReference", "from_file": "subject.png" }
 
-    and built by the type's own from_file(), since only it knows what to bring along with
-    the media. Any other keys are passed to from_file() as keyword arguments.
+    built by the type's own from_file(), since only it knows what to bring along with
+    the media, or an earlier step of the workflow:
+
+        { "reference_type": "...MiniMaxH3ImageReference", "from_previous_result": "draw_subject" }
+
+    which is built by build_objects() instead, once the step it names has run. Only the
+    from_file form is constructed here - the other names media that does not exist yet.
+    Any other keys are arguments to from_file() where it takes them, and fields set on
+    the object it returns where it does not.
 
     Args:
         value: An already realized argument - anything but a dict naming a '_type'
@@ -175,20 +219,19 @@ def realize_object(value, base_dir=None):
             from a file, or a file location that cannot be resolved
         SecurityError: If the file it names fails validation
     """
+    if isinstance(value, dict) and FROM_PREVIOUS_RESULT_KEY in value:
+        # Validated now and built later - a type that cannot hold the step's output
+        # is a workflow error worth raising before any of it runs
+        validate_deferred_object(value)
+        return value
+
     if not isinstance(value, dict) or FROM_FILE_KEY not in value:
         return value
 
-    # The type to construct is named by a '*_type' key, matching the convention
-    # realize_args resolves. Without one the dict is not an object description -
-    # it is left for whatever consumes it, exactly as it was before this feature
-    type_keys = [k for k in value if k.endswith("_type") and k not in NON_TYPE_KEYS]
-    if not type_keys:
+    type_key = object_type_key(value, FROM_FILE_KEY)
+    if type_key is None:
         return value
-    if len(type_keys) > 1:
-        raise ValueError(
-            f"'{FROM_FILE_KEY}' needs exactly one '_type' argument naming the type to "
-            f"construct, got {type_keys}"
-        )
+    type_keys = [type_key]
 
     object_type = value[type_keys[0]]
     if not isinstance(object_type, type):
@@ -208,8 +251,9 @@ def realize_object(value, base_dir=None):
         if location.startswith("previous_result:"):
             raise ValueError(
                 f"'{FROM_FILE_KEY}' cannot reference a previous step's result - "
-                f"it names a file the object is constructed from. Reference a "
-                f"saved file's path or a URL instead"
+                f"it names a file the object is constructed from. Use "
+                f"'{FROM_PREVIOUS_RESULT_KEY}' to build it from what a step "
+                f"generated instead"
             )
         if location.startswith("variable:"):
             raise ValueError(
@@ -223,7 +267,246 @@ def realize_object(value, base_dir=None):
     arguments = {
         k: v for k, v in value.items() if k not in (FROM_FILE_KEY, type_keys[0])
     }
-    return object_type.from_file(location, **arguments)
+    accepted, overrides = split_from_file_arguments(object_type, arguments)
+    return apply_field_overrides(
+        object_type.from_file(location, **accepted), overrides, object_type
+    )
+
+
+def split_from_file_arguments(object_type, arguments):
+    """Split the keys of a from_file description by where the type can take them.
+
+    A from_file() that takes keyword arguments is handed all of them - that is the
+    generic case, where the type decodes the media and the arguments say how. One that
+    takes the media and nothing else, which is what MiniMax-H3's references do, gets
+    only what its signature names, and the rest are set on the object it returns. That
+    is the way diffusers documents correcting a reference whose container lied about
+    its frame rate, and without it there is no way to say so from a workflow.
+
+    Args:
+        object_type: The type being constructed
+        arguments: The description's keys, minus the type and the location
+
+    Returns:
+        (arguments for from_file, fields to set on the result)
+    """
+    parameters = signature(getattr(object_type, FROM_FILE_KEY)).parameters
+    if any(
+        parameter.kind is Parameter.VAR_KEYWORD for parameter in parameters.values()
+    ):
+        return arguments, {}
+
+    named = {
+        name
+        for name, parameter in parameters.items()
+        if parameter.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY)
+    }
+    accepted = {k: v for k, v in arguments.items() if k in named}
+    return accepted, {k: v for k, v in arguments.items() if k not in named}
+
+
+def apply_field_overrides(constructed, overrides, object_type):
+    """Set the fields a description names on the object that was built from its media.
+
+    Args:
+        constructed: The object from_file() returned
+        overrides: The keys from_file() could not take
+        object_type: The type, named in errors
+
+    Returns:
+        The object, with the fields set
+
+    Raises:
+        ValueError: If it has no field by one of those names
+    """
+    for name, value in overrides.items():
+        if not hasattr(constructed, name):
+            fields = getattr(object_type, "__dataclass_fields__", None)
+            takes = f" - it holds {', '.join(fields)}" if fields else ""
+            raise ValueError(
+                f"{object_type.__name__} has no field '{name}', and its "
+                f"{FROM_FILE_KEY}() does not take it either{takes}"
+            )
+        logger.debug(f"Setting {object_type.__name__}.{name} from the workflow")
+        setattr(constructed, name, value)
+
+    return constructed
+
+
+def validate_deferred_object(description):
+    """Check an object description built from a previous step, at load time.
+
+    The media it names does not exist until the step it references has run, so the
+    construction itself waits. What can be checked now is checked now: a workflow
+    that names a type it cannot build should say so before the first model loads.
+
+    Args:
+        description: The dict naming a '_type' and a 'from_previous_result'
+
+    Raises:
+        ValueError: If it names no type, more than one, something that is not a type,
+            or a type that declares no media kind
+    """
+    type_key = object_type_key(description, FROM_PREVIOUS_RESULT_KEY)
+    if type_key is None:
+        raise ValueError(
+            f"'{FROM_PREVIOUS_RESULT_KEY}' needs a '_type' argument naming the type "
+            f"to construct from the step's output"
+        )
+
+    object_type = description[type_key]
+    if not isinstance(object_type, type):
+        raise ValueError(
+            f"'{type_key}' must name a type to construct, got {object_type!r}"
+        )
+
+    kind = getattr(object_type, "kind", None)
+    if kind not in MEDIA_KINDS:
+        raise ValueError(
+            f"{object_type.__name__} cannot be constructed from a step's output - "
+            f"a type built this way declares which media it holds with a 'kind' of "
+            f"{', '.join(MEDIA_KINDS)}, and this one declares {kind!r}"
+        )
+
+
+def build_objects(arguments):
+    """Construct the objects whose media came from an earlier step.
+
+    Runs after previous_results has substituted each 'from_previous_result' with the
+    artifact it named, which is the earliest the media exists. Containers are rebuilt
+    rather than mutated, and only where something below them changed - the arguments
+    of one iteration share their nested values with every other iteration, so an
+    in-place edit here would reach into all of them.
+
+    Args:
+        arguments: One iteration's arguments, with previous results substituted
+
+    Returns:
+        The arguments with every object description replaced by the built object -
+        the same object where there was nothing to build
+    """
+    if isinstance(arguments, dict):
+        if FROM_PREVIOUS_RESULT_KEY in arguments:
+            return object_from_result(arguments)
+        built = {k: build_objects(v) for k, v in arguments.items()}
+        return (
+            built if any(built[k] is not v for k, v in arguments.items()) else arguments
+        )
+
+    if isinstance(arguments, list):
+        built = [build_objects(item) for item in arguments]
+        return (
+            built
+            if any(new is not old for new, old in zip(built, arguments))
+            else arguments
+        )
+
+    return arguments
+
+
+def object_from_result(description):
+    """Build one object from the step output substituted into its description.
+
+    The media is already in memory and already at the rates the step produced it at,
+    so it is handed to the constructor field by field rather than through from_file().
+    Which field it lands in comes from the type's own 'kind' - the convention
+    MiniMax-H3's reference classes follow, and the same one the segment chain reads
+    when it carries a generated segment back in as a reference.
+
+    Args:
+        description: The dict naming a '_type', with 'from_previous_result' now
+            holding the artifact rather than the step name
+
+    Returns:
+        The constructed object
+
+    Raises:
+        ValueError: If the artifact is not the media the type's kind calls for
+    """
+    validate_deferred_object(description)
+    type_key = object_type_key(description, FROM_PREVIOUS_RESULT_KEY)
+    object_type = description[type_key]
+    artifact = description[FROM_PREVIOUS_RESULT_KEY]
+
+    # A workflow can still name a field itself - the frame rate of a step that
+    # generated at something other than the consuming pipeline's own, say - and
+    # what it names wins over what the artifact carried
+    overrides = {
+        k: v
+        for k, v in description.items()
+        if k not in (FROM_PREVIOUS_RESULT_KEY, type_key)
+    }
+    arguments = media_arguments(object_type, artifact)
+    arguments.update(overrides)
+
+    logger.info(
+        f"Constructing {object_type.__name__} from a previous result "
+        f"({', '.join(arguments)})"
+    )
+    return object_type(**arguments)
+
+
+def media_arguments(object_type, artifact):
+    """The constructor arguments a step's artifact makes, for a type's media kind.
+
+    Imported here rather than at module scope - these pull in the result and task
+    helpers, which is a heavier import than an argument file needs for the path
+    that never builds one of these.
+
+    Args:
+        object_type: The type being constructed, declaring its 'kind'
+        artifact: One artifact of the step the description named
+
+    Returns:
+        Dict of constructor arguments
+
+    Raises:
+        ValueError: If the artifact is not the media the kind calls for
+    """
+    import torch
+    from PIL import Image
+
+    from .result import AudioVideo
+    from .tasks.audio_utils import as_channels_samples
+    from .tasks.video_utils import frames_as_pil_list
+
+    kind = object_type.kind
+
+    if kind == "image":
+        if not isinstance(artifact, Image.Image):
+            raise ValueError(
+                f"{object_type.__name__} holds an image, but the step it names "
+                f"produced a {type(artifact).__name__} - reference a step that "
+                f"generates images, or its 'images' property"
+            )
+        return {"image": artifact}
+
+    # A generated soundtrack arrives paired with the frames it was generated with;
+    # anything else the step produced carries none
+    audio, sample_rate = None, None
+    if isinstance(artifact, AudioVideo) and artifact.audio is not None:
+        audio = torch.as_tensor(as_channels_samples(artifact.audio))
+        sample_rate = artifact.sample_rate
+
+    if kind == "video":
+        frames = frames_as_pil_list(artifact)
+        if not frames:
+            raise ValueError(
+                f"{object_type.__name__} holds a video, but the step it names "
+                f"produced no frames"
+            )
+        arguments = {"frames": frames}
+        if audio is not None:
+            arguments["audio"] = audio
+            arguments["sample_rate"] = sample_rate
+        return arguments
+
+    if audio is None:
+        raise ValueError(
+            f"{object_type.__name__} holds audio, but the step it names produced "
+            f"none - reference a step that generates a soundtrack"
+        )
+    return {"audio": audio, "sample_rate": sample_rate}
 
 
 def validate_media_location(location, base_dir=None):

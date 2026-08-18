@@ -1,10 +1,15 @@
 import logging
 from itertools import product
 
+from .arguments import FROM_PREVIOUS_RESULT_KEY, build_objects
+
 logger = logging.getLogger("dw")
 
 # Maximum number of iterations to prevent resource exhaustion
 MAX_ITERATIONS = 10000
+
+# The prefix that marks an argument value as a reference to an earlier step
+PREVIOUS_RESULT_PREFIX = "previous_result:"
 
 
 def get_iterations(argument_template, previous_results):
@@ -41,11 +46,11 @@ def get_iterations(argument_template, previous_results):
 
     logger.debug(f"Found {len(result_refs)} result references: {result_refs}")
 
-    # Create a dictionary mapping each reference key to its possible values
-    # Example: {'image': [img1, img2], 'prompt': ['text1', 'text2']}
+    # Create a dictionary mapping each reference path to its possible values
+    # Example: {('image',): [img1, img2], ('prompt',): ['text1', 'text2']}
     ref_results = {
-        ref_key: list(get_previous_results(previous_results, ref_value))
-        for ref_key, ref_value in result_refs.items()
+        ref_path: list(get_previous_results(previous_results, ref_value))
+        for ref_path, ref_value in result_refs.items()
     }
 
     # Generate all possible combinations of argument values
@@ -64,13 +69,19 @@ def get_iterations(argument_template, previous_results):
         arguments = dict(argument_template)
 
         # Replace each reference with its actual value
-        for key, value in zip(keys, values):
+        for path, value in zip(keys, values):
             # Handle nested dictionary properties
             # If value is dict and contains the key we're looking for, use that property
-            arguments[key] = (
-                value[key] if isinstance(value, dict) and key in value else value
+            key = path[-1]
+            arguments = substitute_at_path(
+                arguments,
+                path,
+                value[key] if isinstance(value, dict) and key in value else value,
             )
-        iterations.append(arguments)
+
+        # Now that the media exists, build the objects that were waiting for it -
+        # a reference constructed from a step's output rather than from a file
+        iterations.append(build_objects(arguments))
 
     # Safety check to prevent cartesian product explosion
     if len(iterations) > MAX_ITERATIONS:
@@ -132,21 +143,72 @@ def get_previous_results(previous_results, previous_result_name):
 
 
 def find_previous_result_refs(arguments):
-    """Find all values in arguments dict that reference previous results.
+    """Find all values in an argument structure that reference previous results.
 
-    Looks for string values starting with "previous_result:" and creates a mapping
-    of argument keys to their referenced result names.
+    A reference is written either as a value with the "previous_result:" prefix, or
+    as the step name a 'from_previous_result' object description is built from. Both
+    are found at any depth: an argument that takes a constructed object holds it
+    inside a list - MiniMax-H3's 'references' - so the reference is nested rather
+    than sitting at the top of the arguments.
 
     Args:
         arguments: Dictionary of argument definitions
 
     Returns:
-        Dict mapping argument keys to their referenced result names
-        Example: {'image': 'step1', 'prompt': 'step2.text'}
+        Dict mapping the path of each reference to the result name it names. A path
+        is the tuple of keys and list indices that reaches the value, so a top-level
+        {'image': 'previous_result:step1'} comes back as {('image',): 'step1'}
     """
-    prefix = "previous_result:"
-    return {
-        k: v[len(prefix) :]
-        for k, v in arguments.items()
-        if isinstance(v, str) and v.startswith(prefix)
-    }
+    found = {}
+    _collect_refs(arguments, (), found)
+    return found
+
+
+def _collect_refs(value, path, found):
+    """Walk an argument structure, collecting every reference by its path."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            # The object description names its step bare, the way it would name a
+            # file - the prefix would only repeat what the key already says
+            if key == FROM_PREVIOUS_RESULT_KEY and isinstance(item, str):
+                found[path + (key,)] = item
+            else:
+                _collect_refs(item, path + (key,), found)
+
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _collect_refs(item, path + (index,), found)
+
+    elif isinstance(value, str) and value.startswith(PREVIOUS_RESULT_PREFIX):
+        found[path] = value[len(PREVIOUS_RESULT_PREFIX) :]
+
+
+def substitute_at_path(container, path, value):
+    """A copy of container with value placed at path.
+
+    Only the containers along the path are copied. Everything beside them stays
+    shared, which is the same contract the top-level copy keeps: iterations share
+    their nested values, so a substitution deep in one must not be visible in the
+    others.
+
+    Args:
+        container: The dict or list to substitute into
+        path: Tuple of keys and indices reaching the value to replace
+        value: What to put there
+
+    Returns:
+        The copied container
+    """
+    key = path[0]
+    replacement = (
+        value if len(path) == 1 else substitute_at_path(container[key], path[1:], value)
+    )
+
+    if isinstance(container, list):
+        copied = list(container)
+        copied[key] = replacement
+        return copied
+
+    copied = dict(container)
+    copied[key] = replacement
+    return copied

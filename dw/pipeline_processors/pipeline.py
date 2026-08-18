@@ -134,6 +134,46 @@ class Pipeline:
     def argument_template(self):
         return self.pipeline_definition["arguments"]
 
+    def component_names(self, key):
+        """The component names one of the sharing lists holds.
+
+        The lists were only ever read off the pipeline itself, while the schema and
+        the guide put them in its configuration - a workflow written to the docs
+        shared nothing and said nothing about it. Both places are read now.
+
+        Args:
+            key: 'shared_components' or 'reused_components'
+
+        Returns:
+            List of component names
+        """
+        return list(self.pipeline_definition.get(key, [])) + list(
+            self.configuration.get(key, [])
+        )
+
+    def resolve_reused_components(self, shared_components):
+        """The components an earlier step shared that this one asks to reuse.
+
+        Args:
+            shared_components: Dictionary of components shared between pipelines
+
+        Returns:
+            Dict of component name to the component itself
+
+        Raises:
+            ValueError: If a name was never shared by an earlier step
+        """
+        reused = {}
+        for name in self.component_names("reused_components"):
+            if name not in shared_components:
+                raise ValueError(
+                    f"Cannot reuse component '{name}' - no earlier step shared it. "
+                    f"Shared so far: {sorted(shared_components) or 'nothing'}"
+                )
+            logger.debug(f"Reusing component: {name}")
+            reused[name] = shared_components[name]
+        return reused
+
     def populate_from_pretrained_arguments(self, device, shared_components):
         """
         Prepare arguments for pipeline creation, including shared components.
@@ -144,15 +184,6 @@ class Pipeline:
         """
         logger.debug("Populating from_pretrained arguments")
         from_pretrained_arguments = self.from_pretrained_arguments
-
-        # Add shared components to arguments
-        for reused_component_name in self.pipeline_definition.get(
-            "reused_components", []
-        ):
-            logger.debug(f"Adding reused component: {reused_component_name}")
-            from_pretrained_arguments[reused_component_name] = shared_components[
-                reused_component_name
-            ]
 
         # Load optional components (controlnet, vae, unet, etc.), including any
         # component-shaped key outside the known names
@@ -187,6 +218,7 @@ class Pipeline:
         from_pretrained_arguments = self.populate_from_pretrained_arguments(
             self.device, shared_components
         )
+        reused_components = self.resolve_reused_components(shared_components)
 
         # Load and configure the main pipeline
         self.pipeline = load_component(
@@ -194,6 +226,7 @@ class Pipeline:
             self.configuration,
             from_pretrained_arguments,
             self.device,
+            reused_components,
         )
 
         # Enable attention slicing if explicitly requested or automatically on MPS
@@ -236,14 +269,20 @@ class Pipeline:
             "audio_scheduler",
         )
 
-        # Store components that will be shared with other pipelines
-        for shared_component_name in self.pipeline_definition.get(
-            "shared_components", []
-        ):
+        # Store components that will be shared with other pipelines. get_component
+        # rather than getattr - a modular pipeline registers a component it did not
+        # load as None rather than omitting it, and sharing that None silently would
+        # surface as a missing-component error inside the step that reused it
+        for shared_component_name in self.component_names("shared_components"):
+            component = get_component(self.pipeline, shared_component_name)
+            if component is None:
+                raise ValueError(
+                    f"Cannot share component '{shared_component_name}' - "
+                    f"{type(self.pipeline).__name__} registers it but has not "
+                    f"loaded it"
+                )
             logger.debug(f"Storing shared component: {shared_component_name}")
-            shared_components[shared_component_name] = getattr(
-                self.pipeline, shared_component_name
-            )
+            shared_components[shared_component_name] = component
 
         # Load and configure LoRA models
         load_loras(self.pipeline_definition.get("loras", []), self.pipeline)
@@ -254,7 +293,9 @@ class Pipeline:
         # Place the components the pipeline loaded itself, once everything that alters
         # them - dtypes, adapters, quantized matmuls - has been applied. Offloading hooks
         # installed before those would be fighting them
-        configure_components(self.pipeline, self.configuration, self.device)
+        configure_components(
+            self.pipeline, self.configuration, self.device, reused_components
+        )
 
         # Set up random generator if needed - no_generator is a boolean, so an
         # explicit false still gets a generator
@@ -499,7 +540,7 @@ class Pipeline:
                     component.to(torch_dtype)
 
 
-def configure_components(pipeline, configuration, default_device):
+def configure_components(pipeline, configuration, default_device, reused_components=()):
     """Place the components a pipeline loaded for itself.
 
     A modular pipeline pulls its own component weights, so they are only reachable once
@@ -508,14 +549,29 @@ def configure_components(pipeline, configuration, default_device):
     piece at a time, which is what fits a pipeline whose components are each larger than
     the device.
 
+    A component this step reused is not one it loaded: it already carries the placement
+    the step that shared it gave it, and offloading hooks do not survive being applied
+    twice. Those are skipped, so a workflow can reuse a component into a step whose
+    configuration was written for loading it.
+
     Args:
         pipeline: The loaded pipeline
         configuration: Pipeline configuration dictionary
         default_device: Device the pipeline runs on
+        reused_components: Names of the components an earlier step shared into this one
     """
     for component_name, component_configuration in configuration.get(
         "components", {}
     ).items():
+        # A dotted path reaches inside a component, and it is the component itself
+        # that was shared - 'text_encoder.model' belongs to a reused 'text_encoder'
+        if component_name.split(".")[0] in reused_components:
+            logger.info(
+                f"Component '{component_name}' was shared by an earlier step - "
+                "keeping the placement that step gave it"
+            )
+            continue
+
         component = get_component(pipeline, component_name)
         if component is None:
             # Registered but unloaded (e.g. a components map reused across workflow
@@ -999,10 +1055,86 @@ def loading_device(configuration):
     return contextlib.nullcontext()
 
 
-def load_component(component_name, configuration, from_pretrained_arguments, device):
-    """Load and configure a pipeline or component."""
+def get_block_configs(configuration, component):
+    """The block configs a workflow sets on a modular pipeline, checked against it.
+
+    A modular pipeline's blocks declare configs of their own - values they read while
+    they run rather than components or call arguments. MiniMax-H3 declares three, and
+    they are how the canvas the request generates on and the resolution its references
+    are encoded at are set:
+
+        "configs": { "canvas_short_edge": 768, "reference_image_short_edge": 1024 }
+
+    This is deliberately not a knob per config per model. Every modular pipeline
+    declares its own set, `update_components()` sets any of them, and what a workflow
+    may say here is whatever the pipeline it named declares. The names are checked
+    because update_components ignores the ones it does not know with a warning, and a
+    silently dropped config reads as a setting that did nothing.
+
+    Args:
+        configuration: Pipeline configuration dictionary
+        component: The loaded pipeline the configs are for
+
+    Returns:
+        Dict of config name to value, empty when the workflow sets none
+
+    Raises:
+        ValueError: If the pipeline takes no configs, or does not declare one by name
+    """
+    configs = configuration.get("configs", None)
+    if not configs:
+        return {}
+
+    if not has_method(component, "update_components"):
+        raise ValueError(
+            f"'configs' is only supported on modular pipelines, "
+            f"{type(component).__name__} does not have update_components"
+        )
+
+    # The specs a pipeline builds from its blocks. Guarded rather than indexed - a
+    # pipeline that stops keeping them under this name should lose the check, not
+    # the feature
+    declared = getattr(component, "_config_specs", None)
+    if declared is not None:
+        unknown = [name for name in configs if name not in declared]
+        if unknown:
+            raise ValueError(
+                f"{type(component).__name__} declares no config named "
+                f"{', '.join(sorted(unknown))} - the ones it declares are "
+                f"{', '.join(sorted(declared)) or 'none'}"
+            )
+
+    logger.info(f"Setting block configs: {', '.join(configs)}")
+    return dict(configs)
+
+
+def load_component(
+    component_name,
+    configuration,
+    from_pretrained_arguments,
+    device,
+    reused_components=None,
+):
+    """Load and configure a pipeline or component.
+
+    Args:
+        component_name: What is being loaded, for the log
+        configuration: The component's configuration block
+        from_pretrained_arguments: Arguments for the constructor
+        device: Device the component is loaded for
+        reused_components: Components an earlier step shared into this one, by name
+    """
     component_type = configuration["component_type"]
     component = None
+
+    # A standard pipeline takes a component as a constructor argument. A modular one
+    # cannot: it is built from the component specs in its own index and given the
+    # objects afterwards, which is also what keeps load_components() from pulling a
+    # second copy of the weights - it skips the components already registered
+    reused_components = reused_components or {}
+    takes_components_after_load = has_method(component_type, "update_components")
+    if reused_components and not takes_components_after_load:
+        from_pretrained_arguments.update(reused_components)
 
     # A modular pipeline can hand its components to a ComponentsManager, which then
     # owns their device placement
@@ -1047,6 +1179,19 @@ def load_component(component_name, configuration, from_pretrained_arguments, dev
             else:
                 logger.info(f"Creating new {component_name}")
                 component = component_type(**from_pretrained_arguments)
+
+            # Register the shared components before anything is pulled, so the
+            # weights an earlier step already loaded and quantized are the ones
+            # this step runs on rather than a second copy of them. The block
+            # configs go in the same call - update_components takes both
+            update_arguments = get_block_configs(configuration, component)
+            if reused_components and takes_components_after_load:
+                logger.info(
+                    f"Reusing {', '.join(reused_components)} from an earlier step"
+                )
+                update_arguments.update(reused_components)
+            if update_arguments:
+                component.update_components(**update_arguments)
 
             # Modular pipelines load only their config in from_pretrained - the component
             # weights are pulled separately by load_components()
