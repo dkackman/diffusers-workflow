@@ -375,3 +375,77 @@ class TestComponentTiling:
                 {"components": {"connectors": {"enable_tiling": True}}},
                 "cpu",
             )
+
+
+class TestDefinitionIsNotMutatedByLoading:
+    """A loaded component belongs to the load, not to the workflow definition.
+
+    The definition outlives every step, so a component stored in it is one the run
+    holds until it ends - release_pipeline frees nothing, and a workflow that loads
+    a second large model after releasing the first holds both at once.
+    """
+
+    DEFINITION = {
+        "configuration": {"component_type": "SomePipeline"},
+        "from_pretrained_arguments": {"model_name": "some/model"},
+        "transformer": {
+            "configuration": {"component_type": "SomeTransformer"},
+            "from_pretrained_arguments": {"model_name": "some/model"},
+        },
+    }
+
+    def _populate(self, monkeypatch, definition):
+        from dw.pipeline_processors import pipeline as pipeline_module
+
+        loaded = object()
+        monkeypatch.setattr(
+            pipeline_module,
+            "load_component",
+            lambda *arguments, **keywords: loaded,
+        )
+        pipeline = pipeline_module.Pipeline(definition, 42, "cpu")
+        return pipeline.populate_from_pretrained_arguments("cpu", {}), loaded
+
+    def test_the_loaded_component_reaches_the_pipeline_arguments(self, monkeypatch):
+        import copy
+
+        definition = copy.deepcopy(self.DEFINITION)
+
+        arguments, loaded = self._populate(monkeypatch, definition)
+
+        assert arguments["transformer"] is loaded
+
+    def test_the_definition_does_not_hold_the_component(self, monkeypatch):
+        import copy
+
+        definition = copy.deepcopy(self.DEFINITION)
+
+        _, loaded = self._populate(monkeypatch, definition)
+
+        assert "transformer" not in definition["from_pretrained_arguments"]
+        assert definition["from_pretrained_arguments"] == {"model_name": "some/model"}
+
+    def test_a_second_load_still_has_its_model_name(self, monkeypatch):
+        # load_component consumes 'model_name' out of the arguments it is handed,
+        # so a definition it consumed from would load an empty model next time
+        import copy
+
+        definition = copy.deepcopy(self.DEFINITION)
+
+        self._populate(monkeypatch, definition)
+        self._populate(monkeypatch, definition)
+
+        assert definition["transformer"]["from_pretrained_arguments"] == {
+            "model_name": "some/model"
+        }
+
+    def test_remote_text_encoder_does_not_edit_the_definition(self, monkeypatch):
+        import copy
+
+        definition = copy.deepcopy(self.DEFINITION)
+        definition["remote_text_encoder"] = {"url": "https://example.invalid"}
+
+        arguments, _ = self._populate(monkeypatch, definition)
+
+        assert arguments["text_encoder"] is None
+        assert "text_encoder" not in definition["from_pretrained_arguments"]

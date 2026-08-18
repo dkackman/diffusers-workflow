@@ -26,3 +26,43 @@ def load_type_from_full_name(full_name):
 
 def has_method(o, name):
     return callable(getattr(o, name, None))
+
+
+def load_constant_from_name(name):
+    """Load a constant declared in python, by its dotted name.
+
+    The leading run of names that imports is the module the constant lives in and
+    the rest are read from it, so a constant held in a dataclass is reachable
+    ('...utils.GEMMA4_PROMPT_ENHANCEMENT_CONFIG.max_new_tokens') as well as one
+    declared at module scope. A bare name is read from diffusers, matching the way
+    a bare type reference resolves.
+
+    Args:
+        name: Dotted name of the constant
+
+    Returns:
+        The value the name refers to
+
+    Raises:
+        ImportError: If no leading part of the name names a module
+        AttributeError: If the module has no such attribute
+    """
+    parts = name.split(".")
+
+    module, attributes = None, parts
+    for i in range(len(parts) - 1, 0, -1):
+        try:
+            module = importlib.import_module(".".join(parts[:i]))
+            attributes = parts[i:]
+            break
+        except ImportError:
+            continue
+
+    if module is None:
+        # No dotted module path - a bare name, read from diffusers
+        module = importlib.import_module("diffusers")
+
+    value = module
+    for attribute in attributes:
+        value = getattr(value, attribute)
+    return value

@@ -9,8 +9,16 @@ import tempfile
 from dataclasses import dataclass
 from PIL import Image
 from unittest.mock import patch, MagicMock
-from dw.arguments import build_objects, realize_args, fetch_image, fetch_video
-from dw.security import SecurityError
+from dw.arguments import (
+    build_objects,
+    realize_args,
+    fetch_constant,
+    fetch_image,
+    fetch_video,
+    realize_constants,
+)
+from dw.security import InvalidInputError, SecurityError
+from dw.variables import set_variables
 
 
 class TestFetchImage:
@@ -954,3 +962,137 @@ class TestConstructedFromArguments:
 
         with pytest.raises(ValueError, match="frames, index, strength"):
             realize_args(args)
+
+
+# A module of this test module's own, to reference constants that do not depend
+# on what a library happens to declare today
+SAMPLE_SCHEDULE = [1.0, 0.5, 0.25]
+SAMPLE_PROMPT = "the default the library ships"
+
+
+@dataclass(frozen=True)
+class SampleConfig:
+    max_new_tokens: int = 600
+
+
+SAMPLE_CONFIG = SampleConfig()
+
+MODULE = "tests.test_arguments"
+
+
+class TestConstantReferences:
+    """Constants declared in python, referenced instead of copied into JSON"""
+
+    def test_a_constant_resolves_to_its_value(self):
+        args = {"negative_prompt": f"constant:{MODULE}.SAMPLE_PROMPT"}
+
+        realize_args(args)
+
+        assert args["negative_prompt"] == SAMPLE_PROMPT
+
+    def test_a_list_constant_resolves_to_its_value(self):
+        args = {"sigmas": f"constant:{MODULE}.SAMPLE_SCHEDULE"}
+
+        realize_args(args)
+
+        assert args["sigmas"] == SAMPLE_SCHEDULE
+
+    def test_an_attribute_of_a_constant_resolves(self):
+        # A constant held in a config object is as much a constant as one
+        # declared at module scope
+        args = {"tokens": f"constant:{MODULE}.SAMPLE_CONFIG.max_new_tokens"}
+
+        realize_args(args)
+
+        assert args["tokens"] == 600
+
+    def test_a_constant_resolves_inside_a_list(self):
+        args = {"schedules": [f"constant:{MODULE}.SAMPLE_SCHEDULE"]}
+
+        realize_args(args)
+
+        assert args["schedules"] == [SAMPLE_SCHEDULE]
+
+    def test_a_constant_resolves_under_any_argument_name(self):
+        # The key conventions that load media do not get first refusal - what a
+        # constant holds is the value, not a file to open
+        args = {"image": f"constant:{MODULE}.SAMPLE_PROMPT"}
+
+        realize_args(args)
+
+        assert args["image"] == SAMPLE_PROMPT
+
+    def test_a_mutable_constant_is_copied(self):
+        args = {"sigmas": f"constant:{MODULE}.SAMPLE_SCHEDULE"}
+        realize_args(args)
+
+        # A pipeline that consumes its schedule in place would otherwise edit
+        # the library's own constant, for every later run in the process
+        args["sigmas"].clear()
+
+        assert SAMPLE_SCHEDULE == [1.0, 0.5, 0.25]
+
+    def test_a_type_is_not_a_constant(self):
+        with pytest.raises(ValueError, match="_type"):
+            fetch_constant("constant:diffusers.FluxPipeline")
+
+    def test_a_function_is_not_a_constant(self):
+        # The whole point of the restriction - a reference reads a value, it
+        # does not reach anything the workflow could get called on its behalf
+        with pytest.raises(ValueError, match="not a constant"):
+            fetch_constant("constant:os.system")
+
+    def test_an_unknown_constant_names_itself(self):
+        with pytest.raises(ValueError, match="no_such_module.NAME"):
+            fetch_constant("constant:no_such_module.NAME")
+
+    def test_an_unknown_attribute_of_a_real_module_is_rejected(self):
+        with pytest.raises(ValueError, match="NOT_A_REAL_CONSTANT"):
+            fetch_constant(f"constant:{MODULE}.NOT_A_REAL_CONSTANT")
+
+    def test_an_empty_name_is_rejected(self):
+        with pytest.raises(InvalidInputError, match="empty"):
+            fetch_constant("constant:")
+
+    def test_a_name_that_is_not_a_dotted_name_is_rejected(self):
+        # Checked before anything is imported - resolving a name runs the
+        # module it names
+        for name in ("../../etc/passwd", "__import__('os')", "os.system()"):
+            with pytest.raises(InvalidInputError, match="Invalid constant name"):
+                fetch_constant(f"constant:{name}")
+
+    def test_a_name_that_is_too_long_is_rejected(self):
+        with pytest.raises(InvalidInputError, match="too long"):
+            fetch_constant("constant:" + ".".join(["a"] * 120))
+
+    def test_a_string_that_is_not_a_reference_is_left_alone(self):
+        args = {"prompt": "a constant: a thing that does not change"}
+
+        realize_args(args)
+
+        assert args["prompt"] == "a constant: a thing that does not change"
+
+    def test_a_constant_declares_a_variable_type(self):
+        # A variable's declared value is its type, and an argument passed in is
+        # converted to it - which only holds if the constant resolves first
+        variables = {"sigmas": f"constant:{MODULE}.SAMPLE_SCHEDULE"}
+
+        realize_constants(variables)
+        set_variables({"sigmas": "0.9, 0.5"}, variables)
+
+        assert variables["sigmas"] == ["0.9", "0.5"]
+
+    def test_realize_constants_leaves_everything_else_alone(self):
+        # It runs before the variables are set, ahead of the pass that loads
+        # media - a file that does not exist yet must not be opened here
+        args = {
+            "image": {"location": "not-yet-generated.png"},
+            "prompt": "variable:prompt",
+            "sigmas": [f"constant:{MODULE}.SAMPLE_SCHEDULE"],
+        }
+
+        realize_constants(args)
+
+        assert args["image"] == {"location": "not-yet-generated.png"}
+        assert args["prompt"] == "variable:prompt"
+        assert args["sigmas"] == [SAMPLE_SCHEDULE]

@@ -141,6 +141,9 @@ given nothing.
 "variables": { "image": null }
 ```
 
+A value the library already declares does not need a variable at all - see
+[Constant References](#constant-references).
+
 This is how a workflow exposes an argument a caller *may* pass without inventing a
 sentinel for its absence — a sub-workflow that behaves differently when handed an image,
 say. A caller can only set variables the workflow declares, so an optional argument still
@@ -784,6 +787,44 @@ Dynamic type conversion applies to certain values:
 - `content_type` and `offload_type` are exempt even though they end in `_type` - they
   name a category, not a Python type, so their value always stays a plain string (the
   `{}` escape is accepted but not required for these two keys)
+- Values prefixed with `constant:` are read from python rather than copied into the
+  workflow: `"constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES"`
+
+### Constant References
+
+Some arguments have a value the library already declares: the sigma schedule a distilled
+model was trained on, the negative prompt a model family ships. Reference it with
+`constant:` and its dotted python name instead of copying it into the workflow:
+
+```json
+"sigmas": "constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES",
+"negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT"
+```
+
+The leading part of the name that imports is the module, and the rest is read from it -
+so a constant held in a config object is reachable too:
+
+```json
+"prompt_max_new_tokens": "constant:diffusers.pipelines.ltx2.utils.GEMMA4_PROMPT_ENHANCEMENT_CONFIG.max_new_tokens"
+```
+
+A reference resolves anywhere in a workflow's arguments, including in a `variables`
+default, where it becomes the value a caller overrides - and its type, since a variable
+is declared by its default:
+
+```json
+"variables": { "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT" }
+```
+
+A constant is data. The name has to resolve to a value - anything callable is refused,
+because a type is named with a `*_type` argument and constructed there, and reaching a
+function this way would be evaluating python rather than referencing it. Mutable values
+are copied, so a pipeline that consumes its schedule in place cannot edit the library's
+constant for the rest of the session.
+
+The value the library declares is the value the workflow gets, which is the point: a
+constant that changes upstream changes here, and one that is renamed or moved fails
+loudly rather than leaving a stale copy behind.
 
 ### Objects Built From a File
 

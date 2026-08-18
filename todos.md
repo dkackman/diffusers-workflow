@@ -68,14 +68,20 @@ capabilities. Most of the gap was two generic engine limits, not per-model work.
   call. Needs either a standalone audio decode step or batch-preserving latent artifacts.
 - **HDR** (`LTX2HDRPipeline`). Still deferred - needs pre-computed connector embeddings
   from a safetensors file we have no path to produce.
-- **Released pipelines do not give their VRAM back.** LTX2ICLora.json first loaded a
-  second transformer after `release_pipeline` freed the first, and OOMed with 22.6GiB
-  *allocated* - two 22B transformers alive at once. The same probe against an
-  unquantized sd15 pipeline shows a clean release (zero referrers, 1.99 GiB -> 0.01
-  GiB), so it is something about the LTX step specifically - SDNQ-quantized tensors or
-  the group-offload hooks. Worked around by sharing the transformer between the two
-  steps instead of loading it twice; the underlying hold is unexplained and will bite
-  any workflow that loads two large models in sequence, which RECIPES_24GB recommends.
+- [x] **Released pipelines did not give their VRAM back.** Found and fixed.
+  `populate_from_pretrained_arguments` loaded each declared sub-component *into the
+  step's own definition dict* (`from_pretrained_arguments[name] = component`), and the
+  definition belongs to the workflow, which outlives every step - so `release_pipeline`
+  freed the wrapper while the weights stayed reachable. LTX2ICLora.json OOMed with
+  22.6GiB allocated: two 22B transformers alive at once. It only showed up on workflows
+  that declare sub-components, which is why an sd15 pipeline (model_name only) released
+  cleanly and hid it. Both mutation sites now copy; a second load also keeps its
+  'model_name', which load_component used to consume out of the definition.
+  Confirmed end to end: LTX2TwoStage.json now drops from 13.3GB to 2.8GB at its
+  release boundary, where it used to hold 12.2GB. LTX2ICLora.json keeps sharing its
+  transformer between the two steps - that is now a preference (it skips a second
+  38GB load) rather than the workaround it was.
+
 - **Gated repo.** `Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler` is behind a
   license click-through, accepted on this machine as of 2026-08-18.
   `google/gemma-4-E2B-it` needs nothing.

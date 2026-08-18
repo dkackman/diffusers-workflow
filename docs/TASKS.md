@@ -351,7 +351,7 @@ Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR
 
 Large images are automatically tiled to avoid GPU memory issues. Models can be loaded from HuggingFace Hub repos or local `.pth`/`.safetensors` files.
 
-**Example:** [SpandrelUpscale.json](../examples/archive/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
+**Example:** [SpandrelUpscale.json](../examples/tasks/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
 
 ## Diffusion Upscaling
 
@@ -387,8 +387,7 @@ Two modes are available:
 | `noise_level` | No | Noise level for x4 mode (default: 20, ignored for x2) |
 
 **Examples:**
-- [DiffusionUpscaleX4.json](../examples/archive/DiffusionUpscaleX4.json) — Generate at 512px, then 4x diffusion upscale to 2048px.
-- [DiffusionUpscaleX2.json](../examples/archive/DiffusionUpscaleX2.json) — Generate at 512px, then 2x latent upscale to 1024px.
+- [DiffusionUpscale.json](../examples/tasks/DiffusionUpscale.json) — Generate at 512px, then upscale. `mode` selects which: `x4` (the default) reaches 2048px, `x2` reaches 1024px through the latent upscaler.
 
 ## Face Restoration
 
@@ -498,8 +497,8 @@ Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, b
 
 **Examples:**
 
-- [Segment.json](../examples/archive/Segment.json) — Segment an object from an image
-- [SegmentAndInpaint.json](../examples/archive/SegmentAndInpaint.json) — Segment, then inpaint the masked region
+- [Segment.json](../examples/tasks/Segment.json) — Segment an object from an image
+- [SegmentAndInpaint.json](../examples/tasks/SegmentAndInpaint.json) — Segment, then inpaint the masked region
 
 ## Image Captioning
 
@@ -847,11 +846,10 @@ Canny edge detection followed by ControlNet generation:
 - [FluxCanny.json](../examples/flux/FluxCanny.json) — Canny edge ControlNet
 - [FluxDepth.json](../examples/flux/FluxDepth.json) — Depth-guided generation
 - [qr_code.json](../examples/archive/qr_code.json) — QR code with artistic ControlNet
-- [upscale.json](../examples/archive/upscale.json) — Gather, resize, and diffusion upscale
-- [SpandrelUpscale.json](../examples/archive/SpandrelUpscale.json) — Generate + spandrel 4x upscale
+- [SpandrelUpscale.json](../examples/tasks/SpandrelUpscale.json) — Generate + spandrel 4x upscale
 - [FaceRestore.json](../examples/tasks/FaceRestore.json) — Generate portrait + GFPGAN face restoration
-- [Segment.json](../examples/archive/Segment.json) — Text-prompted object segmentation
-- [SegmentAndInpaint.json](../examples/archive/SegmentAndInpaint.json) — Segment + inpaint
+- [Segment.json](../examples/tasks/Segment.json) — Text-prompted object segmentation
+- [SegmentAndInpaint.json](../examples/tasks/SegmentAndInpaint.json) — Segment + inpaint
 - [ImageToText.json](../examples/tasks/ImageToText.json) — BLIP image captioning
 - [ImageToTextVLM.json](../examples/tasks/ImageToTextVLM.json) — VLM captioning with a specific question
 - [CaptionToImage.json](../examples/tasks/CaptionToImage.json) — Caption then regenerate
