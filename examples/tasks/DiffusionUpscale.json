@@ -2,14 +2,16 @@
     "variables": {
         "prompt": "a photo of an astronaut riding a horse on mars",
         "upscale_prompt": "high quality, detailed",
+        "negative_prompt": "blurry, low quality, artifacts",
         "num_images_per_prompt": 1,
         "num_inference_steps": 9,
         "upscale_steps": 25,
         "guidance_scale": 0.0,
         "width": 512,
-        "height": 512
+        "height": 512,
+        "mode": "x4"
     },
-    "id": "DiffusionUpscaleX2",
+    "id": "DiffusionUpscaleX4",
     "steps": [
         {
             "name": "generate",
@@ -42,7 +44,8 @@
                 "arguments": {
                     "image": "previous_result:generate",
                     "prompt": "variable:upscale_prompt",
-                    "mode": "x2",
+                    "negative_prompt": "variable:negative_prompt",
+                    "mode": "variable:mode",
                     "num_inference_steps": "variable:upscale_steps"
                 }
             },

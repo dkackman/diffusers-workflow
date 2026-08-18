@@ -88,6 +88,24 @@ def _handle_slice_audio(task, arguments, previous_pipelines):
     return slice_audio(**arguments)
 
 
+@register_command("video_frames")
+def _handle_video_frames(task, arguments, previous_pipelines):
+    """The frames of a generated video, as one array a later step can condition on"""
+    logger.debug("Extracting video frames")
+    from .video_utils import frames_as_array
+
+    return frames_as_array(**arguments)
+
+
+@register_command("pair_audio")
+def _handle_pair_audio(task, arguments, previous_pipelines):
+    """Pair a video's frames with an audio track generated beside them"""
+    logger.debug("Pairing audio with video")
+    from .pair_audio import pair_audio
+
+    return pair_audio(**arguments)
+
+
 @register_command("crossfade_audio")
 def _handle_crossfade_audio(task, arguments, previous_pipelines):
     """Join audio tracks with an equal-power crossfade"""

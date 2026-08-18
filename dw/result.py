@@ -45,6 +45,10 @@ AUDIO_WRITE_CHUNK_FRAMES = 1 << 20
 # The only container encode_video writes - it always encodes h264 video
 MUXED_VIDEO_CONTENT_TYPE = "video/mp4"
 
+# Distinguishes "the artifact has no such attribute" from "it has one holding None" -
+# an AudioVideo whose pipeline reported no sample rate carries exactly that
+_NO_PROPERTY = object()
+
 # The names a modular pipeline's outputs go by. Asked for more than one output it returns
 # them in a dict rather than on a pipeline output object, so its videos and the soundtrack
 # generated alongside them arrive keyed instead of as attributes. Every diffusers modular
@@ -139,6 +143,13 @@ class Result:
     def get_artifact_properties(self, property_name):
         """Extract specific properties from results.
 
+        A dict result is looked up by key; anything else by attribute, which is how
+        a step reaches into an artifact that is an object rather than a mapping -
+        the frames or the soundtrack of the AudioVideo a video-with-audio pipeline
+        produces, say, where the next step takes one of them on its own. Methods are
+        not properties: 'previous_result:step.index' on a list result names nothing
+        the workflow meant, so it fails rather than passing a bound method along.
+
         Args:
             property_name: Name of property to extract from results
 
@@ -146,9 +157,10 @@ class Result:
             List of property values from results where property exists
 
         Raises:
-            ValueError: If a result is not a dict-like (Mapping) object - a plain string
-                or other scalar/list result has no properties to look up, and staying
-                quiet about that (or doing a membership/substring test instead of a key
+            ValueError: If a result is neither a dict-like (Mapping) object with that
+                key nor an object carrying it as a data attribute - a plain string or
+                other scalar result has no properties to look up, and staying quiet
+                about that (or doing a membership/substring test instead of a key
                 lookup) would silently drop data or raise a confusing TypeError.
         """
         values = []
@@ -156,11 +168,17 @@ class Result:
             if isinstance(result, Mapping):
                 if property_name in result:
                     values.append(result[property_name])
-            else:
+                continue
+
+            value = getattr(result, property_name, _NO_PROPERTY)
+            # A string's every 'property' is a method, and so is most of a list's -
+            # the original loud failure for those is the useful answer
+            if value is _NO_PROPERTY or callable(value):
                 raise ValueError(
                     f"result has no property '{property_name}' "
                     f"(it is a {type(result).__name__}, not a dict)"
                 )
+            values.append(value)
 
         logger.debug(f"Retrieved {len(values)} values for property: {property_name}")
         return values

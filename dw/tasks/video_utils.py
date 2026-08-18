@@ -62,6 +62,31 @@ def frames_as_pil_list(video):
     return [_to_pil(frame) for frame in _frames_of(video)]
 
 
+def frames_as_array(video):
+    """The video's frames as one (frames, height, width, channels) uint8 array.
+
+    The shape an argument that takes frames rather than a video wants - LTX-2's
+    keyframe conditions and IC-LoRA references, which the workflow hands what an
+    earlier step generated. One array is also one artifact, where a list of frames
+    would become one artifact per frame and multiply the step that consumed it.
+
+    Frames that already are a channels-last RGB array are converted in a single
+    operation; anything else goes through the same per-frame conversion
+    extract_frame uses.
+    """
+    frames = _frames_of(video)
+
+    if isinstance(frames, numpy.ndarray) and frames.ndim == 4 and frames.shape[-1] == 3:
+        if frames.dtype == numpy.uint8:
+            return frames
+        # Float frames are [0, 1] - diffusers' np output convention
+        return (numpy.clip(frames, 0.0, 1.0) * 255).round().astype(numpy.uint8)
+
+    return numpy.stack(
+        [numpy.asarray(_to_pil(frame).convert("RGB")) for frame in frames]
+    )
+
+
 def _frames_of(video):
     """Unwrap containers until an indexable run of frames remains."""
     if isinstance(video, AudioVideo):

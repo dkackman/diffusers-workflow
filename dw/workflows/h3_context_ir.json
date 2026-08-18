@@ -1,5 +1,6 @@
 {
     "id": "h3_context_ir",
+    "description": "Rewrites a user's video idea into a MiniMax-H3 Context-IR prompt.",
     "variables": {
         "prompt": "Task: T2VA. Duration: 5.17 seconds. Idea: a red fox trotting through a snowy pine forest at dawn.",
         "image": null,

@@ -294,3 +294,84 @@ class TestBlockConfigs:
             "canvas_short_edge": 1024,
             "text_encoder": text_encoder,
         }
+
+
+class TestComponentTiling:
+    """Tiled decoding for a component that is not the one named 'vae'"""
+
+    class _Decoder:
+        def __init__(self):
+            self.tiling = None
+
+        def enable_tiling(self, **arguments):
+            self.tiling = arguments
+
+        def to(self, device):
+            return self
+
+    class _Pipeline:
+        def __init__(self, **components):
+            for name, component in components.items():
+                setattr(self, name, component)
+
+    def test_true_uses_the_model_default_tile_size(self):
+        from dw.pipeline_processors.pipeline import configure_components
+
+        decoder = self._Decoder()
+        configure_components(
+            self._Pipeline(diffusion_decoder=decoder),
+            {"components": {"diffusion_decoder": {"enable_tiling": True}}},
+            "cpu",
+        )
+
+        assert decoder.tiling == {}
+
+    def test_an_object_passes_the_tile_sizes_through(self):
+        from dw.pipeline_processors.pipeline import configure_components
+
+        decoder = self._Decoder()
+        configure_components(
+            self._Pipeline(diffusion_decoder=decoder),
+            {
+                "components": {
+                    "diffusion_decoder": {
+                        "enable_tiling": {
+                            "tile_sample_min_height": 512,
+                            "tile_sample_stride_height": 448,
+                        }
+                    }
+                }
+            },
+            "cpu",
+        )
+
+        assert decoder.tiling == {
+            "tile_sample_min_height": 512,
+            "tile_sample_stride_height": 448,
+        }
+
+    def test_omitted_leaves_the_component_alone(self):
+        from dw.pipeline_processors.pipeline import configure_components
+
+        decoder = self._Decoder()
+        configure_components(
+            self._Pipeline(diffusion_decoder=decoder),
+            {"components": {"diffusion_decoder": {"device": "cpu"}}},
+            "cpu",
+        )
+
+        assert decoder.tiling is None
+
+    def test_a_component_that_cannot_tile_says_so(self):
+        from dw.pipeline_processors.pipeline import configure_components
+
+        class Plain:
+            def to(self, device):
+                return self
+
+        with pytest.raises(ValueError, match="does not support tiling"):
+            configure_components(
+                self._Pipeline(connectors=Plain()),
+                {"components": {"connectors": {"enable_tiling": True}}},
+                "cpu",
+            )

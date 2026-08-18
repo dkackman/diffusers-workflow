@@ -8,6 +8,24 @@ For ready-made configurations that combine these levers per model family, see [R
 
 Applied at pipeline load time via the `cache` configuration. Hooks auto-reset between runs.
 
+### Models diffusers has not registered
+
+`first_block`, `mag` and `layer_skip` look a model's transformer block class up in
+diffusers' own registry and raise when it is absent, which is how a model that supports
+`enable_cache()` ends up with no usable cache. [cache_blocks.json](../dw/cache_blocks.json)
+fills those gaps in, registering the missing block metadata on demand; entries become
+redundant, not wrong, once diffusers registers the same class upstream. MiniMax-H3 and
+LTX-2 are listed there today.
+
+LTX-2's block needs one thing more than the metadata diffusers defines. It returns two
+streams - video and audio - and diffusers reads the second one back out of a forward
+argument named literally `encoder_hidden_states`, the only two-stream shape it registers
+upstream (text beside image). LTX-2's blocks take an `encoder_hidden_states` of their
+own, the text conditioning, so the fixed name reads the wrong tensor and feeds the text
+embeddings back as the audio stream on every skipped block. The entry names the argument
+its second stream actually comes from (`encoder_hidden_states_argument_name`), which is
+what makes caching correct there rather than merely quiet.
+
 ### FirstBlockCache
 
 Simplest and broadest support. Compares first-block residuals to decide whether to skip remaining blocks.

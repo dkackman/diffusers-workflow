@@ -214,3 +214,63 @@ class TestVideoCommandRegistration:
         from dw.tasks.image_utils import available_processors
 
         assert not set(_VIDEO_PROCESSOR_COMMANDS) & set(available_processors())
+
+
+class TestFramesAsArray:
+    """The frames of a video as one array, for an argument that takes frames"""
+
+    def test_a_float_array_is_scaled_without_going_through_pil(self):
+        from dw.tasks.video_utils import frames_as_array
+
+        frames = numpy.full((4, 8, 8, 3), 0.5, dtype=numpy.float32)
+
+        array = frames_as_array(frames)
+
+        assert array.shape == (4, 8, 8, 3)
+        assert array.dtype == numpy.uint8
+        assert array[0, 0, 0, 0] == 128
+
+    def test_a_uint8_array_is_carried_through_untouched(self):
+        from dw.tasks.video_utils import frames_as_array
+
+        frames = numpy.zeros((4, 8, 8, 3), dtype=numpy.uint8)
+
+        assert frames_as_array(frames) is frames
+
+    def test_a_one_video_batch_unwraps_to_the_video(self):
+        from dw.tasks.video_utils import frames_as_array
+
+        frames = numpy.zeros((1, 4, 8, 8, 3), dtype=numpy.uint8)
+
+        assert frames_as_array(frames).shape == (4, 8, 8, 3)
+
+    def test_pil_frames_are_stacked(self):
+        from dw.tasks.video_utils import frames_as_array
+
+        frames = [Image.new("RGB", (8, 6), (255, 0, 0)) for _ in range(3)]
+
+        array = frames_as_array(frames)
+
+        assert array.shape == (3, 6, 8, 3)
+        assert tuple(array[0, 0, 0]) == (255, 0, 0)
+
+    def test_channels_first_tensor_frames_are_transposed(self):
+        from dw.tasks.video_utils import frames_as_array
+
+        array = frames_as_array(torch.zeros(5, 3, 8, 6))
+
+        assert array.shape == (5, 8, 6, 3)
+        assert array.dtype == numpy.uint8
+
+    def test_an_audio_video_gives_its_frames(self):
+        from dw.result import AudioVideo
+        from dw.tasks.video_utils import frames_as_array
+
+        video = AudioVideo([Image.new("RGB", (8, 8))] * 2, "waveform", 24000)
+
+        assert frames_as_array(video).shape == (2, 8, 8, 3)
+
+    def test_registered_as_a_task_command(self):
+        from dw.tasks.task import _COMMAND_REGISTRY
+
+        assert "video_frames" in _COMMAND_REGISTRY

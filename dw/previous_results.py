@@ -1,15 +1,16 @@
 import logging
 from itertools import product
 
-from .arguments import FROM_PREVIOUS_RESULT_KEY, build_objects
+from .arguments import (
+    FROM_PREVIOUS_RESULT_KEY,
+    PREVIOUS_RESULT_PREFIX,
+    build_objects,
+)
 
 logger = logging.getLogger("dw")
 
 # Maximum number of iterations to prevent resource exhaustion
 MAX_ITERATIONS = 10000
-
-# The prefix that marks an argument value as a reference to an earlier step
-PREVIOUS_RESULT_PREFIX = "previous_result:"
 
 
 def get_iterations(argument_template, previous_results):

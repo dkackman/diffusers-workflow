@@ -1,5 +1,6 @@
 {
     "id": "LTX2I2V",
+    "description": "Conditioning generation on a supplied still, which becomes the video's first frame. Otherwise the baseline: same components, same distilled schedule, with VAE tiling for the longer clip.",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",

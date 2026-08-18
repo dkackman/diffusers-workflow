@@ -595,6 +595,11 @@ def configure_components(pipeline, configuration, default_device, reused_compone
             logger.info(f"Group offloading {component_name}")
             apply_group_offloading(component, **group_offload_configuration)
 
+        # Tiled decoding, for a component that decodes but is not the one called
+        # 'vae' - LTX-2.5's diffusion decoder, which decodes the whole video volume
+        # in one allocation unless it is told to tile
+        enable_tiling(component, component_name, component_configuration)
+
         device = component_configuration.get("device", None)
         residency = component_configuration.get("residency", "resident")
         if residency == "on_demand":
@@ -630,6 +635,42 @@ def configure_components(pipeline, configuration, default_device, reused_compone
                 compile_configuration,
                 device if device is not None else default_device,
             )
+
+
+def enable_tiling(component, component_name, component_configuration):
+    """Turn on tiled decoding for a component whose configuration asks for it.
+
+    The pipeline-level `vae` block covers the component actually named 'vae'. This
+    covers any other component that decodes - LTX-2.5's `diffusion_decoder`, which
+    otherwise decodes the whole video volume in a single allocation and asks for
+    tens of GiB at 2x resolutions. `true` takes the model's own default tile size;
+    a dict passes the tile and stride sizes through, which is what a card smaller
+    than those defaults needs.
+
+    Args:
+        component: The loaded component
+        component_name: Its name, for logging and errors
+        component_configuration: That component's configuration block
+
+    Raises:
+        ValueError: If the component has no enable_tiling() to call
+    """
+    tiling = component_configuration.get("enable_tiling", False)
+    if not tiling:
+        return
+
+    if not has_method(component, "enable_tiling"):
+        raise ValueError(
+            f"'{component_name}' does not support tiling - "
+            f"{type(component).__name__} has no enable_tiling()"
+        )
+
+    arguments = tiling if isinstance(tiling, dict) else {}
+    logger.info(
+        f"Enabling tiling on {component_name}"
+        + (f" with {', '.join(arguments)}" if arguments else "")
+    )
+    component.enable_tiling(**arguments)
 
 
 # The calls that mean "this component is working now". A component is moved to

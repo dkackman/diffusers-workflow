@@ -1,23 +1,29 @@
 {
-    "id": "LTX2",
-    "description": "The baseline for the LTX-2.5 family: text to video with a soundtrack generated alongside it, on a single 24GB card. The distilled transformer runs a fixed eight-step schedule with guidance off, quantized per component so it stays resident while the Gemma text encoder and the connectors are group offloaded around it.",
+    "id": "LTX2Keyframes",
+    "description": "Pinning the first and last frames and letting the model fill in the motion between them. The keyframes are conditions - objects built from the arguments the workflow names, each with the latent index it lands on.",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
-        "prompt": "A cinematic shot of a fox walking through a snowy forest at dawn, the camera tracking alongside, snow crunching underfoot. a choir singing 'l t x' in the background, cinematic lighting, 8k, ultra-detailed, photorealistic in the distance",
+        "prompt": "A polaroid photograph of a lighthouse on a rocky shore lies on a table. The camera pushes in until the photograph fills the frame and the scene comes alive: waves break against the rocks, the beam sweeps across low cloud, gulls call overhead.",
         "negative_prompt": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, wrong gaze direction, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts.",
         "width": 960,
         "height": 544,
         "num_frames": 121,
-        "frame_rate": 24.0
+        "frame_rate": 24.0,
+        "first_image": {
+            "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/flf2v_input_first_frame.png"
+        },
+        "last_image": {
+            "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/flf2v_input_last_frame.png"
+        }
     },
     "seed": 42,
     "steps": [
         {
-            "name": "text_to_video",
+            "name": "keyframes_to_video",
             "pipeline": {
                 "configuration": {
-                    "component_type": "LTX2Pipeline",
+                    "component_type": "LTX2ConditionPipeline",
                     "pre_load_modules": [
                         "sdnq"
                     ],
@@ -128,7 +134,25 @@
                     "audio_stg_scale": 0.0,
                     "modality_scale": 1.0,
                     "audio_modality_scale": 1.0,
-                    "output_type": "{np}"
+                    "output_type": "{np}",
+                    "conditions": [
+                        {
+                            "condition_type": "diffusers.pipelines.ltx2.pipeline_ltx2_condition.LTX2VideoCondition",
+                            "from_arguments": {
+                                "frames": "variable:first_image",
+                                "index": 0,
+                                "strength": 1.0
+                            }
+                        },
+                        {
+                            "condition_type": "diffusers.pipelines.ltx2.pipeline_ltx2_condition.LTX2VideoCondition",
+                            "from_arguments": {
+                                "frames": "variable:last_image",
+                                "index": -1,
+                                "strength": 1.0
+                            }
+                        }
+                    ]
                 }
             },
             "result": {

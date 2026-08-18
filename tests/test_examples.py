@@ -15,6 +15,8 @@ import os
 
 import pytest
 
+from dw.arguments import NON_TYPE_KEYS, is_escaped, is_media_reference
+from dw.type_helpers import load_type_from_name
 from dw.workflow import workflow_from_file
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -105,3 +107,51 @@ def test_example_workflow_references_resolve(example_file):
             f"{example_file} references '{reference}', which does not resolve "
             f"to a file ({os.path.normpath(target)})"
         )
+
+
+def type_references(definition):
+    """Every '*_type' value in a definition that names a type to load.
+
+    Skips the keys that name a category rather than a type, the values escaped
+    with {} for the same reason, the ones a run supplies, and the media
+    references whose 'media_type' says what a file holds.
+    """
+    if isinstance(definition, dict):
+        if is_media_reference(definition):
+            return
+        for key, value in definition.items():
+            if (
+                isinstance(value, str)
+                and key.endswith("_type")
+                and key not in NON_TYPE_KEYS
+                and not is_escaped(value)
+                and not value.startswith("variable:")
+            ):
+                yield key, value
+            yield from type_references(value)
+    elif isinstance(definition, list):
+        for value in definition:
+            yield from type_references(value)
+
+
+@pytest.mark.parametrize("example_file", get_example_files())
+def test_example_type_references_resolve(example_file):
+    """Every type an example names is one the installed diffusers actually has.
+
+    Schema validation cannot see this: a '*_type' is a string until a run loads
+    it, so a class that moved, was renamed, or is only reachable by its full
+    dotted path (LTX2LatentUpsamplerModel is not exported at the top level of
+    diffusers) fails after the first model has already loaded.
+    """
+    path = os.path.join(REPO_ROOT, example_file)
+    with open(path, encoding="utf-8") as file:
+        definition = json.load(file)
+
+    for key, name in type_references(definition):
+        try:
+            load_type_from_name(name)
+        except Exception as error:
+            pytest.fail(
+                f"{example_file} names '{name}' as its '{key}', which does not "
+                f"load: {type(error).__name__}: {error}"
+            )
