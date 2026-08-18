@@ -178,12 +178,20 @@ class Pipeline:
         """
         Prepare arguments for pipeline creation, including shared components.
 
+        The loaded components go into a copy, not into the definition they were read
+        from. The definition belongs to the workflow and outlives every step, so a
+        component stored there is a component the run holds until it ends: releasing
+        the pipeline frees nothing, and a workflow that loads a second large model
+        after releasing the first runs out of memory holding both. Copying also
+        leaves the definition intact for a second load - load_component consumes
+        'model_name' out of the arguments it is handed.
+
         Args:
             device: Device to run pipeline on
             shared_components: Dictionary of components shared between pipelines
         """
         logger.debug("Populating from_pretrained arguments")
-        from_pretrained_arguments = self.from_pretrained_arguments
+        from_pretrained_arguments = dict(self.from_pretrained_arguments)
 
         # Load optional components (controlnet, vae, unet, etc.), including any
         # component-shaped key outside the known names
@@ -456,9 +464,12 @@ class Pipeline:
             logger.info(f"Loading component: {component_name}")
             component_configuration = component_definition.get("configuration", None)
             if component_configuration is not None:
-                component_from_pretrained_arguments = component_definition[
-                    "from_pretrained_arguments"
-                ]
+                # A copy for the same reason the pipeline's own arguments are copied:
+                # what goes in here is consumed by load_component, and the definition
+                # is the workflow's, not this load's
+                component_from_pretrained_arguments = dict(
+                    component_definition["from_pretrained_arguments"]
+                )
 
                 # Handle quantization configuration
                 quantization_configuration = get_quantization_configuration(

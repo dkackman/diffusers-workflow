@@ -5,7 +5,7 @@ import torch
 import copy
 import gc
 import logging
-from .arguments import realize_args
+from .arguments import realize_args, realize_constants
 from .step import Step
 from .schema import validate_data, load_schema
 from .variables import replace_variables, set_variables
@@ -156,6 +156,9 @@ class Workflow:
             variables = workflow_def.get("variables", None)
             if variables is not None:
                 logger.debug(f"Setting variables for workflow: {workflow_id}")
+                # a constant is the value a variable declares, so it resolves before
+                # anything is converted to the type of that declaration
+                realize_constants(variables)
                 # first set variable values base don the arguments passed to the workflow
                 # these may come form the command line or form a parent workflow
                 set_variables(arguments, variables)

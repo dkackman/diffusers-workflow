@@ -1,10 +1,12 @@
 import os
+import copy
 import logging
 from inspect import Parameter, signature
-from .type_helpers import load_type_from_name, has_method
+from .type_helpers import load_type_from_name, load_constant_from_name, has_method
 from diffusers.utils import load_image, load_video
 from .security import (
     validate_path,
+    validate_constant_name,
     validate_url,
     validate_file_extension,
     SecurityError,
@@ -52,6 +54,11 @@ FROM_ARGUMENTS_KEY = "from_arguments"
 # constructed then rather than at load time
 PREVIOUS_RESULT_PREFIX = "previous_result:"
 
+# The prefix marking a value as a reference to a constant declared in python - the
+# schedule a distilled model was trained on, the negative prompt a model family ships.
+# Copying those into a workflow is how they go stale when the library moves on
+CONSTANT_PREFIX = "constant:"
+
 # The media such an object may be built from - it opens the file itself, so the
 # extension is all that is checked here
 ALLOWED_FROM_FILE_EXTENSIONS = (
@@ -81,9 +88,13 @@ def realize_args(arg, base_dir=None):
     if isinstance(arg, dict):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
         for k, v in arg.items():
+            # A constant resolves under any argument name, and before the
+            # conventions below - what it holds is the value, not a file to load
+            if is_constant_reference(v):
+                arg[k] = fetch_constant(v)
             # An explicit media reference loads under any argument name - the
             # key conventions below only cover arguments named like their media
-            if is_media_reference(v):
+            elif is_media_reference(v):
                 arg[k] = fetch_media(v, base_dir)
             # Handle image loading for keys ending in '_image' or exactly 'image'
             elif k.endswith("_image") or k == "image":
@@ -126,11 +137,88 @@ def realize_args(arg, base_dir=None):
     elif isinstance(arg, list):
         logger.debug("Processing list arguments")
         for i, item in enumerate(arg):
+            if is_constant_reference(item):
+                arg[i] = fetch_constant(item)
+                continue
             if is_media_reference(item):
                 arg[i] = fetch_media(item, base_dir)
                 continue
             realize_args(item, base_dir)
             arg[i] = realize_object(item, base_dir)
+
+
+def is_constant_reference(value):
+    """Whether a value references a constant declared in python."""
+    return isinstance(value, str) and value.startswith(CONSTANT_PREFIX)
+
+
+def fetch_constant(reference):
+    """Read the value a 'constant:' reference names.
+
+    A constant is data - a schedule, a default prompt, a token budget - so what the
+    name resolves to has to be data too. Anything callable is refused: a type is
+    named with a '_type' key and constructed there, and a workflow that could reach
+    a function through this would be evaluating python rather than referencing it.
+
+    Mutable values are copied. The workflow holds the module's own object otherwise,
+    and a pipeline that consumes its sigmas in place would edit the library's
+    constant for every later run in the process - the REPL keeps one alive for a
+    whole session.
+
+    Args:
+        reference: The 'constant:dotted.NAME' string
+
+    Returns:
+        The value the name refers to
+
+    Raises:
+        ValueError: If the name resolves to nothing, or to something callable
+        InvalidInputError: If the name is not a dotted python name
+    """
+    name = validate_constant_name(reference.removeprefix(CONSTANT_PREFIX).strip())
+
+    try:
+        value = load_constant_from_name(name)
+    except (ImportError, AttributeError) as error:
+        raise ValueError(
+            f"No constant named '{name}' - a constant reference names the module "
+            f"it is declared in and the attribute to read from it ({error})"
+        ) from error
+
+    if callable(value):
+        raise ValueError(
+            f"'{name}' is a {type(value).__name__}, not a constant - "
+            f"'{CONSTANT_PREFIX}' reads a value, and a type is named with a "
+            f"'_type' argument instead"
+        )
+
+    logger.info(f"Reading constant {name}")
+    return copy.deepcopy(value) if isinstance(value, (list, dict, set)) else value
+
+
+def realize_constants(arg):
+    """Resolve every constant reference in a structure, and nothing else.
+
+    Variables are declared before they are set: a value passed in is converted to
+    the type of the declared default, so a default that is still the string naming
+    a constant would type a schedule as text. Resolving them first makes the
+    constant the declared value, which is what it is meant to be.
+
+    Args:
+        arg: The structure to resolve, modified in place
+    """
+    if isinstance(arg, dict):
+        for k, v in arg.items():
+            if is_constant_reference(v):
+                arg[k] = fetch_constant(v)
+            else:
+                realize_constants(v)
+    elif isinstance(arg, list):
+        for i, item in enumerate(arg):
+            if is_constant_reference(item):
+                arg[i] = fetch_constant(item)
+            else:
+                realize_constants(item)
 
 
 def is_media_reference(value):

@@ -17,6 +17,7 @@ MAX_FILENAME_LENGTH = 255
 MAX_JSON_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_VARIABLE_NAME_LENGTH = 100
 MAX_VARIABLE_VALUE_LENGTH = 10000
+MAX_CONSTANT_NAME_LENGTH = 200
 DEFAULT_MAX_STRING_LENGTH = 1000
 MAX_FILE_PATH_LENGTH = 1000
 ALLOWED_JSON_EXTENSIONS = {".json"}
@@ -260,6 +261,45 @@ def validate_variable_name(name: str) -> str:
     if len(name) > MAX_VARIABLE_NAME_LENGTH:
         raise InvalidInputError(
             f"Variable name too long: {len(name)} > {MAX_VARIABLE_NAME_LENGTH}"
+        )
+
+    return name
+
+
+# A dotted python name: identifiers separated by dots, and nothing else
+CONSTANT_NAME_PATTERN = r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$"
+
+
+def validate_constant_name(name: str) -> str:
+    """
+    Validate the dotted name of a python constant a workflow references.
+
+    Resolving a name imports the module it lives in, which runs that module's
+    code, so the name is checked before anything is imported - identifiers and
+    dots only, no relative paths and nothing to evaluate.
+
+    Args:
+        name: Dotted name to validate
+
+    Returns:
+        The validated name
+
+    Raises:
+        InvalidInputError: If name is invalid
+    """
+    if not name:
+        raise InvalidInputError("Constant name cannot be empty")
+
+    if not re.match(CONSTANT_NAME_PATTERN, name):
+        raise InvalidInputError(
+            f"Invalid constant name: {name} - a constant is named by its module "
+            f"and the attribute to read from it, like "
+            f"'diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES'"
+        )
+
+    if len(name) > MAX_CONSTANT_NAME_LENGTH:
+        raise InvalidInputError(
+            f"Constant name too long: {len(name)} > {MAX_CONSTANT_NAME_LENGTH}"
         )
 
     return name

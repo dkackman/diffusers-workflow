@@ -15,7 +15,13 @@ import os
 
 import pytest
 
-from dw.arguments import NON_TYPE_KEYS, is_escaped, is_media_reference
+from dw.arguments import (
+    NON_TYPE_KEYS,
+    fetch_constant,
+    is_constant_reference,
+    is_escaped,
+    is_media_reference,
+)
 from dw.type_helpers import load_type_from_name
 from dw.workflow import workflow_from_file
 
@@ -154,4 +160,38 @@ def test_example_type_references_resolve(example_file):
             pytest.fail(
                 f"{example_file} names '{name}' as its '{key}', which does not "
                 f"load: {type(error).__name__}: {error}"
+            )
+
+
+def constant_references(definition):
+    """Every 'constant:' value in a definition, wherever it appears."""
+    if isinstance(definition, dict):
+        for value in definition.values():
+            yield from constant_references(value)
+    elif isinstance(definition, list):
+        for value in definition:
+            yield from constant_references(value)
+    elif is_constant_reference(definition):
+        yield definition
+
+
+@pytest.mark.parametrize("example_file", get_example_files())
+def test_example_constant_references_resolve(example_file):
+    """Every constant an example names is one the installed library declares.
+
+    The point of referencing a constant instead of copying it is that the
+    library stays the source of truth, which only holds if a constant that
+    moved or was renamed fails here rather than mid-run.
+    """
+    path = os.path.join(REPO_ROOT, example_file)
+    with open(path, encoding="utf-8") as file:
+        definition = json.load(file)
+
+    for reference in constant_references(definition):
+        try:
+            fetch_constant(reference)
+        except Exception as error:
+            pytest.fail(
+                f"{example_file} names '{reference}', which does not resolve: "
+                f"{type(error).__name__}: {error}"
             )

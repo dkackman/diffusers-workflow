@@ -55,6 +55,9 @@ The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`)
 - Keys ending in `_type` or `_dtype`, or named `dtype`, are auto-converted: `"FluxPipeline"` → loaded from `diffusers`, `"torch.bfloat16"` → `torch.bfloat16`
 - Values wrapped in `{}` are escaped (stay as strings): `"{nf4}"` → `"nf4"`
 - Dotted names use full module path: `"sdnq.SDNQConfig"` → `importlib.import_module("sdnq").SDNQConfig`
+- Values prefixed with `constant:` read a value declared in python rather than copying it
+  into JSON: `"constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES"`. Resolved
+  in `realize_args`, validated by `validate_constant_name()`; anything callable is refused
 
 ### Quantization Support
 

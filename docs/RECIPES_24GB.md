@@ -83,7 +83,9 @@ Two things about the checkpoint are worth knowing before tuning anything:
 
 - **`transformer` is the distilled model.** It runs a fixed 8-step schedule at
   `guidance_scale: 1.0`, with STG and modality guidance off, and the `sigmas` every
-  example passes are its trained schedule - not a knob. `num_inference_steps`,
+  example passes are its trained schedule - not a knob. They are referenced from
+  diffusers (`constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES`) rather
+  than copied, so the schedule stays whatever the library says it is. `num_inference_steps`,
   `guidance_scale`, `stg_scale` and the rest only mean anything against
   `subfolder: "transformer_full"`, the dev model, which is not a 24GB configuration:
   it is the same ~38GB in bf16, and the guidance those knobs turn on costs three
