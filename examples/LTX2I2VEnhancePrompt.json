@@ -1,23 +1,27 @@
 {
-    "id": "LTX2",
-    "description": "The baseline for the LTX-2.5 family: text to video with a soundtrack generated alongside it, on a single 24GB card. The distilled transformer runs a fixed eight-step schedule with guidance off, quantized per component so it stays resident while the Gemma text encoder and the connectors are group offloaded around it.",
+    "id": "LTX2I2VEnhancePrompt",
+    "description": "Handing the shot to the model. LTX-2.5's own prompt enhancer rewrites a one-line idea into the detailed prompt the model was trained on, conditioned on the reference frame, and the duration head picks the clip's length instead of a fixed frame count.",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
-        "prompt": "A cinematic shot of a fox walking through a snowy forest at dawn, the camera tracking alongside, snow crunching underfoot. a choir singing 'l t x' in the background, cinematic lighting, 8k, ultra-detailed, photorealistic in the distance",
+        "prompt": "a marmot in a top hat and monocle sings to the camera",
         "negative_prompt": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, wrong gaze direction, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts.",
-        "width": 960,
-        "height": 544,
-        "num_frames": 121,
-        "frame_rate": 24.0
+        "width": 768,
+        "height": 768,
+        "frame_rate": 24.0,
+        "min_seconds": 2.0,
+        "max_seconds": 8.0,
+        "image": {
+            "location": "https://pbs.twimg.com/media/HPxFgsIXIAAjtUu?format=jpg&name=medium"
+        },
+        "enhancer_weights_dtype": "{uint4}"
     },
-    "seed": 42,
     "steps": [
         {
-            "name": "text_to_video",
+            "name": "enhanced_image_to_video",
             "pipeline": {
                 "configuration": {
-                    "component_type": "LTX2Pipeline",
+                    "component_type": "LTX2ImageToVideoPipeline",
                     "pre_load_modules": [
                         "sdnq"
                     ],
@@ -48,7 +52,13 @@
                         },
                         "duration_head": {
                             "device": "cuda"
+                        },
+                        "prompt_enhancer": {
+                            "device": "cpu"
                         }
+                    },
+                    "vae": {
+                        "enable_tiling": true
                     }
                 },
                 "from_pretrained_arguments": {
@@ -108,9 +118,13 @@
                 "arguments": {
                     "prompt": "variable:prompt",
                     "negative_prompt": "variable:negative_prompt",
+                    "enable_prompt_enhancement": true,
+                    "prompt_max_new_tokens": 600,
+                    "image": "variable:image",
                     "width": "variable:width",
                     "height": "variable:height",
-                    "num_frames": "variable:num_frames",
+                    "min_seconds": "variable:min_seconds",
+                    "max_seconds": "variable:max_seconds",
                     "frame_rate": "variable:frame_rate",
                     "sigmas": [
                         1.0,
@@ -129,6 +143,40 @@
                     "modality_scale": 1.0,
                     "audio_modality_scale": 1.0,
                     "output_type": "{np}"
+                },
+                "prompt_enhancer": {
+                    "configuration": {
+                        "component_type": "transformers.Gemma4ForConditionalGeneration",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:enhancer_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cpu",
+                            "dequantize_fp32": false,
+                            "modules_to_not_convert": [
+                                "embed_vision",
+                                "embed_audio",
+                                "lm_head"
+                            ]
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "google/gemma-4-E2B-it",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "processor": {
+                    "configuration": {
+                        "component_type": "transformers.AutoProcessor"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "google/gemma-4-E2B-it"
+                    }
                 }
             },
             "result": {

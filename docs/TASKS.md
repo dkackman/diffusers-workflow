@@ -193,6 +193,63 @@ video generation" in the workflow guide):
 | `crossfade_ms` | No | Equal-power crossfade at each audio seam (default: 75) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming |
 
+### video_frames
+
+The frames of a generated video, as one `(frames, height, width, channels)`
+uint8 array. That is the shape an argument taking frames rather than a video
+wants - LTX-2's keyframe conditions, which are mapped from 0-255 - and it is one
+artifact where a list of frames would become one artifact per frame and multiply
+the step that consumed it:
+
+```json
+{
+    "name": "opening_frames",
+    "task": {
+        "command": "video_frames",
+        "arguments": { "video": "previous_result:opening" }
+    },
+    "result": { "content_type": "video/mp4", "save": false, "fps": 24 }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The video - a frame list, a frame array or tensor, or an audio+video pair |
+
+An argument that goes through diffusers' video processor instead - LTX-2's
+IC-LoRA references - wants the `[0, 1]` frames the pipeline returned rather than
+this array; hand those over with `previous_result:step.frames`.
+
+**Example:** [LTX2Extend.json](../examples/LTX2Extend.json)
+
+### pair_audio
+
+Pair a video with an audio track, so the two are saved as one muxed file. A
+pipeline that generates its own soundtrack returns the pair together; anything
+working on the frames alone - a latent upsampler, an interpolator, an upscaler -
+returns frames without it, and this puts it back:
+
+```json
+{
+    "task": {
+        "command": "pair_audio",
+        "arguments": {
+            "video": "previous_result:upscale",
+            "audio": "previous_result:base"
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 24 }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The frames - a frame list, a frame array or tensor, or an audio+video pair whose own soundtrack is replaced |
+| `audio` | Yes | The soundtrack - a waveform, or the earlier step whose video carried one, which brings its sample rate along |
+| `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
+
+**Example:** [LTX2TwoStage.json](../examples/LTX2TwoStage.json)
+
 ### slice_audio
 
 Cut a slice out of an audio track, addressed in seconds or in video frames.

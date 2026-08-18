@@ -6,16 +6,23 @@ diffusers.hooks._helpers.TransformerBlockRegistry and raise when it is absent.
 dw.cache_blocks fills in the blocks diffusers has not registered upstream.
 """
 
+import inspect
 import json
 import os
 import sys
 
 import pytest
+import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dw import cache_blocks
-from dw.cache_blocks import register_cache_blocks, _load_registry
+from dw.cache_blocks import (
+    ARGUMENT_REMAP_KEY,
+    build_metadata,
+    register_cache_blocks,
+    _load_registry,
+)
 from dw.type_helpers import load_type_from_name
 
 
@@ -35,13 +42,74 @@ def test_registry_file_is_well_formed():
     registry = _load_registry()
     assert registry, "registry should not be empty"
 
-    allowed = set(TransformerBlockMetadata.__dataclass_fields__) - {
-        "_cls",
-        "_cached_parameter_indices",
-    }
+    allowed = (
+        set(TransformerBlockMetadata.__dataclass_fields__)
+        - {"_cls", "_cached_parameter_indices"}
+    ) | {ARGUMENT_REMAP_KEY}
     for class_name, metadata in registry.items():
         assert "." in class_name, f"'{class_name}' should be a full dotted path"
         assert set(metadata).issubset(allowed), f"'{class_name}' has unknown fields"
+
+
+def test_second_stream_is_read_from_the_argument_the_entry_names():
+    """A remapped entry must resolve the block's own second stream, not the text one.
+
+    FBCBlockHook reads the second stream back out of the forward arguments under
+    the fixed name 'encoder_hidden_states' when the cache skips a block. LTX-2's
+    blocks take an 'encoder_hidden_states' of their own - the text conditioning -
+    while returning audio as their second stream, so without the remap the hook
+    hands the text embeddings back in the audio slot.
+    """
+    from diffusers.hooks._helpers import TransformerBlockRegistry
+
+    register_cache_blocks()
+
+    remapped = {
+        name: entry
+        for name, entry in _load_registry().items()
+        if ARGUMENT_REMAP_KEY in entry
+    }
+    assert remapped, "expected at least one entry naming its second stream"
+
+    for class_name, entry in remapped.items():
+        metadata = TransformerBlockRegistry.get(load_type_from_name(class_name))
+        second_stream, text = object(), object()
+        arguments = {
+            entry[ARGUMENT_REMAP_KEY]: second_stream,
+            "encoder_hidden_states": text,
+        }
+
+        assert (
+            metadata._get_parameter_from_args_kwargs(
+                "encoder_hidden_states", (), arguments
+            )
+            is second_stream
+        )
+        # Positional resolution reads the forward signature, so this also asserts
+        # the block takes a parameter by the name the entry gives - and that the
+        # remap picks it out rather than whatever sits at the text stream's index
+        parameters = list(
+            inspect.signature(load_type_from_name(class_name).forward).parameters
+        )[1:]
+        positional = tuple(object() for _ in parameters)
+        assert (
+            metadata._get_parameter_from_args_kwargs(
+                "encoder_hidden_states", positional, {}
+            )
+            is positional[parameters.index(entry[ARGUMENT_REMAP_KEY])]
+        )
+
+
+def test_metadata_without_a_remap_keeps_diffusers_behaviour():
+    """An entry that names no second-stream argument builds plain metadata."""
+    from diffusers.hooks._helpers import TransformerBlockMetadata
+
+    metadata = build_metadata(
+        TransformerBlockMetadata,
+        {"return_hidden_states_index": 0, "return_encoder_hidden_states_index": None},
+    )
+
+    assert type(metadata) is TransformerBlockMetadata
 
 
 def test_registers_missing_blocks():
@@ -250,3 +318,114 @@ def test_enable_cache_succeeds_on_registered_model():
     model.enable_cache(FirstBlockCacheConfig(threshold=0.05))
     assert model.is_cache_enabled
     model.disable_cache()
+
+
+class _DualStreamBlock(torch.nn.Module):
+    """The shape LTX-2's block has: two streams in and out, text alongside.
+
+    The two streams are advanced by different constants so a cached step that
+    returned the wrong one is visible in the values, and the text conditioning
+    is a different length so it is visible in the shapes too.
+    """
+
+    def forward(self, hidden_states, audio_hidden_states, encoder_hidden_states=None):
+        return hidden_states + 1.0, audio_hidden_states + 10.0
+
+
+class _DualStreamModel(torch.nn.Module):
+    def __init__(self, num_blocks=2):
+        super().__init__()
+        self.transformer_blocks = torch.nn.ModuleList(
+            _DualStreamBlock() for _ in range(num_blocks)
+        )
+
+    def forward(self, hidden_states, audio_hidden_states, encoder_hidden_states):
+        for block in self.transformer_blocks:
+            hidden_states, audio_hidden_states = block(
+                hidden_states=hidden_states,
+                audio_hidden_states=audio_hidden_states,
+                encoder_hidden_states=encoder_hidden_states,
+            )
+        return hidden_states, audio_hidden_states
+
+
+def _register_dual_stream_block(remap):
+    from diffusers.hooks._helpers import (
+        TransformerBlockMetadata,
+        TransformerBlockRegistry,
+    )
+
+    entry = {"return_hidden_states_index": 0, "return_encoder_hidden_states_index": 1}
+    if remap is not None:
+        entry[ARGUMENT_REMAP_KEY] = remap
+    TransformerBlockRegistry.register(
+        model_class=_DualStreamBlock,
+        metadata=build_metadata(TransformerBlockMetadata, entry),
+    )
+
+
+def _run_two_steps(model):
+    """Drive the model twice - the second step is the one the cache skips.
+
+    The context is set the way CacheMixin.cache_context sets it; the stub model
+    is a bare Module rather than a diffusers model, so it has no such method of
+    its own.
+    """
+    from diffusers.hooks import HookRegistry
+
+    hidden_states = torch.zeros(1, 6, 4)
+    audio_hidden_states = torch.zeros(1, 5, 4)
+    encoder_hidden_states = torch.zeros(1, 3, 4)
+
+    registry = HookRegistry.check_if_exists_or_initialize(model)
+    registry._set_context("test")
+    try:
+        for _ in range(2):
+            hidden_states, audio_hidden_states = model(
+                hidden_states, audio_hidden_states, encoder_hidden_states
+            )
+    finally:
+        registry._set_context(None)
+    return hidden_states, audio_hidden_states
+
+
+def test_cached_step_carries_the_second_stream_not_the_text(monkeypatch):
+    """The end the remap exists for: a skipped block keeps the audio stream.
+
+    Without it the tail block hands `encoder_hidden_states` back in the audio
+    slot, which on LTX-2 is the text conditioning - a different sequence length,
+    so the run fails downstream rather than merely drifting.
+    """
+    from diffusers.hooks import FirstBlockCacheConfig, apply_first_block_cache
+    from diffusers.hooks._helpers import TransformerBlockRegistry
+
+    monkeypatch.setitem(TransformerBlockRegistry._registry, _DualStreamBlock, None)
+    _register_dual_stream_block("audio_hidden_states")
+
+    model = _DualStreamModel()
+    apply_first_block_cache(model, FirstBlockCacheConfig(threshold=0.05))
+
+    hidden_states, audio_hidden_states = _run_two_steps(model)
+
+    assert audio_hidden_states.shape == (1, 5, 4)
+    assert hidden_states.shape == (1, 6, 4)
+    # Two steps of two blocks: the first computes both, the second is cached from
+    # the head block's residuals rather than skipping the streams' advance
+    assert torch.all(audio_hidden_states > 0), "the audio stream stopped advancing"
+
+
+def test_without_the_remap_the_text_stream_leaks_into_the_audio_slot(monkeypatch):
+    """Pins why the remap is needed, so a later simplification cannot drop it."""
+    from diffusers.hooks import FirstBlockCacheConfig, apply_first_block_cache
+    from diffusers.hooks._helpers import TransformerBlockRegistry
+
+    monkeypatch.setitem(TransformerBlockRegistry._registry, _DualStreamBlock, None)
+    _register_dual_stream_block(None)
+
+    model = _DualStreamModel()
+    apply_first_block_cache(model, FirstBlockCacheConfig(threshold=0.05))
+
+    _, audio_hidden_states = _run_two_steps(model)
+
+    # The text conditioning's sequence length, carried into the audio stream
+    assert audio_hidden_states.shape == (1, 3, 4)

@@ -870,3 +870,88 @@ every `previous_result` reference does: four images in, four videos out.
 
 See [examples/MiniMaxH3Ref2VAGeneratedSubject.json](../examples/MiniMaxH3Ref2VAGeneratedSubject.json)
 for a full example.
+
+### Objects Built From Named Arguments
+
+Not every type a pipeline takes knows how to open a file. LTX-2's keyframe conditions
+and IC-LoRA references are plain dataclasses holding frames the caller already loaded,
+plus the numbers that say what to do with them. Those are written as the arguments to
+construct the object with:
+
+```json
+"conditions": [
+    {
+        "condition_type": "diffusers.pipelines.ltx2.pipeline_ltx2_condition.LTX2VideoCondition",
+        "from_arguments": {
+            "frames": { "media_type": "image", "location": "first.png" },
+            "index": 0,
+            "strength": 1.0
+        }
+    },
+    {
+        "condition_type": "diffusers.pipelines.ltx2.pipeline_ltx2_condition.LTX2VideoCondition",
+        "from_arguments": {
+            "frames": { "media_type": "image", "location": "last.png" },
+            "index": -1,
+            "strength": 1.0
+        }
+    }
+]
+```
+
+`from_arguments` holds every argument the type is constructed with - a key beside it
+raises rather than being silently dropped, and so does an argument the type does not
+take, naming the ones it does. The arguments inside are ordinary arguments: a
+[media reference](#media-arguments) loads there, a `variable:` reference resolves
+there, and a `previous_result:` reference waits the way
+[`from_previous_result`](#objects-built-from-an-earlier-step) does - the object is
+constructed once the step it names has run.
+
+Which of the three forms a type wants is decided by the type, not by preference:
+
+| Form | For a type that |
+| ---- | --------------- |
+| `from_file` | opens the media itself, bringing its frame or sample rate along (MiniMax-H3's references) |
+| `from_previous_result` | declares a media `kind`, so a step's output lands in the right field on its own |
+| `from_arguments` | is a plain record of fields - no `from_file()`, no `kind` (LTX-2's conditions and references) |
+
+See [examples/LTX2Keyframes.json](../examples/LTX2Keyframes.json) for the file form and
+[examples/LTX2Extend.json](../examples/LTX2Extend.json) for the one built from an
+earlier step.
+
+### Frames Across a Step Boundary
+
+A pipeline that generates video with a soundtrack returns the two paired, and the result
+muxes them into one file. A step that works on the frames alone - a latent upsampler, an
+interpolator - returns frames without it. Two tasks carry the pieces across:
+
+- **`video_frames`** takes a generated video and returns its frames as one
+  `(frames, height, width, channels)` uint8 array - the 0-255 shape LTX-2's conditions
+  want, and one artifact rather than one per frame.
+- **`pair_audio`** puts a soundtrack back beside frames that lost it, so the step that
+  saves them writes a single muxed mp4.
+
+```json
+{
+    "name": "muxed",
+    "task": {
+        "command": "pair_audio",
+        "arguments": {
+            "video": "previous_result:upscale",
+            "audio": "previous_result:base"
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 24 }
+}
+```
+
+`audio` takes either a waveform or, as here, the earlier step whose video carried the
+soundtrack - which brings its sample rate along.
+
+Which shape a pipeline argument wants is the pipeline's business, and the two LTX-2
+paths differ: a keyframe condition is mapped from 0-255, so it takes the `video_frames`
+array, while an IC-LoRA reference goes through the video processor, which expects the
+`[0, 1]` frames the pipeline returned - `previous_result:step.frames` hands those over
+untouched.
+
+**Example:** [examples/LTX2TwoStage.json](../examples/LTX2TwoStage.json)

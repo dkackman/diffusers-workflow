@@ -65,6 +65,53 @@ and ~1.9GiB, which is what made the chained variants OOM on their second segment
 
 **Examples:** [MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json), [MiniMaxH3Ref2VAChained.json](../examples/MiniMaxH3Ref2VAChained.json), [MiniMaxH3I2V.json](../examples/MiniMaxH3I2V.json)
 
+## LTX-2.5 (22B, video + audio)
+
+A standard pipeline, but placed per component rather than with a pipeline-level
+`offload` - the transformer is the only thing that wants to be resident, and the text
+encoder is nearly as large as it is. The working 24GB configuration at 960x544:
+
+| Component | Config |
+| --------- | ------ |
+| `transformer` | SDNQ `uint4` (`quantization_device: "cuda"`, `return_device: "cuda"`, `use_quantized_matmul: true`), resident |
+| `text_encoder` (Gemma 4, 23GB) | SDNQ `int8`, `return_device: "cpu"`, `group_offload` `leaf_level` with `use_stream: true` |
+| `connectors` (12GB) | `group_offload` `leaf_level` with `use_stream: true` |
+| `vae`, `audio_vae`, `vocoder`, `duration_head` | `device: "cuda"` - small, and used once per generation |
+| pipeline | `vae.enable_tiling` for anything above the base resolution |
+
+Two things about the checkpoint are worth knowing before tuning anything:
+
+- **`transformer` is the distilled model.** It runs a fixed 8-step schedule at
+  `guidance_scale: 1.0`, with STG and modality guidance off, and the `sigmas` every
+  example passes are its trained schedule - not a knob. `num_inference_steps`,
+  `guidance_scale`, `stg_scale` and the rest only mean anything against
+  `subfolder: "transformer_full"`, the dev model, which is not a 24GB configuration:
+  it is the same ~38GB in bf16, and the guidance those knobs turn on costs three
+  transformer passes per step against CFG-doubled batches. Nothing here ships it.
+- **The checkpoint ships a diffusion decoder that `LTX2Pipeline` ignores**, and on
+  24GB you are not missing much. It is listed in `model_index.json` but is not a
+  constructor argument, so diffusers logs "not expected ... will be ignored" and
+  decodes with the convolutional VAE. Reaching it means `LTX2VideoDiffusionDecodePipeline`
+  on a step run with `output_type: "{latent}"`, and two things get in the way. Its
+  first three stages run on the full volume by design - only stage 4 and the diffusion
+  blocks tile - and the attention mask they build is quadratic in the output grid:
+  70GiB at 1536x896x121, which no tile size reduces. Base resolution fits comfortably.
+  And a step that returns latents returns *audio* latents too, which nothing outside a
+  pipeline call can vocode, so that path is silent. Nothing here ships it.
+
+Spend headroom on the two-stage flow rather than on base resolution: render at 768x448,
+upsample the latents 2x, and the result is sharper than a single pass at 1536x896 and
+fits where that would not. The base step shares its `vae` into the upsampler and sets
+`release_pipeline`, which frees the 11GB transformer before the 2x decode runs.
+
+**Examples:** [LTX2.json](../examples/LTX2.json) (t2v),
+[LTX2TwoStage.json](../examples/LTX2TwoStage.json) (base -> latent upsample -> mux),
+[LTX2Keyframes.json](../examples/LTX2Keyframes.json) (first and
+last frame), [LTX2Extend.json](../examples/LTX2Extend.json) (continue a clip),
+[LTX2ICLora.json](../examples/LTX2ICLora.json) (generative 2x upscale via IC-LoRA),
+[LTX2I2VEnhancePrompt.json](../examples/LTX2I2VEnhancePrompt.json) (native prompt
+enhancer and duration head)
+
 ## SDXL (2.6B UNet)
 
 Fits several times over in 24GB. Skip quantization and offloading entirely; `compile` the UNet if you generate many images per session. Use `num_images_per_prompt` batching with `vae.enable_slicing`.

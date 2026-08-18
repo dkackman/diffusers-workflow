@@ -6,6 +6,7 @@ Tests argument realization, image/video fetching, and type loading
 import pytest
 import os
 import tempfile
+from dataclasses import dataclass
 from PIL import Image
 from unittest.mock import patch, MagicMock
 from dw.arguments import build_objects, realize_args, fetch_image, fetch_video
@@ -829,3 +830,127 @@ class TestFromFileFieldOverrides:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+@dataclass
+class Condition:
+    """Stands in for LTX2VideoCondition - a plain dataclass of frames and where
+    they land, with no from_file() and no media kind of its own"""
+
+    frames: object
+    index: int = 0
+    strength: float = 1.0
+
+
+class TestConstructedFromArguments:
+    """A type built from the arguments its description names, not from media"""
+
+    def test_constructed_at_load_time(self):
+        args = {
+            "conditions": [
+                {
+                    "condition_type": Condition,
+                    "from_arguments": {"frames": "a frame", "index": -1},
+                }
+            ]
+        }
+        realize_args(args)
+
+        condition = args["conditions"][0]
+        assert isinstance(condition, Condition)
+        assert (condition.frames, condition.index, condition.strength) == (
+            "a frame",
+            -1,
+            1.0,
+        )
+
+    def test_media_in_the_arguments_is_loaded_first(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "keyframe.png")
+            Image.new("RGB", (8, 8)).save(path)
+
+            args = {
+                "conditions": [
+                    {
+                        "condition_type": Condition,
+                        "from_arguments": {
+                            "frames": {"media_type": "image", "location": path},
+                            "index": 0,
+                        },
+                    }
+                ]
+            }
+            realize_args(args)
+
+        assert isinstance(args["conditions"][0].frames, Image.Image)
+
+    def test_an_argument_naming_a_step_defers_construction(self):
+        args = {
+            "conditions": [
+                {
+                    "condition_type": Condition,
+                    "from_arguments": {
+                        "frames": "previous_result:base",
+                        "index": -1,
+                    },
+                }
+            ]
+        }
+        realize_args(args)
+
+        # The step it names has not run, so there is nothing to build from yet
+        assert args["conditions"][0]["from_arguments"]["frames"] == (
+            "previous_result:base"
+        )
+
+    def test_built_once_the_step_it_names_has_run(self):
+        description = {
+            "condition_type": Condition,
+            "from_arguments": {"frames": "the generated frames", "index": -1},
+        }
+
+        built = build_objects({"conditions": [description]})
+
+        assert isinstance(built["conditions"][0], Condition)
+        assert built["conditions"][0].frames == "the generated frames"
+        assert built["conditions"][0].index == -1
+
+    def test_a_description_without_a_type_is_rejected(self):
+        args = {"conditions": [{"from_arguments": {"frames": "a frame"}}]}
+
+        with pytest.raises(ValueError, match="_type"):
+            realize_args(args)
+
+    def test_arguments_that_are_not_a_dict_are_rejected(self):
+        args = {"conditions": [{"condition_type": Condition, "from_arguments": []}]}
+
+        with pytest.raises(ValueError, match="from_arguments"):
+            realize_args(args)
+
+    def test_keys_beside_the_arguments_are_rejected(self):
+        # Silently ignoring them would drop a strength the workflow meant to set
+        args = {
+            "conditions": [
+                {
+                    "condition_type": Condition,
+                    "from_arguments": {"frames": "a frame"},
+                    "strength": 0.5,
+                }
+            ]
+        }
+
+        with pytest.raises(ValueError, match="strength"):
+            realize_args(args)
+
+    def test_an_argument_the_type_does_not_take_names_what_it_does(self):
+        args = {
+            "conditions": [
+                {
+                    "condition_type": Condition,
+                    "from_arguments": {"frames": "a frame", "weight": 0.5},
+                }
+            ]
+        }
+
+        with pytest.raises(ValueError, match="frames, index, strength"):
+            realize_args(args)

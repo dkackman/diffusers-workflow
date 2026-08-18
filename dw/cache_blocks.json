@@ -1,10 +1,16 @@
 {
-    "$comment": "Transformer block metadata for diffusers' cache hooks. first_block, mag and layer_skip look their block class up in diffusers.hooks._helpers.TransformerBlockRegistry and raise if it is missing. Blocks listed here are registered on demand so those cache types work on models diffusers has not registered upstream. Fields mirror diffusers.hooks._helpers.TransformerBlockMetadata. Verify against the block's forward before adding an entry: return_hidden_states_index is the position of hidden_states in the returned tuple, and is ignored when the block returns a bare tensor; return_encoder_hidden_states_index is null when the block does not return encoder_hidden_states; hidden_states_argument_name must name the forward parameter carrying hidden_states.",
+    "$comment": "Transformer block metadata for diffusers' cache hooks. first_block, mag and layer_skip look their block class up in diffusers.hooks._helpers.TransformerBlockRegistry and raise if it is missing. Blocks listed here are registered on demand so those cache types work on models diffusers has not registered upstream. Fields mirror diffusers.hooks._helpers.TransformerBlockMetadata, plus dw's own encoder_hidden_states_argument_name. Verify against the block's forward before adding an entry: return_hidden_states_index is the position of hidden_states in the returned tuple, and is ignored when the block returns a bare tensor; return_encoder_hidden_states_index is null when the block does not return a second stream; hidden_states_argument_name must name the forward parameter carrying hidden_states; encoder_hidden_states_argument_name names the forward parameter the second returned stream comes from, and is only needed when that is not literally 'encoder_hidden_states' - see dw/cache_blocks.py.",
     "blocks": {
         "diffusers.models.transformers.transformer_minimax_h3.MiniMaxH3TransformerBlock": {
             "return_hidden_states_index": 0,
             "return_encoder_hidden_states_index": null,
             "hidden_states_argument_name": "hidden_states"
+        },
+        "diffusers.models.transformers.transformer_ltx2.LTX2VideoTransformerBlock": {
+            "return_hidden_states_index": 0,
+            "return_encoder_hidden_states_index": 1,
+            "hidden_states_argument_name": "hidden_states",
+            "encoder_hidden_states_argument_name": "audio_hidden_states"
         }
     }
 }

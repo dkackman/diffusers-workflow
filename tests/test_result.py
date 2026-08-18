@@ -86,6 +86,37 @@ class TestResult:
         with pytest.raises(ValueError, match="text"):
             result.get_artifact_properties("text")
 
+    def test_get_artifact_properties_reads_audio_video_attributes(self):
+        # How a step hands one half of a video-with-audio artifact to the next -
+        # LTX-2's frames into a latent upsampler, its soundtrack into the mux
+        from dw.result import AudioVideo
+
+        result = Result({})
+        result.add_result([AudioVideo(["frame"], "waveform", 24000)])
+
+        assert result.get_artifact_properties("frames") == [["frame"]]
+        assert result.get_artifact_properties("audio") == ["waveform"]
+        assert result.get_artifact_properties("sample_rate") == [24000]
+
+    def test_get_artifact_properties_keeps_an_attribute_holding_none(self):
+        # A pipeline that reported no sample rate carries None, which is the
+        # answer - not a missing property
+        from dw.result import AudioVideo
+
+        result = Result({})
+        result.add_result([AudioVideo(["frame"], "waveform", None)])
+
+        assert result.get_artifact_properties("sample_rate") == [None]
+
+    def test_get_artifact_properties_raises_on_a_method(self):
+        # 'previous_result:step.index' on a list result names a method, not
+        # anything the workflow meant by it
+        result = Result({})
+        result.add_result([["frame1", "frame2"]])
+
+        with pytest.raises(ValueError, match="index"):
+            result.get_artifact_properties("index")
+
     def test_get_artifact_properties_error_names_the_actual_type(self):
         result = Result({})
         result.add_result("a caption")

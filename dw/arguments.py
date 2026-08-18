@@ -43,6 +43,15 @@ FROM_FILE_KEY = "from_file"
 # The key naming the step whose output an argument object is constructed from
 FROM_PREVIOUS_RESULT_KEY = "from_previous_result"
 
+# The key holding the arguments an argument object is constructed from, for a type
+# that takes its contents as plain fields rather than opening media itself
+FROM_ARGUMENTS_KEY = "from_arguments"
+
+# The prefix marking a value as a reference to an earlier step's output. Those are
+# substituted once that step has run, so an object whose arguments hold one is
+# constructed then rather than at load time
+PREVIOUS_RESULT_PREFIX = "previous_result:"
+
 # The media such an object may be built from - it opens the file itself, so the
 # extension is all that is checked here
 ALLOWED_FROM_FILE_EXTENSIONS = (
@@ -206,6 +215,18 @@ def realize_object(value, base_dir=None):
     Any other keys are arguments to from_file() where it takes them, and fields set on
     the object it returns where it does not.
 
+    A type that has no from_file() of its own - LTX-2's conditions, which are plain
+    dataclasses holding frames the caller already loaded - is written as the arguments
+    to construct it with instead:
+
+        { "condition_type": "...LTX2VideoCondition",
+          "from_arguments": { "frames": { "media_type": "image", "location": "last.png" },
+                              "index": -1, "strength": 1.0 } }
+
+    Those arguments are ordinary arguments: the media in them is loaded by the recursion
+    that reaches this, and one naming an earlier step ("previous_result:draw_subject")
+    waits for build_objects() the same way the from_previous_result form does.
+
     Args:
         value: An already realized argument - anything but a dict naming a '_type'
             and a 'from_file' is returned unchanged
@@ -224,6 +245,14 @@ def realize_object(value, base_dir=None):
         # is a workflow error worth raising before any of it runs
         validate_deferred_object(value)
         return value
+
+    if isinstance(value, dict) and FROM_ARGUMENTS_KEY in value:
+        object_type, arguments = validate_constructed_object(value)
+        if names_a_previous_result(arguments):
+            # One of its arguments is a step's output, which does not exist yet -
+            # build_objects constructs it once that step has run
+            return value
+        return construct_object(object_type, arguments)
 
     if not isinstance(value, dict) or FROM_FILE_KEY not in value:
         return value
@@ -369,14 +398,94 @@ def validate_deferred_object(description):
         )
 
 
+def validate_constructed_object(description):
+    """Check an object description built from the arguments it names, at load time.
+
+    Args:
+        description: The dict naming a '_type' and a 'from_arguments'
+
+    Returns:
+        (the type to construct, the arguments to construct it with)
+
+    Raises:
+        ValueError: If it names no type, more than one, something that is not a type,
+            carries keys beside the two, or arguments that are not a dict
+    """
+    type_key = object_type_key(description, FROM_ARGUMENTS_KEY)
+    if type_key is None:
+        raise ValueError(
+            f"'{FROM_ARGUMENTS_KEY}' needs a '_type' argument naming the type to "
+            f"construct from the arguments it holds"
+        )
+
+    object_type = description[type_key]
+    if not isinstance(object_type, type):
+        raise ValueError(
+            f"'{type_key}' must name a type to construct, got {object_type!r}"
+        )
+
+    arguments = description[FROM_ARGUMENTS_KEY]
+    if not isinstance(arguments, dict):
+        raise ValueError(
+            f"'{FROM_ARGUMENTS_KEY}' must hold the arguments {object_type.__name__} "
+            f"is constructed with, got {type(arguments).__name__}"
+        )
+
+    extra = set(description) - {type_key, FROM_ARGUMENTS_KEY}
+    if extra:
+        raise ValueError(
+            f"'{FROM_ARGUMENTS_KEY}' holds every argument {object_type.__name__} is "
+            f"constructed with - move {', '.join(sorted(extra))} inside it"
+        )
+
+    return object_type, arguments
+
+
+def names_a_previous_result(value):
+    """Whether anything in an argument structure references an earlier step."""
+    if isinstance(value, dict):
+        return any(names_a_previous_result(item) for item in value.values())
+    if isinstance(value, list):
+        return any(names_a_previous_result(item) for item in value)
+    return isinstance(value, str) and value.startswith(PREVIOUS_RESULT_PREFIX)
+
+
+def construct_object(object_type, arguments):
+    """Build one object from the arguments its description named.
+
+    Args:
+        object_type: The type to construct
+        arguments: The arguments to construct it with, with any reference to an
+            earlier step already substituted for what it named
+
+    Returns:
+        The constructed object
+
+    Raises:
+        ValueError: If the type cannot be constructed from those arguments
+    """
+    logger.info(f"Constructing {object_type.__name__} from {', '.join(arguments)}")
+    try:
+        return object_type(**arguments)
+    except TypeError as error:
+        fields = getattr(object_type, "__dataclass_fields__", None)
+        takes = f" - it takes {', '.join(fields)}" if fields else ""
+        raise ValueError(
+            f"Cannot construct {object_type.__name__} from "
+            f"{', '.join(arguments) or 'no arguments'}{takes}: {error}"
+        ) from error
+
+
 def build_objects(arguments):
     """Construct the objects whose media came from an earlier step.
 
     Runs after previous_results has substituted each 'from_previous_result' with the
-    artifact it named, which is the earliest the media exists. Containers are rebuilt
-    rather than mutated, and only where something below them changed - the arguments
-    of one iteration share their nested values with every other iteration, so an
-    in-place edit here would reach into all of them.
+    artifact it named, which is the earliest the media exists. The same goes for a
+    'from_arguments' description one of whose arguments named a step - realize_object
+    left it standing, and by now the reference inside it holds what the step produced.
+    Containers are rebuilt rather than mutated, and only where something below them
+    changed - the arguments of one iteration share their nested values with every
+    other iteration, so an in-place edit here would reach into all of them.
 
     Args:
         arguments: One iteration's arguments, with previous results substituted
@@ -388,6 +497,11 @@ def build_objects(arguments):
     if isinstance(arguments, dict):
         if FROM_PREVIOUS_RESULT_KEY in arguments:
             return object_from_result(arguments)
+        if FROM_ARGUMENTS_KEY in arguments:
+            # Its own arguments may hold descriptions too - a condition built from a
+            # reference built from a step - so they are built before it is
+            object_type, described = validate_constructed_object(arguments)
+            return construct_object(object_type, build_objects(described))
         built = {k: build_objects(v) for k, v in arguments.items()}
         return (
             built if any(built[k] is not v for k, v in arguments.items()) else arguments

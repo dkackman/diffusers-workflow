@@ -1,25 +1,29 @@
 {
-    "id": "LTX2",
-    "description": "The baseline for the LTX-2.5 family: text to video with a soundtrack generated alongside it, on a single 24GB card. The distilled transformer runs a fixed eight-step schedule with guidance off, quantized per component so it stays resident while the Gemma text encoder and the connectors are group offloaded around it.",
+    "id": "LTX2TwoStage",
+    "description": "LTX-2.5's recommended quality flow: render small, then upscale in latent space rather than generating at the target resolution. A latent upsampler doubles the render, and the soundtrack the base step generated is paired back onto the result.",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
         "prompt": "A cinematic shot of a fox walking through a snowy forest at dawn, the camera tracking alongside, snow crunching underfoot. a choir singing 'l t x' in the background, cinematic lighting, 8k, ultra-detailed, photorealistic in the distance",
         "negative_prompt": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, wrong gaze direction, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts.",
-        "width": 960,
-        "height": 544,
+        "width": 768,
+        "height": 448,
         "num_frames": 121,
         "frame_rate": 24.0
     },
     "seed": 42,
     "steps": [
         {
-            "name": "text_to_video",
+            "name": "base",
+            "release_pipeline": true,
             "pipeline": {
                 "configuration": {
                     "component_type": "LTX2Pipeline",
                     "pre_load_modules": [
                         "sdnq"
+                    ],
+                    "shared_components": [
+                        "vae"
                     ],
                     "components": {
                         "transformer": {
@@ -129,6 +133,59 @@
                     "modality_scale": 1.0,
                     "audio_modality_scale": 1.0,
                     "output_type": "{np}"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false,
+                "fps": 24
+            }
+        },
+        {
+            "name": "upscale",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "LTX2LatentUpsamplePipeline",
+                    "reused_components": [
+                        "vae"
+                    ],
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {},
+                "latent_upsampler": {
+                    "configuration": {
+                        "component_type": "diffusers.pipelines.ltx2.latent_upsampler.LTX2LatentUpsamplerModel"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "latent_upsampler",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "arguments": {
+                    "video": "previous_result:base.frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "adain_factor": 0.0,
+                    "tone_map_compression_ratio": 0.0,
+                    "output_type": "{np}"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false,
+                "fps": 24
+            }
+        },
+        {
+            "name": "two_stage",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:upscale",
+                    "audio": "previous_result:base"
                 }
             },
             "result": {

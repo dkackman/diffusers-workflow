@@ -500,6 +500,13 @@
                                     "on_demand"
                                 ]
                             },
+                            "enable_tiling": {
+                                "description": "Enable tiled decoding on this component, for a decoder that is not the one named 'vae' (which the pipeline-level 'vae' block covers) - LTX-2.5's 'diffusion_decoder', say, which otherwise decodes the whole video volume in one allocation. 'true' uses the model's own default tile size; an object passes tile and stride sizes through to enable_tiling(), which is what a card smaller than those defaults needs.",
+                                "type": [
+                                    "boolean",
+                                    "object"
+                                ]
+                            },
                             "attention_backend": {
                                 "description": "Pin this component's attention backend persistently via set_attention_backend, e.g. 'flash', 'sage', '_flash_3_hub'. Use this instead of the pipeline-level attention_backend when the component is compiled - the per-call context manager forces recompiles.",
                                 "type": "string"
@@ -886,7 +893,7 @@
         },
         "from_pretrained_arguments": {
             "type": "object",
-            "description": "Arguments to pass to the from_pretrained function when creating the component",
+            "description": "Arguments to pass to the from_pretrained function when creating the component. Names at most one source: 'model_name', 'from_single_file' or 'task'. A pipeline assembled entirely from components an earlier step shared and components declared beside it - LTX-2's latent upsampler, say - names none of them and is constructed directly from those components.",
             "properties": {
                 "model_name": {
                     "description": "The huggingface hub name of the pretrained model to load",
@@ -925,6 +932,31 @@
                 {
                     "required": [
                         "task"
+                    ]
+                },
+                {
+                    "allOf": [
+                        {
+                            "not": {
+                                "required": [
+                                    "model_name"
+                                ]
+                            }
+                        },
+                        {
+                            "not": {
+                                "required": [
+                                    "from_single_file"
+                                ]
+                            }
+                        },
+                        {
+                            "not": {
+                                "required": [
+                                    "task"
+                                ]
+                            }
+                        }
                     ]
                 }
             ]

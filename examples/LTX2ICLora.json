@@ -1,25 +1,35 @@
 {
-    "id": "LTX2",
-    "description": "The baseline for the LTX-2.5 family: text to video with a soundtrack generated alongside it, on a single 24GB card. The distilled transformer runs a fixed eight-step schedule with guidance off, quantized per component so it stays resident while the Gemma text encoder and the connectors are group offloaded around it.",
+    "id": "LTX2ICLora",
+    "description": "A generative 2x upscale: an in-context LoRA re-renders a low-resolution clip at twice the size, inventing detail rather than interpolating it. The clip generated in the first step becomes the reference the second one attends to.",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
-        "prompt": "A cinematic shot of a fox walking through a snowy forest at dawn, the camera tracking alongside, snow crunching underfoot. a choir singing 'l t x' in the background, cinematic lighting, 8k, ultra-detailed, photorealistic in the distance",
+        "prompt": "A hummingbird hovers at a red trumpet flower in a sunlit garden, wings blurred, tongue flicking into the bloom. Insects drone in the background and leaves rustle in a light breeze.",
         "negative_prompt": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, wrong gaze direction, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts.",
+        "base_width": 480,
+        "base_height": 288,
         "width": 960,
-        "height": 544,
+        "height": 576,
         "num_frames": 121,
         "frame_rate": 24.0
     },
     "seed": 42,
     "steps": [
         {
-            "name": "text_to_video",
+            "name": "low_resolution",
             "pipeline": {
                 "configuration": {
                     "component_type": "LTX2Pipeline",
                     "pre_load_modules": [
                         "sdnq"
+                    ],
+                    "shared_components": [
+                        "transformer",
+                        "text_encoder",
+                        "connectors",
+                        "vae",
+                        "audio_vae",
+                        "vocoder"
                     ],
                     "components": {
                         "transformer": {
@@ -108,8 +118,8 @@
                 "arguments": {
                     "prompt": "variable:prompt",
                     "negative_prompt": "variable:negative_prompt",
-                    "width": "variable:width",
-                    "height": "variable:height",
+                    "width": "variable:base_width",
+                    "height": "variable:base_height",
                     "num_frames": "variable:num_frames",
                     "frame_rate": "variable:frame_rate",
                     "sigmas": [
@@ -130,6 +140,106 @@
                     "audio_modality_scale": 1.0,
                     "output_type": "{np}"
                 }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "upscaled",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "LTX2InContextPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "reused_components": [
+                        "transformer",
+                        "text_encoder",
+                        "connectors",
+                        "vae",
+                        "audio_vae",
+                        "vocoder"
+                    ],
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "connectors": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        },
+                        "audio_vae": {
+                            "device": "cuda"
+                        },
+                        "vocoder": {
+                            "device": "cuda"
+                        }
+                    },
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Lightricks/LTX-2.5-Diffusers",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "negative_prompt": "variable:negative_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "frame_rate": "variable:frame_rate",
+                    "sigmas": [
+                        1.0,
+                        0.99375,
+                        0.9875,
+                        0.98125,
+                        0.975,
+                        0.909375,
+                        0.725,
+                        0.421875
+                    ],
+                    "guidance_scale": 1.0,
+                    "audio_guidance_scale": 1.0,
+                    "stg_scale": 0.0,
+                    "audio_stg_scale": 0.0,
+                    "modality_scale": 1.0,
+                    "audio_modality_scale": 1.0,
+                    "output_type": "{np}",
+                    "reference_conditions": [
+                        {
+                            "reference_type": "diffusers.pipelines.ltx2.pipeline_ltx2_ic_lora.LTX2ReferenceCondition",
+                            "from_arguments": {
+                                "frames": "previous_result:low_resolution.frames",
+                                "strength": 1.0
+                            }
+                        }
+                    ],
+                    "reference_downscale_factor": 2,
+                    "conditioning_attention_strength": 1.0
+                },
+                "loras": [
+                    {
+                        "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler",
+                        "weight_name": "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
+                        "adapter_name": "ic_lora",
+                        "scale": 1.0
+                    }
+                ]
             },
             "result": {
                 "content_type": "video/mp4",
