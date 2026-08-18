@@ -170,6 +170,11 @@ Pass output from one step to another with `previous_result:step_name`:
 }
 ```
 
+A reference is resolved wherever it appears in the arguments, not only at the top of
+them - an argument holding a list or a nested object can reference a step too, which is
+what lets a constructed object be
+[built from an earlier step](#objects-built-from-an-earlier-step).
+
 Multiple `previous_result` references create a **cartesian product**: if step A produces 4 images and step B produces 3 masks, a step referencing both will run 12 times.
 
 A step whose result is a dict (a task returning several named outputs, or a pipeline
@@ -244,6 +249,16 @@ or a dict result saved key by key). `file_base_name`, when set, is prepended to 
 default name rather than replacing it.
 
 ## Pipeline Configuration
+
+A step's `configuration` is dw's own vocabulary rather than the model's — each key drives
+a different call — so it is a closed set: a name the schema does not declare fails
+validation instead of being ignored. That matters most for the keys it would otherwise
+be quietest about. A misspelled `offload` used to validate, load, and run with no
+offloading at all, surfacing as an out-of-memory error with nothing pointing at the
+spelling; it now fails before the first model loads. Model-side values that are not part
+of this vocabulary have blocks of their own: `from_pretrained_arguments` for the
+constructor, `arguments` for the call, and `configs` for a modular pipeline's block
+configs.
 
 ### Memory Offloading
 
@@ -476,9 +491,26 @@ instance) can avoid loading it twice:
 ```
 
 The step naming `shared_components` stores those components after it loads; a later step
-naming the same names in `reused_components` gets them passed into its own
-`from_pretrained_arguments` instead of loading its own copy. The names must match exactly
-between the two steps.
+naming the same names in `reused_components` gets them instead of loading its own copy.
+The names must match exactly between the two steps. Either list can sit in the step's
+`configuration` or beside it on the pipeline itself.
+
+How the component reaches the second pipeline depends on what kind it is. A standard
+pipeline takes it as a `from_pretrained` argument. A modular pipeline cannot — it is
+built from the component specs in its own index — so it is registered with
+`update_components()` before `load_components()` runs, which is also what keeps
+`load_components()` from pulling a second copy: it only loads what is not already there.
+That is what lets two MiniMax-H3 steps of different tasks (`t2va` and `ref2va` load
+different transformer partitions) share the 14GB text encoder and the VAEs between them.
+
+A reused component keeps the device placement the step that shared it gave it. Any
+`components` entry naming one is skipped with a log line rather than applied a second
+time — offloading hooks do not survive being installed twice, and the step that loaded
+the component is the one that decided how it is placed.
+
+Sharing outlives the pipeline that did it: a step can share a component and still set
+`release_pipeline`, which frees everything else it loaded while the shared component
+stays alive for the steps that reuse it.
 
 ### Attention and Performance
 
@@ -578,6 +610,22 @@ and `load_components` pulls the weights:
   A component the map does not name loads unquantized. Note which `TorchAoConfig` each
   component takes: the diffusers one for its own models, the transformers one for a
   transformers model such as a conditioner.
+- `configs` — values the pipeline's blocks declare and read while they run. They are
+  neither components nor call arguments, which is why they have a block of their own:
+
+  ```json
+  "configs": {
+      "canvas_short_edge": 768,
+      "reference_image_short_edge": 1024
+  }
+  ```
+
+  The names are whatever the pipeline itself declares, so they differ per model rather
+  than being a fixed list here — MiniMax-H3 declares `canvas_short_edge` (768),
+  `canvas_max_pixels` (1032192) and `reference_image_short_edge` (2048), the last being
+  the resolution its image references are encoded at. A name the pipeline does not
+  declare raises rather than passing quietly, since a dropped config reads as a setting
+  that did nothing.
 - `components_manager` — attaches a `ComponentsManager`, which tracks the pipeline's
   components. With `enable_auto_cpu_offload` it keeps only the running components on the
   device and moves the rest to system memory, reserving `memory_reserve_margin`
@@ -608,6 +656,12 @@ downloaded and loaded:
     "workflow": "t2va"
 }
 ```
+
+A task is chosen by the arguments the step passes, so one `workflow` name can cover more
+than one of them: MiniMax-H3's `fl2va` takes an `image`, a `last_image`, or both. Given
+only a `last_image` it generates *up to* that frame, inventing everything that leads to
+it — see [examples/MiniMaxH3L2V.json](../examples/MiniMaxH3L2V.json) beside
+[examples/MiniMaxH3FL2VA.json](../examples/MiniMaxH3FL2VA.json).
 
 See [examples/MiniMaxMusic.json](../examples/MiniMaxMusic.json) and
 [examples/MiniMaxH3.json](../examples/MiniMaxH3.json) for full examples.
@@ -751,13 +805,68 @@ names a type and a `from_file` is constructed by that type's own `from_file()`:
 
 Loading the media this way rather than as a plain `image` or `video` argument is what
 brings its frame rate or sample rate along with it, which MiniMax-H3 resamples a
-reference from. Any other keys in the object are passed to `from_file()` as arguments —
-`"fps": 30.0` to correct a container whose metadata is wrong, for instance. The file may
-be a path — relative to the workflow file, like all media a workflow names — or a URL,
-and is validated like any other media. `variable:` references work as the file location;
-`previous_result:` references do not — the object is built when the workflow loads,
-before any step has run, so reference a saved file's path or a URL instead. A dict that
+reference from. The file may be a path — relative to the workflow file, like all media a
+workflow names — or a URL, and is validated like any other media. `variable:` references
+work as the file location; `previous_result:` does not, since the object is built when
+the workflow loads — use
+[`from_previous_result`](#objects-built-from-an-earlier-step) for that. A dict that
 merely contains a `from_file` key without a `*_type` key is not an object description
 and is passed through untouched.
 
+Any other key goes wherever the type can take it: to `from_file()` where its signature
+names it, and onto the object it returns where it does not. That is what corrects a
+decoded file, which is the only thing that knows what the container claimed:
+
+```json
+{
+    "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3VideoReference",
+    "from_file": "motion.mp4",
+    "fps": 30.0,
+    "audio": null
+}
+```
+
+`fps` overrides a rate the container got wrong — MiniMax-H3 resamples a reference onto
+its own 24 fps, so a wrong rate is a request conditioned at the wrong speed — and
+`audio: null` drops the decoded soundtrack, leaving a reference that conditions on
+motion and camera alone. A name that is neither an argument of `from_file()` nor a field
+of the object raises, with the fields it does have.
+
 See [examples/MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json) for a full example.
+
+### Objects Built From an Earlier Step
+
+The same object can be built from what an earlier step generated, by naming the step
+instead of a file:
+
+```json
+"references": [
+    {
+        "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+        "from_previous_result": "draw_subject"
+    }
+]
+```
+
+`from_file` cannot do this — it names a file, and the object is built when the workflow
+loads, before any step has run. `from_previous_result` waits: the description is checked
+at load time and constructed once the step it names has produced its media, which is
+what lets one workflow generate a subject and then condition on it without writing it
+out and reading it back.
+
+The media never touches the disk, so it arrives as the step produced it. Which field it
+lands in comes from the type's own `kind`:
+
+| `kind`  | Built from                                                                |
+| ------- | ------------------------------------------------------------------------- |
+| `image` | The generated image                                                       |
+| `video` | The generated frames, and the soundtrack generated with them if there was one |
+| `audio` | The generated soundtrack                                                  |
+
+Any other key is a field of the object and wins over what the media carried —
+`"fps": 30.0` where the producing pipeline generated at a rate the consuming one does
+not share, for instance. A step that produced several artifacts fans out the same way
+every `previous_result` reference does: four images in, four videos out.
+
+See [examples/MiniMaxH3Ref2VAGeneratedSubject.json](../examples/MiniMaxH3Ref2VAGeneratedSubject.json)
+for a full example.

@@ -8,7 +8,7 @@ import os
 import tempfile
 from PIL import Image
 from unittest.mock import patch, MagicMock
-from dw.arguments import realize_args, fetch_image, fetch_video
+from dw.arguments import build_objects, realize_args, fetch_image, fetch_video
 from dw.security import SecurityError
 
 
@@ -561,6 +561,270 @@ class TestRealizeObject:
             "component_type": Reference,
             "offload": "model",
         }
+
+
+class ImageReference:
+    """Stands in for MiniMaxH3ImageReference - a reference built from an image"""
+
+    kind = "image"
+
+    def __init__(self, image):
+        self.image = image
+
+
+class VideoReference:
+    """Stands in for MiniMaxH3VideoReference - frames, and the rates they carry"""
+
+    kind = "video"
+
+    def __init__(self, frames, fps=None, audio=None, sample_rate=None):
+        self.frames = frames
+        self.fps = fps
+        self.audio = audio
+        self.sample_rate = sample_rate
+
+
+class AudioReference:
+    """Stands in for MiniMaxH3AudioReference - a waveform and its sample rate"""
+
+    kind = "audio"
+
+    def __init__(self, audio, sample_rate=None):
+        self.audio = audio
+        self.sample_rate = sample_rate
+
+
+def audio_video(frames=None, audio=None, sample_rate=None):
+    """A generated video artifact, the shape a pipeline's audio+video output takes"""
+    from dw.result import AudioVideo
+
+    if frames is None:
+        frames = [Image.new("RGB", (8, 8))]
+    return AudioVideo(frames, audio, sample_rate)
+
+
+class TestDeferredObjectDescriptions:
+    """An object built from a step's output is described now and built later"""
+
+    def test_the_description_survives_realization(self):
+        args = {
+            "references": [
+                {"reference_type": ImageReference, "from_previous_result": "draw"}
+            ]
+        }
+        realize_args(args)
+
+        # Nothing to build yet - the step it names has not run
+        assert args["references"][0] == {
+            "reference_type": ImageReference,
+            "from_previous_result": "draw",
+        }
+
+    def test_a_type_that_declares_no_kind_is_rejected(self):
+        args = {
+            "reference": {"reference_type": Reference, "from_previous_result": "draw"}
+        }
+
+        with pytest.raises(ValueError, match="kind"):
+            realize_args(args)
+
+    def test_a_description_without_a_type_is_rejected(self):
+        args = {"reference": {"from_previous_result": "draw"}}
+
+        with pytest.raises(ValueError, match="_type"):
+            realize_args(args)
+
+    def test_two_types_are_rejected(self):
+        args = {
+            "reference": {
+                "reference_type": ImageReference,
+                "other_type": VideoReference,
+                "from_previous_result": "draw",
+            }
+        }
+
+        with pytest.raises(ValueError, match="exactly one"):
+            realize_args(args)
+
+
+class TestBuildObjects:
+    """Building the objects once the step they reference has produced its media"""
+
+    def test_an_image_reference_is_built_from_an_image(self):
+        image = Image.new("RGB", (8, 8))
+        arguments = {
+            "references": [
+                {"reference_type": ImageReference, "from_previous_result": image}
+            ]
+        }
+
+        built = build_objects(arguments)
+
+        reference = built["references"][0]
+        assert isinstance(reference, ImageReference)
+        assert reference.image is image
+
+    def test_a_video_reference_carries_the_generated_soundtrack(self):
+        import numpy
+        import torch
+
+        frames = [Image.new("RGB", (8, 8)) for _ in range(3)]
+        audio = numpy.zeros((2, 100), dtype="float32")
+        arguments = {
+            "references": [
+                {
+                    "reference_type": VideoReference,
+                    "from_previous_result": audio_video(frames, audio, 16000),
+                }
+            ]
+        }
+
+        reference = build_objects(arguments)["references"][0]
+
+        assert len(reference.frames) == 3
+        assert torch.is_tensor(reference.audio)
+        assert reference.audio.shape == (2, 100)
+        assert reference.sample_rate == 16000
+
+    def test_a_video_reference_without_audio_conditions_on_motion_alone(self):
+        arguments = {
+            "reference": {
+                "reference_type": VideoReference,
+                "from_previous_result": audio_video(),
+            }
+        }
+
+        reference = build_objects(arguments)["reference"]
+
+        assert reference.audio is None
+        assert reference.sample_rate is None
+
+    def test_an_audio_reference_takes_the_soundtrack(self):
+        import numpy
+
+        arguments = {
+            "reference": {
+                "reference_type": AudioReference,
+                "from_previous_result": audio_video(
+                    audio=numpy.zeros((2, 50), dtype="float32"), sample_rate=24000
+                ),
+            }
+        }
+
+        reference = build_objects(arguments)["reference"]
+
+        assert reference.audio.shape == (2, 50)
+        assert reference.sample_rate == 24000
+
+    def test_a_named_field_wins_over_the_one_the_media_carried(self):
+        # A step that generated at another rate than the consuming pipeline reads
+        arguments = {
+            "reference": {
+                "reference_type": VideoReference,
+                "from_previous_result": audio_video(),
+                "fps": 30.0,
+            }
+        }
+
+        assert build_objects(arguments)["reference"].fps == 30.0
+
+    def test_the_wrong_media_for_the_kind_is_an_error(self):
+        arguments = {
+            "reference": {
+                "reference_type": ImageReference,
+                "from_previous_result": audio_video(),
+            }
+        }
+
+        with pytest.raises(ValueError, match="holds an image"):
+            build_objects(arguments)
+
+    def test_audio_asked_of_a_step_that_generated_none(self):
+        arguments = {
+            "reference": {
+                "reference_type": AudioReference,
+                "from_previous_result": audio_video(),
+            }
+        }
+
+        with pytest.raises(ValueError, match="produced none"):
+            build_objects(arguments)
+
+    def test_arguments_with_nothing_to_build_come_back_unchanged(self):
+        # Identity, not equality - rebuilding shared containers for every
+        # iteration would multiply what the iterations were sharing
+        arguments = {"prompt": "test", "references": [{"location": "a.png"}]}
+
+        assert build_objects(arguments) is arguments
+
+
+class MediaReference:
+    """Stands in for MiniMaxH3VideoReference - a from_file() that takes the media and
+    nothing else, and fields the workflow may still want to correct"""
+
+    kind = "video"
+
+    __dataclass_fields__ = {"frames": None, "fps": None, "audio": None}
+
+    def __init__(self, frames, fps=24.0, audio=None):
+        self.frames = frames
+        self.fps = fps
+        self.audio = audio
+
+    @classmethod
+    def from_file(cls, media):
+        # What decoding a container gives you: the frames, the rate it claims, and
+        # whatever soundtrack it carried
+        return cls(frames=media, fps=25.0, audio="decoded soundtrack")
+
+
+class TestFromFileFieldOverrides:
+    """Keys a from_file() cannot take are set on the object it returns"""
+
+    def video_argument(self, location, **arguments):
+        return {"reference_type": MediaReference, "from_file": location, **arguments}
+
+    def realize(self, **arguments):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video_path = os.path.join(temp_dir, "motion.mp4")
+            open(video_path, "w").close()
+
+            args = {"reference": self.video_argument(video_path, **arguments)}
+            realize_args(args)
+            return args["reference"]
+
+    def test_a_rate_the_container_got_wrong_is_corrected(self):
+        assert self.realize(fps=30.0).fps == 30.0
+
+    def test_a_soundtrack_can_be_dropped_for_a_motion_only_reference(self):
+        assert self.realize(audio=None).audio is None
+
+    def test_what_the_workflow_does_not_name_is_left_as_decoded(self):
+        reference = self.realize(fps=30.0)
+
+        assert reference.audio == "decoded soundtrack"
+
+    def test_a_field_the_object_does_not_have_is_an_error(self):
+        with pytest.raises(ValueError, match="has no field 'fpss'"):
+            self.realize(fpss=30.0)
+
+    def test_a_from_file_taking_keyword_arguments_still_gets_them_all(self):
+        # The generic case - a type that decodes the media itself is told how,
+        # rather than having its result edited afterwards
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video_path = os.path.join(temp_dir, "motion.mp4")
+            open(video_path, "w").close()
+
+            args = {
+                "reference": {
+                    "reference_type": Reference,
+                    "from_file": video_path,
+                    "fps": 30.0,
+                }
+            }
+            realize_args(args)
+
+            assert args["reference"].arguments == {"fps": 30.0}
 
 
 if __name__ == "__main__":

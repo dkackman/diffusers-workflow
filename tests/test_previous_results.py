@@ -10,6 +10,7 @@ from dw.previous_results import (
     find_previous_result_refs,
 )
 from dw.result import Result
+from PIL import Image
 
 
 class TestFindPreviousResultRefs:
@@ -18,7 +19,7 @@ class TestFindPreviousResultRefs:
     def test_find_single_reference(self):
         arguments = {"image": "previous_result:step1"}
         refs = find_previous_result_refs(arguments)
-        assert refs == {"image": "step1"}
+        assert refs == {("image",): "step1"}
 
     def test_find_multiple_references(self):
         arguments = {
@@ -26,12 +27,12 @@ class TestFindPreviousResultRefs:
             "prompt": "previous_result:step2",
         }
         refs = find_previous_result_refs(arguments)
-        assert refs == {"image": "step1", "prompt": "step2"}
+        assert refs == {("image",): "step1", ("prompt",): "step2"}
 
     def test_find_property_reference(self):
         arguments = {"text": "previous_result:step1.output"}
         refs = find_previous_result_refs(arguments)
-        assert refs == {"text": "step1.output"}
+        assert refs == {("text",): "step1.output"}
 
     def test_no_references(self):
         arguments = {"image": "path/to/image.jpg", "prompt": "test"}
@@ -45,7 +46,7 @@ class TestFindPreviousResultRefs:
             "number": 42,
         }
         refs = find_previous_result_refs(arguments)
-        assert refs == {"image": "step1"}
+        assert refs == {("image",): "step1"}
 
 
 class TestGetPreviousResults:
@@ -273,6 +274,97 @@ class TestGetIterations:
         assert "prompt_embeds" not in iterations[1]
         assert "device" in template
         assert "prompt_embeds" not in template
+
+
+class ImageReference:
+    """Stands in for MiniMaxH3ImageReference - a reference built from an image"""
+
+    kind = "image"
+
+    def __init__(self, image):
+        self.image = image
+
+
+class TestNestedReferences:
+    """A reference nested inside an argument, which is where object descriptions live"""
+
+    def test_a_nested_value_is_found_by_its_path(self):
+        arguments = {
+            "references": [
+                {"reference_type": ImageReference, "from_previous_result": "draw"}
+            ]
+        }
+
+        refs = find_previous_result_refs(arguments)
+
+        assert refs == {("references", 0, "from_previous_result"): "draw"}
+
+    def test_a_prefixed_value_is_found_at_any_depth(self):
+        arguments = {"nested": {"prompt": "previous_result:write"}}
+
+        refs = find_previous_result_refs(arguments)
+
+        assert refs == {("nested", "prompt"): "write"}
+
+    def test_the_object_is_built_from_the_step_output(self):
+        image = Image.new("RGB", (8, 8))
+        result = Result({})
+        result.add_result([image])
+
+        template = {
+            "prompt": "test",
+            "references": [
+                {"reference_type": ImageReference, "from_previous_result": "draw"}
+            ],
+        }
+        iterations = get_iterations(template, {"draw": result})
+
+        assert len(iterations) == 1
+        reference = iterations[0]["references"][0]
+        assert isinstance(reference, ImageReference)
+        assert reference.image is image
+
+    def test_each_artifact_becomes_its_own_iteration(self):
+        result = Result({})
+        result.add_result([Image.new("RGB", (8, 8)), Image.new("RGB", (8, 8))])
+
+        template = {
+            "references": [
+                {"reference_type": ImageReference, "from_previous_result": "draw"}
+            ]
+        }
+        iterations = get_iterations(template, {"draw": result})
+
+        assert len(iterations) == 2
+        first, second = (i["references"][0] for i in iterations)
+        assert first.image is not second.image
+
+    def test_the_template_is_left_intact_for_the_next_iteration(self):
+        result = Result({})
+        result.add_result([Image.new("RGB", (8, 8)), Image.new("RGB", (8, 8))])
+
+        description = {"reference_type": ImageReference, "from_previous_result": "draw"}
+        template = {"references": [description]}
+        get_iterations(template, {"draw": result})
+
+        # Substituting into a copy is what lets the second iteration read the
+        # description again - substituting in place would leave it holding the
+        # first iteration's image
+        assert template["references"][0] is description
+        assert description["from_previous_result"] == "draw"
+
+    def test_siblings_are_shared_rather_than_copied(self):
+        result = Result({})
+        result.add_result(["first", "second"])
+
+        frames = [object()]
+        template = {"video": frames, "prompt": "previous_result:write"}
+        iterations = get_iterations(template, {"write": result})
+
+        # Only the containers on the path to the substitution are copied - a
+        # deep copy would duplicate the media the iterations mean to share
+        assert iterations[0]["video"] is frames
+        assert iterations[1]["video"] is frames
 
 
 if __name__ == "__main__":
