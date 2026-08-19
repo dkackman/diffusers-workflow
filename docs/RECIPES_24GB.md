@@ -49,9 +49,10 @@ pipeline-level `offload`. The working 24GB configuration at 960x544:
 | Component | Config |
 | --------- | ------ |
 | `transformer` / `transformer_ref` | SDNQ int4 (`quantization_device: "cuda"`, `return_device: "cpu"`), `group_offload` `block_level` with `num_blocks_per_group: 1-2` and `use_stream: true` |
-| `text_encoder.model` | SDNQ int4, `group_offload` `leaf_level` |
+| `text_encoder` | `remove_modules: ["lm_head"]` - the encoder path never calls it |
+| `text_encoder.model` | SDNQ int4, `truncate_layers: {"language_model.layers": 51}`, `group_offload` `leaf_level` |
 | `vae`, `audio_vae` | SDNQ int8, `device: "cuda"`, `residency: "on_demand"` |
-| pipeline | `cache: first_block` (`threshold: 0.1`), `vae.enable_tiling` |
+| pipeline | `cache: first_block` (`threshold: 0.1`) on the 20-step ref2va workflows only - measured on the 9-step turbo schedule it never skips (consecutive distilled steps differ too much for the threshold), so the turbo examples omit it rather than hold cache state for nothing |
 
 The VAEs are the piece worth calling out. They hold roughly 3GiB, are used only to
 encode references and decode the result, and group offloading them is worse than useless
@@ -62,6 +63,23 @@ none; the frame-conditioned ones from 22.7GiB with 22 retries to 18.0GiB with no
 for about 1% in wall time.
 Spend the headroom on length: carrying a frame between chained segments adds a reference
 and ~1.9GiB, which is what made the chained variants OOM on their second segment before.
+
+The text encoder pruning exists because H3 conditions on `hidden_states[50]` of its
+64-layer Qwen3-VL: layers 51-63 and the LM head run (and stream) for nothing on every
+encode. Keeping 51 layers is bit-identical - index 50 of the tuple is recorded before
+layer 50 runs; keeping only 50 would hand back the final-norm output, a different
+tensor - and it returns a few GiB of system RAM on a host that needs every one of them
+(a full t2va run peaks around 63GiB RSS on a 64GiB box). Note H3's VAE constructs with
+tiling already enabled, so a pipeline-level `vae.enable_tiling` adds nothing here.
+
+Two levers measured and *rejected* on a 3090 (A/B, t2va 960x544x124f, 2026-08):
+`low_cpu_mem_usage: false` on the transformer's group offload (pin host copies once
+instead of re-pinning per onload) left step time unchanged at ~15.4s - at int4 the
+step is compute-bound and the transfers already hide under it - while the ~27GiB of
+unswappable pinned memory pushed the host into an OOM kill. `use_stream` on the text
+encoder's leaf offload was backed out with it for the same host-memory reason. On a
+faster GPU (or a host with more RAM) both are worth re-testing; the step budget there
+may actually expose the transfer time.
 
 **Examples:** [MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json), [MiniMaxH3Ref2VAChained.json](../examples/MiniMaxH3Ref2VAChained.json), [MiniMaxH3I2V.json](../examples/MiniMaxH3I2V.json)
 

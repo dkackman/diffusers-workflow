@@ -511,6 +511,21 @@
                                 "description": "Pin this component's attention backend persistently via set_attention_backend, e.g. 'flash', 'sage', '_flash_3_hub'. Use this instead of the pipeline-level attention_backend when the component is compiled - the per-call context manager forces recompiles.",
                                 "type": "string"
                             },
+                            "truncate_layers": {
+                                "description": "Drop the tail of a ModuleList inside this component that the run never reads, before any offload hooks are installed. Keys are dotted paths relative to the component, values the number of entries to keep. For an encoder used for its hidden states: MiniMax-H3 conditions on hidden_states[50] of its 64-layer Qwen3-VL, so { 'language_model.layers': 51 } drops the 13 layers whose output nothing consumes while leaving hidden_states[50] bit-identical (keeping only 50 would hand back the final-norm output instead, a different tensor).",
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "integer",
+                                    "minimum": 1
+                                }
+                            },
+                            "remove_modules": {
+                                "description": "Dotted paths to modules inside this component that the run never calls, each replaced with an Identity before any offload hooks are installed - a language-model head on a model used as an encoder, say. The attribute survives for anything that looks it up; the weights are freed rather than held (and, offloaded, pinned) for a call that never comes.",
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
                             "compile": {
                                 "$ref": "#/$defs/compile_config"
                             }
@@ -560,8 +575,11 @@
                             ]
                         },
                         "threshold": {
-                            "description": "Cache threshold for first_block and mag types. Higher = more speedup, more quality loss. first_block default: 0.05, mag default: 0.06.",
-                            "type": "number"
+                            "description": "Cache threshold for first_block and mag types. Higher = more speedup, more quality loss. first_block default: 0.05, mag default: 0.06. Accepts a 'variable:' reference.",
+                            "type": [
+                                "number",
+                                "string"
+                            ]
                         },
                         "num_inference_steps": {
                             "description": "Required for mag cache type. Must match the pipeline's num_inference_steps.",

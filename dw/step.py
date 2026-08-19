@@ -1,6 +1,6 @@
 import logging
 from .result import Result
-from .previous_results import get_iterations
+from .previous_results import get_iterations, resolve_chain_prompts
 
 logger = logging.getLogger("dw")
 
@@ -50,6 +50,10 @@ class Step:
             # Log what type of action we're executing (Pipeline/Task/Workflow)
             action_type = type(step_action).__name__
             logger.info(f"Running {action_type} {step_name}:{step_action.name}...")
+
+            # A chained pipeline's per-segment prompts live outside the argument
+            # template, so they are resolved here rather than by the pass below
+            resolve_chain_prompts(step_action, previous_results)
 
             # Get all possible argument combinations for this step
             # This expands any references to previous results into concrete values

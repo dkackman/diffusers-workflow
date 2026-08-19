@@ -90,7 +90,15 @@
                                 "low_cpu_mem_usage": true
                             }
                         },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
                         "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
                             "group_offload": {
                                 "offload_type": "leaf_level"
                             }
@@ -103,9 +111,6 @@
                             "device": "cuda",
                             "residency": "on_demand"
                         }
-                    },
-                    "vae": {
-                        "enable_tiling": true
                     }
                 },
                 "from_pretrained_arguments": {
