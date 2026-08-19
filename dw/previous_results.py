@@ -143,6 +143,50 @@ def get_previous_results(previous_results, previous_result_name):
     return previous_results[result_name].get_artifact_properties(property_name)
 
 
+def resolve_chain_prompts(step_action, previous_results):
+    """Resolve a pipeline chain's per-segment prompts against previous results.
+
+    A chain's "prompts" list is not part of the step's argument template, so the
+    cartesian pass that expands "previous_result:" everywhere else never reaches
+    it. That matters for a chain whose opening segment is written by a different
+    step from the ones that continue it - a continuation prompt declares a video
+    reference the first segment does not have.
+
+    Each entry resolves independently and yields one prompt, so this never
+    multiplies iterations the way an argument reference does; a reference that
+    produced several artifacts uses the first.
+
+    The resolved list is left on the step action for run_chain to pick up, and
+    nothing happens at all for a pipeline without chain prompts.
+    """
+    definition = getattr(step_action, "pipeline_definition", None)
+    if not isinstance(definition, dict):
+        return
+
+    chain = definition.get("chain", None) or {}
+    prompts = chain.get("prompts", None)
+    if not prompts:
+        return
+
+    resolved = []
+    for entry in prompts:
+        if isinstance(entry, str) and entry.startswith("previous_result:"):
+            artifacts = get_previous_results(
+                previous_results, entry.removeprefix("previous_result:")
+            )
+            if not artifacts:
+                raise ValueError(f"Chain prompt reference '{entry}' produced no result")
+            if len(artifacts) > 1:
+                logger.warning(
+                    f"Chain prompt reference '{entry}' produced {len(artifacts)} "
+                    f"results - using the first"
+                )
+            entry = artifacts[0]
+        resolved.append(entry)
+
+    step_action.chain_prompts = resolved
+
+
 def find_previous_result_refs(arguments):
     """Find all values in an argument structure that reference previous results.
 

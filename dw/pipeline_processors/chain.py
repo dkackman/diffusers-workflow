@@ -287,7 +287,11 @@ def run_chain(pipeline, chain_definition, arguments):
         A single AudioVideo holding the stitched frames, and either the joined
         generated audio, the original match_audio track, or no audio at all
     """
-    config = ChainConfig(chain_definition, arguments)
+    # Step.run resolved any previous_result references in the chain's prompts,
+    # which the chain block cannot express on its own
+    config = ChainConfig(
+        chain_definition, arguments, getattr(pipeline, "chain_prompts", None)
+    )
     continuity = CONTINUITY_MODES[config.continuity](config)
 
     # With save_segments, each completed segment is written to disk and its
@@ -373,7 +377,7 @@ def run_chain(pipeline, chain_definition, arguments):
 class ChainConfig:
     """Validated chain settings plus the planned segments for one run."""
 
-    def __init__(self, chain_definition, arguments):
+    def __init__(self, chain_definition, arguments, resolved_prompts=None):
         segments = chain_definition.get("segments", None)
         match_audio = bool(chain_definition.get("match_audio", False))
         if (segments is not None) == match_audio:
@@ -397,7 +401,7 @@ class ChainConfig:
         self.carry_audio = bool(chain_definition.get("carry_audio", True))
         self.trim_frames = int(chain_definition.get("trim_frames", 1))
         self.crossfade_ms = float(chain_definition.get("crossfade_ms", 75))
-        self.prompts = chain_definition.get("prompts", None)
+        self.prompts = resolved_prompts or chain_definition.get("prompts", None)
         self.fps = _resolve_fps(chain_definition, arguments)
         self.frame_snap = chain_definition.get("frame_snap", None)
         self.save_segments = bool(chain_definition.get("save_segments", False))

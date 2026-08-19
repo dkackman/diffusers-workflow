@@ -1,6 +1,6 @@
 {
     "id": "MiniMaxH3I2V",
-    "description": "Conditioning generation on a supplied still. The same model is loaded under its 'fl2va' workflow and given only an 'image', so the picture becomes the video's first frame - the frame-conditioned form of the baseline. Also stacks the two acceleration mechanisms that apply to any of these pipelines: a step-distillation LoRA, which composes with per-component quantization and offloading to cut the step count, and 'cache', where the transformer reuses block output between similar steps.",
+    "description": "Conditioning generation on a supplied still. The same model is loaded under its 'fl2va' workflow and given only an 'image', so the picture becomes the video's first frame - the frame-conditioned form of the baseline. Also shows the acceleration that applies to any of these pipelines: a step-distillation LoRA, which composes with per-component quantization and offloading to cut the step count. The 'first_block' cache is deliberately absent - measured on the 9-step turbo schedule, consecutive steps differ too much for it to ever skip, so it only held cache state for nothing; the 20-step ref2va examples are where it can engage.",
     "variables": {
         "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles, until now still, begin to writhe, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, says <d>[English] Rise now. The old ones are listening.</d> As the words land its central mass swells and contracts once, and the caustics on the surface below ripple with it. The camera pushes in with small amplitude at slow speed toward the figure's core through the final seconds, holding the writhing tentacles at the edges of frame.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch. A distant, slow swell of moving air rises beneath the voice and falls away after it.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, rising very slowly in intensity across the clip with no discernible melody or pulse.",
         "image": {
@@ -25,10 +25,6 @@
                     "pre_load_modules": [
                         "sdnq"
                     ],
-                    "cache": {
-                        "type": "first_block",
-                        "threshold": 0.1
-                    },
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
@@ -89,13 +85,21 @@
                         "transformer": {
                             "group_offload": {
                                 "offload_type": "block_level",
-                                "num_blocks_per_group": 5,
+                                "num_blocks_per_group": 2,
                                 "use_stream": true,
                                 "record_stream": true,
                                 "low_cpu_mem_usage": true
                             }
                         },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
                         "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
                             "group_offload": {
                                 "offload_type": "leaf_level"
                             }
@@ -108,9 +112,6 @@
                             "device": "cuda",
                             "residency": "on_demand"
                         }
-                    },
-                    "vae": {
-                        "enable_tiling": true
                     }
                 },
                 "from_pretrained_arguments": {

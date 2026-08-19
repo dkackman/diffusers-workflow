@@ -594,6 +594,14 @@ def configure_components(pipeline, configuration, default_device, reused_compone
             )
             continue
 
+        # Prune before any hooks are installed - an offload hook pins and tracks
+        # exactly the modules that exist when it is applied, so pruning afterwards
+        # would leave it streaming weights that can never run
+        truncate_module_lists(component, component_name, component_configuration)
+        replace_modules_with_identity(
+            component, component_name, component_configuration
+        )
+
         group_offload_configuration = get_group_offload_configuration(
             component_configuration, default_device
         )
@@ -682,6 +690,119 @@ def enable_tiling(component, component_name, component_configuration):
         + (f" with {', '.join(arguments)}" if arguments else "")
     )
     component.enable_tiling(**arguments)
+
+
+def _resolve_submodule(component, component_name, path):
+    """Follow a dotted path from a component to a module inside it.
+
+    Args:
+        component: The component the path starts from
+        component_name: Its name, for errors
+        path: Dotted attribute path relative to the component, e.g.
+            'language_model.layers'
+
+    Returns:
+        (parent, attribute_name, module) - the module and where it hangs
+
+    Raises:
+        ValueError: If any step of the path is not an attribute
+    """
+    parent = None
+    module = component
+    for attribute_name in path.split("."):
+        parent = module
+        module = getattr(parent, attribute_name, _MISSING)
+        if module is _MISSING:
+            raise ValueError(
+                f"'{component_name}' has no module at '{path}' - "
+                f"{type(parent).__name__} has no attribute '{attribute_name}'"
+            )
+    return parent, path.rsplit(".", 1)[-1], module
+
+
+def truncate_module_lists(component, component_name, component_configuration):
+    """Drop the tail of a ModuleList a run never reads.
+
+    An encoder used for its hidden states can run layers whose output nothing
+    consumes: MiniMax-H3 conditions on hidden_states[50] of its 64-layer
+    Qwen3-VL, so layers 51-63 compute - and, offloaded, stream from system
+    memory - for nothing, on every encode. Keeping 51 layers leaves
+    hidden_states[50] bit-identical (index 50 of the returned tuple is the
+    input to layer 50, recorded before it runs; keeping only 50 would make it
+    the final-norm output instead, which is a different tensor).
+
+    The configuration maps a dotted path inside the component to the number of
+    entries to keep:
+
+        "truncate_layers": { "language_model.layers": 51 }
+
+    Truncation is in place, so the component's registration on its pipeline and
+    its config are untouched - a block that validates against
+    config.num_hidden_layers still sees the checkpoint's own count.
+
+    Args:
+        component: The loaded component
+        component_name: Its name, for logging and errors
+        component_configuration: That component's configuration block
+
+    Raises:
+        ValueError: If a path does not lead to a ModuleList, or keep is not
+            a positive count
+    """
+    truncations = component_configuration.get("truncate_layers", None)
+    if not truncations:
+        return
+
+    for path, keep in truncations.items():
+        _, _, module_list = _resolve_submodule(component, component_name, path)
+        if not isinstance(module_list, torch.nn.ModuleList):
+            raise ValueError(
+                f"'{component_name}' cannot truncate '{path}' - it is a "
+                f"{type(module_list).__name__}, not a ModuleList"
+            )
+        keep = int(keep)
+        if keep < 1:
+            raise ValueError(
+                f"'{component_name}' truncate_layers keeps {keep} of '{path}' - "
+                "at least one layer has to remain"
+            )
+        if keep >= len(module_list):
+            logger.warning(
+                f"'{component_name}' truncate_layers keeps {keep} of '{path}', "
+                f"which already has {len(module_list)} - nothing to drop"
+            )
+            continue
+        logger.info(
+            f"Truncating {component_name} '{path}' from {len(module_list)} "
+            f"layers to {keep}"
+        )
+        del module_list[keep:]
+
+
+def replace_modules_with_identity(component, component_name, component_configuration):
+    """Swap out modules a run never calls, freeing what they hold.
+
+    For weights that exist on the checkpoint but are outside the path the
+    pipeline actually runs - a language-model head on a model used as an
+    encoder, say. The module is replaced with an Identity so the model keeps
+    its shape for anything that looks the attribute up, while its parameters
+    are dropped rather than held (and, offloaded, pinned) for a call that
+    never comes.
+
+        "remove_modules": [ "lm_head" ]
+
+    Args:
+        component: The loaded component
+        component_name: Its name, for logging and errors
+        component_configuration: That component's configuration block
+
+    Raises:
+        ValueError: If a named module does not exist on the component
+    """
+    for path in component_configuration.get("remove_modules", []):
+        parent, attribute_name, _ = _resolve_submodule(component, component_name, path)
+        logger.info(f"Replacing {component_name} '{path}' with Identity")
+        setattr(parent, attribute_name, torch.nn.Identity())
 
 
 # The calls that mean "this component is working now". A component is moved to
