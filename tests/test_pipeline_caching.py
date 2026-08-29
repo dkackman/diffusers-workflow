@@ -261,8 +261,12 @@ def test_release_pipeline_evicts_after_step():
             with patch("dw.workflow.empty_device_cache") as empty_cache:
                 workflow.run({}, previous_pipelines=pipeline_cache)
 
-    assert "generate" not in pipeline_cache, "released pipeline should be evicted"
-    assert "keep" in pipeline_cache, "other pipelines stay cached"
+    # The cache is keyed by pipeline identity, not step name - the run's
+    # step->key map says which entry belongs to which step
+    released_key = workflow._pipeline_keys_by_step["generate"]
+    kept_key = workflow._pipeline_keys_by_step["keep"]
+    assert released_key not in pipeline_cache, "released pipeline should be evicted"
+    assert kept_key in pipeline_cache, "other pipelines stay cached"
     # the between-step cleanup returns cached blocks to the device
     assert empty_cache.call_count == len(_release_workflow_def()["steps"])
 

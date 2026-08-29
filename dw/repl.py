@@ -8,6 +8,7 @@ to specialized command classes and worker management to WorkerManager.
 import cmd
 import sys
 import argparse
+import difflib
 import logging
 import os
 import multiprocessing
@@ -35,7 +36,10 @@ logger = logging.getLogger("dw")
 class DiffusersWorkflowREPL(cmd.Cmd):
     """Interactive command line interface for Diffusers Workflow"""
 
-    intro = "Welcome to Diffusers Workflow REPL. Type help or ? to list commands.\n"
+    intro = (
+        "Welcome to the Diffusers Workflow REPL.\n"
+        "  'workflow list' shows available workflows, 'help' gets you oriented.\n"
+    )
     prompt = "dw> "
     use_rawinput = True  # Ensure we're using raw_input for command reading
 
@@ -84,26 +88,43 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         """Override emptyline to do nothing instead of repeating last command."""
         pass
 
+    # Group commands whose detailed help lives in the group handler - 'help
+    # workflow' and 'workflow ?' must tell the same story
+    COMMAND_GROUPS = ("workflow", "arg", "memory", "config")
+
     def do_help(self, arg):
         """List available commands with "help" or detailed help with "help cmd"."""
         if not arg:
-            print("\nDiffusers Workflow REPL - Available Commands")
+            print("\nDiffusers Workflow REPL")
             print("=" * 60)
-            print("\nCommand Groups (use '<command> ?' for subcommands):")
-            print("  workflow  - Load and manage workflows")
-            print("  arg       - Manage workflow arguments")
-            print("  memory    - Monitor and manage GPU memory")
-            print("  config    - Configure global settings")
-            print("\nOther Commands:")
-            print("  help      - Show this help message")
-            print("  exit      - Exit the REPL")
-            print("\nExamples:")
-            print("  workflow load FluxDev")
-            print('  arg set prompt="a cat"')
-            print("  workflow run")
-            print("  memory show")
-            print("  config set output_dir=./outputs")
+            print("\nTypical session:")
+            print("  workflow list                 See available workflows")
+            print("  workflow load FluxDev         Load one (validated immediately)")
+            print("  arg show                      See its variables and defaults")
+            print('  arg set prompt="a cat"        Override a variable')
+            print("  workflow run                  Run it")
+            print("  workflow run steps=30         Set arguments and run in one line")
+            print("\nModels stay loaded in a worker process between runs, so the")
+            print("second run of a workflow skips straight to inference.")
+            print("\nCommand groups ('help <group>' or '<group> ?' for details):")
+            print("  workflow  - list, load, reload, status, run, restart")
+            print("  arg       - show, set, clear")
+            print("  memory    - show, clear")
+            print("  config    - show, set")
+            print("\nShortcuts:")
+            print("  run [<name>=<value> ...]  same as 'workflow run'")
+            print("  load <name>               same as 'workflow load'")
+            print("  set <name>=<value>        same as 'arg set'")
+            print("  <TAB>                     completes commands, workflow names,")
+            print("                            and argument names")
+            print("\nWhile a workflow runs:")
+            print("  Progress prints per step and per denoise step. Ctrl+C cancels")
+            print("  the run (models stay cached); a second Ctrl+C stops the worker.")
+            print("\n'exit' or 'quit' leaves the REPL.")
             print()
+        elif arg.strip() in self.COMMAND_GROUPS:
+            # Route to the group's own help so there is one source of truth
+            getattr(self, f"do_{arg.strip()}")("?")
         else:
             super().do_help(arg)
 
@@ -134,12 +155,94 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         self.memory_commands.do_memory(arg)
 
     def do_workflow(self, arg):
-        """Manage workflows."""
+        """Manage workflows. 'workflow ?' lists subcommands."""
         self.workflow_commands.do_workflow(arg)
+
+    # ========================================================================
+    # Shortcuts for the hot loop: run / load / set
+    # ========================================================================
+
+    def do_run(self, arg):
+        """Run the loaded workflow. Shortcut for 'workflow run [<name>=<value> ...]'."""
+        self.workflow_commands.do_workflow(f"run {arg}".strip())
+
+    def do_load(self, arg):
+        """Load a workflow. Shortcut for 'workflow load <name>'."""
+        self.workflow_commands.do_workflow(f"load {arg}".strip())
+
+    def do_set(self, arg):
+        """Set a workflow argument. Shortcut for 'arg set <name>=<value>'."""
+        self.arg_commands.do_arg(f"set {arg}".strip())
+
+    # ========================================================================
+    # Tab completion
+    # ========================================================================
+
+    WORKFLOW_SUBCOMMANDS = ("list", "load", "reload", "status", "run", "restart")
+    ARG_SUBCOMMANDS = ("show", "set", "clear")
+    MEMORY_SUBCOMMANDS = ("show", "clear")
+    CONFIG_SUBCOMMANDS = ("show", "set")
+    CONFIG_KEYS = ("output_dir", "log_level", "workflow_dir")
+
+    @staticmethod
+    def _matches(candidates, text):
+        return [candidate for candidate in candidates if candidate.startswith(text)]
+
+    def _variable_candidates(self):
+        """The loaded workflow's variable names, ready for name=value entry."""
+        if not self.current_workflow:
+            return []
+        return [f"{name}=" for name in self.current_workflow.variables]
+
+    def complete_workflow(self, text, line, begidx, endidx):
+        words = line.split()
+        # Completing the subcommand itself
+        if len(words) == 1 or (len(words) == 2 and not line.endswith(" ")):
+            return self._matches(self.WORKFLOW_SUBCOMMANDS, text)
+        if words[1] == "load":
+            return self._matches(self.workflow_commands.workflow_names(), text)
+        if words[1] == "run":
+            return self._matches(self._variable_candidates(), text)
+        return []
+
+    def complete_arg(self, text, line, begidx, endidx):
+        words = line.split()
+        if len(words) == 1 or (len(words) == 2 and not line.endswith(" ")):
+            return self._matches(self.ARG_SUBCOMMANDS, text)
+        if words[1] == "set":
+            return self._matches(self._variable_candidates(), text)
+        if words[1] == "clear":
+            return self._matches(list(self.workflow_args), text)
+        return []
+
+    def complete_memory(self, text, line, begidx, endidx):
+        return self._matches(self.MEMORY_SUBCOMMANDS, text)
+
+    def complete_config(self, text, line, begidx, endidx):
+        words = line.split()
+        if len(words) == 1 or (len(words) == 2 and not line.endswith(" ")):
+            return self._matches(self.CONFIG_SUBCOMMANDS, text)
+        if words[1] == "set":
+            return self._matches([f"{key}=" for key in self.CONFIG_KEYS], text)
+        return []
+
+    def complete_load(self, text, line, begidx, endidx):
+        return self._matches(self.workflow_commands.workflow_names(), text)
+
+    def complete_run(self, text, line, begidx, endidx):
+        return self._matches(self._variable_candidates(), text)
+
+    def complete_set(self, text, line, begidx, endidx):
+        return self._matches(self._variable_candidates(), text)
 
     def default(self, line):
         """Handle unknown commands"""
         print(f"Unknown command: {line}")
+        command = line.split()[0] if line.split() else ""
+        known = [name[3:] for name in dir(self) if name.startswith("do_")]
+        suggestions = difflib.get_close_matches(command, known, n=3, cutoff=0.6)
+        if suggestions:
+            print(f"Did you mean: {', '.join(suggestions)}?")
         print("Type 'help' or '?' for a list of commands")
 
     # ========================================================================

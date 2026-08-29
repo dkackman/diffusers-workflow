@@ -101,6 +101,7 @@ class Result:
         self.result_definition = result_definition
         self.result_list = []
         self.metadata = None
+        self.saved_files = []
         logger.debug(f"Initialized Result with definition: {result_definition}")
 
     def set_metadata(self, metadata):
@@ -189,6 +190,10 @@ class Result:
         Args:
             output_dir: Directory to save files in
             default_base_name: Default name to use for files
+
+        Returns:
+            List of file paths written, in the order they were written - the
+            step's manifest. Empty when saving is disabled or nothing saved.
         """
         try:
             # Validate output directory
@@ -216,7 +221,8 @@ class Result:
         content_type = self.result_definition.get("content_type", None)
         if not self.result_definition.get("save", True) or content_type is None:
             logger.debug("Skipping save - disabled or no content type specified")
-            return
+            self.saved_files = []
+            return self.saved_files
 
         # Determine base filename with validation
         file_base_name = validated_base_name
@@ -233,7 +239,8 @@ class Result:
             f"Saving with content type: {content_type}, extension: {extension}"
         )
 
-        # Save each result
+        # Save each result, collecting the paths written as the step's manifest
+        saved_files = []
         for i, result in enumerate(self.result_list):
             if content_type.endswith("json"):
                 # Handle JSON content type
@@ -243,16 +250,21 @@ class Result:
                 logger.info(f"Saving JSON result to {output_path}")
                 with open(output_path, "w") as file:
                     file.write(json.dumps(result, indent=4))
+                saved_files.append(output_path)
             else:
                 # Handle other content types
                 for j, artifact in enumerate(get_artifact_list(result)):
-                    self.save_artifact(
-                        validated_output_dir,
-                        artifact,
-                        f"{file_base_name}-{i}.{j}",
-                        content_type,
-                        extension,
+                    saved_files.extend(
+                        self.save_artifact(
+                            validated_output_dir,
+                            artifact,
+                            f"{file_base_name}-{i}.{j}",
+                            content_type,
+                            extension,
+                        )
                     )
+        self.saved_files = saved_files
+        return saved_files
 
     def save_artifact(
         self, output_dir, artifact, file_base_name, content_type, extension
@@ -266,25 +278,31 @@ class Result:
                 validated
             content_type: MIME type of the content
             extension: File extension to use
+
+        Returns:
+            List of file paths written.
         """
         if artifact is None:
             logger.warning(f"Skipping None artifact for {file_base_name}")
-            return
+            return []
 
         if isinstance(artifact, dict):
             # Recursively save dictionary items
             logger.debug(
                 f"Saving dictionary artifact with keys: {list(artifact.keys())}"
             )
+            saved_files = []
             for k, v in artifact.items():
-                self.save_artifact(
-                    output_dir,
-                    v,
-                    f"{file_base_name}-{k}",
-                    content_type,
-                    extension,
+                saved_files.extend(
+                    self.save_artifact(
+                        output_dir,
+                        v,
+                        f"{file_base_name}-{k}",
+                        content_type,
+                        extension,
+                    )
                 )
-            return
+            return saved_files
 
         output_path = os.path.join(output_dir, f"{file_base_name}{extension}")
         logger.info(f"Saving artifact to {output_path}")
@@ -309,15 +327,18 @@ class Result:
                 )
                 # A batched waveform holds several songs - save each one separately
                 if len(waveforms) > 1:
+                    saved_files = []
                     for k, waveform in enumerate(waveforms):
-                        self.save_artifact(
-                            output_dir,
-                            waveform,
-                            f"{file_base_name}-{k}",
-                            content_type,
-                            extension,
+                        saved_files.extend(
+                            self.save_artifact(
+                                output_dir,
+                                waveform,
+                                f"{file_base_name}-{k}",
+                                content_type,
+                                extension,
+                            )
                         )
-                    return
+                    return saved_files
                 write_audio(
                     output_path,
                     waveforms[0],
@@ -348,6 +369,8 @@ class Result:
                 f"Error saving artifact to {output_path}: {str(e)}", exc_info=True
             )
             raise
+
+        return [output_path]
 
     def save_audio_video(self, artifact, output_path, content_type):
         """Write a video and the audio generated with it into a single file.

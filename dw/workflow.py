@@ -4,8 +4,17 @@ import json
 import torch
 import copy
 import gc
+import hashlib
 import logging
 from .arguments import realize_args, realize_constants
+from .events import (
+    RunContext,
+    WorkflowCancelled,
+    get_context,
+    current_context,
+    activate_context,
+    deactivate_context,
+)
 from .step import Step
 from .schema import validate_data, load_schema
 from .variables import replace_variables, set_variables
@@ -46,6 +55,29 @@ def workflow_from_file(file_spec, output_dir):
     except (json.JSONDecodeError, OSError) as e:
         logger.error(f"Failed to load workflow from {file_spec}: {e}")
         raise
+
+
+def pipeline_cache_key(pipeline_definition):
+    """Stable identity for a loaded pipeline.
+
+    Hashes everything that shapes loading - configuration, components,
+    quantization, loras - and excludes what varies per call (arguments, seed,
+    chain), so a cache hit means "this exact model stack is already loaded".
+    Keying the cache by identity instead of step name means two workflows
+    whose steps happen to share a name can no longer collide, and a rerun of
+    an edited workflow keeps every pipeline whose definition did not change.
+
+    Computed after variable substitution but the excluded keys keep realized
+    per-run values (images, generators) out of the hash; realized types and
+    dtypes stringify stably via default=str.
+    """
+    load_definition = {
+        k: v
+        for k, v in pipeline_definition.items()
+        if k not in ("arguments", "seed", "chain")
+    }
+    serialized = json.dumps(load_definition, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode()).hexdigest()
 
 
 def referenced_result_names(steps):
@@ -129,14 +161,25 @@ class Workflow:
             raise Exception(f"Validation error: {message}")
         logger.debug(f"Workflow {self.name} validated successfully")
 
-    def run(self, arguments, previous_pipelines=None):
+    def run(self, arguments, previous_pipelines=None, context=None):
         """
         Executes the workflow by:
         1. Processing variables
         2. Setting up random seed
         3. Running each step in sequence
         4. Managing results between steps
+
+        An explicit RunContext receives progress events and can cancel the
+        run; without one, the ambient context is reused (a sub-workflow
+        reports into its parent's run) or a no-op context is created.
+        Saved file paths accumulate in self.manifest, one entry per step.
         """
+        run_context = context or current_context() or RunContext()
+        context_token = activate_context(run_context)
+        # Step name -> cache key for this run, so release_pipeline and
+        # pipeline_reference still address pipelines by the step that made them
+        self._pipeline_keys_by_step = {}
+        self.manifest = []
         try:
             # CRITICAL: Work on a copy to avoid mutating the original workflow definition
             # This allows the workflow to be run multiple times with different arguments
@@ -202,9 +245,24 @@ class Workflow:
 
             realize_args(steps, base_dir)
 
+            run_context.emit(
+                "workflow_start",
+                workflow=workflow_id,
+                total_steps=len(steps),
+                steps=[step_data["name"] for step_data in steps],
+            )
+
             # Execute each step in sequence
             for i, step_data in enumerate(steps):
+                run_context.check_cancelled()
                 logger.debug(f"Running step {i+1}/{len(steps)}: {step_data['name']}")
+                run_context.emit(
+                    "step_start",
+                    workflow=workflow_id,
+                    step=step_data["name"],
+                    index=i,
+                    total_steps=len(steps),
+                )
 
                 # Seeds resolve most-specific-first: pipeline > step > workflow
                 step_seed = step_data.get("seed", default_seed)
@@ -223,7 +281,18 @@ class Workflow:
                 )
                 last_result = result
                 results[step.name] = result
-                result.save(self.output_dir, f"{workflow_id}-{step.name}.{i}")
+                saved_files = result.save(
+                    self.output_dir, f"{workflow_id}-{step.name}.{i}"
+                )
+                self.manifest.append({"step": step.name, "files": saved_files})
+                run_context.emit(
+                    "step_end",
+                    workflow=workflow_id,
+                    step=step.name,
+                    index=i,
+                    total_steps=len(steps),
+                    files=saved_files,
+                )
                 logger.debug(f"Step {step.name} completed with result: {result}")
 
                 # Release results no later step references - saved to disk
@@ -237,7 +306,7 @@ class Workflow:
                 # everything, which taxes every run to survive one transition
                 if step_data.get("release_pipeline", False):
                     logger.info(f"Releasing pipeline for step: {step.name}")
-                    pipelines.pop(step.name, None)
+                    pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
 
                 # Task models are cached for the life of the process - the cache
                 # exists so a step's cartesian product loads its model once, and
@@ -255,9 +324,17 @@ class Workflow:
                 empty_device_cache()
 
             logger.debug(f"Workflow {workflow_id} completed successfully")
+            run_context.emit(
+                "workflow_end", workflow=workflow_id, manifest=self.manifest
+            )
             # Return only the last step's results for child workflows
             return last_result.result_list if last_result is not None else []
 
+        except WorkflowCancelled:
+            # The user asked for this - report it without an error traceback
+            workflow_id = self.workflow_definition.get("id", "unknown")
+            logger.info(f"Workflow {workflow_id} cancelled")
+            raise
         except (SecurityError, PathTraversalError, InvalidInputError) as e:
             # Security validation failures - these should fail fast, without the
             # traceback noise of the general handler
@@ -272,6 +349,14 @@ class Workflow:
                 f"{type(e).__name__} in workflow {workflow_id}: {e}", exc_info=True
             )
             raise
+        finally:
+            deactivate_context(context_token)
+
+    def _step_pipeline_key(self, step_name, cache_key):
+        """Record which cache key a step's pipeline lives under this run."""
+        if not hasattr(self, "_pipeline_keys_by_step"):
+            self._pipeline_keys_by_step = {}
+        self._pipeline_keys_by_step[step_name] = cache_key
 
     def create_step_action(
         self,
@@ -292,10 +377,15 @@ class Workflow:
         if "pipeline" in step_definition:
             step_name = step_definition["name"]
 
+            # Pipelines are cached by what they load, not what step loads them
+            cache_key = pipeline_cache_key(step_definition["pipeline"])
+            self._step_pipeline_key(step_name, cache_key)
+            get_context().touch_pipeline(cache_key)
+
             # Check if pipeline already loaded in cache (GPU persistence)
-            if step_name in previous_pipelines:
+            if cache_key in previous_pipelines:
                 logger.debug(f"Reusing cached pipeline for step: {step_name}")
-                cached_pipeline = previous_pipelines[step_name]
+                cached_pipeline = previous_pipelines[cache_key]
                 # Create new Pipeline wrapper with updated step definition
                 # but reuse the loaded model from cache
                 new_pipeline_wrapper = Pipeline(
@@ -334,7 +424,7 @@ class Workflow:
                 file_prefix=self.step_file_prefix(step_name),
             )
             pipeline.load(shared_components)
-            previous_pipelines[step_name] = pipeline
+            previous_pipelines[cache_key] = pipeline
             return pipeline
 
         # Handle pipeline reference
@@ -343,7 +433,14 @@ class Workflow:
                 f"Referencing existing pipeline for step: {step_definition['name']}"
             )
             pipeline_reference = step_definition["pipeline_reference"]
-            previous_pipeline = previous_pipelines[pipeline_reference["reference_name"]]
+            reference_name = pipeline_reference["reference_name"]
+            referenced_key = self._pipeline_keys_by_step.get(reference_name)
+            if referenced_key is None or referenced_key not in previous_pipelines:
+                raise ValueError(
+                    f"pipeline_reference '{reference_name}' does not name an "
+                    "earlier pipeline step in this run (or it was released)"
+                )
+            previous_pipeline = previous_pipelines[referenced_key]
             return Pipeline(
                 pipeline_reference,
                 default_seed,

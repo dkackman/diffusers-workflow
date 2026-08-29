@@ -1,4 +1,5 @@
 import logging
+from .events import WorkflowCancelled, get_context
 from .result import Result
 from .previous_results import get_iterations, resolve_chain_prompts
 
@@ -65,9 +66,17 @@ class Step:
                 logger.warning(f"Step {step_name} has no iterations to execute")
                 return result
 
+            run_context = get_context()
             for i, arguments in enumerate(iterations, 1):
+                run_context.check_cancelled()
                 logger.debug(
                     f"Running iteration {i}/{len(iterations)} with arguments: {arguments}"
+                )
+                run_context.emit(
+                    "iteration_start",
+                    step=step_name,
+                    iteration=i,
+                    total_iterations=len(iterations),
                 )
                 self.iteration = i
                 iteration_result = step_action.run(arguments, previous_pipelines)
@@ -76,6 +85,9 @@ class Step:
             logger.debug(f"Successfully completed step: {step_name}")
             return result
 
+        except WorkflowCancelled:
+            logger.info(f"Step {self.name} cancelled")
+            raise
         except Exception as e:
             # One log line with the full traceback - callers decide handling.
             # (Configuration, I/O, runtime and unexpected errors all logged and

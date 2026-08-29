@@ -6,6 +6,7 @@ that keeps models loaded in GPU memory.
 """
 
 import multiprocessing
+import queue as queue_module
 import logging
 from typing import Optional
 from .worker import worker_main
@@ -13,9 +14,11 @@ from .worker import worker_main
 logger = logging.getLogger("dw")
 
 # REPL constants
-WORKER_RESULT_TIMEOUT_SECONDS = 300  # 5 minutes
 WORKER_SHUTDOWN_TIMEOUT_SECONDS = 10
 WORKER_TERMINATE_TIMEOUT_SECONDS = 5
+
+# How often get_result checks worker liveness while waiting for a message
+WORKER_LIVENESS_POLL_SECONDS = 1.0
 
 
 class WorkerManager:
@@ -83,18 +86,38 @@ class WorkerManager:
             raise RuntimeError("Worker process is not active")
         self.command_queue.put(command)
 
-    def get_result(self, timeout: float = WORKER_RESULT_TIMEOUT_SECONDS):
+    def get_result(self, timeout: Optional[float] = None):
         """Get a result from the worker process.
 
+        With no timeout this waits as long as the worker is alive - a video
+        generation or a cold model download takes however long it takes, and
+        progress events keep the caller informed in the meantime. The wait
+        polls so a worker that dies mid-run raises instead of blocking forever.
+
         Args:
-            timeout: Timeout in seconds for waiting for result
+            timeout: Optional timeout in seconds; None waits indefinitely
+                while the worker process is alive
 
         Returns:
             Result dictionary from worker
 
         Raises:
-            RuntimeError: If worker is not active
+            RuntimeError: If worker is not active or dies while waiting
+            queue.Empty: If an explicit timeout elapses
         """
         if not self.worker_active or not self.result_queue:
             raise RuntimeError("Worker process is not active")
-        return self.result_queue.get(timeout=timeout)
+
+        if timeout is not None:
+            return self.result_queue.get(timeout=timeout)
+
+        while True:
+            try:
+                return self.result_queue.get(timeout=WORKER_LIVENESS_POLL_SECONDS)
+            except queue_module.Empty:
+                if self.worker_process is None or not self.worker_process.is_alive():
+                    raise RuntimeError("Worker process died while waiting for results")
+
+    def cancel(self):
+        """Ask the worker to cancel the workflow it is running."""
+        self.send_command({"type": "cancel"})

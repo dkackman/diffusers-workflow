@@ -294,6 +294,7 @@ def startup(log_level=None):
     setup_logging(
         resolve_path(settings.log_filename),
         settings.log_level,
+        log_to_console=settings.log_to_console,
     )
 
     logging.info(f"Version {__version__}")

@@ -4,6 +4,7 @@ import copy
 import functools
 import gc
 import importlib
+import inspect
 import logging
 from .config_objects import (
     get_quantization_configuration,
@@ -20,6 +21,8 @@ from diffusers import attention_backend
 
 # dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
 # imported where they are used - at module scope they add seconds to every startup
+
+from ..events import WorkflowCancelled, get_context
 
 logger = logging.getLogger("dw")
 
@@ -395,6 +398,9 @@ class Pipeline:
 
             return self._run_once(arguments)
 
+        except WorkflowCancelled:
+            logger.info("Pipeline run cancelled")
+            raise
         except Exception as e:
             # One log line with the full traceback - every error class was
             # logged and re-raised identically
@@ -466,6 +472,7 @@ class Pipeline:
 
     def _call_pipeline(self, arguments, attn_backend):
         """Call the pipeline with optional attention backend and cache contexts."""
+        arguments = self._with_step_callback(arguments)
         with contextlib.ExitStack() as stack:
             if attn_backend is not None:
                 logger.info(f"Using attention backend: {attn_backend}")
@@ -474,6 +481,36 @@ class Pipeline:
             stack.enter_context(stateful_cache_context(self.pipeline))
 
             return self.pipeline(**arguments)
+
+    def _with_step_callback(self, arguments):
+        """Inject a callback_on_step_end that reports per-step progress to the
+        active run context and raises when the run has been cancelled.
+
+        Workflow JSON cannot express a callable, so this is the only way a
+        diffusion-step callback ever reaches a pipeline call. Only pipelines
+        that name the parameter explicitly get one - a **kwargs signature is
+        no promise the pipeline honors it.
+        """
+        try:
+            parameters = inspect.signature(self.pipeline.__call__).parameters
+        except (TypeError, ValueError):
+            return arguments
+        if "callback_on_step_end" not in parameters:
+            return arguments
+
+        run_context = get_context()
+        num_steps = arguments.get("num_inference_steps", None)
+
+        def on_step_end(pipe, step_index, timestep, callback_kwargs):
+            run_context.emit(
+                "pipeline_step",
+                step=step_index + 1,
+                total_steps=getattr(pipe, "_num_timesteps", None) or num_steps,
+            )
+            run_context.check_cancelled()
+            return callback_kwargs
+
+        return {**arguments, "callback_on_step_end": on_step_end}
 
     def load_optional_component(
         self, component_name, from_pretrained_arguments, default_device
