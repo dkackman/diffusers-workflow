@@ -228,6 +228,13 @@ class Pipeline:
         )
         reused_components = self.resolve_reused_components(shared_components)
 
+        # Adapters add weights to the components they attach to, and an offloading
+        # hook only streams the weights that existed when it was installed - so a
+        # pipeline that loads any is placed after they are on it, not at load
+        adapters_to_load = bool(self.pipeline_definition.get("loras", [])) or (
+            self.pipeline_definition.get("ip_adapter", None) is not None
+        )
+
         # Load and configure the main pipeline
         self.pipeline = load_component(
             "pipeline",
@@ -235,6 +242,7 @@ class Pipeline:
             from_pretrained_arguments,
             self.device,
             reused_components,
+            defer_placement=adapters_to_load,
         )
 
         # Enable attention slicing if explicitly requested or automatically on MPS
@@ -297,6 +305,19 @@ class Pipeline:
 
         # Load and configure IP-Adapter
         load_ip_adapter(self.pipeline_definition.get("ip_adapter", None), self.pipeline)
+
+        # The adapters are on the pipeline now, so its offloading hooks can be
+        # installed over the weights they added
+        if adapters_to_load:
+            self.pipeline = place_component(
+                self.pipeline,
+                "pipeline",
+                self.configuration,
+                self.device,
+                # A modular pipeline's manager owns its placement, and the manager
+                # load_component gave it is the one it holds
+                getattr(self.pipeline, "_components_manager", None),
+            )
 
         # Place the components the pipeline loaded itself, once everything that alters
         # them - dtypes, adapters, quantized matmuls - has been applied. Offloading hooks
@@ -1284,12 +1305,87 @@ def get_block_configs(configuration, component):
     return dict(configs)
 
 
+def place_component(
+    component, component_name, configuration, device, components_manager=None
+):
+    """Give a loaded component its offloading hooks and its device.
+
+    Split out of load_component because placement has to come last. Every hook
+    here - group offloading, layerwise casting, model or sequential CPU offload -
+    pins the modules and weights that exist when it is installed, so anything that
+    adds or replaces weights afterwards (a LoRA, an IP-Adapter) is left outside the
+    hook's bookkeeping: sequential offload streams the weights it recorded onto the
+    accelerator and the adapter's own tensors are never among them, which runs the
+    step on uninitialized weights and produces NaN.
+
+    Args:
+        component: The loaded pipeline or component
+        component_name: What is being placed, for the log
+        configuration: The component's configuration block
+        device: Device the component runs on
+        components_manager: The modular pipeline's components manager, if it has one
+
+    Returns:
+        The placed component
+    """
+    # Handle group_offload configuration
+    group_offload_configuration = get_group_offload_configuration(configuration, device)
+    if group_offload_configuration is not None:
+        component.enable_group_offload(**group_offload_configuration)
+
+    # Handle enable_layerwise_casting configuration
+    enable_layerwise_casting_configuration = configuration.get(
+        "enable_layerwise_casting", None
+    )
+    if enable_layerwise_casting_configuration is not None:
+        component.enable_layerwise_casting(**enable_layerwise_casting_configuration)
+
+    # Configure component device settings
+    preserve_device_placement = configuration.get("preserve_device_placement", False)
+    offload = configuration.get("offload", None)
+
+    # Offloading streams a model between system memory and an accelerator - there is
+    # nothing to stream to when the run is on the CPU
+    if offload is not None and get_device_type(device) == "cpu":
+        logger.warning(f"Ignoring '{offload}' offload - {device} is not an accelerator")
+        offload = None
+
+    if offload == "model":
+        logger.debug(f"Enabling model CPU offload onto {device}")
+        component.enable_model_cpu_offload(device=device)
+    elif offload == "sequential":
+        logger.debug(f"Enabling sequential CPU offload onto {device}")
+        for excluded_name in configuration.get("exclude_from_cpu_offload", []):
+            logger.debug(f"Excluding {excluded_name} from CPU offload")
+            component._exclude_from_cpu_offload.append(excluded_name)
+        component.enable_sequential_cpu_offload(device=device)
+    elif components_manager is not None and auto_cpu_offload_active(
+        configuration, device
+    ):
+        # Moving everything to the device here would defeat the offloading - the
+        # manager's hooks bring each component on device as the pipeline needs it
+        logger.debug("Device placement is owned by the components manager")
+    elif has_component_group_offload(configuration):
+        # configure_components() installs group-offload hooks per-component after
+        # this returns - moving the whole pipeline to the device now would load it
+        # in full before those hooks exist, defeating the offloading
+        logger.info(
+            f"components configure group offloading - not moving pipeline to {device}"
+        )
+    elif hasattr(component, "to") and not preserve_device_placement:
+        logger.debug(f"Moving {component_name} to device: {device}")
+        component = component.to(device)
+
+    return component
+
+
 def load_component(
     component_name,
     configuration,
     from_pretrained_arguments,
     device,
     reused_components=None,
+    defer_placement=False,
 ):
     """Load and configure a pipeline or component.
 
@@ -1299,6 +1395,8 @@ def load_component(
         from_pretrained_arguments: Arguments for the constructor
         device: Device the component is loaded for
         reused_components: Components an earlier step shared into this one, by name
+        defer_placement: Load the component without placing it - the caller calls
+            place_component once it has finished altering the weights
     """
     component_type = configuration["component_type"]
     component = None
@@ -1381,61 +1479,15 @@ def load_component(
                 logger.info(f"Loading components for {component_name}")
                 component.load_components(**load_components_arguments)
 
-        # Handle group_offload configuration
-        group_offload_configuration = get_group_offload_configuration(
-            configuration, device
+        if defer_placement:
+            # The caller places this itself, once it has finished loading the
+            # things that alter the weights - see place_component
+            logger.debug(f"Deferring placement of {component_name}")
+            return component
+
+        return place_component(
+            component, component_name, configuration, device, components_manager
         )
-        if group_offload_configuration is not None:
-            component.enable_group_offload(**group_offload_configuration)
-
-        # Handle enable_layerwise_casting configuration
-        enable_layerwise_casting_configuration = configuration.get(
-            "enable_layerwise_casting", None
-        )
-        if enable_layerwise_casting_configuration is not None:
-            component.enable_layerwise_casting(**enable_layerwise_casting_configuration)
-
-        # Configure component device settings
-        preserve_device_placement = configuration.get(
-            "preserve_device_placement", False
-        )
-        offload = configuration.get("offload", None)
-
-        # Offloading streams a model between system memory and an accelerator - there is
-        # nothing to stream to when the run is on the CPU
-        if offload is not None and get_device_type(device) == "cpu":
-            logger.warning(
-                f"Ignoring '{offload}' offload - {device} is not an accelerator"
-            )
-            offload = None
-
-        if offload == "model":
-            logger.debug(f"Enabling model CPU offload onto {device}")
-            component.enable_model_cpu_offload(device=device)
-        elif offload == "sequential":
-            logger.debug(f"Enabling sequential CPU offload onto {device}")
-            for component_name in configuration.get("exclude_from_cpu_offload", []):
-                logger.debug(f"Excluding {component_name} from CPU offload")
-                component._exclude_from_cpu_offload.append(component_name)
-            component.enable_sequential_cpu_offload(device=device)
-        elif components_manager is not None and auto_cpu_offload_active(
-            configuration, device
-        ):
-            # Moving everything to the device here would defeat the offloading - the
-            # manager's hooks bring each component on device as the pipeline needs it
-            logger.debug("Device placement is owned by the components manager")
-        elif has_component_group_offload(configuration):
-            # configure_components() installs group-offload hooks per-component after
-            # this returns - moving the whole pipeline to the device now would load it
-            # in full before those hooks exist, defeating the offloading
-            logger.info(
-                f"components configure group offloading - not moving pipeline to {device}"
-            )
-        elif hasattr(component, "to") and not preserve_device_placement:
-            logger.debug(f"Moving {component_name} to device: {device}")
-            component = component.to(device)
-
-        return component
 
     except Exception as e:
         # One log line with the full traceback - every error class was logged
