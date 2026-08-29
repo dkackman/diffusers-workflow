@@ -1,12 +1,19 @@
 <script lang="ts">
   import { Plus, Trash2 } from 'lucide-svelte'
-  import { pipelineDescription, widgetFor, coerce, isReference } from '../editor'
+  import { classDescription, widgetFor, coerce, isReference } from '../editor'
   import type { PipelineDescription } from '../types'
 
   let {
     args = $bindable(),
     componentType,
-  }: { args: Record<string, unknown>; componentType: string } = $props()
+    target = 'call',
+    hide = [],
+  }: {
+    args: Record<string, unknown>
+    componentType: string
+    target?: 'call' | 'init' | 'load'
+    hide?: string[]
+  } = $props()
 
   let description = $state<PipelineDescription | null>(null)
   let adding = $state('')
@@ -14,7 +21,7 @@
   $effect(() => {
     description = null
     if (componentType) {
-      pipelineDescription(componentType).then((d) => (description = d))
+      classDescription(componentType, target).then((d) => (description = d))
     }
   })
 
@@ -22,8 +29,11 @@
     new Map((description?.parameters ?? []).map((p) => [p.name, p])),
   )
   const unused = $derived(
-    (description?.parameters ?? []).filter((p) => !(p.name in args)),
+    (description?.parameters ?? []).filter(
+      (p) => !(p.name in args) && !hide.includes(p.name),
+    ),
   )
+  const shownKeys = $derived(Object.keys(args).filter((key) => !hide.includes(key)))
 
   function displayValue(value: unknown): string {
     if (value === null || value === undefined) return ''
@@ -48,7 +58,7 @@
 </script>
 
 <div class="args">
-  {#each Object.keys(args) as key (key)}
+  {#each shownKeys as key (key)}
     {@const parameter = parameters.get(key)}
     {@const widget = widgetFor(parameter, args[key])}
     <div class="row">

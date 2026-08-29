@@ -59,6 +59,7 @@ export interface PipelineDescription {
   summary: string
   accepts_kwargs: boolean
   parameters: PipelineParameter[]
+  compatibles?: string[]
 }
 
 export interface ValidationResult {

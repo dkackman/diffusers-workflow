@@ -52,11 +52,22 @@ export const api = {
   listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
   describePipeline: (name: string) =>
     request<PipelineDescription>(`/api/pipelines/${name}`),
+  listClasses: (kind: string) =>
+    request<{ kind: string; classes: string[] }>(`/api/classes?kind=${kind}`),
+  describeClass: (name: string, target: 'call' | 'init' | 'load') =>
+    request<PipelineDescription>(
+      `/api/classes/${encodeURIComponent(name)}?target=${target}`,
+    ),
+  getSchema: () => request<Record<string, unknown>>('/api/schema'),
   validate: (workflow: WorkflowDefinition) =>
     request<ValidationResult>('/api/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workflow }),
+    }),
+  deleteWorkflow: (name: string) =>
+    request<{ name: string; deleted: boolean }>(`/api/workflows/${name}`, {
+      method: 'DELETE',
     }),
   saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
     request<{ name: string; path: string; warnings: string[] }>(

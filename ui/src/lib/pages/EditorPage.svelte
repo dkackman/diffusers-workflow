@@ -11,6 +11,7 @@
   import { go } from '../router.svelte'
   import { emptyWorkflow, emptyStep } from '../editor'
   import StepEditor from '../editor/StepEditor.svelte'
+  import JsonEditor from '../editor/JsonEditor.svelte'
   import type { ValidationResult, WorkflowDefinition } from '../types'
 
   let { name = '' }: { name?: string } = $props()
@@ -19,6 +20,9 @@
   let saveName = $state('')
   let workflowDir = $state('')
   let pipelines = $state<string[]>([])
+  let modelClasses = $state<string[]>([])
+  let schedulerClasses = $state<string[]>([])
+  let quantizationClasses = $state<string[]>([])
   let validation = $state<ValidationResult | null>(null)
   let status = $state('')
   let error = $state('')
@@ -28,6 +32,9 @@
 
   $effect(() => {
     api.listPipelines().then((r) => (pipelines = r.pipelines))
+    api.listClasses('models').then((r) => (modelClasses = r.classes))
+    api.listClasses('schedulers').then((r) => (schedulerClasses = r.classes))
+    api.listClasses('quantization').then((r) => (quantizationClasses = r.classes))
     api.listWorkflows().then((r) => (workflowDir = r.workflow_dir))
     validation = null
     error = ''
@@ -139,9 +146,10 @@
     showJson = !showJson
   }
 
-  function applyJson() {
+  function applyJson(raw: string) {
+    jsonDraft = raw
     try {
-      workflow = JSON.parse(jsonDraft)
+      workflow = JSON.parse(raw)
       error = ''
     } catch (e) {
       error = `JSON: ${e instanceof Error ? e.message : e}`
@@ -151,6 +159,15 @@
 
 <datalist id="pipeline-classes">
   {#each pipelines as pipeline}<option value={pipeline}></option>{/each}
+</datalist>
+<datalist id="model-classes">
+  {#each modelClasses as model}<option value={model}></option>{/each}
+</datalist>
+<datalist id="scheduler-classes">
+  {#each schedulerClasses as scheduler}<option value={scheduler}></option>{/each}
+</datalist>
+<datalist id="quantization-classes">
+  {#each quantizationClasses as quantization}<option value={quantization}></option>{/each}
 </datalist>
 
 <div class="head">
@@ -194,9 +211,11 @@
 {/if}
 
 {#if showJson}
-  <textarea class="jsonedit" rows="28" bind:value={jsonDraft} onchange={applyJson}
-  ></textarea>
-  <p class="muted hint">Changes apply on blur; switch back to “form” to continue there.</p>
+  <JsonEditor value={jsonDraft} onchange={applyJson} height="560px" />
+  <p class="muted hint">
+    Schema-aware: completion, hover docs and validation come from the workflow
+    schema. Changes apply when the editor loses focus.
+  </p>
 {:else}
   <div class="panel">
     <h2>Variables</h2>
@@ -248,7 +267,6 @@
   .validation.bad { border-color: var(--bad); }
   .ok { color: var(--good); display: inline-flex; align-items: center; gap: 0.4rem; }
   .warn { color: var(--warn); display: flex; align-items: center; gap: 0.4rem; }
-  .jsonedit { font-family: ui-monospace, monospace; font-size: 0.82rem; }
   .error { color: var(--bad); }
   .hint { font-size: 0.8rem; }
 </style>

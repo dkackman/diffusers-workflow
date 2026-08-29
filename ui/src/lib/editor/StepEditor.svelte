@@ -1,7 +1,16 @@
 <script lang="ts">
   import { ChevronDown, ChevronRight, ChevronUp, Trash2 } from 'lucide-svelte'
   import ArgumentsEditor from './ArgumentsEditor.svelte'
-  import { TORCH_DTYPES, CONTENT_TYPES } from '../editor'
+  import ComponentEditor from './ComponentEditor.svelte'
+  import LorasEditor from './LorasEditor.svelte'
+  import {
+    TORCH_DTYPES,
+    CONTENT_TYPES,
+    COMPONENT_SLOTS,
+    CACHE_TYPES,
+    ATTENTION_BACKENDS,
+    emptyComponent,
+  } from '../editor'
 
   let {
     step = $bindable(),
@@ -57,6 +66,59 @@
 
   const configuration = $derived(step.pipeline?.configuration ?? {})
   const pretrained = $derived(step.pipeline?.from_pretrained_arguments ?? {})
+
+  // ---- optional blocks: components, loras, scheduler, acceleration ----
+
+  const activeSlots = $derived(
+    COMPONENT_SLOTS.filter((slot) => step.pipeline && slot in step.pipeline),
+  )
+  let addSlot = $state('')
+
+  function addComponent() {
+    if (!addSlot) return
+    step.pipeline[addSlot] = emptyComponent()
+    addSlot = ''
+  }
+
+  function toggleScheduler(enabled: boolean) {
+    if (enabled) {
+      step.pipeline.scheduler = step.pipeline.scheduler ?? {
+        configuration: { scheduler_type: '' },
+        from_config_args: {},
+      }
+    } else {
+      delete step.pipeline.scheduler
+    }
+  }
+
+  function toggleCache(enabled: boolean) {
+    if (enabled) {
+      configuration.cache = configuration.cache ?? {
+        type: 'first_block',
+        threshold: 0.1,
+      }
+    } else {
+      delete configuration.cache
+    }
+  }
+
+  import { classDescription } from '../editor'
+  let compatibles = $state<string[]>([])
+  $effect(() => {
+    compatibles = []
+    const schedulerType = step.pipeline?.scheduler?.configuration?.scheduler_type
+    if (schedulerType) {
+      classDescription(schedulerType, 'init').then(
+        (d) => (compatibles = d?.compatibles ?? []),
+      )
+    }
+  })
+
+  function setNumber(target: Record<string, any>, key: string, raw: string) {
+    const parsed = Number(raw)
+    if (raw === '') delete target[key]
+    else if (!Number.isNaN(parsed)) target[key] = parsed
+  }
 </script>
 
 <div class="panel step">
@@ -136,6 +198,126 @@
         bind:args={step.pipeline.arguments}
         componentType={configuration.component_type ?? ''}
       />
+
+      <details open={activeSlots.length > 0}>
+        <summary>components <span class="muted">({activeSlots.length})</span></summary>
+        <div class="section">
+          {#each activeSlots as slot (slot)}
+            <ComponentEditor
+              {slot}
+              bind:component={step.pipeline[slot]}
+              onremove={() => delete step.pipeline[slot]}
+            />
+          {/each}
+          <div class="addrow">
+            <select bind:value={addSlot}>
+              <option value="">add component…</option>
+              {#each COMPONENT_SLOTS.filter((slot) => !activeSlots.includes(slot)) as slot}
+                <option value={slot}>{slot}</option>
+              {/each}
+            </select>
+            <button class="quiet" onclick={addComponent} disabled={!addSlot}>add</button>
+          </div>
+        </div>
+      </details>
+
+      <details open={(step.pipeline.loras ?? []).length > 0}>
+        <summary>LoRAs <span class="muted">({(step.pipeline.loras ?? []).length})</span></summary>
+        <div class="section">
+          <LorasEditor bind:pipeline={step.pipeline} />
+        </div>
+      </details>
+
+      <details open={!!step.pipeline.scheduler}>
+        <summary>scheduler</summary>
+        <div class="section grid2">
+          <label for={'sched-' + index}>replace scheduler</label>
+          <input
+            id={'sched-' + index}
+            type="checkbox"
+            class="check"
+            checked={!!step.pipeline.scheduler}
+            onchange={(e) => toggleScheduler(e.currentTarget.checked)}
+          />
+          {#if step.pipeline.scheduler}
+            <label for={'schedtype-' + index}>scheduler_type</label>
+            <div>
+              <input
+                id={'schedtype-' + index}
+                list="scheduler-classes"
+                bind:value={step.pipeline.scheduler.configuration.scheduler_type}
+                placeholder="e.g. FlowMatchEulerDiscreteScheduler"
+              />
+              {#if compatibles.length}
+                <div class="muted hint">
+                  interchangeable with: {compatibles.slice(0, 6).join(', ')}{compatibles.length > 6 ? ', …' : ''}
+                </div>
+              {/if}
+            </div>
+            <label for={'schedargs-' + index}>from_config_args</label>
+            <ArgumentsEditor
+              bind:args={step.pipeline.scheduler.from_config_args}
+              componentType={step.pipeline.scheduler.configuration.scheduler_type ?? ''}
+              target="init"
+            />
+          {/if}
+        </div>
+      </details>
+
+      <details open={!!configuration.cache || !!configuration.attention_backend}>
+        <summary>acceleration</summary>
+        <div class="section grid2">
+          <label for={'cache-' + index}>cache</label>
+          <div class="inline-row">
+            <input
+              id={'cache-' + index}
+              type="checkbox"
+              class="check"
+              checked={!!configuration.cache}
+              onchange={(e) => toggleCache(e.currentTarget.checked)}
+            />
+            {#if configuration.cache}
+              <select bind:value={configuration.cache.type}>
+                {#each CACHE_TYPES as cacheType}<option>{cacheType}</option>{/each}
+              </select>
+              <input
+                class="num"
+                placeholder="threshold"
+                value={configuration.cache.threshold ?? ''}
+                onchange={(e) => setNumber(configuration.cache, 'threshold', e.currentTarget.value)}
+              />
+            {/if}
+          </div>
+
+          <label for={'attn-' + index}>attention backend</label>
+          <input
+            id={'attn-' + index}
+            list="attention-backends"
+            value={configuration.attention_backend ?? ''}
+            placeholder="pipeline default"
+            onchange={(e) => {
+              const v = e.currentTarget.value
+              if (v) configuration.attention_backend = v
+              else delete configuration.attention_backend
+            }}
+          />
+          <datalist id="attention-backends">
+            {#each ATTENTION_BACKENDS as backend}<option value={backend}></option>{/each}
+          </datalist>
+
+          <label for={'pw-' + index}>prompt weighting</label>
+          <input
+            id={'pw-' + index}
+            type="checkbox"
+            class="check"
+            checked={!!configuration.prompt_weighting}
+            onchange={(e) => {
+              if (e.currentTarget.checked) configuration.prompt_weighting = true
+              else delete configuration.prompt_weighting
+            }}
+          />
+        </div>
+      </details>
     {:else}
       <div class="raw">
         <textarea rows="8" bind:value={rawDraft} onchange={applyRaw}></textarea>
@@ -162,6 +344,24 @@
   .grid label { font-weight: 600; color: var(--muted); }
   h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;
        color: var(--muted); margin: 1rem 0 0.5rem; }
+  details { margin-top: 0.9rem; border-top: 1px solid var(--line); padding-top: 0.6rem; }
+  summary {
+    cursor: pointer; font-size: 0.8rem; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted); font-weight: 600;
+    user-select: none;
+  }
+  .section { margin-top: 0.7rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .addrow { display: flex; gap: 0.5rem; max-width: 300px; }
+  .grid2 {
+    display: grid; grid-template-columns: 150px 1fr;
+    gap: 0.5rem 0.7rem; align-items: center;
+  }
+  .grid2 > label { font-weight: 600; color: var(--muted); }
+  .check { width: auto; justify-self: start; }
+  .inline-row { display: flex; align-items: center; gap: 0.6rem; }
+  .inline-row select { max-width: 150px; }
+  .num { max-width: 110px; }
+  .error { color: var(--bad); font-size: 0.8rem; }
   .raw { margin-top: 0.8rem; }
   .raw textarea { font-family: ui-monospace, monospace; font-size: 0.82rem; }
   .error { color: var(--bad); font-size: 0.8rem; margin-top: 0.3rem; }
