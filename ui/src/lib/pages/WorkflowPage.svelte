@@ -55,6 +55,7 @@
   <button class="quiet" onclick={() => (showJson = !showJson)}>
     {showJson ? 'hide' : 'show'} JSON
   </button>
+  <a class="editlink" href={'#/edit/' + name.split('/').map(encodeURIComponent).join('/')}>Edit</a>
   <button onclick={run} disabled={submitting || !workflow}>
     {submitting ? 'Submitting…' : 'Run'}
   </button>
@@ -98,6 +99,7 @@
 <style>
   .head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
   .head h1 { flex: 1; }
+  .editlink { font-weight: 600; }
   .vars {
     display: grid; grid-template-columns: minmax(140px, auto) 1fr;
     gap: 0.5rem 1rem; align-items: start;

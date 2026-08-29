@@ -307,3 +307,27 @@ def test_foreign_origin_requests_are_rejected(server):
             == 200
         )
         assert client.get("/api/health").status_code == 200
+
+
+def test_save_workflow_roundtrip_and_confinement(server, tmp_path):
+    with server(success_script) as client:
+        workflow = valid_workflow("saved")
+        response = client.put("/api/workflows/sub/Saved", json={"workflow": workflow})
+        assert response.status_code == 200
+        assert client.get("/api/workflows/sub/Saved").json()["id"] == "saved"
+        assert "sub/Saved" in client.get("/api/workflows").json()["workflows"]
+
+        # schema-invalid definitions never reach disk
+        response = client.put(
+            "/api/workflows/Broken", json={"workflow": {"steps": "nope"}}
+        )
+        assert response.status_code == 400
+        assert client.get("/api/workflows/Broken").status_code == 404
+
+        # writes stay confined to the workflow directory: a literal ../ is
+        # normalized away before routing; an encoded one reaches the route
+        # and must be refused by path validation
+        for evasion in ("/api/workflows/../escape", "/api/workflows/..%2Fescape"):
+            response = client.put(evasion, json={"workflow": valid_workflow()})
+            assert response.status_code in (400, 404, 405), evasion
+        assert not (tmp_path / "escape.json").exists()

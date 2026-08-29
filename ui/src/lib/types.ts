@@ -44,3 +44,25 @@ export interface WorkflowDefinition {
   steps?: Array<Record<string, unknown>>
   [key: string]: unknown
 }
+
+export interface PipelineParameter {
+  name: string
+  required: boolean
+  default: unknown
+  annotation: string | null
+  doc_type?: string
+  description?: string
+}
+
+export interface PipelineDescription {
+  name: string
+  summary: string
+  accepts_kwargs: boolean
+  parameters: PipelineParameter[]
+}
+
+export interface ValidationResult {
+  valid: boolean
+  error: string | null
+  warnings: string[]
+}

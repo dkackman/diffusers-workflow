@@ -6,6 +6,7 @@
   import WorkflowPage from './lib/pages/WorkflowPage.svelte'
   import JobsPage from './lib/pages/JobsPage.svelte'
   import JobPage from './lib/pages/JobPage.svelte'
+  import EditorPage from './lib/pages/EditorPage.svelte'
 
   let memory = $state<MemoryInfo | null>(null)
 
@@ -30,6 +31,7 @@
   <nav>
     <a href="#/workflows" class:active={route.parts[0] === 'workflows'}>Workflows</a>
     <a href="#/jobs" class:active={route.parts[0] === 'jobs'}>Jobs</a>
+    <a href="#/edit" class:active={route.parts[0] === 'edit'}>New</a>
   </nav>
   <span class="vram muted">
     {#if memory?.info?.gpu_available}
@@ -42,7 +44,9 @@
 </header>
 
 <main>
-  {#if route.parts[0] === 'jobs' && route.parts[1]}
+  {#if route.parts[0] === 'edit'}
+    <EditorPage name={route.parts.slice(1).join('/')} />
+  {:else if route.parts[0] === 'jobs' && route.parts[1]}
     <JobPage jobId={route.parts[1]} />
   {:else if route.parts[0] === 'jobs'}
     <JobsPage />
