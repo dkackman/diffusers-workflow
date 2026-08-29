@@ -12,9 +12,15 @@ class Step:
     Manages execution of pipelines, tasks, or sub-workflows with their configurations.
     """
 
-    def __init__(self, step_definition, default_seed):
-        """Initialize step with its configuration and seed value"""
+    def __init__(self, step_definition, default_seed, workflow_definition=None):
+        """Initialize step with its configuration and seed value.
+
+        workflow_definition, when given, is the original (unsubstituted)
+        definition of the workflow this step belongs to - embedded metadata
+        carries it so a saved image can be reopened as the workflow that
+        made it."""
         self.step_definition = step_definition
+        self.workflow_definition = workflow_definition
         self.iteration = None
 
         # Get step-specific seed or use default if not specified
@@ -103,6 +109,11 @@ class Step:
     def _collect_metadata(self):
         """Collect step metadata for embedding in saved images."""
         metadata = {"step_name": self.name}
+
+        # The whole recipe, not just this step's slice of it - this is what
+        # lets a gallery open an image as the workflow that produced it
+        if self.workflow_definition is not None:
+            metadata["workflow"] = self.workflow_definition
 
         if "pipeline" in self.step_definition:
             pipeline_def = self.step_definition["pipeline"]

@@ -492,6 +492,7 @@ class Result:
         elif content_type in ("image/jpeg", "image/webp"):
             try:
                 import piexif
+                import piexif.helper
 
                 exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}}
                 if hasattr(image, "info") and "exif" in image.info:
@@ -510,6 +511,35 @@ class Result:
                 image.save(output_path)
         else:
             image.save(output_path)
+
+
+def read_embedded_metadata(path):
+    """The generation metadata a saved image carries, or None.
+
+    The read-side mirror of _save_image_with_metadata: the 'parameters' PNG
+    text chunk, or the EXIF UserComment for JPEG/WebP. Returns the parsed
+    dict, or None when the file has no metadata this writer produced.
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            text = getattr(image, "text", {}).get("parameters")
+            if text is None and "exif" in getattr(image, "info", {}):
+                import piexif
+                import piexif.helper
+
+                exif = piexif.load(image.info["exif"])
+                comment = exif.get("Exif", {}).get(piexif.ExifIFD.UserComment)
+                if comment:
+                    text = piexif.helper.UserComment.load(comment)
+        if text is None:
+            return None
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception as e:
+        logger.debug(f"No readable metadata in {path}: {e}")
+        return None
 
 
 def _frames_from_attributes(result):

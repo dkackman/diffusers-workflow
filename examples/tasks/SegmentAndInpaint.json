@@ -16,6 +16,7 @@
             },
             "result": {
                 "content_type": "image/png",
+                "embed_metadata": true,
                 "save": false
             }
         },
@@ -30,6 +31,7 @@
             },
             "result": {
                 "content_type": "image/png",
+                "embed_metadata": true,
                 "save": true
             }
         },
@@ -56,7 +58,8 @@
                 }
             },
             "result": {
-                "content_type": "image/png"
+                "content_type": "image/png",
+                "embed_metadata": true
             }
         }
     ]

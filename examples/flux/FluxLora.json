@@ -38,6 +38,7 @@
             },
             "result": {
                 "content_type": "image/jpeg",
+                "embed_metadata": true,
                 "save": true
             }
         }

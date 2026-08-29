@@ -267,7 +267,7 @@ class Workflow:
                 # Seeds resolve most-specific-first: pipeline > step > workflow
                 step_seed = step_data.get("seed", default_seed)
 
-                step = Step(step_data, step_seed)
+                step = Step(step_data, step_seed, self.workflow_definition)
                 result = step.run(
                     results,
                     pipelines,

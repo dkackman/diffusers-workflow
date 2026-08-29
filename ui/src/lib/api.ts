@@ -2,6 +2,7 @@ import type {
   JobDetail,
   JobEvent,
   JobSummary,
+  GalleryFile,
   MemoryInfo,
   PipelineDescription,
   ValidationResult,
@@ -42,6 +43,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
   memory: () => request<MemoryInfo>('/api/memory'),
+  gallery: (limit = 200) =>
+    request<{ files: GalleryFile[]; total: number }>(`/api/gallery?limit=${limit}`),
+  galleryMetadata: (name: string) =>
+    request<{ name: string; metadata: Record<string, unknown> | null }>(
+      `/api/gallery/${encodeURIComponent(name)}/metadata`,
+    ),
   listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
   describePipeline: (name: string) =>
     request<PipelineDescription>(`/api/pipelines/${name}`),

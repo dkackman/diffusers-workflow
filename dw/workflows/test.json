@@ -23,6 +23,7 @@
             },
             "result": {
                 "content_type": "image/jpeg",
+                "embed_metadata": true,
                 "file_base_name": "test_image"
             }
         }
