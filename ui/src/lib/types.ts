@@ -66,3 +66,12 @@ export interface ValidationResult {
   error: string | null
   warnings: string[]
 }
+
+export interface GalleryFile {
+  name: string
+  url: string
+  kind: 'image' | 'video' | 'audio'
+  size: number
+  mtime: number
+  label: string
+}

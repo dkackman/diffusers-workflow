@@ -38,7 +38,20 @@
         .then((definition) => (workflow = definition as WorkflowDefinition))
         .catch((e) => (error = e.message))
     } else {
-      workflow = emptyWorkflow()
+      // A gallery "open as workflow" hands the definition over in
+      // sessionStorage - one-shot, so a plain "New" stays a blank slate
+      const imported = sessionStorage.getItem('dw-editor-import')
+      if (imported) {
+        sessionStorage.removeItem('dw-editor-import')
+        try {
+          workflow = JSON.parse(imported)
+          status = 'Imported from image metadata'
+        } catch {
+          workflow = emptyWorkflow()
+        }
+      } else {
+        workflow = emptyWorkflow()
+      }
       saveName = ''
     }
   })

@@ -32,7 +32,8 @@
                 }
             },
             "result": {
-                "content_type": "image/jpeg"
+                "content_type": "image/jpeg",
+                "embed_metadata": true
             }
         },
         {
@@ -47,7 +48,8 @@
                 }
             },
             "result": {
-                "content_type": "image/jpeg"
+                "content_type": "image/jpeg",
+                "embed_metadata": true
             }
         }
     ]

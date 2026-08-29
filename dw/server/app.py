@@ -27,6 +27,7 @@ from ..introspection import (
     workflow_argument_warnings,
 )
 from ..workflow import Workflow
+from ..result import read_embedded_metadata
 from .jobs import JobManager, TERMINAL_STATES
 
 logger = logging.getLogger("dw")
@@ -281,6 +282,80 @@ def create_app(
                 return JSONResponse(json.load(file))
         except (OSError, json.JSONDecodeError) as e:
             raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
+
+    # --------------------------------------------------------------- gallery
+
+    MEDIA_KINDS = {
+        ".png": "image",
+        ".jpg": "image",
+        ".jpeg": "image",
+        ".webp": "image",
+        ".gif": "image",
+        ".mp4": "video",
+        ".webm": "video",
+        ".wav": "audio",
+        ".mp3": "audio",
+        ".flac": "audio",
+        ".ogg": "audio",
+    }
+
+    def _output_file(name):
+        """A file inside the output directory, or a 404 - never outside it."""
+        try:
+            path = validate_path(
+                os.path.join(manager.output_dir, name),
+                manager.output_dir,
+                allow_create=False,
+            )
+        except SecurityError as e:
+            raise HTTPException(status_code=404, detail=f"Unknown file: {e}")
+        if not os.path.isfile(path):
+            raise HTTPException(status_code=404, detail="Unknown file")
+        return path
+
+    @app.get("/api/gallery")
+    def gallery(limit: int = 200):
+        """Media files in the output directory, newest first. Stateless by
+        design - the gallery survives server restarts because it reads the
+        directory, not job history."""
+        entries = []
+        try:
+            names = os.listdir(manager.output_dir)
+        except OSError:
+            names = []
+        for name in names:
+            extension = os.path.splitext(name)[1].lower()
+            kind = MEDIA_KINDS.get(extension)
+            if kind is None:
+                continue
+            path = os.path.join(manager.output_dir, name)
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            entries.append(
+                {
+                    "name": name,
+                    "url": f"/outputs/{name}",
+                    "kind": kind,
+                    "size": stat.st_size,
+                    "mtime": stat.st_mtime,
+                    # File names look like '{workflow}-{step}.{i}-{j}.{k}.ext';
+                    # the part before the first dot is a readable label and
+                    # embedded metadata carries the precise identity
+                    "label": name.split(".")[0],
+                }
+            )
+        entries.sort(key=lambda e: e["mtime"], reverse=True)
+        return {"files": entries[: max(0, limit)], "total": len(entries)}
+
+    @app.get("/api/gallery/{name}/metadata")
+    def gallery_metadata(name: str):
+        """Generation metadata embedded in a saved image. 'workflow' inside
+        it, when present, is the full definition the editor can reopen."""
+        path = _output_file(name)
+        metadata = read_embedded_metadata(path)
+        return {"name": name, "metadata": metadata}
 
     # --------------------------------------------------------- memory/health
 

@@ -33,6 +33,7 @@
             },
             "result": {
                 "content_type": "image/png",
+                "embed_metadata": true,
                 "file_base_name": "sdpa_output"
             }
         }

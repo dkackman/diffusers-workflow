@@ -331,3 +331,81 @@ def test_save_workflow_roundtrip_and_confinement(server, tmp_path):
             response = client.put(evasion, json={"workflow": valid_workflow()})
             assert response.status_code in (400, 404, 405), evasion
         assert not (tmp_path / "escape.json").exists()
+
+
+def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
+    from PIL import Image
+    from dw.result import Result, read_embedded_metadata
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+
+        # a plain image, a video stand-in, and a non-media file
+        Image.new("RGB", (4, 4)).save(outputs / "plain-gen.0-0.0.png")
+        (outputs / "clip-gen.0-0.0.mp4").write_bytes(b"\x00" * 10)
+        (outputs / "notes.txt").write_text("not media")
+
+        # an image saved the way the engine saves it, metadata embedded
+        result = Result({"content_type": "image/png", "embed_metadata": True})
+        result.set_metadata(
+            {"step_name": "gen", "workflow": valid_workflow("from_image")}
+        )
+        result._save_image_with_metadata(
+            Image.new("RGB", (4, 4)), str(outputs / "meta-gen.0-0.0.png"), "image/png"
+        )
+
+        listing = client.get("/api/gallery").json()
+        names = {f["name"] for f in listing["files"]}
+        assert names == {
+            "plain-gen.0-0.0.png",
+            "clip-gen.0-0.0.mp4",
+            "meta-gen.0-0.0.png",
+        }
+        kinds = {f["name"]: f["kind"] for f in listing["files"]}
+        assert kinds["clip-gen.0-0.0.mp4"] == "video"
+
+        # metadata endpoint: full workflow comes back for the editor
+        response = client.get("/api/gallery/meta-gen.0-0.0.png/metadata").json()
+        assert response["metadata"]["workflow"]["id"] == "from_image"
+        # an image without metadata answers null, not an error
+        assert (
+            client.get("/api/gallery/plain-gen.0-0.0.png/metadata").json()["metadata"]
+            is None
+        )
+
+        # confinement
+        assert client.get("/api/gallery/..%2Fsecret.png/metadata").status_code == 404
+
+        # the read-side mirror also handles EXIF (jpeg) round trips
+        result._save_image_with_metadata(
+            Image.new("RGB", (4, 4)), str(outputs / "meta.jpg"), "image/jpeg"
+        )
+        assert read_embedded_metadata(str(outputs / "meta.jpg"))["step_name"] == "gen"
+
+
+def test_embed_metadata_carries_the_workflow_definition(tmp_path):
+    """A run with embed_metadata writes an image the gallery can reopen."""
+    from unittest.mock import patch
+    from dw.workflow import Workflow
+    from dw.pipeline_processors.pipeline import Pipeline
+    from dw.result import read_embedded_metadata
+    from tests.test_events import FakePipeline
+
+    workflow_def = valid_workflow("reopenable")
+    workflow_def["steps"][0]["result"] = {
+        "content_type": "image/png",
+        "embed_metadata": True,
+    }
+
+    def mock_load(self, shared_components):
+        self.pipeline = FakePipeline()
+
+    workflow = Workflow(workflow_def, str(tmp_path), "test.json")
+    with patch.object(Pipeline, "load", mock_load):
+        with patch("dw.workflow.empty_device_cache"):
+            workflow.run({}, previous_pipelines={})
+
+    saved = workflow.manifest[0]["files"][0]
+    metadata = read_embedded_metadata(saved)
+    assert metadata["workflow"]["id"] == "reopenable"
+    assert metadata["step_name"] == "gen"
