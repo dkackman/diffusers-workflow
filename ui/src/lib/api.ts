@@ -1,0 +1,58 @@
+import type { JobDetail, JobEvent, JobSummary, MemoryInfo, WorkflowDefinition } from './types'
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, init)
+  if (!response.ok) {
+    let detail = response.statusText
+    try {
+      detail = (await response.json()).detail ?? detail
+    } catch {
+      /* not json */
+    }
+    throw new Error(detail)
+  }
+  return response.json()
+}
+
+export const api = {
+  listWorkflows: () =>
+    request<{ workflow_dir: string; workflows: string[] }>('/api/workflows'),
+  getWorkflow: (name: string) =>
+    request<WorkflowDefinition>(`/api/workflows/${name}`),
+  listJobs: () => request<{ jobs: JobSummary[] }>('/api/jobs'),
+  getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
+  cancelJob: (id: string) =>
+    request<{ id: string; status: string }>(`/api/jobs/${id}/cancel`, { method: 'POST' }),
+  submitJob: (body: {
+    workflow_path?: string
+    workflow?: WorkflowDefinition
+    arguments?: Record<string, unknown>
+  }) =>
+    request<JobDetail>('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  memory: () => request<MemoryInfo>('/api/memory'),
+}
+
+/** Stream a job's events; returns a stop function. The server replays from
+ * `after`, and EventSource reconnects carry Last-Event-ID automatically. */
+export function streamJobEvents(
+  jobId: string,
+  after: number,
+  onEvent: (event: JobEvent) => void,
+  onEnd: () => void,
+): () => void {
+  const source = new EventSource(`/api/jobs/${jobId}/events?after=${after}`)
+  source.onmessage = (message) => onEvent(JSON.parse(message.data))
+  source.onerror = () => {
+    // The stream closes when the job reaches a terminal state; EventSource
+    // then fires error while trying to reconnect against a finished stream
+    if (source.readyState === EventSource.CONNECTING) {
+      source.close()
+      onEnd()
+    }
+  }
+  return () => source.close()
+}

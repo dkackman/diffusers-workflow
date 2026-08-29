@@ -18,6 +18,8 @@ downloads/
 eggs/
 .eggs/
 lib/
+# the SPA's source lives in ui/src/lib - the Python lib/ ignore must not eat it
+!ui/src/lib/
 lib64/
 parts/
 sdist/

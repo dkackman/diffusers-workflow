@@ -1,0 +1,74 @@
+:root {
+  --bg: #14181b;
+  --panel: #1c2226;
+  --panel-2: #232b30;
+  --line: #2e383e;
+  --ink: #e4eaed;
+  --muted: #8fa0a8;
+  --accent: #4cb8cc;
+  --accent-ink: #0b2b31;
+  --good: #63b784;
+  --bad: #e07a6a;
+  --warn: #d9a84e;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f2f5f6;
+    --panel: #ffffff;
+    --panel-2: #eaeff1;
+    --line: #d5dde0;
+    --ink: #1c2428;
+    --muted: #5b6a72;
+    --accent: #0b7285;
+    --accent-ink: #ffffff;
+    --good: #2b7a4b;
+    --bad: #b34031;
+    --warn: #9a6a12;
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; }
+a { color: var(--accent); text-decoration: none; }
+button {
+  background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 6px;
+  padding: 0.45rem 0.9rem; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+}
+button:hover { filter: brightness(1.1); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.quiet {
+  background: transparent; color: var(--muted); border: 1px solid var(--line);
+  font-weight: 500;
+}
+input, textarea, select {
+  background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 0.4rem 0.6rem; font-size: 0.9rem; width: 100%;
+  font-family: inherit;
+}
+input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+code, pre { font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 0.85em; }
+pre {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+  padding: 0.8rem; overflow-x: auto; margin: 0;
+}
+h1 { font-size: 1.25rem; margin: 0; }
+h2 { font-size: 1rem; margin: 0 0 0.6rem; }
+
+.panel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 1rem;
+}
+.chip {
+  display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
+  font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em;
+}
+.chip.queued { background: var(--panel-2); color: var(--muted); }
+.chip.running { background: var(--accent); color: var(--accent-ink); }
+.chip.succeeded { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
+.chip.failed { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
+.chip.cancelled { background: var(--panel-2); color: var(--warn); }
+.muted { color: var(--muted); }

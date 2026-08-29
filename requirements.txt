@@ -86,3 +86,7 @@ black>=24.0.0
 # Optional: For flash attention (requires CUDA dev toolkit)
 # pip install flash_attn
 # ==============================================================================
+
+# HTTP server (python -m dw.serve)
+fastapi>=0.115
+uvicorn[standard]>=0.30
