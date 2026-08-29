@@ -64,13 +64,13 @@ def workflow_names(workflow_dir):
     return sorted(names)
 
 
-def resolve_workflow_name(workflow_dir, name):
+def resolve_workflow_name(workflow_dir, name, allow_create=False):
     """The on-disk path for a workflow name, confined to workflow_dir."""
     if not name.endswith(".json"):
         name = f"{name}.json"
     try:
         return validate_path(
-            os.path.join(workflow_dir, name), workflow_dir, allow_create=False
+            os.path.join(workflow_dir, name), workflow_dir, allow_create=allow_create
         )
     except SecurityError as e:
         raise HTTPException(status_code=404, detail=f"Unknown workflow: {e}")
@@ -247,6 +247,30 @@ def create_app(
         return {
             "workflow_dir": app.state.workflow_dir,
             "workflows": workflow_names(app.state.workflow_dir),
+        }
+
+    @app.put("/api/workflows/{name:path}")
+    def save_workflow(name: str, request: JobRequest):
+        """Write a workflow into the workflow directory. The definition must
+        be schema-valid - the editor validates before saving, and a save that
+        silently wrote a broken file would betray both."""
+        if request.workflow is None:
+            raise HTTPException(status_code=400, detail="Provide an inline workflow")
+        path = resolve_workflow_name(app.state.workflow_dir, name, allow_create=True)
+        candidate = Workflow(copy.deepcopy(request.workflow), manager.output_dir, path)
+        try:
+            candidate.validate()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as file:
+            json.dump(request.workflow, file, indent=2)
+            file.write("\n")
+        logger.info(f"Saved workflow {name} to {path}")
+        return {
+            "name": name,
+            "path": path,
+            "warnings": workflow_argument_warnings(request.workflow),
         }
 
     @app.get("/api/workflows/{name:path}")

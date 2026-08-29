@@ -1,4 +1,12 @@
-import type { JobDetail, JobEvent, JobSummary, MemoryInfo, WorkflowDefinition } from './types'
+import type {
+  JobDetail,
+  JobEvent,
+  JobSummary,
+  MemoryInfo,
+  PipelineDescription,
+  ValidationResult,
+  WorkflowDefinition,
+} from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
@@ -34,6 +42,24 @@ export const api = {
       body: JSON.stringify(body),
     }),
   memory: () => request<MemoryInfo>('/api/memory'),
+  listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
+  describePipeline: (name: string) =>
+    request<PipelineDescription>(`/api/pipelines/${name}`),
+  validate: (workflow: WorkflowDefinition) =>
+    request<ValidationResult>('/api/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workflow }),
+    }),
+  saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
+    request<{ name: string; path: string; warnings: string[] }>(
+      `/api/workflows/${name}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workflow }),
+      },
+    ),
 }
 
 /** Stream a job's events; returns a stop function. The server replays from
