@@ -745,3 +745,55 @@ class TestDtypeConversion:
         arguments = {"dtype": "{auto}"}
         realize_args(arguments)
         assert arguments["dtype"] == "auto"
+
+
+class TestAdapterPlacementOrder:
+    """Test when a pipeline that loads adapters gets its offloading hooks"""
+
+    def load(self, definition_extras, configuration_extras=None):
+        component = MagicMock()
+        definition = {
+            "configuration": {
+                "component_type": make_component_type(component),
+                "offload": "sequential",
+                # A generator would need a real accelerator
+                "no_generator": True,
+                **(configuration_extras or {}),
+            },
+            "from_pretrained_arguments": {"model_name": "test-model"},
+            "arguments": {},
+            **definition_extras,
+        }
+
+        Pipeline(definition, 42, "cuda").load({})
+
+        return [call[0] for call in component.method_calls]
+
+    def test_loras_are_loaded_before_the_offload_hooks(self):
+        # accelerate's offload streams exactly the weights that existed when the hook
+        # was installed - a LoRA loaded afterwards is left out of that bookkeeping and
+        # the step runs on uninitialized weights, producing NaN
+        calls = self.load(
+            {"loras": [{"model_name": "test-lora", "adapter_name": "style"}]}
+        )
+
+        assert calls.index("load_lora_weights") < calls.index(
+            "enable_sequential_cpu_offload"
+        )
+        assert calls.index("set_adapters") < calls.index(
+            "enable_sequential_cpu_offload"
+        )
+
+    def test_ip_adapter_is_loaded_before_the_offload_hooks(self):
+        calls = self.load({"ip_adapter": {"model_name": "test-ip-adapter"}})
+
+        assert calls.index("load_ip_adapter") < calls.index(
+            "enable_sequential_cpu_offload"
+        )
+
+    def test_a_pipeline_without_adapters_is_placed_as_it_loads(self):
+        # Nothing alters the weights after the load, so the placement stays where it
+        # was - inside load_component
+        calls = self.load({})
+
+        assert "enable_sequential_cpu_offload" in calls
