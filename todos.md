@@ -85,3 +85,13 @@ capabilities. Most of the gap was two generic engine limits, not per-model work.
 - **Gated repo.** `Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler` is behind a
   license click-through, accepted on this machine as of 2026-08-18.
   `google/gemma-4-E2B-it` needs nothing.
+
+## introspection
+
+- Task argument discovery needs a design decision. Task handlers read their
+  arguments via dict lookups inside the function body, so their argument sets
+  are not signature-visible the way pipeline/config classes are. Options to
+  weigh: hand-written metadata on the @register_command registry (explicit,
+  another thing to keep in sync) vs a docstring convention the introspection
+  layer parses (cheaper to author, easier to drift). Whichever wins, the
+  editor's task-step forms consume it through the same describe/classes API.

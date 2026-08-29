@@ -324,6 +324,12 @@ def test_save_workflow_roundtrip_and_confinement(server, tmp_path):
         assert response.status_code == 400
         assert client.get("/api/workflows/Broken").status_code == 404
 
+        # delete: removes exactly the named workflow, confined the same way
+        assert client.delete("/api/workflows/sub/Saved").status_code == 200
+        assert client.get("/api/workflows/sub/Saved").status_code == 404
+        assert client.delete("/api/workflows/sub/Saved").status_code == 404
+        assert client.delete("/api/workflows/..%2Fconftest").status_code == 404
+
         # writes stay confined to the workflow directory: a literal ../ is
         # normalized away before routing; an encoded one reaches the route
         # and must be refused by path validation

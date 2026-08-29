@@ -21,11 +21,14 @@ from pydantic import BaseModel, Field
 
 from ..security import validate_path, SecurityError
 from ..introspection import (
+    describe_class,
+    list_classes,
     list_pipelines,
     describe_pipeline,
     list_tasks,
     workflow_argument_warnings,
 )
+from ..schema import load_schema
 from ..workflow import Workflow
 from ..result import read_embedded_metadata
 from .jobs import JobManager, TERMINAL_STATES
@@ -220,6 +223,31 @@ def create_app(
         """Every task command a workflow's task step can name."""
         return list_tasks()
 
+    @app.get("/api/classes")
+    def classes(kind: str):
+        """Class names of one kind (pipelines, models, schedulers,
+        quantization) - the pickers' data source."""
+        try:
+            return {"kind": kind, "classes": list_classes(kind)}
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @app.get("/api/classes/{name:path}")
+    def class_description(name: str, target: str = "init"):
+        """A class's argument schema: target=call reads __call__, init reads
+        __init__, load reads from_pretrained plus the curated loading knobs."""
+        try:
+            return describe_class(name, target=target)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=404, detail=f"Could not load {name}: {e}")
+
+    @app.get("/api/schema")
+    def workflow_schema():
+        """The workflow JSON schema, for schema-aware JSON editing."""
+        return JSONResponse(load_schema("workflow"))
+
     @app.post("/api/validate")
     def validate_workflow(request: JobRequest):
         """Schema-validate a workflow and check its pipeline arguments
@@ -273,6 +301,14 @@ def create_app(
             "path": path,
             "warnings": workflow_argument_warnings(request.workflow),
         }
+
+    @app.delete("/api/workflows/{name:path}")
+    def delete_workflow(name: str):
+        """Remove a workflow file from the workflow directory."""
+        path = resolve_workflow_name(app.state.workflow_dir, name)
+        os.remove(path)
+        logger.info(f"Deleted workflow {name} ({path})")
+        return {"name": name, "deleted": True}
 
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str):

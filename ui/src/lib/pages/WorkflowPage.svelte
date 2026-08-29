@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { Copy, Trash2 } from 'lucide-svelte'
+  import JsonEditor from '../editor/JsonEditor.svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
   import type { WorkflowDefinition } from '../types'
@@ -10,7 +12,7 @@
   let overrides = $state<Record<string, string>>({})
   let error = $state('')
   let submitting = $state(false)
-  let showJson = $state(false)
+  let showJson = $state(true)
 
   $effect(() => {
     overrides = {}
@@ -26,6 +28,22 @@
 
   function display(value: unknown): string {
     return typeof value === 'string' ? value : JSON.stringify(value)
+  }
+
+  function newFrom() {
+    if (!workflow) return
+    sessionStorage.setItem('dw-editor-import', JSON.stringify(workflow))
+    go('edit')
+  }
+
+  async function remove() {
+    if (!window.confirm(`Delete ${name}.json? This removes the file on disk.`)) return
+    try {
+      await api.deleteWorkflow(name)
+      go('workflows')
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+    }
   }
 
   async function run() {
@@ -56,6 +74,12 @@
     {showJson ? 'hide' : 'show'} JSON
   </button>
   <a class="editlink" href={'#/edit/' + name.split('/').map(encodeURIComponent).join('/')}>Edit</a>
+  <button class="quiet withicon" onclick={newFrom} disabled={!workflow} title="open a copy in the editor">
+    <Copy size={14} />New from
+  </button>
+  <button class="quiet icon" onclick={remove} title="delete workflow file">
+    <Trash2 size={14} />
+  </button>
   <button onclick={run} disabled={submitting || !workflow}>
     {submitting ? 'Submitting…' : 'Run'}
   </button>
@@ -92,7 +116,9 @@
   {/if}
 
   {#if showJson}
-    <pre class="json">{JSON.stringify(workflow, null, 2)}</pre>
+    <div class="json">
+      <JsonEditor value={JSON.stringify(workflow, null, 2)} readonly height="520px" />
+    </div>
   {/if}
 {/if}
 
@@ -100,11 +126,13 @@
   .head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
   .head h1 { flex: 1; }
   .editlink { font-weight: 600; }
+  .withicon { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .icon { display: inline-flex; padding: 0.4rem 0.5rem; }
   .vars {
     display: grid; grid-template-columns: minmax(140px, auto) 1fr;
     gap: 0.5rem 1rem; align-items: start;
   }
   .vars label { padding-top: 0.45rem; font-weight: 600; color: var(--muted); }
-  .json { margin-top: 1rem; max-height: 480px; overflow: auto; }
+  .json { margin-top: 1rem; }
   .error { color: var(--bad); }
 </style>
