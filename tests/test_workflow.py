@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from dw.workflow import (
     Workflow,
     workflow_from_file,
+    pipeline_cache_key,
     referenced_result_names,
     release_unreferenced_results,
 )
@@ -103,8 +104,10 @@ class TestSeedResolution:
         """Run create_step_action down the cached-pipeline path"""
         workflow = Workflow({"id": "seeds", "steps": []}, "./output", "")
         cached = Pipeline(step_definition["pipeline"], seed, device, MagicMock())
+        # The cache is keyed by pipeline identity, not step name
+        cache_key = pipeline_cache_key(step_definition["pipeline"])
         return workflow.create_step_action(
-            step_definition, {}, {step_definition["name"]: cached}, seed, device
+            step_definition, {}, {cache_key: cached}, seed, device
         )
 
     def test_generator_is_seeded_with_the_step_seed(self):

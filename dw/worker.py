@@ -6,16 +6,19 @@ Keeps models loaded in GPU memory across multiple runs.
 import os
 import sys
 import queue
-import hashlib
 import logging
+import threading
 import traceback
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dw.workflow import workflow_from_file
-from dw.log_setup import setup_logging
+from dw.workflow import workflow_from_file, Workflow
+from dw.log_setup import setup_logging, set_log_level
+from dw.settings import load_settings, resolve_path
+from dw.security import validate_output_path
+from dw.events import RunContext, WorkflowCancelled
 from dw import get_device_type, empty_device_cache, device_memory_stats
 
 logger = logging.getLogger("dw.worker")
@@ -52,14 +55,16 @@ class WorkflowWorker:
         # exit cleanly instead of blocking forever on the command queue.
         self.parent_pid = os.getppid()
 
-        # Setup logging
-        setup_logging(log_level)
+        # Log to the same file the rest of dw uses - the worker is a separate
+        # process, and ConcurrentRotatingFileHandler exists to share it safely
+        settings = load_settings()
+        setup_logging(resolve_path(settings.log_filename), log_level)
 
-        # Workflow state
-        self.current_workflow = None
-        self.workflow_path = None
-        self.workflow_hash = None
-        self.output_dir = None
+        # Workflow state. Identity (path, or id for inline definitions) decides
+        # when the model cache is dropped wholesale - switching workflows frees
+        # the old one's models before the new one loads
+        self.workflow_identity = None
+        self.pending_shutdown = False
 
         # Pipeline cache - persists across runs
         self.loaded_pipelines = {}
@@ -106,6 +111,12 @@ class WorkflowWorker:
 
                     if command_type == "execute":
                         self._handle_execute(command)
+                        if self.pending_shutdown:
+                            self._handle_shutdown()
+                            break
+                    elif command_type == "cancel":
+                        # Nothing running - a cancel that raced the run's end
+                        logger.debug("Ignoring cancel with no workflow running")
                     elif command_type == "shutdown":
                         self._handle_shutdown()
                         break
@@ -144,91 +155,71 @@ class WorkflowWorker:
         """
         Execute a workflow, reusing loaded models if possible.
 
+        The command names the workflow either by path (workflow_path) or as an
+        inline definition (workflow, with an optional base_dir that relative
+        paths inside it resolve against). Models stay cached between runs of
+        the same workflow identity; pipelines are cached by what they load, so
+        an edited workflow keeps every pipeline whose definition is unchanged.
+        A {"type": "cancel"} command sent during execution stops the run at
+        the next step boundary or diffusion step.
+
         Args:
-            command: Dictionary with workflow_path, arguments, output_dir, log_level
+            command: Dictionary with workflow_path or workflow (+ base_dir),
+                arguments, output_dir, log_level
         """
-        workflow_path = command["workflow_path"]
         arguments = command["arguments"]
         output_dir = command["output_dir"]
         log_level = command.get("log_level", "INFO")
 
         try:
-            # Update logging level if changed
-            setup_logging(log_level)
+            set_log_level(log_level)
 
-            # Check if workflow file changed
-            try:
-                current_hash = self._compute_file_hash(workflow_path)
-            except Exception as e:
-                logger.error(f"Failed to compute workflow file hash: {e}")
-                # If hash computation fails, assume workflow changed to force reload
-                current_hash = None
-                self.workflow_hash = None
+            workflow, identity = self._load_workflow(command, output_dir)
+            workflow.validate()
 
-            workflow_changed = (
-                current_hash != self.workflow_hash
-                or workflow_path != self.workflow_path
-            )
-
-            if workflow_changed:
-                self.result_queue.put(
-                    {
-                        "type": "output",
-                        "message": "Workflow file changed - reloading models...",
-                    }
-                )
-
-                # Cleanup old workflow
-                self._cleanup_all()
-
-                # Load new workflow
-                self.result_queue.put(
-                    {
-                        "type": "output",
-                        "message": f"Loading workflow from {workflow_path}",
-                    }
-                )
-
-                self.current_workflow = workflow_from_file(workflow_path, output_dir)
-                self.workflow_path = workflow_path
-                self.workflow_hash = current_hash
-                self.output_dir = output_dir
-
-                self.result_queue.put(
-                    {
-                        "type": "workflow_loaded",
-                        "workflow_name": self.current_workflow.name,
-                    }
-                )
-            else:
-                self.result_queue.put(
-                    {"type": "output", "message": "Reusing loaded models from cache"}
-                )
-
-                # The workflow itself is unchanged and its models stay
-                # cached, but the caller may have pointed us at a new
-                # output_dir (e.g. via `config set output_dir`) since the
-                # last execute. The cache-hit path skips workflow_from_file,
-                # which is otherwise the only place output_dir gets applied,
-                # so update it explicitly here or results keep silently
-                # saving to the old directory.
-                if output_dir != self.output_dir:
-                    logger.info(
-                        f"Output directory changed: {self.output_dir} -> "
-                        f"{output_dir}"
+            # Switching to a different workflow frees the old one's models
+            # before the new one loads - on one accelerator, holding both is
+            # what runs out of memory
+            if identity != self.workflow_identity:
+                if self.workflow_identity is not None:
+                    self.result_queue.put(
+                        {
+                            "type": "output",
+                            "message": "Workflow changed - releasing cached models...",
+                        }
                     )
-                    self.output_dir = output_dir
-                    self.current_workflow.output_dir = output_dir
+                    self._cleanup_all()
+                self.workflow_identity = identity
 
-            # Execute workflow with cached pipelines
+            self.result_queue.put(
+                {"type": "workflow_loaded", "workflow_name": workflow.name}
+            )
             self.result_queue.put(
                 {
                     "type": "output",
-                    "message": f"Executing workflow: {self.current_workflow.name}",
+                    "message": f"Executing workflow: {workflow.name}",
                 }
             )
 
-            self.current_workflow.run(arguments, self.loaded_pipelines)
+            # Progress events stream to the client as they happen; the watcher
+            # thread keeps the command queue live so cancel works mid-run
+            context = RunContext(
+                on_event=lambda event: self.result_queue.put(
+                    {"type": "progress", **event}
+                )
+            )
+            watcher = self._watch_commands(context)
+            try:
+                workflow.run(arguments, self.loaded_pipelines, context=context)
+            finally:
+                watcher.stop()
+
+            # Drop cached pipelines this run no longer touched - an edited
+            # workflow that removed or redefined a step leaves those behind
+            for cache_key in list(self.loaded_pipelines):
+                if cache_key not in context.touched_pipelines:
+                    logger.info("Evicting cached pipeline no longer in workflow")
+                    del self.loaded_pipelines[cache_key]
 
             self.run_count += 1
 
@@ -244,9 +235,15 @@ class WorkflowWorker:
                     "type": "success",
                     "message": "Workflow completed successfully",
                     "run_count": self.run_count,
+                    "manifest": getattr(workflow, "manifest", []),
                 }
             )
 
+        except WorkflowCancelled:
+            self._cleanup_between_runs()
+            self.result_queue.put(
+                {"type": "cancelled", "message": "Workflow run cancelled"}
+            )
         except Exception as e:
             logger.error(f"Error executing workflow: {e}", exc_info=True)
             self.result_queue.put(
@@ -256,6 +253,69 @@ class WorkflowWorker:
                     "traceback": traceback.format_exc(),
                 }
             )
+
+    def _load_workflow(self, command: Dict[str, Any], output_dir: str):
+        """Build the Workflow a command names, and its cache identity."""
+        if "workflow_path" in command and command["workflow_path"] is not None:
+            workflow_path = command["workflow_path"]
+            workflow = workflow_from_file(workflow_path, output_dir)
+            return workflow, ("path", workflow_path)
+
+        workflow_data = command["workflow"]
+        validated_output = validate_output_path(output_dir, None)
+        # Relative paths inside an inline workflow resolve against base_dir;
+        # the synthetic file_spec only exists to carry that directory
+        base_dir = command.get("base_dir") or os.getcwd()
+        file_spec = os.path.join(base_dir, "__inline__.json")
+        workflow = Workflow(workflow_data, validated_output, file_spec)
+        return workflow, ("inline", workflow_data.get("id"))
+
+    def _watch_commands(self, context):
+        """Watch the command queue during a run so cancel and ping still work.
+
+        Returns an object with stop(); anything that is not cancel, ping or
+        shutdown is refused, since one workflow runs at a time.
+        """
+        stop_event = threading.Event()
+        worker = self
+
+        def watch():
+            while not stop_event.is_set():
+                try:
+                    command = worker.command_queue.get(timeout=0.25)
+                except queue.Empty:
+                    continue
+                command_type = command.get("type")
+                if command_type == "cancel":
+                    logger.info("Cancel requested")
+                    context.cancel()
+                    worker.result_queue.put(
+                        {"type": "output", "message": "Cancelling..."}
+                    )
+                elif command_type == "ping":
+                    worker._handle_ping()
+                elif command_type == "shutdown":
+                    # Stop the run, then let the main loop see the shutdown
+                    context.cancel()
+                    worker.pending_shutdown = True
+                else:
+                    worker.result_queue.put(
+                        {
+                            "type": "error",
+                            "message": f"Cannot handle '{command_type}' while a "
+                            "workflow is running",
+                        }
+                    )
+
+        thread = threading.Thread(target=watch, daemon=True, name="command-watcher")
+        thread.start()
+
+        class _Watcher:
+            def stop(self):
+                stop_event.set()
+                thread.join()
+
+        return _Watcher()
 
     def _handle_shutdown(self):
         """Handle graceful shutdown request."""
@@ -328,7 +388,6 @@ class WorkflowWorker:
         clear_model_cache()
 
         # Reset state
-        self.current_workflow = None
         self.run_count = 0
         self.last_memory_mb = 0
 
@@ -370,29 +429,6 @@ class WorkflowWorker:
         """
         current_ppid = os.getppid()
         return current_ppid != self.parent_pid or current_ppid == 1
-
-    def _compute_file_hash(self, path: str) -> Optional[str]:
-        """
-        Compute SHA256 hash of workflow file to detect changes.
-
-        Args:
-            path: Path to workflow file
-
-        Returns:
-            Hex digest of file hash, or None if computation fails
-
-        Raises:
-            OSError: If file cannot be read
-        """
-        try:
-            with open(path, "rb") as f:
-                return hashlib.sha256(f.read()).hexdigest()
-        except (OSError, IOError) as e:
-            logger.error(f"Error computing file hash for {path}: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error computing file hash for {path}: {e}")
-            raise
 
     def _get_gpu_memory_mb(self) -> float:
         """

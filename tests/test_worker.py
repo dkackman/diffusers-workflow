@@ -212,11 +212,10 @@ def test_worker_with_simple_workflow(worker_process, tmp_path):
 )
 def test_worker_cache_hit_applies_new_output_dir(worker_process, tmp_path):
     """
-    A second execute for the same (unchanged) workflow file is a cache hit -
-    it skips the reload branch entirely. But the caller can still pass a
-    different output_dir (e.g. after `config set output_dir` in the REPL),
-    and results must land there rather than silently continuing to save to
-    the directory the workflow was originally loaded with.
+    A second execute for the same workflow keeps its models cached, but the
+    caller can still pass a different output_dir (e.g. after `config set
+    output_dir` in the REPL), and results must land there rather than
+    silently continuing to save to the first directory.
     """
     cmd_queue, res_queue, worker = worker_process
 
@@ -264,29 +263,24 @@ def test_worker_cache_hit_applies_new_output_dir(worker_process, tmp_path):
         }
     )
 
-    saw_cache_reused = False
-    saw_workflow_loaded_second = False
+    saw_model_release = False
     second_run_count = None
     while True:
         result = res_queue.get(timeout=WORKER_READY_TIMEOUT)
         result_type = result.get("type")
 
-        if result_type == "output" and "Reusing loaded models" in result.get(
+        if result_type == "output" and "releasing cached models" in result.get(
             "message", ""
         ):
-            saw_cache_reused = True
-        elif result_type == "workflow_loaded":
-            saw_workflow_loaded_second = True
+            saw_model_release = True
         elif result_type == "success":
             second_run_count = result["run_count"]
             break
         elif result_type == "error":
             pytest.fail(f"Workflow execution error on second run: {result['message']}")
 
-    # This must genuinely be the cache-hit path, not a reload - otherwise the
-    # test wouldn't exercise the bug at all.
-    assert saw_cache_reused
-    assert not saw_workflow_loaded_second
+    # Same workflow identity - the cached models must NOT have been dropped
+    assert not saw_model_release
     assert second_run_count == 2
 
     # The bug: on a cache hit the workflow kept the OLD output_dir, so
