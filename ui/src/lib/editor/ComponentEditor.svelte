@@ -6,8 +6,14 @@
   let {
     slot,
     component = $bindable(),
+    listId = undefined,
     onremove,
-  }: { slot: string; component: Record<string, any>; onremove: () => void } = $props()
+  }: {
+    slot: string
+    component: Record<string, any>
+    listId?: string
+    onremove: () => void
+  } = $props()
 
   // The schema requires these blocks; older hand-written files may omit one
   $effect(() => {
@@ -62,6 +68,7 @@
         componentType={component.configuration.component_type ?? ''}
         target="load"
         hide={['model_name']}
+        listId={listId}
       />
 
       <label for={slot + '-device'}>device</label>
@@ -77,7 +84,7 @@
       />
 
       <label for={slot + '-quant'}>quantization</label>
-      <QuantizationEditor bind:component />
+      <QuantizationEditor bind:component {listId} />
 
       <label for={slot + '-go'}>group offload</label>
       <div class="gofield">

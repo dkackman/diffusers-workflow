@@ -111,9 +111,11 @@ class Step:
         metadata = {"step_name": self.name}
 
         # The whole recipe, not just this step's slice of it - this is what
-        # lets a gallery open an image as the workflow that produced it
+        # lets a gallery open an image as the workflow that produced it,
+        # and the seed is what makes reopening it reproduce this exact image
         if self.workflow_definition is not None:
             metadata["workflow"] = self.workflow_definition
+            metadata["seed"] = self.default_seed
 
         if "pipeline" in self.step_definition:
             pipeline_def = self.step_definition["pipeline"]

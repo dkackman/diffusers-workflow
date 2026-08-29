@@ -91,6 +91,7 @@ def test_progress_event_sequence():
     start = events[0]
     assert start["workflow"] == "events_test"
     assert start["total_steps"] == 1 and start["steps"] == ["gen0"]
+    assert isinstance(start["seed"], int)
     denoise = [event for event in events if event["event"] == "pipeline_step"]
     assert [event["step"] for event in denoise] == [1, 2, 3]
     assert all(event["total_steps"] == 3 for event in denoise)

@@ -110,6 +110,7 @@ def server(tmp_path):
         manager = JobManager(
             str(tmp_path / "outputs"),
             worker_manager=ScriptedWorkerManager(script),
+            history_path=str(tmp_path / "jobs.sqlite"),
         )
         app = create_app(
             workflow_dir=str(workflow_dir),
@@ -415,3 +416,47 @@ def test_embed_metadata_carries_the_workflow_definition(tmp_path):
     metadata = read_embedded_metadata(saved)
     assert metadata["workflow"]["id"] == "reopenable"
     assert metadata["step_name"] == "gen"
+    # the seed travels with the recipe, so reopening reproduces this image
+    assert isinstance(metadata["seed"], int)
+
+
+def test_job_history_survives_restart_and_reruns(tmp_path):
+    """Finished jobs persist; a new manager lists them and can rerun them."""
+    from dw.server.jobs import JobManager
+
+    history = str(tmp_path / "jobs.sqlite")
+
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=history,
+    )
+    job = manager.submit(workflow=valid_workflow(), arguments={"prompt": "hi"})
+    deadline = time.time() + 5
+    while job.status not in ("succeeded", "failed") and time.time() < deadline:
+        time.sleep(0.02)
+    assert job.status == "succeeded"
+    manager.shutdown()
+
+    # a fresh manager - the restarted server - sees the finished job
+    revived = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=history,
+    )
+    summaries = revived.list()
+    assert [s["id"] for s in summaries] == [job.id]
+    assert summaries[0]["historical"] is True
+
+    detail = revived.get(job.id)
+    assert detail["status"] == "succeeded"
+    assert detail["manifest"] == [{"step": "gen", "files": ["/out/a.png"]}]
+    assert detail["arguments"] == {"prompt": "hi"}
+
+    # and can run it again from the stored spec
+    rerun = revived.rerun(job.id)
+    assert rerun is not None and rerun.id != job.id
+    assert rerun.spec["arguments"] == {"prompt": "hi"}
+    revived.shutdown()
+
+    assert revived.rerun("nonexistent") is None

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Copy, Trash2 } from 'lucide-svelte'
+  import { Copy, Play, SquarePen, Trash2 } from 'lucide-svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
@@ -70,18 +70,39 @@
 <div class="head">
   <a href="#/workflows" class="muted">← workflows</a>
   <h1>{name}</h1>
-  <button class="quiet" onclick={() => (showJson = !showJson)}>
+  <button
+    class="quiet"
+    onclick={() => (showJson = !showJson)}
+    title={showJson ? 'hide the workflow definition' : 'show the workflow definition'}
+  >
     {showJson ? 'hide' : 'show'} JSON
   </button>
-  <a class="editlink" href={'#/edit/' + name.split('/').map(encodeURIComponent).join('/')}>Edit</a>
+  <a
+    class="editlink withicon"
+    href={'#/edit/' + name.split('/').map(encodeURIComponent).join('/')}
+    title="open this workflow in the editor"
+  >
+    <SquarePen size={14} />Edit
+  </a>
   <button class="quiet withicon" onclick={newFrom} disabled={!workflow} title="open a copy in the editor">
     <Copy size={14} />New from
   </button>
-  <button class="quiet icon" onclick={remove} title="delete workflow file">
+  <span class="spacer"></span>
+  <button
+    class="quiet icon danger"
+    onclick={remove}
+    title="delete this workflow file from disk"
+    aria-label="delete this workflow file from disk"
+  >
     <Trash2 size={14} />
   </button>
-  <button onclick={run} disabled={submitting || !workflow}>
-    {submitting ? 'Submitting…' : 'Run'}
+  <button
+    class="withicon"
+    onclick={run}
+    disabled={submitting || !workflow}
+    title="queue this workflow with the arguments below"
+  >
+    <Play size={14} />{submitting ? 'Submitting…' : 'Run'}
   </button>
 </div>
 
@@ -127,6 +148,8 @@
   .head h1 { flex: 1; }
   .editlink { font-weight: 600; }
   .withicon { display: inline-flex; align-items: center; gap: 0.35rem; }
+  a.withicon { gap: 0.3rem; }
+  .spacer { width: 0.8rem; }
   .icon { display: inline-flex; padding: 0.4rem 0.5rem; }
   .vars {
     display: grid; grid-template-columns: minmax(140px, auto) 1fr;

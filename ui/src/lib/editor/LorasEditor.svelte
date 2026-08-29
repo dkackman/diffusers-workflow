@@ -45,7 +45,9 @@
       </button>
     </div>
   {/each}
-  <button class="quiet withicon" onclick={add}><Plus size={14} />add LoRA</button>
+  <button class="quiet withicon" onclick={add} title="add a LoRA adapter to load onto this pipeline">
+    <Plus size={14} />add LoRA
+  </button>
 </div>
 
 <style>

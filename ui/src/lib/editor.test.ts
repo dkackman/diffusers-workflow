@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { coerce, isReference, widgetFor, QUANT_PRESETS } from './editor'
+import {
+  coerce,
+  danglingReferences,
+  isReference,
+  referenceSuggestions,
+  widgetFor,
+  QUANT_PRESETS,
+} from './editor'
 import type { PipelineParameter } from './types'
 
 const param = (overrides: Partial<PipelineParameter>): PipelineParameter => ({
@@ -64,5 +71,77 @@ describe('quantization presets', () => {
         expect(Object.keys(preset!.arguments).length).toBeGreaterThan(0)
       }
     }
+  })
+})
+
+describe('referenceSuggestions', () => {
+  const workflow = {
+    variables: { prompt: 'x', steps: 9 },
+    steps: [
+      { name: 'gen', result: { content_type: 'video/mp4' } },
+      { name: 'refine' },
+      { name: 'last' },
+    ],
+  }
+
+  it('offers variables plus only earlier steps', () => {
+    const forLast = referenceSuggestions(workflow, 2)
+    expect(forLast).toContain('variable:prompt')
+    expect(forLast).toContain('previous_result:gen')
+    expect(forLast).toContain('previous_result:refine')
+    expect(forLast).not.toContain('previous_result:last')
+
+    const forFirst = referenceSuggestions(workflow, 0)
+    expect(forFirst.filter((s) => s.startsWith('previous_result'))).toEqual([])
+  })
+
+  it('adds media suffixes for video-producing steps', () => {
+    const forSecond = referenceSuggestions(workflow, 1)
+    expect(forSecond).toContain('previous_result:gen.frames')
+    expect(forSecond).toContain('previous_result:gen.audio')
+    expect(forSecond).not.toContain('previous_result:refine.frames')
+  })
+})
+
+describe('danglingReferences', () => {
+  it('flags undeclared variables and unknown or later steps', () => {
+    const workflow = {
+      variables: { prompt: 'x' },
+      steps: [
+        {
+          name: 'gen',
+          pipeline: {
+            arguments: { prompt: 'variable:prompt', image: 'previous_result:later' },
+          },
+        },
+        {
+          name: 'later',
+          pipeline: { arguments: { size: 'variable:missing' } },
+        },
+      ],
+    }
+    const problems = danglingReferences(workflow)
+    expect(problems).toHaveLength(2)
+    expect(problems[0]).toContain('previous_result:later')
+    expect(problems[1]).toContain('variable:missing')
+  })
+
+  it('accepts valid references, property paths and nested values', () => {
+    const workflow = {
+      variables: { prompt: 'x' },
+      steps: [
+        { name: 'gen', result: { content_type: 'video/mp4' } },
+        {
+          name: 'use',
+          task: {
+            arguments: {
+              frames: 'previous_result:gen.frames',
+              nested: [{ deep: 'variable:prompt' }],
+            },
+          },
+        },
+      ],
+    }
+    expect(danglingReferences(workflow)).toEqual([])
   })
 })

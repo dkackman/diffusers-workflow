@@ -2,7 +2,10 @@
   import ArgumentsEditor from './ArgumentsEditor.svelte'
   import { QUANT_PRESETS } from '../editor'
 
-  let { component = $bindable() }: { component: Record<string, any> } = $props()
+  let {
+    component = $bindable(),
+    listId = undefined,
+  }: { component: Record<string, any>; listId?: string } = $props()
 
   const current = $derived(component.quantization_config ?? null)
   const configType = $derived(current?.configuration?.config_type ?? '')
@@ -51,6 +54,7 @@
       bind:args={current.arguments}
       componentType={current.configuration.config_type ?? ''}
       target="init"
+      listId={listId}
     />
   {/if}
 </div>

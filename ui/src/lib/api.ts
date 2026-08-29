@@ -30,6 +30,14 @@ export const api = {
     request<WorkflowDefinition>(`/api/workflows/${name}`),
   listJobs: () => request<{ jobs: JobSummary[] }>('/api/jobs'),
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
+  rerunJob: (id: string) =>
+    request<JobDetail>(`/api/jobs/${id}/rerun`, { method: 'POST' }),
+  listTasks: () =>
+    request<{
+      commands: string[]
+      image_processors: string[]
+      video_processors: string[]
+    }>('/api/tasks'),
   cancelJob: (id: string) =>
     request<{ id: string; status: string }>(`/api/jobs/${id}/cancel`, { method: 'POST' }),
   submitJob: (body: {
@@ -43,6 +51,10 @@ export const api = {
       body: JSON.stringify(body),
     }),
   memory: () => request<MemoryInfo>('/api/memory'),
+  health: () =>
+    request<{ status: string; worker_alive: boolean; current_job: string | null }>(
+      '/api/health',
+    ),
   gallery: (limit = 200) =>
     request<{ files: GalleryFile[]; total: number }>(`/api/gallery?limit=${limit}`),
   galleryMetadata: (name: string) =>
