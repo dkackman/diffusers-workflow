@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FolderOpen, X } from 'lucide-svelte'
+  import { FolderOpen, ImageOff, X } from 'lucide-svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
   import type { GalleryFile } from '../types'
@@ -41,7 +41,11 @@
 
   function openAsWorkflow() {
     if (!embeddedWorkflow) return
-    sessionStorage.setItem('dw-editor-import', JSON.stringify(embeddedWorkflow))
+    // Pin the run's seed into the definition so reopening reproduces this
+    // exact image; delete the seed field in the editor to re-randomize
+    const definition = { ...embeddedWorkflow }
+    if (typeof metadata?.seed === 'number') definition.seed = metadata.seed
+    sessionStorage.setItem('dw-editor-import', JSON.stringify(definition))
     go('edit')
   }
 
@@ -63,12 +67,20 @@
 
 {#if error}<p class="muted">Could not read the gallery: {error}</p>{/if}
 {#if !error && files.length === 0}
-  <p class="muted">Nothing generated yet - outputs land here as workflows run.</p>
+  <div class="empty muted">
+    <ImageOff size={36} strokeWidth={1.5} />
+    <p>Nothing generated yet - outputs land here as workflows run.</p>
+  </div>
 {/if}
 
 <div class="grid">
   {#each visible as file (file.name)}
-    <button class="cell" class:active={selected?.name === file.name} onclick={() => select(file)}>
+    <button
+      class="cell"
+      class:active={selected?.name === file.name}
+      onclick={() => select(file)}
+      title="show details{file.kind === 'image' ? ' and generation metadata' : ''}"
+    >
       {#if file.kind === 'image'}
         <img src={file.url} alt={file.name} loading="lazy" />
       {:else if file.kind === 'video'}
@@ -89,12 +101,21 @@
       <span class="muted">{mb(selected.size)} · {day(selected.mtime)}</span>
       <span class="flex"></span>
       {#if embeddedWorkflow}
-        <button class="withicon" onclick={openAsWorkflow}>
+        <button
+          class="withicon"
+          onclick={openAsWorkflow}
+          title="open the embedded workflow definition in the editor"
+        >
           <FolderOpen size={14} />Open as workflow
         </button>
       {/if}
-      <a href={selected.url} target="_blank" class="muted">open file</a>
-      <button class="quiet icon" onclick={() => (selected = null)}><X size={14} /></button>
+      <a href={selected.url} target="_blank" class="muted" title="open the file itself in a new tab">open file</a>
+      <button
+        class="quiet icon"
+        onclick={() => (selected = null)}
+        title="close details"
+        aria-label="close details"
+      ><X size={14} /></button>
     </div>
     <div class="body">
       {#if selected.kind === 'image'}
@@ -109,6 +130,9 @@
         <div class="meta">
           {#if metadata.step_name}<div><span class="muted">step</span> {metadata.step_name}</div>{/if}
           {#if metadata.model_name}<div><span class="muted">model</span> {metadata.model_name}</div>{/if}
+          {#if metadata.seed !== undefined}
+            <div><span class="muted">seed</span> <code>{metadata.seed}</code></div>
+          {/if}
           {#if embeddedWorkflow}
             <div><span class="muted">workflow</span> {embeddedWorkflow.id}</div>
           {:else}
@@ -124,6 +148,10 @@
 
 <style>
   .head { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 1rem; }
+  .empty {
+    display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
+    padding: 3rem 0; opacity: 0.8;
+  }
   .filter { max-width: 220px; margin-left: auto; }
   .grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

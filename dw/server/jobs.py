@@ -8,7 +8,9 @@ from where it left off.
 
 import os
 import copy
+import json
 import queue
+import sqlite3
 import time
 import uuid
 import logging
@@ -18,6 +20,7 @@ from ..repl_worker import WorkerManager
 from ..workflow import workflow_from_file, Workflow
 from ..introspection import workflow_argument_warnings
 from ..security import validate_output_path
+from ..settings import resolve_path
 
 logger = logging.getLogger("dw")
 
@@ -27,6 +30,106 @@ SUCCEEDED = "succeeded"
 FAILED = "failed"
 CANCELLED = "cancelled"
 TERMINAL_STATES = (SUCCEEDED, FAILED, CANCELLED)
+
+
+class JobHistory:
+    """Finished jobs, persisted so the Jobs view survives server restarts.
+
+    Records land at terminal state only - a crash mid-run loses that run's
+    row, which is the right trade for never blocking the runner on disk.
+    Events are not persisted; a historical job is its outcome (status,
+    manifest, error) plus enough of the spec to run it again.
+    """
+
+    def __init__(self, db_path):
+        self.db_path = str(db_path)
+        self._lock = threading.Lock()
+        with self._connect() as connection:
+            connection.execute("""CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT PRIMARY KEY,
+                    workflow TEXT,
+                    status TEXT,
+                    created_at REAL,
+                    started_at REAL,
+                    finished_at REAL,
+                    arguments TEXT,
+                    spec TEXT,
+                    manifest TEXT,
+                    warnings TEXT,
+                    error TEXT
+                )""")
+
+    def _connect(self):
+        return sqlite3.connect(self.db_path, timeout=5)
+
+    def record(self, job):
+        # The spec's workflow_name/warnings are derived; keep what rerun needs
+        rerun_spec = {
+            key: job.spec[key]
+            for key in ("workflow_path", "workflow", "base_dir")
+            if key in job.spec
+        }
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    job.id,
+                    job.workflow_name,
+                    job.status,
+                    job.created_at,
+                    job.started_at,
+                    job.finished_at,
+                    json.dumps(job.spec.get("arguments", {}), default=str),
+                    json.dumps(rerun_spec, default=str),
+                    json.dumps(job.manifest, default=str),
+                    json.dumps(job.warnings, default=str),
+                    job.error,
+                ),
+            )
+
+    def recent(self, limit=200):
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, workflow, status, created_at, started_at, finished_at,"
+                " arguments, spec, manifest, warnings, error"
+                " FROM jobs ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [self._to_detail(row) for row in rows]
+
+    def get(self, job_id):
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT id, workflow, status, created_at, started_at, finished_at,"
+                " arguments, spec, manifest, warnings, error FROM jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+        return self._to_detail(row) if row else None
+
+    @staticmethod
+    def _to_detail(row):
+        def parse(text, fallback):
+            try:
+                return json.loads(text)
+            except (TypeError, ValueError):
+                return fallback
+
+        return {
+            "id": row[0],
+            "workflow": row[1],
+            "status": row[2],
+            "created_at": row[3],
+            "started_at": row[4],
+            "finished_at": row[5],
+            "arguments": parse(row[6], {}),
+            "spec": parse(row[7], {}),
+            "manifest": parse(row[8], []),
+            "warnings": parse(row[9], []),
+            "error": row[10],
+            "traceback": None,
+            "event_count": 0,
+            "historical": True,
+        }
 
 
 class Job:
@@ -95,11 +198,14 @@ class Job:
 class JobManager:
     """Serializes job execution onto the one GPU worker process."""
 
-    def __init__(self, output_dir, log_level="INFO", worker_manager=None):
+    def __init__(
+        self, output_dir, log_level="INFO", worker_manager=None, history_path=None
+    ):
         self.output_dir = validate_output_path(output_dir, None)
         os.makedirs(self.output_dir, exist_ok=True)
         self.log_level = log_level
         self.worker_manager = worker_manager or WorkerManager()
+        self.history = JobHistory(history_path or resolve_path("jobs.sqlite"))
         self.jobs = {}
         self.last_memory = None
         self._queue = queue.Queue()
@@ -160,12 +266,58 @@ class JobManager:
         return job
 
     def get(self, job_id):
-        return self.jobs.get(job_id)
+        """A live Job, or a historical detail dict for a finished past run."""
+        job = self.jobs.get(job_id)
+        if job is not None:
+            return job
+        return self.history.get(job_id)
+
+    def rerun(self, job_id):
+        """Queue a fresh job from a previous job's spec."""
+        job = self.jobs.get(job_id)
+        if job is not None:
+            spec = {
+                key: job.spec[key]
+                for key in ("workflow_path", "workflow", "base_dir")
+                if key in job.spec
+            }
+            arguments = job.spec.get("arguments", {})
+        else:
+            historical = self.history.get(job_id)
+            if historical is None:
+                return None
+            spec = historical["spec"]
+            arguments = historical["arguments"]
+        return self.submit(
+            workflow_path=spec.get("workflow_path"),
+            workflow=spec.get("workflow"),
+            arguments=arguments,
+            base_dir=spec.get("base_dir"),
+        )
 
     def list(self):
         with self._lock:
-            jobs = sorted(self.jobs.values(), key=lambda j: j.created_at)
-        return [job.summary() for job in jobs]
+            live = sorted(self.jobs.values(), key=lambda j: j.created_at)
+        live_ids = {job.id for job in live}
+        summaries = [job.summary() for job in live]
+        for historical in self.history.recent():
+            if historical["id"] not in live_ids:
+                summaries.append(
+                    {
+                        key: historical[key]
+                        for key in (
+                            "id",
+                            "workflow",
+                            "status",
+                            "created_at",
+                            "started_at",
+                            "finished_at",
+                        )
+                    }
+                    | {"historical": True}
+                )
+        summaries.sort(key=lambda summary: summary["created_at"] or 0)
+        return summaries
 
     # ------------------------------------------------------------ cancel/stop
 
@@ -179,7 +331,7 @@ class JobManager:
             if job.status in TERMINAL_STATES:
                 return job.status
             if job.status == QUEUED:
-                job.finish(CANCELLED)
+                self._finish(job, CANCELLED)
                 return job.status
             if job.status == RUNNING and self._current_job_id == job.id:
                 try:
@@ -206,6 +358,13 @@ class JobManager:
                 continue  # cancelled while waiting
             self._run_job(job)
 
+    def _finish(self, job, status, error=None, traceback_text=None):
+        job.finish(status, error=error, traceback_text=traceback_text)
+        try:
+            self.history.record(job)
+        except Exception as e:
+            logger.warning(f"Could not persist job {job.id}: {e}")
+
     def _run_job(self, job):
         with self._worker_lock:
             with self._lock:
@@ -229,16 +388,23 @@ class JobManager:
                     command["workflow"] = job.spec["workflow"]
                     command["base_dir"] = job.spec["base_dir"]
                 self.worker_manager.send_command(command)
-                self._consume_results(job)
+                outcome = self._consume_results(job)
             except Exception as e:
                 logger.error(f"Job {job.id} failed: {e}", exc_info=True)
-                if job.status not in TERMINAL_STATES:
-                    job.finish(FAILED, error=str(e))
+                outcome = (FAILED, str(e), None)
             finally:
+                # Cleared BEFORE the terminal status becomes visible - a
+                # client seeing "succeeded" must find the manager idle
                 with self._lock:
                     self._current_job_id = None
+            if job.status not in TERMINAL_STATES:
+                status, error, traceback_text = outcome
+                self._finish(job, status, error=error, traceback_text=traceback_text)
 
     def _consume_results(self, job):
+        """Read worker messages until the run ends; returns the terminal
+        (status, error, traceback) for _run_job to apply once the manager
+        no longer counts the job as current."""
         while True:
             message = self.worker_manager.get_result()
             message_type = message.get("type")
@@ -254,27 +420,23 @@ class JobManager:
                 job.add_event({"event": "memory", "info": self.last_memory})
             elif message_type == "success":
                 job.manifest = message.get("manifest", [])
-                job.finish(SUCCEEDED)
-                return
+                return (SUCCEEDED, None, None)
             elif message_type == "cancelled":
-                job.finish(CANCELLED)
-                return
+                return (CANCELLED, None, None)
             elif message_type == "error":
-                job.finish(
+                return (
                     FAILED,
-                    error=message.get("message"),
-                    traceback_text=message.get("traceback"),
+                    message.get("message"),
+                    message.get("traceback"),
                 )
-                return
             elif message_type == "worker_crashed":
                 self.worker_manager.worker_active = False
                 self.worker_manager.worker_process = None
-                job.finish(
+                return (
                     FAILED,
-                    error=f"Worker crashed: {message.get('message')}",
-                    traceback_text=message.get("traceback"),
+                    f"Worker crashed: {message.get('message')}",
+                    message.get("traceback"),
                 )
-                return
             else:
                 logger.warning(f"Unknown worker message type: {message_type}")
 

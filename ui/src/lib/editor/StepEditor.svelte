@@ -1,8 +1,19 @@
 <script lang="ts">
-  import { ChevronDown, ChevronRight, ChevronUp, Trash2 } from 'lucide-svelte'
+  import {
+    Boxes,
+    ChevronDown,
+    ChevronRight,
+    ChevronUp,
+    Layers,
+    Timer,
+    Trash2,
+    Zap,
+  } from 'lucide-svelte'
   import ArgumentsEditor from './ArgumentsEditor.svelte'
   import ComponentEditor from './ComponentEditor.svelte'
   import LorasEditor from './LorasEditor.svelte'
+  import MappingEditor from './MappingEditor.svelte'
+  import { api } from '../api'
   import {
     TORCH_DTYPES,
     CONTENT_TYPES,
@@ -17,6 +28,7 @@
     index,
     count,
     pipelines,
+    references = [],
     onremove,
     onmove,
   }: {
@@ -24,9 +36,12 @@
     index: number
     count: number
     pipelines: string[]
+    references?: string[]
     onremove: () => void
     onmove: (delta: number) => void
   } = $props()
+
+  const referenceListId = $derived(`refs-${index}`)
 
   let open = $state(true)
 
@@ -42,7 +57,7 @@
             : 'unknown',
   )
 
-  // Non-pipeline steps are edited as raw JSON for now - everything the
+  // pipeline_reference steps are edited as raw JSON - everything the
   // editor does not understand survives untouched
   let rawDraft = $state('')
   let rawError = $state('')
@@ -61,7 +76,27 @@
   }
 
   $effect(() => {
-    if (kind !== 'pipeline') openRaw()
+    if (kind !== 'pipeline' && kind !== 'task' && kind !== 'workflow') openRaw()
+  })
+
+  // A sub-workflow's argument suggestions are the target's own variables
+  let workflowVariables = $state<Array<{ name: string; hint?: string }>>([])
+  $effect(() => {
+    workflowVariables = []
+    const path = step.workflow?.path
+    if (typeof path === 'string' && path.endsWith('.json') && !path.includes(':')) {
+      api
+        .getWorkflow(path.slice(0, -'.json'.length))
+        .then((definition) => {
+          workflowVariables = Object.entries(definition.variables ?? {}).map(
+            ([name, value]) => ({
+              name,
+              hint: typeof value === 'string' ? value : JSON.stringify(value),
+            }),
+          )
+        })
+        .catch(() => {})
+    }
   })
 
   const configuration = $derived(step.pipeline?.configuration ?? {})
@@ -121,12 +156,21 @@
   }
 </script>
 
+<datalist id={referenceListId}>
+  {#each references as reference}<option value={reference}></option>{/each}
+</datalist>
+
 <div class="panel step">
   <div class="bar">
-    <button class="quiet icon" onclick={() => (open = !open)}>
+    <button
+      class="quiet icon"
+      onclick={() => (open = !open)}
+      title={open ? 'collapse this step' : 'expand this step'}
+      aria-label={open ? 'collapse this step' : 'expand this step'}
+    >
       {#if open}<ChevronDown size={15} />{:else}<ChevronRight size={15} />{/if}
     </button>
-    <input class="name" bind:value={step.name} />
+    <input class="name" bind:value={step.name} title="step name - how later steps reference this one" />
     <span class="kind muted">{kind}</span>
     <span class="flex"></span>
     <button class="quiet icon" disabled={index === 0} onclick={() => onmove(-1)} title="move up">
@@ -197,15 +241,17 @@
       <ArgumentsEditor
         bind:args={step.pipeline.arguments}
         componentType={configuration.component_type ?? ''}
+        listId={referenceListId}
       />
 
       <details open={activeSlots.length > 0}>
-        <summary>components <span class="muted">({activeSlots.length})</span></summary>
+        <summary><Boxes size={13} /> components <span class="muted">({activeSlots.length})</span></summary>
         <div class="section">
           {#each activeSlots as slot (slot)}
             <ComponentEditor
               {slot}
               bind:component={step.pipeline[slot]}
+              listId={referenceListId}
               onremove={() => delete step.pipeline[slot]}
             />
           {/each}
@@ -216,20 +262,25 @@
                 <option value={slot}>{slot}</option>
               {/each}
             </select>
-            <button class="quiet" onclick={addComponent} disabled={!addSlot}>add</button>
+            <button
+              class="quiet"
+              onclick={addComponent}
+              disabled={!addSlot}
+              title="declare the selected component on this pipeline"
+            >add</button>
           </div>
         </div>
       </details>
 
       <details open={(step.pipeline.loras ?? []).length > 0}>
-        <summary>LoRAs <span class="muted">({(step.pipeline.loras ?? []).length})</span></summary>
+        <summary><Layers size={13} /> LoRAs <span class="muted">({(step.pipeline.loras ?? []).length})</span></summary>
         <div class="section">
           <LorasEditor bind:pipeline={step.pipeline} />
         </div>
       </details>
 
       <details open={!!step.pipeline.scheduler}>
-        <summary>scheduler</summary>
+        <summary><Timer size={13} /> scheduler</summary>
         <div class="section grid2">
           <label for={'sched-' + index}>replace scheduler</label>
           <input
@@ -259,13 +310,14 @@
               bind:args={step.pipeline.scheduler.from_config_args}
               componentType={step.pipeline.scheduler.configuration.scheduler_type ?? ''}
               target="init"
+              listId={referenceListId}
             />
           {/if}
         </div>
       </details>
 
       <details open={!!configuration.cache || !!configuration.attention_backend}>
-        <summary>acceleration</summary>
+        <summary><Zap size={13} /> acceleration</summary>
         <div class="section grid2">
           <label for={'cache-' + index}>cache</label>
           <div class="inline-row">
@@ -318,12 +370,43 @@
           />
         </div>
       </details>
+    {:else if kind === 'task'}
+      <div class="grid">
+        <label for={'task-' + index}>command</label>
+        <input
+          id={'task-' + index}
+          list="task-commands"
+          bind:value={step.task.command}
+          placeholder="e.g. upscale"
+        />
+      </div>
+      <h3>arguments</h3>
+      <MappingEditor bind:args={step.task.arguments} listId={referenceListId} />
+    {:else if kind === 'workflow'}
+      <div class="grid">
+        <label for={'wfpath-' + index}>path</label>
+        <input
+          id={'wfpath-' + index}
+          list="workflow-files"
+          bind:value={step.workflow.path}
+          placeholder="Other.json, flux/FluxDev.json or builtin:augment_prompt.json"
+        />
+      </div>
+      <h3>arguments</h3>
+      <MappingEditor
+        bind:args={step.workflow.arguments}
+        suggestions={workflowVariables}
+        listId={referenceListId}
+      />
+      <div class="muted hint">
+        map the child's variables to values or references, e.g. previous_result:gen
+      </div>
     {:else}
       <div class="raw">
         <textarea rows="8" bind:value={rawDraft} onchange={applyRaw}></textarea>
         {#if rawError}<div class="error">{rawError}</div>{/if}
         <div class="muted hint">
-          {kind} steps are edited as JSON for now - changes apply on blur
+          {kind} steps are edited as JSON - changes apply on blur
         </div>
       </div>
     {/if}
@@ -350,6 +433,9 @@
     letter-spacing: 0.05em; color: var(--muted); font-weight: 600;
     user-select: none;
   }
+  summary:hover { color: var(--ink); }
+  details[open] > summary { color: var(--accent); }
+  summary :global(svg) { vertical-align: -2px; margin-right: 2px; }
   .section { margin-top: 0.7rem; display: flex; flex-direction: column; gap: 0.6rem; }
   .addrow { display: flex; gap: 0.5rem; max-width: 300px; }
   .grid2 {

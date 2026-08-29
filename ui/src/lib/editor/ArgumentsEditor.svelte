@@ -8,11 +8,13 @@
     componentType,
     target = 'call',
     hide = [],
+    listId = undefined,
   }: {
     args: Record<string, unknown>
     componentType: string
     target?: 'call' | 'init' | 'load'
     hide?: string[]
+    listId?: string
   } = $props()
 
   let description = $state<PipelineDescription | null>(null)
@@ -78,6 +80,7 @@
         {:else if widget === 'textarea' || widget === 'json'}
           <textarea
             id={'arg-' + key}
+            class:ref={isReference(args[key])}
             rows="3"
             value={displayValue(args[key])}
             onchange={(e) => update(key, e.currentTarget.value)}
@@ -85,6 +88,8 @@
         {:else}
           <input
             id={'arg-' + key}
+            class:ref={isReference(args[key])}
+            list={listId}
             value={displayValue(args[key])}
             onchange={(e) => update(key, e.currentTarget.value)}
           />
@@ -109,7 +114,13 @@
           </option>
         {/each}
       </select>
-      <button class="quiet icon" onclick={add} disabled={!adding}>
+      <button
+        class="quiet icon"
+        onclick={add}
+        disabled={!adding}
+        title="add the selected argument"
+        aria-label="add the selected argument"
+      >
         <Plus size={14} />
       </button>
     </div>

@@ -168,3 +168,87 @@ export function emptyComponent() {
     from_pretrained_arguments: { model_name: '' },
   }
 }
+
+export function emptyTaskStep() {
+  return {
+    name: 'process',
+    task: { command: '', arguments: {} },
+  }
+}
+
+export function emptyWorkflowStep() {
+  return {
+    name: 'delegate',
+    workflow: { path: '', arguments: {} },
+  }
+}
+
+/** Reference completions available to a value input in step `stepIndex`:
+ * every declared variable, and every EARLIER step's result - with media
+ * property suffixes for steps whose result is a video. */
+export function referenceSuggestions(
+  workflow: Record<string, any>,
+  stepIndex: number,
+): string[] {
+  const suggestions: string[] = []
+  for (const name of Object.keys(workflow.variables ?? {})) {
+    suggestions.push(`variable:${name}`)
+  }
+  const steps: Array<Record<string, any>> = workflow.steps ?? []
+  for (const step of steps.slice(0, Math.max(0, stepIndex))) {
+    if (!step.name) continue
+    suggestions.push(`previous_result:${step.name}`)
+    const contentType = step.result?.content_type ?? ''
+    if (contentType.startsWith('video')) {
+      suggestions.push(
+        `previous_result:${step.name}.frames`,
+        `previous_result:${step.name}.audio`,
+      )
+    }
+  }
+  return suggestions
+}
+
+/** References the workflow makes that nothing declares: variable: names
+ * missing from variables, and previous_result: names that match no EARLIER
+ * step. The engine would fail these at run time; the editor says so now. */
+export function danglingReferences(workflow: Record<string, any>): string[] {
+  const problems: string[] = []
+  const variables = new Set(Object.keys(workflow.variables ?? {}))
+  const steps: Array<Record<string, any>> = workflow.steps ?? []
+
+  steps.forEach((step, index) => {
+    const earlier = new Set(
+      steps
+        .slice(0, index)
+        .map((s) => s.name)
+        .filter(Boolean),
+    )
+
+    const scan = (value: unknown) => {
+      if (typeof value === 'string') {
+        if (value.startsWith('variable:')) {
+          const name = value.slice('variable:'.length)
+          if (!variables.has(name)) {
+            problems.push(
+              `Step '${step.name}': variable:${name} - no such variable is declared`,
+            )
+          }
+        } else if (value.startsWith('previous_result:')) {
+          const name = value.slice('previous_result:'.length).split('.')[0]
+          if (!earlier.has(name)) {
+            problems.push(
+              `Step '${step.name}': previous_result:${name} - no earlier step has that name`,
+            )
+          }
+        }
+      } else if (Array.isArray(value)) {
+        value.forEach(scan)
+      } else if (value !== null && typeof value === 'object') {
+        Object.values(value).forEach(scan)
+      }
+    }
+    scan(step)
+  })
+  return problems
+}

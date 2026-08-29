@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Inbox } from 'lucide-svelte'
   import { api } from '../api'
   import type { JobSummary } from '../types'
 
@@ -32,11 +33,19 @@
 {#if error}<p class="muted">Could not reach the server: {error}</p>{/if}
 
 {#if jobs.length === 0}
-  <p class="muted">No jobs yet — pick a workflow and run it.</p>
+  <div class="empty muted">
+    <Inbox size={36} strokeWidth={1.5} />
+    <p>No jobs yet — pick a workflow and run it.</p>
+  </div>
 {:else}
   <div class="panel list">
     {#each jobs as job}
-      <a class="row" href={'#/jobs/' + job.id}>
+      <a
+        class="row"
+        class:historical={job.historical}
+        href={'#/jobs/' + job.id}
+        title={job.historical ? 'finished before this server started - loaded from history' : ''}
+      >
         <span class="chip {job.status}">{job.status}</span>
         <span class="name">{job.workflow}</span>
         <span class="muted">{when(job.started_at)}</span>
@@ -56,5 +65,10 @@
     border-radius: 6px; color: var(--ink);
   }
   .row:hover { background: var(--panel-2); }
+  .row.historical { opacity: 0.72; }
   .name { font-weight: 600; }
+  .empty {
+    display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
+    padding: 3rem 0; opacity: 0.8;
+  }
 </style>

@@ -250,6 +250,7 @@ class Workflow:
                 workflow=workflow_id,
                 total_steps=len(steps),
                 steps=[step_data["name"] for step_data in steps],
+                seed=default_seed,
             )
 
             # Execute each step in sequence

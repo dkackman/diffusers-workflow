@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronDown, ChevronRight, Plus } from 'lucide-svelte'
+  import { ChevronDown, ChevronRight, Plus, X } from 'lucide-svelte'
   import { api } from '../api'
 
   let workflows = $state<string[]>([])
@@ -18,6 +18,25 @@
   }
 
   let collapsed = $state<Record<string, boolean>>(readCollapsed())
+
+  let showHint = $state(
+    (() => {
+      try {
+        return localStorage.getItem('dw-hint-dismissed') !== '1'
+      } catch {
+        return true
+      }
+    })(),
+  )
+
+  function dismissHint() {
+    showHint = false
+    try {
+      localStorage.setItem('dw-hint-dismissed', '1')
+    } catch {
+      /* session-only dismissal */
+    }
+  }
 
   function toggle(group: string) {
     collapsed[group] = !collapsed[group]
@@ -65,9 +84,22 @@
   <p class="muted">Could not load workflows: {error}</p>
 {/if}
 
+{#if showHint}
+  <div class="hintbar muted">
+    <span>Pick a workflow → tweak its arguments → Run. Every image saves its recipe — reopen it from the Gallery.</span>
+    <button class="quiet icon" onclick={dismissHint} title="dismiss" aria-label="dismiss this hint">
+      <X size={13} />
+    </button>
+  </div>
+{/if}
+
 {#each groups as group (group)}
   {#if group}
-    <button class="group" onclick={() => toggle(group)}>
+    <button
+      class="group"
+      onclick={() => toggle(group)}
+      title={isOpen(group) ? 'collapse this folder' : 'expand this folder'}
+    >
       {#if isOpen(group)}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
       {group}/ <span class="muted">({inGroup(group).length})</span>
     </button>
@@ -91,6 +123,13 @@
     border: 1px solid var(--line); border-radius: 6px; color: var(--muted);
   }
   .newlink:hover { border-color: var(--accent); color: var(--accent); }
+  .hintbar {
+    display: flex; align-items: center; gap: 0.8rem;
+    border: 1px dashed var(--line); border-radius: 6px;
+    padding: 0.45rem 0.7rem; font-size: 0.85rem; margin-bottom: 1rem;
+  }
+  .hintbar span { flex: 1; }
+  .hintbar .icon { display: inline-flex; padding: 0.2rem 0.3rem; }
   .group {
     display: flex; align-items: center; gap: 0.35rem;
     background: none; border: none; color: var(--muted); font-weight: 600;

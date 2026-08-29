@@ -9,7 +9,16 @@
   } from 'lucide-svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
-  import { emptyWorkflow, emptyStep } from '../editor'
+  import {
+    coerce,
+    danglingReferences,
+    emptyWorkflow,
+    emptyStep,
+    emptyTaskStep,
+    emptyWorkflowStep,
+    referenceSuggestions,
+    widgetFor,
+  } from '../editor'
   import StepEditor from '../editor/StepEditor.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import type { ValidationResult, WorkflowDefinition } from '../types'
@@ -23,18 +32,38 @@
   let modelClasses = $state<string[]>([])
   let schedulerClasses = $state<string[]>([])
   let quantizationClasses = $state<string[]>([])
+  let taskCommands = $state<string[]>([])
+  let workflowFiles = $state<string[]>([])
   let validation = $state<ValidationResult | null>(null)
   let status = $state('')
   let error = $state('')
   let showJson = $state(false)
   let jsonDraft = $state('')
   let busy = $state(false)
+  let baseline = $state('')
+
+  const serialized = $derived(JSON.stringify($state.snapshot(workflow)))
+  const dirty = $derived(baseline !== '' && serialized !== baseline)
+  const referenceProblems = $derived(danglingReferences($state.snapshot(workflow)))
 
   $effect(() => {
     api.listPipelines().then((r) => (pipelines = r.pipelines))
     api.listClasses('models').then((r) => (modelClasses = r.classes))
     api.listClasses('schedulers').then((r) => (schedulerClasses = r.classes))
     api.listClasses('quantization').then((r) => (quantizationClasses = r.classes))
+    api
+      .listTasks()
+      .then(
+        (r) =>
+          (taskCommands = [
+            ...r.commands,
+            ...r.image_processors,
+            ...r.video_processors,
+          ].sort()),
+      )
+    api
+      .listWorkflows()
+      .then((r) => (workflowFiles = r.workflows.map((name) => `${name}.json`)))
     api.listWorkflows().then((r) => (workflowDir = r.workflow_dir))
     validation = null
     error = ''
@@ -42,7 +71,10 @@
       saveName = name
       api
         .getWorkflow(name)
-        .then((definition) => (workflow = definition as WorkflowDefinition))
+        .then((definition) => {
+          workflow = definition as WorkflowDefinition
+          baseline = JSON.stringify(definition)
+        })
         .catch((e) => (error = e.message))
     } else {
       // A gallery "open as workflow" hands the definition over in
@@ -59,9 +91,39 @@
       } else {
         workflow = emptyWorkflow()
       }
+      baseline = JSON.stringify($state.snapshot(workflow))
       saveName = ''
     }
   })
+
+  // Unsaved edits should survive an accidental tab close
+  $effect(() => {
+    const guard = (event: BeforeUnloadEvent) => {
+      if (dirty) event.preventDefault()
+    }
+    window.addEventListener('beforeunload', guard)
+    return () => window.removeEventListener('beforeunload', guard)
+  })
+
+  function onKeydown(event: KeyboardEvent) {
+    if (!(event.ctrlKey || event.metaKey)) return
+    if (event.key === 's') {
+      event.preventDefault()
+      save()
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      run()
+    }
+  }
+
+  function setVariable(key: string, raw: string) {
+    // Coerce to the default's type - schema validation runs on the
+    // definition itself, so "9" where 9 belongs breaks the workflow
+    workflow.variables[key] = coerce(
+      widgetFor(undefined, workflow.variables[key]),
+      raw,
+    )
+  }
 
   const variables = $derived(Object.keys(workflow.variables ?? {}))
   let newVariable = $state('')
@@ -77,8 +139,14 @@
     delete workflow.variables[key]
   }
 
-  function addStep() {
-    workflow.steps = [...(workflow.steps ?? []), emptyStep()]
+  function addStep(kind: string) {
+    const step =
+      kind === 'task'
+        ? emptyTaskStep()
+        : kind === 'workflow'
+          ? emptyWorkflowStep()
+          : emptyStep()
+    workflow.steps = [...(workflow.steps ?? []), step]
   }
 
   function removeStep(index: number) {
@@ -118,6 +186,7 @@
         saveName,
         $state.snapshot(workflow) as WorkflowDefinition,
       )
+      baseline = JSON.stringify($state.snapshot(workflow))
       status = `Saved to ${result.path}`
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -169,21 +238,49 @@
 <datalist id="quantization-classes">
   {#each quantizationClasses as quantization}<option value={quantization}></option>{/each}
 </datalist>
+<datalist id="task-commands">
+  {#each taskCommands as command}<option value={command}></option>{/each}
+</datalist>
+<svelte:window onkeydown={onKeydown} />
+
+<datalist id="workflow-files">
+  {#each workflowFiles as file}<option value={file}></option>{/each}
+</datalist>
 
 <div class="head">
   <a href="#/workflows" class="muted">← workflows</a>
   <input class="wfid" bind:value={workflow.id} title="workflow id" />
   <span class="flex"></span>
-  <button class="quiet withicon" onclick={toggleJson}>
+  <button
+    class="quiet withicon"
+    onclick={toggleJson}
+    title={showJson ? 'back to the form editor' : 'edit the raw JSON, schema-aware'}
+  >
     <FileJson size={14} />{showJson ? 'form' : 'JSON'}
   </button>
-  <button class="quiet withicon" onclick={validate} disabled={busy}>
+  <button
+    class="quiet withicon"
+    onclick={validate}
+    disabled={busy}
+    title="check against the schema and real pipeline signatures, without running"
+  >
     <CircleCheck size={14} />Validate
   </button>
-  <button class="quiet withicon" onclick={save} disabled={busy}>
-    <Save size={14} />Save
+  <button
+    class="quiet withicon"
+    class:dirtybtn={dirty}
+    onclick={save}
+    disabled={busy}
+    title="validate, then write to the workflow directory under the name below (Ctrl+S)"
+  >
+    <Save size={14} />Save{#if dirty}<span class="dirtydot"></span>{/if}
   </button>
-  <button class="withicon" onclick={run} disabled={busy}>
+  <button
+    class="withicon"
+    onclick={run}
+    disabled={busy}
+    title="validate, then queue this definition as a job - no save needed (Ctrl+Enter)"
+  >
     <Play size={14} />Run
   </button>
 </div>
@@ -194,10 +291,24 @@
 </div>
 
 {#if error}<p class="error">{error}</p>{/if}
-{#if status}<p class="muted">{status}</p>{/if}
+{#if referenceProblems.length}
+  <div class="panel warn-edge refproblems">
+    {#each referenceProblems as problem}
+      <div><TriangleAlert size={13} /> {problem}</div>
+    {/each}
+  </div>
+{/if}
+{#if status}
+  <p class="status"><CircleCheck size={14} />{status}</p>
+{/if}
 
 {#if validation}
-  <div class="panel validation" class:bad={!validation.valid}>
+  <div
+    class="panel validation"
+    class:error-edge={!validation.valid}
+    class:warn-edge={validation.valid && validation.warnings.length > 0}
+    class:good-edge={validation.valid && validation.warnings.length === 0}
+  >
     {#if validation.valid && !validation.warnings.length}
       <span class="ok"><CircleCheck size={14} /> schema-valid, no argument warnings</span>
     {:else if validation.valid}
@@ -222,13 +333,29 @@
     <div class="vars">
       {#each variables as key (key)}
         <label for={'wfvar-' + key}>{key}</label>
-        <input id={'wfvar-' + key} bind:value={workflow.variables[key]} />
-        <button class="quiet icon" onclick={() => removeVariable(key)} title="remove">
+        <input
+          id={'wfvar-' + key}
+          value={typeof workflow.variables[key] === 'object'
+            ? JSON.stringify(workflow.variables[key])
+            : String(workflow.variables[key] ?? '')}
+          onchange={(e) => setVariable(key, e.currentTarget.value)}
+        />
+        <button
+          class="quiet icon"
+          onclick={() => removeVariable(key)}
+          title="remove this variable"
+          aria-label="remove this variable"
+        >
           ×
         </button>
       {/each}
       <input placeholder="new variable name…" bind:value={newVariable} />
-      <button class="quiet withicon addvar" onclick={addVariable} disabled={!newVariable}>
+      <button
+        class="quiet withicon addvar"
+        onclick={addVariable}
+        disabled={!newVariable}
+        title="add this variable to the workflow"
+      >
         <Plus size={14} />add
       </button>
       <span></span>
@@ -241,12 +368,35 @@
       {index}
       count={workflow.steps.length}
       {pipelines}
+      references={referenceSuggestions($state.snapshot(workflow), index)}
       onremove={() => removeStep(index)}
       onmove={(delta) => moveStep(index, delta)}
     />
   {/each}
 
-  <button class="quiet withicon" onclick={addStep}><Plus size={14} />add step</button>
+  <div class="addstep">
+    <button
+      class="quiet withicon"
+      onclick={() => addStep('pipeline')}
+      title="add a step that runs a diffusers pipeline"
+    >
+      <Plus size={14} />pipeline step
+    </button>
+    <button
+      class="quiet withicon"
+      onclick={() => addStep('task')}
+      title="add a utility step - upscaling, segmentation, captioning, frame tools"
+    >
+      <Plus size={14} />task step
+    </button>
+    <button
+      class="quiet withicon"
+      onclick={() => addStep('workflow')}
+      title="add a step that runs another workflow file with mapped arguments"
+    >
+      <Plus size={14} />sub-workflow step
+    </button>
+  </div>
 {/if}
 
 <style>
@@ -264,7 +414,17 @@
   .vars label { font-weight: 600; color: var(--muted); }
   .icon { padding: 0.3rem 0.55rem; }
   .addvar { justify-self: start; }
-  .validation.bad { border-color: var(--bad); }
+  .addstep { display: flex; gap: 0.6rem; }
+  .status {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    color: var(--good); font-size: 0.9rem;
+  }
+  .dirtydot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--warn); margin-left: 0.15rem;
+  }
+  .refproblems { color: var(--warn); font-size: 0.9rem; }
+  .refproblems div { display: flex; align-items: center; gap: 0.4rem; }
   .ok { color: var(--good); display: inline-flex; align-items: center; gap: 0.4rem; }
   .warn { color: var(--warn); display: flex; align-items: center; gap: 0.4rem; }
   .error { color: var(--bad); }

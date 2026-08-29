@@ -14,8 +14,23 @@
   color-scheme: dark;
 }
 
+:root[data-theme='dark'] {
+  --bg: #14181b;
+  --panel: #1c2226;
+  --panel-2: #232b30;
+  --line: #2e383e;
+  --ink: #e4eaed;
+  --muted: #8fa0a8;
+  --accent: #4cb8cc;
+  --accent-ink: #0b2b31;
+  --good: #63b784;
+  --bad: #e07a6a;
+  --warn: #d9a84e;
+  color-scheme: dark;
+}
+
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme='dark']) {
     --bg: #f2f5f6;
     --panel: #ffffff;
     --panel-2: #eaeff1;
@@ -31,7 +46,39 @@
   }
 }
 
+:root[data-theme='light'] {
+  --bg: #f2f5f6;
+  --panel: #ffffff;
+  --panel-2: #eaeff1;
+  --line: #d5dde0;
+  --ink: #1c2428;
+  --muted: #5b6a72;
+  --accent: #0b7285;
+  --accent-ink: #ffffff;
+  --good: #2b7a4b;
+  --bad: #b34031;
+  --warn: #9a6a12;
+  color-scheme: light;
+}
+
 * { box-sizing: border-box; }
+button, a, input, select, textarea, .panel {
+  transition: border-color 0.15s ease, background-color 0.15s ease,
+    color 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+@keyframes dw-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.pulse-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); animation: dw-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot { animation: none; }
+}
 body { margin: 0; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; }
 a { color: var(--accent); text-decoration: none; }
 button {
@@ -66,6 +113,17 @@ h2 { font-size: 1rem; margin: 0 0 0.6rem; }
   display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
   font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em;
 }
+input.ref, textarea.ref {
+  color: var(--accent);
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  font-size: 0.85rem;
+}
+button.danger:hover, a.danger:hover {
+  border-color: var(--bad); color: var(--bad); filter: none;
+}
+.panel.error-edge { border-left: 3px solid var(--bad); }
+.panel.warn-edge { border-left: 3px solid var(--warn); }
+.panel.good-edge { border-left: 3px solid var(--good); }
 .chip.queued { background: var(--panel-2); color: var(--muted); }
 .chip.running { background: var(--accent); color: var(--accent-ink); }
 .chip.succeeded { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }

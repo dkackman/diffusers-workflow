@@ -157,6 +157,20 @@ def create_app(
         job = manager.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
+        # a historical job is already a detail dict; a live one renders itself
+        return job if isinstance(job, dict) else job.detail()
+
+    @app.post("/api/jobs/{job_id}/rerun", status_code=201)
+    def rerun_job(job_id: str):
+        """Queue a fresh job from a previous job's stored spec."""
+        try:
+            job = manager.rerun(job_id)
+        except (ValueError, SecurityError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if job is None:
+            raise HTTPException(status_code=404, detail="Unknown job")
         return job.detail()
 
     @app.post("/api/jobs/{job_id}/cancel")
@@ -174,6 +188,10 @@ def create_app(
         job = manager.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
+        if isinstance(job, dict):
+            # historical jobs carry no event log - an immediately-closed
+            # stream lets clients treat them uniformly
+            return StreamingResponse(iter(()), media_type="text/event-stream")
 
         last_event_id = request.headers.get("last-event-id")
         if last_event_id is not None:
