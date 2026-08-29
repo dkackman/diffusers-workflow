@@ -1,0 +1,206 @@
+{
+    "id": "MarmotCroonsBench",
+    "description": "Iteration bed for MarmotCroons: the same pipeline, the same chain and the same enhancer, against a 15.0 second slice of the song instead of all 81.54, which match_audio plans as exactly three 124-frame segments - 124 + 118 + 118 = 360 frames - so there are two real seams to judge continuity on for roughly a sixth of the wall time. Segment files are kept. The performance knobs worth sweeping are variables so a run can set them from the command line without editing this file: low_cpu_mem_usage decides whether the offloaded transformer's CPU-side weights are page-locked once at load or re-pinned on every block onload, use_stream and num_blocks_per_group trade prefetch overlap against resident VRAM (diffusers forces the group size to 1 whenever a stream is used), attention_backend selects the SDPA kernel, and cache_threshold sets how readily the first-block cache skips a step - the biggest remaining speed lever, since a skipped step costs about half a computed one.",
+    "variables": {
+        "idea": "Task: Ref2VA. Duration: 5.17 seconds. Continuity: continuation. Idea: this marmot croons the slow jazz song in a smokey club. <Picture 1> is a subject and setting reference: it establishes who the marmot (S1) is - its fur, face, build and the microphone it sings into - and what the club looks like, its stage dressing, haze and warm palette. Its retention is partially_copy: it carries identity, wardrobe, set and palette, and it carries nothing about camera position, framing or shot size, so it is cited as a subject reference rather than as a keyframe or composition anchor. <Audio 1> is the recording of the song and its retention is partially_copy: it is reproduced as the video's own soundtrack, and the marmot (S1) sings it at the microphone with its mouth, jaw, throat and body moving in synchronisation with the recording, phrasing with the melody and pausing only where the singing pauses. <Video 1>, where it is supplied, is the tail of the clip immediately before this one and the same unbroken take. Its retention is fully_preserved and it alone sets how this clip opens: the framing, shot size, camera position, the marmot's pose and the lighting of the first frame are the ones the last frame of <Video 1> holds, carried straight on without a cut. Where <Video 1> is supplied it is <Video 1>, not <Picture 1>, that the opening composition comes from. Write this as one continuous static-to-slow-drifting shot that is a stretch out of the middle of a much longer performance: it is already underway at the first frame, it neither introduces the song nor resolves it, and it ends mid-phrase with the marmot still singing.",
+        "enhancer_model_name": "Qwen/Qwen3-VL-4B-Instruct",
+        "enhancer_device": "cuda",
+        "enhancer_max_new_tokens": 1600,
+        "image": {
+            "location": "marmot.jpg"
+        },
+        "subject": "marmot.jpg",
+        "song": "chia_25_40.wav",
+        "num_frames": 124,
+        "carry_frames": 72,
+        "trim_frames": 6,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "low_cpu_mem_usage": true,
+        "use_stream": true,
+        "record_stream": true,
+        "num_blocks_per_group": 1,
+        "attention_backend": "native",
+        "cache_threshold": 0.1
+    },
+    "steps": [
+        {
+            "name": "prompt_enhancer",
+            "release_models": true,
+            "workflow": {
+                "path": "builtin:h3_context_ir.json",
+                "arguments": {
+                    "prompt": "variable:idea",
+                    "image": "variable:image",
+                    "device": "variable:enhancer_device",
+                    "model_name": "variable:enhancer_model_name",
+                    "max_new_tokens": "variable:enhancer_max_new_tokens",
+                    "keep_preamble": false
+                }
+            },
+            "result": {
+                "content_type": "text/plain"
+            }
+        },
+        {
+            "name": "song_driven_performance",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "cache": {
+                        "type": "first_block",
+                        "threshold": "variable:cache_threshold"
+                    },
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer_ref": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer_ref": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": "variable:num_blocks_per_group",
+                                "use_stream": "variable:use_stream",
+                                "record_stream": "variable:record_stream",
+                                "low_cpu_mem_usage": "variable:low_cpu_mem_usage"
+                            }
+                        },
+                        "text_encoder.model": {
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    },
+                    "vae": {
+                        "enable_tiling": true
+                    },
+                    "attention_backend": "variable:attention_backend"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "ref2va"
+                },
+                "chain": {
+                    "match_audio": true,
+                    "continuity": "last_segment",
+                    "segment_argument": "references",
+                    "carry_frames": "variable:carry_frames",
+                    "carry_audio": false,
+                    "trim_frames": "variable:trim_frames",
+                    "fps": 24,
+                    "frame_snap": {
+                        "modulus": 17,
+                        "remainder": 5,
+                        "min_frames": 124,
+                        "max_frames": 345
+                    },
+                    "save_segments": true,
+                    "keep_segments": true
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "previous_result:prompt_enhancer",
+                    "references": [
+                        {
+                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+                            "from_file": "variable:subject"
+                        },
+                        {
+                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+                            "from_file": "variable:song"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

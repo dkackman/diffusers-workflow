@@ -1032,7 +1032,10 @@ def load_loras(loras, pipeline):
         logger.info(
             f"Setting adapter weights: {list(zip(adapter_names, adapter_weights))}"
         )
-        pipeline.set_adapters(adapter_names, adapter_weights=adapter_weights)
+        # Positionally - diffusers' mixin calls the second parameter 'adapter_weights'
+        # while custom pipelines that delegate to the model (ostris/Krea2OstrisEdit)
+        # call it 'weights'
+        pipeline.set_adapters(adapter_names, adapter_weights)
 
 
 def load_ip_adapter(ip_adapter_definition, pipeline):
