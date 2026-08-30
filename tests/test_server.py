@@ -105,6 +105,8 @@ def server(tmp_path):
     workflow_dir = tmp_path / "workflows"
     workflow_dir.mkdir()
     (workflow_dir / "Basic.json").write_text(json.dumps(valid_workflow("basic")))
+    prompt_dir = tmp_path / "prompts"
+    prompt_dir.mkdir()
 
     def make(script):
         manager = JobManager(
@@ -116,6 +118,7 @@ def server(tmp_path):
             workflow_dir=str(workflow_dir),
             output_dir=str(tmp_path / "outputs"),
             job_manager=manager,
+            prompt_dir=str(prompt_dir),
         )
         return TestClient(app)
 
@@ -497,8 +500,23 @@ def test_workflow_listing_carries_details(server):
             "kinds": ["image"],
             "variables": 1,
             "description": "Renders a small test image.",
+            "prompt_refs": [],
         }
         assert listing["details"]["Basic"]["kinds"] == []
+
+
+def test_workflow_details_name_their_prompt_references(server):
+    """The listing says which stored prompts a workflow leans on - deleting
+    a prompt warns from exactly this."""
+    with server(success_script) as client:
+        workflow = valid_workflow("leaning")
+        workflow["variables"] = {"prompt": "prompt:minimax/fox"}
+        workflow["steps"][0]["pipeline"]["arguments"]["negative"] = "prompt:scenic"
+        client.put("/api/workflows/Leaning", json={"workflow": workflow})
+
+        details = client.get("/api/workflows").json()["details"]
+        assert details["Leaning"]["prompt_refs"] == ["minimax/fox", "scenic"]
+        assert details["Basic"]["prompt_refs"] == []
 
 
 def test_sse_resumes_from_last_event_id_header(server):
@@ -941,3 +959,151 @@ class TestDiffusersUpdate:
             refused = client.post("/api/system/diffusers/update")
             assert refused.status_code == 409
             assert "running or queued" in refused.json()["detail"]
+
+
+class TestPromptLibrary:
+    """CRUD over the prompt directory, mirroring workflow browsing:
+    subfolder round trips, schema validation before disk, confinement."""
+
+    def test_save_prompt_roundtrip_and_confinement(self, server, tmp_path):
+        with server(success_script) as client:
+            prompt = {
+                "text": "a red fox at dawn",
+                "description": "test prompt",
+                "intended_model": "minimax-h3",
+                "tags": ["wildlife"],
+            }
+            response = client.put("/api/prompts/minimax/Fox", json={"prompt": prompt})
+            assert response.status_code == 200
+            assert (
+                client.get("/api/prompts/minimax/Fox").json()["text"]
+                == "a red fox at dawn"
+            )
+
+            listing = client.get("/api/prompts").json()
+            assert "minimax/Fox" in listing["prompts"]
+            detail = listing["details"]["minimax/Fox"]
+            assert detail["description"] == "test prompt"
+            assert detail["intended_model"] == "minimax-h3"
+            assert detail["tags"] == ["wildlife"]
+            # the text rides along - the editors show it as the tooltip
+            # wherever a prompt: reference stands in for it
+            assert detail["text"] == "a red fox at dawn"
+
+            # schema-invalid definitions never reach disk
+            response = client.put(
+                "/api/prompts/Broken", json={"prompt": {"description": "no text"}}
+            )
+            assert response.status_code == 400
+            assert client.get("/api/prompts/Broken").status_code == 404
+
+            # text that is itself a reference is refused - it would be
+            # resolved again at run time
+            response = client.put(
+                "/api/prompts/Sneaky",
+                json={"prompt": {"text": "previous_result:gen"}},
+            )
+            assert response.status_code == 400
+
+            # delete: removes exactly the named prompt, confined the same way
+            assert client.delete("/api/prompts/minimax/Fox").status_code == 200
+            assert client.get("/api/prompts/minimax/Fox").status_code == 404
+            assert client.delete("/api/prompts/minimax/Fox").status_code == 404
+
+            # writes stay confined to the prompt directory
+            for evasion in ("/api/prompts/../escape", "/api/prompts/..%2Fescape"):
+                response = client.put(evasion, json={"prompt": {"text": "t"}})
+                assert response.status_code in (400, 404, 405), evasion
+            assert not (tmp_path / "escape.json").exists()
+
+    def test_unreferenceable_names_are_refused(self, server, tmp_path):
+        # A save the API accepted but no 'prompt:' reference could ever
+        # load would be a trap - the name rule is enforced here too
+        with server(success_script) as client:
+            for name in ("a/b/c", "My%20Prompt", ".hidden"):
+                response = client.put(
+                    f"/api/prompts/{name}", json={"prompt": {"text": "t"}}
+                )
+                assert response.status_code == 400, name
+                assert "prompt" in response.json()["detail"].lower()
+
+            # a stray file already on disk that breaks the rule is not listed
+            deep = tmp_path / "prompts" / "a" / "b"
+            deep.mkdir(parents=True)
+            (deep / "c.json").write_text(json.dumps({"text": "orphan"}))
+            assert "a/b/c" not in client.get("/api/prompts").json()["prompts"]
+
+    def test_prompt_schema_is_served(self, server):
+        with server(success_script) as client:
+            schema = client.get("/api/prompt-schema").json()
+            assert "text" in schema["properties"]
+            assert schema["required"] == ["text"]
+
+
+class TestEnhance:
+    """The enhance endpoint queues an ordinary job whose single saved text
+    file is the return channel."""
+
+    def test_presets_are_listed(self, server):
+        with server(success_script) as client:
+            presets = client.get("/api/enhancers").json()["presets"]
+            keys = {p["key"] for p in presets}
+            assert "h3" in keys
+            for preset in presets:
+                assert preset["label"]
+                assert preset["default_model"]
+                assert isinstance(preset["models"], list)
+
+    def test_enhance_queues_a_job_that_delegates_to_the_builtin(self, server):
+        with server(success_script) as client:
+            response = client.post(
+                "/api/enhance", json={"idea": "a cat in the rain", "preset": "h3"}
+            )
+            assert response.status_code == 201
+            job = response.json()
+            assert wait_for_status(client, job["id"], ["succeeded"])
+
+            spec = client.get(f"/api/jobs/{job['id']}").json()
+            assert spec["workflow"].startswith("enhance_")
+
+    def test_enhance_workflows_save_their_text(self):
+        from dw.server.enhancers import build_enhance_workflow
+
+        for preset in ("h3", "t2i"):
+            definition = build_enhance_workflow(preset, "an idea")
+            step = definition["steps"][0]
+            assert step["result"] == {"content_type": "text/plain", "save": True}
+
+        # ids are unique so output files never collide
+        first = build_enhance_workflow("h3", "an idea")["id"]
+        second = build_enhance_workflow("h3", "an idea")["id"]
+        assert first != second
+
+        # the h3 preset delegates to the builtin enhancer workflow
+        step = build_enhance_workflow("h3", "an idea")["steps"][0]
+        assert step["workflow"]["path"] == "builtin:h3_context_ir.json"
+        assert step["workflow"]["arguments"]["prompt"] == "an idea"
+
+    def test_enhance_workflows_are_schema_valid(self):
+        from dw.schema import load_schema, validate_data
+        from dw.server.enhancers import build_enhance_workflow
+
+        for preset in ("h3", "t2i"):
+            definition = build_enhance_workflow(
+                preset, "an idea", model_name="Qwen/Qwen2.5-1.5B-Instruct"
+            )
+            status, message = validate_data(definition, load_schema("workflow"))
+            assert status, message
+
+    def test_an_unknown_preset_is_a_client_error(self, server):
+        with server(success_script) as client:
+            response = client.post(
+                "/api/enhance", json={"idea": "an idea", "preset": "nope"}
+            )
+            assert response.status_code == 400
+            assert "Unknown enhancer preset" in response.json()["detail"]
+
+    def test_an_empty_idea_is_a_client_error(self, server):
+        with server(success_script) as client:
+            response = client.post("/api/enhance", json={"idea": "  ", "preset": "h3"})
+            assert response.status_code == 400

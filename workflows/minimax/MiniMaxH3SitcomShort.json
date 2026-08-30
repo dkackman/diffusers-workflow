@@ -1,0 +1,350 @@
+{
+    "id": "MiniMaxH3SitcomShort",
+    "description": "A digital short built the way television is built: from cuts, not from one long take. Chained generation degrades with length - every segment conditions on the previous segment's output, so artifacts compound and identity drifts. A scene cut resets that completely: each shot here is generated fresh from the same two character portraits, so shot five is exactly as clean as shot one and the scene can run as long as the script does. Two Z-Image steps draw the cast (the second reuses the first's loaded pipeline - identical configurations share one model - and 'release_pipeline' frees it before the video model loads). The first shot loads MiniMax-H3 once; the remaining shots are 'pipeline_reference' steps that rerun it with a new prompt, references and length - the tag shot runs 141 frames where the others run 124, since length is per-run. Character consistency across cuts comes from referencing the same portraits in every shot; voice consistency comes from repeating each character's voice description verbatim in every prompt. The soundscape writes the laugh track. A final 'concat_videos' task is the editor, splicing the shots into one episode - hard cuts, no trims, no seams to hide, because nothing was carried between them.",
+    "variables": {
+        "howie_portrait_prompt": "a 3/4-length studio portrait of a wiry man in his early 30s with short curly dark hair and expressive eyebrows, wearing a mustard-yellow sweater vest over a white button-down shirt, standing in a 1990s multi-camera sitcom apartment set with a sagging olive-green couch and a brick wall behind him, warm even studio lighting, sharp focus, photographic",
+        "pat_portrait_prompt": "a 3/4-length studio portrait of a heavyset man in his mid 40s with a shaved head and a calm, heavy-lidded expression, wearing an open gray flannel shirt over a dark t-shirt, standing in a 1990s multi-camera sitcom apartment set with a sagging olive-green couch and a brick wall behind him, warm even studio lighting, sharp focus, photographic",
+        "shot_1_cold_open": "subject_definitions:\n<Subject 1> is the wiry man in <Picture 1>, early 30s, short curly dark hair, mustard-yellow sweater vest over a white button-down shirt.\n<Subject 2> is the heavyset man in <Picture 2>, mid 40s, shaved head, open gray flannel shirt over a dark t-shirt.\n\nsummary:\n[two image references] The target video is one shot of a 1990s multi-camera sitcom: <Subject 2> reads on the couch while <Subject 1> enters holding an empty ice cream carton and confronts him, in front of a live studio audience.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, hair, sweater vest and proportions of <Picture 1> are kept exactly, with the body newly animated to walk and speak.\n<Subject 2> (appears in [Shot 1]): fully_preserved - the face, head, flannel shirt and proportions of <Picture 2> are kept exactly, with the body newly posed seated and reading.\n\ndetailed_description:\nThe target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A wide shot frames a living room set: a sagging olive-green couch centre frame in front of a brick wall with a window onto a painted city backdrop. <Subject 2> sits at the right end of the couch, ankles crossed, reading a magazine and not looking up. <Subject 1> strides in from frame left holding an empty pint-sized ice cream carton at chest height, stops beside the couch, holds the carton out toward <Subject 2> and turns it upside down to show it is empty. <Subject 1> (S1), a fast, nasal, high-pitched male tenor voice, tight with disbelief, says <d>[English] Okay. Who finished the pistachio?</d> <Subject 2> keeps reading and does not react. A live studio audience laughs warmly as the carton turns over. The camera holds a static wide shot throughout, level with the set, the way a sitcom master camera holds a scene.\n\noverall_soundscape:\nA bright, close television-studio room tone. Quick footsteps on a hollow stage floor as <Subject 1> enters, the papery rattle of the empty carton as it turns over, a soft page turn from the couch, and a warm burst of live studio-audience laughter that begins as the carton flips and settles under the end of the shot.\n\nnon_diegetic_music:\nNone.",
+        "shot_2_pat_deflects": "subject_definitions:\n<Subject 1> is the heavyset man in <Picture 1>, mid 40s, shaved head, calm and heavy-lidded, open gray flannel shirt over a dark t-shirt.\n\nsummary:\n[image reference] The target video is one close-up shot of a 1990s multi-camera sitcom: <Subject 1> answers an accusation without looking up from his magazine, in front of a live studio audience.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, head, flannel shirt and proportions of <Picture 1> are kept exactly, with the head and jaw newly animated to speak.\n\ndetailed_description:\nThe target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A medium close-up frames <Subject 1> from the chest up, seated at the end of an olive-green couch in front of a brick wall, holding an open magazine just below the frame line and reading it. He does not look up. <Subject 1> (S1), a flat, low, unhurried male baritone voice, completely unbothered, says <d>[English] Technically? The freezer has a defrost cycle.</d> On the last word he turns a page. A live studio audience laughs as the line lands. The camera holds a static close-up throughout, the way a sitcom cross-shot camera holds a speaker.\n\noverall_soundscape:\nA bright, close television-studio room tone. A soft page turn, the faint creak of couch springs as <Subject 1> settles, and a rolling wave of live studio-audience laughter that starts on the last word of the line and carries under the end of the shot.\n\nnon_diegetic_music:\nNone.",
+        "shot_3_howie_incredulous": "subject_definitions:\n<Subject 1> is the wiry man in <Picture 1>, early 30s, short curly dark hair, expressive eyebrows, mustard-yellow sweater vest over a white button-down shirt.\n\nsummary:\n[image reference] The target video is one close-up shot of a 1990s multi-camera sitcom: <Subject 1> repeats an absurd excuse back in disbelief, holding up an empty ice cream carton, in front of a live studio audience.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, hair, sweater vest and proportions of <Picture 1> are kept exactly, with the head, jaw and arm newly animated to speak and gesture.\n\ndetailed_description:\nThe target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A medium close-up frames <Subject 1> from the chest up, standing beside a couch in front of a brick wall, an empty pint-sized ice cream carton raised in one hand at head height. His eyebrows are high and his mouth is half open before he speaks. <Subject 1> (S1), a fast, nasal, high-pitched male tenor voice, tight with disbelief, cracking upward on the last word, says <d>[English] The defrost cycle used a spoon?</d> He shakes the empty carton once on the word spoon. A live studio audience erupts in a big laugh as the line lands. The camera holds a static close-up throughout, the way a sitcom cross-shot camera holds a speaker.\n\noverall_soundscape:\nA bright, close television-studio room tone. The hollow papery rattle of the empty carton as it shakes, and a big rising wave of live studio-audience laughter that breaks on the word spoon and rolls under the end of the shot.\n\nnon_diegetic_music:\nNone.",
+        "shot_4_pat_button": "subject_definitions:\n<Subject 1> is the heavyset man in <Picture 1>, mid 40s, shaved head, calm and heavy-lidded, open gray flannel shirt over a dark t-shirt.\n\nsummary:\n[image reference] The target video is one close-up shot of a 1990s multi-camera sitcom: <Subject 1> shrugs off the accusation with a deadpan line, in front of a live studio audience.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, head, flannel shirt and proportions of <Picture 1> are kept exactly, with the head, jaw and shoulders newly animated to speak and shrug.\n\ndetailed_description:\nThe target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A medium close-up frames <Subject 1> from the chest up, seated at the end of an olive-green couch in front of a brick wall, the magazine now closed in his lap. He looks up for the first time, holds a beat of eye contact just past the lens, and gives one slow shrug. <Subject 1> (S1), a flat, low, unhurried male baritone voice, perfectly deadpan, says <d>[English] I don't know its life.</d> He goes back to the magazine. A live studio audience gives a big laugh with scattered applause as he looks back down. The camera holds a static close-up throughout, the way a sitcom cross-shot camera holds a speaker.\n\noverall_soundscape:\nA bright, close television-studio room tone. The soft slap of the magazine reopening, a couch-spring creak under the shrug, and a big wave of live studio-audience laughter with a few claps in it that breaks after the line and rolls under the end of the shot.\n\nnon_diegetic_music:\nNone.",
+        "shot_5_tag": "subject_definitions:\n<Subject 1> is the wiry man in <Picture 1>, early 30s, short curly dark hair, mustard-yellow sweater vest over a white button-down shirt.\n<Subject 2> is the heavyset man in <Picture 2>, mid 40s, shaved head, open gray flannel shirt over a dark t-shirt.\n\nsummary:\n[two image references] The target video is one shot of a 1990s multi-camera sitcom: <Subject 1> gives up and sits down next to <Subject 2>, the two trade a final exchange, and the scene ends on applause.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, hair, sweater vest and proportions of <Picture 1> are kept exactly, with the body newly animated to sit and speak.\n<Subject 2> (appears in [Shot 1]): fully_preserved - the face, head, flannel shirt and proportions of <Picture 2> are kept exactly, with the head newly animated to reply.\n\ndetailed_description:\nThe target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A wide shot frames the living room set: the sagging olive-green couch centre frame in front of a brick wall with a window onto a painted city backdrop. <Subject 2> sits at the right end of the couch reading his magazine. <Subject 1> exhales, drops the empty carton onto the coffee table, and sits down heavily at the left end of the couch, staring straight ahead. A beat of silence. <Subject 1> (S1), a fast, nasal, high-pitched male tenor voice, now flat with defeat, says <d>[English] We're getting a padlock.</d> Without looking up, <Subject 2> (S2), a flat, low, unhurried male baritone voice, says <d>[English] Sure.</d> The studio audience laughs and applauds as the shot holds on the two of them side by side, neither moving. The camera holds a static wide shot throughout.\n\noverall_soundscape:\nA bright, close television-studio room tone. The hollow knock of the carton landing on the coffee table, a heavy couch-spring compression as <Subject 1> sits, a page turn, then a full wave of live studio-audience laughter that turns into warm applause and carries to the end of the shot.\n\nnon_diegetic_music:\nA short, bright sitcom scene-change sting - a bass guitar walk-down with a light drum hit - enters under the applause in the final second of the shot.",
+        "subject_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+        "num_frames": 124,
+        "tag_num_frames": 141,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo"
+    },
+    "seed": 42,
+    "steps": [
+        {
+            "name": "draw_howie",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": true
+                },
+                "arguments": {
+                    "prompt": "variable:howie_portrait_prompt",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": 768,
+                    "height": 768
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "draw_pat",
+            "release_pipeline": true,
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": true
+                },
+                "arguments": {
+                    "prompt": "variable:pat_portrait_prompt",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": 768,
+                    "height": 768
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "shot_1_cold_open",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer_ref": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer_ref": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "ref2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:shot_1_cold_open",
+                    "references": [
+                        {
+                            "reference_type": "variable:subject_reference_type",
+                            "from_previous_result": "draw_howie"
+                        },
+                        {
+                            "reference_type": "variable:subject_reference_type",
+                            "from_previous_result": "draw_pat"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "shot_2_pat_deflects",
+            "pipeline_reference": {
+                "reference_name": "shot_1_cold_open",
+                "arguments": {
+                    "prompt": "variable:shot_2_pat_deflects",
+                    "references": [
+                        {
+                            "reference_type": "variable:subject_reference_type",
+                            "from_previous_result": "draw_pat"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "shot_3_howie_incredulous",
+            "pipeline_reference": {
+                "reference_name": "shot_1_cold_open",
+                "arguments": {
+                    "prompt": "variable:shot_3_howie_incredulous",
+                    "references": [
+                        {
+                            "reference_type": "variable:subject_reference_type",
+                            "from_previous_result": "draw_howie"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "shot_4_pat_button",
+            "pipeline_reference": {
+                "reference_name": "shot_1_cold_open",
+                "arguments": {
+                    "prompt": "variable:shot_4_pat_button",
+                    "references": [
+                        {
+                            "reference_type": "variable:subject_reference_type",
+                            "from_previous_result": "draw_pat"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "shot_5_tag",
+            "pipeline_reference": {
+                "reference_name": "shot_1_cold_open",
+                "arguments": {
+                    "prompt": "variable:shot_5_tag",
+                    "references": [
+                        {
+                            "reference_type": "variable:subject_reference_type",
+                            "from_previous_result": "draw_howie"
+                        },
+                        {
+                            "reference_type": "variable:subject_reference_type",
+                            "from_previous_result": "draw_pat"
+                        }
+                    ],
+                    "num_frames": "variable:tag_num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "episode",
+            "task": {
+                "command": "concat_videos",
+                "arguments": {
+                    "videos": [
+                        "previous_result:shot_1_cold_open",
+                        "previous_result:shot_2_pat_deflects",
+                        "previous_result:shot_3_howie_incredulous",
+                        "previous_result:shot_4_pat_button",
+                        "previous_result:shot_5_tag"
+                    ],
+                    "trim_frames": 0,
+                    "fps": 24
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

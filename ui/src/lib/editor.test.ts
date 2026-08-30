@@ -57,7 +57,12 @@ describe('coerce', () => {
 
 describe('isReference', () => {
   it('recognizes every engine reference prefix', () => {
-    for (const prefix of ['variable:', 'previous_result:', 'constant:']) {
+    for (const prefix of [
+      'variable:',
+      'previous_result:',
+      'constant:',
+      'prompt:',
+    ]) {
       expect(isReference(prefix + 'x')).toBe(true)
     }
     expect(isReference('plain text')).toBe(false)
@@ -105,6 +110,16 @@ describe('referenceSuggestions', () => {
     expect(forSecond).toContain('previous_result:gen.audio')
     expect(forSecond).not.toContain('previous_result:refine.frames')
   })
+
+  it('offers every stored prompt when the library is supplied', () => {
+    const suggestions = referenceSuggestions(workflow, 0, [
+      'scenic',
+      'minimax/fox',
+    ])
+    expect(suggestions).toContain('prompt:scenic')
+    expect(suggestions).toContain('prompt:minimax/fox')
+    expect(referenceSuggestions(workflow, 0)).not.toContain('prompt:scenic')
+  })
 })
 
 describe('danglingReferences', () => {
@@ -150,5 +165,19 @@ describe('danglingReferences', () => {
       ],
     }
     expect(danglingReferences(workflow)).toEqual([])
+  })
+
+  it('checks prompt references only against a supplied library', () => {
+    const workflow = {
+      steps: [
+        { name: 'gen', pipeline: { arguments: { prompt: 'prompt:scenic' } } },
+      ],
+    }
+    // no listing - the server resolves these at run time, nothing to flag
+    expect(danglingReferences(workflow)).toEqual([])
+    expect(danglingReferences(workflow, ['scenic'])).toEqual([])
+    const problems = danglingReferences(workflow, ['other'])
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('prompt:scenic')
   })
 })

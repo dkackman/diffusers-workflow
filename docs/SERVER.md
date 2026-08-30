@@ -7,7 +7,7 @@ past generations in a gallery, and manage the models on disk.
 
 ```bash
 python -m dw.serve                       # http://127.0.0.1:8765
-python -m dw.serve --port 8000 --workflow-dir ./examples --output-dir ./outputs
+python -m dw.serve --port 8000 --workflow-dir ./workflows --output-dir ./outputs --prompt-dir ./prompts
 ```
 
 Installed as a package, the same server is `dw-serve`. Interactive API docs
@@ -23,6 +23,16 @@ load entirely.
   descriptions, output kinds, and variable counts. Folders one level deep
   become sections. Click through to a run form generated from the workflow's
   variables, with the raw JSON alongside.
+- **Prompts** — the prompt library under `--prompt-dir` (default: discovered
+  the way a CLI run discovers it, then pinned for every job, so the page and
+  `prompt:` resolution always agree): stored prompts as
+  cards with descriptions, intended-model badges, and tags, foldered the
+  same way workflows are. Each opens in an editor with form, split, and
+  schema-aware JSON views, and an **Enhance with AI** panel that expands an
+  idea into a full prompt with a local language model (a preset per target
+  model family; the model runs as an ordinary queued job). A workflow
+  argument written as `prompt:name` loads the stored text at run time,
+  and deleting a prompt warns which workflows reference it.
 - **Jobs** — the queue and full run history (persisted in
   `~/.diffusers_helper/jobs.sqlite`). A running job streams step-by-step
   progress, per-step denoising ticks, and its result files as they land.
@@ -90,6 +100,14 @@ The editor's forms come from these; they are just as usable from scripts:
 
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`)
+- `GET /api/prompts`, `GET/PUT/DELETE /api/prompts/{name}` — the prompt
+  library (confined to `--prompt-dir`, names held to what a `prompt:`
+  reference can load); saves are validated against the prompt schema,
+  served at `GET /api/prompt-schema`
+- `GET /api/enhancers`, `POST /api/enhance` — prompt-enhancement presets,
+  and `{"idea": ..., "preset": ..., "model_name": ..., "device": ...}` to
+  queue an enhancement as an ordinary job whose saved text file is the
+  result
 - `GET /api/gallery`, `GET /api/gallery/{name}/metadata`,
   `DELETE /api/gallery/{name}` — outputs and their embedded metadata
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache

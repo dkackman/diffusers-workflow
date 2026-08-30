@@ -145,6 +145,24 @@ class TestGetIterations:
         assert len(iterations) == 1
         assert iterations[0] == {"prompt": "test", "num_steps": 25}
 
+    def test_a_realized_prompt_reference_does_not_expand_iterations(
+        self, tmp_path, monkeypatch
+    ):
+        # A 'prompt:' reference is resolved to plain text by realize_args
+        # before iteration expansion ever sees the template - one string,
+        # one run, never a cartesian factor
+        import json
+        from dw.arguments import realize_args
+
+        (tmp_path / "scenic.json").write_text(json.dumps({"text": "a landscape"}))
+        monkeypatch.setenv("DW_PROMPT_DIR", str(tmp_path))
+
+        template = {"prompt": "prompt:scenic", "num_steps": 25}
+        realize_args(template)
+        iterations = get_iterations(template, {})
+        assert len(iterations) == 1
+        assert iterations[0] == {"prompt": "a landscape", "num_steps": 25}
+
     def test_single_reference_expands(self):
         result = Result({})
         result.add_result(["img1.jpg", "img2.jpg"])

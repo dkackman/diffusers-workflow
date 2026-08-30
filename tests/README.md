@@ -6,7 +6,7 @@ Comprehensive test suite for the diffusers-workflow project covering core functi
 
 ## Test Organization
 
-37 files, ~580 tests as of this writing (`pytest tests/ --collect-only -q` for the current count).
+57 files, ~1,600 tests as of this writing (`pytest tests/ --collect-only -q` for the current count).
 
 ### Unit Tests
 - `test_security.py` - Security validation and input sanitization
@@ -35,7 +35,7 @@ Comprehensive test suite for the diffusers-workflow project covering core functi
 - `test_integration.py` - End-to-end workflow execution scenarios
 
 ### Test Examples
-- `test_examples.py` - Validates every workflow in `examples/` against the schema (one parametrized test per file)
+- `test_examples.py` - Validates every workflow in `workflows/` against the schema (one parametrized test per file)
 
 ## Running Tests
 
@@ -116,8 +116,7 @@ Available in `conftest.py`:
 ## Test Data
 
 Test data files in `tests/test_data/`:
-- `workflows/valid_workflow.json` - Valid test workflow
-- `workflows/invalid_workflow.json` - Invalid test workflow
+- valid_workflow.json and invalid_workflow.json under its workflows/ subfolder
 - Sample images for image processing tests
 
 ## Best Practices

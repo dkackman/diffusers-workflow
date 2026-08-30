@@ -1,0 +1,38 @@
+{
+    "id": "MiniMaxMusic",
+    "description": "Audio-only generation, showing that a pipeline's output need not be visual - the step declares an 'audios' output and an audio result type, and the engine encodes it at the given sample rate. Also the minimal way to run a modular pipeline: rather than placing components by hand, a 'components_manager' with auto CPU offload takes ownership of device placement and keeps only the running components resident, so no quantization or per-component offload configuration is needed.",
+    "variables": {
+        "prompt": "prompt:minimax/acoustic_pop_song",
+        "lyrics": "[verse]\nMining farms burning through the grid all day\nChia swapped the furnace for the plots you lay\nNo more e-waste piling up when the rigs retire\nGreen space farming puts out yesterday's fire\n[chorus]\nChia fixes this\nChia fixes this\nEnergy waste, ASIC greed, centralized control\nChia fixes this\n[verse]\nOffer files trade without a middleman in sight\nChialisp writes the rules and locks the CAT in tight\nMarmots watch the validators keep it fair and slow\nNo more trusting strangers with the coins you owe\n[chorus]\nChia fixes this\nChia fixes this\nEnergy waste, ASIC greed, centralized control\nChia fixes this",
+        "audio_duration": 120
+    },
+    "steps": [
+        {
+            "name": "generate_music",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "load_components": {
+                        "dtype": "torch.bfloat16"
+                    },
+                    "components_manager": {
+                        "enable_auto_cpu_offload": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-Music3"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "lyrics": "variable:lyrics",
+                    "audio_duration": "variable:audio_duration",
+                    "output": "audios"
+                }
+            },
+            "result": {
+                "content_type": "audio/mp3",
+                "sample_rate": 44100
+            }
+        }
+    ]
+}

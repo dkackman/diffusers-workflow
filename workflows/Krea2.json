@@ -1,0 +1,33 @@
+{
+    "variables": {
+        "prompt": "prompt:zimage/kidney_trade_in"
+    },
+    "id": "Krea2",
+    "description": "Text-to-image with Krea 2 Turbo - fast, few-step photorealistic generation.",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "Krea2Pipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "krea/Krea-2-Turbo",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "height": 1024,
+                    "width": 1024,
+                    "num_inference_steps": 8,
+                    "guidance_scale": 0.0
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        }
+    ]
+}

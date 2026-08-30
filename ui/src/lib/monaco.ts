@@ -24,11 +24,31 @@ export async function setupMonaco() {
 
   try {
     const { api } = await import('./api')
+    // Each editor names its model workflow-*.json or prompt-*.json, which
+    // is what routes the right schema to it. A missing prompt schema (an
+    // older server) must not cost workflow editing its diagnostics
     const schema = await api.getSchema()
+    const schemas = [
+      {
+        uri: 'dw://workflow-schema',
+        fileMatch: ['**/workflow-*.json'],
+        schema,
+      },
+    ]
+    try {
+      const promptSchema = await api.getPromptSchema()
+      schemas.push({
+        uri: 'dw://prompt-schema',
+        fileMatch: ['**/prompt-*.json'],
+        schema: promptSchema,
+      })
+    } catch {
+      /* prompt schema unreachable - prompt JSON stays plain */
+    }
     jsonDefaults.setDiagnosticsOptions({
       validate: true,
       enableSchemaRequest: false,
-      schemas: [{ uri: 'dw://workflow-schema', fileMatch: ['*'], schema }],
+      schemas,
     })
   } catch {
     /* schema endpoint unreachable - plain JSON editing still works */

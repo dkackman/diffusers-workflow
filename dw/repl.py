@@ -50,7 +50,7 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         self.globals = {
             "output_dir": "./outputs",  # Default output directory
             "log_level": "INFO",  # Default log level
-            "workflow_dir": "./examples",  # Default workflow directory
+            "workflow_dir": "./workflows",  # Default workflow directory
         }
         self.current_workflow = None
         self.workflow_args = {}  # Store workflow arguments

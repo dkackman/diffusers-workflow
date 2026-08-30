@@ -47,7 +47,7 @@ class ConfigCommands:
                 "  log_level    - Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL"
             )
             print("  workflow_dir - Where 'workflow load <name>' and 'workflow list'")
-            print("                 look for workflows (default: ./examples)")
+            print("                 look for workflows (default: ./workflows)")
             print()
             print("These apply to this REPL session. Standing settings (device,")
             print("log file, TF32) live in ~/.diffusers_helper/settings.json")

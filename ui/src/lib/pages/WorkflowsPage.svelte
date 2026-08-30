@@ -17,6 +17,7 @@
   let workflowDir = $state('')
   let filter = $state('')
   let error = $state('')
+  let loaded = $state(false)
 
   const STORAGE_KEY = 'dw-collapsed-folders'
 
@@ -65,6 +66,7 @@
         workflows = result.workflows
         details = result.details ?? {}
         workflowDir = result.workflow_dir
+        loaded = true
       })
       .catch((e) => (error = e.message))
   })
@@ -107,7 +109,7 @@
 {#if showHint}
   <div class="hintbar muted">
     <span
-      >Pick a workflow → tweak its arguments → Run. Every image saves its recipe
+      >Pick a workflow → tweak its variables → Run. Every image saves its recipe
       — reopen it from the Gallery.</span
     >
     <button
@@ -176,6 +178,12 @@
     </div>
   {/if}
 {/each}
+
+{#if loaded && workflows.length === 0}
+  <p class="muted">No workflows yet - the + above creates the first one.</p>
+{:else if loaded && visible.length === 0}
+  <p class="muted">Nothing matches "{filter}".</p>
+{/if}
 
 <style>
   .head {

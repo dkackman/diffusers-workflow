@@ -1,0 +1,33 @@
+{
+    "variables": {
+        "prompt": "prompt:flux/weighted_portrait"
+    },
+    "id": "FluxSchnellWeighted",
+    "description": "FLUX.1 schnell with A1111-style (word:1.5) prompt weighting.",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "FluxPipeline",
+                    "prompt_weighting": true
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-schnell",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": 20,
+                    "guidance_scale": 4.0,
+                    "height": 1280,
+                    "width": 896
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        }
+    ]
+}

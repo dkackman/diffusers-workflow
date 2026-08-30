@@ -7,6 +7,7 @@
     Layers,
     ListTodo,
     ListTree,
+    MessageSquareText,
     Moon,
     MonitorCog,
     SquarePen,
@@ -20,6 +21,8 @@
   import JobsPage from './lib/pages/JobsPage.svelte'
   import JobPage from './lib/pages/JobPage.svelte'
   import EditorPage from './lib/pages/EditorPage.svelte'
+  import PromptsPage from './lib/pages/PromptsPage.svelte'
+  import PromptEditorPage from './lib/pages/PromptEditorPage.svelte'
   import GalleryPage from './lib/pages/GalleryPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
@@ -86,6 +89,13 @@
   <nav>
     <a href="#/workflows" class:active={route.parts[0] === 'workflows'}>
       <Layers size={15} />Workflows
+    </a>
+    <a
+      href="#/prompts"
+      class:active={route.parts[0] === 'prompts' ||
+        route.parts[0] === 'prompt-edit'}
+    >
+      <MessageSquareText size={15} />Prompts
     </a>
     <a href="#/jobs" class:active={route.parts[0] === 'jobs'}>
       <ListTodo size={15} />Jobs
@@ -164,7 +174,9 @@
   {/if}
 </header>
 
-<main class:wide={route.parts[0] === 'edit'}>
+<main
+  class:wide={route.parts[0] === 'edit' || route.parts[0] === 'prompt-edit'}
+>
   {#if route.parts[0] === 'schema'}
     <SchemaPage />
   {:else if route.parts[0] === 'models'}
@@ -173,6 +185,10 @@
     <GalleryPage />
   {:else if route.parts[0] === 'edit'}
     <EditorPage name={route.parts.slice(1).join('/')} />
+  {:else if route.parts[0] === 'prompt-edit'}
+    <PromptEditorPage name={route.parts.slice(1).join('/')} />
+  {:else if route.parts[0] === 'prompts'}
+    <PromptsPage />
   {:else if route.parts[0] === 'jobs' && route.parts[1]}
     <JobPage jobId={route.parts[1]} />
   {:else if route.parts[0] === 'jobs'}

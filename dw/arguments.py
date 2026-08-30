@@ -3,6 +3,7 @@ import copy
 import logging
 from inspect import Parameter, signature
 from .type_helpers import load_type_from_name, load_constant_from_name, has_method
+from .prompts import PROMPT_PREFIX, fetch_prompt
 from diffusers.utils import load_image, load_video
 from .security import (
     validate_path,
@@ -92,6 +93,11 @@ def realize_args(arg, base_dir=None):
             # conventions below - what it holds is the value, not a file to load
             if is_constant_reference(v):
                 arg[k] = fetch_constant(v)
+            # A stored prompt resolves the same way - to its text, under any
+            # name, before the media conventions could mistake it for a file.
+            # The workflow's directory anchors prompt-library discovery
+            elif is_prompt_reference(v):
+                arg[k] = fetch_prompt(v, base_dir=base_dir)
             # An explicit media reference loads under any argument name - the
             # key conventions below only cover arguments named like their media
             elif is_media_reference(v):
@@ -140,6 +146,9 @@ def realize_args(arg, base_dir=None):
             if is_constant_reference(item):
                 arg[i] = fetch_constant(item)
                 continue
+            if is_prompt_reference(item):
+                arg[i] = fetch_prompt(item, base_dir=base_dir)
+                continue
             if is_media_reference(item):
                 arg[i] = fetch_media(item, base_dir)
                 continue
@@ -150,6 +159,11 @@ def realize_args(arg, base_dir=None):
 def is_constant_reference(value):
     """Whether a value references a constant declared in python."""
     return isinstance(value, str) and value.startswith(CONSTANT_PREFIX)
+
+
+def is_prompt_reference(value):
+    """Whether a value references a stored prompt in the prompt library."""
+    return isinstance(value, str) and value.startswith(PROMPT_PREFIX)
 
 
 def fetch_constant(reference):
@@ -703,12 +717,22 @@ def media_arguments(object_type, artifact):
             arguments["sample_rate"] = sample_rate
         return arguments
 
+    if audio is None and hasattr(artifact, "ndim") and artifact.ndim <= 3:
+        # A step that generates audio alone - a music pipeline, a slice_audio
+        # task - produces the waveform itself rather than an AudioVideo. It
+        # carries no rate of its own, so the reference declares 'sample_rate'
+        # alongside 'from_previous_result'
+        audio = torch.as_tensor(as_channels_samples(artifact))
+
     if audio is None:
         raise ValueError(
             f"{object_type.__name__} holds audio, but the step it names produced "
             f"none - reference a step that generates a soundtrack"
         )
-    return {"audio": audio, "sample_rate": sample_rate}
+    arguments = {"audio": audio}
+    if sample_rate is not None:
+        arguments["sample_rate"] = sample_rate
+    return arguments
 
 
 def validate_media_location(location, base_dir=None):

@@ -72,7 +72,7 @@ inverted latents:
 ```
 
 `reference_name` must name a step earlier in the same workflow that has a `pipeline`.
-See [examples/flux/FluxRFInversion.json](../examples/flux/FluxRFInversion.json) for a full example.
+See [workflows/flux/FluxRFInversion.json](../workflows/flux/FluxRFInversion.json) for a full example.
 
 ### Task Steps
 
@@ -396,8 +396,8 @@ cache and succeeds on the retry - but each one is a synchronising stall, and a r
 close to the limit fails outright on any workload that needs slightly more. Every
 MiniMax H3 example uses on-demand VAEs for this reason.
 
-**Example:** [MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json),
-[MiniMaxH3I2V.json](../examples/MiniMaxH3I2V.json)
+**Example:** [MiniMaxH3Ref2VA.json](../workflows/minimax/MiniMaxH3Ref2VA.json),
+[MiniMaxH3I2V.json](../workflows/minimax/MiniMaxH3I2V.json)
 
 #### Releasing a pipeline mid-workflow
 
@@ -439,7 +439,7 @@ The flag applies to any step type, and on a `workflow` step it fires once the wh
 sub-workflow has finished. It clears every cached task model, not only this step's, and a
 later step needing one of them reloads it.
 
-**Example:** [MiniMaxH3EnhancePrompt.json](../examples/MiniMaxH3EnhancePrompt.json)
+**Example:** [MiniMaxH3EnhancePrompt.json](../workflows/minimax/MiniMaxH3EnhancePrompt.json)
 
 ### VAE Options
 
@@ -471,7 +471,7 @@ Attach one or more LoRAs to a pipeline with `loras`, a sibling of `configuration
 - `adapter_name` — name passed to `set_adapters()`. Defaults to the LoRA's index in the list.
 - `scale` — the adapter's weight, passed to `set_adapters()`. Defaults to `1.0`.
 
-See [examples/flux/FluxLora.json](../examples/flux/FluxLora.json) for a full example.
+See [workflows/flux/FluxLora.json](../workflows/flux/FluxLora.json) for a full example.
 
 ### IP-Adapter
 
@@ -485,7 +485,7 @@ See [examples/flux/FluxLora.json](../examples/flux/FluxLora.json) for a full exa
 
 `model_name` is required; `weight_name`, `subfolder` and `scale` are optional. The
 adapter image itself is passed as a normal `ip_adapter_image` pipeline argument. See
-[examples/archive/ip-adapter.json](../examples/archive/ip-adapter.json).
+[workflows/archive/ip-adapter.json](../workflows/archive/ip-adapter.json).
 
 ### Sharing Components Across Steps
 
@@ -544,7 +544,7 @@ stays alive for the steps that reuse it.
   don't accept one.
 - `inversion` — run the pipeline's `invert()` instead of the pipeline itself; the step
   returns the inverted/image latents for a later step to consume (see
-  [FluxRFInversion.json](../examples/flux/FluxRFInversion.json)).
+  [FluxRFInversion.json](../workflows/flux/FluxRFInversion.json)).
 - `generate` — run the pipeline's `generate()` instead, for components with a
   generation head (the step returns `generated_ids`).
 
@@ -563,7 +563,7 @@ Two mutually exclusive ways to speed up inference by skipping redundant computat
 `num_inference_steps`, `max_skip_steps`, `retention_ratio`, `cache_interval`,
 `max_order`, `mag_ratios`, `calibrate` — see [dw/workflow_schema.json](../dw/workflow_schema.json) for which
 fields apply to which type). See
-[examples/flux/FluxDevFirstBlockCache.json](../examples/flux/FluxDevFirstBlockCache.json).
+[workflows/flux/FluxDevFirstBlockCache.json](../workflows/flux/FluxDevFirstBlockCache.json).
 
 ```json
 "configuration": {
@@ -675,11 +675,11 @@ downloaded and loaded:
 A task is chosen by the arguments the step passes, so one `workflow` name can cover more
 than one of them: MiniMax-H3's `fl2va` takes an `image`, a `last_image`, or both. Given
 only a `last_image` it generates *up to* that frame, inventing everything that leads to
-it — see [examples/MiniMaxH3L2V.json](../examples/MiniMaxH3L2V.json) beside
-[examples/MiniMaxH3FL2VA.json](../examples/MiniMaxH3FL2VA.json).
+it — see [workflows/minimax/MiniMaxH3L2V.json](../workflows/minimax/MiniMaxH3L2V.json) beside
+[workflows/minimax/MiniMaxH3FL2VA.json](../workflows/minimax/MiniMaxH3FL2VA.json).
 
-See [examples/MiniMaxMusic.json](../examples/MiniMaxMusic.json) and
-[examples/MiniMaxH3.json](../examples/MiniMaxH3.json) for full examples.
+See [workflows/minimax/MiniMaxMusic.json](../workflows/minimax/MiniMaxMusic.json) and
+[workflows/minimax/MiniMaxH3.json](../workflows/minimax/MiniMaxH3.json) for full examples.
 
 ### Chained Video Generation
 
@@ -755,9 +755,9 @@ chain. Expect some visual drift across many segments with `last_frame` continuit
 it is single-frame conditioning; `last_segment` continuity exists for exactly that,
 where the pipeline can take a video reference.
 
-See [examples/LTX2I2VChained.json](../examples/LTX2I2VChained.json),
-[examples/MiniMaxH3I2VChained.json](../examples/MiniMaxH3I2VChained.json), and
-[examples/MiniMaxH3Ref2VAChained.json](../examples/MiniMaxH3Ref2VAChained.json)
+See [workflows/ltx2/LTX2I2VChained.json](../workflows/ltx2/LTX2I2VChained.json),
+[workflows/minimax/MiniMaxH3I2VChained.json](../workflows/minimax/MiniMaxH3I2VChained.json), and
+[workflows/minimax/MiniMaxH3Ref2VAChained.json](../workflows/minimax/MiniMaxH3Ref2VAChained.json)
 (audio-matched lip-sync of arbitrary length).
 
 ## Schedulers
@@ -850,6 +850,50 @@ The value the library declares is the value the workflow gets, which is the poin
 constant that changes upstream changes here, and one that is renamed or moved fails
 loudly rather than leaving a stale copy behind.
 
+### Prompt References
+
+A prompt worth keeping is worth keeping once. Stored prompts live as JSON files in a
+prompt library - the `prompts/` folder by default - and a workflow argument written as
+`prompt:` plus the file's name (without `.json`, optionally one folder deep) loads its
+text at run time:
+
+```json
+"prompt": "prompt:scenic_landscape",
+"prompt": "prompt:minimax/fox_dawn_t2va"
+```
+
+A prompt file holds the text plus the metadata the server's Prompts page shows:
+
+```json
+{
+  "text": "A sweeping alpine valley at golden hour...",
+  "description": "General-purpose scenic landscape",
+  "intended_model": "z-image",
+  "negative_prompt": "blurry, low quality",
+  "tags": ["landscape", "golden-hour"]
+}
+```
+
+Only `text` is required, and it is what the reference resolves to. `intended_model` is
+informational - the engine ignores it, but the library badges and filters by it, and
+the server's prompt enhancer uses it to preselect a preset.
+
+The library's location is resolved in order: the `DW_PROMPT_DIR` environment
+variable (which `--prompt-dir` on both `dw.run` and `dw.serve` sets), then
+`./prompts` in the working directory when it exists, then the first `prompts/`
+folder found walking up from the workflow file's own directory - which is how
+a repo workflow run from any working directory still reaches the library beside
+it. `dw.serve` resolves the directory once at startup with this same order
+(anchored at its workflow directory) and pins it for every job, so the Prompts
+page and `prompt:` resolution always agree on one library.
+References are rooted at that one directory - not at the workflow file - so
+the same reference means the same text from every workflow. Like `constant:`, a reference
+resolves anywhere in a workflow's arguments, including a `variables` default, and it
+always resolves to exactly one string: it never multiplies a step's iterations the way
+`previous_result:` references do. A prompt's text may not itself begin with a
+reference prefix such as `variable:` - the engine refuses it rather than resolving
+text as syntax.
+
 ### Objects Built From a File
 
 Some pipelines take arguments that are objects rather than plain media. An argument that
@@ -897,7 +941,7 @@ its own 24 fps, so a wrong rate is a request conditioned at the wrong speed — 
 motion and camera alone. A name that is neither an argument of `from_file()` nor a field
 of the object raises, with the fields it does have.
 
-See [examples/MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json) for a full example.
+See [workflows/minimax/MiniMaxH3Ref2VA.json](../workflows/minimax/MiniMaxH3Ref2VA.json) for a full example.
 
 ### Objects Built From an Earlier Step
 
@@ -926,14 +970,14 @@ lands in comes from the type's own `kind`:
 | ------- | ------------------------------------------------------------------------- |
 | `image` | The generated image                                                       |
 | `video` | The generated frames, and the soundtrack generated with them if there was one |
-| `audio` | The generated soundtrack                                                  |
+| `audio` | The generated soundtrack - or, for a step that produced audio alone (a music pipeline, a `slice_audio` task), the waveform itself, which carries no rate of its own, so declare `sample_rate` beside `from_previous_result` |
 
 Any other key is a field of the object and wins over what the media carried —
 `"fps": 30.0` where the producing pipeline generated at a rate the consuming one does
 not share, for instance. A step that produced several artifacts fans out the same way
 every `previous_result` reference does: four images in, four videos out.
 
-See [examples/MiniMaxH3Ref2VAGeneratedSubject.json](../examples/MiniMaxH3Ref2VAGeneratedSubject.json)
+See [workflows/minimax/MiniMaxH3Ref2VAGeneratedSubject.json](../workflows/minimax/MiniMaxH3Ref2VAGeneratedSubject.json)
 for a full example.
 
 ### Objects Built From Named Arguments
@@ -980,8 +1024,8 @@ Which of the three forms a type wants is decided by the type, not by preference:
 | `from_previous_result` | declares a media `kind`, so a step's output lands in the right field on its own |
 | `from_arguments` | is a plain record of fields - no `from_file()`, no `kind` (LTX-2's conditions and references) |
 
-See [examples/LTX2Keyframes.json](../examples/LTX2Keyframes.json) for the file form and
-[examples/LTX2Extend.json](../examples/LTX2Extend.json) for the one built from an
+See [workflows/ltx2/LTX2Keyframes.json](../workflows/ltx2/LTX2Keyframes.json) for the file form and
+[workflows/ltx2/LTX2Extend.json](../workflows/ltx2/LTX2Extend.json) for the one built from an
 earlier step.
 
 ### Frames Across a Step Boundary
@@ -1019,4 +1063,4 @@ array, while an IC-LoRA reference goes through the video processor, which expect
 `[0, 1]` frames the pipeline returned - `previous_result:step.frames` hands those over
 untouched.
 
-**Example:** [examples/LTX2TwoStage.json](../examples/LTX2TwoStage.json)
+**Example:** [workflows/ltx2/LTX2TwoStage.json](../workflows/ltx2/LTX2TwoStage.json)

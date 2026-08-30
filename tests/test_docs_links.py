@@ -1,6 +1,6 @@
 """Documentation points at example workflows that exist.
 
-The examples tree has subfolders, so a doc's path to an example is a path that
+The workflows tree has subfolders, so a doc's path to an example is a path that
 can go stale the moment a file moves - and nothing else in the suite reads the
 docs. Dated design records under docs/superpowers describe the tree as it was
 when they were written and are left out.
@@ -14,8 +14,10 @@ import pytest
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXCLUDED = ("venv", "node_modules", os.path.join("docs", "superpowers"))
 
-# 'examples/ZImage.json' or '../examples/flux/FluxDev.json', in prose or a link
-EXAMPLE_PATH = re.compile(r"(?:\.\./)?examples/([A-Za-z0-9_.\-/]+\.json)")
+# 'workflows/ZImage.json' or '../workflows/flux/FluxDev.json', in prose or a
+# link. The lookbehind keeps 'workflows/' as the start of the path, so
+# 'dw/workflows/...' (builtins) and 'tests/test_data/workflows/...' don't match
+EXAMPLE_PATH = re.compile(r"(?<![\w/-])(?:\.\./)?workflows/([A-Za-z0-9_.\-/]+\.json)")
 
 
 def get_doc_files():
@@ -43,9 +45,9 @@ def test_doc_example_references_exist(doc_file):
     missing = [
         reference
         for reference in sorted(set(EXAMPLE_PATH.findall(text)))
-        if not os.path.isfile(os.path.join(REPO_ROOT, "examples", reference))
+        if not os.path.isfile(os.path.join(REPO_ROOT, "workflows", reference))
     ]
     assert not missing, (
-        f"{doc_file} references examples that do not exist: "
-        f"{', '.join('examples/' + name for name in missing)}"
+        f"{doc_file} references workflows that do not exist: "
+        f"{', '.join('workflows/' + name for name in missing)}"
     )

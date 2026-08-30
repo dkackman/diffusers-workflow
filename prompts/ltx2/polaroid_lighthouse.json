@@ -1,0 +1,10 @@
+{
+  "text": "A polaroid photograph of a lighthouse on a rocky shore lies on a table. The camera pushes in until the photograph fills the frame and the scene comes alive: waves break against the rocks, the beam sweeps across low cloud, gulls call overhead.",
+  "description": "Push-in on a polaroid until the photographed lighthouse comes alive",
+  "intended_model": "ltx-2",
+  "tags": [
+    "t2v",
+    "keyframes",
+    "lighthouse"
+  ]
+}

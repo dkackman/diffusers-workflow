@@ -36,7 +36,18 @@ def main():
         default="INFO",
         help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
+    parser.add_argument(
+        "--prompt-dir",
+        type=str,
+        default=None,
+        help="Directory 'prompt:' references resolve against (default: "
+        "DW_PROMPT_DIR, else ./prompts if it exists, else the nearest "
+        "prompts/ above the workflow file)",
+    )
     args = parser.parse_args()
+
+    if args.prompt_dir:
+        os.environ["DW_PROMPT_DIR"] = os.path.abspath(args.prompt_dir)
 
     # Parse key-value pairs with validation
     variables = {}

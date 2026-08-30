@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { setNumber } from '../editor'
   import { Plus, Trash2 } from '@lucide/svelte'
 
   let { pipeline = $bindable() }: { pipeline: Record<string, any> } = $props()
@@ -13,8 +14,6 @@
     pipeline.loras.splice(index, 1)
     if (pipeline.loras.length === 0) delete pipeline.loras
   }
-
-  import { setNumber } from '../editor'
 </script>
 
 <div class="loras">

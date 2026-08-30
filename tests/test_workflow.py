@@ -73,6 +73,26 @@ class TestResultEviction:
         ]
         assert referenced_result_names(steps) == {"gen", "segment.mask"}
 
+    def test_a_constructed_objects_source_step_is_a_reference(self):
+        # 'from_previous_result' names a step without the prefix - releasing
+        # its result would break the reference built from it
+        steps = [
+            {
+                "name": "later",
+                "pipeline": {
+                    "arguments": {
+                        "references": [
+                            {
+                                "reference_type": "pkg.ImageReference",
+                                "from_previous_result": "draw_subject",
+                            }
+                        ]
+                    }
+                },
+            }
+        ]
+        assert referenced_result_names(steps) == {"draw_subject"}
+
     def test_unreferenced_results_are_released(self):
         results = {"gen": object(), "old": object()}
         release_unreferenced_results(results, {"gen"})

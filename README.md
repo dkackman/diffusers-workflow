@@ -21,6 +21,7 @@ A declarative workflow engine and web UI for the [Hugging Face Diffusers library
 - **Quantization** — BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto
 - **Inference acceleration** — TeaCache, FirstBlockCache, FasterCache, MagCache, TaylorSeerCache
 - **Prompt weighting** — A1111-style `(word:1.5)` syntax with long prompt support
+- **Prompt library** — store prompts once in `prompts/` and reference them from any workflow as `prompt:name` or `prompt:folder/name`, with a web UI for browsing, editing, and AI-enhancing them
 - **LoRA and IP-Adapter** support
 - **Composable workflows** from multiple JSON files with `builtin:` references
 - **Utility tasks** — upscaling, face restoration, segmentation, captioning, frame interpolation, QR codes, and more
@@ -64,6 +65,8 @@ Everything the engine does, in a browser backed by a persistent GPU worker — m
 
 ![The gallery with generated images and videos](docs/img/ui-gallery.jpg)
 
+**A prompt library shared by every workflow.** Store a prompt once, reference it anywhere as `prompt:name` — the Prompts page browses, edits, and filters the library, and an *Enhance with AI* panel expands an idea into a full prompt with a local language model.
+
 **A model manager for the disk your models actually consume.** The Hugging Face hub cache, inventoried: sizes, revisions, last-used dates, free space — download new models by id with live progress, delete with one click.
 
 ![The model manager listing cached models with sizes](docs/img/ui-models.png)
@@ -75,14 +78,14 @@ Jobs queue, stream progress live (per denoising step), cancel cooperatively, and
 ### Run a Workflow
 
 ```bash
-python -m dw.run examples/flux/FluxDev.json
-python -m dw.run examples/flux/FluxDev.json prompt="a cat" num_images_per_prompt=4
+python -m dw.run workflows/flux/FluxDev.json
+python -m dw.run workflows/flux/FluxDev.json prompt="a cat" num_images_per_prompt=4
 ```
 
 ### Validate a Workflow
 
 ```bash
-python -m dw.validate examples/flux/FluxDev.json
+python -m dw.validate workflows/flux/FluxDev.json
 ```
 
 ### Interactive REPL
@@ -242,7 +245,7 @@ a (photorealistic:1.4) portrait with (bright red hair:1.3) and [freckles]
 
 **Interactive schema browser:** [View Schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-workflow%2Frefs%2Fheads%2Fmaster%2Fdw%2Fworkflow_schema.json)
 
-See [examples/](examples/) for more workflow files.
+See [workflows/](workflows/) for more workflow files.
 
 ## Documentation
 
@@ -256,6 +259,7 @@ See [examples/](examples/) for more workflow files.
 - [LoRA](docs/LORAS.md) — Loading and stacking LoRA adapters
 - [IP-Adapter](docs/IP_ADAPTER.md) — Image-prompt conditioning
 - [Prompt Weighting](docs/PROMPT_WEIGHTING.md) — A1111-style syntax
+- [Prompt References](docs/WORKFLOW_GUIDE.md#prompt-references) — The stored prompt library and `prompt:` references
 - [Tasks](docs/TASKS.md) — Image processing, ControlNet preprocessors, utilities
 
 ### Reference

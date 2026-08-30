@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "prompt_schema.json",
+  "title": "Stored prompt",
+  "description": "One prompt in the prompt library - the text a workflow loads with a 'prompt:' reference, plus the metadata the library pages show.",
+  "type": "object",
+  "required": ["text"],
+  "additionalProperties": false,
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The prompt text itself - what a 'prompt:' reference resolves to. May not begin with a reference prefix ('previous_result:', 'variable:', 'constant:', 'prompt:')."
+    },
+    "description": {
+      "type": "string",
+      "description": "Short summary shown on the prompt's library card."
+    },
+    "intended_model": {
+      "type": "string",
+      "description": "The model or model family the prompt was written for, such as 'minimax-h3'. Informational - the engine ignores it, but the library badges and filters by it and the enhancer uses it to preselect a preset."
+    },
+    "negative_prompt": {
+      "type": "string",
+      "description": "A negative prompt paired with the text, for models that take one."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-form labels for filtering the library."
+    },
+    "enhanced": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Provenance when the text came from the AI enhancer - which model expanded which idea.",
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "The LLM that generated the text."
+        },
+        "idea": {
+          "type": "string",
+          "description": "The idea the text was expanded from."
+        }
+      }
+    }
+  }
+}
