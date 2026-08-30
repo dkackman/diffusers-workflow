@@ -94,9 +94,10 @@ def realize_args(arg, base_dir=None):
             if is_constant_reference(v):
                 arg[k] = fetch_constant(v)
             # A stored prompt resolves the same way - to its text, under any
-            # name, before the media conventions could mistake it for a file
+            # name, before the media conventions could mistake it for a file.
+            # The workflow's directory anchors prompt-library discovery
             elif is_prompt_reference(v):
-                arg[k] = fetch_prompt(v)
+                arg[k] = fetch_prompt(v, base_dir=base_dir)
             # An explicit media reference loads under any argument name - the
             # key conventions below only cover arguments named like their media
             elif is_media_reference(v):
@@ -146,7 +147,7 @@ def realize_args(arg, base_dir=None):
                 arg[i] = fetch_constant(item)
                 continue
             if is_prompt_reference(item):
-                arg[i] = fetch_prompt(item)
+                arg[i] = fetch_prompt(item, base_dir=base_dir)
                 continue
             if is_media_reference(item):
                 arg[i] = fetch_media(item, base_dir)

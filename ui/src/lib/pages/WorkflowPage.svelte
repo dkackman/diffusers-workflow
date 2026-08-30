@@ -10,6 +10,7 @@
   let workflow = $state<WorkflowDefinition | null>(null)
   let workflowDir = $state('')
   let overrides = $state<Record<string, string>>({})
+  let promptNames = $state<string[]>([])
   let error = $state('')
   let submitting = $state(false)
   let showJson = $state(true)
@@ -18,6 +19,12 @@
     overrides = {}
     workflow = null
     api.listWorkflows().then((r) => (workflowDir = r.workflow_dir))
+    api
+      .listPrompts()
+      .then((r) => (promptNames = r.prompts))
+      .catch(() => {
+        /* no prompt library - overrides just lose their suggestions */
+      })
     api
       .getWorkflow(name)
       .then((definition) => (workflow = definition))
@@ -112,6 +119,12 @@
   </button>
 </div>
 
+<datalist id="prompt-references">
+  {#each promptNames as promptName (promptName)}<option
+      value={'prompt:' + promptName}
+    ></option>{/each}
+</datalist>
+
 {#if error}<p class="error">{error}</p>{/if}
 
 {#if workflow}
@@ -134,6 +147,7 @@
           {:else}
             <input
               id={'var-' + key}
+              list="prompt-references"
               placeholder={display(defaultValue)}
               bind:value={overrides[key]}
             />

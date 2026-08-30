@@ -355,6 +355,12 @@
   {#each workflowFiles as file (file)}<option value={file}></option>{/each}
 </datalist>
 
+<datalist id="prompt-references">
+  {#each promptNames ?? [] as promptName (promptName)}<option
+      value={'prompt:' + promptName}
+    ></option>{/each}
+</datalist>
+
 <div class="head">
   <a href="#/workflows" class="muted">← workflows</a>
   <input class="wfid" bind:value={workflow.id} title="workflow id" />
@@ -495,6 +501,7 @@
             <label for={'wfvar-' + key}>{key}</label>
             <input
               id={'wfvar-' + key}
+              list="prompt-references"
               value={typeof workflow.variables[key] === 'object'
                 ? JSON.stringify(workflow.variables[key])
                 : String(workflow.variables[key] ?? '')}

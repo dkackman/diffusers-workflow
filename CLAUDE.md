@@ -75,10 +75,11 @@ The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`)
 - Values prefixed with `constant:` read a value declared in python rather than copying it
   into JSON: `"constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES"`. Resolved
   in `realize_args`, validated by `validate_constant_name()`; anything callable is refused
-- Values prefixed with `prompt:` load a stored prompt's `text` from the prompt library
-  (`prompts/` by default; `DW_PROMPT_DIR` / `--prompt-dir` override): `"prompt:name"` or
-  `"prompt:folder/name"`. Resolved in `realize_args` (`dw/prompts.py`), rooted at the
-  library rather than the workflow file
+- Values prefixed with `prompt:` load a stored prompt's `text` from the prompt library:
+  `"prompt:name"` or `"prompt:folder/name"`. Resolved in `realize_args` (`dw/prompts.py`),
+  rooted at the library rather than the workflow file. The library is `DW_PROMPT_DIR` /
+  `--prompt-dir`, else `./prompts` if it exists, else found by walking up from the
+  workflow file's directory
 
 ### Quantization Support
 

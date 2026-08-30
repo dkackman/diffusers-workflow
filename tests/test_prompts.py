@@ -36,6 +36,54 @@ class TestPromptDir:
         monkeypatch.delenv("DW_PROMPT_DIR", raising=False)
         assert get_prompt_dir() == os.path.abspath("./prompts")
 
+    def test_the_walk_from_the_workflow_dir_finds_the_tree_s_library(
+        self, tmp_path, monkeypatch
+    ):
+        # A repo-like tree: prompts/ at the root, the workflow nested below.
+        # Run from an unrelated working directory, the workflow still finds
+        # the library it lives beside
+        (tmp_path / "repo" / "prompts").mkdir(parents=True)
+        workflow_dir = tmp_path / "repo" / "examples" / "minimax"
+        workflow_dir.mkdir(parents=True)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.delenv("DW_PROMPT_DIR", raising=False)
+        monkeypatch.chdir(elsewhere)
+        assert get_prompt_dir(str(workflow_dir)) == str(tmp_path / "repo" / "prompts")
+
+    def test_the_working_dir_library_wins_over_the_walk(self, tmp_path, monkeypatch):
+        (tmp_path / "repo" / "prompts").mkdir(parents=True)
+        (tmp_path / "cwd" / "prompts").mkdir(parents=True)
+        monkeypatch.delenv("DW_PROMPT_DIR", raising=False)
+        monkeypatch.chdir(tmp_path / "cwd")
+        assert get_prompt_dir(str(tmp_path / "repo")) == str(
+            tmp_path / "cwd" / "prompts"
+        )
+
+    def test_the_environment_wins_over_everything(self, tmp_path, monkeypatch):
+        (tmp_path / "repo" / "prompts").mkdir(parents=True)
+        monkeypatch.setenv("DW_PROMPT_DIR", str(tmp_path / "named"))
+        assert get_prompt_dir(str(tmp_path / "repo")) == str(tmp_path / "named")
+
+    def test_a_reference_resolves_through_the_walk(self, tmp_path, monkeypatch):
+        import json as json_module
+
+        library = tmp_path / "repo" / "prompts"
+        library.mkdir(parents=True)
+        (library / "scenic.json").write_text(
+            json_module.dumps({"text": "found by the walk"})
+        )
+        workflow_dir = tmp_path / "repo" / "examples"
+        workflow_dir.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.delenv("DW_PROMPT_DIR", raising=False)
+        monkeypatch.chdir(elsewhere)
+
+        args = {"prompt": "prompt:scenic"}
+        realize_args(args, base_dir=str(workflow_dir))
+        assert args["prompt"] == "found by the walk"
+
 
 class TestPromptReferences:
     def test_a_reference_resolves_to_its_text(self, prompt_dir):

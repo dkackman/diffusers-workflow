@@ -878,10 +878,13 @@ Only `text` is required, and it is what the reference resolves to. `intended_mod
 informational - the engine ignores it, but the library badges and filters by it, and
 the server's prompt enhancer uses it to preselect a preset.
 
-The library's location is `./prompts` in the working directory, overridden by
-`--prompt-dir` (both `dw.run` and `dw.serve`) or the `DW_PROMPT_DIR` environment
-variable. References are rooted there - not at the workflow file - so the same
-reference means the same text from every workflow. Like `constant:`, a reference
+The library's location is resolved in order: the `DW_PROMPT_DIR` environment
+variable (which `--prompt-dir` on both `dw.run` and `dw.serve` sets), then
+`./prompts` in the working directory when it exists, then the first `prompts/`
+folder found walking up from the workflow file's own directory - which is how
+an example run from any working directory still reaches the repo's library.
+References are rooted at that one directory - not at the workflow file - so
+the same reference means the same text from every workflow. Like `constant:`, a reference
 resolves anywhere in a workflow's arguments, including a `variables` default, and it
 always resolves to exactly one string: it never multiplies a step's iterations the way
 `previous_result:` references do. A prompt's text may not itself begin with a

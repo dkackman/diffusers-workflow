@@ -27,23 +27,47 @@ PROMPT_PREFIX = "prompt:"
 RESERVED_TEXT_PREFIXES = ("previous_result:", "variable:", "constant:", PROMPT_PREFIX)
 
 
-def get_prompt_dir():
+def get_prompt_dir(base_dir=None):
     """The directory stored prompts are rooted at.
 
     DW_PROMPT_DIR names it explicitly - the server sets it from --prompt-dir,
     and the spawned worker inherits it. Without one it is ./prompts in the
-    working directory, the sibling of ./examples the CLI runs from. Read at
-    call time, not import time, so a test or worker sees the current value.
+    working directory when that exists; otherwise the walk from the workflow
+    file's directory up toward the filesystem root finds the prompts/ folder
+    of the tree the workflow lives in - which is how an example run from any
+    working directory still reaches the repo's own library. Read at call
+    time, not import time, so a test or worker sees the current value.
+
+    Args:
+        base_dir: The workflow file's directory, when one anchors the search
     """
-    return os.environ.get("DW_PROMPT_DIR") or os.path.abspath("./prompts")
+    explicit = os.environ.get("DW_PROMPT_DIR")
+    if explicit:
+        return explicit
+    default = os.path.abspath("./prompts")
+    if os.path.isdir(default):
+        return default
+    if base_dir:
+        current = os.path.abspath(base_dir)
+        while True:
+            candidate = os.path.join(current, "prompts")
+            if os.path.isdir(candidate):
+                return candidate
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+    return default
 
 
-def resolve_prompt_reference(reference, prompt_dir=None):
+def resolve_prompt_reference(reference, prompt_dir=None, base_dir=None):
     """Resolve a 'prompt:' reference to the file it names.
 
     Args:
         reference: The 'prompt:name' or 'prompt:folder/name' string
         prompt_dir: Directory the name is rooted at; defaults to get_prompt_dir()
+        base_dir: The workflow file's directory, anchoring discovery when no
+            prompt directory is configured
 
     Returns:
         The validated absolute path of the prompt file
@@ -53,7 +77,7 @@ def resolve_prompt_reference(reference, prompt_dir=None):
         ValueError: If no prompt file exists under that name
     """
     name = validate_prompt_reference(reference.removeprefix(PROMPT_PREFIX).strip())
-    prompt_dir = prompt_dir or get_prompt_dir()
+    prompt_dir = prompt_dir or get_prompt_dir(base_dir)
     path = os.path.join(prompt_dir, name + ".json")
     if not os.path.isfile(path):
         raise ValueError(
@@ -88,12 +112,14 @@ def load_prompt(path):
     return data
 
 
-def fetch_prompt(reference, prompt_dir=None):
+def fetch_prompt(reference, prompt_dir=None, base_dir=None):
     """Read the text a 'prompt:' reference names.
 
     Args:
         reference: The 'prompt:name' or 'prompt:folder/name' string
         prompt_dir: Directory the name is rooted at; defaults to get_prompt_dir()
+        base_dir: The workflow file's directory, anchoring discovery when no
+            prompt directory is configured
 
     Returns:
         The prompt file's text field
@@ -102,7 +128,7 @@ def fetch_prompt(reference, prompt_dir=None):
         ValueError: If the prompt is missing, invalid, or its text is itself
             a reference
     """
-    path = resolve_prompt_reference(reference, prompt_dir)
+    path = resolve_prompt_reference(reference, prompt_dir, base_dir)
     text = load_prompt(path)["text"]
 
     # Arguments are realized more than once, and iteration expansion scans the
