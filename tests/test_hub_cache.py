@@ -115,6 +115,52 @@ class TestDownloadManager:
         status = self.wait_status(manager, started["id"], ["cancelled"])
         assert status["downloaded"] < 100
 
+    def test_xet_aggregate_bars_count_file_bytes_once(self):
+        """huggingface_hub's xet path builds two aggregate bars from the
+        tracker class - reconstruction (file bytes) and transfer (network
+        bytes) - and drives tqdm APIs the tracker must answer. Only the
+        reconstruction bar may feed the shared counters, or progress
+        double-counts past the total."""
+        from dw.hub_cache import DownloadManager
+        from huggingface_hub.utils._xet_progress_reporting import (
+            XET_BYTES_BAR_FORMAT,
+            XET_TRANSFER_BAR_FORMAT,
+        )
+
+        def xet_download(repo_id, tqdm_class=None):
+            reconstruction = tqdm_class(
+                desc="Reconstructing (incomplete total...)",
+                total=0,
+                initial=0,
+                unit="B",
+                unit_scale=True,
+                bar_format=XET_BYTES_BAR_FORMAT,
+            )
+            transfer = tqdm_class(
+                desc="Downloading bytes",
+                total=0,
+                initial=0,
+                unit="B",
+                unit_scale=True,
+                bar_format=XET_TRANSFER_BAR_FORMAT,
+            )
+            for bar in (reconstruction, transfer):
+                bar.total = 600
+                bar.update(600)
+                # the calls that crashed on the fake tqdm before
+                bar.set_postfix_str("500MB/s", refresh=False)
+                assert "rate" in bar.format_dict
+                bar.refresh()
+                bar.close()
+
+        manager = DownloadManager(
+            download_fn=xet_download, info_fn=lambda repo_id: FakeInfo([600])
+        )
+        started = manager.start("acme/xet")
+        status = self.wait_status(manager, started["id"], ["completed"])
+        assert status["downloaded"] == 600
+        assert status["total"] == 600
+
     def test_failure_is_reported_not_raised(self):
         from dw.hub_cache import DownloadManager
 
