@@ -45,6 +45,10 @@ load entirely.
   id with live progress (cancellable; partial files resume on retry), and
   delete to free disk (refused while a job is running; the next workflow
   that needs the model downloads it again).
+- **Schema** — the workflow JSON schema the running server validates
+  against, as a browsable tree: the document root plus every definition,
+  with types, required markers, defaults, enums, and descriptions.
+  `$ref` labels jump to their definition; a filter narrows the list.
 
 ## Jobs API
 

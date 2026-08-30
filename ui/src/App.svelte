@@ -6,6 +6,7 @@
     Images,
     Layers,
     ListTodo,
+    ListTree,
     Moon,
     MonitorCog,
     SquarePen,
@@ -21,6 +22,7 @@
   import EditorPage from './lib/pages/EditorPage.svelte'
   import GalleryPage from './lib/pages/GalleryPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
+  import SchemaPage from './lib/pages/SchemaPage.svelte'
 
   let memory = $state<MemoryInfo | null>(null)
   let currentJob = $state<string | null>(null)
@@ -97,6 +99,9 @@
     <a href="#/models" class:active={route.parts[0] === 'models'}>
       <Database size={15} />Models
     </a>
+    <a href="#/schema" class:active={route.parts[0] === 'schema'}>
+      <ListTree size={15} />Schema
+    </a>
   </nav>
   {#if currentJob}
     <a
@@ -160,7 +165,9 @@
 </header>
 
 <main class:wide={route.parts[0] === 'edit'}>
-  {#if route.parts[0] === 'models'}
+  {#if route.parts[0] === 'schema'}
+    <SchemaPage />
+  {:else if route.parts[0] === 'models'}
     <ModelsPage />
   {:else if route.parts[0] === 'gallery'}
     <GalleryPage />

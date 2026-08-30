@@ -66,6 +66,26 @@ test('split view shows editable JSON beside the form', async ({ page }) => {
   await expect(page.locator('.jsoncol')).toHaveCount(0)
 })
 
+test('schema page renders a browsable tree from the live schema', async ({
+  page,
+}) => {
+  await page.goto('/#/schema')
+  await expect(
+    page.getByRole('heading', { name: 'Workflow Schema' }),
+  ).toBeVisible()
+  // the document root is open and shows the top-level properties
+  await expect(page.getByText('steps', { exact: true })).toBeVisible()
+  // expanding a definition reveals its properties
+  await page.locator('#def-step').getByRole('button').first().click()
+  await expect(
+    page.locator('#def-step').getByText('pipeline', { exact: true }).first(),
+  ).toBeVisible()
+  // the definitions filter narrows the list
+  await page.getByPlaceholder('filter…').fill('lora')
+  await expect(page.locator('#def-lora')).toBeVisible()
+  await expect(page.locator('#def-step')).toHaveCount(0)
+})
+
 test('editor validates, saves into a folder, and deletes', async ({ page }) => {
   test.setTimeout(60_000)
   await page.goto('/#/edit/ZImage')
