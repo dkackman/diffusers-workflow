@@ -116,7 +116,9 @@ test('prompts page lists, creates into a folder, and deletes', async ({
   await page.goto('/#/prompts')
   await expect(page.getByRole('heading', { name: 'Prompts' })).toBeVisible()
   // the starter library renders, with folder grouping and metadata badges
-  await expect(page.getByRole('link', { name: /scenic_landscape/ })).toBeVisible()
+  await expect(
+    page.getByRole('link', { name: /scenic_landscape/ }),
+  ).toBeVisible()
   await expect(page.getByText('minimax/')).toBeVisible()
 
   // create a scratch prompt through the editor
