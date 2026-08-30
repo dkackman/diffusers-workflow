@@ -5,6 +5,16 @@
 
   let jobs = $state<JobSummary[]>([])
   let error = $state('')
+  let statusFilter = $state('')
+  let nameFilter = $state('')
+
+  const visible = $derived(
+    jobs.filter(
+      (job) =>
+        (!statusFilter || job.status === statusFilter) &&
+        job.workflow.toLowerCase().includes(nameFilter.toLowerCase()),
+    ),
+  )
 
   $effect(() => {
     const poll = async () => {
@@ -28,7 +38,18 @@
   }
 </script>
 
-<h1>Jobs</h1>
+<div class="head">
+  <h1>Jobs</h1>
+  <select bind:value={statusFilter} title="filter by status">
+    <option value="">all statuses</option>
+    <option value="running">running</option>
+    <option value="queued">queued</option>
+    <option value="succeeded">succeeded</option>
+    <option value="failed">failed</option>
+    <option value="cancelled">cancelled</option>
+  </select>
+  <input class="filter" placeholder="filter by workflow…" bind:value={nameFilter} />
+</div>
 
 {#if error}<p class="muted">Could not reach the server: {error}</p>{/if}
 
@@ -37,9 +58,11 @@
     <Inbox size={36} strokeWidth={1.5} />
     <p>No jobs yet — pick a workflow and run it.</p>
   </div>
+{:else if visible.length === 0}
+  <p class="muted">No jobs match the filter.</p>
 {:else}
   <div class="panel list">
-    {#each jobs as job}
+    {#each visible as job (job.id)}
       <a
         class="row"
         class:historical={job.historical}
@@ -57,7 +80,12 @@
 {/if}
 
 <style>
-  h1 { margin-bottom: 1rem; }
+  .head {
+    display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem;
+  }
+  .head h1 { margin: 0; flex: 1; }
+  .head select { max-width: 150px; }
+  .filter { max-width: 220px; }
   .list { padding: 0.3rem; }
   .row {
     display: grid; grid-template-columns: 90px 1fr auto auto auto;

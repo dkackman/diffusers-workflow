@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FolderOpen, ImageOff, X } from 'lucide-svelte'
+  import { FolderOpen, ImageOff, Trash2, X } from 'lucide-svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
   import type { GalleryFile } from '../types'
@@ -10,6 +10,7 @@
   let error = $state('')
   let selected = $state<GalleryFile | null>(null)
   let metadata = $state<Record<string, unknown> | null>(null)
+  let sourceJob = $state<{ id: string; status: string } | null>(null)
 
   $effect(() => {
     api
@@ -28,10 +29,26 @@
   function select(file: GalleryFile) {
     selected = file
     metadata = null
-    if (file.kind === 'image') {
-      api.galleryMetadata(file.name).then((r) => {
-        if (selected?.name === file.name) metadata = r.metadata
-      })
+    sourceJob = null
+    api.galleryMetadata(file.name).then((r) => {
+      if (selected?.name === file.name) {
+        metadata = r.metadata
+        sourceJob = r.job
+      }
+    })
+  }
+
+  async function removeFile() {
+    if (!selected) return
+    if (!window.confirm(`Delete ${selected.name}? This removes the file on disk.`)) return
+    const name = selected.name
+    try {
+      await api.deleteOutput(name)
+      files = files.filter((f) => f.name !== name)
+      total -= 1
+      selected = null
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
     }
   }
 
@@ -111,6 +128,14 @@
       {/if}
       <a href={selected.url} target="_blank" class="muted" title="open the file itself in a new tab">open file</a>
       <button
+        class="quiet icon danger"
+        onclick={removeFile}
+        title="delete this file from the output directory"
+        aria-label="delete this file from the output directory"
+      >
+        <Trash2 size={14} />
+      </button>
+      <button
         class="quiet icon"
         onclick={() => (selected = null)}
         title="close details"
@@ -132,6 +157,14 @@
           {#if metadata.model_name}<div><span class="muted">model</span> {metadata.model_name}</div>{/if}
           {#if metadata.seed !== undefined}
             <div><span class="muted">seed</span> <code>{metadata.seed}</code></div>
+          {/if}
+          {#if sourceJob}
+            <div>
+              <span class="muted">job</span>
+              <a href={'#/jobs/' + sourceJob.id} title="open the job that produced this file">
+                {sourceJob.id}
+              </a>
+            </div>
           {/if}
           {#if embeddedWorkflow}
             <div><span class="muted">workflow</span> {embeddedWorkflow.id}</div>

@@ -109,7 +109,7 @@
   {/if}
 </header>
 
-<main>
+<main class:wide={route.parts[0] === 'edit'}>
   {#if route.parts[0] === 'gallery'}
     <GalleryPage />
   {:else if route.parts[0] === 'edit'}
@@ -156,4 +156,5 @@
   .meter .fill.hot { background: var(--warn); }
   .meter .fill.critical { background: var(--bad); }
   main { max-width: 1100px; margin: 0 auto; padding: 1.2rem; }
+  main.wide { max-width: 1560px; }
 </style>

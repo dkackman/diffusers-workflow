@@ -25,7 +25,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   listWorkflows: () =>
-    request<{ workflow_dir: string; workflows: string[] }>('/api/workflows'),
+    request<{
+      workflow_dir: string
+      workflows: string[]
+      details: Record<string, { kinds: string[]; variables: number }>
+    }>('/api/workflows'),
   getWorkflow: (name: string) =>
     request<WorkflowDefinition>(`/api/workflows/${name}`),
   listJobs: () => request<{ jobs: JobSummary[] }>('/api/jobs'),
@@ -58,8 +62,15 @@ export const api = {
   gallery: (limit = 200) =>
     request<{ files: GalleryFile[]; total: number }>(`/api/gallery?limit=${limit}`),
   galleryMetadata: (name: string) =>
-    request<{ name: string; metadata: Record<string, unknown> | null }>(
-      `/api/gallery/${encodeURIComponent(name)}/metadata`,
+    request<{
+      name: string
+      metadata: Record<string, unknown> | null
+      job: { id: string; status: string } | null
+    }>(`/api/gallery/${encodeURIComponent(name)}/metadata`),
+  deleteOutput: (name: string) =>
+    request<{ name: string; deleted: boolean }>(
+      `/api/gallery/${encodeURIComponent(name)}`,
+      { method: 'DELETE' },
     ),
   listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
   describePipeline: (name: string) =>

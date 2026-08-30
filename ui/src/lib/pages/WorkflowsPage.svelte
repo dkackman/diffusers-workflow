@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { ChevronDown, ChevronRight, Plus, X } from 'lucide-svelte'
+  import { ChevronDown, ChevronRight, Film, Image, Music, Plus, X } from 'lucide-svelte'
   import { api } from '../api'
 
   let workflows = $state<string[]>([])
+  let details = $state<Record<string, { kinds: string[]; variables: number }>>({})
   let workflowDir = $state('')
   let filter = $state('')
   let error = $state('')
@@ -52,6 +53,7 @@
       .listWorkflows()
       .then((result) => {
         workflows = result.workflows
+        details = result.details ?? {}
         workflowDir = result.workflow_dir
       })
       .catch((e) => (error = e.message))
@@ -107,8 +109,15 @@
   {#if isOpen(group)}
     <div class="grid">
       {#each inGroup(group) as name (name)}
+        {@const detail = details[name]}
         <a class="card panel" href={href(name)}>
-          {group ? name.split('/').slice(1).join('/') : name}
+          <span class="cardname">{group ? name.split('/').slice(1).join('/') : name}</span>
+          <span class="cardmeta muted">
+            {#if detail?.kinds.includes('image')}<Image size={13} />{/if}
+            {#if detail?.kinds.includes('video')}<Film size={13} />{/if}
+            {#if detail?.kinds.includes('audio')}<Music size={13} />{/if}
+            {#if detail?.variables}<span title="{detail.variables} variables to tweak">{detail.variables} vars</span>{/if}
+          </span>
         </a>
       {/each}
     </div>
@@ -137,6 +146,14 @@
   }
   .group:hover { color: var(--ink); filter: none; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.6rem; }
-  .card { color: var(--ink); font-weight: 600; padding: 0.7rem 0.9rem; }
+  .card {
+    color: var(--ink); font-weight: 600; padding: 0.7rem 0.9rem;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
   .card:hover { border-color: var(--accent); }
+  .cardname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cardmeta {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-size: 0.72rem; font-weight: 500; flex-shrink: 0;
+  }
 </style>
