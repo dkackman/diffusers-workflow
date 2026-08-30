@@ -1,6 +1,6 @@
 """Every example workflow loads, validates, and points at files that exist.
 
-The examples live in subfolders - flux/, tasks/, archive/, projects/ - so
+The examples live in subfolders - flux/, ltx2/, minimax/, tasks/, archive/ - so
 discovery walks the tree rather than listing one directory.
 
 The reference check guards what subfolders put at risk: a workflow's path to

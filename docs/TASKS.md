@@ -230,7 +230,7 @@ An argument that goes through diffusers' video processor instead - LTX-2's
 IC-LoRA references - wants the `[0, 1]` frames the pipeline returned rather than
 this array; hand those over with `previous_result:step.frames`.
 
-**Example:** [LTX2Extend.json](../examples/LTX2Extend.json)
+**Example:** [LTX2Extend.json](../examples/ltx2/LTX2Extend.json)
 
 ### pair_audio
 
@@ -258,7 +258,7 @@ returns frames without it, and this puts it back:
 | `audio` | Yes | The soundtrack - a waveform, or the earlier step whose video carried one, which brings its sample rate along |
 | `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
 
-**Example:** [LTX2TwoStage.json](../examples/LTX2TwoStage.json)
+**Example:** [LTX2TwoStage.json](../examples/ltx2/LTX2TwoStage.json)
 
 ### slice_audio
 

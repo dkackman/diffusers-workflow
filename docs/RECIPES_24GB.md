@@ -135,12 +135,12 @@ upsample the latents 2x, and the result is sharper than a single pass at 1536x89
 fits where that would not. The base step shares its `vae` into the upsampler and sets
 `release_pipeline`, which frees the 11GB transformer before the 2x decode runs.
 
-**Examples:** [LTX2.json](../examples/LTX2.json) (t2v),
-[LTX2TwoStage.json](../examples/LTX2TwoStage.json) (base -> latent upsample -> mux),
-[LTX2Keyframes.json](../examples/LTX2Keyframes.json) (first and
-last frame), [LTX2Extend.json](../examples/LTX2Extend.json) (continue a clip),
-[LTX2ICLora.json](../examples/LTX2ICLora.json) (generative 2x upscale via IC-LoRA),
-[LTX2I2VEnhancePrompt.json](../examples/LTX2I2VEnhancePrompt.json) (native prompt
+**Examples:** [LTX2.json](../examples/ltx2/LTX2.json) (t2v),
+[LTX2TwoStage.json](../examples/ltx2/LTX2TwoStage.json) (base -> latent upsample -> mux),
+[LTX2Keyframes.json](../examples/ltx2/LTX2Keyframes.json) (first and
+last frame), [LTX2Extend.json](../examples/ltx2/LTX2Extend.json) (continue a clip),
+[LTX2ICLora.json](../examples/ltx2/LTX2ICLora.json) (generative 2x upscale via IC-LoRA),
+[LTX2I2VEnhancePrompt.json](../examples/ltx2/LTX2I2VEnhancePrompt.json) (native prompt
 enhancer and duration head)
 
 ## SDXL (2.6B UNet)

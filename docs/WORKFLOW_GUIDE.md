@@ -755,7 +755,7 @@ chain. Expect some visual drift across many segments with `last_frame` continuit
 it is single-frame conditioning; `last_segment` continuity exists for exactly that,
 where the pipeline can take a video reference.
 
-See [examples/LTX2I2VChained.json](../examples/LTX2I2VChained.json),
+See [examples/ltx2/LTX2I2VChained.json](../examples/ltx2/LTX2I2VChained.json),
 [examples/minimax/MiniMaxH3I2VChained.json](../examples/minimax/MiniMaxH3I2VChained.json), and
 [examples/minimax/MiniMaxH3Ref2VAChained.json](../examples/minimax/MiniMaxH3Ref2VAChained.json)
 (audio-matched lip-sync of arbitrary length).
@@ -980,8 +980,8 @@ Which of the three forms a type wants is decided by the type, not by preference:
 | `from_previous_result` | declares a media `kind`, so a step's output lands in the right field on its own |
 | `from_arguments` | is a plain record of fields - no `from_file()`, no `kind` (LTX-2's conditions and references) |
 
-See [examples/LTX2Keyframes.json](../examples/LTX2Keyframes.json) for the file form and
-[examples/LTX2Extend.json](../examples/LTX2Extend.json) for the one built from an
+See [examples/ltx2/LTX2Keyframes.json](../examples/ltx2/LTX2Keyframes.json) for the file form and
+[examples/ltx2/LTX2Extend.json](../examples/ltx2/LTX2Extend.json) for the one built from an
 earlier step.
 
 ### Frames Across a Step Boundary
@@ -1019,4 +1019,4 @@ array, while an IC-LoRA reference goes through the video processor, which expect
 `[0, 1]` frames the pipeline returned - `previous_result:step.frames` hands those over
 untouched.
 
-**Example:** [examples/LTX2TwoStage.json](../examples/LTX2TwoStage.json)
+**Example:** [examples/ltx2/LTX2TwoStage.json](../examples/ltx2/LTX2TwoStage.json)
