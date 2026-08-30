@@ -29,6 +29,7 @@
         theme: currentTheme(),
         readOnly: readonly,
         minimap: { enabled: false },
+        guides: { indentation: false },
         automaticLayout: true,
         scrollBeyondLastLine: false,
         fontSize: 13,
