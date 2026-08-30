@@ -95,3 +95,10 @@ capabilities. Most of the gap was two generic engine limits, not per-model work.
   another thing to keep in sync) vs a docstring convention the introspection
   layer parses (cheaper to author, easier to drift). Whichever wins, the
   editor's task-step forms consume it through the same describe/classes API.
+
+## deferred
+
+- **Multi-GPU workers.** Deferred 2026-08-30: no multi-GPU hardware to test
+  against at the moment. The seams are already in place when it returns -
+  device overrides accept `cuda:N` throughout, and the server's JobManager
+  is the natural place to grow a worker pool.

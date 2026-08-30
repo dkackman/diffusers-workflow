@@ -110,8 +110,10 @@ class TestConfiguredDevice:
         assert [call.args[3] for call in load.call_args_list] == ["cpu", "cpu"]
 
     def test_a_component_can_pin_itself_to_another_device(self):
+        # no_generator: the assertion is about device routing, and a real
+        # torch.Generator("cuda") would need the hardware this test doesn't
         definition = {
-            "configuration": {"component_type": MagicMock()},
+            "configuration": {"component_type": MagicMock(), "no_generator": True},
             "vae": {
                 "configuration": {"component_type": MagicMock(), "device": "cpu"},
                 "from_pretrained_arguments": {"model_name": "test-vae"},

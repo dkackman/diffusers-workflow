@@ -28,6 +28,15 @@ if multiprocessing.get_start_method(allow_none=True) != "spawn":
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dw.worker import worker_main
+import torch
+
+# These two run a real SD 1.5 fp16 generation through the worker - fp16
+# doesn't run on CPU, and CI has no accelerator (or the model), so they
+# only run where one exists
+requires_accelerator = pytest.mark.skipif(
+    not (torch.cuda.is_available() or torch.backends.mps.is_available()),
+    reason="runs a real fp16 generation; needs an accelerator",
+)
 
 # The first response after spawning must tolerate the child process importing
 # torch + diffusers before it can reply to anything - a few seconds warm,
@@ -143,6 +152,7 @@ def test_worker_clear_memory(worker_process):
     not os.path.exists(TEST_WORKFLOW_PATH),
     reason=f"test workflow not found: {TEST_WORKFLOW_PATH}",
 )
+@requires_accelerator
 def test_worker_with_simple_workflow(worker_process, tmp_path):
     """Worker executes a real workflow and reuses cached models on a second run."""
     cmd_queue, res_queue, worker = worker_process
@@ -210,6 +220,7 @@ def test_worker_with_simple_workflow(worker_process, tmp_path):
     not os.path.exists(TEST_WORKFLOW_PATH),
     reason=f"test workflow not found: {TEST_WORKFLOW_PATH}",
 )
+@requires_accelerator
 def test_worker_cache_hit_applies_new_output_dir(worker_process, tmp_path):
     """
     A second execute for the same workflow keeps its models cached, but the
