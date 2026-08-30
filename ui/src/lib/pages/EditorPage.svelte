@@ -498,7 +498,10 @@
             <input
               id={'wfvar-' + key}
               list="prompt-references"
-              title={promptTooltip(workflow.variables[key], promptLibrary.texts)}
+              title={promptTooltip(
+                workflow.variables[key],
+                promptLibrary.texts,
+              )}
               value={typeof workflow.variables[key] === 'object'
                 ? JSON.stringify(workflow.variables[key])
                 : String(workflow.variables[key] ?? '')}
