@@ -2,17 +2,22 @@
   import {
     ChevronDown,
     ChevronRight,
+    Download,
     ExternalLink,
     HardDrive,
     Trash2,
+    X,
   } from '@lucide/svelte'
   import { api } from '../api'
-  import type { ModelCache, ModelRepo } from '../types'
+  import type { ModelCache, ModelDownload, ModelRepo } from '../types'
 
   let cache = $state<ModelCache | null>(null)
   let error = $state('')
   let deleting = $state<string | null>(null)
   let expanded = $state<Record<string, boolean>>({})
+
+  let downloads = $state<ModelDownload[]>([])
+  let repoInput = $state('')
 
   async function refresh() {
     try {
@@ -22,9 +27,58 @@
       error = e instanceof Error ? e.message : String(e)
     }
   }
+  async function refreshDownloads() {
+    try {
+      downloads = (await api.listDownloads()).downloads
+    } catch {
+      /* the models fetch reports connectivity problems */
+    }
+  }
   $effect(() => {
     refresh()
+    refreshDownloads()
   })
+
+  // While anything is downloading, poll progress - and refresh the repo
+  // list when a download finishes so it appears with its real size
+  const anyActive = $derived(downloads.some((d) => d.status === 'downloading'))
+  $effect(() => {
+    if (!anyActive) return
+    const timer = setInterval(async () => {
+      const before = downloads.filter((d) => d.status === 'downloading').length
+      await refreshDownloads()
+      const after = downloads.filter((d) => d.status === 'downloading').length
+      if (after < before) refresh()
+    }, 2000)
+    return () => clearInterval(timer)
+  })
+
+  async function startDownload() {
+    const repo = repoInput.trim()
+    if (!repo) return
+    try {
+      await api.startDownload(repo)
+      repoInput = ''
+      error = ''
+      await refreshDownloads()
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  async function cancelDownload(id: string) {
+    try {
+      await api.cancelDownload(id)
+      await refreshDownloads()
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  const pct = (download: ModelDownload) =>
+    download.total
+      ? Math.min(100, Math.round((100 * download.downloaded) / download.total))
+      : null
 
   async function remove(repo: ModelRepo) {
     if (
@@ -86,7 +140,57 @@
   {/if}
 </div>
 
+<form
+  class="dlform"
+  onsubmit={(e) => {
+    e.preventDefault()
+    startDownload()
+  }}
+>
+  <input
+    placeholder="download a model… (org/name)"
+    bind:value={repoInput}
+    title="a Hugging Face repo id, e.g. black-forest-labs/FLUX.1-dev"
+  />
+  <button
+    class="withicon"
+    type="submit"
+    disabled={!repoInput.trim()}
+    title="download this repo into the hub cache"
+  >
+    <Download size={14} />Download
+  </button>
+</form>
+
 {#if error}<p class="warn">{error}</p>{/if}
+
+{#each downloads.filter((d) => d.status === 'downloading' || (d.finished_at && Date.now() / 1000 - d.finished_at < 300)) as download (download.id)}
+  <div class="dl" class:failed={download.status === 'failed'}>
+    <span class="dlrepo">{download.repo_id}</span>
+    {#if download.status === 'downloading'}
+      {#if pct(download) != null}
+        <span class="dlbar"><span style="width: {pct(download)}%"></span></span>
+        <span class="muted dlnum">
+          {gb(download.downloaded)} / {gb(download.total ?? 0)} GB
+        </span>
+      {:else}
+        <span class="muted dlnum">{gb(download.downloaded)} GB…</span>
+      {/if}
+      <button
+        class="quiet icon"
+        onclick={() => cancelDownload(download.id)}
+        title="cancel this download - partial files resume on retry"
+        aria-label="cancel downloading {download.repo_id}"
+      >
+        <X size={14} />
+      </button>
+    {:else if download.status === 'failed'}
+      <span class="warn">{download.error}</span>
+    {:else}
+      <span class="muted">{download.status}</span>
+    {/if}
+  </div>
+{/each}
 {#if cache?.warnings.length}
   <p class="muted skipped" title={cache.warnings.join('\n')}>
     {cache.warnings.length} cache
@@ -219,6 +323,48 @@
   .warn {
     color: var(--danger, #c33);
     font-size: 0.9rem;
+  }
+  .dlform {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.8rem;
+  }
+  .dlform input {
+    max-width: 320px;
+  }
+  .withicon {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .dl {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    font-size: 0.88rem;
+    margin-bottom: 0.4rem;
+  }
+  .dl.failed .warn {
+    font-size: 0.82rem;
+  }
+  .dlrepo {
+    font-weight: 500;
+  }
+  .dlbar {
+    width: 180px;
+    height: 7px;
+    border-radius: 4px;
+    background: var(--line);
+    overflow: hidden;
+    display: inline-block;
+  }
+  .dlbar > span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+  }
+  .dlnum {
+    font-variant-numeric: tabular-nums;
   }
   .skipped {
     font-size: 0.82rem;

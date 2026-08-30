@@ -687,3 +687,139 @@ class TestModelManager:
 
             client.post(f"/api/jobs/{job['id']}/cancel")
             wait_for_status(client, job["id"], ["cancelled"])
+
+
+def first_hangs_then_succeeds():
+    """A script whose first execute never finishes (until cancelled) and
+    whose later executes succeed - lets a test hold the runner busy while
+    it rearranges the waiting queue."""
+    count = {"n": 0}
+
+    def script(command):
+        count["n"] += 1
+        if count["n"] == 1:
+            yield from hanging_script(command)
+        else:
+            yield from success_script(command)
+
+    return script
+
+
+class TestQueueManagement:
+    """The waiting queue is visible and reorderable; the running job is not."""
+
+    def submit(self, client):
+        return client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+
+    def test_moved_job_runs_first(self, server):
+        with server(first_hangs_then_succeeds()) as client:
+            blocker = self.submit(client)
+            wait_for_status(client, blocker["id"], ["running"])
+            second = self.submit(client)
+            third = self.submit(client)
+
+            # Positions are reported while jobs wait
+            jobs = {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}
+            assert jobs[second["id"]]["queue_position"] == 0
+            assert jobs[third["id"]]["queue_position"] == 1
+
+            response = client.post(
+                f"/api/jobs/{third['id']}/move", json={"direction": "front"}
+            )
+            assert response.json()["queue"] == [third["id"], second["id"]]
+
+            client.post(f"/api/jobs/{blocker['id']}/cancel")
+            wait_for_status(client, third["id"], ["succeeded"])
+            wait_for_status(client, second["id"], ["succeeded"])
+
+            # The promoted job genuinely ran first
+            third_started = client.get(f"/api/jobs/{third['id']}").json()["started_at"]
+            second_started = client.get(f"/api/jobs/{second['id']}").json()[
+                "started_at"
+            ]
+            assert third_started < second_started
+
+    def test_running_and_unknown_jobs_do_not_move(self, server):
+        with server(first_hangs_then_succeeds()) as client:
+            blocker = self.submit(client)
+            wait_for_status(client, blocker["id"], ["running"])
+
+            running = client.post(
+                f"/api/jobs/{blocker['id']}/move", json={"direction": "up"}
+            )
+            assert running.status_code == 409
+            unknown = client.post("/api/jobs/nope/move", json={"direction": "up"})
+            assert unknown.status_code == 404
+            bad = client.post(
+                f"/api/jobs/{blocker['id']}/move", json={"direction": "sideways"}
+            )
+            assert bad.status_code == 400
+
+            client.post(f"/api/jobs/{blocker['id']}/cancel")
+            wait_for_status(client, blocker["id"], ["cancelled"])
+
+    def test_cancelled_queued_job_leaves_the_queue_order(self, server):
+        with server(first_hangs_then_succeeds()) as client:
+            blocker = self.submit(client)
+            wait_for_status(client, blocker["id"], ["running"])
+            second = self.submit(client)
+            third = self.submit(client)
+
+            client.post(f"/api/jobs/{second['id']}/cancel")
+            jobs = {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}
+            assert jobs[third["id"]]["queue_position"] == 0
+            assert "queue_position" not in jobs[second["id"]]
+
+            client.post(f"/api/jobs/{blocker['id']}/cancel")
+            wait_for_status(client, third["id"], ["succeeded"])
+
+
+class TestModelDownloads:
+    """The download endpoints wire the DownloadManager to HTTP."""
+
+    def make_manager(self):
+        from dw.hub_cache import DownloadManager
+
+        def instant(repo_id, tqdm_class=None):
+            tracker = tqdm_class(total=50)
+            tracker.update(50)
+
+        class Info:
+            siblings = []
+
+        return DownloadManager(download_fn=instant, info_fn=lambda repo_id: Info())
+
+    def test_download_lifecycle_over_http(self, server, tmp_path):
+        from dw.server.jobs import JobManager
+        from dw.server.app import create_app
+
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+        )
+        app = create_app(
+            workflow_dir=str(tmp_path),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            download_manager=self.make_manager(),
+        )
+        with TestClient(app) as client:
+            started = client.post("/api/models/download", json={"repo_id": "acme/tiny"})
+            assert started.status_code == 202
+            download_id = started.json()["id"]
+
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                listed = client.get("/api/models/downloads").json()["downloads"]
+                entry = next(d for d in listed if d["id"] == download_id)
+                if entry["status"] == "completed":
+                    break
+                time.sleep(0.02)
+            assert entry["status"] == "completed"
+            assert entry["downloaded"] == 50
+
+            bad = client.post("/api/models/download", json={"repo_id": "no//pe"})
+            assert bad.status_code == 400
+            unknown = client.post("/api/models/downloads/nope/cancel")
+            assert unknown.status_code == 404

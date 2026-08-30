@@ -112,4 +112,6 @@ test('models page inventories the hub cache', async ({ page }) => {
   await expect(page.locator('.head .muted')).toContainText('cached', {
     timeout: 30_000,
   })
+  // The download form is present but never submitted here
+  await expect(page.getByPlaceholder(/download a model/)).toBeVisible()
 })
