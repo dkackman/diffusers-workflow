@@ -8,7 +8,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from dw.server.jobs import JobManager
+from dw.server.jobs import JobManager, TERMINAL_STATES
 from dw.server.app import create_app
 
 
@@ -63,6 +63,10 @@ class ScriptedWorkerManager:
     def cancel(self):
         self.send_command({"type": "cancel"})
 
+    def mark_crashed(self):
+        self.worker_active = False
+        self.crashed = True
+
 
 def success_script(command):
     yield {
@@ -87,6 +91,27 @@ def success_script(command):
         "run_count": 1,
         "manifest": [{"step": "gen", "files": ["/out/a.png"]}],
     }
+
+
+def failing_script(command):
+    # The worker caught an exception in the run and reported it
+    yield {
+        "type": "progress",
+        "event": "step_start",
+        "step": "gen",
+        "index": 0,
+        "total_steps": 1,
+    }
+    yield {
+        "type": "error",
+        "message": "Workflow execution error: CUDA out of memory",
+        "traceback": "Traceback (most recent call last):\n  ...\nOutOfMemoryError",
+    }
+
+
+def crashing_script(command):
+    # The worker process itself died - the message the watcher synthesizes
+    yield {"type": "worker_crashed", "message": "exit code -11", "traceback": None}
 
 
 def hanging_script(command):
@@ -153,6 +178,78 @@ def test_job_lifecycle_success(server):
         execute = [c for c in manager.worker_manager.commands if c["type"] == "execute"]
         assert execute[0]["workflow"]["id"] == "server_test"
         assert execute[0]["arguments"] == {"prompt": "hi"}
+
+
+def test_failed_job_surfaces_the_error_and_traceback(server):
+    """The failure path is what every user sees when a run goes wrong -
+    the error and traceback must reach the detail, the event log must
+    close with a terminal status, and history must remember the outcome."""
+    with server(failing_script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, job["id"], TERMINAL_STATES)
+        assert detail["status"] == "failed"
+        assert "CUDA out of memory" in detail["error"]
+        assert detail["traceback"].startswith("Traceback")
+        assert detail["manifest"] == []
+
+        events = []
+        with client.stream("GET", f"/api/jobs/{job['id']}/events") as response:
+            for line in response.iter_lines():
+                if line.startswith("data: "):
+                    events.append(json.loads(line[len("data: ") :]))
+        assert events[-1] == {
+            "seq": events[-1]["seq"],
+            "event": "job_status",
+            "status": "failed",
+        }
+
+        manager = client.app.state.job_manager
+        remembered = manager.history.get(job["id"])
+        assert remembered["status"] == "failed"
+        assert "CUDA out of memory" in remembered["error"]
+        # the manager is idle again - a failure must not wedge the queue
+        assert not manager.is_busy()
+
+
+def test_a_worker_crash_fails_the_job_and_the_next_one_still_runs(server):
+    """A crashed worker is marked so the next job respawns it rather than
+    waiting forever on a dead process."""
+    with server(crashing_script) as client:
+        manager = client.app.state.job_manager
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, job["id"], TERMINAL_STATES)
+        assert detail["status"] == "failed"
+        assert detail["error"].startswith("Worker crashed")
+        assert manager.worker_manager.crashed is True
+
+        # the runner recovers: ensure_worker brings the (scripted) worker
+        # back and the next submission runs to a terminal state
+        manager.worker_manager.script = success_script
+        again = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        assert wait_for_status(client, again["id"], TERMINAL_STATES)["status"] == (
+            "succeeded"
+        )
+
+
+def test_job_detail_carries_its_queue_position_while_waiting(server):
+    """The per-job detail says where a waiting job stands - the job page
+    and the enhancer show it - and drops the field once it runs."""
+    with server(hanging_script) as client:
+        running = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, running["id"], ["running"])
+        first = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        second = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+
+        # the submission response already says so
+        assert first["queue_position"] == 0
+        assert second["queue_position"] == 1
+        assert "queue_position" not in client.get(f"/api/jobs/{running['id']}").json()
+        assert client.get(f"/api/jobs/{second['id']}").json()["queue_position"] == 1
+
+        client.post(f"/api/jobs/{first['id']}/cancel")
+        assert client.get(f"/api/jobs/{second['id']}").json()["queue_position"] == 0
+        client.post(f"/api/jobs/{running['id']}/cancel")
+        client.post(f"/api/jobs/{second['id']}/cancel")
 
 
 def test_sse_stream_and_replay(server):

@@ -32,17 +32,15 @@
 
   $effect(() => {
     const poll = async () => {
-      try {
-        const [memoryInfo, health] = await Promise.all([
-          api.memory(),
-          api.health(),
-        ])
-        memory = memoryInfo
-        currentJob = health.current_job
-      } catch {
-        memory = null
-        currentJob = null
-      }
+      // Settled independently: memory answers 503 while the worker is
+      // unreachable, and that must not blank the "running" indicator too
+      const [memoryInfo, health] = await Promise.allSettled([
+        api.memory(),
+        api.health(),
+      ])
+      memory = memoryInfo.status === 'fulfilled' ? memoryInfo.value : null
+      currentJob =
+        health.status === 'fulfilled' ? health.value.current_job : null
     }
     poll()
     const timer = setInterval(poll, 5000)

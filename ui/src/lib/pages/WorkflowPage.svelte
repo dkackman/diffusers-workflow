@@ -107,7 +107,7 @@
   <button
     class="withicon"
     onclick={run}
-    disabled={submitting || !workflow}
+    disabled={submitting || !workflow || !workflowDir}
     title="queue this workflow with the variables below"
   >
     <Play size={14} />{submitting ? 'Submitting…' : 'Run'}

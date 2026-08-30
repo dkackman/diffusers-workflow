@@ -15,6 +15,8 @@
     onremove: () => void
   } = $props()
 
+  const uid = $props.id()
+
   // The schema requires these blocks; older hand-written files may omit one.
   // Initialized in setup (runs once) rather than an effect - an effect would
   // subscribe itself to the properties it writes
@@ -46,22 +48,22 @@
 
   {#if component.configuration}
     <div class="grid">
-      <label for={slot + '-type'}>class</label>
+      <label for={`${uid}-type`}>class</label>
       <input
-        id={slot + '-type'}
+        id={`${uid}-type`}
         list="model-classes"
         bind:value={component.configuration.component_type}
         placeholder="e.g. FluxTransformer2DModel"
       />
 
-      <label for={slot + '-model'}>model</label>
+      <label for={`${uid}-model`}>model</label>
       <input
-        id={slot + '-model'}
+        id={`${uid}-model`}
         bind:value={component.from_pretrained_arguments.model_name}
         placeholder="org/model or local path"
       />
 
-      <label for={slot + '-load'}>load args</label>
+      <label for={`${uid}-load`}>load args</label>
       <ArgumentsEditor
         bind:args={component.from_pretrained_arguments}
         componentType={component.configuration.component_type ?? ''}
@@ -70,9 +72,9 @@
         {listId}
       />
 
-      <label for={slot + '-device'}>device</label>
+      <label for={`${uid}-device`}>device</label>
       <input
-        id={slot + '-device'}
+        id={`${uid}-device`}
         value={component.configuration.device ?? ''}
         placeholder="pipeline default"
         onchange={(e) => {
@@ -82,13 +84,13 @@
         }}
       />
 
-      <label for={slot + '-quant'}>quantization</label>
+      <label for={`${uid}-quant`}>quantization</label>
       <QuantizationEditor bind:component {listId} />
 
-      <label for={slot + '-go'}>group offload</label>
+      <label for={`${uid}-go`}>group offload</label>
       <div class="gofield">
         <input
-          id={slot + '-go'}
+          id={`${uid}-go`}
           type="checkbox"
           checked={groupOffload !== null}
           onchange={(e) => toggleGroupOffload(e.currentTarget.checked)}

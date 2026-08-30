@@ -34,6 +34,13 @@
             events.push(event)
             if (event.event === 'pipeline_step') {
               stepTimes = [...stepTimes.slice(-6), performance.now()]
+            } else if (
+              event.event === 'step_start' ||
+              event.event === 'iteration_start'
+            ) {
+              // A new denoise loop: the gap since the previous loop's last
+              // step includes a model load, and would inflate the ETA
+              stepTimes = []
             } else if (event.event === 'job_status') {
               stepTimes = []
               refresh()
@@ -111,6 +118,11 @@
   {#if job}
     <h1>{job.workflow}</h1>
     <span class="chip {job.status}">{job.status}</span>
+    {#if job.queue_position !== undefined}
+      <span class="muted" title="position in the waiting queue"
+        >#{job.queue_position + 1} in line</span
+      >
+    {/if}
     {#if seed !== undefined}
       <code
         class="muted seed"

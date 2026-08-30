@@ -82,6 +82,14 @@ def workflow_names(workflow_dir):
 _workflow_detail_cache = {}
 
 
+def _prune_detail_cache(cache, directory, names):
+    """Forget files a listing no longer names - a long-lived server that
+    creates and deletes scratch files would otherwise grow the cache forever."""
+    live = {os.path.join(directory, f"{name}.json") for name in names}
+    for stale in [path for path in cache if path not in live]:
+        del cache[stale]
+
+
 def collect_prompt_references(value):
     """Every stored-prompt name a definition references, at any depth - so
     deleting a prompt can warn which workflows would break."""
@@ -137,6 +145,7 @@ def workflow_details(workflow_dir, names):
             }
         _workflow_detail_cache[path] = (mtime, detail)
         details[name] = detail
+    _prune_detail_cache(_workflow_detail_cache, workflow_dir, names)
     return details
 
 
@@ -184,6 +193,7 @@ def prompt_details(prompt_dir, names):
             detail = {"description": "", "intended_model": "", "tags": [], "text": ""}
         _prompt_detail_cache[path] = (mtime, detail)
         details[name] = detail
+    _prune_detail_cache(_prompt_detail_cache, prompt_dir, names)
     return details
 
 
@@ -281,7 +291,7 @@ def create_app(
             # workflow_from_file / validate / the security layer all raise for
             # bad requests - every failure here is the client's fault
             raise HTTPException(status_code=400, detail=str(e))
-        return job.detail()
+        return manager.describe(job)
 
     @app.get("/api/jobs")
     def list_jobs():
@@ -293,7 +303,7 @@ def create_app(
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         # a historical job is already a detail dict; a live one renders itself
-        return job if isinstance(job, dict) else job.detail()
+        return job if isinstance(job, dict) else manager.describe(job)
 
     @app.post("/api/jobs/{job_id}/rerun", status_code=201)
     def rerun_job(job_id: str):
@@ -304,7 +314,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(e))
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
-        return job.detail()
+        return manager.describe(job)
 
     class MoveRequest(BaseModel):
         direction: str = Field(description="up, down, front, or back")
@@ -610,7 +620,7 @@ def create_app(
             job = manager.submit(workflow=definition, arguments={})
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
-        return job.detail()
+        return manager.describe(job)
 
     # --------------------------------------------------------------- gallery
 

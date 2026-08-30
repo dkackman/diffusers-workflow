@@ -341,6 +341,21 @@ class JobManager:
             base_dir=spec.get("base_dir"),
         )
 
+    def queue_position(self, job_id):
+        """Index in the waiting queue, or None when the job is not queued."""
+        with self._lock:
+            return self._pending.index(job_id) if job_id in self._pending else None
+
+    def describe(self, job):
+        """A live job's detail plus its queue position while it waits - what
+        the per-job endpoints return, so a client holding one job can say
+        where it stands without fetching the whole list."""
+        detail = job.detail()
+        position = self.queue_position(job.id)
+        if position is not None:
+            detail["queue_position"] = position
+        return detail
+
     def list(self):
         with self._lock:
             live = sorted(self.jobs.values(), key=lambda j: j.created_at)
