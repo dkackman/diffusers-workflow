@@ -29,6 +29,19 @@ A pre-release tag like `v0.38.0-rc1` is marked as a pre-release on
 GitHub. Tags that aren't `v` + semver (or that don't match the declared
 versions) fail the release job before anything is published.
 
+After the GitHub release, the `pypi` job publishes the same artifacts to
+PyPI via [trusted publishing](https://docs.pypi.org/trusted-publishers/)
+(OIDC — no token stored anywhere). One-time setup on pypi.org under
+*Publishing*: add a trusted publisher for project `diffusers-workflow`
+with owner `dkackman`, repository `diffusers-workflow`, workflow
+`ci.yml`, environment `pypi` (use "add a pending publisher" before the
+first release, since the project won't exist yet). Pre-release versions
+are hidden from plain `pip install`; they need `pip install --pre`.
+
+Note: released `diffusers` from PyPI may lag the newest model pipelines
+this project targets — a PyPI install can need
+`pip install git+https://github.com/huggingface/diffusers` on top.
+
 To rebuild artifacts without releasing, run the CI workflow manually
 (`workflow_dispatch`) — the wheel job uploads `dist/*` as a workflow
 artifact.

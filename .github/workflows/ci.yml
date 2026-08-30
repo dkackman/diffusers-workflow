@@ -12,8 +12,8 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -43,8 +43,8 @@ jobs:
       run:
         working-directory: ui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -68,19 +68,19 @@ jobs:
     needs: [backend, ui]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: ui/package-lock.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: cd ui && npm ci
       - run: pip install build
       - run: bash scripts/build_dist.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: diffusers-workflow-dist
           path: dist/*
@@ -94,7 +94,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check the tag against the declared versions
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -106,7 +106,7 @@ jobs:
             echo "Tag $tag != pyproject version $pyproject"
             exit 1
           fi
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: diffusers-workflow-dist
           path: dist
@@ -121,3 +121,21 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes --verify-tag $prerelease
+
+  pypi:
+    # Trusted publishing (OIDC) - register on pypi.org first: project
+    # diffusers-workflow, owner dkackman, repo diffusers-workflow,
+    # workflow ci.yml, environment pypi. No token or secret is stored.
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/diffusers-workflow
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: diffusers-workflow-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
