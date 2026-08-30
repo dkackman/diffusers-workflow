@@ -1,6 +1,7 @@
 import type {
   JobDetail,
   ModelCache,
+  ModelDownload,
   JobEvent,
   JobSummary,
   GalleryFile,
@@ -50,6 +51,12 @@ export const api = {
       image_processors: string[]
       video_processors: string[]
     }>('/api/tasks'),
+  moveJob: (id: string, direction: 'up' | 'down' | 'front' | 'back') =>
+    request<{ id: string; queue: string[] }>(`/api/jobs/${id}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ direction }),
+    }),
   cancelJob: (id: string) =>
     request<{ id: string; status: string }>(`/api/jobs/${id}/cancel`, {
       method: 'POST',
@@ -67,6 +74,18 @@ export const api = {
     }),
   memory: () => request<MemoryInfo>('/api/memory'),
   listModels: () => request<ModelCache>('/api/models'),
+  startDownload: (repoId: string) =>
+    request<ModelDownload>('/api/models/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo_id: repoId }),
+    }),
+  listDownloads: () =>
+    request<{ downloads: ModelDownload[] }>('/api/models/downloads'),
+  cancelDownload: (id: string) =>
+    request<ModelDownload>(`/api/models/downloads/${id}/cancel`, {
+      method: 'POST',
+    }),
   deleteModel: (repo: string) =>
     request<{ repo_id: string; deleted: boolean; freed: number }>(
       `/api/models?repo=${encodeURIComponent(repo)}`,

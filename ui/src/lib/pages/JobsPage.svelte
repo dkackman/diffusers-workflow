@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Inbox } from '@lucide/svelte'
+  import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
   import { api } from '../api'
   import type { JobSummary } from '../types'
 
@@ -29,6 +29,24 @@
     const timer = setInterval(poll, 3000)
     return () => clearInterval(timer)
   })
+
+  const queuedCount = $derived(
+    jobs.filter((job) => job.queue_position !== undefined).length,
+  )
+
+  async function move(
+    event: MouseEvent,
+    id: string,
+    direction: 'up' | 'down' | 'front',
+  ) {
+    event.preventDefault()
+    try {
+      await api.moveJob(id, direction)
+      jobs = (await api.listJobs()).jobs.reverse()
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+    }
+  }
 
   const when = (t: number | null) =>
     t ? new Date(t * 1000).toLocaleTimeString() : '—'
@@ -77,7 +95,46 @@
           : ''}
       >
         <span class="chip {job.status}">{job.status}</span>
-        <span class="name">{job.workflow}</span>
+        <span class="name">
+          {job.workflow}
+          {#if job.queue_position !== undefined}
+            <span class="qpos" title="position in the waiting queue"
+              >#{job.queue_position + 1}</span
+            >
+            {#if queuedCount > 1}
+              <span class="qmove">
+                {#if job.queue_position > 0}
+                  <button
+                    class="quiet icon"
+                    onclick={(e) => move(e, job.id, 'front')}
+                    title="run this job next"
+                    aria-label="move {job.id} to the front of the queue"
+                  >
+                    <ChevronsUp size={13} />
+                  </button>
+                  <button
+                    class="quiet icon"
+                    onclick={(e) => move(e, job.id, 'up')}
+                    title="move up one place"
+                    aria-label="move {job.id} up one place"
+                  >
+                    <ChevronUp size={13} />
+                  </button>
+                {/if}
+                {#if job.queue_position < queuedCount - 1}
+                  <button
+                    class="quiet icon"
+                    onclick={(e) => move(e, job.id, 'down')}
+                    title="move down one place"
+                    aria-label="move {job.id} down one place"
+                  >
+                    <ChevronDown size={13} />
+                  </button>
+                {/if}
+              </span>
+            {/if}
+          {/if}
+        </span>
         <span class="muted">{when(job.started_at)}</span>
         <span class="muted">{duration(job)}</span>
         <code class="muted">{job.id}</code>
@@ -123,6 +180,25 @@
   }
   .name {
     font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .qpos {
+    font-size: 0.72rem;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0 0.3rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .qmove {
+    display: inline-flex;
+    gap: 0.1rem;
+  }
+  .icon {
+    display: inline-flex;
+    padding: 0.15rem 0.3rem;
   }
   .empty {
     display: flex;

@@ -39,8 +39,9 @@ load entirely.
   workflow** loads that definition into the editor with the seed pinned, so
   any image can be reproduced or riffed on.
 - **Models** — the Hugging Face hub cache: every cached repo with sizes,
-  revisions, and last-used dates, plus free disk space. Deleting a repo
-  frees it from disk (refused while a job is running; the next workflow
+  revisions, and last-used dates, plus free disk space. Download a repo by
+  id with live progress (cancellable; partial files resume on retry), and
+  delete to free disk (refused while a job is running; the next workflow
   that needs the model downloads it again).
 
 ## Jobs API
@@ -53,8 +54,10 @@ load entirely.
 | `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless |
 | `POST /api/jobs/{id}/cancel` | Cooperative cancel (takes effect at the next step boundary or denoise step) |
 | `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec |
+| `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`. |
 
-One job runs at a time (it is one GPU); submissions queue in order.
+One job runs at a time (it is one GPU); submissions queue in order, and
+the waiting portion of the queue can be reordered.
 
 ## Introspection API
 
@@ -78,6 +81,9 @@ The editor's forms come from these; they are just as usable from scripts:
   `DELETE /api/gallery/{name}` — outputs and their embedded metadata
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
+- `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,
+  `POST /api/models/downloads/{id}/cancel` — background snapshot downloads
+  with byte-level progress
 - `GET /api/memory`, `GET /api/health` — worker VRAM/RAM stats and liveness
 
 ## Security model

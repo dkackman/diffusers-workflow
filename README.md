@@ -64,7 +64,7 @@ Everything the engine does, in a browser backed by a persistent GPU worker — m
 
 ![The gallery with generated images and videos](docs/img/ui-gallery.jpg)
 
-**A model manager for the disk your models actually consume.** The Hugging Face hub cache, inventoried: sizes, revisions, last-used dates, free space, one-click delete.
+**A model manager for the disk your models actually consume.** The Hugging Face hub cache, inventoried: sizes, revisions, last-used dates, free space — download new models by id with live progress, delete with one click.
 
 ![The model manager listing cached models with sizes](docs/img/ui-models.png)
 

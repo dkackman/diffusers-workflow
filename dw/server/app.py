@@ -31,7 +31,7 @@ from ..introspection import (
 from ..schema import load_schema
 from ..workflow import Workflow, workflow_from_definition
 from ..result import read_embedded_metadata
-from ..hub_cache import scan_models, delete_model
+from ..hub_cache import scan_models, delete_model, DownloadManager
 from .jobs import JobManager, TERMINAL_STATES
 
 logger = logging.getLogger("dw")
@@ -141,6 +141,7 @@ def create_app(
     log_level="INFO",
     job_manager=None,
     ui_dir=None,
+    download_manager=None,
 ):
     """Build the application. A caller (tests) can inject a JobManager."""
     manager = job_manager or JobManager(output_dir, log_level=log_level)
@@ -213,6 +214,25 @@ def create_app(
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         return job.detail()
+
+    class MoveRequest(BaseModel):
+        direction: str = Field(description="up, down, front, or back")
+
+    @app.post("/api/jobs/{job_id}/move")
+    def move_job(job_id: str, body: MoveRequest):
+        """Reorder a queued job. 409 once it is running or finished -
+        only the waiting portion of the queue can be rearranged."""
+        if manager.get(job_id) is None:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        try:
+            order = manager.move(job_id, body.direction)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if order is None:
+            raise HTTPException(
+                status_code=409, detail="Job is not queued - only queued jobs move"
+            )
+        return {"id": job_id, "queue": order}
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel_job(job_id: str):
@@ -474,6 +494,32 @@ def create_app(
     def get_models():
         """What the Hugging Face hub cache holds, largest repo first."""
         return scan_models()
+
+    downloads = download_manager or DownloadManager()
+
+    class DownloadRequest(BaseModel):
+        repo_id: str = Field(description="Hub repo to download, e.g. org/model")
+
+    @app.post("/api/models/download", status_code=202)
+    def start_download(body: DownloadRequest):
+        """Start a background snapshot download into the hub cache."""
+        try:
+            return downloads.start(body.repo_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @app.get("/api/models/downloads")
+    def list_downloads():
+        return {"downloads": downloads.status_list()}
+
+    @app.post("/api/models/downloads/{download_id}/cancel")
+    def cancel_download(download_id: str):
+        """Request cancellation; takes effect at the next progress tick.
+        Partial files stay in the cache and resume on a retry."""
+        status = downloads.cancel(download_id)
+        if status is None:
+            raise HTTPException(status_code=404, detail="Unknown download")
+        return status
 
     @app.delete("/api/models")
     def delete_cached_model(repo: str):

@@ -47,3 +47,103 @@ class TestDelete:
         with pytest.raises(ValueError, match="not in the hub cache"):
             delete_model("acme/other", cache_dir=tmp_path)
         assert len(scan_models(tmp_path)["repos"]) == 1
+
+
+class FakeSibling:
+    def __init__(self, size):
+        self.size = size
+
+
+class FakeInfo:
+    def __init__(self, sizes):
+        self.siblings = [FakeSibling(size) for size in sizes]
+
+
+def fake_download(chunks, gate=None):
+    """A download_fn that feeds `chunks` byte counts through the tracker,
+    pausing at `gate` (if given) so a test can cancel mid-flight."""
+
+    def download(repo_id, tqdm_class=None):
+        tracker = tqdm_class(total=sum(chunks), desc=repo_id)
+        for i, chunk in enumerate(chunks):
+            if gate is not None and i == len(chunks) // 2:
+                gate.wait(timeout=5)
+            tracker.update(chunk)
+        tracker.close()
+
+    return download
+
+
+class TestDownloadManager:
+    def wait_status(self, manager, download_id, statuses, timeout=5.0):
+        import time
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            status = manager.status(download_id)
+            if status["status"] in statuses:
+                return status
+            time.sleep(0.01)
+        raise AssertionError(f"never reached {statuses}: {status}")
+
+    def test_download_completes_and_reports_progress(self):
+        from dw.hub_cache import DownloadManager
+
+        manager = DownloadManager(
+            download_fn=fake_download([100, 200, 300]),
+            info_fn=lambda repo_id: FakeInfo([100, 200, 300]),
+        )
+        started = manager.start("acme/tiny")
+        status = self.wait_status(manager, started["id"], ["completed"])
+        assert status["downloaded"] == 600
+        assert status["total"] == 600
+        assert status["error"] is None
+
+    def test_cancel_stops_the_download_mid_flight(self):
+        import threading
+
+        from dw.hub_cache import DownloadManager
+
+        gate = threading.Event()
+        manager = DownloadManager(
+            download_fn=fake_download([10] * 10, gate=gate),
+            info_fn=lambda repo_id: FakeInfo([10] * 10),
+        )
+        started = manager.start("acme/tiny")
+        manager.cancel(started["id"])
+        gate.set()
+        status = self.wait_status(manager, started["id"], ["cancelled"])
+        assert status["downloaded"] < 100
+
+    def test_failure_is_reported_not_raised(self):
+        from dw.hub_cache import DownloadManager
+
+        def broken(repo_id, tqdm_class=None):
+            raise OSError("no such repo")
+
+        manager = DownloadManager(
+            download_fn=broken, info_fn=lambda repo_id: FakeInfo([])
+        )
+        started = manager.start("acme/missing")
+        status = self.wait_status(manager, started["id"], ["failed"])
+        assert "no such repo" in status["error"]
+
+    def test_invalid_and_duplicate_repos_are_refused(self):
+        import threading
+
+        from dw.hub_cache import DownloadManager
+
+        gate = threading.Event()
+        manager = DownloadManager(
+            download_fn=fake_download([10] * 10, gate=gate),
+            info_fn=lambda repo_id: FakeInfo([10] * 10),
+        )
+        with pytest.raises(ValueError):
+            manager.start("../../etc/passwd")
+
+        started = manager.start("acme/tiny")
+        with pytest.raises(ValueError, match="already downloading"):
+            manager.start("acme/tiny")
+        manager.cancel(started["id"])
+        gate.set()
+        self.wait_status(manager, started["id"], ["cancelled"])

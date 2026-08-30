@@ -9,7 +9,6 @@ from where it left off.
 import os
 import copy
 import json
-import queue
 import sqlite3
 import time
 import uuid
@@ -241,10 +240,13 @@ class JobManager:
         self.history = JobHistory(history_path or resolve_path("jobs.sqlite"))
         self.jobs = {}
         self.last_memory = None
-        self._queue = queue.Queue()
         # Reentrant: cancel() finishes a queued job while holding it, and
         # _finish's terminal-job trim needs it again on the same thread
         self._lock = threading.RLock()  # guards job state transitions
+        # Pending job ids in run order - a list, not a Queue, so the queue
+        # can be reordered while jobs wait
+        self._pending = []
+        self._wake = threading.Condition(self._lock)
         self._worker_lock = threading.Lock()  # guards worker communication
         self._current_job_id = None
         self._stop = threading.Event()
@@ -295,7 +297,9 @@ class JobManager:
         with self._lock:
             self.jobs[job.id] = job
         job.add_event({"event": "job_status", "status": QUEUED})
-        self._queue.put(job.id)
+        with self._wake:
+            self._pending.append(job.id)
+            self._wake.notify()
         logger.info(f"Queued job {job.id} for workflow {job.workflow_name}")
         return job
 
@@ -336,8 +340,14 @@ class JobManager:
     def list(self):
         with self._lock:
             live = sorted(self.jobs.values(), key=lambda j: j.created_at)
+            positions = {job_id: i for i, job_id in enumerate(self._pending)}
         live_ids = {job.id for job in live}
-        summaries = [job.summary() for job in live]
+        summaries = []
+        for job in live:
+            summary = job.summary()
+            if job.id in positions:
+                summary["queue_position"] = positions[job.id]
+            summaries.append(summary)
         for historical in self.history.recent_summaries():
             if historical["id"] not in live_ids:
                 summaries.append(historical)
@@ -356,6 +366,8 @@ class JobManager:
             if job.status in TERMINAL_STATES:
                 return job.status
             if job.status == QUEUED:
+                if job.id in self._pending:
+                    self._pending.remove(job.id)
                 self._finish(job, CANCELLED)
                 return job.status
             if job.status == RUNNING and self._current_job_id == job.id:
@@ -365,9 +377,32 @@ class JobManager:
                     logger.warning(f"Could not send cancel for job {job_id}: {e}")
         return job.status
 
+    def move(self, job_id, direction):
+        """Reorder a queued job: 'up'/'down' swap with a neighbour,
+        'front'/'back' go to the ends. Returns the new pending order, or
+        None for a job that is not queued (finished, running, unknown)."""
+        if direction not in ("up", "down", "front", "back"):
+            raise ValueError(f"Unknown queue direction '{direction}'")
+        with self._lock:
+            if job_id not in self._pending:
+                return None
+            index = self._pending.index(job_id)
+            self._pending.pop(index)
+            if direction == "front":
+                index = 0
+            elif direction == "back":
+                index = len(self._pending)
+            elif direction == "up":
+                index = max(0, index - 1)
+            else:
+                index = min(len(self._pending), index + 1)
+            self._pending.insert(index, job_id)
+            return list(self._pending)
+
     def shutdown(self):
         self._stop.set()
-        self._queue.put(None)
+        with self._wake:
+            self._wake.notify_all()
         self._runner.join(timeout=5)
         self.worker_manager.shutdown_worker()
 
@@ -375,9 +410,12 @@ class JobManager:
 
     def _run_loop(self):
         while not self._stop.is_set():
-            job_id = self._queue.get()
-            if job_id is None:
-                continue
+            with self._wake:
+                while not self._pending and not self._stop.is_set():
+                    self._wake.wait()
+                if self._stop.is_set():
+                    return
+                job_id = self._pending.pop(0)
             job = self.jobs.get(job_id)
             if job is None or job.status != QUEUED:
                 continue  # cancelled while waiting

@@ -6,6 +6,7 @@ export interface JobSummary {
   started_at: number | null
   finished_at: number | null
   historical?: boolean
+  queue_position?: number
 }
 
 export interface ManifestEntry {
@@ -102,4 +103,15 @@ export interface ModelCache {
   warnings: string[]
   disk_free: number | null
   disk_total: number | null
+}
+
+export interface ModelDownload {
+  id: string
+  repo_id: string
+  status: 'downloading' | 'completed' | 'cancelled' | 'failed'
+  downloaded: number
+  total: number | null
+  error: string | null
+  started_at: number
+  finished_at: number | null
 }
