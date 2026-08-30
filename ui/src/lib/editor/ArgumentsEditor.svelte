@@ -7,6 +7,8 @@
     isReference,
     widgetFor,
   } from '../editor'
+  import { promptLibrary } from '../promptlib.svelte'
+  import { promptTooltip } from '../prompts'
   import type { PipelineDescription } from '../types'
 
   let {
@@ -99,19 +101,40 @@
             <option value="false">false</option>
           </select>
         {:else if widget === 'textarea' || widget === 'json'}
+          <!-- A reference is never a textarea: widgetFor routes it to the
+               input branch below, which carries the datalist and tooltip -->
           <textarea
             id={'arg-' + key}
-            class:ref={isReference(args[key])}
-            spellcheck={widget === 'textarea' && !isReference(args[key])}
+            spellcheck={widget === 'textarea'}
             rows="3"
             value={displayValue(args[key], true)}
             onchange={(e) => update(key, e.currentTarget.value)}></textarea>
+          {#if widget === 'textarea' && promptLibrary.names?.length}
+            <!-- The one reference a textarea invites: swapping the inline
+                 text for the library's copy (it re-renders as a reference
+                 input, datalist and tooltip included) -->
+            <select
+              class="promptpick"
+              title="replace this text with a stored prompt from the library"
+              onchange={(e) => {
+                if (!e.currentTarget.value) return
+                args[key] = 'prompt:' + e.currentTarget.value
+                e.currentTarget.value = ''
+              }}
+            >
+              <option value="">use a stored prompt…</option>
+              {#each promptLibrary.names ?? [] as promptName (promptName)}
+                <option value={promptName}>{promptName}</option>
+              {/each}
+            </select>
+          {/if}
         {:else}
           <input
             id={'arg-' + key}
             class:ref={isReference(args[key])}
             list={listId}
             autocomplete="off"
+            title={promptTooltip(args[key], promptLibrary.texts)}
             value={displayValue(args[key])}
             onchange={(e) => update(key, e.currentTarget.value)}
           />
@@ -205,6 +228,12 @@
     font-size: 0.75rem;
     margin-top: 0.15rem;
     max-width: 60ch;
+  }
+  .promptpick {
+    display: block;
+    margin-top: 0.3rem;
+    max-width: 260px;
+    font-size: 0.8rem;
   }
   .icon {
     display: inline-flex;

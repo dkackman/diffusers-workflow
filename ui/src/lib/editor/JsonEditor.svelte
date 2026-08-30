@@ -6,11 +6,13 @@
     onchange,
     readonly = false,
     height = '460px',
+    schema = 'workflow',
   }: {
     value: string
     onchange?: (value: string) => void
     readonly?: boolean
     height?: string
+    schema?: 'workflow' | 'prompt'
   } = $props()
 
   let container: HTMLDivElement
@@ -19,13 +21,23 @@
 
   $effect(() => {
     let disposed = false
+    let model: Monaco.editor.ITextModel | null = null
     import('../monaco').then(async ({ setupMonaco, currentTheme }) => {
       const monaco = await setupMonaco()
       if (disposed) return
       loading = false
-      editor = monaco.editor.create(container, {
+      // The model's name is what routes the schema to it - setupMonaco
+      // registers one schema per prefix. The random suffix keeps two open
+      // editors (the split view) from fighting over one URI
+      model = monaco.editor.createModel(
         value,
-        language: 'json',
+        'json',
+        monaco.Uri.parse(
+          `inmemory://dw/${schema}-${Math.random().toString(36).slice(2)}.json`,
+        ),
+      )
+      editor = monaco.editor.create(container, {
+        model,
         theme: currentTheme(),
         readOnly: readonly,
         minimap: { enabled: false },
@@ -45,6 +57,8 @@
       disposed = true
       editor?.dispose()
       editor = null
+      model?.dispose()
+      model = null
     }
   })
 

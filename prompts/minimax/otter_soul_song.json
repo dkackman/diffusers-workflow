@@ -1,0 +1,9 @@
+{
+  "text": "Genre: retro soul jingle, doo-wop tinged. BPM: 92. Key: E-flat major. Emotional progression: warm and wry throughout, swelling on the hook. Listening scenario: a late-night variety show number. Production profile: vintage, close-mic, plate reverb, slightly warm tape saturation. Vocals: smooth male crooner lead, velvety and unhurried, small melisma on the hook. Arrangement: upright bass and brushed drums under electric piano, a two-note baritone sax riff answering each line, finger snaps on the backbeat. The hook lands twice and the last line is held.",
+  "description": "Retro soul jingle spec (genre/BPM/key/arrangement) - the MusicVideo example's song",
+  "intended_model": "minimax-music",
+  "tags": [
+    "music",
+    "soul"
+  ]
+}

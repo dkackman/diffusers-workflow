@@ -1,0 +1,9 @@
+{
+  "text": "Genre: acoustic pop, folk-tinged. BPM: 96. Key: C major. Emotional progression: warm and intimate in the verses, lifting into an open, anthemic chorus. Listening scenario: solo reflective listening. Production profile: close, organic, minimal reverb. Vocals: soft female lead, close-mic breathy timbre, restrained delivery in verses; light stacked harmonies doubling the melody in the chorus. Arrangement: verses — fingerpicked banjo and electric piano, sparse and spacious. Chorus — brushed drums and upright bass enter, subtle string pad swells underneath. Groove stays gentle throughout; no heavy percussion. Outro returns to solo banjo and voice.",
+  "description": "Folk-tinged acoustic pop spec: banjo and electric piano verses, anthemic chorus",
+  "intended_model": "minimax-music",
+  "tags": [
+    "music",
+    "folk-pop"
+  ]
+}

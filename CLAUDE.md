@@ -13,11 +13,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 bash ./install.sh && source ./activate
 
 # Run a workflow
-python -m dw.run examples/ZImage.json
-python -m dw.run examples/ZImage.json prompt="a cat" num_images_per_prompt=4
+python -m dw.run workflows/ZImage.json
+python -m dw.run workflows/ZImage.json prompt="a cat" num_images_per_prompt=4
 
 # Validate a workflow against schema
-python -m dw.validate examples/ZImage.json
+python -m dw.validate workflows/ZImage.json
 
 # Basic system test (torch, diffusers import check)
 python -m dw.test
@@ -28,7 +28,7 @@ python -m dw.repl
 # HTTP server + web UI (http://127.0.0.1:8765, API docs at /docs)
 python -m dw.serve
 
-# Run all tests (580+ tests)
+# Run all tests (1,600+ tests)
 pytest -v
 
 # Run a single test file or test
@@ -52,7 +52,10 @@ over SSE, and persists history to `~/.diffusers_helper/jobs.sqlite`. The SPA liv
 `ui/` (Svelte 5 + Vite; `npm run build` outputs `ui/dist`, which the server serves).
 Introspection endpoints (`dw/introspection.py`) describe pipeline/class signatures for
 the editor's forms. `dw/hub_cache.py` inventories and deletes from the HF hub cache
-(the UI's Models page). Front-end checks from `ui/`: `npm run check`, `npm run lint`,
+(the UI's Models page). `dw/prompts.py` + `dw/server/enhancers.py` back the
+Prompts page: a stored-prompt library (CRUD under `--prompt-dir`) with an
+enhance-with-AI panel that queues an inline workflow as an ordinary job.
+Front-end checks from `ui/`: `npm run check`, `npm run lint`,
 `npm test`, `npx playwright test` (e2e, starts its own server). See docs/SERVER.md.
 
 Packaging: `pyproject.toml` (console scripts dw-run/dw-validate/dw-repl/dw-serve/dw-test);
@@ -75,6 +78,11 @@ The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`)
 - Values prefixed with `constant:` read a value declared in python rather than copying it
   into JSON: `"constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES"`. Resolved
   in `realize_args`, validated by `validate_constant_name()`; anything callable is refused
+- Values prefixed with `prompt:` load a stored prompt's `text` from the prompt library:
+  `"prompt:name"` or `"prompt:folder/name"`. Resolved in `realize_args` (`dw/prompts.py`),
+  rooted at the library rather than the workflow file. The library is `DW_PROMPT_DIR` /
+  `--prompt-dir`, else `./prompts` if it exists, else found by walking up from the
+  workflow file's directory
 
 ### Quantization Support
 
@@ -115,6 +123,7 @@ All entry points use `dw/security.py`. When adding features:
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
 - **MPS differences from CUDA**: no autocast, no bitsandbytes, no flash_attn, no triton, no torch.compile. Model offloading has less benefit on unified memory.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
+- **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
 
 ## JSON Workflow Structure
@@ -146,4 +155,4 @@ Steps can also have `"task"` (with `command` + `arguments`) or `"workflow"` (wit
 
 Pipeline configuration options include: `pre_load_modules` (import modules before loading), `sdnq_optimize` (SDNQ quantized matmul), `enable_attention_slicing`, `disable_attention_slicing`, `attention_backend`, `group_offload`, `enable_layerwise_casting`.
 
-File paths in workflows are relative to the workflow file. Built-in workflows use `"builtin:filename.json"` (resolves to `dw/workflows/`).
+File paths in workflows are relative to the workflow file. Built-in workflows use `"builtin:filename.json"` (resolves to the packaged `dw/workflows/` — distinct from the top-level `workflows/` folder of runnable examples).

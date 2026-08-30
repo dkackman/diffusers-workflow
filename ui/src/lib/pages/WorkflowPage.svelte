@@ -3,6 +3,9 @@
   import JsonEditor from '../editor/JsonEditor.svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
+  import { displayValue as display, isReference } from '../editor'
+  import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
+  import { PROMPT_LIST_ID, promptListId, promptTooltip } from '../prompts'
   import type { WorkflowDefinition } from '../types'
 
   let { name }: { name: string } = $props()
@@ -18,6 +21,7 @@
     overrides = {}
     workflow = null
     api.listWorkflows().then((r) => (workflowDir = r.workflow_dir))
+    loadPromptLibrary()
     api
       .getWorkflow(name)
       .then((definition) => (workflow = definition))
@@ -25,8 +29,6 @@
   })
 
   const variables = $derived(Object.entries(workflow?.variables ?? {}))
-
-  import { displayValue as display } from '../editor'
 
   function newFrom() {
     if (!workflow) return
@@ -106,11 +108,17 @@
     class="withicon"
     onclick={run}
     disabled={submitting || !workflow}
-    title="queue this workflow with the arguments below"
+    title="queue this workflow with the variables below"
   >
     <Play size={14} />{submitting ? 'Submitting…' : 'Run'}
   </button>
 </div>
+
+<datalist id={PROMPT_LIST_ID}>
+  {#each promptLibrary.names ?? [] as promptName (promptName)}<option
+      value={'prompt:' + promptName}
+    ></option>{/each}
+</datalist>
 
 {#if error}<p class="error">{error}</p>{/if}
 
@@ -120,20 +128,55 @@
   {/if}
   {#if variables.length}
     <div class="panel">
-      <h2>Arguments <span class="muted">(blank = workflow default)</span></h2>
+      <h2>
+        Variables
+        <span class="muted"
+          >(blank = workflow default · type prompt: to use a stored prompt)</span
+        >
+      </h2>
       <div class="vars">
         {#each variables as [key, defaultValue] (key)}
           <label for={'var-' + key}>{key}</label>
           {#if display(defaultValue).length > 60}
-            <textarea
-              id={'var-' + key}
-              rows="3"
-              spellcheck="true"
-              placeholder={display(defaultValue)}
-              bind:value={overrides[key]}></textarea>
+            <div class="fieldcol">
+              <textarea
+                id={'var-' + key}
+                class:ref={isReference(overrides[key] || defaultValue)}
+                rows="3"
+                spellcheck="true"
+                title={promptTooltip(
+                  overrides[key] || defaultValue,
+                  promptLibrary.texts,
+                )}
+                placeholder={display(defaultValue)}
+                bind:value={overrides[key]}></textarea>
+              {#if promptLibrary.names?.length}
+                <select
+                  class="promptpick"
+                  title="override this variable with a stored prompt from the library"
+                  onchange={(e) => {
+                    if (!e.currentTarget.value) return
+                    overrides[key] = 'prompt:' + e.currentTarget.value
+                    e.currentTarget.value = ''
+                  }}
+                >
+                  <option value="">use a stored prompt…</option>
+                  {#each promptLibrary.names ?? [] as promptName (promptName)}
+                    <option value={promptName}>{promptName}</option>
+                  {/each}
+                </select>
+              {/if}
+            </div>
           {:else}
             <input
               id={'var-' + key}
+              class:ref={isReference(overrides[key] || defaultValue)}
+              list={promptListId(overrides[key] || defaultValue)}
+              autocomplete="off"
+              title={promptTooltip(
+                overrides[key] || defaultValue,
+                promptLibrary.texts,
+              )}
               placeholder={display(defaultValue)}
               bind:value={overrides[key]}
             />
@@ -194,6 +237,19 @@
     padding-top: 0.45rem;
     font-weight: 600;
     color: var(--muted);
+  }
+  .fieldcol {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    align-items: flex-start;
+  }
+  .fieldcol textarea {
+    width: 100%;
+  }
+  .promptpick {
+    max-width: 260px;
+    font-size: 0.8rem;
   }
   .json {
     margin-top: 1rem;

@@ -90,7 +90,7 @@ def test_no_sections_requested_is_a_passthrough():
 def h3_prompts():
     """Every hand-written H3 prompt in the examples, as (file, key, text)."""
     found = []
-    pattern = os.path.join(REPO_ROOT, "examples", "MiniMaxH3*.json")
+    pattern = os.path.join(REPO_ROOT, "workflows", "minimax", "MiniMaxH3*.json")
     for path in sorted(glob.glob(pattern)):
         with open(path, encoding="utf-8") as handle:
             workflow = json.load(handle)

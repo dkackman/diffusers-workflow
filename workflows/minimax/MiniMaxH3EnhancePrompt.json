@@ -1,0 +1,163 @@
+{
+    "id": "MiniMaxH3EnhancePrompt",
+    "description": "Feeding one step's output into the next as an argument. A 'workflow' step delegates to the built-in prompt enhancer and the pipeline step draws its prompt from 'previous_result' instead of a variable, so a one-line idea is expanded into the structured, multi-section format H3 expects without anyone writing it by hand. What crosses the step boundary is data, so the producing step can be a pipeline, a task or - as here - an entire sub-workflow. Also shows 'release_models', which frees the language model once its step is done so it is not holding device memory while the generation step runs. The generated prompt is saved beside the video, leaving a record of what the model was actually given.",
+    "variables": {
+        "idea": "prompt:minimax/glass_figure_t2va_idea",
+        "enhancer_model_name": "Qwen/Qwen3-4B-Instruct-2507",
+        "enhancer_device": "cuda",
+        "num_frames": 124,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo"
+    },
+    "seed": 42,
+    "steps": [
+        {
+            "name": "prompt_enhancer",
+            "release_models": true,
+            "workflow": {
+                "path": "builtin:h3_context_ir.json",
+                "arguments": {
+                    "prompt": "variable:idea",
+                    "device": "variable:enhancer_device",
+                    "model_name": "variable:enhancer_model_name"
+                }
+            },
+            "result": {
+                "content_type": "text/plain"
+            }
+        },
+        {
+            "name": "text_to_video_audio",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "previous_result:prompt_enhancer",
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

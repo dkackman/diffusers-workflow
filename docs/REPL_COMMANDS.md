@@ -24,9 +24,9 @@ workflow run ask <arg>   Prompt for one argument's value, then run
 workflow restart         Restart the worker process (clears GPU cache)
 ```
 
-`workflow load` resolves names against the workflow directory (`./examples`
+`workflow load` resolves names against the workflow directory (`./workflows`
 by default), including subfolders - `workflow load flux/FluxDev` loads
-`examples/flux/FluxDev.json`. `workflow list` shows the available names.
+`workflows/flux/FluxDev.json`. `workflow list` shows the available names.
 
 `workflow run ask <arg>` prompts you interactively for `<arg>`'s value (the
 value is not saved to shell/readline history) before running — a shortcut

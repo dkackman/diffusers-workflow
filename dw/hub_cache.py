@@ -17,6 +17,16 @@ import uuid
 from huggingface_hub import constants, scan_cache_dir
 from huggingface_hub.utils import CacheNotFound
 
+try:
+    # Xet-backed downloads aggregate into two bars built from our tracker
+    # class: reconstruction (file bytes written) and transfer (network
+    # bytes). Only reconstruction matches the file-size total the manager
+    # reports against - counting both would double the progress - and the
+    # transfer bar is recognizable by the bar_format it is created with
+    from huggingface_hub.utils._xet_progress_reporting import XET_TRANSFER_BAR_FORMAT
+except ImportError:  # older huggingface_hub - no xet aggregation
+    XET_TRANSFER_BAR_FORMAT = None
+
 logger = logging.getLogger("dw")
 
 
@@ -250,13 +260,20 @@ def _tracker_class(manager, entry, cancel_event):
         def __init__(self, *args, **kwargs):
             self.n = 0
             self.total = kwargs.get("total")
+            # The xet transfer bar still ticks (cancellation works through
+            # it) but its network bytes stay out of the shared counters
+            self._counted = (
+                XET_TRANSFER_BAR_FORMAT is None
+                or kwargs.get("bar_format") != XET_TRANSFER_BAR_FORMAT
+            )
 
         def update(self, n=1):
             if cancel_event.is_set():
                 raise DownloadCancelled()
             if n:
                 self.n += n
-                manager._add_progress(entry, n)
+                if self._counted:
+                    manager._add_progress(entry, n)
             return True
 
         def close(self):
@@ -270,6 +287,15 @@ def _tracker_class(manager, entry, cancel_event):
 
         def set_postfix(self, *args, **kwargs):
             pass
+
+        def set_postfix_str(self, *args, **kwargs):
+            pass
+
+        @property
+        def format_dict(self):
+            # What tqdm exposes for rate rendering; huggingface_hub reads
+            # 'rate' from it when composing the xet speed postfix
+            return {"n": self.n, "total": self.total, "elapsed": 0, "rate": None}
 
         def __enter__(self):
             return self

@@ -725,6 +725,25 @@ class TestBuildObjects:
         assert reference.audio.shape == (2, 50)
         assert reference.sample_rate == 24000
 
+    def test_an_audio_reference_takes_a_bare_waveform(self):
+        # A step that generates audio alone - a music pipeline, a slice_audio
+        # task - produces the waveform itself, which carries no rate, so the
+        # reference declares one alongside it
+        import numpy
+
+        arguments = {
+            "reference": {
+                "reference_type": AudioReference,
+                "from_previous_result": numpy.zeros((50, 2), dtype="float32"),
+                "sample_rate": 44100,
+            }
+        }
+
+        reference = build_objects(arguments)["reference"]
+
+        assert reference.audio.shape == (2, 50)
+        assert reference.sample_rate == 44100
+
     def test_a_named_field_wins_over_the_one_the_media_carried(self):
         # A step that generated at another rate than the consuming pipeline reads
         arguments = {

@@ -1,0 +1,42 @@
+{
+    "variables": {
+        "prompt": "prompt:zimage/kidney_trade_in",
+        "negative_prompt": "colorful, photorealistic faces, modern UI, flat design, white background, sharp clean edges, high saturation, lens flare, bloom overexposed",
+        "num_images_per_prompt": 4,
+        "num_inference_steps": 9,
+        "guidance_scale": 0.0,
+        "width": 960,
+        "height": 544
+    },
+    "id": "ZImage",
+    "description": "Text-to-image with Z-Image Turbo - photorealistic output in nine steps.",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": true
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "negative_prompt": "variable:negative_prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "guidance_scale": "variable:guidance_scale"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        }
+    ]
+}

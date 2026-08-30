@@ -1,0 +1,40 @@
+{
+    "variables": {
+        "prompt": "prompt:flux/biomechanical_daffodil",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 25,
+        "guidance_scale": 3.5,
+        "width": 768,
+        "height": 768
+    },
+    "id": "FluxDev",
+    "description": "Text-to-image with FLUX.1 dev - the reference FLUX workflow.",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "FluxPipeline",
+                    "offload": "model"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "guidance_scale": "variable:guidance_scale",
+                    "max_sequence_length": 512
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        }
+    ]
+}

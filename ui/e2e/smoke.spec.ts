@@ -36,9 +36,14 @@ test('editor opens a workflow with introspected arguments', async ({
   await expect(
     page.locator('select').filter({ hasText: 'add argument…' }).first(),
   ).toBeVisible({ timeout: 90_000 })
-  // reference values render as references (accent+mono styling)
-  const promptField = page.locator('input.ref').first()
-  await expect(promptField).toHaveValue('variable:prompt')
+  // reference values render as references (accent+mono styling) - the
+  // variables grid's prompt: default and a step argument's variable: alike
+  await expect(page.locator('input.ref#wfvar-prompt')).toHaveValue(
+    'prompt:flux/biomechanical_daffodil',
+  )
+  await expect(page.locator('.args input.ref').first()).toHaveValue(
+    'variable:prompt',
+  )
 })
 
 test('split view shows editable JSON beside the form', async ({ page }) => {
@@ -102,6 +107,37 @@ test('editor validates, saves into a folder, and deletes', async ({ page }) => {
   await page.getByRole('button', { name: /delete this workflow/ }).click()
   await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'E2EScratch' })).toHaveCount(0)
+})
+
+test('prompts page lists, creates into a folder, and deletes', async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  await page.goto('/#/prompts')
+  await expect(page.getByRole('heading', { name: 'Prompts' })).toBeVisible()
+  // the starter library renders, with folder grouping and metadata badges
+  await expect(page.getByRole('link', { name: /scenic_landscape/ })).toBeVisible()
+  await expect(page.getByText('minimax/')).toBeVisible()
+
+  // create a scratch prompt through the editor
+  await page.goto('/#/prompt-edit')
+  await page.locator('#prompt-text').fill('an e2e scratch prompt')
+  await page.getByPlaceholder('MyPrompt').fill('E2EScratchPrompt')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByText(/Saved to/)).toBeVisible({ timeout: 30_000 })
+
+  // reopen it from the library, then clean up through the UI's own delete
+  await page.goto('/#/prompt-edit/E2EScratchPrompt')
+  await expect(page.locator('#prompt-text')).toHaveValue(
+    'an e2e scratch prompt',
+    { timeout: 15_000 },
+  )
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: /Delete/ }).click()
+  await expect(page.getByRole('heading', { name: 'Prompts' })).toBeVisible()
+  await expect(
+    page.getByRole('link', { name: 'E2EScratchPrompt' }),
+  ).toHaveCount(0)
 })
 
 test('jobs and gallery pages render', async ({ page }) => {

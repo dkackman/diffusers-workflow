@@ -107,7 +107,9 @@ def referenced_result_names(steps):
     """Every previous_result reference the given steps make, as full names.
 
     Scans nested dicts and lists, so references inside pipeline arguments,
-    task arguments and sub-workflow argument maps are all found.
+    task arguments and sub-workflow argument maps are all found - including a
+    constructed object's 'from_previous_result', which names a step without
+    the 'previous_result:' prefix.
     """
     prefix = "previous_result:"
     names = set()
@@ -116,6 +118,9 @@ def referenced_result_names(steps):
         if isinstance(value, str) and value.startswith(prefix):
             names.add(value[len(prefix) :])
         elif isinstance(value, dict):
+            reference = value.get("from_previous_result")
+            if isinstance(reference, str):
+                names.add(reference)
             for item in value.values():
                 scan(item)
         elif isinstance(value, list):
@@ -337,6 +342,13 @@ class Workflow:
                 if step_data.get("release_pipeline", False):
                     logger.info(f"Releasing pipeline for step: {step.name}")
                     pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
+
+                # The loop's own locals are the last references to this step's
+                # action and result - a released pipeline would otherwise stay
+                # resident through the next step's load, which is exactly when
+                # both models would be in memory at once
+                step_action = None
+                result = None
 
                 # Task models are cached for the life of the process - the cache
                 # exists so a step's cartesian product loads its model once, and

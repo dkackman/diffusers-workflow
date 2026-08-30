@@ -1,5 +1,6 @@
 import type {
   DiffusersStatus,
+  EnhancerPreset,
   JobDetail,
   ModelCache,
   ModelDownload,
@@ -8,6 +9,8 @@ import type {
   GalleryFile,
   MemoryInfo,
   PipelineDescription,
+  PromptDefinition,
+  PromptDetail,
   ValidationResult,
   WorkflowDefinition,
 } from './types'
@@ -37,7 +40,12 @@ export const api = {
       workflows: string[]
       details: Record<
         string,
-        { kinds: string[]; variables: number; description: string }
+        {
+          kinds: string[]
+          variables: number
+          description: string
+          prompt_refs?: string[]
+        }
       >
     }>('/api/workflows'),
   getWorkflow: (name: string) =>
@@ -150,6 +158,50 @@ export const api = {
         body: JSON.stringify({ workflow }),
       },
     ),
+  listPrompts: () =>
+    request<{
+      prompt_dir: string
+      prompts: string[]
+      details: Record<string, PromptDetail>
+    }>('/api/prompts'),
+  getPrompt: (name: string) =>
+    request<PromptDefinition>(`/api/prompts/${encodePath(name)}`),
+  savePrompt: (name: string, prompt: PromptDefinition) =>
+    request<{ name: string; path: string }>(
+      `/api/prompts/${encodePath(name)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      },
+    ),
+  deletePrompt: (name: string) =>
+    request<{ name: string; deleted: boolean }>(
+      `/api/prompts/${encodePath(name)}`,
+      { method: 'DELETE' },
+    ),
+  getPromptSchema: () => request<Record<string, unknown>>('/api/prompt-schema'),
+  listEnhancers: () => request<{ presets: EnhancerPreset[] }>('/api/enhancers'),
+  enhance: (body: {
+    idea: string
+    preset: string
+    model_name?: string
+    device?: string
+  }) =>
+    request<JobDetail>('/api/enhance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+}
+
+/** Fetch the text of a saved output file - how an enhancement's result
+ * comes back, since the manifest only names files. */
+export async function fetchOutputText(path: string): Promise<string> {
+  const name = path.split('/').pop() ?? ''
+  const response = await fetch('/outputs/' + encodeURIComponent(name))
+  if (!response.ok) throw new Error(`Could not read ${name}`)
+  return response.text()
 }
 
 const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']
