@@ -115,3 +115,15 @@ test('models page inventories the hub cache', async ({ page }) => {
   // The download form is present but never submitted here
   await expect(page.getByPlaceholder(/download a model/)).toBeVisible()
 })
+
+test('task steps get introspection-driven forms', async ({ page }) => {
+  await page.goto('/#/edit/tasks/ImageToText')
+  // the command's discovered schema renders labeled fields
+  await expect(page.locator('label', { hasText: 'image' }).first()).toBeVisible(
+    { timeout: 30_000 },
+  )
+  // image_to_text takes **kwargs, so the free-form add is offered too
+  await expect(
+    page.getByPlaceholder('add custom argument…').first(),
+  ).toBeVisible()
+})

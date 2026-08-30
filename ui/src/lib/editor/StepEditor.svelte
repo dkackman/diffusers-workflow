@@ -434,7 +434,12 @@
         />
       </div>
       <h3>arguments</h3>
-      <MappingEditor bind:args={step.task.arguments} listId={referenceListId} />
+      <ArgumentsEditor
+        bind:args={step.task.arguments}
+        componentType={step.task.command}
+        target="task"
+        listId={referenceListId}
+      />
     {:else if kind === 'workflow'}
       <div class="grid">
         <label for={'wfpath-' + index}>path</label>

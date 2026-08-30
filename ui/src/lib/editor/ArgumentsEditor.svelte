@@ -18,7 +18,7 @@
   }: {
     args: Record<string, unknown>
     componentType: string
-    target?: 'call' | 'init' | 'load'
+    target?: 'call' | 'init' | 'load' | 'task'
     hide?: string[]
     listId?: string
   } = $props()
@@ -61,6 +61,18 @@
     const parameter = parameters.get(adding)
     args[adding] = parameter?.default ?? ''
     adding = ''
+  }
+
+  // Free-form additions belong wherever the schema is open-ended: the
+  // callable takes **kwargs, or no schema resolved at all
+  const openEnded = $derived(!description || description.accepts_kwargs)
+  let customName = $state('')
+
+  function addCustom() {
+    const name = customName.trim()
+    if (!name || name in args) return
+    args[name] = parameters.get(name)?.default ?? ''
+    customName = ''
   }
 
   function remove(key: string) {
@@ -132,9 +144,31 @@
         <Plus size={14} />
       </button>
     </div>
-  {:else if componentType && !description}
-    <div class="muted hint">
-      no argument schema available for {componentType}
+  {/if}
+  {#if openEnded && componentType}
+    <div class="row add">
+      <input
+        placeholder="add custom argument…"
+        bind:value={customName}
+        onkeydown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            addCustom()
+          }
+        }}
+        title={description
+          ? 'this command also accepts arguments beyond the named ones'
+          : 'no argument schema available - arguments are free-form'}
+      />
+      <button
+        class="quiet icon"
+        onclick={addCustom}
+        disabled={!customName.trim()}
+        title="add this argument"
+        aria-label="add this argument"
+      >
+        <Plus size={14} />
+      </button>
     </div>
   {/if}
 </div>

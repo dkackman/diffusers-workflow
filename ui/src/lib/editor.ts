@@ -6,14 +6,16 @@ const descriptions = new Map<string, Promise<PipelineDescription | null>>()
 
 export function classDescription(
   name: string,
-  target: 'call' | 'init' | 'load' = 'call',
+  target: 'call' | 'init' | 'load' | 'task' = 'call',
 ): Promise<PipelineDescription | null> {
   const key = `${target}:${name}`
   if (!descriptions.has(key)) {
     const fetcher =
-      target === 'call'
-        ? api.describePipeline(name)
-        : api.describeClass(name, target)
+      target === 'task'
+        ? api.describeTask(name)
+        : target === 'call'
+          ? api.describePipeline(name)
+          : api.describeClass(name, target)
     descriptions.set(
       key,
       fetcher.catch(() => null),

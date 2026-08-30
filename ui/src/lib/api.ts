@@ -51,6 +51,8 @@ export const api = {
       image_processors: string[]
       video_processors: string[]
     }>('/api/tasks'),
+  describeTask: (command: string) =>
+    request<PipelineDescription>(`/api/tasks/${encodeURIComponent(command)}`),
   moveJob: (id: string, direction: 'up' | 'down' | 'front' | 'back') =>
     request<{ id: string; queue: string[] }>(`/api/jobs/${id}/move`, {
       method: 'POST',

@@ -69,9 +69,12 @@ The editor's forms come from these; they are just as usable from scripts:
   any allowed class (diffusers + registered extension modules), described
   for calling, constructing, or `from_pretrained` loading
 - `GET /api/tasks` — the task commands and processors
+- `GET /api/tasks/{command}` — a task's argument schema, read from its
+  registered implementation's real signature
 - `GET /api/schema` — the workflow JSON schema
 - `POST /api/validate` — schema validation plus signature-level argument
-  warnings (catches the typo before the model loads)
+  warnings for pipeline and task steps (catches the typo before the model
+  loads)
 
 ## Files and models
 

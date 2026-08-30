@@ -17,6 +17,12 @@ Any task that runs a model accepts a `"device"` argument to pin where it runs -
 useful for keeping a helper model (a captioner, an upscaler) off the accelerator a
 loaded pipeline is using, or on a second one.
 
+Task argument schemas are discoverable: `GET /api/tasks/{command}` on the
+[server](SERVER.md) returns each command's arguments read from its registered
+implementation's real signature, the web editor builds task forms from them,
+and workflow validation flags task-argument typos the same way it flags
+pipeline ones.
+
 ## Image Processing
 
 ### ControlNet Preprocessors

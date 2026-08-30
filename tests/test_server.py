@@ -823,3 +823,32 @@ class TestModelDownloads:
             assert bad.status_code == 400
             unknown = client.post("/api/models/downloads/nope/cancel")
             assert unknown.status_code == 404
+
+
+class TestTaskDescription:
+    """The task schema endpoint the editor's forms consume."""
+
+    def test_describe_task_over_http(self, server):
+        with server(success_script) as client:
+            description = client.get("/api/tasks/qr_code").json()
+            names = [p["name"] for p in description["parameters"]]
+            assert "qr_code_contents" in names
+            assert client.get("/api/tasks/not_a_task").status_code == 404
+
+    def test_task_typos_surface_in_validation(self, server):
+        workflow = {
+            "id": "task_typo",
+            "steps": [
+                {
+                    "name": "join",
+                    "task": {
+                        "command": "concat_videos",
+                        "arguments": {"videos": [], "trim_framse": 1},
+                    },
+                }
+            ],
+        }
+        with server(success_script) as client:
+            result = client.post("/api/validate", json={"workflow": workflow}).json()
+            assert result["valid"]
+            assert any("trim_framse" in warning for warning in result["warnings"])
