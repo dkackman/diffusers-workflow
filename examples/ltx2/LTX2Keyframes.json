@@ -4,7 +4,7 @@
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
-        "prompt": "A polaroid photograph of a lighthouse on a rocky shore lies on a table. The camera pushes in until the photograph fills the frame and the scene comes alive: waves break against the rocks, the beam sweeps across low cloud, gulls call overhead.",
+        "prompt": "prompt:ltx2/polaroid_lighthouse",
         "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
         "width": 960,
         "height": 544,

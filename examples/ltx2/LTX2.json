@@ -4,7 +4,7 @@
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
-        "prompt": "A cinematic shot of a fox walking through a snowy forest at dawn, the camera tracking alongside, snow crunching underfoot. a choir singing 'l t x' in the background, cinematic lighting, 8k, ultra-detailed, photorealistic in the distance",
+        "prompt": "prompt:ltx2/fox_dawn_choir",
         "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
         "width": 960,
         "height": 544,

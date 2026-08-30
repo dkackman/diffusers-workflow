@@ -4,7 +4,7 @@
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
-        "prompt": "A hummingbird hovers at a red trumpet flower in a sunlit garden, wings blurred, tongue flicking into the bloom. Insects drone in the background and leaves rustle in a light breeze.",
+        "prompt": "prompt:ltx2/hummingbird_garden",
         "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
         "base_width": 480,
         "base_height": 288,

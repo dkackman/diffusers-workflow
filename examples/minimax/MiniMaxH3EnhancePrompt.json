@@ -2,7 +2,7 @@
     "id": "MiniMaxH3EnhancePrompt",
     "description": "Feeding one step's output into the next as an argument. A 'workflow' step delegates to the built-in prompt enhancer and the pipeline step draws its prompt from 'previous_result' instead of a variable, so a one-line idea is expanded into the structured, multi-section format H3 expects without anyone writing it by hand. What crosses the step boundary is data, so the producing step can be a pipeline, a task or - as here - an entire sub-workflow. Also shows 'release_models', which frees the language model once its step is done so it is not holding device memory while the generation step runs. The generated prompt is saved beside the video, leaving a record of what the model was actually given.",
     "variables": {
-        "idea": "Task: T2VA. Duration: 5.17 seconds. Idea: a blown glass figure's tentacles writhe as it speaks in a deep, echoing voice, calling forth the ancient ones.",
+        "idea": "prompt:minimax/glass_figure_t2va_idea",
         "enhancer_model_name": "Qwen/Qwen3-4B-Instruct-2507",
         "enhancer_device": "cuda",
         "num_frames": 124,

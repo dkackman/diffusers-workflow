@@ -4,8 +4,8 @@
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
-        "prompt": "A lighthouse keeper in a yellow oilskin climbs the spiral stair of a lighthouse, lamplight flaring on the wet brass rail. Waves break far below and the wind hums through the tower.",
-        "continuation_prompt": "A lighthouse keeper in a yellow oilskin climbs the spiral stair of a lighthouse, lamplight flaring on the wet brass rail, then steps out onto the gallery. The beam sweeps past him across low cloud, gulls call, and he says 'still burning' as the wind hums through the tower.",
+        "prompt": "prompt:ltx2/lighthouse_keeper",
+        "continuation_prompt": "prompt:ltx2/lighthouse_keeper_gallery",
         "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
         "width": 768,
         "height": 448,

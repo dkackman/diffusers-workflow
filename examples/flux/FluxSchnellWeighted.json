@@ -1,6 +1,6 @@
 {
     "variables": {
-        "prompt": "a (photorealistic:1.4) portrait of a woman with (bright red hair:1.3) and [freckles], standing in a (misty:0.8) forest, (golden hour lighting:1.5), sharp focus"
+        "prompt": "prompt:flux/weighted_portrait"
     },
     "id": "FluxSchnellWeighted",
     "description": "FLUX.1 schnell with A1111-style (word:1.5) prompt weighting.",
