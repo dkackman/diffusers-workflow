@@ -5,11 +5,17 @@
     Download,
     ExternalLink,
     HardDrive,
+    RefreshCw,
     Trash2,
     X,
   } from '@lucide/svelte'
   import { api } from '../api'
-  import type { ModelCache, ModelDownload, ModelRepo } from '../types'
+  import type {
+    DiffusersStatus,
+    ModelCache,
+    ModelDownload,
+    ModelRepo,
+  } from '../types'
 
   let cache = $state<ModelCache | null>(null)
   let error = $state('')
@@ -34,10 +40,37 @@
       /* the models fetch reports connectivity problems */
     }
   }
+
+  let diffusers = $state<DiffusersStatus | null>(null)
+  async function refreshDiffusers() {
+    try {
+      diffusers = await api.diffusersStatus()
+    } catch {
+      /* the models fetch reports connectivity problems */
+    }
+  }
   $effect(() => {
     refresh()
     refreshDownloads()
+    refreshDiffusers()
   })
+
+  // Poll while pip runs so the badge flips when it finishes
+  const updating = $derived(diffusers?.status === 'running')
+  $effect(() => {
+    if (!updating) return
+    const timer = setInterval(refreshDiffusers, 2000)
+    return () => clearInterval(timer)
+  })
+
+  async function startDiffusersUpdate() {
+    try {
+      diffusers = await api.updateDiffusers()
+      error = ''
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+    }
+  }
 
   // While anything is downloading, poll progress - and refresh the repo
   // list when a download finishes so it appears with its real size
@@ -291,12 +324,77 @@
   </table>
 {/if}
 
+{#if diffusers}
+  <div class="engine">
+    <span class="enginename">diffusers</span>
+    <code>{diffusers.version ?? 'not installed'}</code>
+    {#if diffusers.commit}
+      <span class="muted" title="installed from git commit {diffusers.commit}">
+        @{diffusers.commit.slice(0, 9)}
+      </span>
+    {/if}
+    {#if updating}
+      <span class="muted busy">
+        <RefreshCw size={14} class="spin" />updating from GitHub…
+      </span>
+    {:else}
+      <button
+        class="withicon"
+        onclick={startDiffusersUpdate}
+        title="install the latest diffusers from GitHub - new model pipelines usually land there before a release. The worker restarts when idle so the next job uses it"
+      >
+        <RefreshCw size={14} />Update from GitHub
+      </button>
+      {#if diffusers.status === 'failed'}
+        <span class="warn" title={diffusers.log ?? ''}>
+          update failed: {diffusers.error} (hover for pip output)
+        </span>
+      {:else if diffusers.status === 'succeeded'}
+        <span class="updated">updated - the next job uses it</span>
+      {/if}
+    {/if}
+  </div>
+{/if}
+
 <style>
   .head {
     display: flex;
     align-items: baseline;
     gap: 1rem;
     margin-bottom: 1rem;
+  }
+  .engine {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 1.2rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--line);
+    font-size: 0.9rem;
+  }
+  .enginename {
+    color: var(--muted);
+  }
+  .busy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .engine :global(.spin) {
+    animation: spin 1.2s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .engine :global(.spin) {
+      animation: none;
+    }
+  }
+  .updated {
+    color: var(--accent);
   }
   .disk {
     display: inline-flex;

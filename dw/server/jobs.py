@@ -523,6 +523,21 @@ class JobManager:
                 return True
             return any(job.status == QUEUED for job in self.jobs.values())
 
+    def restart_worker_if_idle(self):
+        """Shut the idle worker down so its next start picks up upgraded
+        imports; the next job respawns it via ensure_worker. Returns False
+        without touching a busy worker - a run in flight keeps the version
+        it started with."""
+        if self.is_busy():
+            return False
+        if not self._worker_lock.acquire(timeout=2):
+            return False
+        try:
+            self.worker_manager.shutdown_worker()
+            return True
+        finally:
+            self._worker_lock.release()
+
     # ---------------------------------------------------------------- memory
 
     def memory_status(self, timeout=5):

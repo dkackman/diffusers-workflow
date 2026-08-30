@@ -44,7 +44,11 @@ load entirely.
   revisions, and last-used dates, plus free disk space. Download a repo by
   id with live progress (cancellable; partial files resume on retry), and
   delete to free disk (refused while a job is running; the next workflow
-  that needs the model downloads it again).
+  that needs the model downloads it again). The page also shows the
+  installed diffusers version (with its commit for a git install) and can
+  upgrade it to GitHub HEAD - new model pipelines usually land there
+  before a PyPI release. The idle worker restarts on success so the next
+  job imports the new version; the upgrade is refused while a job runs.
 - **Schema** — the workflow JSON schema the running server validates
   against, as a browsable tree: the document root plus every definition,
   with types, required markers, defaults, enums, and descriptions.
@@ -93,6 +97,10 @@ The editor's forms come from these; they are just as usable from scripts:
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,
   `POST /api/models/downloads/{id}/cancel` — background snapshot downloads
   with byte-level progress
+- `GET /api/system/diffusers`, `POST /api/system/diffusers/update` —
+  installed diffusers version/commit, and a background
+  `pip install --upgrade` from the diffusers GitHub repo (fixed argument
+  list; refused while a job is running or queued)
 - `GET /api/memory`, `GET /api/health` — worker VRAM/RAM stats and liveness
 
 ## Security model

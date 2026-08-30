@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -28,70 +28,73 @@ classifiers = [
 # to here), install.sh, and CI all resolve this list. Torch ships CPU-only
 # from PyPI on Linux - a CUDA build comes from pytorch.org's own index and
 # must be installed first (install.sh does; see requirements.txt).
+# Version floors track the environment the project is developed and tested
+# on (see docs/DEPENDENCIES.md) - refresh them from a working venv rather
+# than editing ad hoc:  python scripts/refresh_dep_floors.py
 dependencies = [
     # Core ML frameworks
-    "torch>=2.4.1",
-    "torchvision>=0.19.1",
-    # Diffusers and the HuggingFace ecosystem. Released diffusers may lag
-    # the newest pipelines - install.sh layers git HEAD on top
-    "diffusers>=0.31.0",
-    "transformers>=4.47.0",
-    "accelerate>=1.2.0",
-    "peft>=0.14.0",
-    "safetensors>=0.4.5",
-    "huggingface-hub>=0.26.5",
+    "torch>=2.13.0",
+    "torchvision>=0.28.0",
+    # Diffusers and the HuggingFace ecosystem. The floor is the newest
+    # PyPI release; the newest pipelines may need git HEAD on top, which
+    # install.sh layers on (and the web UI's Models page can install)
+    "diffusers>=0.40.0",
+    "transformers>=5.16.1",
+    "accelerate>=1.14.0",
+    "peft>=0.20.0",
+    "safetensors>=0.8.0",
+    "huggingface-hub>=1.29.0",
     # Loaded at runtime by model tokenizers/text encoders, not imported here
-    "sentencepiece>=0.2.0",
-    "protobuf>=4.25.5",
-    "ftfy>=6.0.0",
+    "sentencepiece>=0.2.2",
+    "protobuf>=7.36.0",
+    "ftfy>=6.3.1",
     # SDE schedulers
     "torchsde>=0.2.6",
     # Quantization backends (config_objects.py loads them dynamically)
-    "torchao>=0.7.0",
-    "optimum-quanto>=0.2.6",
-    "sdnq>=0.1.0",
-    "gguf>=0.10.0",
-    "bitsandbytes>=0.45.0; sys_platform == 'linux'",
+    "torchao>=0.18.0",
+    "optimum-quanto>=0.2.7",
+    "sdnq>=0.2.5",
+    "gguf>=0.19.0",
+    "bitsandbytes>=0.50.2; sys_platform == 'linux'",
     # ControlNet preprocessors (brings opencv-headless, scikit-image,
     # scipy, timm) and pipelines that want kornia
-    "controlnet-aux>=0.0.9",
-    "opencv-python-headless>=4.10.0",
-    "kornia>=0.7.0",
+    "controlnet-aux>=0.0.10",
+    "opencv-python-headless>=5.0.0.93",
+    "kornia>=0.8.3",
     # Upscaling and face restoration tasks
-    "spandrel>=0.4.0",
+    "spandrel>=0.4.2",
     "facexlib>=0.3.0",
     # Imaging and media
-    "numpy>=1.26.4",
-    "Pillow>=10.4.0",
+    "numpy>=2.5.2",
+    "Pillow>=12.3.0",
     "piexif>=1.1.3",
-    "imageio>=2.36.1",
-    "imageio-ffmpeg>=0.5.1",
-    "av>=13.0.0",
-    "soundfile>=0.12.1",
-    "matplotlib>=3.9.3",
+    "imageio>=2.37.4",
+    "imageio-ffmpeg>=0.6.0",
+    "av>=18.1.0",
+    "soundfile>=0.14.0",
+    "matplotlib>=3.11.1",
     # Utilities
-    "qrcode>=8.0",
-    "requests>=2.32.3",
-    "aiohttp>=3.11.10",
-    "beautifulsoup4>=4.12.3",
-    "jsonschema>=4.23.0",
-    "concurrent-log-handler>=0.9.25",
-    "python-dotenv>=1.0.1",
-    "packaging>=23.0",
+    "qrcode>=8.2",
+    "requests>=2.34.2",
+    "aiohttp>=3.14.3",
+    "beautifulsoup4>=4.15.0",
+    "jsonschema>=4.26.0",
+    "concurrent-log-handler>=0.9.29",
+    "python-dotenv>=1.2.3",
+    "packaging>=26.3",
 ]
 
 [project.optional-dependencies]
-server = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
+server = ["fastapi>=0.141.1", "uvicorn[standard]>=0.52.4"]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "pytest-xdist>=3.0.0",
-    "pytest-timeout>=2.1.0",
-    "pytest-mock>=3.10.0",
-    "pytest-asyncio>=0.21.0",
-    "httpx>=0.27",
-    "black>=24.0.0",
-    "flake8",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.8.0",
+    "pytest-timeout>=2.4.0",
+    "pytest-mock>=3.15.1",
+    "pytest-asyncio>=1.4.0",
+    "httpx>=0.28.1",
+    "black>=26.5.1",
     "build",
 ]
 

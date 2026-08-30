@@ -115,3 +115,13 @@ export interface ModelDownload {
   started_at: number
   finished_at: number | null
 }
+
+export interface DiffusersStatus {
+  status: 'idle' | 'running' | 'succeeded' | 'failed'
+  error: string | null
+  log: string | null
+  started_at: number | null
+  finished_at: number | null
+  version: string | null
+  commit: string | null
+}
