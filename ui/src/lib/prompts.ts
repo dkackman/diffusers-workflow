@@ -62,6 +62,15 @@ export function promptTooltip(
   return texts[value.slice('prompt:'.length).trim()] || undefined
 }
 
+/** The datalist id for stored-prompt suggestions, attached only once the
+ * value has committed to a prompt: reference - so the dropdown doesn't pop
+ * over ordinary text. */
+export function promptListId(value: unknown): string | undefined {
+  return typeof value === 'string' && value.startsWith('prompt:')
+    ? 'prompt-references'
+    : undefined
+}
+
 /** Every intended_model value the presets know, for the editor's datalist. */
 export function knownIntendedModels(presets: EnhancerPreset[]): string[] {
   return [

@@ -5,6 +5,7 @@ import {
   manifestTextFile,
   parseTags,
   presetForIntendedModel,
+  promptListId,
   promptTooltip,
 } from './prompts'
 import type { EnhancerPreset } from './types'
@@ -83,6 +84,21 @@ describe('promptTooltip', () => {
     expect(promptTooltip('prompt:unknown', texts)).toBeUndefined()
     expect(promptTooltip(42, texts)).toBeUndefined()
     expect(promptTooltip(undefined, texts)).toBeUndefined()
+  })
+})
+
+describe('promptListId', () => {
+  it('names the datalist once the value commits to prompt:', () => {
+    expect(promptListId('prompt:')).toBe('prompt-references')
+    expect(promptListId('prompt:scenic')).toBe('prompt-references')
+  })
+
+  it('is undefined before that, so no dropdown pops over ordinary text', () => {
+    expect(promptListId('prom')).toBeUndefined()
+    expect(promptListId('a cat wearing a hat')).toBeUndefined()
+    expect(promptListId('variable:prompt')).toBeUndefined()
+    expect(promptListId(42)).toBeUndefined()
+    expect(promptListId(undefined)).toBeUndefined()
   })
 })
 

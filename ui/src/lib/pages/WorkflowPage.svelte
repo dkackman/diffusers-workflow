@@ -4,7 +4,7 @@
   import { api } from '../api'
   import { go } from '../router.svelte'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
-  import { promptTooltip } from '../prompts'
+  import { promptListId, promptTooltip } from '../prompts'
   import type { WorkflowDefinition } from '../types'
 
   let { name }: { name: string } = $props()
@@ -129,7 +129,7 @@
   {/if}
   {#if variables.length}
     <div class="panel">
-      <h2>Arguments <span class="muted">(blank = workflow default)</span></h2>
+      <h2>Variables <span class="muted">(blank = workflow default)</span></h2>
       <div class="vars">
         {#each variables as [key, defaultValue] (key)}
           <label for={'var-' + key}>{key}</label>
@@ -143,7 +143,7 @@
           {:else}
             <input
               id={'var-' + key}
-              list="prompt-references"
+              list={promptListId(overrides[key] || defaultValue)}
               title={promptTooltip(
                 overrides[key] || defaultValue,
                 promptLibrary.texts,
