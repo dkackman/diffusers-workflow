@@ -13,7 +13,7 @@ python -m dw.repl
 ```
 
 ```text
-dw> workflow load FluxDev
+dw> workflow load flux/FluxDev
 dw> arg set prompt="a cat wearing a hat"
 dw> workflow run         # first run — loads model (~30-60s)
 dw> arg set prompt="a dog in a park"
@@ -29,7 +29,7 @@ The REPL process handles user input and validation. The worker process handles m
 - **First `workflow run`**: Worker starts and loads the model
 - **Subsequent runs**: Worker reuses cached models
 - **Workflow file edited**: Worker detects the change (SHA256 hash) and reloads
-- **`workflow load` (different file)**: Worker shuts down, restarts on next run
+- **`workflow load` (different file)**: The worker switches in place - it frees the old workflow's models before loading the new one
 - **`workflow restart`**: Worker shuts down immediately; a fresh one starts on the next run
 - **`memory clear`**: Frees GPU memory, models reload on next run
 - **`exit`**: Worker shuts down gracefully
@@ -44,7 +44,7 @@ The worker cleans up automatically between runs (garbage collection + GPU cache 
 
 **Execution errors**: The worker stays alive (models cached) so you can fix the issue and re-run immediately.
 
-**Timeout**: Executions time out after 5 minutes. The worker restarts on the next run.
+**Long runs**: There is no execution timeout - a run waits as long as the worker is alive (liveness is polled every second, so a crashed worker is noticed immediately). Ctrl+C cancels the run in place, keeping models cached; a second Ctrl+C stops the worker.
 
 **GPU out of memory**: Use `memory clear`, reduce model size, or check for other processes using the GPU.
 

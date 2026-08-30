@@ -7,7 +7,7 @@
     Plus,
     Save,
     TriangleAlert,
-  } from 'lucide-svelte'
+  } from '@lucide/svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
   import {

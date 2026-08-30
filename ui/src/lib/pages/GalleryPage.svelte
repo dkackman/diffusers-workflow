@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FolderOpen, ImageOff, Trash2, X } from 'lucide-svelte'
+  import { FolderOpen, ImageOff, Trash2, X } from '@lucide/svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
   import type { GalleryFile } from '../types'

@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "diffusers-workflow"
+# Keep in sync with __version__ in dw/__init__.py (importing dw at build
+# time would drag torch into the build environment, so it stays static here)
+version = "0.37.0"
+description = "Declarative workflow engine and web UI for Hugging Face Diffusers"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "dkackman" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "torch>=2.0.0",
+    "diffusers",
+    "transformers",
+    "accelerate",
+    "huggingface_hub",
+    "numpy",
+    "Pillow",
+    "av",
+    "qrcode",
+    "jsonschema",
+    "concurrent-log-handler",
+    "controlnet-aux",
+    "soundfile",
+]
+
+[project.optional-dependencies]
+server = ["fastapi", "uvicorn[standard]"]
+dev = ["pytest", "pytest-cov", "black", "flake8", "build"]
+
+[project.urls]
+Homepage = "https://github.com/dkackman/diffusers-workflow"
+
+[project.scripts]
+dw-run = "dw.run:main"
+dw-validate = "dw.validate:main"
+dw-repl = "dw.repl:main"
+dw-serve = "dw.serve:main"
+dw-test = "dw.test:main"
+
+[tool.setuptools.packages.find]
+# tasks/, pipeline_processors/ and community_pipelines/ are namespace
+# packages (no __init__.py) - a plain find would silently drop them
+include = ["dw*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+dw = ["*.json", "workflows/*.json", "community_pipelines/*.py"]
+# The built SPA, copied in by scripts/build_dist.sh before packaging
+"dw.server" = ["ui/**"]

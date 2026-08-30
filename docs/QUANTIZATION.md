@@ -1,6 +1,6 @@
 # Quantization
 
-Quantization reduces model memory usage by storing weights at lower precision. diffusers-workflow supports five quantization frameworks, applied per-component in the pipeline.
+Quantization reduces model memory usage by storing weights at lower precision. diffusers-workflow ships examples for BitsAndBytes, TorchAO, GGUF, and SDNQ, applied per-component in the pipeline - and any other backend with a config class (optimum-quanto, for example) works through the same dynamic `config_type` import.
 
 ## Per-Component Quantization
 
@@ -121,7 +121,36 @@ GGUF models load from single files using `from_single_file`:
 
 ## SDNQ (SD.Next Quantization)
 
-SDNQ uses pre-quantized models that load as complete pipelines. The `sdnq` module must be imported before loading so it can register with diffusers:
+SDNQ works two ways: quantize a component on the fly at load time, or load a
+pre-quantized model as a complete pipeline.
+
+### On-the-fly (`sdnq.SDNQConfig`)
+
+Quantizes the component while it loads - the pattern the LTX-2 and MiniMax H3
+examples use for their large transformers and text encoders:
+
+```json
+"quantization_config": {
+    "configuration": { "config_type": "sdnq.SDNQConfig" },
+    "arguments": {
+        "weights_dtype": "{uint4}",
+        "quantization_device": "cuda",
+        "return_device": "cuda",
+        "use_quantized_matmul": true,
+        "dequantize_fp32": false
+    }
+}
+```
+
+- `weights_dtype` — the storage dtype (`uint4`, `int8`, ...; brace-escaped so it stays a string)
+- `quantization_device` / `return_device` — where the quantization pass runs and where the finished component lands; quantizing on `cuda` is much faster than on CPU
+- `use_quantized_matmul` — quantized matmul kernels (CUDA/XPU only)
+
+**Examples:** [LTX2.json](../examples/LTX2.json), [MiniMaxH3.json](../examples/MiniMaxH3.json)
+
+### Pre-quantized models
+
+Pre-quantized SDNQ repos load as complete pipelines. The `sdnq` module must be imported before loading so it can register with diffusers:
 
 ```json
 {

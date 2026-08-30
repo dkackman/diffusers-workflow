@@ -2,7 +2,7 @@ import os
 from .workflow import workflow_from_file
 from . import startup
 
-if __name__ == "__main__":
+def main():
     workflow = workflow_from_file(
         os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "workflows", "test.json"
@@ -22,3 +22,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error running workflow: {e}")
         exit(1)
+
+
+if __name__ == "__main__":
+    main()

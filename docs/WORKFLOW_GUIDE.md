@@ -212,7 +212,7 @@ file, or a URL, exactly like the plain `image`/`video` forms.
 }
 ```
 
-Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `audio/wav`, `audio/flac`, `audio/mpeg` (mp3), `audio/ogg`, `audio/opus`, `application/json`, `text/plain`.
+Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `audio/wav`, `audio/flac`, `audio/mpeg` (mp3), `audio/ogg`, `audio/opus`, `audio/aiff`, `application/json`, `text/plain` (plus the common aliases `audio/x-wav`, `audio/mp3`, `audio/vorbis`).
 
 For video, add `"fps": 8`. For audio, add `"sample_rate": 44100`. Setting `embed_metadata: true`
 on an image result embeds the step's model name and arguments as generation metadata -
@@ -276,6 +276,7 @@ Control how models use memory:
 
 - `"model"` — Moves entire models between CPU and GPU. Good balance of speed and memory.
 - `"sequential"` — Moves individual layers. Slowest but uses least GPU memory.
+  `exclude_from_cpu_offload` names components the sweep should leave alone.
 - Omit for no offloading (fastest, requires enough VRAM).
 
 For components the pipeline loads itself — which is all of a modular pipeline's — use
@@ -308,6 +309,12 @@ For components the pipeline loads itself — which is all of a modular pipeline'
 - `residency` — `"resident"` (the default) leaves the component on its device for the
   whole run; `"on_demand"` rests it in system memory and moves it to the device only
   while one of its own calls runs. See [On-demand components](#on-demand-components).
+- `enable_tiling` — tiled decode for a decoder not named `vae` (LTX-2.5's
+  `diffusion_decoder`, for example).
+- `attention_backend` — a persistent `set_attention_backend` on one component, which a
+  compiled component needs (the pipeline-level `attention_backend` applies per call).
+- `compile`, `truncate_layers`, `remove_modules` — see
+  [ACCELERATION.md](ACCELERATION.md).
 - A dotted key reaches a module inside a component, for a component that holds the model
   rather than being one.
 - A `components` block that group offloads anything, or marks anything `on_demand`,
@@ -535,6 +542,11 @@ stays alive for the steps that reuse it.
   exclusive with `remote_text_encoder`.
 - `no_generator` — set `true` to skip creating a `torch.Generator` for pipelines that
   don't accept one.
+- `inversion` — run the pipeline's `invert()` instead of the pipeline itself; the step
+  returns the inverted/image latents for a later step to consume (see
+  [FluxRFInversion.json](../examples/flux/FluxRFInversion.json)).
+- `generate` — run the pipeline's `generate()` instead, for components with a
+  generation head (the step returns `generated_ids`).
 
 ### Cache Acceleration
 
@@ -549,7 +561,7 @@ Two mutually exclusive ways to speed up inference by skipping redundant computat
 `cache` wraps diffusers' own cache hooks - `type` is one of `first_block`, `faster`,
 `mag`, `taylorseer` or `text_kv`, each with its own tuning fields (`threshold`,
 `num_inference_steps`, `max_skip_steps`, `retention_ratio`, `cache_interval`,
-`max_order` — see [dw/workflow_schema.json](../dw/workflow_schema.json) for which
+`max_order`, `mag_ratios`, `calibrate` — see [dw/workflow_schema.json](../dw/workflow_schema.json) for which
 fields apply to which type). See
 [examples/flux/FluxDevFirstBlockCache.json](../examples/flux/FluxDevFirstBlockCache.json).
 
@@ -698,12 +710,19 @@ joined into a single file:
   **original, unsliced track** - so the soundtrack has no seams at all. Requires
   `num_frames` (the per-segment length) and a frame rate. Exactly one of `segments`
   or `match_audio` must be given.
-- `continuity` — how visual continuity carries across segments. `last_frame` (the
-  default and currently only mode) extracts each segment's last frame and passes it
-  to the next segment.
-- `segment_argument` — where the carried frame lands: `image` (default) for
-  image-to-video pipelines, or `references` for reference-conditioned modular
-  pipelines, where it is appended as an image reference alongside the workflow's own.
+- `continuity` — how continuity carries across segments. `last_frame` (the default)
+  extracts each segment's last frame and passes it to the next segment - single-frame
+  conditioning, which carries pose and colour. `last_segment` carries the previous
+  segment itself (frames and its generated soundtrack) into the next as a video
+  reference, which also carries motion, camera, and voice across the seam; it
+  requires a `segment_argument` that takes a references list.
+- `carry_frames` — with `last_segment`, bound the carry to the last N frames of the
+  segment (the audio is cut to the same span). Unset carries the whole segment.
+- `carry_audio` — with `last_segment`, whether the carried reference includes its
+  soundtrack (default `true`).
+- `segment_argument` — where the carried frame or reference lands: `image` (default)
+  for image-to-video pipelines, or `references` for reference-conditioned modular
+  pipelines, where it is appended alongside the workflow's own.
 - `trim_frames` — image-to-video pipelines reproduce their keyframe as frame 0, so
   this many frames are dropped from the head of every segment after the first
   (default 1). The matching audio is used as crossfade material, so video and audio
@@ -733,7 +752,8 @@ The chain runs inside one iteration of the step, so it composes with
 `pipeline_reference` step can carry its own `chain`. Seeds behave like a normal run:
 the step's generator advances across segments, so one seed reproduces the whole
 chain. Expect some visual drift across many segments with `last_frame` continuity -
-it is single-frame conditioning; richer continuity modes are the extension point.
+it is single-frame conditioning; `last_segment` continuity exists for exactly that,
+where the pipeline can take a video reference.
 
 See [examples/LTX2I2VChained.json](../examples/LTX2I2VChained.json),
 [examples/MiniMaxH3I2VChained.json](../examples/MiniMaxH3I2VChained.json), and
@@ -754,6 +774,10 @@ Override the default scheduler:
     }
 }
 ```
+
+A pipeline that carries a second scheduler takes an `audio_scheduler` block with the
+same shape - MiniMax H3 steps video and audio latents down two schedules whose shifts
+are set independently.
 
 ## Seeds
 

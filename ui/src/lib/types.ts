@@ -77,3 +77,29 @@ export interface GalleryFile {
   mtime: number
   label: string
 }
+
+export interface ModelRevision {
+  commit_hash: string
+  size_on_disk: number
+  refs: string[]
+  last_modified: number | null
+}
+
+export interface ModelRepo {
+  repo_id: string
+  repo_type: string
+  size_on_disk: number
+  nb_files: number
+  last_accessed: number | null
+  last_modified: number | null
+  revisions: ModelRevision[]
+}
+
+export interface ModelCache {
+  cache_dir: string
+  size_on_disk: number
+  repos: ModelRepo[]
+  warnings: string[]
+  disk_free: number | null
+  disk_total: number | null
+}

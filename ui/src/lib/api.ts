@@ -1,5 +1,6 @@
 import type {
   JobDetail,
+  ModelCache,
   JobEvent,
   JobSummary,
   GalleryFile,
@@ -65,6 +66,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
   memory: () => request<MemoryInfo>('/api/memory'),
+  listModels: () => request<ModelCache>('/api/models'),
+  deleteModel: (repo: string) =>
+    request<{ repo_id: string; deleted: boolean; freed: number }>(
+      `/api/models?repo=${encodeURIComponent(repo)}`,
+      { method: 'DELETE' },
+    ),
   health: () =>
     request<{
       status: string

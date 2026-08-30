@@ -11,7 +11,7 @@ from .security import (
     MAX_VARIABLE_VALUE_LENGTH,
 )
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Run a workflow from a file.")
     parser.add_argument(
         "file_name", type=str, help="The filespec to of the workflow to run"
@@ -85,3 +85,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error running workflow '{args.file_name}': {e}")
         exit(1)
+
+
+if __name__ == "__main__":
+    main()

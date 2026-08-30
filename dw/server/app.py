@@ -31,6 +31,7 @@ from ..introspection import (
 from ..schema import load_schema
 from ..workflow import Workflow, workflow_from_definition
 from ..result import read_embedded_metadata
+from ..hub_cache import scan_models, delete_model
 from .jobs import JobManager, TERMINAL_STATES
 
 logger = logging.getLogger("dw")
@@ -121,13 +122,17 @@ def resolve_workflow_name(workflow_dir, name, allow_create=False):
 
 
 def default_ui_dir():
-    """The built SPA (ui/dist) when running from a checkout, else None."""
-    candidate = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "ui",
-        "dist",
-    )
-    return candidate if os.path.isfile(os.path.join(candidate, "index.html")) else None
+    """Where the built SPA lives: ui/dist in a checkout (the copy npm just
+    built), else the copy packaged into the wheel at dw/server/ui, else None."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(os.path.dirname(os.path.dirname(here)), "ui", "dist"),
+        os.path.join(here, "ui"),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(os.path.join(candidate, "index.html")):
+            return candidate
+    return None
 
 
 def create_app(
@@ -462,6 +467,32 @@ def create_app(
         os.remove(path)
         logger.info(f"Deleted output file {name}")
         return {"name": name, "deleted": True}
+
+    # ----------------------------------------------------------------- models
+
+    @app.get("/api/models")
+    def get_models():
+        """What the Hugging Face hub cache holds, largest repo first."""
+        return scan_models()
+
+    @app.delete("/api/models")
+    def delete_cached_model(repo: str):
+        """Delete every cached revision of one repo from the hub cache.
+
+        Refused while a job is running or queued: the worker may be reading
+        exactly the files a delete would remove out from under it."""
+        if manager.is_busy():
+            raise HTTPException(
+                status_code=409,
+                detail="A job is running or queued - deleting model files "
+                "out from under it would corrupt the run",
+            )
+        try:
+            freed = delete_model(repo)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        logger.info(f"Deleted {repo} from the hub cache ({freed} bytes)")
+        return {"repo_id": repo, "deleted": True, "freed": freed}
 
     # --------------------------------------------------------- memory/health
 

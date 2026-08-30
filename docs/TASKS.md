@@ -13,6 +13,10 @@ Tasks are utility operations that run outside of pipeline inference. Use them fo
 }
 ```
 
+Any task that runs a model accepts a `"device"` argument to pin where it runs -
+useful for keeping a helper model (a captioner, an upscaler) off the accelerator a
+loaded pipeline is using, or on a second one.
+
 ## Image Processing
 
 ### ControlNet Preprocessors
@@ -850,7 +854,7 @@ Canny edge detection followed by ControlNet generation:
 - [FaceRestore.json](../examples/tasks/FaceRestore.json) — Generate portrait + GFPGAN face restoration
 - [Segment.json](../examples/tasks/Segment.json) — Text-prompted object segmentation
 - [SegmentAndInpaint.json](../examples/tasks/SegmentAndInpaint.json) — Segment + inpaint
-- [ImageToText.json](../examples/tasks/ImageToText.json) — BLIP image captioning
+- [ImageToText.json](../examples/tasks/ImageToText.json) — image captioning with the SmolVLM default
 - [ImageToTextVLM.json](../examples/tasks/ImageToTextVLM.json) — VLM captioning with a specific question
 - [CaptionToImage.json](../examples/tasks/CaptionToImage.json) — Caption then regenerate
 - [InterpolateFrames.json](../examples/InterpolateFrames.json) — RIFE frame interpolation

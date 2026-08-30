@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Inbox } from 'lucide-svelte'
+  import { Inbox } from '@lucide/svelte'
   import { api } from '../api'
   import type { JobSummary } from '../types'
 

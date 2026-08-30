@@ -477,6 +477,14 @@ class JobManager:
             else:
                 logger.warning(f"Unknown worker message type: {message_type}")
 
+    def is_busy(self):
+        """True while a job is running or queued - the window in which the
+        worker may be reading model files a cache delete would rip out."""
+        with self._lock:
+            if self._current_job_id is not None:
+                return True
+            return any(job.status == QUEUED for job in self.jobs.values())
+
     # ---------------------------------------------------------------- memory
 
     def memory_status(self, timeout=5):

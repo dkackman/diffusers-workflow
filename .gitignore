@@ -143,3 +143,6 @@ INFO
 pred_d.pt
 test_outputs/
 .DS_Store
+
+# built SPA copied into the package by scripts/build_dist.sh
+dw/server/ui/

@@ -20,7 +20,7 @@ The bf16 transformer is ~24GB - it does not fit alongside the T5 encoder. Two go
 | **float8 TorchAO** (RTX 40-series+) | same, with `Float8DynamicActivationFloat8WeightConfig` | Fastest, but fp8 needs compute capability 8.9+ (Ada). |
 | **GGUF Q8** | `from_single_file` Q8_0 transformer + `offload: "model"` | Simplest, best quality retention, slower than TorchAO+compile. |
 
-**Examples:** [FluxDevFast.json](../examples/flux/FluxDevFast.json) (the float8 recipe), [FluxGGUF.json](../examples/flux/FluxGGUF.json), [FluxDevFirstBlockCache.json](../examples/flux/FluxDevFirstBlockCache.json)
+**Examples:** [FluxDevFast.json](../examples/flux/FluxDevFast.json) (the int8 recipe - swap in `Float8DynamicActivationFloat8WeightConfig` on Ada or newer), [FluxGGUF.json](../examples/flux/FluxGGUF.json), [FluxDevFirstBlockCache.json](../examples/flux/FluxDevFirstBlockCache.json)
 
 ## Qwen-Image (20B)
 

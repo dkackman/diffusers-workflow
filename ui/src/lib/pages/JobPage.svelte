@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { RotateCw, TriangleAlert, X } from 'lucide-svelte'
+  import { RotateCw, TriangleAlert, X } from '@lucide/svelte'
   import { api, streamJobEvents } from '../api'
   import { go } from '../router.svelte'
   import type { JobDetail, JobEvent } from '../types'

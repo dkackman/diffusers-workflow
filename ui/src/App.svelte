@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    Database,
     Images,
     Layers,
     ListTodo,
@@ -7,7 +8,7 @@
     MonitorCog,
     SquarePen,
     Sun,
-  } from 'lucide-svelte'
+  } from '@lucide/svelte'
   import { route } from './lib/router.svelte'
   import { api } from './lib/api'
   import type { MemoryInfo } from './lib/types'
@@ -17,6 +18,7 @@
   import JobPage from './lib/pages/JobPage.svelte'
   import EditorPage from './lib/pages/EditorPage.svelte'
   import GalleryPage from './lib/pages/GalleryPage.svelte'
+  import ModelsPage from './lib/pages/ModelsPage.svelte'
 
   let memory = $state<MemoryInfo | null>(null)
   let currentJob = $state<string | null>(null)
@@ -90,6 +92,9 @@
     <a href="#/gallery" class:active={route.parts[0] === 'gallery'}>
       <Images size={15} />Gallery
     </a>
+    <a href="#/models" class:active={route.parts[0] === 'models'}>
+      <Database size={15} />Models
+    </a>
   </nav>
   {#if currentJob}
     <a
@@ -133,7 +138,9 @@
 </header>
 
 <main class:wide={route.parts[0] === 'edit'}>
-  {#if route.parts[0] === 'gallery'}
+  {#if route.parts[0] === 'models'}
+    <ModelsPage />
+  {:else if route.parts[0] === 'gallery'}
     <GalleryPage />
   {:else if route.parts[0] === 'edit'}
     <EditorPage name={route.parts.slice(1).join('/')} />

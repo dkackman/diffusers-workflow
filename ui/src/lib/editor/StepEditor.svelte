@@ -8,7 +8,7 @@
     Timer,
     Trash2,
     Zap,
-  } from 'lucide-svelte'
+  } from '@lucide/svelte'
   import ArgumentsEditor from './ArgumentsEditor.svelte'
   import ComponentEditor from './ComponentEditor.svelte'
   import LorasEditor from './LorasEditor.svelte'

@@ -14,15 +14,19 @@ python -m dw.repl -l DEBUG    # with debug logging
 ### workflow — Manage and run workflows
 
 ```text
+workflow list            List workflows under the workflow directory
 workflow load <file>     Load a workflow from JSON file
 workflow reload          Reload current workflow from disk
 workflow status          Show current workflow information
 workflow run             Execute the currently loaded workflow
+workflow run <n>=<v> ... Set arguments and run in one line
 workflow run ask <arg>   Prompt for one argument's value, then run
 workflow restart         Restart the worker process (clears GPU cache)
 ```
 
-`workflow load` searches `./examples` by default, so `workflow load FluxDev` works.
+`workflow load` resolves names against the workflow directory (`./examples`
+by default), including subfolders - `workflow load flux/FluxDev` loads
+`examples/flux/FluxDev.json`. `workflow list` shows the available names.
 
 `workflow run ask <arg>` prompts you interactively for `<arg>`'s value (the
 value is not saved to shell/readline history) before running — a shortcut
@@ -33,7 +37,7 @@ for `arg set` followed by `workflow run`.
 ```text
 arg show                Show available variables and current values
 arg set <name>=<value>  Set a variable value
-arg clear               Clear all variable values
+arg clear [<name>]      Clear one variable, or all of them
 ```
 
 ### memory — Monitor GPU memory
@@ -59,10 +63,16 @@ help / ?     Show all commands
 exit / quit  Exit the REPL
 ```
 
+`run`, `load`, and `set` also work at the top level as shortcuts for
+`workflow run`, `workflow load`, and `arg set`.
+
+Ctrl+C during a run cancels it cooperatively and keeps the worker's models
+cached; a second Ctrl+C stops the worker process itself.
+
 ## Typical Session
 
 ```bash
-dw> workflow load FluxDev
+dw> workflow load flux/FluxDev
 dw> arg show
 dw> arg set prompt="a majestic mountain landscape"
 dw> workflow run
@@ -75,8 +85,8 @@ dw> exit
 ## Quick Reference
 
 ```text
-workflow ── load <file> | reload | status | run [ask <arg>] | restart
-arg      ── show | set <name>=<value> | clear
+workflow ── list | load <file> | reload | status | run [<n>=<v> ... | ask <arg>] | restart
+arg      ── show | set <name>=<value> | clear [<name>]
 memory   ── show | clear
 config   ── show | set <name>=<value>
 ```
