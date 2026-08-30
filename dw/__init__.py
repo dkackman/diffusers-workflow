@@ -1,6 +1,7 @@
 from .settings import resolve_path, load_settings
 from .log_setup import setup_logging
 import os
+import re
 import logging
 import warnings
 from dotenv import load_dotenv
@@ -45,7 +46,27 @@ except ImportError as e:
     version = None
 
 
-__version__ = "0.37.0"
+def _read_version():
+    # Single-sourced from pyproject.toml. Read as text rather than TOML:
+    # tomllib is 3.11+ and this project supports 3.10. In a wheel install
+    # there is no pyproject on disk - the package metadata carries it.
+    try:
+        pyproject = os.path.join(os.path.dirname(__file__), "..", "pyproject.toml")
+        with open(pyproject, encoding="utf-8") as f:
+            match = re.search(r'^version = "([^"]+)"$', f.read(), re.MULTILINE)
+        if match:
+            return match.group(1)
+    except OSError:
+        pass
+    try:
+        from importlib.metadata import version
+
+        return version("diffusers-workflow")
+    except Exception:
+        return "unknown"
+
+
+__version__ = _read_version()
 
 settings = load_settings()
 
