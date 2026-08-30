@@ -68,6 +68,45 @@ def workflow_names(workflow_dir):
     return sorted(names)
 
 
+# What each workflow produces and takes, for listing cards - cached by mtime
+_workflow_detail_cache = {}
+
+
+def workflow_details(workflow_dir, names):
+    """Per-workflow card metadata: output kinds and variable count."""
+    details = {}
+    for name in names:
+        path = os.path.join(workflow_dir, f"{name}.json")
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        cached = _workflow_detail_cache.get(path)
+        if cached and cached[0] == mtime:
+            details[name] = cached[1]
+            continue
+        try:
+            with open(path, "r") as file:
+                definition = json.load(file)
+            kinds = sorted(
+                {
+                    step["result"]["content_type"].split("/")[0]
+                    for step in definition.get("steps", [])
+                    if isinstance(step.get("result"), dict)
+                    and "content_type" in step["result"]
+                }
+            )
+            detail = {
+                "kinds": kinds,
+                "variables": len(definition.get("variables", {})),
+            }
+        except Exception:
+            detail = {"kinds": [], "variables": 0}
+        _workflow_detail_cache[path] = (mtime, detail)
+        details[name] = detail
+    return details
+
+
 def resolve_workflow_name(workflow_dir, name, allow_create=False):
     """The on-disk path for a workflow name, confined to workflow_dir."""
     if not name.endswith(".json"):
@@ -291,9 +330,11 @@ def create_app(
 
     @app.get("/api/workflows")
     def list_workflows():
+        names = workflow_names(app.state.workflow_dir)
         return {
             "workflow_dir": app.state.workflow_dir,
-            "workflows": workflow_names(app.state.workflow_dir),
+            "workflows": names,
+            "details": workflow_details(app.state.workflow_dir, names),
         }
 
     @app.put("/api/workflows/{name:path}")
@@ -405,11 +446,24 @@ def create_app(
 
     @app.get("/api/gallery/{name}/metadata")
     def gallery_metadata(name: str):
-        """Generation metadata embedded in a saved image. 'workflow' inside
-        it, when present, is the full definition the editor can reopen."""
+        """Generation metadata embedded in a saved image ('workflow' inside
+        it is the full definition the editor can reopen), plus the job that
+        produced the file when history remembers one."""
         path = _output_file(name)
         metadata = read_embedded_metadata(path)
-        return {"name": name, "metadata": metadata}
+        try:
+            job = manager.history.job_for_file(name)
+        except Exception:
+            job = None
+        return {"name": name, "metadata": metadata, "job": job}
+
+    @app.delete("/api/gallery/{name}")
+    def delete_output(name: str):
+        """Remove one file from the output directory."""
+        path = _output_file(name)
+        os.remove(path)
+        logger.info(f"Deleted output file {name}")
+        return {"name": name, "deleted": True}
 
     # --------------------------------------------------------- memory/health
 

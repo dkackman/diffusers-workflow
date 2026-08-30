@@ -106,6 +106,16 @@ class JobHistory:
             ).fetchone()
         return self._to_detail(row) if row else None
 
+    def job_for_file(self, file_name):
+        """The most recent job whose manifest names this output file."""
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT id, status FROM jobs WHERE manifest LIKE ?"
+                " ORDER BY finished_at DESC LIMIT 1",
+                (f"%{file_name}%",),
+            ).fetchone()
+        return {"id": row[0], "status": row[1]} if row else None
+
     @staticmethod
     def _to_detail(row):
         def parse(text, fallback):

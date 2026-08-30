@@ -460,3 +460,37 @@ def test_job_history_survives_restart_and_reruns(tmp_path):
     revived.shutdown()
 
     assert revived.rerun("nonexistent") is None
+
+
+def test_gallery_delete_and_job_linkage(server, tmp_path):
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        Image.new("RGB", (4, 4)).save(outputs / "victim.png")
+
+        # a finished job whose manifest names an output file links back to it
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, job["id"], ["succeeded"])
+        Image.new("RGB", (4, 4)).save(outputs / "a.png")  # matches /out/a.png name
+        linked = client.get("/api/gallery/a.png/metadata").json()
+        assert linked["job"]["id"] == job["id"]
+
+        # delete removes exactly the named file, confined to outputs
+        assert client.delete("/api/gallery/victim.png").status_code == 200
+        assert not (outputs / "victim.png").exists()
+        assert client.delete("/api/gallery/victim.png").status_code == 404
+        # encoded traversal: refused by routing (405) or validation (404)
+        assert client.delete("/api/gallery/..%2Fjobs.sqlite").status_code in (404, 405)
+        assert (tmp_path / "jobs.sqlite").exists()
+
+
+def test_workflow_listing_carries_details(server):
+    with server(success_script) as client:
+        workflow = valid_workflow("detailed")
+        workflow["steps"][0]["result"] = {"content_type": "image/png"}
+        client.put("/api/workflows/Detailed", json={"workflow": workflow})
+
+        listing = client.get("/api/workflows").json()
+        assert listing["details"]["Detailed"] == {"kinds": ["image"], "variables": 1}
+        assert listing["details"]["Basic"] == {"kinds": [], "variables": 1}

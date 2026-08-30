@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     CircleCheck,
+    Columns2,
     FileJson,
     Play,
     Plus,
@@ -38,7 +39,27 @@
   let status = $state('')
   let error = $state('')
   let showJson = $state(false)
+  let split = $state(
+    (() => {
+      try {
+        return localStorage.getItem('dw-editor-split') === '1'
+      } catch {
+        return false
+      }
+    })(),
+  )
   let jsonDraft = $state('')
+
+  function toggleSplit() {
+    split = !split
+    try {
+      localStorage.setItem('dw-editor-split', split ? '1' : '0')
+    } catch {
+      /* session only */
+    }
+  }
+
+  const liveJson = $derived(JSON.stringify($state.snapshot(workflow), null, 2))
   let busy = $state(false)
   let baseline = $state('')
 
@@ -253,6 +274,14 @@
   <span class="flex"></span>
   <button
     class="quiet withicon"
+    class:activebtn={split}
+    onclick={toggleSplit}
+    title="show the live JSON beside the form - the definition is always the visible truth"
+  >
+    <Columns2 size={14} />split
+  </button>
+  <button
+    class="quiet withicon"
     onclick={toggleJson}
     title={showJson ? 'back to the form editor' : 'edit the raw JSON, schema-aware'}
   >
@@ -328,6 +357,8 @@
     schema. Changes apply when the editor loses focus.
   </p>
 {:else}
+  <div class="editwrap" class:splitcols={split}>
+  <div class="formcol">
   <div class="panel">
     <h2>Variables</h2>
     <div class="vars">
@@ -397,6 +428,13 @@
       <Plus size={14} />sub-workflow step
     </button>
   </div>
+  </div>
+  {#if split}
+    <div class="jsoncol">
+      <JsonEditor value={liveJson} readonly height="calc(100vh - 200px)" />
+    </div>
+  {/if}
+  </div>
 {/if}
 
 <style>
@@ -415,6 +453,16 @@
   .icon { padding: 0.3rem 0.55rem; }
   .addvar { justify-self: start; }
   .addstep { display: flex; gap: 0.6rem; }
+  .editwrap.splitcols {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 44%);
+    gap: 1.1rem; align-items: start;
+  }
+  .jsoncol { position: sticky; top: 66px; }
+  @media (max-width: 1100px) {
+    .editwrap.splitcols { grid-template-columns: 1fr; }
+    .jsoncol { position: static; }
+  }
+  .activebtn { border-color: var(--accent); color: var(--accent); }
   .status {
     display: inline-flex; align-items: center; gap: 0.4rem;
     color: var(--good); font-size: 0.9rem;
