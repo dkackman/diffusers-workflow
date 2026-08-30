@@ -1,73 +1,74 @@
 {
-    "id": "FluxDevFast",
-    "description": "Flux dev tuned for speed on a 24GB card: int8 TorchAO quantization on the transformer (quantized directly onto the GPU - quantized tensors cannot be moved between devices, so it stays resident), regional torch.compile, first-block caching, and group offload for the T5 encoder. On Ada/40-series cards use Float8DynamicActivationFloat8WeightConfig instead of Int8WeightOnlyConfig.",
-    "variables": {
-        "prompt": "a marmot wearing a tophat, in a forest scene.",
-        "num_inference_steps": 28
-    },
-    "steps": [
-        {
-            "name": "main",
-            "pipeline": {
-                "configuration": {
-                    "component_type": "FluxPipeline",
-                    "cache": {
-                        "type": "first_block",
-                        "threshold": 0.05
-                    },
-                    "components": {
-                        "transformer": {
-                            "compile": {
-                                "repeated_blocks": true
-                            }
-                        },
-                        "text_encoder_2": {
-                            "group_offload": {
-                                "offload_type": "leaf_level",
-                                "use_stream": true
-                            }
-                        },
-                        "text_encoder": {
-                            "device": "cuda"
-                        },
-                        "vae": {
-                            "device": "cuda"
-                        }
-                    }
-                },
-                "transformer": {
-                    "configuration": {
-                        "component_type": "FluxTransformer2DModel",
-                        "preserve_device_placement": true
-                    },
-                    "quantization_config": {
-                        "configuration": {
-                            "config_type": "TorchAoConfig"
-                        },
-                        "arguments": {
-                            "quant_type": "torchao.quantization.Int8WeightOnlyConfig"
-                        }
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "black-forest-labs/FLUX.1-dev",
-                        "subfolder": "transformer",
-                        "torch_dtype": "torch.bfloat16",
-                        "device_map": "cuda"
-                    }
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "black-forest-labs/FLUX.1-dev",
-                    "torch_dtype": "torch.bfloat16"
-                },
-                "arguments": {
-                    "prompt": "variable:prompt",
-                    "num_inference_steps": "variable:num_inference_steps"
-                }
+  "id": "FluxDevFast",
+  "description": "Flux dev tuned for speed on a 24GB card: int8 TorchAO quantization on the transformer (quantized directly onto the GPU - quantized tensors cannot be moved between devices, so it stays resident), regional torch.compile, first-block caching, and group offload for the T5 encoder. On Ada/40-series cards use Float8DynamicActivationFloat8WeightConfig instead of Int8WeightOnlyConfig.",
+  "variables": {
+    "prompt": "a marmot wearing a tophat, in a forest scene.",
+    "num_inference_steps": 28,
+    "model_name": "black-forest-labs/FLUX.1-schnell"
+  },
+  "steps": [
+    {
+      "name": "main",
+      "pipeline": {
+        "configuration": {
+          "component_type": "FluxPipeline",
+          "cache": {
+            "type": "first_block",
+            "threshold": 0.05
+          },
+          "components": {
+            "transformer": {
+              "compile": {
+                "repeated_blocks": true
+              }
             },
-            "result": {
-                "content_type": "image/jpeg",
-                "embed_metadata": true
+            "text_encoder_2": {
+              "group_offload": {
+                "offload_type": "leaf_level",
+                "use_stream": true
+              }
+            },
+            "text_encoder": {
+              "device": "cuda"
+            },
+            "vae": {
+              "device": "cuda"
             }
+          }
+        },
+        "transformer": {
+          "configuration": {
+            "component_type": "FluxTransformer2DModel",
+            "preserve_device_placement": true
+          },
+          "quantization_config": {
+            "configuration": {
+              "config_type": "TorchAoConfig"
+            },
+            "arguments": {
+              "quant_type": "torchao.quantization.Int8WeightOnlyConfig"
+            }
+          },
+          "from_pretrained_arguments": {
+            "model_name": "variable:model_name",
+            "subfolder": "transformer",
+            "torch_dtype": "torch.bfloat16",
+            "device_map": "cuda"
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "variable:model_name",
+          "torch_dtype": "torch.bfloat16"
+        },
+        "arguments": {
+          "prompt": "variable:prompt",
+          "num_inference_steps": "variable:num_inference_steps"
         }
-    ]
+      },
+      "result": {
+        "content_type": "image/jpeg",
+        "embed_metadata": true
+      }
+    }
+  ]
 }
