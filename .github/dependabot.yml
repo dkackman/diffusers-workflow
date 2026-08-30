@@ -9,3 +9,11 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+
+  # Keep the actions in .github/workflows on supported major versions -
+  # codeql-action@v2 was shut off upstream in early 2025 and sat dead for
+  # a year before anyone noticed
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
