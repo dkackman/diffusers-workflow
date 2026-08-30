@@ -2,7 +2,7 @@
   import {
     CircleCheck,
     Columns2,
-    FileJson,
+    Braces,
     LayoutList,
     Play,
     Plus,
@@ -373,7 +373,7 @@
       onclick={() => setView('json')}
       title="edit the raw JSON, schema-aware"
     >
-      <FileJson size={14} />JSON
+      <Braces size={14} />JSON
     </button>
   </div>
   <button
