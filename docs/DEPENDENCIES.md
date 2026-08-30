@@ -26,7 +26,7 @@ If you prefer manual control:
 python3 -m venv venv
 source venv/bin/activate
 
-pip install torch torchvision
+pip install torch torchvision torchaudio
 pip install git+https://github.com/huggingface/diffusers
 
 pip install -r requirements.txt
@@ -36,13 +36,13 @@ pip install -r requirements.txt
 
 **All platforms (core ML):** peft, transformers, accelerate, safetensors, controlnet_aux, sentencepiece, torchsde, torchao, gguf, kornia, ftfy, sdnq, spandrel, facexlib (spandrel + facexlib back the `upscale` and `restore_faces` tasks)
 
-**All platforms (utilities):** av, aiohttp, matplotlib, opencv-python-headless, concurrent-log-handler, qrcode, protobuf, imageio, imageio-ffmpeg, beautifulsoup4, soundfile, jsonschema, black, python-dotenv
+**All platforms (utilities):** fastapi, uvicorn (the `dw.serve` HTTP server and web UI), av, aiohttp, matplotlib, opencv-python-headless, concurrent-log-handler, qrcode, protobuf, imageio, imageio-ffmpeg, beautifulsoup4, soundfile, jsonschema, black, python-dotenv
 
 **Linux (CUDA):** bitsandbytes
 
 **Windows (CUDA):** bitsandbytes, kernels
 
-**macOS (MPS):** fp4-fp8-for-torch-mps (FP8/FP4 dtype support for Metal)
+**macOS (MPS):** fp4-fp8-for-torch-mps (FP8/FP4 dtype support for Metal), fluidtop
 
 ## Optional
 

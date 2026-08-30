@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Plus, Trash2 } from 'lucide-svelte'
+  import { Plus, Trash2 } from '@lucide/svelte'
 
   let { pipeline = $bindable() }: { pipeline: Record<string, any> } = $props()
 

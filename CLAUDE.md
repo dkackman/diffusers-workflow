@@ -25,6 +25,9 @@ python -m dw.test
 # Interactive REPL
 python -m dw.repl
 
+# HTTP server + web UI (http://127.0.0.1:8765, API docs at /docs)
+python -m dw.serve
+
 # Run all tests (580+ tests)
 pytest -v
 
@@ -40,6 +43,20 @@ black dw/ tests/
 ```
 
 ## Architecture
+
+### Server & Web UI
+
+`dw/serve.py` runs a FastAPI app (`dw/server/app.py`) over the same persistent worker
+the REPL uses: `JobManager` (`dw/server/jobs.py`) queues jobs FIFO, streams progress
+over SSE, and persists history to `~/.diffusers_helper/jobs.sqlite`. The SPA lives in
+`ui/` (Svelte 5 + Vite; `npm run build` outputs `ui/dist`, which the server serves).
+Introspection endpoints (`dw/introspection.py`) describe pipeline/class signatures for
+the editor's forms. `dw/hub_cache.py` inventories and deletes from the HF hub cache
+(the UI's Models page). Front-end checks from `ui/`: `npm run check`, `npm run lint`,
+`npm test`, `npx playwright test` (e2e, starts its own server). See docs/SERVER.md.
+
+Packaging: `pyproject.toml` (console scripts dw-run/dw-validate/dw-repl/dw-serve/dw-test);
+`scripts/build_dist.sh` builds the SPA into the wheel.
 
 ### REPL Architecture
 

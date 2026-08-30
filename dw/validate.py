@@ -4,7 +4,7 @@ from .workflow import workflow_from_file
 from . import startup
 from .security import validate_workflow_path, SecurityError
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Validate a workflow from a file.")
     parser.add_argument(
         "file_name", type=str, help="The filespec of the workflow to validate"
@@ -36,3 +36,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error validating workflow '{args.file_name}': {e}")
         exit(1)
+
+
+if __name__ == "__main__":
+    main()

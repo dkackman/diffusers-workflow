@@ -19,6 +19,7 @@ diffusers-workflow validates all file paths, user inputs, and URLs to protect ag
 - `validate_string_input()` — Max length (default 1000 chars), no null bytes, no control characters other than tab/newline/CR
 - `validate_json_size()` — Limits JSON files to 50MB
 - `validate_url()` — Scheme must be `http` or `https`; must have a non-empty domain (`netloc`)
+- `validate_constant_name()` — Guards `constant:` references before import: dotted-name pattern only, module must already be importable, and anything callable is refused
 - `safe_join_path()` — Joins path components after rejecting any that contain `..`, `/`, or `\\`. Defined in `security.py` but not currently called elsewhere in `dw/`.
 
 ### Command Sanitization
@@ -36,6 +37,7 @@ diffusers-workflow validates all file paths, user inputs, and URLs to protect ag
 | `arguments.py` | Image/video/audio URLs, file paths, file extensions (`validate_media_location`, `fetch_image`, `fetch_video`) |
 | `tasks/gather.py` | URLs passed to the `gather` task |
 | `result.py` | Output directories and filenames |
+| `server/app.py`, `server/jobs.py` | Every HTTP-supplied path — workflow files confined to the workflow directory, gallery files to the output directory, inline-workflow `base_dir`, `Origin`-header guard on every request |
 
 ## Exception Hierarchy
 

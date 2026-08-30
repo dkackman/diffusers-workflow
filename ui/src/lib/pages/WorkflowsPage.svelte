@@ -7,7 +7,7 @@
     Music,
     Plus,
     X,
-  } from 'lucide-svelte'
+  } from '@lucide/svelte'
   import { api } from '../api'
 
   let workflows = $state<string[]>([])

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Copy, Play, SquarePen, Trash2 } from 'lucide-svelte'
+  import { Copy, Play, SquarePen, Trash2 } from '@lucide/svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'

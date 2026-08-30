@@ -644,3 +644,46 @@ def test_terminal_jobs_are_trimmed_from_memory(tmp_path):
     # the oldest are gone from memory but fully served from history
     evicted = manager.get(ids[0])
     assert evicted["historical"] is True and evicted["status"] == "succeeded"
+
+
+class TestModelManager:
+    """The hub cache endpoints: inventory, deletion, and the busy guard."""
+
+    def fake_cache(self, tmp_path, monkeypatch):
+        cache = tmp_path / "hub"
+        snapshot = cache / "models--acme--tiny" / "snapshots" / "aaaa1111"
+        snapshot.mkdir(parents=True)
+        (snapshot / "model.bin").write_bytes(b"x" * 256)
+        monkeypatch.setattr("dw.hub_cache.constants.HF_HUB_CACHE", str(cache))
+
+    def test_models_are_listed_and_deleted(self, server, tmp_path, monkeypatch):
+        self.fake_cache(tmp_path, monkeypatch)
+        with server(success_script) as client:
+            listed = client.get("/api/models").json()
+            assert [r["repo_id"] for r in listed["repos"]] == ["acme/tiny"]
+            deleted = client.delete("/api/models", params={"repo": "acme/tiny"})
+            assert deleted.status_code == 200
+            assert deleted.json()["freed"] >= 256
+            assert client.get("/api/models").json()["repos"] == []
+
+    def test_deleting_an_unknown_repo_is_404(self, server, tmp_path, monkeypatch):
+        self.fake_cache(tmp_path, monkeypatch)
+        with server(success_script) as client:
+            response = client.delete("/api/models", params={"repo": "acme/other"})
+            assert response.status_code == 404
+
+    def test_delete_is_refused_while_a_job_is_active(
+        self, server, tmp_path, monkeypatch
+    ):
+        self.fake_cache(tmp_path, monkeypatch)
+        with server(hanging_script) as client:
+            job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+            wait_for_status(client, job["id"], ["running"])
+
+            response = client.delete("/api/models", params={"repo": "acme/tiny"})
+            assert response.status_code == 409
+            # Nothing was deleted out from under the run
+            assert len(client.get("/api/models").json()["repos"]) == 1
+
+            client.post(f"/api/jobs/{job['id']}/cancel")
+            wait_for_status(client, job["id"], ["cancelled"])

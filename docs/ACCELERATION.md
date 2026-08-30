@@ -110,6 +110,19 @@ Experimental, video-oriented. Uses FFT frequency decomposition:
 
 Best for video models like CogVideoX. No additional parameters needed for basic use.
 
+### TextKVCache
+
+Caches the transformer's key/value projections of the (unchanging) text
+embeddings across denoising steps, recomputing only what the latents need:
+
+```json
+"cache": {
+    "type": "text_kv"
+}
+```
+
+No parameters.
+
 ## TeaCache
 
 Training-free acceleration that monkey-patches the transformer's forward function. Uses polynomial-rescaled L1 distance to determine when to skip computation.

@@ -22,7 +22,7 @@ pytest tests/ --cov=dw --cov-report=html
 
 ## Test Files
 
-37 files, ~580 tests as of this writing (`pytest tests/ --collect-only -q` for the current count).
+Around 57 files and 1,500+ tests as of this writing (`pytest tests/ --collect-only -q` for the current count). The table below maps the core areas; newer features carry their own `test_<feature>.py` alongside them (server: `test_server.py`, events/cancellation: `test_events.py`, `test_worker_execute.py`, introspection: `test_introspection.py`, hub cache: `test_hub_cache.py`, chaining: `test_chain.py`).
 
 | File | Area |
 | ---- | ---- |

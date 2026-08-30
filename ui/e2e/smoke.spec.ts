@@ -104,3 +104,12 @@ test('validation flags a signature typo through the real server', async ({
   expect(result.valid).toBe(true)
   expect(result.warnings.join(' ')).toContain('guidance_scael')
 })
+
+test('models page inventories the hub cache', async ({ page }) => {
+  // Read-only: this runs against the developer's real hub cache
+  await page.goto('/#/models')
+  await expect(page.locator('h1')).toHaveText('Models')
+  await expect(page.locator('.head .muted')).toContainText('cached', {
+    timeout: 30_000,
+  })
+})

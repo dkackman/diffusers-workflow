@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Trash2 } from 'lucide-svelte'
+  import { Trash2 } from '@lucide/svelte'
   import ArgumentsEditor from './ArgumentsEditor.svelte'
   import QuantizationEditor from './QuantizationEditor.svelte'
 
