@@ -94,6 +94,22 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 pip install bitsandbytes kernels
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Web UI dependencies - optional, only needed to build/run the SPA served by dw-serve
+if (Get-Command npm -ErrorAction SilentlyContinue) {
+    Write-Output ""
+    Write-Output "Installing web UI dependencies..."
+    Push-Location ui
+    npm install
+    $npmExitCode = $LASTEXITCODE
+    Pop-Location
+    if ($npmExitCode -ne 0) { exit $npmExitCode }
+}
+else {
+    Write-Output ""
+    Write-Output "npm was not found - skipping web UI dependency install."
+    Write-Output "Install Node.js/npm and run 'npm install' in the ui\ folder to build the web UI."
+}
+
 Write-Output ""
 Write-Output "Installation complete!"
 Write-Output ""

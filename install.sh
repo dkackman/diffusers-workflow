@@ -151,6 +151,17 @@ if $MACOS; then
   pip install fp4-fp8-for-torch-mps fluidtop
 fi
 
+# Web UI dependencies - optional, only needed to build/run the SPA served by dw-serve
+if command -v npm >/dev/null; then
+  echo ""
+  echo "Installing web UI dependencies..."
+  (cd ui && npm install)
+else
+  echo ""
+  echo "npm was not found - skipping web UI dependency install."
+  echo "Install Node.js/npm and run 'npm install' in the ui/ folder to build the web UI."
+fi
+
 echo ""
 echo "Installation complete!"
 echo ""
