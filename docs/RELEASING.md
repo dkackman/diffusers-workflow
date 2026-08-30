@@ -3,15 +3,30 @@
 Releases are cut by pushing a `v<semver>` tag. CI does the rest.
 
 ```bash
-# 1. Bump the version - pyproject.toml is the single source
-#    (dw.__version__ reads it at runtime):
+scripts/release.sh 0.38.0
+```
+
+The script bumps `pyproject.toml` (the single source of the version —
+`dw.__version__` reads it at runtime), commits just that file, pushes
+master, tags the bump commit `v0.38.0`, and pushes the tag. It refuses
+a malformed version, a branch other than master, an existing tag, or a
+dirty index (unstaged changes elsewhere are fine — the release commit
+is path-limited to pyproject.toml).
+
+By hand, the equivalent is:
+
+```bash
+# 1. Bump the version in pyproject.toml:
 #    version = "0.38.0"
-git commit -am "release 0.38.0"
+git commit -m "release 0.38.0" -- pyproject.toml
 
 # 2. Tag the bump commit and push
 git tag -a v0.38.0 -m "release 0.38.0"
 git push origin master v0.38.0
 ```
+
+The tag must point at a commit whose pyproject already declares the
+same version — the release job checks and refuses a mismatch.
 
 The tag triggers the full CI chain: backend tests, UI lint/type-check/
 unit tests, then the wheel build (SPA compiled into the package via
