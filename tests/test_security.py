@@ -15,6 +15,7 @@ from dw.security import (
     validate_output_path,
     validate_workflow_path,
     validate_prompt_path,
+    validate_constant_name,
     validate_prompt_reference,
     validate_url,
     validate_variable_name,
@@ -276,6 +277,22 @@ class TestValidatePromptReference:
     def test_an_overlong_name_is_rejected(self):
         with pytest.raises(InvalidInputError):
             validate_prompt_reference("a" * 201)
+
+
+@pytest.mark.parametrize(
+    "validator,name",
+    [
+        (validate_variable_name, "prompt\n"),
+        (validate_prompt_reference, "scenic\n"),
+        (validate_constant_name, "diffusers.utils\n"),
+    ],
+)
+def test_a_trailing_newline_does_not_slip_past_a_name_validator(validator, name):
+    """Python's '$' also matches just before a trailing newline, so patterns
+    anchored with it accepted names carrying one - a prompt file no listing
+    could round-trip, and a variable or constant name nothing can resolve."""
+    with pytest.raises(InvalidInputError):
+        validator(name)
 
 
 class TestValidatePromptPath:

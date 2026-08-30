@@ -150,6 +150,7 @@ class DownloadManager:
         except HFValidationError as e:
             raise ValueError(str(e))
 
+        cancel_event = threading.Event()
         with self._lock:
             for entry in self._downloads.values():
                 if entry["repo_id"] == repo_id and entry["status"] == "downloading":
@@ -163,12 +164,14 @@ class DownloadManager:
                 "error": None,
                 "started_at": time.time(),
                 "finished_at": None,
+                # Set before the entry is published: cancel() reaches for this
+                # the moment the id is visible, and assigning it after the
+                # lock left a window where cancelling raised KeyError
+                "_cancel": cancel_event,
             }
             self._downloads[entry["id"]] = entry
             self._prune()
 
-        cancel_event = threading.Event()
-        entry["_cancel"] = cancel_event
         thread = threading.Thread(
             target=self._run, args=(entry, cancel_event), daemon=True
         )

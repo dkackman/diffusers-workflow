@@ -20,6 +20,19 @@ logger = logging.getLogger("dw")
 MAX_BASE_NAME_LENGTH = 200
 DEFAULT_AUDIO_SAMPLE_RATE = 44100
 
+
+def output_file_path(output_dir, file_name):
+    """The path a result file is written to, confined to the output directory.
+
+    Every part of the name is workflow-supplied - the workflow id, the step
+    name, a result's file_base_name, and the keys of a dict artifact - and
+    they are concatenated into a file name. Without this a name carrying a
+    path separator would write outside the output directory, so the joined
+    path goes through the same validator every other path in the engine does.
+    """
+    return validate_output_path(os.path.join(output_dir, file_name), output_dir)
+
+
 # Audio content types soundfile can write, mapped to their file extension and to any
 # write arguments the extension alone does not imply. Opus has no extension of its own
 # in libsndfile - it is a subtype of the ogg container.
@@ -244,7 +257,7 @@ class Result:
         for i, result in enumerate(self.result_list):
             if content_type.endswith("json"):
                 # Handle JSON content type
-                output_path = os.path.join(
+                output_path = output_file_path(
                     validated_output_dir, f"{file_base_name}-{i}{extension}"
                 )
                 logger.info(f"Saving JSON result to {output_path}")
@@ -304,7 +317,7 @@ class Result:
                 )
             return saved_files
 
-        output_path = os.path.join(output_dir, f"{file_base_name}{extension}")
+        output_path = output_file_path(output_dir, f"{file_base_name}{extension}")
         logger.info(f"Saving artifact to {output_path}")
 
         try:
