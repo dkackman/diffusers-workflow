@@ -1,4 +1,4 @@
-# MiniMax examples
+# MiniMax workflows
 
 Joint video-and-audio generation with [MiniMax-H3](https://huggingface.co/MiniMaxAI/MiniMax-H3)
 and music generation with [MiniMax-Music3](https://huggingface.co/MiniMaxAI/MiniMax-Music3),

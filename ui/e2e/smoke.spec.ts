@@ -36,9 +36,14 @@ test('editor opens a workflow with introspected arguments', async ({
   await expect(
     page.locator('select').filter({ hasText: 'add argument…' }).first(),
   ).toBeVisible({ timeout: 90_000 })
-  // reference values render as references (accent+mono styling)
-  const promptField = page.locator('input.ref').first()
-  await expect(promptField).toHaveValue('variable:prompt')
+  // reference values render as references (accent+mono styling) - the
+  // variables grid's prompt: default and a step argument's variable: alike
+  await expect(page.locator('input.ref#wfvar-prompt')).toHaveValue(
+    'prompt:flux/biomechanical_daffodil',
+  )
+  await expect(page.locator('.args input.ref').first()).toHaveValue(
+    'variable:prompt',
+  )
 })
 
 test('split view shows editable JSON beside the form', async ({ page }) => {

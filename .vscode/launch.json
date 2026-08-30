@@ -3,7 +3,7 @@
   // Hover to view descriptions of existing attributes.
   // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
   //
-  // The workflows tree has subfolders (flux/, tasks/, archive/, projects/), so
+  // The workflows tree has subfolders (flux/, ltx2/, minimax/, tasks/, archive/), so
   // the "current workflow file" configurations below are the ones to reach for:
   // open the JSON and run it, wherever it lives. The prompting configurations
   // take a path relative to workflows/, subfolders included - "flux/FluxDev".

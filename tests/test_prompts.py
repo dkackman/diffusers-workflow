@@ -164,3 +164,64 @@ class TestPromptFiles:
     def test_load_prompt_returns_the_whole_definition(self, prompt_dir):
         definition = load_prompt(str(prompt_dir / "minimax" / "fox.json"))
         assert definition["intended_model"] == "minimax-h3"
+
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LIBRARY_DIR = os.path.join(REPO_ROOT, "prompts")
+
+
+def shipped_prompt_files():
+    """Every prompt file in the repo's library, as repo-relative paths."""
+    return sorted(
+        os.path.relpath(os.path.join(root, name), REPO_ROOT)
+        for root, _, files in os.walk(LIBRARY_DIR)
+        for name in files
+        if name.endswith(".json")
+    )
+
+
+def shipped_prompt_references():
+    """Every distinct 'prompt:' string in the shipped and builtin workflows."""
+    references = set()
+
+    def collect(value):
+        if isinstance(value, str) and is_prompt_reference(value):
+            references.add(value)
+        elif isinstance(value, dict):
+            for item in value.values():
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    for tree in (
+        os.path.join(REPO_ROOT, "workflows"),
+        os.path.join(REPO_ROOT, "dw", "workflows"),
+    ):
+        for root, _, files in os.walk(tree):
+            for name in files:
+                if not name.endswith(".json"):
+                    continue
+                try:
+                    with open(os.path.join(root, name), encoding="utf-8") as file:
+                        collect(json.load(file))
+                except json.JSONDecodeError:
+                    continue
+    return sorted(references)
+
+
+class TestShippedLibrary:
+    """The prompt library the repo ships stays loadable, and the workflows
+    that lean on it keep pointing at prompts that exist - a rename under
+    prompts/ should fail here, not at run time."""
+
+    @pytest.mark.parametrize("path", shipped_prompt_files())
+    def test_shipped_prompt_is_valid(self, path):
+        prompt = load_prompt(os.path.join(REPO_ROOT, path))
+        assert not prompt["text"].startswith(
+            ("previous_result:", "variable:", "constant:", "prompt:")
+        )
+
+    @pytest.mark.parametrize("reference", shipped_prompt_references())
+    def test_shipped_reference_resolves(self, reference):
+        assert fetch_prompt(reference, prompt_dir=LIBRARY_DIR)

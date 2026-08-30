@@ -6,24 +6,22 @@ export function emptyPrompt(): PromptDefinition {
 }
 
 /** The preset a stored prompt's intended_model preselects - matched
- * case-insensitively so 'MiniMax-H3' and 'minimax-h3' agree - falling
- * back to the first preset when nothing matches. */
+ * case-insensitively so 'MiniMax-H3' and 'minimax-h3' agree. undefined
+ * when nothing matches: a wrong preset chosen confidently is worse than
+ * leaving the current selection alone. */
 export function presetForIntendedModel(
   presets: EnhancerPreset[],
   intendedModel: string | undefined,
 ): EnhancerPreset | undefined {
   const needle = (intendedModel ?? '').trim().toLowerCase()
-  if (needle) {
-    const match = presets.find((preset) =>
-      preset.intended_models.some(
-        (model) =>
-          needle.includes(model.toLowerCase()) ||
-          model.toLowerCase().includes(needle),
-      ),
-    )
-    if (match) return match
-  }
-  return presets[0]
+  if (!needle) return undefined
+  return presets.find((preset) =>
+    preset.intended_models.some(
+      (model) =>
+        needle.includes(model.toLowerCase()) ||
+        model.toLowerCase().includes(needle),
+    ),
+  )
 }
 
 /** The text file an enhancement job produced - the first .txt in its
@@ -62,18 +60,31 @@ export function promptTooltip(
   return texts[value.slice('prompt:'.length).trim()] || undefined
 }
 
+/** The one datalist of stored-prompt suggestions - declared once per page,
+ * referenced everywhere a prompt: reference can be typed. */
+export const PROMPT_LIST_ID = 'prompt-references'
+
 /** The datalist id for stored-prompt suggestions, attached only once the
  * value has committed to a prompt: reference - so the dropdown doesn't pop
  * over ordinary text. */
 export function promptListId(value: unknown): string | undefined {
   return typeof value === 'string' && value.startsWith('prompt:')
-    ? 'prompt-references'
+    ? PROMPT_LIST_ID
     : undefined
 }
 
-/** Every intended_model value the presets know, for the editor's datalist. */
-export function knownIntendedModels(presets: EnhancerPreset[]): string[] {
+/** Every intended_model value worth suggesting: what the presets know,
+ * plus what the library already uses - a value on a card should also be
+ * a suggestion in the editor. */
+export function knownIntendedModels(
+  presets: EnhancerPreset[],
+  inUse: Array<string | undefined> = [],
+): string[] {
   return [
-    ...new Set(presets.flatMap((preset) => preset.intended_models)),
+    ...new Set(
+      presets
+        .flatMap((preset) => preset.intended_models)
+        .concat(inUse.filter((model): model is string => Boolean(model))),
+    ),
   ].sort()
 }

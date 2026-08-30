@@ -1001,6 +1001,23 @@ class TestPromptLibrary:
                 assert response.status_code in (400, 404, 405), evasion
             assert not (tmp_path / "escape.json").exists()
 
+    def test_unreferenceable_names_are_refused(self, server, tmp_path):
+        # A save the API accepted but no 'prompt:' reference could ever
+        # load would be a trap - the name rule is enforced here too
+        with server(success_script) as client:
+            for name in ("a/b/c", "My%20Prompt", ".hidden"):
+                response = client.put(
+                    f"/api/prompts/{name}", json={"prompt": {"text": "t"}}
+                )
+                assert response.status_code == 400, name
+                assert "prompt" in response.json()["detail"].lower()
+
+            # a stray file already on disk that breaks the rule is not listed
+            deep = tmp_path / "prompts" / "a" / "b"
+            deep.mkdir(parents=True)
+            (deep / "c.json").write_text(json.dumps({"text": "orphan"}))
+            assert "a/b/c" not in client.get("/api/prompts").json()["prompts"]
+
     def test_prompt_schema_is_served(self, server):
         with server(success_script) as client:
             schema = client.get("/api/prompt-schema").json()

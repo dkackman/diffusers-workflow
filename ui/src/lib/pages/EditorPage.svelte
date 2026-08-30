@@ -18,11 +18,12 @@
     emptyStep,
     emptyTaskStep,
     emptyWorkflowStep,
+    isReference,
     referenceSuggestions,
     widgetFor,
   } from '../editor'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
-  import { promptTooltip } from '../prompts'
+  import { PROMPT_LIST_ID, promptListId, promptTooltip } from '../prompts'
   import StepEditor from '../editor/StepEditor.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import type { ValidationResult, WorkflowDefinition } from '../types'
@@ -30,6 +31,9 @@
   let { name = '' }: { name?: string } = $props()
 
   let workflow = $state<Record<string, any>>(emptyWorkflow())
+  // Raw text as typed, per variable - the committed value only updates on
+  // blur, and the prompt datalist should attach as soon as prompt: is typed
+  let varDrafts = $state<Record<string, string>>({})
   let saveName = $state('')
   let workflowDir = $state('')
   let pipelines = $state<string[]>([])
@@ -256,21 +260,18 @@
   function savePath(): string | null {
     if (!saveName) return null
     const directory = folder === '__new__' ? newFolder.trim() : folder
-    if (folder === '__new__') {
-      if (!directory) return null
-      if (!/^[\w][\w.-]*$/.test(directory)) {
-        status = 'Folder names: letters, numbers, dot, dash, underscore'
-        return null
-      }
-    }
+    if (folder === '__new__' && !/^[\w][\w.-]*$/.test(directory)) return null
     return directory ? `${directory}/${saveName}` : saveName
   }
 
   async function save() {
+    // Validation failures are errors (red), not statuses (green checkmark)
+    status = ''
     const path = savePath()
     if (!path) {
-      if (!saveName) status = 'Give the workflow a file name first'
-      else if (folder === '__new__') status ||= 'Name the new folder first'
+      if (!saveName) error = 'Give the workflow a file name first'
+      else if (!newFolder.trim()) error = 'Name the new folder first'
+      else error = 'Folder names: letters, numbers, dot, dash, underscore'
       return
     }
     if (!(await validate())) return
@@ -351,7 +352,7 @@
   {#each workflowFiles as file (file)}<option value={file}></option>{/each}
 </datalist>
 
-<datalist id="prompt-references">
+<datalist id={PROMPT_LIST_ID}>
   {#each promptLibrary.names ?? [] as promptName (promptName)}<option
       value={'prompt:' + promptName}
     ></option>{/each}
@@ -497,7 +498,9 @@
             <label for={'wfvar-' + key}>{key}</label>
             <input
               id={'wfvar-' + key}
-              list="prompt-references"
+              class:ref={isReference(workflow.variables[key])}
+              list={promptListId(varDrafts[key] ?? workflow.variables[key])}
+              autocomplete="off"
               title={promptTooltip(
                 workflow.variables[key],
                 promptLibrary.texts,
@@ -505,6 +508,7 @@
               value={typeof workflow.variables[key] === 'object'
                 ? JSON.stringify(workflow.variables[key])
                 : String(workflow.variables[key] ?? '')}
+              oninput={(e) => (varDrafts[key] = e.currentTarget.value)}
               onchange={(e) => setVariable(key, e.currentTarget.value)}
             />
             <button

@@ -32,9 +32,9 @@ describe('presetForIntendedModel', () => {
     expect(presetForIntendedModel(presets, 'h3')?.key).toBe('h3')
   })
 
-  it('falls back to the first preset', () => {
-    expect(presetForIntendedModel(presets, 'z-image')?.key).toBe('t2i')
-    expect(presetForIntendedModel(presets, undefined)?.key).toBe('t2i')
+  it('is undefined when nothing matches, so callers keep their selection', () => {
+    expect(presetForIntendedModel(presets, 'ltx-2')).toBeUndefined()
+    expect(presetForIntendedModel(presets, undefined)).toBeUndefined()
     expect(presetForIntendedModel([], 'anything')).toBeUndefined()
   })
 })
@@ -67,6 +67,14 @@ describe('knownIntendedModels', () => {
       preset({ intended_models: ['a', 'c'] }),
     ])
     expect(models).toEqual(['a', 'b', 'c'])
+  })
+
+  it('includes values the library already uses, skipping empties', () => {
+    const models = knownIntendedModels(
+      [preset({ intended_models: ['minimax-h3'] })],
+      ['ltx-2', '', undefined, 'minimax-h3'],
+    )
+    expect(models).toEqual(['ltx-2', 'minimax-h3'])
   })
 })
 

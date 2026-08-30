@@ -10,7 +10,7 @@
     "text": {
       "type": "string",
       "minLength": 1,
-      "description": "The prompt text itself - what a 'prompt:' reference resolves to. May not begin with a reference prefix such as 'variable:' or 'previous_result:'."
+      "description": "The prompt text itself - what a 'prompt:' reference resolves to. May not begin with a reference prefix ('previous_result:', 'variable:', 'constant:', 'prompt:')."
     },
     "description": {
       "type": "string",

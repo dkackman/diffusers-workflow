@@ -23,7 +23,9 @@ load entirely.
   descriptions, output kinds, and variable counts. Folders one level deep
   become sections. Click through to a run form generated from the workflow's
   variables, with the raw JSON alongside.
-- **Prompts** — the prompt library under `--prompt-dir`: stored prompts as
+- **Prompts** — the prompt library under `--prompt-dir` (default: discovered
+  the way a CLI run discovers it, then pinned for every job, so the page and
+  `prompt:` resolution always agree): stored prompts as
   cards with descriptions, intended-model badges, and tags, foldered the
   same way workflows are. Each opens in an editor with form, split, and
   schema-aware JSON views, and an **Enhance with AI** panel that expands an

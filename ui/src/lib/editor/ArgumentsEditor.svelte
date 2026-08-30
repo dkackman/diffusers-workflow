@@ -101,12 +101,12 @@
             <option value="false">false</option>
           </select>
         {:else if widget === 'textarea' || widget === 'json'}
+          <!-- A reference is never a textarea: widgetFor routes it to the
+               input branch below, which carries the datalist and tooltip -->
           <textarea
             id={'arg-' + key}
-            class:ref={isReference(args[key])}
-            spellcheck={widget === 'textarea' && !isReference(args[key])}
+            spellcheck={widget === 'textarea'}
             rows="3"
-            title={promptTooltip(args[key], promptLibrary.texts)}
             value={displayValue(args[key], true)}
             onchange={(e) => update(key, e.currentTarget.value)}></textarea>
         {:else}

@@ -28,7 +28,7 @@ python -m dw.repl
 # HTTP server + web UI (http://127.0.0.1:8765, API docs at /docs)
 python -m dw.serve
 
-# Run all tests (580+ tests)
+# Run all tests (1,600+ tests)
 pytest -v
 
 # Run a single test file or test
@@ -52,7 +52,10 @@ over SSE, and persists history to `~/.diffusers_helper/jobs.sqlite`. The SPA liv
 `ui/` (Svelte 5 + Vite; `npm run build` outputs `ui/dist`, which the server serves).
 Introspection endpoints (`dw/introspection.py`) describe pipeline/class signatures for
 the editor's forms. `dw/hub_cache.py` inventories and deletes from the HF hub cache
-(the UI's Models page). Front-end checks from `ui/`: `npm run check`, `npm run lint`,
+(the UI's Models page). `dw/prompts.py` + `dw/server/enhancers.py` back the
+Prompts page: a stored-prompt library (CRUD under `--prompt-dir`) with an
+enhance-with-AI panel that queues an inline workflow as an ordinary job.
+Front-end checks from `ui/`: `npm run check`, `npm run lint`,
 `npm test`, `npx playwright test` (e2e, starts its own server). See docs/SERVER.md.
 
 Packaging: `pyproject.toml` (console scripts dw-run/dw-validate/dw-repl/dw-serve/dw-test);
@@ -152,4 +155,4 @@ Steps can also have `"task"` (with `command` + `arguments`) or `"workflow"` (wit
 
 Pipeline configuration options include: `pre_load_modules` (import modules before loading), `sdnq_optimize` (SDNQ quantized matmul), `enable_attention_slicing`, `disable_attention_slicing`, `attention_backend`, `group_offload`, `enable_layerwise_casting`.
 
-File paths in workflows are relative to the workflow file. Built-in workflows use `"builtin:filename.json"` (resolves to `dw/workflows/`).
+File paths in workflows are relative to the workflow file. Built-in workflows use `"builtin:filename.json"` (resolves to the packaged `dw/workflows/` — distinct from the top-level `workflows/` folder of runnable examples).

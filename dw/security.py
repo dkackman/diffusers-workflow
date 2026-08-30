@@ -294,7 +294,8 @@ def validate_prompt_reference(name: str) -> str:
     if not re.match(PROMPT_REFERENCE_PATTERN, name):
         raise InvalidInputError(
             f"Invalid prompt name: {name} - a prompt is named by its file under "
-            f"the prompt directory, like 'scenic_landscape' or 'minimax/fox_dawn'"
+            f"the prompt directory, at most one folder deep, like "
+            f"'scenic_landscape' or 'minimax/fox_dawn'"
         )
 
     if len(name) > MAX_PROMPT_REFERENCE_LENGTH:

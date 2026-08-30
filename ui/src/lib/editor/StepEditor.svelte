@@ -15,11 +15,12 @@
   import MappingEditor from './MappingEditor.svelte'
   import { api } from '../api'
   import {
-    TORCH_DTYPES,
-    CONTENT_TYPES,
-    COMPONENT_SLOTS,
-    CACHE_TYPES,
     ATTENTION_BACKENDS,
+    CACHE_TYPES,
+    COMPONENT_SLOTS,
+    CONTENT_TYPES,
+    TORCH_DTYPES,
+    classDescription,
     emptyComponent,
     setNumber,
   } from '../editor'
@@ -150,7 +151,6 @@
     }
   }
 
-  import { classDescription } from '../editor'
   let compatibles = $state<string[]>([])
   $effect(() => {
     compatibles = []

@@ -19,7 +19,12 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from ..security import validate_path, SecurityError
+from ..security import (
+    validate_path,
+    validate_prompt_reference,
+    InvalidInputError,
+    SecurityError,
+)
 from ..introspection import (
     describe_class,
     list_classes,
@@ -161,12 +166,22 @@ def prompt_details(prompt_dir, names):
 
 
 def resolve_prompt_name(prompt_dir, name, allow_create=False):
-    """The on-disk path for a prompt name, confined to prompt_dir."""
-    if not name.endswith(".json"):
-        name = f"{name}.json"
+    """The on-disk path for a prompt name, confined to prompt_dir.
+
+    The name is held to the same rule 'prompt:' references enforce - a save
+    the API accepted but no workflow could ever reference would be a trap. A
+    save is told what is wrong with the name; a read just misses."""
+    bare = name.removesuffix(".json")
+    try:
+        validate_prompt_reference(bare)
+    except InvalidInputError as e:
+        status = 400 if allow_create else 404
+        raise HTTPException(status_code=status, detail=str(e))
     try:
         return validate_path(
-            os.path.join(prompt_dir, name), prompt_dir, allow_create=allow_create
+            os.path.join(prompt_dir, f"{bare}.json"),
+            prompt_dir,
+            allow_create=allow_create,
         )
     except SecurityError as e:
         raise HTTPException(status_code=404, detail=f"Unknown prompt: {e}")
@@ -485,9 +500,18 @@ def create_app(
         Its own path, so a prompt named 'schema' cannot shadow it."""
         return JSONResponse(load_schema("prompt"))
 
+    def referenceable(name):
+        try:
+            validate_prompt_reference(name)
+            return True
+        except InvalidInputError:
+            return False
+
     @app.get("/api/prompts")
     def list_prompts():
-        names = workflow_names(app.state.prompt_dir)
+        # A stray file too deep or oddly named can sit in the directory, but
+        # no workflow could reference it - listing it would only invite that
+        names = [n for n in workflow_names(app.state.prompt_dir) if referenceable(n)]
         return {
             "prompt_dir": app.state.prompt_dir,
             "prompts": names,
@@ -505,7 +529,7 @@ def create_app(
             raise HTTPException(
                 status_code=400,
                 detail="A prompt's text may not itself begin with a reference "
-                "prefix such as 'variable:' or 'previous_result:'",
+                f"prefix ({', '.join(RESERVED_TEXT_PREFIXES)})",
             )
         path = resolve_prompt_name(app.state.prompt_dir, name, allow_create=True)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -542,8 +566,8 @@ def create_app(
         )
         device: Optional[str] = Field(
             default=None,
-            description="Device for the language model; the preset's default "
-            "(cpu) keeps VRAM free for generation",
+            description="Device for the language model; defaults to cpu, "
+            "keeping VRAM free for generation",
         )
 
     @app.get("/api/enhancers")

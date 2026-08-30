@@ -32,7 +32,11 @@ def main():
         "--output-dir", default="./outputs", help="Directory results are written to"
     )
     parser.add_argument(
-        "--prompt-dir", default="./prompts", help="Directory of stored prompt files"
+        "--prompt-dir",
+        default=None,
+        help="Directory of stored prompt files (default: discovered the way "
+        "a CLI run discovers it - DW_PROMPT_DIR, else ./prompts if it "
+        "exists, else the nearest prompts/ above the workflow directory)",
     )
     parser.add_argument(
         "-l",
@@ -42,9 +46,16 @@ def main():
     )
     args = parser.parse_args()
 
-    # The engine resolves 'prompt:' references through this variable, and the
-    # spawned worker process inherits it - one setting covers both
-    os.environ["DW_PROMPT_DIR"] = os.path.abspath(args.prompt_dir)
+    # Resolve the prompt directory once, with the same discovery a CLI run
+    # uses, anchored at the workflow directory - then pin it, so the library
+    # the Prompts page edits and the one 'prompt:' references resolve against
+    # are always the same directory. The spawned worker inherits the variable.
+    from .prompts import get_prompt_dir
+
+    prompt_dir = os.path.abspath(
+        args.prompt_dir or get_prompt_dir(base_dir=os.path.abspath(args.workflow_dir))
+    )
+    os.environ["DW_PROMPT_DIR"] = prompt_dir
 
     try:
         import uvicorn
@@ -66,7 +77,7 @@ def main():
         workflow_dir=args.workflow_dir,
         output_dir=args.output_dir,
         log_level=args.log_level,
-        prompt_dir=args.prompt_dir,
+        prompt_dir=prompt_dir,
     )
     ui = " - UI at /" if default_ui_dir() else ""
     print(

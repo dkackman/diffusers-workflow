@@ -21,7 +21,7 @@ A declarative workflow engine and web UI for the [Hugging Face Diffusers library
 - **Quantization** — BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto
 - **Inference acceleration** — TeaCache, FirstBlockCache, FasterCache, MagCache, TaylorSeerCache
 - **Prompt weighting** — A1111-style `(word:1.5)` syntax with long prompt support
-- **Prompt library** — store prompts once in `prompts/` and reference them from any workflow as `prompt:name`, with a web UI for browsing, editing, and AI-enhancing them
+- **Prompt library** — store prompts once in `prompts/` and reference them from any workflow as `prompt:name` or `prompt:folder/name`, with a web UI for browsing, editing, and AI-enhancing them
 - **LoRA and IP-Adapter** support
 - **Composable workflows** from multiple JSON files with `builtin:` references
 - **Utility tasks** — upscaling, face restoration, segmentation, captioning, frame interpolation, QR codes, and more
@@ -64,6 +64,8 @@ Everything the engine does, in a browser backed by a persistent GPU worker — m
 **A gallery where every image is a recipe.** Outputs embed their workflow and seed; *open as workflow* drops the definition into the editor with the seed pinned, ready to reproduce or riff on.
 
 ![The gallery with generated images and videos](docs/img/ui-gallery.jpg)
+
+**A prompt library shared by every workflow.** Store a prompt once, reference it anywhere as `prompt:name` — the Prompts page browses, edits, and filters the library, and an *Enhance with AI* panel expands an idea into a full prompt with a local language model.
 
 **A model manager for the disk your models actually consume.** The Hugging Face hub cache, inventoried: sizes, revisions, last-used dates, free space — download new models by id with live progress, delete with one click.
 
@@ -257,6 +259,7 @@ See [workflows/](workflows/) for more workflow files.
 - [LoRA](docs/LORAS.md) — Loading and stacking LoRA adapters
 - [IP-Adapter](docs/IP_ADAPTER.md) — Image-prompt conditioning
 - [Prompt Weighting](docs/PROMPT_WEIGHTING.md) — A1111-style syntax
+- [Prompt References](docs/WORKFLOW_GUIDE.md#prompt-references) — The stored prompt library and `prompt:` references
 - [Tasks](docs/TASKS.md) — Image processing, ControlNet preprocessors, utilities
 
 ### Reference

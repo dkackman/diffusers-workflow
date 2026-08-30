@@ -8,6 +8,7 @@
   let promptDir = $state('')
   let filter = $state('')
   let error = $state('')
+  let loaded = $state(false)
 
   const STORAGE_KEY = 'dw-collapsed-prompt-folders'
 
@@ -56,6 +57,7 @@
         prompts = result.prompts
         details = result.details ?? {}
         promptDir = result.prompt_dir
+        loaded = true
       })
       .catch((e) => (error = e.message))
   })
@@ -145,11 +147,15 @@
     <div class="grid">
       {#each inGroup(group) as name (name)}
         {@const detail = details[name]}
-        <a
-          class="card panel"
-          href={href(name)}
-          title={detail?.description || undefined}
-        >
+        <!-- The link is an overlay rather than a wrapper: buttons may not
+             nest inside an anchor, and the chips are real buttons -->
+        <div class="card panel">
+          <a
+            class="cardcover"
+            href={href(name)}
+            aria-label="edit {name}"
+            title={detail?.description || detail?.text || undefined}
+          ></a>
           <span class="cardtop">
             <span class="cardname"
               >{group ? name.split('/').slice(1).join('/') : name}</span
@@ -157,28 +163,22 @@
             {#if detail?.intended_model}
               <button
                 class="chip modelchip"
-                onclick={(e) => {
-                  e.preventDefault()
-                  filter = detail.intended_model
-                }}
+                onclick={() => (filter = detail.intended_model)}
                 title="written for {detail.intended_model} - click to filter"
               >
                 {detail.intended_model}
               </button>
             {/if}
           </span>
-          {#if detail?.description}
-            <span class="carddesc muted">{detail.description}</span>
+          {#if detail?.description || detail?.text}
+            <span class="carddesc muted">{detail.description || detail.text}</span>
           {/if}
           {#if detail?.tags?.length}
             <span class="cardtags">
               {#each detail.tags as tag (tag)}
                 <button
                   class="chip"
-                  onclick={(e) => {
-                    e.preventDefault()
-                    filter = tag
-                  }}
+                  onclick={() => (filter = tag)}
                   title="click to filter by this tag"
                 >
                   {tag}
@@ -186,11 +186,17 @@
               {/each}
             </span>
           {/if}
-        </a>
+        </div>
       {/each}
     </div>
   {/if}
 {/each}
+
+{#if loaded && prompts.length === 0}
+  <p class="muted">No prompts yet - the + above creates the first one.</p>
+{:else if loaded && visible.length === 0}
+  <p class="muted">Nothing matches "{filter}".</p>
+{/if}
 
 <style>
   .head {
@@ -281,6 +287,7 @@
     gap: 0.6rem;
   }
   .card {
+    position: relative;
     color: var(--ink);
     font-weight: 600;
     padding: 0.7rem 0.9rem;
@@ -290,6 +297,14 @@
   }
   .card:hover {
     border-color: var(--accent);
+  }
+  .cardcover {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  .chip {
+    position: relative;
   }
   .cardtop {
     display: flex;

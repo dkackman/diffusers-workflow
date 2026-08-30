@@ -882,7 +882,10 @@ The library's location is resolved in order: the `DW_PROMPT_DIR` environment
 variable (which `--prompt-dir` on both `dw.run` and `dw.serve` sets), then
 `./prompts` in the working directory when it exists, then the first `prompts/`
 folder found walking up from the workflow file's own directory - which is how
-an example run from any working directory still reaches the repo's library.
+a repo workflow run from any working directory still reaches the library beside
+it. `dw.serve` resolves the directory once at startup with this same order
+(anchored at its workflow directory) and pins it for every job, so the Prompts
+page and `prompt:` resolution always agree on one library.
 References are rooted at that one directory - not at the workflow file - so
 the same reference means the same text from every workflow. Like `constant:`, a reference
 resolves anywhere in a workflow's arguments, including a `variables` default, and it

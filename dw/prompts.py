@@ -34,8 +34,8 @@ def get_prompt_dir(base_dir=None):
     and the spawned worker inherits it. Without one it is ./prompts in the
     working directory when that exists; otherwise the walk from the workflow
     file's directory up toward the filesystem root finds the prompts/ folder
-    of the tree the workflow lives in - which is how an example run from any
-    working directory still reaches the repo's own library. Read at call
+    of the tree the workflow lives in - which is how a repo workflow run from
+    any working directory still reaches the library beside it. Read at call
     time, not import time, so a test or worker sees the current value.
 
     Args:
@@ -136,8 +136,9 @@ def fetch_prompt(reference, prompt_dir=None, base_dir=None):
     # as one on the next pass, so it is data that may not masquerade as syntax
     if text.startswith(RESERVED_TEXT_PREFIXES):
         raise ValueError(
-            f"Prompt '{reference}' has text beginning with a reference prefix - "
-            f"a prompt's text may not itself be a reference"
+            f"Prompt '{reference}' has text beginning with a reference prefix "
+            f"({', '.join(RESERVED_TEXT_PREFIXES)}) - a prompt's text may not "
+            f"itself be a reference"
         )
 
     logger.info(f"Loaded prompt {reference} from {path}")

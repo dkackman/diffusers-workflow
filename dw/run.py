@@ -40,7 +40,9 @@ def main():
         "--prompt-dir",
         type=str,
         default=None,
-        help="Directory 'prompt:' references resolve against (default: ./prompts)",
+        help="Directory 'prompt:' references resolve against (default: "
+        "DW_PROMPT_DIR, else ./prompts if it exists, else the nearest "
+        "prompts/ above the workflow file)",
     )
     args = parser.parse_args()
 

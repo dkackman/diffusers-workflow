@@ -12,6 +12,7 @@
   } from '@lucide/svelte'
   import { api, fetchOutputText, streamJobEvents } from '../api'
   import { go } from '../router.svelte'
+  import { loadPromptLibrary } from '../promptlib.svelte'
   import {
     emptyPrompt,
     knownIntendedModels,
@@ -20,13 +21,19 @@
     presetForIntendedModel,
   } from '../prompts'
   import JsonEditor from '../editor/JsonEditor.svelte'
-  import type { EnhancerPreset, ModelRepo, PromptDefinition } from '../types'
+  import type {
+    EnhancerPreset,
+    ModelRepo,
+    PromptDefinition,
+    PromptDetail,
+  } from '../types'
 
   let { name = '' }: { name?: string } = $props()
 
   let doc = $state<Record<string, any>>(emptyPrompt())
   let promptDir = $state('')
   let promptFiles = $state<string[]>([])
+  let promptDetails = $state<Record<string, PromptDetail>>({})
   let saveName = $state('')
   let folder = $state('')
   let newFolder = $state('')
@@ -96,18 +103,27 @@
   let enhanceError = $state('')
   let enhanceResult = $state('')
   let enhanceJobId = $state('')
+  let enhancersDown = $state(false)
   let stopStream: (() => void) | null = null
 
   const preset = $derived(presets.find((p) => p.key === presetKey))
   const modelCached = $derived(
     models.some((repo) => repo.repo_id === enhanceModel),
   )
-  const intendedModels = $derived(knownIntendedModels(presets))
+  const intendedModels = $derived(
+    knownIntendedModels(
+      presets,
+      Object.values(promptDetails).map((detail) => detail.intended_model),
+    ),
+  )
 
+  // Switching preset resets the model to that preset's default; re-picking
+  // the current one leaves a hand-typed model alone
   function pickPreset(key: string) {
-    presetKey = key
     const picked = presets.find((p) => p.key === key)
-    if (picked) enhanceModel = picked.default_model
+    if (!picked || key === presetKey) return
+    presetKey = key
+    enhanceModel = picked.default_model
   }
 
   async function refreshModels() {
@@ -229,6 +245,7 @@
       .then((r) => {
         promptFiles = r.prompts
         promptDir = r.prompt_dir
+        promptDetails = r.details ?? {}
       })
       .catch((e) => (error = e.message))
     refreshModels()
@@ -267,10 +284,13 @@
       .listEnhancers()
       .then((r) => {
         presets = r.presets
+        enhancersDown = presets.length === 0
         preselect()
       })
       .catch(() => {
-        /* enhancer offline - editing still works */
+        // Editing still works without the enhancer - but say so, rather
+        // than leaving a permanently disabled Generate button unexplained
+        enhancersDown = true
       })
     return () => {
       stopStream?.()
@@ -281,8 +301,11 @@
 
   function preselect() {
     if (!presets.length) return
+    // A matching intended model picks its preset; with no match the current
+    // selection stands, so an ltx-2 prompt doesn't get the H3 enhancer
     const picked = presetForIntendedModel(presets, doc.intended_model)
     if (picked) pickPreset(picked.key)
+    else if (!presetKey) pickPreset(presets[0].key)
   }
 
   $effect(() => {
@@ -327,34 +350,37 @@
     }
   }
 
+  // Pure - it renders in the save bar, so it must not touch status/error
   function savePath(): string | null {
     if (!saveName) return null
     const directory = folder === '__new__' ? newFolder.trim() : folder
-    if (folder === '__new__') {
-      if (!directory) return null
-      if (!/^[\w][\w.-]*$/.test(directory)) {
-        status = 'Folder names: letters, numbers, dot, dash, underscore'
-        return null
-      }
-    }
+    if (folder === '__new__' && !/^[\w][\w.-]*$/.test(directory)) return null
     return directory ? `${directory}/${saveName}` : saveName
   }
 
+  // Validation failures are errors (red), not statuses (green checkmark)
+  function saveBlocker(): string | null {
+    if (!saveName) return 'Give the prompt a file name first'
+    if (!/^[\w][\w.-]*$/.test(saveName))
+      return 'Prompt names: letters, numbers, dot, dash, underscore'
+    if (folder === '__new__') {
+      if (!newFolder.trim()) return 'Name the new folder first'
+      if (!/^[\w][\w.-]*$/.test(newFolder.trim()))
+        return 'Folder names: letters, numbers, dot, dash, underscore'
+    }
+    if (!String(doc.text ?? '').trim())
+      return 'The prompt needs text before it can be saved'
+    return null
+  }
+
   async function save() {
-    const path = savePath()
-    if (!path) {
-      if (!saveName) status = 'Give the prompt a file name first'
-      else if (folder === '__new__') status ||= 'Name the new folder first'
+    status = ''
+    const blocker = saveBlocker()
+    if (blocker) {
+      error = blocker
       return
     }
-    if (!/^[\w][\w.-]*$/.test(saveName)) {
-      status = 'Prompt names: letters, numbers, dot, dash, underscore'
-      return
-    }
-    if (!String(doc.text ?? '').trim()) {
-      error = 'The prompt needs text before it can be saved'
-      return
-    }
+    const path = savePath()!
     busy = true
     error = ''
     try {
@@ -368,6 +394,7 @@
       }
       baseline = JSON.stringify($state.snapshot(doc))
       status = `Saved to ${result.path}`
+      loadPromptLibrary()
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     } finally {
@@ -377,9 +404,11 @@
 
   async function remove() {
     if (!name) return
-    if (!window.confirm(`Delete prompt '${name}'?`)) return
+    if (!window.confirm(`Delete ${name}.json? This removes the file on disk.`))
+      return
     try {
       await api.deletePrompt(name)
+      loadPromptLibrary()
       go('prompts')
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -573,6 +602,12 @@
           Expand an idea into a full prompt with a local language model. Runs as
           an ordinary job - it waits its turn behind anything generating.
         </p>
+        {#if enhancersDown}
+          <p class="muted hint">
+            Enhancement is unavailable - the server reported no enhancer
+            presets. Editing and saving still work.
+          </p>
+        {/if}
         <div class="metagrid">
           <label for="enhance-preset">preset</label>
           <select

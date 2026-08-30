@@ -3,8 +3,9 @@
   import JsonEditor from '../editor/JsonEditor.svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
+  import { displayValue as display, isReference } from '../editor'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
-  import { promptListId, promptTooltip } from '../prompts'
+  import { PROMPT_LIST_ID, promptListId, promptTooltip } from '../prompts'
   import type { WorkflowDefinition } from '../types'
 
   let { name }: { name: string } = $props()
@@ -28,8 +29,6 @@
   })
 
   const variables = $derived(Object.entries(workflow?.variables ?? {}))
-
-  import { displayValue as display } from '../editor'
 
   function newFrom() {
     if (!workflow) return
@@ -109,13 +108,13 @@
     class="withicon"
     onclick={run}
     disabled={submitting || !workflow}
-    title="queue this workflow with the arguments below"
+    title="queue this workflow with the variables below"
   >
     <Play size={14} />{submitting ? 'Submitting…' : 'Run'}
   </button>
 </div>
 
-<datalist id="prompt-references">
+<datalist id={PROMPT_LIST_ID}>
   {#each promptLibrary.names ?? [] as promptName (promptName)}<option
       value={'prompt:' + promptName}
     ></option>{/each}
@@ -129,21 +128,33 @@
   {/if}
   {#if variables.length}
     <div class="panel">
-      <h2>Variables <span class="muted">(blank = workflow default)</span></h2>
+      <h2>
+        Variables
+        <span class="muted"
+          >(blank = workflow default · type prompt: to use a stored prompt)</span
+        >
+      </h2>
       <div class="vars">
         {#each variables as [key, defaultValue] (key)}
           <label for={'var-' + key}>{key}</label>
           {#if display(defaultValue).length > 60}
             <textarea
               id={'var-' + key}
+              class:ref={isReference(overrides[key] || defaultValue)}
               rows="3"
               spellcheck="true"
+              title={promptTooltip(
+                overrides[key] || defaultValue,
+                promptLibrary.texts,
+              )}
               placeholder={display(defaultValue)}
               bind:value={overrides[key]}></textarea>
           {:else}
             <input
               id={'var-' + key}
+              class:ref={isReference(overrides[key] || defaultValue)}
               list={promptListId(overrides[key] || defaultValue)}
+              autocomplete="off"
               title={promptTooltip(
                 overrides[key] || defaultValue,
                 promptLibrary.texts,

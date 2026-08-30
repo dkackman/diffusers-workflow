@@ -40,6 +40,10 @@ The REPL uses a **persistent worker subprocess** for workflow execution to maint
 
 **Result References:** Use `"previous_result:step_name"` to pipe outputs between steps. System automatically generates all combinations when multiple results exist.
 
+**Constant References:** Use `"constant:module.NAME"` to read a value declared in Python instead of copying it into JSON.
+
+**Prompt References:** Use `"prompt:name"` or `"prompt:folder/name"` to load a stored prompt's text from the `prompts/` library at run time (see `dw/prompts.py`).
+
 **Pipeline Configuration:**
 ```json
 {

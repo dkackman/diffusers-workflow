@@ -1,4 +1,4 @@
-# LTX-2.5 examples
+# LTX-2.5 workflows
 
 Text- and image-to-video with a generated soundtrack, using
 [LTX-2.5](https://huggingface.co/Lightricks/LTX-Video) fitted onto a single

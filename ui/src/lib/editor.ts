@@ -24,9 +24,6 @@ export function classDescription(
   return descriptions.get(key)!
 }
 
-export const pipelineDescription = (name: string) =>
-  classDescription(name, 'call')
-
 export type Widget = 'number' | 'boolean' | 'text' | 'textarea' | 'json'
 
 /** Reference strings the engine resolves later - always edited as text. */
