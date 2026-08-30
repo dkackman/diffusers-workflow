@@ -3,6 +3,7 @@
     CircleCheck,
     Columns2,
     FileJson,
+    LayoutList,
     Play,
     Plus,
     Save,
@@ -52,28 +53,42 @@
   let validation = $state<ValidationResult | null>(null)
   let status = $state('')
   let error = $state('')
-  let showJson = $state(false)
-  let split = $state(
+  type EditorView = 'form' | 'split' | 'json'
+  let view = $state<EditorView>(
     (() => {
       try {
+        const stored = localStorage.getItem('dw-editor-view')
+        if (stored === 'form' || stored === 'split' || stored === 'json')
+          return stored
+        // migrate the old boolean split preference
         return localStorage.getItem('dw-editor-split') === '1'
+          ? 'split'
+          : 'form'
       } catch {
-        return false
+        return 'form'
       }
     })(),
   )
-  let jsonDraft = $state('')
 
-  function toggleSplit() {
-    split = !split
+  function setView(next: EditorView) {
+    view = next
     try {
-      localStorage.setItem('dw-editor-split', split ? '1' : '0')
+      localStorage.setItem('dw-editor-view', next)
     } catch {
       /* session only */
     }
   }
 
-  const liveJson = $derived(JSON.stringify($state.snapshot(workflow), null, 2))
+  let jsonDraft = $state('')
+  let jsonParseFailed = $state(false)
+
+  // Mirror the workflow into the JSON surfaces. A failed parse pins the
+  // raw text so the user's broken edit isn't regenerated out from under
+  // them before they can fix it.
+  $effect(() => {
+    const pretty = JSON.stringify($state.snapshot(workflow), null, 2)
+    if (!jsonParseFailed) jsonDraft = pretty
+  })
   let busy = $state(false)
   let baseline = $state('')
 
@@ -292,18 +307,14 @@
     }
   }
 
-  function toggleJson() {
-    if (!showJson)
-      jsonDraft = JSON.stringify($state.snapshot(workflow), null, 2)
-    showJson = !showJson
-  }
-
   function applyJson(raw: string) {
     jsonDraft = raw
     try {
       workflow = JSON.parse(raw)
+      jsonParseFailed = false
       error = ''
     } catch (e) {
+      jsonParseFailed = true
       error = `JSON: ${e instanceof Error ? e.message : e}`
     }
   }
@@ -339,23 +350,32 @@
   <a href="#/workflows" class="muted">← workflows</a>
   <input class="wfid" bind:value={workflow.id} title="workflow id" />
   <span class="flex"></span>
-  <button
-    class="quiet withicon"
-    class:activebtn={split}
-    onclick={toggleSplit}
-    title="show the live JSON beside the form - the definition is always the visible truth"
-  >
-    <Columns2 size={14} />split
-  </button>
-  <button
-    class="quiet withicon"
-    onclick={toggleJson}
-    title={showJson
-      ? 'back to the form editor'
-      : 'edit the raw JSON, schema-aware'}
-  >
-    <FileJson size={14} />{showJson ? 'form' : 'JSON'}
-  </button>
+  <div class="viewswitch" role="group" aria-label="editor view">
+    <button
+      class="quiet withicon"
+      class:activebtn={view === 'form'}
+      onclick={() => setView('form')}
+      title="edit with introspection-driven forms"
+    >
+      <LayoutList size={14} />form
+    </button>
+    <button
+      class="quiet withicon"
+      class:activebtn={view === 'split'}
+      onclick={() => setView('split')}
+      title="form beside the JSON - both editable, blur applies"
+    >
+      <Columns2 size={14} />split
+    </button>
+    <button
+      class="quiet withicon"
+      class:activebtn={view === 'json'}
+      onclick={() => setView('json')}
+      title="edit the raw JSON, schema-aware"
+    >
+      <FileJson size={14} />JSON
+    </button>
+  </div>
   <button
     class="quiet withicon"
     onclick={validate}
@@ -450,14 +470,14 @@
   </div>
 {/if}
 
-{#if showJson}
+{#if view === 'json'}
   <JsonEditor value={jsonDraft} onchange={applyJson} height="560px" />
   <p class="muted hint">
     Schema-aware: completion, hover docs and validation come from the workflow
     schema. Changes apply when the editor loses focus.
   </p>
 {:else}
-  <div class="editwrap" class:splitcols={split}>
+  <div class="editwrap" class:splitcols={view === 'split'}>
     <div class="formcol">
       <div class="panel">
         <h2>Variables</h2>
@@ -529,9 +549,13 @@
         </button>
       </div>
     </div>
-    {#if split}
+    {#if view === 'split'}
       <div class="jsoncol">
-        <JsonEditor value={liveJson} readonly height="calc(100vh - 200px)" />
+        <JsonEditor
+          value={jsonDraft}
+          onchange={applyJson}
+          height="calc(100vh - 200px)"
+        />
       </div>
     {/if}
   </div>
@@ -617,9 +641,26 @@
       position: static;
     }
   }
+  .viewswitch {
+    display: inline-flex;
+  }
+  .viewswitch button {
+    border-radius: 0;
+  }
+  .viewswitch button:first-child {
+    border-radius: 6px 0 0 6px;
+  }
+  .viewswitch button:last-child {
+    border-radius: 0 6px 6px 0;
+  }
+  .viewswitch button + button {
+    margin-left: -1px;
+  }
   .activebtn {
     border-color: var(--accent);
     color: var(--accent);
+    position: relative;
+    z-index: 1;
   }
   .status {
     display: inline-flex;
