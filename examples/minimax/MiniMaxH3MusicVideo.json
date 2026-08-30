@@ -1,0 +1,416 @@
+{
+    "id": "MiniMaxH3MusicVideo",
+    "description": "A music video built from cuts, sung to a soundtrack that never touches a chain. The long-take way to film a song - one chained generation lip-synced end to end - degrades with every carried segment and can let the sync slip. This builds the video the way music television does instead: MiniMax-Music3 writes the song, 'slice_audio' cuts it into frame-exact pieces (124 frames at 24 fps each), and every shot is generated fresh from the same Z-Image portrait plus its own slice, lip-synced to just those five seconds. No shot conditions on another shot's output, so the last cut is as clean as the first. 'concat_videos' splices the shots, and because each one covered exactly its slice's frames, the edit is sample-accurate by construction: 'pair_audio' drops the original, unbroken song over the whole cut and the mouths line up in every shot. The generation models pass through one at a time - each is released before the next loads - so the workflow peaks no higher than its largest single model.",
+    "variables": {
+        "singer_portrait_prompt": "a 3/4-length portrait of an anthropomorphic river otter lounge singer in a burgundy velvet dinner jacket and black bow tie, standing at a vintage chrome ribbon microphone on a small nightclub stage, a single warm spotlight from above, deep blue darkness behind, photographic, sharp focus",
+        "song_prompt": "Genre: retro soul jingle, doo-wop tinged. BPM: 92. Key: E-flat major. Emotional progression: warm and wry throughout, swelling on the hook. Listening scenario: a late-night variety show number. Production profile: vintage, close-mic, plate reverb, slightly warm tape saturation. Vocals: smooth male crooner lead, velvety and unhurried, small melisma on the hook. Arrangement: upright bass and brushed drums under electric piano, a two-note baritone sax riff answering each line, finger snaps on the backbeat. The hook lands twice and the last line is held.",
+        "song_lyrics": "[verse]\nI've been waiting on you darling like a render overnight\nEvery frame of my devotion coming slowly into light\n[chorus]\nOoh, progress bar of love\nOoh, don't you stall on me now",
+        "audio_duration": 21,
+        "shot_1_wide_open": "subject_definitions:\n<Subject 1> is the anthropomorphic river otter lounge singer in <Picture 1>, in a burgundy velvet dinner jacket and black bow tie, whose face, fur, jacket and proportions define his appearance for the whole video.\n<Audio 1> is the song <Subject 1> (S1) is lip-synchronised to: a smooth male crooner over a retro soul arrangement.\n\nsummary:\n[image reference + audio song reference] The target video shows <Subject 1> performing the song carried by <Audio 1> at a vintage microphone on a nightclub stage, in one continuous wide shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, fur, velvet jacket, bow tie and proportions of <Picture 1> are kept exactly, with the body newly animated to sing.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack, and <Subject 1>'s mouth is synchronised to its vocal.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A wide shot frames a small nightclub stage: <Subject 1> stands centred at a vintage chrome ribbon microphone under a single warm spotlight, deep blue darkness and the faint silhouettes of a band behind him. He sings the vocal of <Audio 1>, his mouth moving in natural synchronisation with it, one paw resting on the microphone stand and the other loose at his side, swaying gently with the tempo. His tail sways in counterpoint behind him. The camera holds a static wide shot throughout, the stage lights unchanging.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot. Under it, a low nightclub room tone, the soft clink of glassware far off, and the faint brush of <Subject 1>'s jacket as he sways.\n\nnon_diegetic_music:\nNone - the music is the diegetic performance of <Audio 1>.",
+        "shot_2_closeup": "subject_definitions:\n<Subject 1> is the anthropomorphic river otter lounge singer in <Picture 1>, in a burgundy velvet dinner jacket and black bow tie, whose face, fur, jacket and proportions define his appearance for the whole video.\n<Audio 1> is the song <Subject 1> (S1) is lip-synchronised to: a smooth male crooner over a retro soul arrangement.\n\nsummary:\n[image reference + audio song reference] The target video shows <Subject 1> crooning the song carried by <Audio 1> in close-up at a vintage microphone, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, fur, velvet jacket, bow tie and proportions of <Picture 1> are kept exactly, with the head and jaw newly animated to sing.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack, and <Subject 1>'s mouth is synchronised to its vocal.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A close-up frames <Subject 1> from the shoulders up, angled slightly off centre, the vintage chrome microphone in the lower corner of frame and the warm spotlight modelling his fur against deep blue darkness. He sings the vocal of <Audio 1> with his eyes half closed, whiskers catching the light, his mouth in natural synchronisation with the vocal, leaning a breath closer to the microphone on the held notes and easing back between phrases. The camera holds a static close-up throughout.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot, the vocal close and warm at this distance. Under it, a low nightclub room tone and the faint creak of the microphone stand as he leans in.\n\nnon_diegetic_music:\nNone - the music is the diegetic performance of <Audio 1>.",
+        "shot_3_room": "subject_definitions:\n<Subject 1> is the anthropomorphic river otter lounge singer in <Picture 1>, in a burgundy velvet dinner jacket and black bow tie, whose face, fur, jacket and proportions define his appearance for the whole video.\n<Audio 1> is the song <Subject 1> (S1) is lip-synchronised to: a smooth male crooner over a retro soul arrangement.\n\nsummary:\n[image reference + audio song reference] The target video shows <Subject 1> performing the song carried by <Audio 1> seen across the tables of the nightclub, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, fur, velvet jacket, bow tie and proportions of <Picture 1> are kept exactly, with the body newly animated to sing and gesture.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack, and <Subject 1>'s mouth is synchronised to its vocal.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium-wide shot looks across the nightclub toward the stage from table height: candlelit tables blur softly in the foreground, and beyond them <Subject 1> stands at the vintage microphone in his spotlight, singing the vocal of <Audio 1> with his mouth in natural synchronisation. On the swell of the hook he lifts his free paw in a slow, open gesture and lets it settle back to the microphone stand. The camera holds a static shot from among the tables throughout, the candle flames flickering gently.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot with the slight distance and room reverb of the back of the club. Under it, the close clink of glasses at the foreground tables and a low murmur that hushes as the hook lands.\n\nnon_diegetic_music:\nNone - the music is the diegetic performance of <Audio 1>.",
+        "shot_4_finale": "subject_definitions:\n<Subject 1> is the anthropomorphic river otter lounge singer in <Picture 1>, in a burgundy velvet dinner jacket and black bow tie, whose face, fur, jacket and proportions define his appearance for the whole video.\n<Audio 1> is the song <Subject 1> (S1) is lip-synchronised to: a smooth male crooner over a retro soul arrangement.\n\nsummary:\n[image reference + audio song reference] The target video shows <Subject 1> bringing the song carried by <Audio 1> home, holding the last note with his arms spread wide, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, fur, velvet jacket, bow tie and proportions of <Picture 1> are kept exactly, with the body newly animated to sing.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack, and <Subject 1>'s mouth is synchronised to its vocal.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A wide shot frames the nightclub stage straight on: <Subject 1> at the vintage chrome microphone under his spotlight, deep blue darkness behind. He sings the vocal of <Audio 1> in natural synchronisation, and as the last line arrives he tips his head back, spreads both arms wide from the microphone, and holds the final note with his eyes closed, his tail still, the spotlight warming slightly around him. He brings his paws gently back together on the stand as the note ends. The camera holds a static wide shot throughout.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot. Under it, a low nightclub room tone that goes attentively quiet on the held note, and the soft brush of velvet as his arms spread.\n\nnon_diegetic_music:\nNone - the music is the diegetic performance of <Audio 1>.",
+        "audio_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+        "image_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+        "sample_rate": 44100,
+        "num_frames": 124,
+        "fps": 24,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo"
+    },
+    "seed": 42,
+    "steps": [
+        {
+            "name": "draw_singer",
+            "release_pipeline": true,
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": true
+                },
+                "arguments": {
+                    "prompt": "variable:singer_portrait_prompt",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": 768,
+                    "height": 768
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "write_song",
+            "release_pipeline": true,
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "load_components": {
+                        "dtype": "torch.bfloat16"
+                    },
+                    "components_manager": {
+                        "enable_auto_cpu_offload": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-Music3"
+                },
+                "arguments": {
+                    "prompt": "variable:song_prompt",
+                    "lyrics": "variable:song_lyrics",
+                    "audio_duration": "variable:audio_duration",
+                    "output": "audios"
+                }
+            },
+            "result": {
+                "content_type": "audio/mp3",
+                "sample_rate": 44100
+            }
+        },
+        {
+            "name": "slice_1",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "previous_result:write_song",
+                    "sample_rate": "variable:sample_rate",
+                    "start_frame": 0,
+                    "num_frames": "variable:num_frames",
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "slice_2",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "previous_result:write_song",
+                    "sample_rate": "variable:sample_rate",
+                    "start_frame": 124,
+                    "num_frames": "variable:num_frames",
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "slice_3",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "previous_result:write_song",
+                    "sample_rate": "variable:sample_rate",
+                    "start_frame": 248,
+                    "num_frames": "variable:num_frames",
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "slice_4",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "previous_result:write_song",
+                    "sample_rate": "variable:sample_rate",
+                    "start_frame": 372,
+                    "num_frames": "variable:num_frames",
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "soundtrack",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "previous_result:write_song",
+                    "sample_rate": "variable:sample_rate",
+                    "start_frame": 0,
+                    "num_frames": 496,
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "shot_1_wide_open",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer_ref": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer_ref": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "ref2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:shot_1_wide_open",
+                    "references": [
+                        {
+                            "reference_type": "variable:image_reference_type",
+                            "from_previous_result": "draw_singer"
+                        },
+                        {
+                            "reference_type": "variable:audio_reference_type",
+                            "from_previous_result": "slice_1",
+                            "sample_rate": "variable:sample_rate"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "shot_2_closeup",
+            "pipeline_reference": {
+                "reference_name": "shot_1_wide_open",
+                "arguments": {
+                    "prompt": "variable:shot_2_closeup",
+                    "references": [
+                        {
+                            "reference_type": "variable:image_reference_type",
+                            "from_previous_result": "draw_singer"
+                        },
+                        {
+                            "reference_type": "variable:audio_reference_type",
+                            "from_previous_result": "slice_2",
+                            "sample_rate": "variable:sample_rate"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "shot_3_room",
+            "pipeline_reference": {
+                "reference_name": "shot_1_wide_open",
+                "arguments": {
+                    "prompt": "variable:shot_3_room",
+                    "references": [
+                        {
+                            "reference_type": "variable:image_reference_type",
+                            "from_previous_result": "draw_singer"
+                        },
+                        {
+                            "reference_type": "variable:audio_reference_type",
+                            "from_previous_result": "slice_3",
+                            "sample_rate": "variable:sample_rate"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "shot_4_finale",
+            "pipeline_reference": {
+                "reference_name": "shot_1_wide_open",
+                "arguments": {
+                    "prompt": "variable:shot_4_finale",
+                    "references": [
+                        {
+                            "reference_type": "variable:image_reference_type",
+                            "from_previous_result": "draw_singer"
+                        },
+                        {
+                            "reference_type": "variable:audio_reference_type",
+                            "from_previous_result": "slice_4",
+                            "sample_rate": "variable:sample_rate"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "edit",
+            "task": {
+                "command": "concat_videos",
+                "arguments": {
+                    "videos": [
+                        "previous_result:shot_1_wide_open",
+                        "previous_result:shot_2_closeup",
+                        "previous_result:shot_3_room",
+                        "previous_result:shot_4_finale"
+                    ],
+                    "trim_frames": 0,
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "music_video",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:edit",
+                    "audio": "previous_result:soundtrack",
+                    "sample_rate": "variable:sample_rate"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

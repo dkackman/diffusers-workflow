@@ -146,7 +146,7 @@ examples use for their large transformers and text encoders:
 - `quantization_device` / `return_device` — where the quantization pass runs and where the finished component lands; quantizing on `cuda` is much faster than on CPU
 - `use_quantized_matmul` — quantized matmul kernels (CUDA/XPU only)
 
-**Examples:** [LTX2.json](../examples/LTX2.json), [MiniMaxH3.json](../examples/MiniMaxH3.json)
+**Examples:** [LTX2.json](../examples/LTX2.json), [MiniMaxH3.json](../examples/minimax/MiniMaxH3.json)
 
 ### Pre-quantized models
 

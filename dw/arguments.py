@@ -703,12 +703,22 @@ def media_arguments(object_type, artifact):
             arguments["sample_rate"] = sample_rate
         return arguments
 
+    if audio is None and hasattr(artifact, "ndim") and artifact.ndim <= 3:
+        # A step that generates audio alone - a music pipeline, a slice_audio
+        # task - produces the waveform itself rather than an AudioVideo. It
+        # carries no rate of its own, so the reference declares 'sample_rate'
+        # alongside 'from_previous_result'
+        audio = torch.as_tensor(as_channels_samples(artifact))
+
     if audio is None:
         raise ValueError(
             f"{object_type.__name__} holds audio, but the step it names produced "
             f"none - reference a step that generates a soundtrack"
         )
-    return {"audio": audio, "sample_rate": sample_rate}
+    arguments = {"audio": audio}
+    if sample_rate is not None:
+        arguments["sample_rate"] = sample_rate
+    return arguments
 
 
 def validate_media_location(location, base_dir=None):

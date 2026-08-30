@@ -81,7 +81,18 @@ encoder's leaf offload was backed out with it for the same host-memory reason. O
 faster GPU (or a host with more RAM) both are worth re-testing; the step budget there
 may actually expose the transfer time.
 
-**Examples:** [MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json), [MiniMaxH3Ref2VAChained.json](../examples/MiniMaxH3Ref2VAChained.json), [MiniMaxH3I2V.json](../examples/MiniMaxH3I2V.json)
+Length costs VRAM but the configuration holds to the model's full range: a single
+345-frame take (14.4s, the `17n+5` maximum) peaks at 23.6GiB reserved at 960x544 -
+inside 24GB with nothing to spare - and denoises in ~13 minutes on a 3090 with the
+9-step turbo schedule (~85-100s a step once warm, against ~15s at 124 frames).
+
+Host RAM is the tighter budget than VRAM on a 64GiB box. Loading H3 peaks around
+59GiB RSS and a running ref2va shot sits at 45-53GiB, so a workflow that ran another
+model first (Z-Image drawing a subject, Music3 writing a song) must free it with
+`release_pipeline` before H3 loads - with it, the multi-model digital-short
+workflows below fit; without it, the load is an OOM kill, not a slowdown.
+
+**Examples:** [MiniMaxH3Ref2VA.json](../examples/minimax/MiniMaxH3Ref2VA.json), [MiniMaxH3Ref2VAChained.json](../examples/minimax/MiniMaxH3Ref2VAChained.json), [MiniMaxH3I2V.json](../examples/minimax/MiniMaxH3I2V.json), [MiniMaxH3SitcomShort.json](../examples/minimax/MiniMaxH3SitcomShort.json) (five ref2va shots + two Z-Image portraits in ~35 minutes end to end)
 
 ## LTX-2.5 (22B, video + audio)
 

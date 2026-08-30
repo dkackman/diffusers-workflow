@@ -396,8 +396,8 @@ cache and succeeds on the retry - but each one is a synchronising stall, and a r
 close to the limit fails outright on any workload that needs slightly more. Every
 MiniMax H3 example uses on-demand VAEs for this reason.
 
-**Example:** [MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json),
-[MiniMaxH3I2V.json](../examples/MiniMaxH3I2V.json)
+**Example:** [MiniMaxH3Ref2VA.json](../examples/minimax/MiniMaxH3Ref2VA.json),
+[MiniMaxH3I2V.json](../examples/minimax/MiniMaxH3I2V.json)
 
 #### Releasing a pipeline mid-workflow
 
@@ -439,7 +439,7 @@ The flag applies to any step type, and on a `workflow` step it fires once the wh
 sub-workflow has finished. It clears every cached task model, not only this step's, and a
 later step needing one of them reloads it.
 
-**Example:** [MiniMaxH3EnhancePrompt.json](../examples/MiniMaxH3EnhancePrompt.json)
+**Example:** [MiniMaxH3EnhancePrompt.json](../examples/minimax/MiniMaxH3EnhancePrompt.json)
 
 ### VAE Options
 
@@ -675,11 +675,11 @@ downloaded and loaded:
 A task is chosen by the arguments the step passes, so one `workflow` name can cover more
 than one of them: MiniMax-H3's `fl2va` takes an `image`, a `last_image`, or both. Given
 only a `last_image` it generates *up to* that frame, inventing everything that leads to
-it — see [examples/MiniMaxH3L2V.json](../examples/MiniMaxH3L2V.json) beside
-[examples/MiniMaxH3FL2VA.json](../examples/MiniMaxH3FL2VA.json).
+it — see [examples/minimax/MiniMaxH3L2V.json](../examples/minimax/MiniMaxH3L2V.json) beside
+[examples/minimax/MiniMaxH3FL2VA.json](../examples/minimax/MiniMaxH3FL2VA.json).
 
-See [examples/MiniMaxMusic.json](../examples/MiniMaxMusic.json) and
-[examples/MiniMaxH3.json](../examples/MiniMaxH3.json) for full examples.
+See [examples/minimax/MiniMaxMusic.json](../examples/minimax/MiniMaxMusic.json) and
+[examples/minimax/MiniMaxH3.json](../examples/minimax/MiniMaxH3.json) for full examples.
 
 ### Chained Video Generation
 
@@ -756,8 +756,8 @@ it is single-frame conditioning; `last_segment` continuity exists for exactly th
 where the pipeline can take a video reference.
 
 See [examples/LTX2I2VChained.json](../examples/LTX2I2VChained.json),
-[examples/MiniMaxH3I2VChained.json](../examples/MiniMaxH3I2VChained.json), and
-[examples/MiniMaxH3Ref2VAChained.json](../examples/MiniMaxH3Ref2VAChained.json)
+[examples/minimax/MiniMaxH3I2VChained.json](../examples/minimax/MiniMaxH3I2VChained.json), and
+[examples/minimax/MiniMaxH3Ref2VAChained.json](../examples/minimax/MiniMaxH3Ref2VAChained.json)
 (audio-matched lip-sync of arbitrary length).
 
 ## Schedulers
@@ -897,7 +897,7 @@ its own 24 fps, so a wrong rate is a request conditioned at the wrong speed — 
 motion and camera alone. A name that is neither an argument of `from_file()` nor a field
 of the object raises, with the fields it does have.
 
-See [examples/MiniMaxH3Ref2VA.json](../examples/MiniMaxH3Ref2VA.json) for a full example.
+See [examples/minimax/MiniMaxH3Ref2VA.json](../examples/minimax/MiniMaxH3Ref2VA.json) for a full example.
 
 ### Objects Built From an Earlier Step
 
@@ -926,14 +926,14 @@ lands in comes from the type's own `kind`:
 | ------- | ------------------------------------------------------------------------- |
 | `image` | The generated image                                                       |
 | `video` | The generated frames, and the soundtrack generated with them if there was one |
-| `audio` | The generated soundtrack                                                  |
+| `audio` | The generated soundtrack - or, for a step that produced audio alone (a music pipeline, a `slice_audio` task), the waveform itself, which carries no rate of its own, so declare `sample_rate` beside `from_previous_result` |
 
 Any other key is a field of the object and wins over what the media carried —
 `"fps": 30.0` where the producing pipeline generated at a rate the consuming one does
 not share, for instance. A step that produced several artifacts fans out the same way
 every `previous_result` reference does: four images in, four videos out.
 
-See [examples/MiniMaxH3Ref2VAGeneratedSubject.json](../examples/MiniMaxH3Ref2VAGeneratedSubject.json)
+See [examples/minimax/MiniMaxH3Ref2VAGeneratedSubject.json](../examples/minimax/MiniMaxH3Ref2VAGeneratedSubject.json)
 for a full example.
 
 ### Objects Built From Named Arguments
