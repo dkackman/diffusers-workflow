@@ -60,6 +60,7 @@ export interface PromptDetail {
   description: string
   intended_model: string
   tags: string[]
+  text: string
 }
 
 export interface EnhancerPreset {

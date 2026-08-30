@@ -1,6 +1,8 @@
 <script lang="ts">
   import { Plus, Trash2 } from '@lucide/svelte'
   import { coerce, displayValue, isReference, widgetFor } from '../editor'
+  import { promptLibrary } from '../promptlib.svelte'
+  import { promptTooltip } from '../prompts'
 
   let {
     args = $bindable(),
@@ -39,6 +41,7 @@
       class:ref={isReference(args[key])}
       list={listId}
       autocomplete="off"
+      title={promptTooltip(args[key], promptLibrary.texts)}
       value={displayValue(args[key])}
       placeholder={hintFor(key)}
       onchange={(e) => update(key, e.currentTarget.value)}

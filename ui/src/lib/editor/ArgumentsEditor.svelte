@@ -7,6 +7,8 @@
     isReference,
     widgetFor,
   } from '../editor'
+  import { promptLibrary } from '../promptlib.svelte'
+  import { promptTooltip } from '../prompts'
   import type { PipelineDescription } from '../types'
 
   let {
@@ -104,6 +106,7 @@
             class:ref={isReference(args[key])}
             spellcheck={widget === 'textarea' && !isReference(args[key])}
             rows="3"
+            title={promptTooltip(args[key], promptLibrary.texts)}
             value={displayValue(args[key], true)}
             onchange={(e) => update(key, e.currentTarget.value)}></textarea>
         {:else}
@@ -112,6 +115,7 @@
             class:ref={isReference(args[key])}
             list={listId}
             autocomplete="off"
+            title={promptTooltip(args[key], promptLibrary.texts)}
             value={displayValue(args[key])}
             onchange={(e) => update(key, e.currentTarget.value)}
           />

@@ -130,7 +130,9 @@ _prompt_detail_cache = {}
 
 
 def prompt_details(prompt_dir, names):
-    """Per-prompt card metadata: description, intended model and tags."""
+    """Per-prompt card metadata: description, intended model, tags - and
+    the text itself, which the editors show as the tooltip wherever a
+    prompt: reference stands in for it."""
     details = {}
     for name in names:
         path = os.path.join(prompt_dir, f"{name}.json")
@@ -149,9 +151,10 @@ def prompt_details(prompt_dir, names):
                 "description": str(definition.get("description", "") or ""),
                 "intended_model": str(definition.get("intended_model", "") or ""),
                 "tags": [str(tag) for tag in definition.get("tags", []) or []],
+                "text": str(definition.get("text", "") or ""),
             }
         except Exception:
-            detail = {"description": "", "intended_model": "", "tags": []}
+            detail = {"description": "", "intended_model": "", "tags": [], "text": ""}
         _prompt_detail_cache[path] = (mtime, detail)
         details[name] = detail
     return details

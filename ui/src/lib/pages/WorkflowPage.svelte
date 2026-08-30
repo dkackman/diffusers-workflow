@@ -3,6 +3,8 @@
   import JsonEditor from '../editor/JsonEditor.svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
+  import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
+  import { promptTooltip } from '../prompts'
   import type { WorkflowDefinition } from '../types'
 
   let { name }: { name: string } = $props()
@@ -10,7 +12,6 @@
   let workflow = $state<WorkflowDefinition | null>(null)
   let workflowDir = $state('')
   let overrides = $state<Record<string, string>>({})
-  let promptNames = $state<string[]>([])
   let error = $state('')
   let submitting = $state(false)
   let showJson = $state(true)
@@ -19,12 +20,7 @@
     overrides = {}
     workflow = null
     api.listWorkflows().then((r) => (workflowDir = r.workflow_dir))
-    api
-      .listPrompts()
-      .then((r) => (promptNames = r.prompts))
-      .catch(() => {
-        /* no prompt library - overrides just lose their suggestions */
-      })
+    loadPromptLibrary()
     api
       .getWorkflow(name)
       .then((definition) => (workflow = definition))
@@ -120,7 +116,7 @@
 </div>
 
 <datalist id="prompt-references">
-  {#each promptNames as promptName (promptName)}<option
+  {#each promptLibrary.names ?? [] as promptName (promptName)}<option
       value={'prompt:' + promptName}
     ></option>{/each}
 </datalist>
@@ -148,6 +144,10 @@
             <input
               id={'var-' + key}
               list="prompt-references"
+              title={promptTooltip(
+                overrides[key] || defaultValue,
+                promptLibrary.texts,
+              )}
               placeholder={display(defaultValue)}
               bind:value={overrides[key]}
             />

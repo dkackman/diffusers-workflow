@@ -49,6 +49,19 @@ export function parseTags(raw: string): string[] {
   ]
 }
 
+/** The stored text a prompt: reference stands in for - the tooltip shown
+ * over an input holding one. undefined for anything else, so it collapses
+ * to no title attribute at all. */
+export function promptTooltip(
+  value: unknown,
+  texts: Record<string, string>,
+): string | undefined {
+  if (typeof value !== 'string' || !value.startsWith('prompt:')) {
+    return undefined
+  }
+  return texts[value.slice('prompt:'.length).trim()] || undefined
+}
+
 /** Every intended_model value the presets know, for the editor's datalist. */
 export function knownIntendedModels(presets: EnhancerPreset[]): string[] {
   return [

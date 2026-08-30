@@ -971,6 +971,9 @@ class TestPromptLibrary:
             assert detail["description"] == "test prompt"
             assert detail["intended_model"] == "minimax-h3"
             assert detail["tags"] == ["wildlife"]
+            # the text rides along - the editors show it as the tooltip
+            # wherever a prompt: reference stands in for it
+            assert detail["text"] == "a red fox at dawn"
 
             # schema-invalid definitions never reach disk
             response = client.put(

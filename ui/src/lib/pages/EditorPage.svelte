@@ -21,6 +21,8 @@
     referenceSuggestions,
     widgetFor,
   } from '../editor'
+  import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
+  import { promptTooltip } from '../prompts'
   import StepEditor from '../editor/StepEditor.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import type { ValidationResult, WorkflowDefinition } from '../types'
@@ -38,9 +40,6 @@
   let workflowFiles = $state<string[]>([])
   let folder = $state('')
   let newFolder = $state('')
-  // undefined until the library answers - a missing listing must not flag
-  // every prompt: reference as dangling
-  let promptNames = $state<string[] | undefined>(undefined)
 
   // Existing folders, from the listing - one level is the designed depth,
   // but any deeper directories that exist still appear and keep working
@@ -97,15 +96,17 @@
 
   const serialized = $derived(JSON.stringify($state.snapshot(workflow)))
   const dirty = $derived(baseline !== '' && serialized !== baseline)
+  // promptLibrary.names stays undefined until the listing lands - a
+  // missing library must not flag every prompt: reference as dangling
   const referenceProblems = $derived(
-    danglingReferences($state.snapshot(workflow), promptNames),
+    danglingReferences($state.snapshot(workflow), promptLibrary.names),
   )
   // Memoized so datalist options keep stable DOM identity - churn on every
   // render made the browser's suggestion dropdown flaky on first focus
   const stepReferences = $derived.by(() => {
     const snapshot = $state.snapshot(workflow)
     return ((snapshot.steps as unknown[]) ?? []).map((_, index) =>
-      referenceSuggestions(snapshot, index, promptNames ?? []),
+      referenceSuggestions(snapshot, index, promptLibrary.names ?? []),
     )
   })
 
@@ -130,12 +131,7 @@
       workflowFiles = r.workflows.map((file) => `${file}.json`)
       workflowDir = r.workflow_dir
     })
-    api
-      .listPrompts()
-      .then((r) => (promptNames = r.prompts))
-      .catch(() => {
-        /* no prompt library - suggestions just omit prompt: references */
-      })
+    loadPromptLibrary()
     validation = null
     error = ''
     if (name) {
@@ -356,7 +352,7 @@
 </datalist>
 
 <datalist id="prompt-references">
-  {#each promptNames ?? [] as promptName (promptName)}<option
+  {#each promptLibrary.names ?? [] as promptName (promptName)}<option
       value={'prompt:' + promptName}
     ></option>{/each}
 </datalist>
@@ -502,6 +498,7 @@
             <input
               id={'wfvar-' + key}
               list="prompt-references"
+              title={promptTooltip(workflow.variables[key], promptLibrary.texts)}
               value={typeof workflow.variables[key] === 'object'
                 ? JSON.stringify(workflow.variables[key])
                 : String(workflow.variables[key] ?? '')}

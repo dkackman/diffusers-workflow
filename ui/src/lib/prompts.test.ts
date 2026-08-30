@@ -5,6 +5,7 @@ import {
   manifestTextFile,
   parseTags,
   presetForIntendedModel,
+  promptTooltip,
 } from './prompts'
 import type { EnhancerPreset } from './types'
 
@@ -65,6 +66,23 @@ describe('knownIntendedModels', () => {
       preset({ intended_models: ['a', 'c'] }),
     ])
     expect(models).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('promptTooltip', () => {
+  const texts = { scenic: 'a scenic landscape', 'minimax/fox': 'a red fox' }
+
+  it('returns the stored text for a prompt reference', () => {
+    expect(promptTooltip('prompt:scenic', texts)).toBe('a scenic landscape')
+    expect(promptTooltip('prompt:minimax/fox', texts)).toBe('a red fox')
+  })
+
+  it('is undefined for anything else, so no title attribute renders', () => {
+    expect(promptTooltip('variable:prompt', texts)).toBeUndefined()
+    expect(promptTooltip('plain text', texts)).toBeUndefined()
+    expect(promptTooltip('prompt:unknown', texts)).toBeUndefined()
+    expect(promptTooltip(42, texts)).toBeUndefined()
+    expect(promptTooltip(undefined, texts)).toBeUndefined()
   })
 })
 
