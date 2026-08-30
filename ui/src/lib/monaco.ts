@@ -38,9 +38,10 @@ export async function setupMonaco() {
   const token = (name: string, fallback: string) =>
     styles.getPropertyValue(name).trim() || fallback
 
-  // Explicit JSON token rules tuned to the app palette - keys quiet,
-  // values carrying the color, exactly like the forms. The minifier
-  // shortens #ffffff to #fff and Monaco rejects 3-digit hex, so expand
+  // Quiet, near-monochrome JSON matching the pre-Monaco editor: content
+  // in the app ink, punctuation muted - the schema tooling is the value
+  // Monaco adds, not a syntax rainbow. The minifier shortens #ffffff to
+  // #fff and Monaco rejects 3-digit hex, so expand
   const hex = (value: string) => {
     const raw = value.replace('#', '').trim()
     return raw.length === 3
@@ -57,9 +58,12 @@ export async function setupMonaco() {
     inherit: true,
     rules: [
       { token: 'string.key.json', foreground: hex(token('--ink', '#e4eaed')) },
-      { token: 'string.value.json', foreground: '84c8a0' },
-      { token: 'number.json', foreground: hex(token('--accent', '#4cb8cc')) },
-      { token: 'keyword.json', foreground: hex(token('--warn', '#d9a84e')) },
+      {
+        token: 'string.value.json',
+        foreground: hex(token('--ink', '#e4eaed')),
+      },
+      { token: 'number.json', foreground: hex(token('--ink', '#e4eaed')) },
+      { token: 'keyword.json', foreground: hex(token('--ink', '#e4eaed')) },
       {
         token: 'delimiter.bracket.json',
         foreground: hex(token('--muted', '#8fa0a8')),
@@ -88,9 +92,12 @@ export async function setupMonaco() {
     inherit: true,
     rules: [
       { token: 'string.key.json', foreground: hex(token('--ink', '#1c2428')) },
-      { token: 'string.value.json', foreground: '2b7a4b' },
-      { token: 'number.json', foreground: hex(token('--accent', '#0b7285')) },
-      { token: 'keyword.json', foreground: hex(token('--warn', '#9a6a12')) },
+      {
+        token: 'string.value.json',
+        foreground: hex(token('--ink', '#1c2428')),
+      },
+      { token: 'number.json', foreground: hex(token('--ink', '#1c2428')) },
+      { token: 'keyword.json', foreground: hex(token('--ink', '#1c2428')) },
       {
         token: 'delimiter.bracket.json',
         foreground: hex(token('--muted', '#5b6a72')),
@@ -118,7 +125,11 @@ export async function setupMonaco() {
 }
 
 export function currentTheme(): string {
-  return window.matchMedia('(prefers-color-scheme: light)').matches
-    ? 'dw-light'
-    : 'dw-dark'
+  // The in-app toggle stamps data-theme; only the default "system"
+  // setting falls through to the OS preference
+  const explicit = document.documentElement.dataset.theme
+  const dark = explicit
+    ? explicit === 'dark'
+    : window.matchMedia('(prefers-color-scheme: dark)').matches
+  return dark ? 'dw-dark' : 'dw-light'
 }
