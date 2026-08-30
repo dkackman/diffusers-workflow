@@ -75,6 +75,10 @@ The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`)
 - Values prefixed with `constant:` read a value declared in python rather than copying it
   into JSON: `"constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES"`. Resolved
   in `realize_args`, validated by `validate_constant_name()`; anything callable is refused
+- Values prefixed with `prompt:` load a stored prompt's `text` from the prompt library
+  (`prompts/` by default; `DW_PROMPT_DIR` / `--prompt-dir` override): `"prompt:name"` or
+  `"prompt:folder/name"`. Resolved in `realize_args` (`dw/prompts.py`), rooted at the
+  library rather than the workflow file
 
 ### Quantization Support
 
@@ -115,6 +119,7 @@ All entry points use `dw/security.py`. When adding features:
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
 - **MPS differences from CUDA**: no autocast, no bitsandbytes, no flash_attn, no triton, no torch.compile. Model offloading has less benefit on unified memory.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
+- **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
 
 ## JSON Workflow Structure

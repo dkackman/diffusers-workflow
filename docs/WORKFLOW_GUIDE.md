@@ -850,6 +850,44 @@ The value the library declares is the value the workflow gets, which is the poin
 constant that changes upstream changes here, and one that is renamed or moved fails
 loudly rather than leaving a stale copy behind.
 
+### Prompt References
+
+A prompt worth keeping is worth keeping once. Stored prompts live as JSON files in a
+prompt library - the `prompts/` folder by default - and a workflow argument written as
+`prompt:` plus the file's name (without `.json`, optionally one folder deep) loads its
+text at run time:
+
+```json
+"prompt": "prompt:scenic_landscape",
+"prompt": "prompt:minimax/fox_dawn_t2va"
+```
+
+A prompt file holds the text plus the metadata the server's Prompts page shows:
+
+```json
+{
+  "text": "A sweeping alpine valley at golden hour...",
+  "description": "General-purpose scenic landscape",
+  "intended_model": "z-image",
+  "negative_prompt": "blurry, low quality",
+  "tags": ["landscape", "golden-hour"]
+}
+```
+
+Only `text` is required, and it is what the reference resolves to. `intended_model` is
+informational - the engine ignores it, but the library badges and filters by it, and
+the server's prompt enhancer uses it to preselect a preset.
+
+The library's location is `./prompts` in the working directory, overridden by
+`--prompt-dir` (both `dw.run` and `dw.serve`) or the `DW_PROMPT_DIR` environment
+variable. References are rooted there - not at the workflow file - so the same
+reference means the same text from every workflow. Like `constant:`, a reference
+resolves anywhere in a workflow's arguments, including a `variables` default, and it
+always resolves to exactly one string: it never multiplies a step's iterations the way
+`previous_result:` references do. A prompt's text may not itself begin with a
+reference prefix such as `variable:` - the engine refuses it rather than resolving
+text as syntax.
+
 ### Objects Built From a File
 
 Some pipelines take arguments that are objects rather than plain media. An argument that

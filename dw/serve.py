@@ -9,6 +9,7 @@ not to the network. Interactive API docs at http://127.0.0.1:8765/docs
 
 import argparse
 import multiprocessing
+import os
 
 # Spawn start method before anything touches multiprocessing (CUDA/MPS)
 if multiprocessing.get_start_method(allow_none=True) != "spawn":
@@ -31,12 +32,19 @@ def main():
         "--output-dir", default="./outputs", help="Directory results are written to"
     )
     parser.add_argument(
+        "--prompt-dir", default="./prompts", help="Directory of stored prompt files"
+    )
+    parser.add_argument(
         "-l",
         "--log_level",
         default="INFO",
         help="DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
     args = parser.parse_args()
+
+    # The engine resolves 'prompt:' references through this variable, and the
+    # spawned worker process inherits it - one setting covers both
+    os.environ["DW_PROMPT_DIR"] = os.path.abspath(args.prompt_dir)
 
     try:
         import uvicorn
@@ -58,6 +66,7 @@ def main():
         workflow_dir=args.workflow_dir,
         output_dir=args.output_dir,
         log_level=args.log_level,
+        prompt_dir=args.prompt_dir,
     )
     ui = " - UI at /" if default_ui_dir() else ""
     print(

@@ -3,6 +3,7 @@ import copy
 import logging
 from inspect import Parameter, signature
 from .type_helpers import load_type_from_name, load_constant_from_name, has_method
+from .prompts import PROMPT_PREFIX, fetch_prompt
 from diffusers.utils import load_image, load_video
 from .security import (
     validate_path,
@@ -92,6 +93,10 @@ def realize_args(arg, base_dir=None):
             # conventions below - what it holds is the value, not a file to load
             if is_constant_reference(v):
                 arg[k] = fetch_constant(v)
+            # A stored prompt resolves the same way - to its text, under any
+            # name, before the media conventions could mistake it for a file
+            elif is_prompt_reference(v):
+                arg[k] = fetch_prompt(v)
             # An explicit media reference loads under any argument name - the
             # key conventions below only cover arguments named like their media
             elif is_media_reference(v):
@@ -140,6 +145,9 @@ def realize_args(arg, base_dir=None):
             if is_constant_reference(item):
                 arg[i] = fetch_constant(item)
                 continue
+            if is_prompt_reference(item):
+                arg[i] = fetch_prompt(item)
+                continue
             if is_media_reference(item):
                 arg[i] = fetch_media(item, base_dir)
                 continue
@@ -150,6 +158,11 @@ def realize_args(arg, base_dir=None):
 def is_constant_reference(value):
     """Whether a value references a constant declared in python."""
     return isinstance(value, str) and value.startswith(CONSTANT_PREFIX)
+
+
+def is_prompt_reference(value):
+    """Whether a value references a stored prompt in the prompt library."""
+    return isinstance(value, str) and value.startswith(PROMPT_PREFIX)
 
 
 def fetch_constant(reference):

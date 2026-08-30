@@ -104,6 +104,37 @@ test('editor validates, saves into a folder, and deletes', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'E2EScratch' })).toHaveCount(0)
 })
 
+test('prompts page lists, creates into a folder, and deletes', async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  await page.goto('/#/prompts')
+  await expect(page.getByRole('heading', { name: 'Prompts' })).toBeVisible()
+  // the starter library renders, with folder grouping and metadata badges
+  await expect(page.getByRole('link', { name: /scenic_landscape/ })).toBeVisible()
+  await expect(page.getByText('minimax/')).toBeVisible()
+
+  // create a scratch prompt through the editor
+  await page.goto('/#/prompt-edit')
+  await page.locator('#prompt-text').fill('an e2e scratch prompt')
+  await page.getByPlaceholder('MyPrompt').fill('E2EScratchPrompt')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByText(/Saved to/)).toBeVisible({ timeout: 30_000 })
+
+  // reopen it from the library, then clean up through the UI's own delete
+  await page.goto('/#/prompt-edit/E2EScratchPrompt')
+  await expect(page.locator('#prompt-text')).toHaveValue(
+    'an e2e scratch prompt',
+    { timeout: 15_000 },
+  )
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: /Delete/ }).click()
+  await expect(page.getByRole('heading', { name: 'Prompts' })).toBeVisible()
+  await expect(
+    page.getByRole('link', { name: 'E2EScratchPrompt' }),
+  ).toHaveCount(0)
+})
+
 test('jobs and gallery pages render', async ({ page }) => {
   await page.goto('/#/jobs')
   await expect(page.getByRole('heading', { name: 'Jobs' })).toBeVisible()

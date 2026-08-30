@@ -14,6 +14,8 @@ from dw.security import (
     validate_json_size,
     validate_output_path,
     validate_workflow_path,
+    validate_prompt_path,
+    validate_prompt_reference,
     validate_url,
     validate_variable_name,
     validate_string_input,
@@ -248,6 +250,64 @@ class TestValidateWorkflowPath:
         with tempfile.TemporaryDirectory() as temp_dir:
             with pytest.raises(InvalidInputError):
                 validate_workflow_path(os.path.join(temp_dir, "absent.json"))
+
+
+class TestValidatePromptReference:
+    @pytest.mark.parametrize("name", ["foo", "foo/bar", "foo.bar-1", "a_1/B-2.x"])
+    def test_a_plain_or_one_folder_name_validates(self, name):
+        assert validate_prompt_reference(name) == name
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "",
+            "a/b/c",  # deeper than the library's one folder level
+            "../escape",
+            "/etc/passwd",
+            ".hidden",
+            "folder/.hidden",
+            "-dashfirst",
+        ],
+    )
+    def test_anything_else_is_rejected(self, name):
+        with pytest.raises(InvalidInputError):
+            validate_prompt_reference(name)
+
+    def test_an_overlong_name_is_rejected(self):
+        with pytest.raises(InvalidInputError):
+            validate_prompt_reference("a" * 201)
+
+
+class TestValidatePromptPath:
+    def test_a_json_prompt_inside_the_library_validates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "p.json")
+            with open(path, "w") as f:
+                f.write("{}")
+
+            assert validate_prompt_path(path, temp_dir) == os.path.realpath(path)
+
+    def test_a_path_outside_the_library_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outside = os.path.join(temp_dir, "outside")
+            library = os.path.join(temp_dir, "prompts")
+            os.makedirs(outside)
+            os.makedirs(library)
+            path = os.path.join(outside, "p.json")
+            with open(path, "w") as f:
+                f.write("{}")
+
+            with pytest.raises(SecurityError):
+                validate_prompt_path(path, library)
+
+    def test_a_non_json_prompt_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "p.txt")
+            with open(path, "w") as f:
+                f.write("text")
+
+            with pytest.raises(InvalidInputError):
+                validate_prompt_path(path, temp_dir)
 
 
 def test_validate_output_path_allows_a_directory_that_does_not_exist_yet():

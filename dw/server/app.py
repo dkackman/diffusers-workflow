@@ -29,8 +29,10 @@ from ..introspection import (
     describe_task,
     workflow_argument_warnings,
 )
-from ..schema import load_schema
+from ..schema import load_schema, validate_data
+from ..prompts import RESERVED_TEXT_PREFIXES
 from ..workflow import Workflow, workflow_from_definition
+from .enhancers import build_enhance_workflow, preset_descriptions
 from ..result import read_embedded_metadata
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from .jobs import JobManager, TERMINAL_STATES
@@ -123,6 +125,50 @@ def resolve_workflow_name(workflow_dir, name, allow_create=False):
         raise HTTPException(status_code=404, detail=f"Unknown workflow: {e}")
 
 
+# What each prompt says about itself, for listing cards - cached by mtime
+_prompt_detail_cache = {}
+
+
+def prompt_details(prompt_dir, names):
+    """Per-prompt card metadata: description, intended model and tags."""
+    details = {}
+    for name in names:
+        path = os.path.join(prompt_dir, f"{name}.json")
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        cached = _prompt_detail_cache.get(path)
+        if cached and cached[0] == mtime:
+            details[name] = cached[1]
+            continue
+        try:
+            with open(path, "r") as file:
+                definition = json.load(file)
+            detail = {
+                "description": str(definition.get("description", "") or ""),
+                "intended_model": str(definition.get("intended_model", "") or ""),
+                "tags": [str(tag) for tag in definition.get("tags", []) or []],
+            }
+        except Exception:
+            detail = {"description": "", "intended_model": "", "tags": []}
+        _prompt_detail_cache[path] = (mtime, detail)
+        details[name] = detail
+    return details
+
+
+def resolve_prompt_name(prompt_dir, name, allow_create=False):
+    """The on-disk path for a prompt name, confined to prompt_dir."""
+    if not name.endswith(".json"):
+        name = f"{name}.json"
+    try:
+        return validate_path(
+            os.path.join(prompt_dir, name), prompt_dir, allow_create=allow_create
+        )
+    except SecurityError as e:
+        raise HTTPException(status_code=404, detail=f"Unknown prompt: {e}")
+
+
 def default_ui_dir():
     """Where the built SPA lives: ui/dist in a checkout (the copy npm just
     built), else the copy packaged into the wheel at dw/server/ui, else None."""
@@ -145,6 +191,7 @@ def create_app(
     ui_dir=None,
     download_manager=None,
     diffusers_updater=None,
+    prompt_dir="./prompts",
 ):
     """Build the application. A caller (tests) can inject a JobManager."""
     manager = job_manager or JobManager(output_dir, log_level=log_level)
@@ -162,6 +209,7 @@ def create_app(
     )
     app.state.job_manager = manager
     app.state.workflow_dir = workflow_dir
+    app.state.prompt_dir = prompt_dir
 
     @app.middleware("http")
     async def reject_foreign_origins(request, call_next):
@@ -422,6 +470,98 @@ def create_app(
                 return JSONResponse(json.load(file))
         except (OSError, json.JSONDecodeError) as e:
             raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
+
+    # --------------------------------------------------------------- prompts
+
+    class PromptRequest(BaseModel):
+        prompt: Dict[str, Any] = Field(description="The prompt definition to save")
+
+    @app.get("/api/prompt-schema")
+    def get_prompt_schema():
+        """The JSON schema for stored prompts - the editor's diagnostics.
+        Its own path, so a prompt named 'schema' cannot shadow it."""
+        return JSONResponse(load_schema("prompt"))
+
+    @app.get("/api/prompts")
+    def list_prompts():
+        names = workflow_names(app.state.prompt_dir)
+        return {
+            "prompt_dir": app.state.prompt_dir,
+            "prompts": names,
+            "details": prompt_details(app.state.prompt_dir, names),
+        }
+
+    @app.put("/api/prompts/{name:path}")
+    def save_prompt(name: str, request: PromptRequest):
+        """Write a prompt into the prompt directory. Like a workflow save,
+        the definition must be schema-valid before it lands on disk."""
+        status, message = validate_data(request.prompt, load_schema("prompt"))
+        if not status:
+            raise HTTPException(status_code=400, detail=message)
+        if str(request.prompt.get("text", "")).startswith(RESERVED_TEXT_PREFIXES):
+            raise HTTPException(
+                status_code=400,
+                detail="A prompt's text may not itself begin with a reference "
+                "prefix such as 'variable:' or 'previous_result:'",
+            )
+        path = resolve_prompt_name(app.state.prompt_dir, name, allow_create=True)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as file:
+            json.dump(request.prompt, file, indent=2)
+            file.write("\n")
+        logger.info(f"Saved prompt {name} to {path}")
+        return {"name": name, "path": path}
+
+    @app.delete("/api/prompts/{name:path}")
+    def delete_prompt(name: str):
+        """Remove a prompt file from the prompt directory."""
+        path = resolve_prompt_name(app.state.prompt_dir, name)
+        os.remove(path)
+        logger.info(f"Deleted prompt {name} ({path})")
+        return {"name": name, "deleted": True}
+
+    @app.get("/api/prompts/{name:path}")
+    def get_prompt(name: str):
+        path = resolve_prompt_name(app.state.prompt_dir, name)
+        try:
+            with open(path, "r") as file:
+                return JSONResponse(json.load(file))
+        except (OSError, json.JSONDecodeError) as e:
+            raise HTTPException(status_code=500, detail=f"Could not read prompt: {e}")
+
+    # ------------------------------------------------------------- enhancers
+
+    class EnhanceRequest(BaseModel):
+        idea: str = Field(description="The idea to expand into a full prompt")
+        preset: str = Field(default="h3", description="Enhancer preset key")
+        model_name: Optional[str] = Field(
+            default=None, description="LLM repo id; the preset's default when omitted"
+        )
+        device: Optional[str] = Field(
+            default=None,
+            description="Device for the language model; the preset's default "
+            "(cpu) keeps VRAM free for generation",
+        )
+
+    @app.get("/api/enhancers")
+    def list_enhancers():
+        return {"presets": preset_descriptions()}
+
+    @app.post("/api/enhance", status_code=201)
+    def enhance(request: EnhanceRequest):
+        """Queue a prompt enhancement as an ordinary job. The enhanced text
+        is the job's single manifest file once it succeeds."""
+        try:
+            definition = build_enhance_workflow(
+                request.preset,
+                request.idea,
+                model_name=request.model_name,
+                device=request.device,
+            )
+            job = manager.submit(workflow=definition, arguments={})
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return job.detail()
 
     # --------------------------------------------------------------- gallery
 

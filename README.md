@@ -21,6 +21,7 @@ A declarative workflow engine and web UI for the [Hugging Face Diffusers library
 - **Quantization** — BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto
 - **Inference acceleration** — TeaCache, FirstBlockCache, FasterCache, MagCache, TaylorSeerCache
 - **Prompt weighting** — A1111-style `(word:1.5)` syntax with long prompt support
+- **Prompt library** — store prompts once in `prompts/` and reference them from any workflow as `prompt:name`, with a web UI for browsing, editing, and AI-enhancing them
 - **LoRA and IP-Adapter** support
 - **Composable workflows** from multiple JSON files with `builtin:` references
 - **Utility tasks** — upscaling, face restoration, segmentation, captioning, frame interpolation, QR codes, and more

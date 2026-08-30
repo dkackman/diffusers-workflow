@@ -35,7 +35,8 @@ export function isReference(value: unknown): boolean {
     typeof value === 'string' &&
     (value.startsWith('variable:') ||
       value.startsWith('previous_result:') ||
-      value.startsWith('constant:'))
+      value.startsWith('constant:') ||
+      value.startsWith('prompt:'))
   )
 }
 
@@ -222,15 +223,20 @@ export function emptyWorkflowStep() {
 }
 
 /** Reference completions available to a value input in step `stepIndex`:
- * every declared variable, and every EARLIER step's result - with media
- * property suffixes for steps whose result is a video. */
+ * every declared variable, every EARLIER step's result - with media
+ * property suffixes for steps whose result is a video - and every stored
+ * prompt the library lists. */
 export function referenceSuggestions(
   workflow: Record<string, any>,
   stepIndex: number,
+  promptNames: string[] = [],
 ): string[] {
   const suggestions: string[] = []
   for (const name of Object.keys(workflow.variables ?? {})) {
     suggestions.push(`variable:${name}`)
+  }
+  for (const name of promptNames) {
+    suggestions.push(`prompt:${name}`)
   }
   const steps: Array<Record<string, any>> = workflow.steps ?? []
   for (const step of steps.slice(0, Math.max(0, stepIndex))) {
@@ -248,11 +254,17 @@ export function referenceSuggestions(
 }
 
 /** References the workflow makes that nothing declares: variable: names
- * missing from variables, and previous_result: names that match no EARLIER
- * step. The engine would fail these at run time; the editor says so now. */
-export function danglingReferences(workflow: Record<string, any>): string[] {
+ * missing from variables, previous_result: names that match no EARLIER
+ * step, and - when the prompt library's listing is supplied - prompt:
+ * names it does not hold. The engine would fail these at run time; the
+ * editor says so now. */
+export function danglingReferences(
+  workflow: Record<string, any>,
+  promptNames?: string[],
+): string[] {
   const problems: string[] = []
   const variables = new Set(Object.keys(workflow.variables ?? {}))
+  const prompts = promptNames === undefined ? null : new Set(promptNames)
   const steps: Array<Record<string, any>> = workflow.steps ?? []
 
   steps.forEach((step, index) => {
@@ -277,6 +289,15 @@ export function danglingReferences(workflow: Record<string, any>): string[] {
           if (!earlier.has(name)) {
             problems.push(
               `Step '${step.name}': previous_result:${name} - no earlier step has that name`,
+            )
+          }
+        } else if (value.startsWith('prompt:')) {
+          // Without a listing the server resolves these at run time - only
+          // a supplied library can say a name is missing
+          const name = value.slice('prompt:'.length)
+          if (prompts !== null && !prompts.has(name)) {
+            problems.push(
+              `Step '${step.name}': prompt:${name} - the prompt library has no such prompt`,
             )
           }
         }

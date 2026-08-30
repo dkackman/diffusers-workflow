@@ -38,6 +38,9 @@
   let workflowFiles = $state<string[]>([])
   let folder = $state('')
   let newFolder = $state('')
+  // undefined until the library answers - a missing listing must not flag
+  // every prompt: reference as dangling
+  let promptNames = $state<string[] | undefined>(undefined)
 
   // Existing folders, from the listing - one level is the designed depth,
   // but any deeper directories that exist still appear and keep working
@@ -95,14 +98,14 @@
   const serialized = $derived(JSON.stringify($state.snapshot(workflow)))
   const dirty = $derived(baseline !== '' && serialized !== baseline)
   const referenceProblems = $derived(
-    danglingReferences($state.snapshot(workflow)),
+    danglingReferences($state.snapshot(workflow), promptNames),
   )
   // Memoized so datalist options keep stable DOM identity - churn on every
   // render made the browser's suggestion dropdown flaky on first focus
   const stepReferences = $derived.by(() => {
     const snapshot = $state.snapshot(workflow)
     return ((snapshot.steps as unknown[]) ?? []).map((_, index) =>
-      referenceSuggestions(snapshot, index),
+      referenceSuggestions(snapshot, index, promptNames ?? []),
     )
   })
 
@@ -127,6 +130,12 @@
       workflowFiles = r.workflows.map((file) => `${file}.json`)
       workflowDir = r.workflow_dir
     })
+    api
+      .listPrompts()
+      .then((r) => (promptNames = r.prompts))
+      .catch(() => {
+        /* no prompt library - suggestions just omit prompt: references */
+      })
     validation = null
     error = ''
     if (name) {

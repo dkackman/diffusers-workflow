@@ -47,6 +47,30 @@ export interface WorkflowDefinition {
   [key: string]: unknown
 }
 
+export interface PromptDefinition {
+  text: string
+  description?: string
+  intended_model?: string
+  negative_prompt?: string
+  tags?: string[]
+  enhanced?: { model?: string; idea?: string }
+}
+
+export interface PromptDetail {
+  description: string
+  intended_model: string
+  tags: string[]
+}
+
+export interface EnhancerPreset {
+  key: string
+  label: string
+  default_model: string
+  models: string[]
+  intended_models: string[]
+  placeholder: string
+}
+
 export interface PipelineParameter {
   name: string
   required: boolean
