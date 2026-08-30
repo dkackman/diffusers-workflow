@@ -2,6 +2,7 @@ import os
 from .workflow import workflow_from_file
 from . import startup
 
+
 def main():
     workflow = workflow_from_file(
         os.path.join(

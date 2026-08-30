@@ -4,6 +4,7 @@ from .workflow import workflow_from_file
 from . import startup
 from .security import validate_workflow_path, SecurityError
 
+
 def main():
     parser = argparse.ArgumentParser(description="Validate a workflow from a file.")
     parser.add_argument(
