@@ -128,6 +128,7 @@
             <textarea
               id={'var-' + key}
               rows="3"
+              spellcheck="true"
               placeholder={display(defaultValue)}
               bind:value={overrides[key]}></textarea>
           {:else}
