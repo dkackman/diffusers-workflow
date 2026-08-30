@@ -48,7 +48,7 @@ Around 57 files and 1,500+ tests as of this writing (`pytest tests/ --collect-on
 | test_model_cache.py | Shared task model cache |
 | test_prompt_weighting.py, test_teacache.py | Prompt weighting device handling, TeaCache forward guard |
 | test_argument_updates.py | Cached pipelines pick up fresh arguments across runs |
-| test_examples.py | Validates every workflow in `examples/` against the schema |
+| test_examples.py | Validates every workflow in `workflows/` against the schema |
 
 ## conftest.py
 
@@ -61,5 +61,5 @@ An autouse `_clear_task_model_cache` fixture clears `dw.tasks.model_cache` befor
 python -m dw.test
 
 # Validate a workflow against schema
-python -m dw.validate examples/flux/FluxDev.json
+python -m dw.validate workflows/flux/FluxDev.json
 ```

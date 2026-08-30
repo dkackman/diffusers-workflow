@@ -3,10 +3,10 @@
   // Hover to view descriptions of existing attributes.
   // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
   //
-  // The examples tree has subfolders (flux/, tasks/, archive/, projects/), so
+  // The workflows tree has subfolders (flux/, tasks/, archive/, projects/), so
   // the "current workflow file" configurations below are the ones to reach for:
   // open the JSON and run it, wherever it lives. The prompting configurations
-  // take a path relative to examples/, subfolders included - "flux/FluxDev".
+  // take a path relative to workflows/, subfolders included - "flux/FluxDev".
   "version": "0.2.0",
   "configurations": [
     {
@@ -71,7 +71,7 @@
       "cwd": "${workspaceFolder}/",
       "justMyCode": true,
       "args": [
-        "./examples/${input:workflowName}.json"
+        "./workflows/${input:workflowName}.json"
       ]
     },
     {
@@ -105,7 +105,7 @@
       "args": [
         "--log_level",
         "INFO",
-        "./examples/${input:workflowName}.json"
+        "./workflows/${input:workflowName}.json"
       ]
     }
   ],
@@ -113,7 +113,7 @@
     {
       "id": "workflowName",
       "type": "promptString",
-      "description": "Workflow path relative to examples/, without .json (e.g. ZImage or flux/FluxDev):",
+      "description": "Workflow path relative to workflows/, without .json (e.g. ZImage or flux/FluxDev):",
       "default": "??"
     }
   ]

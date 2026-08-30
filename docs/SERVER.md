@@ -7,7 +7,7 @@ past generations in a gallery, and manage the models on disk.
 
 ```bash
 python -m dw.serve                       # http://127.0.0.1:8765
-python -m dw.serve --port 8000 --workflow-dir ./examples --output-dir ./outputs --prompt-dir ./prompts
+python -m dw.serve --port 8000 --workflow-dir ./workflows --output-dir ./outputs --prompt-dir ./prompts
 ```
 
 Installed as a package, the same server is `dw-serve`. Interactive API docs

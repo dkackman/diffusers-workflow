@@ -13,11 +13,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 bash ./install.sh && source ./activate
 
 # Run a workflow
-python -m dw.run examples/ZImage.json
-python -m dw.run examples/ZImage.json prompt="a cat" num_images_per_prompt=4
+python -m dw.run workflows/ZImage.json
+python -m dw.run workflows/ZImage.json prompt="a cat" num_images_per_prompt=4
 
 # Validate a workflow against schema
-python -m dw.validate examples/ZImage.json
+python -m dw.validate workflows/ZImage.json
 
 # Basic system test (torch, diffusers import check)
 python -m dw.test

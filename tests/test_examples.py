@@ -1,6 +1,6 @@
 """Every example workflow loads, validates, and points at files that exist.
 
-The examples live in subfolders - flux/, ltx2/, minimax/, tasks/, archive/ - so
+The example workflows in workflows/ live in subfolders - flux/, ltx2/, minimax/, tasks/, archive/ - so
 discovery walks the tree rather than listing one directory.
 
 The reference check guards what subfolders put at risk: a workflow's path to
@@ -26,12 +26,12 @@ from dw.type_helpers import load_type_from_name
 from dw.workflow import workflow_from_file
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXAMPLES_DIR = os.path.join(REPO_ROOT, "examples")
+WORKFLOWS_DIR = os.path.join(REPO_ROOT, "workflows")
 BUILTIN_DIR = os.path.join(REPO_ROOT, "dw", "workflows")
 
 
 def is_workflow_file(path):
-    """Whether a JSON file under examples/ is a workflow rather than data.
+    """Whether a JSON file under workflows/ is a workflow rather than data.
 
     A project keeps its own data beside its workflows - a list of prompts its
     script feeds in, for instance - and those are JSON arrays. A file that does
@@ -46,7 +46,7 @@ def is_workflow_file(path):
 
 
 def get_example_files():
-    """Every workflow JSON under the examples tree, subfolders included.
+    """Every workflow JSON under the workflows tree, subfolders included.
 
     Paths are relative to the repository root - they are the test ids, and an
     absolute path makes for an unreadable one.
@@ -55,7 +55,7 @@ def get_example_files():
         os.path.relpath(path, REPO_ROOT)
         for path in (
             os.path.join(root, name)
-            for root, _, files in os.walk(EXAMPLES_DIR)
+            for root, _, files in os.walk(WORKFLOWS_DIR)
             for name in files
             if name.endswith(".json")
         )

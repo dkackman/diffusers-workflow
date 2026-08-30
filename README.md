@@ -76,14 +76,14 @@ Jobs queue, stream progress live (per denoising step), cancel cooperatively, and
 ### Run a Workflow
 
 ```bash
-python -m dw.run examples/flux/FluxDev.json
-python -m dw.run examples/flux/FluxDev.json prompt="a cat" num_images_per_prompt=4
+python -m dw.run workflows/flux/FluxDev.json
+python -m dw.run workflows/flux/FluxDev.json prompt="a cat" num_images_per_prompt=4
 ```
 
 ### Validate a Workflow
 
 ```bash
-python -m dw.validate examples/flux/FluxDev.json
+python -m dw.validate workflows/flux/FluxDev.json
 ```
 
 ### Interactive REPL
@@ -243,7 +243,7 @@ a (photorealistic:1.4) portrait with (bright red hair:1.3) and [freckles]
 
 **Interactive schema browser:** [View Schema](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-workflow%2Frefs%2Fheads%2Fmaster%2Fdw%2Fworkflow_schema.json)
 
-See [examples/](examples/) for more workflow files.
+See [workflows/](workflows/) for more workflow files.
 
 ## Documentation
 

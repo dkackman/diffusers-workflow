@@ -77,7 +77,7 @@ Some base models (e.g. Stable Diffusion 3.5) don't ship a default image encoder,
 }
 ```
 
-See [sd35ip.json](../examples/archive/sd35ip.json) for the full workflow.
+See [sd35ip.json](../workflows/archive/sd35ip.json) for the full workflow.
 
 ## Image Argument
 
@@ -105,6 +105,6 @@ Can also reference a previous step's output:
 
 ## Examples
 
-- [FluxIP.json](../examples/flux/FluxIP.json) — Flux with IP-Adapter for style transfer
-- [sd35ip.json](../examples/archive/sd35ip.json) — SD 3.5 (quantized) with an explicit `image_encoder`/`feature_extractor` pair
-- [ip-adapter.json](../examples/archive/ip-adapter.json) — SD 1.5 and SDXL, each with an `AutoPipelineForText2Image` step
+- [FluxIP.json](../workflows/flux/FluxIP.json) — Flux with IP-Adapter for style transfer
+- [sd35ip.json](../workflows/archive/sd35ip.json) — SD 3.5 (quantized) with an explicit `image_encoder`/`feature_extractor` pair
+- [ip-adapter.json](../workflows/archive/ip-adapter.json) — SD 1.5 and SDXL, each with an `AutoPipelineForText2Image` step

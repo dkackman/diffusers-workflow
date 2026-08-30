@@ -187,7 +187,7 @@ def default_ui_dir():
 
 
 def create_app(
-    workflow_dir="./examples",
+    workflow_dir="./workflows",
     output_dir="./outputs",
     log_level="INFO",
     job_manager=None,

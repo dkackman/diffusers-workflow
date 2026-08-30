@@ -35,7 +35,7 @@ Comprehensive test suite for the diffusers-workflow project covering core functi
 - `test_integration.py` - End-to-end workflow execution scenarios
 
 ### Test Examples
-- `test_examples.py` - Validates every workflow in `examples/` against the schema (one parametrized test per file)
+- `test_examples.py` - Validates every workflow in `workflows/` against the schema (one parametrized test per file)
 
 ## Running Tests
 
@@ -116,8 +116,8 @@ Available in `conftest.py`:
 ## Test Data
 
 Test data files in `tests/test_data/`:
-- `workflows/valid_workflow.json` - Valid test workflow
-- `workflows/invalid_workflow.json` - Invalid test workflow
+- `tests/test_data/workflows/valid_workflow.json` - Valid test workflow
+- `tests/test_data/workflows/invalid_workflow.json` - Invalid test workflow
 - Sample images for image processing tests
 
 ## Best Practices

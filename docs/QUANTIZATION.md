@@ -55,7 +55,7 @@ For 8-bit:
 "arguments": { "load_in_8bit": true }
 ```
 
-**Example:** [bnb_quant.json](../examples/archive/bnb_quant.json)
+**Example:** [bnb_quant.json](../workflows/archive/bnb_quant.json)
 
 ## TorchAO
 
@@ -78,7 +78,7 @@ Common choices: `Int8WeightOnlyConfig` (any CUDA card), `Int4WeightOnlyConfig` (
 `Float8DynamicActivationFloat8WeightConfig` (fastest, requires compute capability 8.9+ -
 RTX 40-series/Ada or newer).
 
-**Example:** [FluxTorchAO.json](../examples/flux/FluxTorchAO.json)
+**Example:** [FluxTorchAO.json](../workflows/flux/FluxTorchAO.json)
 
 **Pair TorchAO with `torch.compile`.** Int8 weight-only and float8 dynamic-activation
 quant types get their fused-kernel speedups only under compilation - uncompiled they are
@@ -117,7 +117,7 @@ GGUF models load from single files using `from_single_file`:
 }
 ```
 
-**Example:** [FluxGGUF.json](../examples/flux/FluxGGUF.json)
+**Example:** [FluxGGUF.json](../workflows/flux/FluxGGUF.json)
 
 ## SDNQ (SD.Next Quantization)
 
@@ -146,7 +146,7 @@ examples use for their large transformers and text encoders:
 - `quantization_device` / `return_device` — where the quantization pass runs and where the finished component lands; quantizing on `cuda` is much faster than on CPU
 - `use_quantized_matmul` — quantized matmul kernels (CUDA/XPU only)
 
-**Examples:** [LTX2.json](../examples/ltx2/LTX2.json), [MiniMaxH3.json](../examples/minimax/MiniMaxH3.json)
+**Examples:** [LTX2.json](../workflows/ltx2/LTX2.json), [MiniMaxH3.json](../workflows/minimax/MiniMaxH3.json)
 
 ### Pre-quantized models
 
@@ -171,7 +171,7 @@ Pre-quantized SDNQ repos load as complete pipelines. The `sdnq` module must be i
 - `pre_load_modules` — Imports sdnq before pipeline loading (registers quantization method)
 - `sdnq_optimize` — Applies quantized matmul to listed components (CUDA/XPU only, skipped on MPS/CPU)
 
-**Example:** [ZImageSDNQ.json](../examples/ZImageSDNQ.json)
+**Example:** [ZImageSDNQ.json](../workflows/ZImageSDNQ.json)
 
 ## Modular Pipelines
 

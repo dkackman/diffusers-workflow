@@ -43,7 +43,7 @@ class TestPromptDir:
         # Run from an unrelated working directory, the workflow still finds
         # the library it lives beside
         (tmp_path / "repo" / "prompts").mkdir(parents=True)
-        workflow_dir = tmp_path / "repo" / "examples" / "minimax"
+        workflow_dir = tmp_path / "repo" / "workflows" / "minimax"
         workflow_dir.mkdir(parents=True)
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
@@ -73,7 +73,7 @@ class TestPromptDir:
         (library / "scenic.json").write_text(
             json_module.dumps({"text": "found by the walk"})
         )
-        workflow_dir = tmp_path / "repo" / "examples"
+        workflow_dir = tmp_path / "repo" / "workflows"
         workflow_dir.mkdir()
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()

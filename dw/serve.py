@@ -1,7 +1,7 @@
 """Run the workflow engine as a local HTTP server.
 
     python -m dw.serve
-    python -m dw.serve --port 8765 --workflow-dir ./examples
+    python -m dw.serve --port 8765 --workflow-dir ./workflows
 
 Binds to localhost by default - this serves your GPU to your own tools,
 not to the network. Interactive API docs at http://127.0.0.1:8765/docs
@@ -26,7 +26,7 @@ def main():
     )
     parser.add_argument("--port", type=int, default=8765, help="Port (default: 8765)")
     parser.add_argument(
-        "--workflow-dir", default="./examples", help="Directory of workflow JSON files"
+        "--workflow-dir", default="./workflows", help="Directory of workflow JSON files"
     )
     parser.add_argument(
         "--output-dir", default="./outputs", help="Directory results are written to"

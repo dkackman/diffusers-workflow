@@ -230,7 +230,7 @@ An argument that goes through diffusers' video processor instead - LTX-2's
 IC-LoRA references - wants the `[0, 1]` frames the pipeline returned rather than
 this array; hand those over with `previous_result:step.frames`.
 
-**Example:** [LTX2Extend.json](../examples/ltx2/LTX2Extend.json)
+**Example:** [LTX2Extend.json](../workflows/ltx2/LTX2Extend.json)
 
 ### pair_audio
 
@@ -258,7 +258,7 @@ returns frames without it, and this puts it back:
 | `audio` | Yes | The soundtrack - a waveform, or the earlier step whose video carried one, which brings its sample rate along |
 | `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
 
-**Example:** [LTX2TwoStage.json](../examples/ltx2/LTX2TwoStage.json)
+**Example:** [LTX2TwoStage.json](../workflows/ltx2/LTX2TwoStage.json)
 
 ### slice_audio
 
@@ -361,7 +361,7 @@ Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR
 
 Large images are automatically tiled to avoid GPU memory issues. Models can be loaded from HuggingFace Hub repos or local `.pth`/`.safetensors` files.
 
-**Example:** [SpandrelUpscale.json](../examples/tasks/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
+**Example:** [SpandrelUpscale.json](../workflows/tasks/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
 
 ## Diffusion Upscaling
 
@@ -397,7 +397,7 @@ Two modes are available:
 | `noise_level` | No | Noise level for x4 mode (default: 20, ignored for x2) |
 
 **Examples:**
-- [DiffusionUpscale.json](../examples/tasks/DiffusionUpscale.json) — Generate at 512px, then upscale. `mode` selects which: `x4` (the default) reaches 2048px, `x2` reaches 1024px through the latent upscaler.
+- [DiffusionUpscale.json](../workflows/tasks/DiffusionUpscale.json) — Generate at 512px, then upscale. `mode` selects which: `x4` (the default) reaches 2048px, `x2` reaches 1024px through the latent upscaler.
 
 ## Face Restoration
 
@@ -431,7 +431,7 @@ Restore and enhance faces in images using spandrel-compatible face restoration m
 
 Models are loaded via spandrel, so any `.pth`/`.safetensors` face restoration weights work. CodeFormer requires `pip install spandrel-extra-arches` (non-commercial license).
 
-**Example:** [FaceRestore.json](../examples/tasks/FaceRestore.json) — Generate a portrait, then restore faces with GFPGAN v1.4.
+**Example:** [FaceRestore.json](../workflows/tasks/FaceRestore.json) — Generate a portrait, then restore faces with GFPGAN v1.4.
 
 ### Combining with Upscaling
 
@@ -507,8 +507,8 @@ Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, b
 
 **Examples:**
 
-- [Segment.json](../examples/tasks/Segment.json) — Segment an object from an image
-- [SegmentAndInpaint.json](../examples/tasks/SegmentAndInpaint.json) — Segment, then inpaint the masked region
+- [Segment.json](../workflows/tasks/Segment.json) — Segment an object from an image
+- [SegmentAndInpaint.json](../workflows/tasks/SegmentAndInpaint.json) — Segment, then inpaint the masked region
 
 ## Image Captioning
 
@@ -555,9 +555,9 @@ For Florence-2's advanced task-token captioning (detailed captions, object detec
 
 **Examples:**
 
-- [ImageToText.json](../examples/tasks/ImageToText.json) — Basic captioning with the default model, saves as `.txt`
-- [ImageToTextVLM.json](../examples/tasks/ImageToTextVLM.json) — Larger VLM answering a specific question
-- [CaptionToImage.json](../examples/tasks/CaptionToImage.json) — Caption an image, then regenerate with Flux
+- [ImageToText.json](../workflows/tasks/ImageToText.json) — Basic captioning with the default model, saves as `.txt`
+- [ImageToTextVLM.json](../workflows/tasks/ImageToTextVLM.json) — Larger VLM answering a specific question
+- [CaptionToImage.json](../workflows/tasks/CaptionToImage.json) — Caption an image, then regenerate with Flux
 
 ## Extracting Sections
 
@@ -656,8 +656,8 @@ It is merged after everything else, so it can override `repetition_penalty` and 
 
 **Examples:**
 
-- [ExpandPrompt.json](../examples/tasks/ExpandPrompt.json) — Expand a short prompt and save as `.txt`
-- [ExpandAndGenerate.json](../examples/tasks/ExpandAndGenerate.json) — Expand prompt, then generate with Flux
+- [ExpandPrompt.json](../workflows/tasks/ExpandPrompt.json) — Expand a short prompt and save as `.txt`
+- [ExpandAndGenerate.json](../workflows/tasks/ExpandAndGenerate.json) — Expand prompt, then generate with Flux
 
 ## Frame Interpolation
 
@@ -685,7 +685,7 @@ Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). T
 
 Uses vendored IFNet v4.13 architecture. Weights are downloaded from HuggingFace Hub on first use.
 
-**Example:** [InterpolateFrames.json](../examples/InterpolateFrames.json) — Generate video with Mochi, then 2x interpolate from 30fps to 60fps.
+**Example:** [InterpolateFrames.json](../workflows/InterpolateFrames.json) — Generate video with Mochi, then 2x interpolate from 30fps to 60fps.
 
 ## Metadata Embedding
 
@@ -707,7 +707,7 @@ Embed generation parameters in saved images. Enable by setting `embed_metadata: 
 
 Metadata includes step name, model name, and generation arguments (prompt, steps, guidance scale, etc.) as JSON.
 
-**Example:** [MetadataEmbed.json](../examples/tasks/MetadataEmbed.json) — Generate with Flux and embed parameters in PNG.
+**Example:** [MetadataEmbed.json](../workflows/tasks/MetadataEmbed.json) — Generate with Flux and embed parameters in PNG.
 
 ## QR Code Generation
 
@@ -730,7 +730,7 @@ Metadata includes step name, model name, and generation arguments (prompt, steps
 
 The QR code is generated then resampled to `max(height, width)`, aligned to the nearest 64px multiple.
 
-**Example:** [qr_code.json](../examples/archive/qr_code.json) — QR code with artistic ControlNet
+**Example:** [qr_code.json](../workflows/archive/qr_code.json) — QR code with artistic ControlNet
 
 ## Chat/Dict Plumbing
 
@@ -853,17 +853,17 @@ Canny edge detection followed by ControlNet generation:
 
 ## Examples
 
-- [FluxCanny.json](../examples/flux/FluxCanny.json) — Canny edge ControlNet
-- [FluxDepth.json](../examples/flux/FluxDepth.json) — Depth-guided generation
-- [qr_code.json](../examples/archive/qr_code.json) — QR code with artistic ControlNet
-- [SpandrelUpscale.json](../examples/tasks/SpandrelUpscale.json) — Generate + spandrel 4x upscale
-- [FaceRestore.json](../examples/tasks/FaceRestore.json) — Generate portrait + GFPGAN face restoration
-- [Segment.json](../examples/tasks/Segment.json) — Text-prompted object segmentation
-- [SegmentAndInpaint.json](../examples/tasks/SegmentAndInpaint.json) — Segment + inpaint
-- [ImageToText.json](../examples/tasks/ImageToText.json) — image captioning with the SmolVLM default
-- [ImageToTextVLM.json](../examples/tasks/ImageToTextVLM.json) — VLM captioning with a specific question
-- [CaptionToImage.json](../examples/tasks/CaptionToImage.json) — Caption then regenerate
-- [InterpolateFrames.json](../examples/InterpolateFrames.json) — RIFE frame interpolation
-- [MetadataEmbed.json](../examples/tasks/MetadataEmbed.json) — Embed generation parameters in PNG
-- [ExpandPrompt.json](../examples/tasks/ExpandPrompt.json) — LLM prompt expansion
-- [ExpandAndGenerate.json](../examples/tasks/ExpandAndGenerate.json) — Expand prompt + generate image
+- [FluxCanny.json](../workflows/flux/FluxCanny.json) — Canny edge ControlNet
+- [FluxDepth.json](../workflows/flux/FluxDepth.json) — Depth-guided generation
+- [qr_code.json](../workflows/archive/qr_code.json) — QR code with artistic ControlNet
+- [SpandrelUpscale.json](../workflows/tasks/SpandrelUpscale.json) — Generate + spandrel 4x upscale
+- [FaceRestore.json](../workflows/tasks/FaceRestore.json) — Generate portrait + GFPGAN face restoration
+- [Segment.json](../workflows/tasks/Segment.json) — Text-prompted object segmentation
+- [SegmentAndInpaint.json](../workflows/tasks/SegmentAndInpaint.json) — Segment + inpaint
+- [ImageToText.json](../workflows/tasks/ImageToText.json) — image captioning with the SmolVLM default
+- [ImageToTextVLM.json](../workflows/tasks/ImageToTextVLM.json) — VLM captioning with a specific question
+- [CaptionToImage.json](../workflows/tasks/CaptionToImage.json) — Caption then regenerate
+- [InterpolateFrames.json](../workflows/InterpolateFrames.json) — RIFE frame interpolation
+- [MetadataEmbed.json](../workflows/tasks/MetadataEmbed.json) — Embed generation parameters in PNG
+- [ExpandPrompt.json](../workflows/tasks/ExpandPrompt.json) — LLM prompt expansion
+- [ExpandAndGenerate.json](../workflows/tasks/ExpandAndGenerate.json) — Expand prompt + generate image
