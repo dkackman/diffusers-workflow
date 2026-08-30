@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { defineConfig } from 'vite'
 
@@ -9,5 +10,8 @@ export default defineConfig({
       '/api': 'http://127.0.0.1:8765',
       '/outputs': 'http://127.0.0.1:8765',
     },
+  },
+  test: {
+    exclude: ['e2e/**', 'node_modules/**'],
   },
 })

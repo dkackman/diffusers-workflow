@@ -45,7 +45,9 @@ def main(output_dir):
         # room to spare in both directions
         verdict = "NOISE - bad load" if delta > 6.0 else "ok"
         bad += verdict != "ok"
-        print(f"{os.path.basename(path):55s} {megabytes:5.2f} MB  delta={delta:5.2f}  {verdict}")
+        print(
+            f"{os.path.basename(path):55s} {megabytes:5.2f} MB  delta={delta:5.2f}  {verdict}"
+        )
 
     print(f"\n{len(paths) - bad}/{len(paths)} segments ok")
     return 1 if bad else 0
