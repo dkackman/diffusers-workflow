@@ -315,3 +315,4 @@ Apple Silicon has narrower acceleration support than CUDA:
 - `float16` produces NaN values on Apple Silicon - use `float32` or `bfloat16` for `torch_dtype` instead; dw only warns, it doesn't override the dtype for you.
 - `PYTORCH_MPS_HIGH_WATERMARK_RATIO` defaults to `0.0` (use all unified memory) unless already set in the environment.
 - Offloading has less benefit than on CUDA, since unified memory is already shared between CPU and GPU.
+- `export PYTORCH_ENABLE_MPS_FALLBACK=1` to fallback to cpu for operations that MPS doesn't support
