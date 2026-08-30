@@ -8,7 +8,7 @@ name = "diffusers-workflow"
 # runtime (static in TOML because importing dw at build time would drag
 # torch into the build environment). Release tags must match it - see
 # docs/RELEASING.md
-version = "0.4.0-alpha.1"
+version = "0.4.0-alpha.2"
 description = "Declarative workflow engine and web UI for Hugging Face Diffusers"
 readme = "README.md"
 requires-python = ">=3.10"
