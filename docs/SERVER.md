@@ -31,7 +31,8 @@ load entirely.
   schema-aware JSON views, and an **Enhance with AI** panel that expands an
   idea into a full prompt with a local language model (a preset per target
   model family; the model runs as an ordinary queued job). A workflow
-  argument written as `prompt:name` loads the stored text at run time.
+  argument written as `prompt:name` loads the stored text at run time,
+  and deleting a prompt warns which workflows reference it.
 - **Jobs** — the queue and full run history (persisted in
   `~/.diffusers_helper/jobs.sqlite`). A running job streams step-by-step
   progress, per-step denoising ticks, and its result files as they land.
@@ -100,8 +101,9 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`)
 - `GET /api/prompts`, `GET/PUT/DELETE /api/prompts/{name}` — the prompt
-  library (confined to `--prompt-dir`); saves are validated against the
-  prompt schema, served at `GET /api/prompt-schema`
+  library (confined to `--prompt-dir`, names held to what a `prompt:`
+  reference can load); saves are validated against the prompt schema,
+  served at `GET /api/prompt-schema`
 - `GET /api/enhancers`, `POST /api/enhance` — prompt-enhancement presets,
   and `{"idea": ..., "preset": ..., "model_name": ..., "device": ...}` to
   queue an enhancement as an ordinary job whose saved text file is the

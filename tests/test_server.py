@@ -500,8 +500,23 @@ def test_workflow_listing_carries_details(server):
             "kinds": ["image"],
             "variables": 1,
             "description": "Renders a small test image.",
+            "prompt_refs": [],
         }
         assert listing["details"]["Basic"]["kinds"] == []
+
+
+def test_workflow_details_name_their_prompt_references(server):
+    """The listing says which stored prompts a workflow leans on - deleting
+    a prompt warns from exactly this."""
+    with server(success_script) as client:
+        workflow = valid_workflow("leaning")
+        workflow["variables"] = {"prompt": "prompt:minimax/fox"}
+        workflow["steps"][0]["pipeline"]["arguments"]["negative"] = "prompt:scenic"
+        client.put("/api/workflows/Leaning", json={"workflow": workflow})
+
+        details = client.get("/api/workflows").json()["details"]
+        assert details["Leaning"]["prompt_refs"] == ["minimax/fox", "scenic"]
+        assert details["Basic"]["prompt_refs"] == []
 
 
 def test_sse_resumes_from_last_event_id_header(server):

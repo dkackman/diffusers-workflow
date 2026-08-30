@@ -73,6 +73,17 @@ export function promptListId(value: unknown): string | undefined {
     : undefined
 }
 
+/** The workflows whose definitions reference a stored prompt, from the
+ * workflow listing's details - what a delete is about to break. */
+export function workflowsReferencing(
+  name: string,
+  details: Record<string, { prompt_refs?: string[] }>,
+): string[] {
+  return Object.keys(details)
+    .filter((workflow) => details[workflow].prompt_refs?.includes(name))
+    .sort()
+}
+
 /** Every intended_model value worth suggesting: what the presets know,
  * plus what the library already uses - a value on a card should also be
  * a suggestion in the editor. */

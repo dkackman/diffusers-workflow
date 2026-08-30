@@ -40,7 +40,12 @@ export const api = {
       workflows: string[]
       details: Record<
         string,
-        { kinds: string[]; variables: number; description: string }
+        {
+          kinds: string[]
+          variables: number
+          description: string
+          prompt_refs?: string[]
+        }
       >
     }>('/api/workflows'),
   getWorkflow: (name: string) =>

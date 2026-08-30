@@ -7,6 +7,7 @@ import {
   presetForIntendedModel,
   promptListId,
   promptTooltip,
+  workflowsReferencing,
 } from './prompts'
 import type { EnhancerPreset } from './types'
 
@@ -107,6 +108,27 @@ describe('promptListId', () => {
     expect(promptListId('variable:prompt')).toBeUndefined()
     expect(promptListId(42)).toBeUndefined()
     expect(promptListId(undefined)).toBeUndefined()
+  })
+})
+
+describe('workflowsReferencing', () => {
+  const details = {
+    'flux/FluxDev': { prompt_refs: ['flux/biomechanical_daffodil'] },
+    ZImage: { prompt_refs: ['zimage/kidney_trade_in', 'scenic'] },
+    Plain: {},
+    Old: { prompt_refs: undefined },
+  }
+
+  it('names the workflows a delete would break, sorted', () => {
+    expect(workflowsReferencing('scenic', details)).toEqual(['ZImage'])
+    expect(workflowsReferencing('flux/biomechanical_daffodil', details)).toEqual(
+      ['flux/FluxDev'],
+    )
+  })
+
+  it('is empty for unreferenced prompts and pre-upgrade servers', () => {
+    expect(workflowsReferencing('unused', details)).toEqual([])
+    expect(workflowsReferencing('scenic', {})).toEqual([])
   })
 })
 

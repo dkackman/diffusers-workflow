@@ -19,6 +19,7 @@
     manifestTextFile,
     parseTags,
     presetForIntendedModel,
+    workflowsReferencing,
   } from '../prompts'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import type {
@@ -404,7 +405,28 @@
 
   async function remove() {
     if (!name) return
-    if (!window.confirm(`Delete ${name}.json? This removes the file on disk.`))
+    // Say what the delete is about to break: any workflow holding a
+    // prompt:name reference fails at run time once the file is gone
+    let warning = ''
+    try {
+      const { details } = await api.listWorkflows()
+      const referencing = workflowsReferencing(name, details ?? {})
+      if (referencing.length) {
+        const shown = referencing.slice(0, 5).join(', ')
+        const more = referencing.length > 5 ? ', …' : ''
+        warning =
+          `\n\nReferenced by ${referencing.length} workflow` +
+          `${referencing.length === 1 ? '' : 's'} (${shown}${more}) - ` +
+          'they will fail at run time until updated.'
+      }
+    } catch {
+      /* the confirm still protects the file itself */
+    }
+    if (
+      !window.confirm(
+        `Delete ${name}.json? This removes the file on disk.${warning}`,
+      )
+    )
       return
     try {
       await api.deletePrompt(name)

@@ -35,7 +35,7 @@ from ..introspection import (
     workflow_argument_warnings,
 )
 from ..schema import load_schema, validate_data
-from ..prompts import RESERVED_TEXT_PREFIXES
+from ..prompts import PROMPT_PREFIX, RESERVED_TEXT_PREFIXES
 from ..workflow import Workflow, workflow_from_definition
 from .enhancers import build_enhance_workflow, preset_descriptions
 from ..result import read_embedded_metadata
@@ -82,6 +82,22 @@ def workflow_names(workflow_dir):
 _workflow_detail_cache = {}
 
 
+def collect_prompt_references(value):
+    """Every stored-prompt name a definition references, at any depth - so
+    deleting a prompt can warn which workflows would break."""
+    references = set()
+    if isinstance(value, str):
+        if value.startswith(PROMPT_PREFIX):
+            references.add(value.removeprefix(PROMPT_PREFIX).strip())
+    elif isinstance(value, dict):
+        for item in value.values():
+            references |= collect_prompt_references(item)
+    elif isinstance(value, list):
+        for item in value:
+            references |= collect_prompt_references(item)
+    return references
+
+
 def workflow_details(workflow_dir, names):
     """Per-workflow card metadata: output kinds and variable count."""
     details = {}
@@ -110,9 +126,15 @@ def workflow_details(workflow_dir, names):
                 "kinds": kinds,
                 "variables": len(definition.get("variables", {})),
                 "description": str(definition.get("description", "") or ""),
+                "prompt_refs": sorted(collect_prompt_references(definition)),
             }
         except Exception:
-            detail = {"kinds": [], "variables": 0, "description": ""}
+            detail = {
+                "kinds": [],
+                "variables": 0,
+                "description": "",
+                "prompt_refs": [],
+            }
         _workflow_detail_cache[path] = (mtime, detail)
         details[name] = detail
     return details

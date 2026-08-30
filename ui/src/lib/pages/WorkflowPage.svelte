@@ -138,17 +138,35 @@
         {#each variables as [key, defaultValue] (key)}
           <label for={'var-' + key}>{key}</label>
           {#if display(defaultValue).length > 60}
-            <textarea
-              id={'var-' + key}
-              class:ref={isReference(overrides[key] || defaultValue)}
-              rows="3"
-              spellcheck="true"
-              title={promptTooltip(
-                overrides[key] || defaultValue,
-                promptLibrary.texts,
-              )}
-              placeholder={display(defaultValue)}
-              bind:value={overrides[key]}></textarea>
+            <div class="fieldcol">
+              <textarea
+                id={'var-' + key}
+                class:ref={isReference(overrides[key] || defaultValue)}
+                rows="3"
+                spellcheck="true"
+                title={promptTooltip(
+                  overrides[key] || defaultValue,
+                  promptLibrary.texts,
+                )}
+                placeholder={display(defaultValue)}
+                bind:value={overrides[key]}></textarea>
+              {#if promptLibrary.names?.length}
+                <select
+                  class="promptpick"
+                  title="override this variable with a stored prompt from the library"
+                  onchange={(e) => {
+                    if (!e.currentTarget.value) return
+                    overrides[key] = 'prompt:' + e.currentTarget.value
+                    e.currentTarget.value = ''
+                  }}
+                >
+                  <option value="">use a stored prompt…</option>
+                  {#each promptLibrary.names ?? [] as promptName (promptName)}
+                    <option value={promptName}>{promptName}</option>
+                  {/each}
+                </select>
+              {/if}
+            </div>
           {:else}
             <input
               id={'var-' + key}
@@ -219,6 +237,19 @@
     padding-top: 0.45rem;
     font-weight: 600;
     color: var(--muted);
+  }
+  .fieldcol {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    align-items: flex-start;
+  }
+  .fieldcol textarea {
+    width: 100%;
+  }
+  .promptpick {
+    max-width: 260px;
+    font-size: 0.8rem;
   }
   .json {
     margin-top: 1rem;
