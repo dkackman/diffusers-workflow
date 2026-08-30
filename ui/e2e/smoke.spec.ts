@@ -41,7 +41,7 @@ test('editor opens a workflow with introspected arguments', async ({
   await expect(promptField).toHaveValue('variable:prompt')
 })
 
-test('split view shows live JSON beside the form', async ({ page }) => {
+test('split view shows editable JSON beside the form', async ({ page }) => {
   await page.goto('/#/edit/ZImage')
   await page.getByRole('button', { name: /split/ }).click()
   await expect(page.locator('.jsoncol')).toBeVisible()
@@ -49,7 +49,20 @@ test('split view shows live JSON beside the form', async ({ page }) => {
   await expect(page.locator('.jsoncol .monaco-editor')).toBeVisible({
     timeout: 20_000,
   })
-  await page.getByRole('button', { name: /split/ }).click()
+  // the pane is editable: replace the JSON and the form follows on blur
+  await page.locator('.jsoncol .view-lines').click()
+  await page.keyboard.press('ControlOrMeta+a')
+  await page.keyboard.press('Backspace')
+  await page.keyboard.insertText(
+    '{"id": "typed_in_json", "variables": {}, "steps": []}',
+  )
+  await expect(page.locator('.jsoncol .view-lines')).toContainText(
+    'typed_in_json',
+  )
+  await page.locator('h2', { hasText: 'Variables' }).click()
+  await expect(page.locator('input.wfid')).toHaveValue('typed_in_json')
+  // views are mutually exclusive - form closes the pane
+  await page.getByRole('button', { name: /form/ }).click()
   await expect(page.locator('.jsoncol')).toHaveCount(0)
 })
 

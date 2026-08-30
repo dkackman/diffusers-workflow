@@ -31,9 +31,11 @@ load entirely.
   Forms are generated from the live pipeline signatures (see
   [introspection](#introspection)), references
   (`variable:` / `previous_result:`) autocomplete from the workflow itself,
-  and a split view shows the JSON updating as you edit. Validate, save, and
-  run from the same screen. A Monaco editor with the workflow JSON schema
-  backs the JSON views.
+  and three views — form, split, and raw JSON — edit the same definition.
+  The split view puts the form beside the JSON with both sides editable;
+  changes apply when a side loses focus. Validate, save, and run from the
+  same screen. A Monaco editor with the workflow JSON schema backs the
+  JSON views.
 - **Gallery** — everything in the output directory. Images generated with
   `embed_metadata` carry their full workflow definition and seed; **open as
   workflow** loads that definition into the editor with the seed pinned, so

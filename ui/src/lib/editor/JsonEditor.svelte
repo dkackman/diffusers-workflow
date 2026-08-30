@@ -47,10 +47,14 @@
     }
   })
 
-  // The outside world replaced the document (form edits, new workflow)
+  // The outside world replaced the document (form edits, new workflow).
+  // setValue resets scroll and cursor, which is jarring for the split
+  // view's constant refreshes - restore the view state around it.
   $effect(() => {
     if (editor && editor.getValue() !== value && !editor.hasTextFocus()) {
+      const viewState = editor.saveViewState()
       editor.setValue(value)
+      if (viewState) editor.restoreViewState(viewState)
     }
   })
 </script>
