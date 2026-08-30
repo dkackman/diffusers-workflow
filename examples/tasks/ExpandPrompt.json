@@ -1,5 +1,6 @@
 {
     "id": "ExpandPrompt",
+    "description": "Expands a short prompt into a detailed one with a language model - text out, no image.",
     "variables": {
         "prompt": "a cat sitting on a windowsill"
     },

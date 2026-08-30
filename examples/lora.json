@@ -1,5 +1,6 @@
 {
     "id": "sd35_lora",
+    "description": "Stable Diffusion 3.5 Large with a LoRA adapter applied at generation time.",
     "steps": [
         {
             "name": "main",

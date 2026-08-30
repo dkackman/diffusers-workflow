@@ -1,5 +1,6 @@
 {
     "id": "Allegro",
+    "description": "Text-to-video with Allegro.",
     "steps": [
         {
             "name": "text_to_video",

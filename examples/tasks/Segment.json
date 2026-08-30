@@ -1,5 +1,6 @@
 {
     "id": "Segment",
+    "description": "Segments input images into labeled region masks.",
     "variables": {
         "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/model_doc/grounding_dino_example_input.png",
         "prompt": "cat"

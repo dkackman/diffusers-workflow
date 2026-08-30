@@ -1,5 +1,6 @@
 {
     "id": "Wan22T2V14B",
+    "description": "Text-to-video with Wan 2.2 14B, 4-bit quantized.",
     "variables": {
         "model_name": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
         "prompt": "Over-the-shoulder shot. A man in a white shirt and brown vest stands, A man in a white shirt and a brown vest stands by a fireplace, looking at someone to the right.",

@@ -4,6 +4,7 @@
         "num_images_per_prompt": 4
     },
     "id": "FluxRfInversion",
+    "description": "Inverts an input image into FLUX.1 latents for editing, via the community RF-inversion pipeline (4-bit quantized).",
     "steps": [
         {
             "name": "invert",

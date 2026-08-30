@@ -4,6 +4,7 @@
         "prompt": "fill in with more clouds, rainbows, stars and rockets"
     },
     "id": "FluxOutpaint",
+    "description": "Extends an image beyond its borders: adds a border mask, then fills it with FLUX.1 Fill dev.",
     "steps": [
         {
             "name": "mask_image",

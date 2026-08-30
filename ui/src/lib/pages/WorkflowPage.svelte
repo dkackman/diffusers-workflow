@@ -26,9 +26,7 @@
 
   const variables = $derived(Object.entries(workflow?.variables ?? {}))
 
-  function display(value: unknown): string {
-    return typeof value === 'string' ? value : JSON.stringify(value)
-  }
+  import { displayValue as display } from '../editor'
 
   function newFrom() {
     if (!workflow) return
@@ -37,7 +35,8 @@
   }
 
   async function remove() {
-    if (!window.confirm(`Delete ${name}.json? This removes the file on disk.`)) return
+    if (!window.confirm(`Delete ${name}.json? This removes the file on disk.`))
+      return
     try {
       await api.deleteWorkflow(name)
       go('workflows')
@@ -73,7 +72,9 @@
   <button
     class="quiet"
     onclick={() => (showJson = !showJson)}
-    title={showJson ? 'hide the workflow definition' : 'show the workflow definition'}
+    title={showJson
+      ? 'hide the workflow definition'
+      : 'show the workflow definition'}
   >
     {showJson ? 'hide' : 'show'} JSON
   </button>
@@ -84,7 +85,12 @@
   >
     <SquarePen size={14} />Edit
   </a>
-  <button class="quiet withicon" onclick={newFrom} disabled={!workflow} title="open a copy in the editor">
+  <button
+    class="quiet withicon"
+    onclick={newFrom}
+    disabled={!workflow}
+    title="open a copy in the editor"
+  >
     <Copy size={14} />New from
   </button>
   <span class="spacer"></span>
@@ -109,19 +115,21 @@
 {#if error}<p class="error">{error}</p>{/if}
 
 {#if workflow}
+  {#if workflow.description}
+    <p class="muted desc">{workflow.description}</p>
+  {/if}
   {#if variables.length}
     <div class="panel">
       <h2>Arguments <span class="muted">(blank = workflow default)</span></h2>
       <div class="vars">
-        {#each variables as [key, defaultValue]}
+        {#each variables as [key, defaultValue] (key)}
           <label for={'var-' + key}>{key}</label>
           {#if display(defaultValue).length > 60}
             <textarea
               id={'var-' + key}
               rows="3"
               placeholder={display(defaultValue)}
-              bind:value={overrides[key]}
-            ></textarea>
+              bind:value={overrides[key]}></textarea>
           {:else}
             <input
               id={'var-' + key}
@@ -138,24 +146,62 @@
 
   {#if showJson}
     <div class="json">
-      <JsonEditor value={JSON.stringify(workflow, null, 2)} readonly height="520px" />
+      <JsonEditor
+        value={JSON.stringify(workflow, null, 2)}
+        readonly
+        height="520px"
+      />
     </div>
   {/if}
 {/if}
 
 <style>
-  .head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
-  .head h1 { flex: 1; }
-  .editlink { font-weight: 600; }
-  .withicon { display: inline-flex; align-items: center; gap: 0.35rem; }
-  a.withicon { gap: 0.3rem; }
-  .spacer { width: 0.8rem; }
-  .icon { display: inline-flex; padding: 0.4rem 0.5rem; }
-  .vars {
-    display: grid; grid-template-columns: minmax(140px, auto) 1fr;
-    gap: 0.5rem 1rem; align-items: start;
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
   }
-  .vars label { padding-top: 0.45rem; font-weight: 600; color: var(--muted); }
-  .json { margin-top: 1rem; }
-  .error { color: var(--bad); }
+  .head h1 {
+    flex: 1;
+  }
+  .editlink {
+    font-weight: 600;
+  }
+  .withicon {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  a.withicon {
+    gap: 0.3rem;
+  }
+  .spacer {
+    width: 0.8rem;
+  }
+  .icon {
+    display: inline-flex;
+    padding: 0.4rem 0.5rem;
+  }
+  .vars {
+    display: grid;
+    grid-template-columns: minmax(140px, auto) 1fr;
+    gap: 0.5rem 1rem;
+    align-items: start;
+  }
+  .vars label {
+    padding-top: 0.45rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .json {
+    margin-top: 1rem;
+  }
+  .error {
+    color: var(--bad);
+  }
+  .desc {
+    margin: -0.5rem 0 1rem;
+    max-width: 75ch;
+  }
 </style>

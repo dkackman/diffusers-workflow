@@ -4,6 +4,7 @@
         "mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png"
     },
     "id": "FluxFill",
+    "description": "Inpaints the masked region of an image with FLUX.1 Fill dev.",
     "steps": [
         {
             "name": "fill",

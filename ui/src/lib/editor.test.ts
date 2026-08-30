@@ -26,8 +26,12 @@ describe('widgetFor', () => {
   })
 
   it('engine references are always text, whatever the annotation says', () => {
-    expect(widgetFor(param({ annotation: 'int' }), 'variable:steps')).toBe('text')
-    expect(widgetFor(param({ annotation: 'bool' }), 'previous_result:gen')).toBe('text')
+    expect(widgetFor(param({ annotation: 'int' }), 'variable:steps')).toBe(
+      'text',
+    )
+    expect(
+      widgetFor(param({ annotation: 'bool' }), 'previous_result:gen'),
+    ).toBe('text')
   })
 
   it('falls back to the annotation for empty values', () => {
@@ -111,7 +115,10 @@ describe('danglingReferences', () => {
         {
           name: 'gen',
           pipeline: {
-            arguments: { prompt: 'variable:prompt', image: 'previous_result:later' },
+            arguments: {
+              prompt: 'variable:prompt',
+              image: 'previous_result:later',
+            },
           },
         },
         {

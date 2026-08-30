@@ -3,6 +3,7 @@
         "prompt": "An eco-friendly crypto currency logo"
     },
     "id": "FluxLogo",
+    "description": "Generates a logo with the FluxLora workflow, then removes its background.",
     "steps": [
         {
             "name": "logo",

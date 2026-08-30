@@ -10,7 +10,11 @@
   --good: #63b784;
   --bad: #e07a6a;
   --warn: #d9a84e;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
   color-scheme: dark;
 }
 
@@ -61,72 +65,177 @@
   color-scheme: light;
 }
 
-* { box-sizing: border-box; }
-button, a, input, select, textarea, .panel {
-  transition: border-color 0.15s ease, background-color 0.15s ease,
-    color 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+* {
+  box-sizing: border-box;
 }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button,
+a,
+input,
+select,
+textarea,
+.panel {
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease,
+    filter 0.15s ease,
+    opacity 0.15s ease;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 
 @keyframes dw-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 .pulse-dot {
-  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-  background: var(--accent); animation: dw-pulse 1.6s ease-in-out infinite;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dw-pulse 1.6s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .pulse-dot { animation: none; }
+  .pulse-dot {
+    animation: none;
+  }
 }
-body { margin: 0; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; }
-a { color: var(--accent); text-decoration: none; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
 button {
-  background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 6px;
-  padding: 0.45rem 0.9rem; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 0;
+  border-radius: 6px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
 }
-button:hover { filter: brightness(1.1); }
-button:disabled { opacity: 0.45; cursor: default; }
+button:hover {
+  filter: brightness(1.1);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 button.quiet {
-  background: transparent; color: var(--muted); border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
   font-weight: 500;
 }
-input, textarea, select {
-  background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
-  border-radius: 6px; padding: 0.4rem 0.6rem; font-size: 0.9rem; width: 100%;
+input,
+textarea,
+select {
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+  width: 100%;
   font-family: inherit;
 }
-input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-code, pre { font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 0.85em; }
-pre {
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
-  padding: 0.8rem; overflow-x: auto; margin: 0;
+input:focus,
+textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
-h1 { font-size: 1.25rem; margin: 0; }
-h2 { font-size: 1rem; margin: 0 0 0.6rem; }
+code,
+pre {
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  font-size: 0.85em;
+}
+pre {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.8rem;
+  overflow-x: auto;
+  margin: 0;
+}
+h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+h2 {
+  font-size: 1rem;
+  margin: 0 0 0.6rem;
+}
 
 .panel {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
   padding: 1rem;
 }
 .chip {
-  display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
-  font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em;
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
-input.ref, textarea.ref {
+input.ref,
+textarea.ref {
   color: var(--accent);
   font-family: ui-monospace, 'Cascadia Code', monospace;
   font-size: 0.85rem;
 }
-button.danger:hover, a.danger:hover {
-  border-color: var(--bad); color: var(--bad); filter: none;
+button.danger:hover,
+a.danger:hover {
+  border-color: var(--bad);
+  color: var(--bad);
+  filter: none;
 }
-.panel.error-edge { border-left: 3px solid var(--bad); }
-.panel.warn-edge { border-left: 3px solid var(--warn); }
-.panel.good-edge { border-left: 3px solid var(--good); }
-.chip.queued { background: var(--panel-2); color: var(--muted); }
-.chip.running { background: var(--accent); color: var(--accent-ink); }
-.chip.succeeded { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
-.chip.failed { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
-.chip.cancelled { background: var(--panel-2); color: var(--warn); }
-.muted { color: var(--muted); }
+.panel.error-edge {
+  border-left: 3px solid var(--bad);
+}
+.panel.warn-edge {
+  border-left: 3px solid var(--warn);
+}
+.panel.good-edge {
+  border-left: 3px solid var(--good);
+}
+.chip.queued {
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.chip.running {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.chip.succeeded {
+  background: color-mix(in srgb, var(--good) 22%, transparent);
+  color: var(--good);
+}
+.chip.failed {
+  background: color-mix(in srgb, var(--bad) 22%, transparent);
+  color: var(--bad);
+}
+.chip.cancelled {
+  background: var(--panel-2);
+  color: var(--warn);
+}
+.muted {
+  color: var(--muted);
+}

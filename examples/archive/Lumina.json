@@ -8,6 +8,7 @@
         "height": 1024
     },
     "id": "Lumina",
+    "description": "Text-to-image with Lumina Image 2.0.",
     "steps": [
         {
             "name": "txt2img",

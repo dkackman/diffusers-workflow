@@ -288,20 +288,7 @@ class Pipeline:
             "audio_scheduler",
         )
 
-        # Store components that will be shared with other pipelines. get_component
-        # rather than getattr - a modular pipeline registers a component it did not
-        # load as None rather than omitting it, and sharing that None silently would
-        # surface as a missing-component error inside the step that reused it
-        for shared_component_name in self.component_names("shared_components"):
-            component = get_component(self.pipeline, shared_component_name)
-            if component is None:
-                raise ValueError(
-                    f"Cannot share component '{shared_component_name}' - "
-                    f"{type(self.pipeline).__name__} registers it but has not "
-                    f"loaded it"
-                )
-            logger.debug(f"Storing shared component: {shared_component_name}")
-            shared_components[shared_component_name] = component
+        self.publish_shared_components(shared_components)
 
         # Load and configure LoRA models
         load_loras(self.pipeline_definition.get("loras", []), self.pipeline)
@@ -348,6 +335,28 @@ class Pipeline:
         empty_device_cache()
 
         logger.debug("Pipeline loaded successfully")
+
+    def publish_shared_components(self, shared_components):
+        """Store components that will be shared with other pipelines.
+
+        Called from load, and again by the workflow when a cached pipeline is
+        reused - a cache hit skips load entirely, and the shared_components
+        dict is fresh every run, so a warm sharing step must republish or a
+        later reusing step finds nothing. get_component rather than getattr -
+        a modular pipeline registers a component it did not load as None, and
+        sharing that None silently would surface as a missing-component error
+        inside the step that reused it.
+        """
+        for shared_component_name in self.component_names("shared_components"):
+            component = get_component(self.pipeline, shared_component_name)
+            if component is None:
+                raise ValueError(
+                    f"Cannot share component '{shared_component_name}' - "
+                    f"{type(self.pipeline).__name__} registers it but has not "
+                    f"loaded it"
+                )
+            logger.debug(f"Storing shared component: {shared_component_name}")
+            shared_components[shared_component_name] = component
 
     @torch.inference_mode()
     def run(self, arguments, previous_pipelines={}):

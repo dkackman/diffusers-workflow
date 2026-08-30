@@ -3,6 +3,7 @@
         "source_image": "https://pbs.twimg.com/media/GdCdt6NWkAA4QTX?format=png&name=small"
     },
     "id": "img2vid",
+    "description": "Animates an input image four ways: CogVideoX I2V plus three Stable Video Diffusion variants.",
     "steps": [
         {
             "name": "cog5b",

@@ -10,6 +10,7 @@
         "height": 1024
     },
     "id": "FaceRestore",
+    "description": "Generates with Z-Image Turbo, then restores and sharpens faces in the result.",
     "steps": [
         {
             "name": "generate",

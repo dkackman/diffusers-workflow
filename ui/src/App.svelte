@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { Images, Layers, ListTodo, Moon, MonitorCog, SquarePen, Sun } from 'lucide-svelte'
+  import {
+    Images,
+    Layers,
+    ListTodo,
+    Moon,
+    MonitorCog,
+    SquarePen,
+    Sun,
+  } from 'lucide-svelte'
   import { route } from './lib/router.svelte'
   import { api } from './lib/api'
   import type { MemoryInfo } from './lib/types'
@@ -16,8 +24,12 @@
   $effect(() => {
     const poll = async () => {
       try {
-        memory = await api.memory()
-        currentJob = (await api.health()).current_job
+        const [memoryInfo, health] = await Promise.all([
+          api.memory(),
+          api.health(),
+        ])
+        memory = memoryInfo
+        currentJob = health.current_job
       } catch {
         memory = null
         currentJob = null
@@ -56,7 +68,10 @@
   const vramPct = $derived.by(() => {
     const info = memory?.info
     if (!info?.gpu_available || !info.gpu_memory_total_mb) return null
-    return Math.min(100, (100 * (info.gpu_memory_allocated_mb ?? 0)) / info.gpu_memory_total_mb)
+    return Math.min(
+      100,
+      (100 * (info.gpu_memory_allocated_mb ?? 0)) / info.gpu_memory_total_mb,
+    )
   })
 </script>
 
@@ -77,13 +92,19 @@
     </a>
   </nav>
   {#if currentJob}
-    <a class="runningnow" href={'#/jobs/' + currentJob} title="a job is running - click to watch">
+    <a
+      class="runningnow"
+      href={'#/jobs/' + currentJob}
+      title="a job is running - click to watch"
+    >
       <span class="pulse-dot"></span>running
     </a>
   {/if}
   <span class="vram muted">
     {#if memory?.info?.gpu_available}
-      {memory.info.gpu_device_name} · {gb(memory.info.gpu_memory_allocated_mb ?? 0)} /
+      {memory.info.gpu_device_name} · {gb(
+        memory.info.gpu_memory_allocated_mb ?? 0,
+      )} /
       {gb(memory.info.gpu_memory_total_mb ?? 0)} GB
     {:else}
       worker idle
@@ -95,7 +116,9 @@
     title="theme: {theme} - click to change"
     aria-label="theme: {theme} - click to change"
   >
-    {#if theme === 'light'}<Sun size={15} />{:else if theme === 'dark'}<Moon size={15} />{:else}<MonitorCog size={15} />{/if}
+    {#if theme === 'light'}<Sun size={15} />{:else if theme === 'dark'}<Moon
+        size={15}
+      />{:else}<MonitorCog size={15} />{/if}
   </button>
   {#if vramPct !== null}
     <div class="meter" title="VRAM allocated">
@@ -127,34 +150,83 @@
 
 <style>
   header {
-    display: flex; align-items: center; gap: 1.5rem;
-    padding: 0.7rem 1.2rem; border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.7rem 1.2rem;
+    border-bottom: 1px solid var(--line);
     background: var(--panel);
-    position: sticky; top: 0; z-index: 10;
+    position: sticky;
+    top: 0;
+    z-index: 10;
   }
-  .brand { font-weight: 700; font-size: 1rem; }
-  .accent { color: var(--accent); }
-  nav { display: flex; gap: 1.1rem; flex: 1; }
+  .brand {
+    font-weight: 700;
+    font-size: 1rem;
+  }
+  .accent {
+    color: var(--accent);
+  }
+  nav {
+    display: flex;
+    gap: 1.1rem;
+    flex: 1;
+  }
   nav a {
-    display: inline-flex; align-items: center; gap: 0.35rem;
-    color: var(--muted); font-weight: 600; padding: 0.2rem 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 0.2rem 0;
     border-bottom: 2px solid transparent;
   }
-  nav a:hover { color: var(--ink); }
-  nav a.active { color: var(--accent); border-bottom-color: var(--accent); }
+  nav a:hover {
+    color: var(--ink);
+  }
+  nav a.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
   .runningnow {
-    display: inline-flex; align-items: center; gap: 0.45rem;
-    color: var(--accent); font-weight: 600; font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.85rem;
   }
-  .vram { font-size: 0.8rem; }
-  .themebtn { display: inline-flex; padding: 0.3rem 0.45rem; }
+  .vram {
+    font-size: 0.8rem;
+  }
+  .themebtn {
+    display: inline-flex;
+    padding: 0.3rem 0.45rem;
+  }
   .meter {
-    width: 90px; height: 6px; border-radius: 3px;
-    background: var(--panel-2); overflow: hidden;
+    width: 90px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--panel-2);
+    overflow: hidden;
   }
-  .meter .fill { height: 100%; background: var(--accent); transition: width 0.4s ease; }
-  .meter .fill.hot { background: var(--warn); }
-  .meter .fill.critical { background: var(--bad); }
-  main { max-width: 1100px; margin: 0 auto; padding: 1.2rem; }
-  main.wide { max-width: 1560px; }
+  .meter .fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.4s ease;
+  }
+  .meter .fill.hot {
+    background: var(--warn);
+  }
+  .meter .fill.critical {
+    background: var(--bad);
+  }
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.2rem;
+  }
+  main.wide {
+    max-width: 1560px;
+  }
 </style>

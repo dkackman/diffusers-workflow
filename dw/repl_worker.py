@@ -121,3 +121,9 @@ class WorkerManager:
     def cancel(self):
         """Ask the worker to cancel the workflow it is running."""
         self.send_command({"type": "cancel"})
+
+    def mark_crashed(self):
+        """Record that the worker process died on its own - no shutdown
+        handshake to attempt, just clear the tracking state."""
+        self.worker_active = False
+        self.worker_process = None

@@ -1,7 +1,9 @@
 {
     "variables": {
-        "prompt": "make the woman blonde",
-        "input_image": "https://pbs.twimg.com/media/HNi-N_eWIAAJfTZ?format=jpg&name=900x900"
+        "prompt": "recolor this person's hair blonde",
+        "input_image": {
+            "location": "https://pbs.twimg.com/media/HNi-N_eWIAAJfTZ?format=jpg&name=900x900"
+        }
     },
     "id": "Krea2Edit",
     "steps": [
@@ -9,7 +11,7 @@
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "component_type": "DiffusionPipeline",
+                    "component_type": "Krea2Pipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
@@ -20,21 +22,20 @@
                 },
                 "loras": [
                     {
-                        "model_name": "ostris/krea2_turbo_style_reference",
-                        "weight_name": "krea2_style_reference.safetensors"
+                        "model_name": "conradlocke/krea2-identity-edit",
+                        "weight_name": "krea2_identity_edit_v1_2.safetensors"
                     }
                 ],
                 "arguments": {
                     "prompt": "variable:prompt",
                     "image": "variable:input_image",
-                    "height": 1024,
-                    "width": 1024,
                     "num_inference_steps": 8,
                     "guidance_scale": 0.0
                 }
             },
             "result": {
-                "content_type": "image/jpeg"
+                "content_type": "image/jpeg",
+                "embed_metadata": true
             }
         }
     ]

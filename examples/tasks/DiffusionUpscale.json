@@ -12,6 +12,7 @@
         "mode": "x4"
     },
     "id": "DiffusionUpscaleX4",
+    "description": "Generates with Z-Image Turbo, then upscales the result with a diffusion upscaler.",
     "steps": [
         {
             "name": "generate",

@@ -21,22 +21,23 @@
     CACHE_TYPES,
     ATTENTION_BACKENDS,
     emptyComponent,
+    setNumber,
   } from '../editor'
 
   let {
     step = $bindable(),
     index,
     count,
-    pipelines,
     references = [],
+    baseFolder = '',
     onremove,
     onmove,
   }: {
     step: Record<string, any>
     index: number
     count: number
-    pipelines: string[]
     references?: string[]
+    baseFolder?: string
     onremove: () => void
     onmove: (delta: number) => void
   } = $props()
@@ -84,9 +85,20 @@
   $effect(() => {
     workflowVariables = []
     const path = step.workflow?.path
-    if (typeof path === 'string' && path.endsWith('.json') && !path.includes(':')) {
+    if (
+      typeof path !== 'string' ||
+      !path.endsWith('.json') ||
+      path.includes(':')
+    ) {
+      return
+    }
+    // The engine resolves a step's relative path against the PARENT
+    // workflow's directory, so the hint fetch must do the same
+    const resolved =
+      baseFolder && !path.startsWith('/') ? `${baseFolder}/${path}` : path
+    const timer = setTimeout(() => {
       api
-        .getWorkflow(path.slice(0, -'.json'.length))
+        .getWorkflow(resolved.slice(0, -'.json'.length))
         .then((definition) => {
           workflowVariables = Object.entries(definition.variables ?? {}).map(
             ([name, value]) => ({
@@ -96,7 +108,8 @@
           )
         })
         .catch(() => {})
-    }
+    }, 300)
+    return () => clearTimeout(timer)
   })
 
   const configuration = $derived(step.pipeline?.configuration ?? {})
@@ -141,23 +154,23 @@
   let compatibles = $state<string[]>([])
   $effect(() => {
     compatibles = []
-    const schedulerType = step.pipeline?.scheduler?.configuration?.scheduler_type
-    if (schedulerType) {
+    const schedulerType =
+      step.pipeline?.scheduler?.configuration?.scheduler_type
+    // Only complete-looking names - prefixes typed on the way to a real one
+    // would each fire a doomed lookup
+    if (!schedulerType || !schedulerType.endsWith('Scheduler')) return
+    const timer = setTimeout(() => {
       classDescription(schedulerType, 'init').then(
         (d) => (compatibles = d?.compatibles ?? []),
       )
-    }
+    }, 300)
+    return () => clearTimeout(timer)
   })
-
-  function setNumber(target: Record<string, any>, key: string, raw: string) {
-    const parsed = Number(raw)
-    if (raw === '') delete target[key]
-    else if (!Number.isNaN(parsed)) target[key] = parsed
-  }
 </script>
 
 <datalist id={referenceListId}>
-  {#each references as reference}<option value={reference}></option>{/each}
+  {#each references as reference (reference)}<option value={reference}
+    ></option>{/each}
 </datalist>
 
 <div class="panel step">
@@ -170,13 +183,27 @@
     >
       {#if open}<ChevronDown size={15} />{:else}<ChevronRight size={15} />{/if}
     </button>
-    <input class="name" bind:value={step.name} title="step name - how later steps reference this one" />
+    <input
+      class="name"
+      bind:value={step.name}
+      title="step name - how later steps reference this one"
+    />
     <span class="kind muted">{kind}</span>
     <span class="flex"></span>
-    <button class="quiet icon" disabled={index === 0} onclick={() => onmove(-1)} title="move up">
+    <button
+      class="quiet icon"
+      disabled={index === 0}
+      onclick={() => onmove(-1)}
+      title="move up"
+    >
       <ChevronUp size={15} />
     </button>
-    <button class="quiet icon" disabled={index === count - 1} onclick={() => onmove(1)} title="move down">
+    <button
+      class="quiet icon"
+      disabled={index === count - 1}
+      onclick={() => onmove(1)}
+      title="move down"
+    >
       <ChevronDown size={15} />
     </button>
     <button class="quiet icon" onclick={onremove} title="remove step">
@@ -204,7 +231,7 @@
 
         <label for={'dtype-' + index}>dtype</label>
         <select id={'dtype-' + index} bind:value={pretrained.torch_dtype}>
-          {#each TORCH_DTYPES as dtype}<option>{dtype}</option>{/each}
+          {#each TORCH_DTYPES as dtype (dtype)}<option>{dtype}</option>{/each}
         </select>
 
         <label for={'offload-' + index}>offload</label>
@@ -233,7 +260,9 @@
           }}
         >
           <option value="">don't save</option>
-          {#each CONTENT_TYPES as contentType}<option>{contentType}</option>{/each}
+          {#each CONTENT_TYPES as contentType (contentType)}<option
+              >{contentType}</option
+            >{/each}
         </select>
       </div>
 
@@ -245,7 +274,10 @@
       />
 
       <details open={activeSlots.length > 0}>
-        <summary><Boxes size={13} /> components <span class="muted">({activeSlots.length})</span></summary>
+        <summary
+          ><Boxes size={13} /> components
+          <span class="muted">({activeSlots.length})</span></summary
+        >
         <div class="section">
           {#each activeSlots as slot (slot)}
             <ComponentEditor
@@ -258,7 +290,7 @@
           <div class="addrow">
             <select bind:value={addSlot}>
               <option value="">add component…</option>
-              {#each COMPONENT_SLOTS.filter((slot) => !activeSlots.includes(slot)) as slot}
+              {#each COMPONENT_SLOTS.filter((slot) => !activeSlots.includes(slot)) as slot (slot)}
                 <option value={slot}>{slot}</option>
               {/each}
             </select>
@@ -267,13 +299,18 @@
               onclick={addComponent}
               disabled={!addSlot}
               title="declare the selected component on this pipeline"
-            >add</button>
+              >add</button
+            >
           </div>
         </div>
       </details>
 
       <details open={(step.pipeline.loras ?? []).length > 0}>
-        <summary><Layers size={13} /> LoRAs <span class="muted">({(step.pipeline.loras ?? []).length})</span></summary>
+        <summary
+          ><Layers size={13} /> LoRAs
+          <span class="muted">({(step.pipeline.loras ?? []).length})</span
+          ></summary
+        >
         <div class="section">
           <LorasEditor bind:pipeline={step.pipeline} />
         </div>
@@ -296,19 +333,24 @@
               <input
                 id={'schedtype-' + index}
                 list="scheduler-classes"
-                bind:value={step.pipeline.scheduler.configuration.scheduler_type}
+                bind:value={
+                  step.pipeline.scheduler.configuration.scheduler_type
+                }
                 placeholder="e.g. FlowMatchEulerDiscreteScheduler"
               />
               {#if compatibles.length}
                 <div class="muted hint">
-                  interchangeable with: {compatibles.slice(0, 6).join(', ')}{compatibles.length > 6 ? ', …' : ''}
+                  interchangeable with: {compatibles
+                    .slice(0, 6)
+                    .join(', ')}{compatibles.length > 6 ? ', …' : ''}
                 </div>
               {/if}
             </div>
             <label for={'schedargs-' + index}>from_config_args</label>
             <ArgumentsEditor
               bind:args={step.pipeline.scheduler.from_config_args}
-              componentType={step.pipeline.scheduler.configuration.scheduler_type ?? ''}
+              componentType={step.pipeline.scheduler.configuration
+                .scheduler_type ?? ''}
               target="init"
               listId={referenceListId}
             />
@@ -316,7 +358,9 @@
         </div>
       </details>
 
-      <details open={!!configuration.cache || !!configuration.attention_backend}>
+      <details
+        open={!!configuration.cache || !!configuration.attention_backend}
+      >
         <summary><Zap size={13} /> acceleration</summary>
         <div class="section grid2">
           <label for={'cache-' + index}>cache</label>
@@ -330,13 +374,20 @@
             />
             {#if configuration.cache}
               <select bind:value={configuration.cache.type}>
-                {#each CACHE_TYPES as cacheType}<option>{cacheType}</option>{/each}
+                {#each CACHE_TYPES as cacheType (cacheType)}<option
+                    >{cacheType}</option
+                  >{/each}
               </select>
               <input
                 class="num"
                 placeholder="threshold"
                 value={configuration.cache.threshold ?? ''}
-                onchange={(e) => setNumber(configuration.cache, 'threshold', e.currentTarget.value)}
+                onchange={(e) =>
+                  setNumber(
+                    configuration.cache,
+                    'threshold',
+                    e.currentTarget.value,
+                  )}
               />
             {/if}
           </div>
@@ -354,7 +405,9 @@
             }}
           />
           <datalist id="attention-backends">
-            {#each ATTENTION_BACKENDS as backend}<option value={backend}></option>{/each}
+            {#each ATTENTION_BACKENDS as backend (backend)}<option
+                value={backend}
+              ></option>{/each}
           </datalist>
 
           <label for={'pw-' + index}>prompt weighting</label>
@@ -399,7 +452,8 @@
         listId={referenceListId}
       />
       <div class="muted hint">
-        map the child's variables to values or references, e.g. previous_result:gen
+        map the child's variables to values or references, e.g.
+        previous_result:gen
       </div>
     {:else}
       <div class="raw">
@@ -414,42 +468,125 @@
 </div>
 
 <style>
-  .step { margin-bottom: 0.7rem; }
-  .bar { display: flex; align-items: center; gap: 0.5rem; }
-  .name { max-width: 220px; font-weight: 600; }
-  .kind { font-size: 0.75rem; }
-  .flex { flex: 1; }
-  .icon { display: inline-flex; align-items: center; padding: 0.3rem 0.45rem; }
-  .grid {
-    display: grid; grid-template-columns: 170px minmax(200px, 480px);
-    gap: 0.5rem 0.7rem; margin-top: 0.8rem; align-items: center;
+  .step {
+    margin-bottom: 0.7rem;
   }
-  .grid label { font-weight: 600; color: var(--muted); }
-  h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;
-       color: var(--muted); margin: 1rem 0 0.5rem; }
-  details { margin-top: 0.9rem; border-top: 1px solid var(--line); padding-top: 0.6rem; }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .name {
+    max-width: 220px;
+    font-weight: 600;
+  }
+  .kind {
+    font-size: 0.75rem;
+  }
+  .flex {
+    flex: 1;
+  }
+  .icon {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.45rem;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 170px minmax(200px, 480px);
+    gap: 0.5rem 0.7rem;
+    margin-top: 0.8rem;
+    align-items: center;
+  }
+  .grid label {
+    font-weight: 600;
+    color: var(--muted);
+  }
+  h3 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin: 1rem 0 0.5rem;
+  }
+  details {
+    margin-top: 0.9rem;
+    border-top: 1px solid var(--line);
+    padding-top: 0.6rem;
+  }
   summary {
-    cursor: pointer; font-size: 0.8rem; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--muted); font-weight: 600;
+    cursor: pointer;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    font-weight: 600;
     user-select: none;
   }
-  summary:hover { color: var(--ink); }
-  details[open] > summary { color: var(--accent); }
-  summary :global(svg) { vertical-align: -2px; margin-right: 2px; }
-  .section { margin-top: 0.7rem; display: flex; flex-direction: column; gap: 0.6rem; }
-  .addrow { display: flex; gap: 0.5rem; max-width: 300px; }
-  .grid2 {
-    display: grid; grid-template-columns: 150px 1fr;
-    gap: 0.5rem 0.7rem; align-items: center;
+  summary:hover {
+    color: var(--ink);
   }
-  .grid2 > label { font-weight: 600; color: var(--muted); }
-  .check { width: auto; justify-self: start; }
-  .inline-row { display: flex; align-items: center; gap: 0.6rem; }
-  .inline-row select { max-width: 150px; }
-  .num { max-width: 110px; }
-  .error { color: var(--bad); font-size: 0.8rem; }
-  .raw { margin-top: 0.8rem; }
-  .raw textarea { font-family: ui-monospace, monospace; font-size: 0.82rem; }
-  .error { color: var(--bad); font-size: 0.8rem; margin-top: 0.3rem; }
-  .hint { font-size: 0.75rem; margin-top: 0.3rem; }
+  details[open] > summary {
+    color: var(--accent);
+  }
+  summary :global(svg) {
+    vertical-align: -2px;
+    margin-right: 2px;
+  }
+  .section {
+    margin-top: 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .addrow {
+    display: flex;
+    gap: 0.5rem;
+    max-width: 300px;
+  }
+  .grid2 {
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: 0.5rem 0.7rem;
+    align-items: center;
+  }
+  .grid2 > label {
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .check {
+    width: auto;
+    justify-self: start;
+  }
+  .inline-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .inline-row select {
+    max-width: 150px;
+  }
+  .num {
+    max-width: 110px;
+  }
+  .error {
+    color: var(--bad);
+    font-size: 0.8rem;
+  }
+  .raw {
+    margin-top: 0.8rem;
+  }
+  .raw textarea {
+    font-family: ui-monospace, monospace;
+    font-size: 0.82rem;
+  }
+  .error {
+    color: var(--bad);
+    font-size: 0.8rem;
+    margin-top: 0.3rem;
+  }
+  .hint {
+    font-size: 0.75rem;
+    margin-top: 0.3rem;
+  }
 </style>

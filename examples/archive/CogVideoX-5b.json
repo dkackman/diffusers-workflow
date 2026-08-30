@@ -1,5 +1,6 @@
 {
     "id": "CogVideoX-5b",
+    "description": "Text-to-video with CogVideoX 5B.",
     "steps": [
         {
             "name": "gather_prompts",

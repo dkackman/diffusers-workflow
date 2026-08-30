@@ -1,5 +1,6 @@
 {
     "id": "CaptionToImage",
+    "description": "Captions input images, then generates new images from those captions with FLUX.1 dev.",
     "variables": {
         "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true"
     },

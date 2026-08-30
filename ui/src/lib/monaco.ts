@@ -23,7 +23,8 @@ export async function setupMonaco() {
   configured = true
 
   try {
-    const schema = await (await fetch('/api/schema')).json()
+    const { api } = await import('./api')
+    const schema = await api.getSchema()
     jsonDefaults.setDiagnosticsOptions({
       validate: true,
       enableSchemaRequest: false,
@@ -37,24 +38,80 @@ export async function setupMonaco() {
   const token = (name: string, fallback: string) =>
     styles.getPropertyValue(name).trim() || fallback
 
+  // Explicit JSON token rules tuned to the app palette - keys quiet,
+  // values carrying the color, exactly like the forms. The minifier
+  // shortens #ffffff to #fff and Monaco rejects 3-digit hex, so expand
+  const hex = (value: string) => {
+    const raw = value.replace('#', '').trim()
+    return raw.length === 3
+      ? raw
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : raw
+  }
+  const color = (name: string, fallback: string) =>
+    '#' + hex(token(name, fallback))
   monaco.editor.defineTheme('dw-dark', {
     base: 'vs-dark',
     inherit: true,
-    rules: [],
+    rules: [
+      { token: 'string.key.json', foreground: hex(token('--ink', '#e4eaed')) },
+      { token: 'string.value.json', foreground: '84c8a0' },
+      { token: 'number.json', foreground: hex(token('--accent', '#4cb8cc')) },
+      { token: 'keyword.json', foreground: hex(token('--warn', '#d9a84e')) },
+      {
+        token: 'delimiter.bracket.json',
+        foreground: hex(token('--muted', '#8fa0a8')),
+      },
+      {
+        token: 'delimiter.array.json',
+        foreground: hex(token('--muted', '#8fa0a8')),
+      },
+      {
+        token: 'delimiter.colon.json',
+        foreground: hex(token('--muted', '#8fa0a8')),
+      },
+      {
+        token: 'delimiter.comma.json',
+        foreground: hex(token('--muted', '#8fa0a8')),
+      },
+    ],
     colors: {
-      'editor.background': token('--panel', '#1c2226'),
-      'editor.foreground': token('--ink', '#e4eaed'),
-      'editorLineNumber.foreground': token('--muted', '#8fa0a8'),
+      'editor.background': color('--panel', '#1c2226'),
+      'editor.foreground': color('--ink', '#e4eaed'),
+      'editorLineNumber.foreground': color('--muted', '#8fa0a8'),
     },
   })
   monaco.editor.defineTheme('dw-light', {
     base: 'vs',
     inherit: true,
-    rules: [],
+    rules: [
+      { token: 'string.key.json', foreground: hex(token('--ink', '#1c2428')) },
+      { token: 'string.value.json', foreground: '2b7a4b' },
+      { token: 'number.json', foreground: hex(token('--accent', '#0b7285')) },
+      { token: 'keyword.json', foreground: hex(token('--warn', '#9a6a12')) },
+      {
+        token: 'delimiter.bracket.json',
+        foreground: hex(token('--muted', '#5b6a72')),
+      },
+      {
+        token: 'delimiter.array.json',
+        foreground: hex(token('--muted', '#5b6a72')),
+      },
+      {
+        token: 'delimiter.colon.json',
+        foreground: hex(token('--muted', '#5b6a72')),
+      },
+      {
+        token: 'delimiter.comma.json',
+        foreground: hex(token('--muted', '#5b6a72')),
+      },
+    ],
     colors: {
-      'editor.background': token('--panel', '#ffffff'),
-      'editor.foreground': token('--ink', '#1c2428'),
-      'editorLineNumber.foreground': token('--muted', '#5b6a72'),
+      'editor.background': color('--panel', '#ffffff'),
+      'editor.foreground': color('--ink', '#1c2428'),
+      'editorLineNumber.foreground': color('--muted', '#5b6a72'),
     },
   })
   return monaco

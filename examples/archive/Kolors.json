@@ -6,6 +6,7 @@
         "guidance_scale": 6.5
     },
     "id": "Kolors",
+    "description": "Text-to-image with Kolors.",
     "steps": [
         {
             "name": "txt2img",

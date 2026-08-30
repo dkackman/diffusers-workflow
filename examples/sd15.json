@@ -4,6 +4,7 @@
         "num_images_per_prompt": 1
     },
     "id": "test_job",
+    "description": "Baseline text-to-image with Stable Diffusion 1.5 - the smallest, fastest starting point.",
     "steps": [
         {
             "name": "main",

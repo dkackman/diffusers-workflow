@@ -1,5 +1,6 @@
 {
     "id": "MarigoldNormals",
+    "description": "Estimates surface-normal maps for input images with Marigold.",
     "variables": {
         "image_url": "https://marigoldmonodepth.github.io/images/einstein.jpg"
     },

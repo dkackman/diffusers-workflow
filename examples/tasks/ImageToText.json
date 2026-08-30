@@ -1,5 +1,6 @@
 {
     "id": "ImageToText",
+    "description": "Captions input images with an image-to-text model.",
     "variables": {
         "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true"
     },

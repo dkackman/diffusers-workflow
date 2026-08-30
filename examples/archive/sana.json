@@ -8,6 +8,7 @@
         "height": 1024
     },
     "id": "sana",
+    "description": "Text-to-image with Sana 1.6B.",
     "steps": [
         {
             "name": "txt2img",

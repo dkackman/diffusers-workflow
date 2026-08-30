@@ -1,5 +1,6 @@
 {
     "id": "WanI2V14",
+    "description": "Outpaints a portrait to widescreen with FLUX Fill, then animates it with Wan 14B image-to-video.",
     "variables": {
         "model_name": "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
         "prompt": "The sand dragon turns to the camera and roars",

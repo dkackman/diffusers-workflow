@@ -12,6 +12,7 @@
         }
     },
     "id": "Flux2DevImageCombine",
+    "description": "FLUX.2 dev combining multiple reference images into a single generation.",
     "steps": [
         {
             "name": "txt2img",

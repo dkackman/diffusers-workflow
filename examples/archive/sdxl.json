@@ -1,5 +1,6 @@
 {
     "id": "sdxl",
+    "description": "SDXL base plus refiner, two-stage.",
     "steps": [
         {
             "name": "sdxl_base",

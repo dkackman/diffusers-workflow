@@ -243,8 +243,6 @@ def describe_class(name, target="call"):
         entry.update(documented.get(parameter.name, {}))
         parameters.append(entry)
 
-    # The class's own docstring only - getdoc walks the MRO and would call
-    # every pipeline "Base class for all pipelines."
     if target == "load":
         named = {parameter["name"] for parameter in parameters}
         parameters = [

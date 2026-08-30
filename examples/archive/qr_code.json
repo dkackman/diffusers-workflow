@@ -4,6 +4,7 @@
             "init_image_location": "https://th.bing.com/th/id/OIP.Lsm7UOwPR37OPvDy3HUUTQHaE7?rs=1&pid=ImgDetMain"
         },
         "id": "qr_code",
+        "description": "Generates a scannable artistic QR code with an SD 2.1 ControlNet.",
         "steps": [
             {
                 "name": "qr_code",

@@ -1,5 +1,6 @@
 {
     "id": "ltx",
+    "description": "Text-to-video with LTX-Video 0.9.",
     "steps": [
         {
             "name": "main",

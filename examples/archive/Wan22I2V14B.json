@@ -1,5 +1,6 @@
 {
     "id": "Wan22I2V14B",
+    "description": "Image-to-video with Wan 2.2 14B, LoRA-accelerated and 4-bit quantized.",
     "variables": {
         "model_name": "Wan-AI/Wan2.2-I2V-A14B-Diffusers",
         "prompt": "The marmot growls at the camera, holding a sign that says 'On-chain rage baiting only 23 mojos!!' in a forest setting, highly detailed, photorealistic, 8k, sharp focus, vibrant colors, dramatic lighting",

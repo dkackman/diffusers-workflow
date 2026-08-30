@@ -10,6 +10,7 @@
         "video_num_inference_steps": 50
     },
     "id": "txt2img2vid",
+    "description": "Composes any text-to-image workflow with any image-to-video workflow - both named as variables.",
     "steps": [
         {
             "name": "image_generation",

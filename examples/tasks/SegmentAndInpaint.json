@@ -1,5 +1,6 @@
 {
     "id": "SegmentAndInpaint",
+    "description": "Segments an input image, then inpaints the selected region with FLUX.1 Fill dev.",
     "variables": {
         "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/model_doc/grounding_dino_example_input.png",
         "segment_prompt": "cat",

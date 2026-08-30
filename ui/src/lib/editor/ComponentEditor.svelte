@@ -15,11 +15,11 @@
     onremove: () => void
   } = $props()
 
-  // The schema requires these blocks; older hand-written files may omit one
-  $effect(() => {
-    component.configuration ??= { component_type: '' }
-    component.from_pretrained_arguments ??= {}
-  })
+  // The schema requires these blocks; older hand-written files may omit one.
+  // Initialized in setup (runs once) rather than an effect - an effect would
+  // subscribe itself to the properties it writes
+  component.configuration ??= { component_type: '' }
+  component.from_pretrained_arguments ??= {}
 
   const groupOffload = $derived(component.group_offload ?? null)
 
@@ -33,7 +33,6 @@
       delete component.group_offload
     }
   }
-
 </script>
 
 <div class="component">
@@ -68,7 +67,7 @@
         componentType={component.configuration.component_type ?? ''}
         target="load"
         hide={['model_name']}
-        listId={listId}
+        {listId}
       />
 
       <label for={slot + '-device'}>device</label>
@@ -104,27 +103,60 @@
           </label>
         {/if}
       </div>
-
     </div>
   {/if}
 </div>
 
 <style>
   .component {
-    border: 1px solid var(--line); border-radius: 6px;
-    padding: 0.7rem 0.8rem; background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.7rem 0.8rem;
+    background: var(--panel-2);
   }
-  .bar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
-  .flex { flex: 1; }
-  .icon { display: inline-flex; padding: 0.25rem 0.4rem; }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .flex {
+    flex: 1;
+  }
+  .icon {
+    display: inline-flex;
+    padding: 0.25rem 0.4rem;
+  }
   .grid {
-    display: grid; grid-template-columns: 120px 1fr;
-    gap: 0.45rem 0.7rem; align-items: start;
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 0.45rem 0.7rem;
+    align-items: start;
   }
-  .grid > label { font-weight: 600; color: var(--muted); padding-top: 0.35rem; }
-  .gofield { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-  .gofield input[type='checkbox'] { width: auto; }
-  .gofield select { max-width: 150px; }
-  .inline { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--muted); }
-  .inline input { width: auto; }
+  .grid > label {
+    font-weight: 600;
+    color: var(--muted);
+    padding-top: 0.35rem;
+  }
+  .gofield {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .gofield input[type='checkbox'] {
+    width: auto;
+  }
+  .gofield select {
+    max-width: 150px;
+  }
+  .inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--muted);
+  }
+  .inline input {
+    width: auto;
+  }
 </style>

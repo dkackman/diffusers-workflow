@@ -61,8 +61,13 @@
 
 <style>
   .jsoneditor {
-    border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
     background: var(--panel);
   }
-  .loading { display: block; padding: 1rem; }
+  .loading {
+    display: block;
+    padding: 1rem;
+  }
 </style>

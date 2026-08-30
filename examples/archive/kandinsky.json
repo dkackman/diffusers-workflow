@@ -1,5 +1,6 @@
 {
     "id": "kandinsky_controlnet",
+    "description": "Kandinsky 2.2 with a depth ControlNet: prior embeddings, depth estimation, then controlled generation.",
     "steps": [
         {
             "name": "prior",

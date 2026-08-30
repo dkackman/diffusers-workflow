@@ -9,6 +9,10 @@ import type {
   WorkflowDefinition,
 } from './types'
 
+/** Encode a workflow name for a URL, keeping its folder separators. */
+const encodePath = (name: string) =>
+  name.split('/').map(encodeURIComponent).join('/')
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
   if (!response.ok) {
@@ -28,10 +32,13 @@ export const api = {
     request<{
       workflow_dir: string
       workflows: string[]
-      details: Record<string, { kinds: string[]; variables: number }>
+      details: Record<
+        string,
+        { kinds: string[]; variables: number; description: string }
+      >
     }>('/api/workflows'),
   getWorkflow: (name: string) =>
-    request<WorkflowDefinition>(`/api/workflows/${name}`),
+    request<WorkflowDefinition>(`/api/workflows/${encodePath(name)}`),
   listJobs: () => request<{ jobs: JobSummary[] }>('/api/jobs'),
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   rerunJob: (id: string) =>
@@ -43,11 +50,14 @@ export const api = {
       video_processors: string[]
     }>('/api/tasks'),
   cancelJob: (id: string) =>
-    request<{ id: string; status: string }>(`/api/jobs/${id}/cancel`, { method: 'POST' }),
+    request<{ id: string; status: string }>(`/api/jobs/${id}/cancel`, {
+      method: 'POST',
+    }),
   submitJob: (body: {
     workflow_path?: string
     workflow?: WorkflowDefinition
     arguments?: Record<string, unknown>
+    base_dir?: string
   }) =>
     request<JobDetail>('/api/jobs', {
       method: 'POST',
@@ -56,11 +66,15 @@ export const api = {
     }),
   memory: () => request<MemoryInfo>('/api/memory'),
   health: () =>
-    request<{ status: string; worker_alive: boolean; current_job: string | null }>(
-      '/api/health',
-    ),
+    request<{
+      status: string
+      worker_alive: boolean
+      current_job: string | null
+    }>('/api/health'),
   gallery: (limit = 200) =>
-    request<{ files: GalleryFile[]; total: number }>(`/api/gallery?limit=${limit}`),
+    request<{ files: GalleryFile[]; total: number }>(
+      `/api/gallery?limit=${limit}`,
+    ),
   galleryMetadata: (name: string) =>
     request<{
       name: string
@@ -89,12 +103,13 @@ export const api = {
       body: JSON.stringify({ workflow }),
     }),
   deleteWorkflow: (name: string) =>
-    request<{ name: string; deleted: boolean }>(`/api/workflows/${name}`, {
-      method: 'DELETE',
-    }),
+    request<{ name: string; deleted: boolean }>(
+      `/api/workflows/${encodePath(name)}`,
+      { method: 'DELETE' },
+    ),
   saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
     request<{ name: string; path: string; warnings: string[] }>(
-      `/api/workflows/${name}`,
+      `/api/workflows/${encodePath(name)}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -103,8 +118,11 @@ export const api = {
     ),
 }
 
-/** Stream a job's events; returns a stop function. The server replays from
- * `after`, and EventSource reconnects carry Last-Event-ID automatically. */
+const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']
+
+/** Stream a job's events; returns a stop function. The stream closes itself
+ * when a terminal job_status arrives; transient errors are left alone so
+ * EventSource reconnects and resumes losslessly via Last-Event-ID. */
 export function streamJobEvents(
   jobId: string,
   after: number,
@@ -112,14 +130,18 @@ export function streamJobEvents(
   onEnd: () => void,
 ): () => void {
   const source = new EventSource(`/api/jobs/${jobId}/events?after=${after}`)
-  source.onmessage = (message) => onEvent(JSON.parse(message.data))
-  source.onerror = () => {
-    // The stream closes when the job reaches a terminal state; EventSource
-    // then fires error while trying to reconnect against a finished stream
-    if (source.readyState === EventSource.CONNECTING) {
+  source.onmessage = (message) => {
+    const event: JobEvent = JSON.parse(message.data)
+    onEvent(event)
+    if (
+      event.event === 'job_status' &&
+      TERMINAL_STATUSES.includes(event.status as string)
+    ) {
       source.close()
       onEnd()
     }
   }
+  // No onerror handling: a dropped connection is EventSource's own job to
+  // repair. Closing here froze live progress on any transient hiccup.
   return () => source.close()
 }

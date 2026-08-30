@@ -104,7 +104,10 @@ def test_workflow_switch_evicts_cache_and_untouched_keys_dropped():
 
 def test_inline_workflow_definition_executes():
     worker = _make_worker()
-    with patch("dw.worker.Workflow", lambda data, out, spec: StubWorkflow()):
+    with patch(
+        "dw.worker.workflow_from_definition",
+        lambda data, out, base_dir=None: StubWorkflow(),
+    ):
         worker._handle_execute(
             {
                 "workflow": {"id": "inline_test", "steps": []},
@@ -115,3 +118,24 @@ def test_inline_workflow_definition_executes():
     types = [message["type"] for message in _drain(worker.result_queue)]
     assert "success" in types
     assert worker.workflow_identity == ("inline", "inline_test")
+
+
+def test_cancel_keeps_cached_models():
+    """Cancelling a run must not cost the model cache - that is the whole
+    point of cooperative cancellation."""
+    worker = _make_worker()
+    worker.loaded_pipelines["warm-model"] = object()
+    worker.command_queue.put({"type": "cancel"})
+    messages = _execute(worker, StubWorkflow("wait_for_cancel"))
+    assert "cancelled" in [m["type"] for m in messages]
+    assert "warm-model" in worker.loaded_pipelines
+
+
+def test_shutdown_during_run_cancels_then_flags_shutdown():
+    """A shutdown command arriving mid-run stops the workflow and leaves
+    the worker set to exit its loop."""
+    worker = _make_worker()
+    worker.command_queue.put({"type": "shutdown"})
+    messages = _execute(worker, StubWorkflow("wait_for_cancel"))
+    assert "cancelled" in [m["type"] for m in messages]
+    assert worker.pending_shutdown is True

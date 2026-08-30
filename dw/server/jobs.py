@@ -17,7 +17,7 @@ import logging
 import threading
 
 from ..repl_worker import WorkerManager
-from ..workflow import workflow_from_file, Workflow
+from ..workflow import workflow_from_file, workflow_from_definition
 from ..introspection import workflow_argument_warnings
 from ..security import validate_output_path
 from ..settings import resolve_path
@@ -30,6 +30,13 @@ SUCCEEDED = "succeeded"
 FAILED = "failed"
 CANCELLED = "cancelled"
 TERMINAL_STATES = (SUCCEEDED, FAILED, CANCELLED)
+
+# The spec fields a rerun needs - shared by persistence and live rerun
+RERUN_SPEC_KEYS = ("workflow_path", "workflow", "base_dir")
+
+# Finished jobs kept in memory for SSE replay grace; older ones live in
+# history only, so a long-running server's memory stays bounded
+TERMINAL_JOBS_KEPT = 20
 
 
 class JobHistory:
@@ -64,11 +71,7 @@ class JobHistory:
 
     def record(self, job):
         # The spec's workflow_name/warnings are derived; keep what rerun needs
-        rerun_spec = {
-            key: job.spec[key]
-            for key in ("workflow_path", "workflow", "base_dir")
-            if key in job.spec
-        }
+        rerun_spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
         with self._lock, self._connect() as connection:
             connection.execute(
                 "INSERT OR REPLACE INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -87,15 +90,27 @@ class JobHistory:
                 ),
             )
 
-    def recent(self, limit=200):
+    def recent_summaries(self, limit=200):
+        """Summary rows only - the jobs list is polled, and parsing four JSON
+        blobs per row just to show six scalars was pure waste."""
         with self._lock, self._connect() as connection:
             rows = connection.execute(
-                "SELECT id, workflow, status, created_at, started_at, finished_at,"
-                " arguments, spec, manifest, warnings, error"
+                "SELECT id, workflow, status, created_at, started_at, finished_at"
                 " FROM jobs ORDER BY created_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
-        return [self._to_detail(row) for row in rows]
+        return [
+            {
+                "id": row[0],
+                "workflow": row[1],
+                "status": row[2],
+                "created_at": row[3],
+                "started_at": row[4],
+                "finished_at": row[5],
+                "historical": True,
+            }
+            for row in rows
+        ]
 
     def get(self, job_id):
         with self._lock, self._connect() as connection:
@@ -107,12 +122,20 @@ class JobHistory:
         return self._to_detail(row) if row else None
 
     def job_for_file(self, file_name):
-        """The most recent job whose manifest names this output file."""
+        """The most recent job whose manifest names this output file.
+
+        LIKE metacharacters are escaped - generated names routinely contain
+        '_', which would otherwise match any character and let a similarly
+        named later job claim the file.
+        """
+        escaped = (
+            file_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
         with self._lock, self._connect() as connection:
             row = connection.execute(
-                "SELECT id, status FROM jobs WHERE manifest LIKE ?"
+                "SELECT id, status FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
                 " ORDER BY finished_at DESC LIMIT 1",
-                (f"%{file_name}%",),
+                (f"%{escaped}%",),
             ).fetchone()
         return {"id": row[0], "status": row[1]} if row else None
 
@@ -219,7 +242,9 @@ class JobManager:
         self.jobs = {}
         self.last_memory = None
         self._queue = queue.Queue()
-        self._lock = threading.Lock()  # guards job state transitions
+        # Reentrant: cancel() finishes a queued job while holding it, and
+        # _finish's terminal-job trim needs it again on the same thread
+        self._lock = threading.RLock()  # guards job state transitions
         self._worker_lock = threading.Lock()  # guards worker communication
         self._current_job_id = None
         self._stop = threading.Event()
@@ -248,16 +273,15 @@ class JobManager:
                 "arguments": arguments,
             }
         else:
-            base_dir = base_dir or os.getcwd()
-            loaded = Workflow(
-                copy.deepcopy(workflow),
-                self.output_dir,
-                os.path.join(base_dir, "__inline__.json"),
+            # workflow_from_definition validates base_dir - it is HTTP-supplied
+            # path input and goes through the security layer like every path
+            loaded = workflow_from_definition(
+                copy.deepcopy(workflow), self.output_dir, base_dir
             )
             loaded.validate()
             spec = {
                 "workflow": workflow,
-                "base_dir": base_dir,
+                "base_dir": base_dir or os.getcwd(),
                 "workflow_name": loaded.name,
                 "arguments": arguments,
             }
@@ -296,7 +320,11 @@ class JobManager:
             historical = self.history.get(job_id)
             if historical is None:
                 return None
-            spec = historical["spec"]
+            spec = {
+                key: historical["spec"][key]
+                for key in RERUN_SPEC_KEYS
+                if key in historical["spec"]
+            }
             arguments = historical["arguments"]
         return self.submit(
             workflow_path=spec.get("workflow_path"),
@@ -310,22 +338,9 @@ class JobManager:
             live = sorted(self.jobs.values(), key=lambda j: j.created_at)
         live_ids = {job.id for job in live}
         summaries = [job.summary() for job in live]
-        for historical in self.history.recent():
+        for historical in self.history.recent_summaries():
             if historical["id"] not in live_ids:
-                summaries.append(
-                    {
-                        key: historical[key]
-                        for key in (
-                            "id",
-                            "workflow",
-                            "status",
-                            "created_at",
-                            "started_at",
-                            "finished_at",
-                        )
-                    }
-                    | {"historical": True}
-                )
+                summaries.append(historical)
         summaries.sort(key=lambda summary: summary["created_at"] or 0)
         return summaries
 
@@ -374,6 +389,19 @@ class JobManager:
             self.history.record(job)
         except Exception as e:
             logger.warning(f"Could not persist job {job.id}: {e}")
+        self._trim_terminal_jobs()
+
+    def _trim_terminal_jobs(self):
+        """Drop the oldest finished jobs from memory - history has them, and
+        get()/list() fall through to it. Recent ones stay for event replay."""
+        with self._lock:
+            terminal = [
+                job
+                for job in sorted(self.jobs.values(), key=lambda j: j.created_at)
+                if job.status in TERMINAL_STATES
+            ]
+            for job in terminal[:-TERMINAL_JOBS_KEPT]:
+                del self.jobs[job.id]
 
     def _run_job(self, job):
         with self._worker_lock:
@@ -440,8 +468,7 @@ class JobManager:
                     message.get("traceback"),
                 )
             elif message_type == "worker_crashed":
-                self.worker_manager.worker_active = False
-                self.worker_manager.worker_process = None
+                self.worker_manager.mark_crashed()
                 return (
                     FAILED,
                     f"Worker crashed: {message.get('message')}",
@@ -454,14 +481,20 @@ class JobManager:
 
     def memory_status(self, timeout=5):
         """Live memory stats when the worker is idle; the run's last report
-        while it is busy (the runner owns the queues during a job)."""
+        while it is busy. The lock acquire is bounded: the runner holds
+        _worker_lock for a job's whole duration, and a poll that raced a job
+        start must fall back to the cached reading, not block for hours."""
         if self._current_job_id is not None:
             return {"live": False, "info": self.last_memory}
         if not self.worker_manager.worker_active:
             return {"live": False, "info": self.last_memory}
-        with self._worker_lock:
+        if not self._worker_lock.acquire(timeout=2):
+            return {"live": False, "info": self.last_memory}
+        try:
             self.worker_manager.send_command({"type": "memory_status"})
             result = self.worker_manager.get_result(timeout=timeout)
+        finally:
+            self._worker_lock.release()
         if result.get("type") == "memory_status":
             self.last_memory = result.get("info")
             return {"live": True, "info": self.last_memory}

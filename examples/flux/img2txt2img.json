@@ -3,6 +3,7 @@
         "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download:true"
     },
     "id": "img2txt2img",
+    "description": "Describes an input image with a VLM, expands the caption with an LLM, then regenerates it with FLUX.1 dev.",
     "steps": [
         {
             "name": "input_image",

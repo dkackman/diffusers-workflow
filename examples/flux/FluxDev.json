@@ -8,6 +8,7 @@
         "height": 768
     },
     "id": "FluxDev",
+    "description": "Text-to-image with FLUX.1 dev - the reference FLUX workflow.",
     "steps": [
         {
             "name": "txt2img",
