@@ -1,95 +1,18 @@
-# ==============================================================================
-# diffusers-workflow - Core Requirements
-# ==============================================================================
-# This file lists the main dependencies. For exact versions from a working
-# environment, see requirements-frozen.txt
+# diffusers-workflow runtime dependencies
 #
-# IMPORTANT: PyTorch should be installed separately with CUDA support:
-# pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu130
-# ==============================================================================
+# The dependency list lives in pyproject.toml - the single source that the
+# wheel, install.sh, and CI all resolve. This file just points pip at it
+# (editable install, with the HTTP server extra).
+#
+# PyTorch from PyPI is CPU-only on Linux. For CUDA, install torch first
+# from pytorch.org's index and pip will leave it in place:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+#
+# Released diffusers may lag the newest model pipelines this project
+# targets. For git HEAD, install it on top afterwards:
+#   pip install git+https://github.com/huggingface/diffusers
+#
+# For exact versions from a known-working environment, see
+# requirements-frozen.txt
 
-# Core ML Frameworks
-torch>=2.4.1
-torchvision>=0.19.1
-triton>=3.0.0; sys_platform == "linux"
-
-# Diffusers and HuggingFace ecosystem
-# For latest from git: pip install git+https://github.com/huggingface/diffusers
-diffusers>=0.31.0
-transformers>=4.47.0
-accelerate>=1.2.0
-peft>=0.14.0
-safetensors>=0.4.5
-huggingface-hub>=0.26.5
-tokenizers>=0.21.0
-
-# Model optimization and quantization
-bitsandbytes>=0.45.0; sys_platform == "linux"
-torchao>=0.7.0
-optimum-quanto>=0.2.6
-sdnq>=0.1.0
-
-# Model formats and utilities
-gguf>=0.10.0
-sentencepiece>=0.2.0
-torchsde>=0.2.6
-
-# Computer vision and image processing
-controlnet-aux>=0.0.9
-opencv-python>=4.10.0
-kornia>=0.7.0
-pillow>=10.4.0
-scikit-image>=0.24.0
-timm>=0.6.7
-mediapipe>=0.10.18
-
-# Video processing
-imageio>=2.36.1
-imageio-ffmpeg>=0.5.1
-moviepy>=2.1.1
-# Muxing generated audio into generated video (LTX-2)
-av>=13.0.0
-
-# Audio processing
-soundfile>=0.12.1
-
-# Workflow utilities
-qrcode>=8.0
-aiohttp>=3.11.10
-beautifulsoup4>=4.12.3
-jsonschema>=4.23.0
-concurrent-log-handler>=0.9.25
-
-# Math and scientific computing
-numpy>=1.26.4
-scipy>=1.14.1
-
-# Visualization
-matplotlib>=3.9.3
-
-# Text utilities
-ftfy>=6.0.0
-regex>=2024.11.6
-
-# System utilities
-protobuf>=4.25.5
-PyYAML>=6.0.2
-requests>=2.32.3
-tqdm>=4.67.1
-psutil>=6.1.0
-python-dotenv>=1.0.1
-
-# Development tools (optional)
-black>=24.0.0
-
-# ==============================================================================
-# Optional: For flash attention (requires CUDA dev toolkit)
-# pip install flash_attn
-# ==============================================================================
-
-# EXIF metadata embedding for JPEG/WebP results
-piexif>=1.1.3
-
-# HTTP server (python -m dw.serve)
-fastapi>=0.115
-uvicorn[standard]>=0.30
+-e .[server]

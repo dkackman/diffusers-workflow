@@ -134,27 +134,24 @@ python -m pip install --upgrade pip
 # Install build tools
 pip install wheel setuptools
 
-# Install PyTorch - use standard install (CUDA auto-detected on Linux, MPS on macOS)
+# Install PyTorch first - standard install (CUDA auto-detected on Linux,
+# MPS on macOS). The resolver below sees it satisfied and leaves it alone.
 pip install torch torchvision torchaudio
 
-# Install Diffusers from GitHub (latest version)
+# Everything else resolves from pyproject.toml - the single source of the
+# dependency list (bitsandbytes included, via its linux platform marker).
+# Editable install with the server + dev extras.
+pip install -e ".[server,dev]"
+
+# Diffusers from GitHub (releases lag the newest model pipelines) - after
+# the resolver, so it isn't replaced by the released version
 pip install --upgrade git+https://github.com/huggingface/diffusers
 
-# Install core ML dependencies (all platforms)
-pip install peft transformers accelerate safetensors controlnet_aux sentencepiece torchsde torchao gguf kornia ftfy sdnq spandrel facexlib
-
-# Install platform-specific dependencies
+# Platform-specific extras pyproject can't express
 if $MACOS; then
   # FP8/FP4 dtype support for MPS (auto-activates via torch.backends)
   pip install fp4-fp8-for-torch-mps fluidtop
-else
-  # CUDA-only: bitsandbytes quantization
-  # NOTE: `kernels` is optional and can break import compatibility in some environments.
-  pip install bitsandbytes
 fi
-
-# Install utility dependencies
-pip install fastapi 'uvicorn[standard]' av aiohttp matplotlib opencv-python-headless concurrent-log-handler qrcode protobuf imageio imageio-ffmpeg beautifulsoup4 soundfile jsonschema black python-dotenv
 
 echo ""
 echo "Installation complete!"

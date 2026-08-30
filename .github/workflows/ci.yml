@@ -17,7 +17,10 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+          # The requirements files are pointers into pyproject.toml, where
+          # the dependency list actually lives
           cache-dependency-path: |
+            pyproject.toml
             requirements.txt
             requirements-test.txt
       # System libs opencv-python needs at import
@@ -28,10 +31,13 @@ jobs:
       - name: Install torch (CPU)
         run: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
       - name: Install dependencies
+        # requirements.txt resolves pyproject.toml's dependencies + server
+        # extra; requirements-test.txt the dev extra. diffusers from git
+        # goes on afterwards so the resolver doesn't replace it with a
+        # release
         run: |
-          pip install git+https://github.com/huggingface/diffusers
           pip install -r requirements.txt -r requirements-test.txt
-          pip install fastapi 'uvicorn[standard]'
+          pip install git+https://github.com/huggingface/diffusers
       - name: Format check
         run: black --check dw tests
       - name: Tests

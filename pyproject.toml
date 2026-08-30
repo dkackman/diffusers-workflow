@@ -24,25 +24,76 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
+# The single source of dependencies: the wheel, requirements.txt (a pointer
+# to here), install.sh, and CI all resolve this list. Torch ships CPU-only
+# from PyPI on Linux - a CUDA build comes from pytorch.org's own index and
+# must be installed first (install.sh does; see requirements.txt).
 dependencies = [
-    "torch>=2.0.0",
-    "diffusers",
-    "transformers",
-    "accelerate",
-    "huggingface_hub",
-    "numpy",
-    "Pillow",
-    "av",
-    "qrcode",
-    "jsonschema",
-    "concurrent-log-handler",
-    "controlnet-aux",
-    "soundfile",
+    # Core ML frameworks
+    "torch>=2.4.1",
+    "torchvision>=0.19.1",
+    # Diffusers and the HuggingFace ecosystem. Released diffusers may lag
+    # the newest pipelines - install.sh layers git HEAD on top
+    "diffusers>=0.31.0",
+    "transformers>=4.47.0",
+    "accelerate>=1.2.0",
+    "peft>=0.14.0",
+    "safetensors>=0.4.5",
+    "huggingface-hub>=0.26.5",
+    # Loaded at runtime by model tokenizers/text encoders, not imported here
+    "sentencepiece>=0.2.0",
+    "protobuf>=4.25.5",
+    "ftfy>=6.0.0",
+    # SDE schedulers
+    "torchsde>=0.2.6",
+    # Quantization backends (config_objects.py loads them dynamically)
+    "torchao>=0.7.0",
+    "optimum-quanto>=0.2.6",
+    "sdnq>=0.1.0",
+    "gguf>=0.10.0",
+    "bitsandbytes>=0.45.0; sys_platform == 'linux'",
+    # ControlNet preprocessors (brings opencv-headless, scikit-image,
+    # scipy, timm) and pipelines that want kornia
+    "controlnet-aux>=0.0.9",
+    "opencv-python-headless>=4.10.0",
+    "kornia>=0.7.0",
+    # Upscaling and face restoration tasks
+    "spandrel>=0.4.0",
+    "facexlib>=0.3.0",
+    # Imaging and media
+    "numpy>=1.26.4",
+    "Pillow>=10.4.0",
+    "piexif>=1.1.3",
+    "imageio>=2.36.1",
+    "imageio-ffmpeg>=0.5.1",
+    "av>=13.0.0",
+    "soundfile>=0.12.1",
+    "matplotlib>=3.9.3",
+    # Utilities
+    "qrcode>=8.0",
+    "requests>=2.32.3",
+    "aiohttp>=3.11.10",
+    "beautifulsoup4>=4.12.3",
+    "jsonschema>=4.23.0",
+    "concurrent-log-handler>=0.9.25",
+    "python-dotenv>=1.0.1",
+    "packaging>=23.0",
 ]
 
 [project.optional-dependencies]
-server = ["fastapi", "uvicorn[standard]"]
-dev = ["pytest", "pytest-cov", "black", "flake8", "build"]
+server = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.0.0",
+    "pytest-timeout>=2.1.0",
+    "pytest-mock>=3.10.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.27",
+    "black>=24.0.0",
+    "flake8",
+    "build",
+]
 
 [project.urls]
 Homepage = "https://github.com/dkackman/diffusers-workflow"
