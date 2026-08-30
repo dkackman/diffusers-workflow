@@ -253,7 +253,7 @@ def validate_variable_name(name: str) -> str:
         raise InvalidInputError("Variable name cannot be empty")
 
     # Allow only alphanumeric characters, underscores, and hyphens
-    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_-]*$", name):
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_-]*\Z", name):
         raise InvalidInputError(f"Invalid variable name: {name}")
 
     if len(name) > MAX_VARIABLE_NAME_LENGTH:
@@ -266,8 +266,10 @@ def validate_variable_name(name: str) -> str:
 
 # A stored prompt's name: a file name, optionally under one folder. Each
 # segment starts with a word character, which precludes '..', hidden files,
-# and absolute paths without a second scan
-PROMPT_REFERENCE_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*)?$"
+# and absolute paths without a second scan. Anchored with \Z, not $ - $ also
+# matches before a trailing newline, which would admit names no listing can
+# round-trip (the same reason the variable and constant patterns use \Z)
+PROMPT_REFERENCE_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*)?\Z"
 MAX_PROMPT_REFERENCE_LENGTH = 200
 
 
@@ -307,7 +309,7 @@ def validate_prompt_reference(name: str) -> str:
 
 
 # A dotted python name: identifiers separated by dots, and nothing else
-CONSTANT_NAME_PATTERN = r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$"
+CONSTANT_NAME_PATTERN = r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*\Z"
 
 
 def validate_constant_name(name: str) -> str:

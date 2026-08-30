@@ -195,6 +195,10 @@ class Job:
         self.add_event({"event": "job_status", "status": status})
 
     def events_after(self, after_seq):
+        # Clamped: an 'after' below -1 would slice from the END of the log
+        # (events[-4:] for after=-5) and silently drop the earlier events a
+        # client asking for everything expects
+        after_seq = max(after_seq, -1)
         with self.condition:
             return self.events[after_seq + 1 :]
 

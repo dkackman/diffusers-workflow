@@ -58,6 +58,19 @@ def get_iterations(argument_template, previous_results):
     keys = list(ref_results.keys())
     iterations = []
 
+    # Guard the cartesian product BEFORE building it - the product's size is
+    # known from the reference counts, and checking after the loop would only
+    # report the resource exhaustion it exists to prevent
+    combinations = 1
+    for key in keys:
+        combinations *= len(ref_results[key])
+    if combinations > MAX_ITERATIONS:
+        raise ValueError(
+            f"Too many iterations generated: {combinations} exceeds maximum of {MAX_ITERATIONS}. "
+            f"This usually indicates too many previous_result references creating a cartesian product. "
+            f"Consider reducing the number of multi-value results or splitting into multiple steps."
+        )
+
     # Use itertools.product to create cartesian product of all possible values
     # Example: if ref_results has 2 images and 2 prompts, creates 4 combinations
     for values in product(*[ref_results[k] for k in keys]):
@@ -83,14 +96,6 @@ def get_iterations(argument_template, previous_results):
         # Now that the media exists, build the objects that were waiting for it -
         # a reference constructed from a step's output rather than from a file
         iterations.append(build_objects(arguments))
-
-    # Safety check to prevent cartesian product explosion
-    if len(iterations) > MAX_ITERATIONS:
-        raise ValueError(
-            f"Too many iterations generated: {len(iterations)} exceeds maximum of {MAX_ITERATIONS}. "
-            f"This usually indicates too many previous_result references creating a cartesian product. "
-            f"Consider reducing the number of multi-value results or splitting into multiple steps."
-        )
 
     logger.debug(f"Generated {len(iterations)} argument combinations")
     return iterations

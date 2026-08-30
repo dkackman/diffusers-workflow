@@ -21,6 +21,7 @@ from dw.result import (
     guess_extension,
     normalize_audio,
 )
+from dw.security import SecurityError
 
 
 class TestResult:
@@ -177,6 +178,40 @@ class TestResult:
 
             output_file = os.path.join(temp_dir, "custom_output-0.json")
             assert os.path.exists(output_file)
+
+    def test_a_traversing_file_base_name_cannot_escape_the_output_directory(self):
+        """Every part of a result's file name comes from the workflow - a
+        file_base_name carrying '..' would otherwise write outside outputs."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outputs = os.path.join(temp_dir, "outputs")
+            os.makedirs(outputs)
+            result = Result(
+                {
+                    "content_type": "text/plain",
+                    "save": True,
+                    "file_base_name": "../escaped-",
+                }
+            )
+            result.add_result("payload")
+
+            with pytest.raises(SecurityError):
+                result.save(outputs, "wf-step.0")
+
+            assert os.listdir(temp_dir) == ["outputs"]
+
+    def test_a_traversing_workflow_or_step_name_cannot_escape_either(self):
+        """The default base name is '{workflow id}-{step name}.{i}', both of
+        them free-form strings from the workflow JSON."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outputs = os.path.join(temp_dir, "outputs")
+            os.makedirs(outputs)
+            result = Result({"content_type": "text/plain", "save": True})
+            result.add_result("payload")
+
+            with pytest.raises(SecurityError):
+                result.save(outputs, "../escaped-step.0")
+
+            assert os.listdir(temp_dir) == ["outputs"]
 
     def test_save_creates_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:

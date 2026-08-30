@@ -552,6 +552,32 @@ def test_sse_resumes_from_last_event_id_header(server):
         assert seqs and seqs[0] == 5
 
 
+def test_sse_after_below_the_start_replays_the_whole_log(server):
+    """events[after+1:] with after < -1 slices from the END of the log - a
+    client asking for everything from before the beginning must not be
+    handed only the tail."""
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, job["id"], ["succeeded"])
+
+        def read_events(url):
+            events = []
+            with client.stream("GET", url) as response:
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        events.append(json.loads(line[len("data: ") :]))
+            return events
+
+        full = read_events(f"/api/jobs/{job['id']}/events?after=-1")
+        assert full[0]["seq"] == 0
+        assert len(full) > 1
+        # -2 is the value that exposes the slice: events[-1:] on the old
+        # code is the last event alone. (A large negative like -99 slices
+        # events[-98:], which on a short log is everything - and proves nothing.)
+        clamped = read_events(f"/api/jobs/{job['id']}/events?after=-2")
+        assert [e["seq"] for e in clamped] == [e["seq"] for e in full]
+
+
 def test_rerun_endpoint_and_historical_job_surface(tmp_path):
     """The HTTP surface over history: historical detail, empty event
     stream, and rerun by id - including after a restart."""
@@ -841,6 +867,98 @@ class TestModelDownloads:
             assert bad.status_code == 400
             unknown = client.post("/api/models/downloads/nope/cancel")
             assert unknown.status_code == 404
+
+    def test_delete_and_update_are_refused_while_a_download_runs(self, tmp_path):
+        """A download writing into the hub cache is the same hazard a running
+        job is: deleting those files, or letting pip replace package files
+        underneath it, corrupts what the download is producing."""
+        import threading
+        from types import SimpleNamespace
+        from dw.hub_cache import DownloadManager
+        from dw.server.updater import DiffusersUpdater
+
+        release = threading.Event()
+        started = threading.Event()
+
+        def slow_download(repo_id, tqdm_class=None):
+            tracker = tqdm_class(total=10)
+            tracker.update(1)
+            started.set()
+            release.wait(timeout=5)
+
+        class Info:
+            siblings = []
+
+        downloads = DownloadManager(
+            download_fn=slow_download, info_fn=lambda repo_id: Info()
+        )
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+        )
+        pip = SimpleNamespace(returncode=0, stdout="", stderr="")
+        app = create_app(
+            workflow_dir=str(tmp_path),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            download_manager=downloads,
+            diffusers_updater=DiffusersUpdater(run_fn=lambda: pip),
+        )
+        with TestClient(app) as client:
+            assert (
+                client.post(
+                    "/api/models/download", json={"repo_id": "acme/tiny"}
+                ).status_code
+                == 202
+            )
+            assert started.wait(timeout=5)
+
+            refused_delete = client.delete("/api/models?repo=acme/other")
+            assert refused_delete.status_code == 409
+            assert "download is in progress" in refused_delete.json()["detail"]
+
+            refused_update = client.post("/api/system/diffusers/update")
+            assert refused_update.status_code == 409
+            assert "download is in progress" in refused_update.json()["detail"]
+
+            release.set()
+
+    def test_a_download_is_cancellable_from_the_moment_it_is_listed(self, monkeypatch):
+        """The entry used to be published under the lock and given its cancel
+        event afterwards; a cancel from another thread in between raised
+        KeyError. The gap held exactly one call - threading.Event() - so a
+        hook on it stands in for that other thread deterministically."""
+        import threading
+        from dw.hub_cache import DownloadManager
+
+        class Info:
+            siblings = []
+
+        downloads = DownloadManager(
+            download_fn=lambda repo_id, tqdm_class=None: None,
+            info_fn=lambda repo_id: Info(),
+        )
+
+        real_event = threading.Event
+
+        def event_that_cancels_whatever_is_listed():
+            for entry in downloads.status_list():
+                if entry["status"] == "downloading":
+                    downloads.cancel(entry["id"])
+            return real_event()
+
+        monkeypatch.setattr(threading, "Event", event_that_cancels_whatever_is_listed)
+
+        # On the old ordering this raised KeyError('_cancel') out of start()
+        started = downloads.start("acme/tiny")
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if downloads.status(started["id"])["status"] != "downloading":
+                break
+            time.sleep(0.02)
+        assert downloads.status(started["id"])["status"] == "completed"
 
 
 class TestTaskDescription:

@@ -163,6 +163,54 @@ class TestGetIterations:
         assert len(iterations) == 1
         assert iterations[0] == {"prompt": "a landscape", "num_steps": 25}
 
+    def test_an_oversized_cartesian_product_is_refused_before_it_is_built(
+        self, monkeypatch
+    ):
+        """The guard exists to prevent resource exhaustion, so it has to fire
+        from the reference counts - building the product first and measuring
+        it afterwards would already have done the damage."""
+        import dw.previous_results as previous_results_module
+
+        monkeypatch.setattr(previous_results_module, "MAX_ITERATIONS", 10)
+
+        built = []
+        monkeypatch.setattr(
+            previous_results_module,
+            "build_objects",
+            lambda arguments: built.append(arguments) or arguments,
+        )
+
+        first = Result({})
+        first.add_result([f"a{i}.jpg" for i in range(5)])
+        second = Result({})
+        second.add_result([f"b{i}.jpg" for i in range(5)])
+        previous = {"step1": first, "step2": second}
+
+        template = {
+            "image": "previous_result:step1",
+            "mask_image": "previous_result:step2",
+        }
+        with pytest.raises(ValueError, match="25 exceeds maximum of 10"):
+            get_iterations(template, previous)
+
+        assert built == []
+
+    def test_a_product_at_the_limit_is_still_produced(self, monkeypatch):
+        import dw.previous_results as previous_results_module
+
+        monkeypatch.setattr(previous_results_module, "MAX_ITERATIONS", 4)
+
+        first = Result({})
+        first.add_result(["a0.jpg", "a1.jpg"])
+        second = Result({})
+        second.add_result(["b0.jpg", "b1.jpg"])
+
+        iterations = get_iterations(
+            {"image": "previous_result:step1", "mask_image": "previous_result:step2"},
+            {"step1": first, "step2": second},
+        )
+        assert len(iterations) == 4
+
     def test_single_reference_expands(self):
         result = Result({})
         result.add_result(["img1.jpg", "img2.jpg"])

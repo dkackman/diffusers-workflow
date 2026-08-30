@@ -11,7 +11,7 @@ import json
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
@@ -665,7 +665,9 @@ def create_app(
             entries.append(
                 {
                     "name": name,
-                    "url": f"/outputs/{name}",
+                    # Quoted: a name carrying '#', '?' or '%' would otherwise
+                    # break the src the gallery renders it into
+                    "url": f"/outputs/{quote(name)}",
                     "kind": kind,
                     "size": stat.st_size,
                     "mtime": stat.st_mtime,
@@ -744,6 +746,12 @@ def create_app(
                 detail="A job is running or queued - deleting model files "
                 "out from under it would corrupt the run",
             )
+        if downloads.is_active():
+            raise HTTPException(
+                status_code=409,
+                detail="A model download is in progress - deleting cache "
+                "files while it writes them would corrupt both",
+            )
         try:
             freed = delete_model(repo)
         except ValueError as e:
@@ -774,6 +782,12 @@ def create_app(
                 status_code=409,
                 detail="A job is running or queued - updating diffusers "
                 "underneath it could corrupt the run",
+            )
+        if downloads.is_active():
+            raise HTTPException(
+                status_code=409,
+                detail="A model download is in progress - replacing package "
+                "files while it runs could corrupt the download",
             )
         try:
             return updater.start(on_success=manager.restart_worker_if_idle)

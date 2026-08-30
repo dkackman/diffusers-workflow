@@ -44,7 +44,11 @@ def main():
         "DW_PROMPT_DIR, else ./prompts if it exists, else the nearest "
         "prompts/ above the workflow file)",
     )
-    args = parser.parse_args()
+    # parse_intermixed_args, not parse_args: argparse splits positionals into
+    # groups around an option, and with a nargs='*' positional that means
+    # 'dw-run wf.json -o outputs prompt=cat' - an option between the file
+    # and the name=value pairs - fails as unrecognized arguments
+    args = parser.parse_intermixed_args()
 
     if args.prompt_dir:
         os.environ["DW_PROMPT_DIR"] = os.path.abspath(args.prompt_dir)
