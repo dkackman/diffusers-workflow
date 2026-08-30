@@ -9,6 +9,7 @@
         "height": 544
     },
     "id": "ZImage",
+    "description": "Text-to-image with Z-Image Turbo - photorealistic output in nine steps.",
     "steps": [
         {
             "name": "txt2img",

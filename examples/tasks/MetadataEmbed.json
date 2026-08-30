@@ -1,5 +1,6 @@
 {
     "id": "MetadataEmbed",
+    "description": "FLUX.1 dev generation with full generation metadata embedded in the saved PNG.",
     "variables": {
         "prompt": "A serene mountain landscape at golden hour, photorealistic",
         "steps": 25

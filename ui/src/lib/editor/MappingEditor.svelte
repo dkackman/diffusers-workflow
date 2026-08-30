@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Plus, Trash2 } from 'lucide-svelte'
-  import { coerce, isReference, widgetFor } from '../editor'
+  import { coerce, displayValue, isReference, widgetFor } from '../editor'
 
   let {
     args = $bindable(),
@@ -14,14 +14,11 @@
 
   let newKey = $state('')
 
-  const unusedSuggestions = $derived(suggestions.filter((s) => !(s.name in args)))
-  const hintFor = (key: string) => suggestions.find((s) => s.name === key)?.hint ?? ''
-
-  function display(value: unknown): string {
-    if (value === null || value === undefined) return ''
-    if (typeof value === 'object') return JSON.stringify(value)
-    return String(value)
-  }
+  const unusedSuggestions = $derived(
+    suggestions.filter((s) => !(s.name in args)),
+  )
+  const hintFor = (key: string) =>
+    suggestions.find((s) => s.name === key)?.hint ?? ''
 
   function update(key: string, raw: string) {
     args[key] = coerce(widgetFor(undefined, args[key]), raw)
@@ -41,7 +38,7 @@
       id={'map-' + key}
       class:ref={isReference(args[key])}
       list={listId}
-      value={display(args[key])}
+      value={displayValue(args[key])}
       placeholder={hintFor(key)}
       onchange={(e) => update(key, e.currentTarget.value)}
     />
@@ -65,7 +62,7 @@
       }}
     >
       <option value="">add argument…</option>
-      {#each unusedSuggestions as suggestion}
+      {#each unusedSuggestions as suggestion (suggestion.name)}
         <option value={suggestion.name} title={suggestion.hint ?? ''}>
           {suggestion.name}
         </option>
@@ -88,11 +85,27 @@
 
 <style>
   .mapping {
-    display: grid; grid-template-columns: minmax(140px, auto) 1fr auto;
-    gap: 0.5rem 0.8rem; align-items: center;
+    display: grid;
+    grid-template-columns: minmax(140px, auto) 1fr auto;
+    gap: 0.5rem 0.8rem;
+    align-items: center;
   }
-  .mapping label { font-weight: 600; color: var(--muted); overflow-wrap: anywhere; }
-  .mapping select { grid-column: 1 / span 2; max-width: 300px; }
-  .mapping input[placeholder='new argument name…'] { grid-column: 1 / span 2; max-width: 300px; }
-  .icon { display: inline-flex; padding: 0.3rem 0.45rem; justify-self: start; }
+  .mapping label {
+    font-weight: 600;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .mapping select {
+    grid-column: 1 / span 2;
+    max-width: 300px;
+  }
+  .mapping input[placeholder='new argument name…'] {
+    grid-column: 1 / span 2;
+    max-width: 300px;
+  }
+  .icon {
+    display: inline-flex;
+    padding: 0.3rem 0.45rem;
+    justify-self: start;
+  }
 </style>

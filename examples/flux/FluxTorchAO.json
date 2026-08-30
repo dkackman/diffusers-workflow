@@ -3,6 +3,7 @@
         "prompt": "a marmot wearing a tophat, in a forest scene."
     },
     "id": "FluxTorchAO",
+    "description": "FLUX.1 dev with the transformer quantized to int8 via TorchAO.",
     "steps": [
         {
             "name": "main",

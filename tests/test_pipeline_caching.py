@@ -345,3 +345,65 @@ if __name__ == "__main__":
 
         traceback.print_exc()
         sys.exit(1)
+
+
+def test_cache_hit_republishes_shared_components():
+    """A warm sharing step must refill the fresh shared_components dict, or a
+    later reusing step that missed the cache finds nothing."""
+    workflow = Workflow({"id": "share", "steps": []}, "/tmp/test_output", "t.json")
+
+    sharing_def = {
+        "name": "loader",
+        "pipeline": {
+            "configuration": {"component_type": "{Mock}"},
+            "from_pretrained_arguments": {"model_name": "m"},
+            "shared_components": ["transformer"],
+            "arguments": {},
+        },
+    }
+    from dw.workflow import pipeline_cache_key
+
+    cached = Pipeline(sharing_def["pipeline"], 1, "cpu", MagicMock())
+    cache = {pipeline_cache_key(sharing_def["pipeline"]): cached}
+
+    shared = {}
+    workflow.create_step_action(sharing_def, shared, cache, 1, "cpu")
+    assert "transformer" in shared, "cache hit must republish shared components"
+    assert shared["transformer"] is cached.pipeline.transformer
+
+
+def test_redefined_step_evicts_prior_pipeline_before_loading():
+    """The swap must never hold the old and new model stacks at once."""
+    from dw.workflow import pipeline_cache_key
+
+    old_def = {
+        "configuration": {"component_type": "{Mock}"},
+        "from_pretrained_arguments": {"model_name": "old-model"},
+        "arguments": {},
+    }
+    new_step = {
+        "name": "gen",
+        "pipeline": {
+            "configuration": {"component_type": "{Mock}"},
+            "from_pretrained_arguments": {"model_name": "new-model"},
+            "arguments": {},
+        },
+    }
+    old_key = pipeline_cache_key(old_def)
+    cache = {old_key: MagicMock()}
+
+    workflow = Workflow({"id": "swap", "steps": []}, "/tmp/test_output", "t.json")
+    workflow._prior_step_keys = {"gen": old_key}
+
+    seen_at_load = {}
+
+    def mock_load(self, shared_components):
+        seen_at_load["old_still_cached"] = old_key in cache
+        self.pipeline = MagicMock()
+
+    with patch.object(Pipeline, "load", mock_load):
+        workflow.create_step_action(new_step, {}, cache, 1, "cpu")
+
+    assert (
+        seen_at_load["old_still_cached"] is False
+    ), "the redefined step's previous model must be evicted before load"

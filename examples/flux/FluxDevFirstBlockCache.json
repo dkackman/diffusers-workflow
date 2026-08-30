@@ -5,6 +5,7 @@
         "guidance_scale": 3.5
     },
     "id": "FluxDevFirstBlockCache",
+    "description": "FLUX.1 dev accelerated with first-block caching, skipping redundant transformer work across denoise steps.",
     "steps": [
         {
             "name": "txt2img",

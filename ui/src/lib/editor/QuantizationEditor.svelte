@@ -30,7 +30,6 @@
       }
     }
   }
-
 </script>
 
 <div class="quant">
@@ -39,8 +38,12 @@
     onchange={(e) => applyPreset(e.currentTarget.value)}
     title="quantization"
   >
-    {#each Object.keys(QUANT_PRESETS) as name}<option value={name}>{name}</option>{/each}
-    {#if presetName === 'custom'}<option value="custom">custom ({configType})</option>{/if}
+    {#each Object.keys(QUANT_PRESETS) as name (name)}<option value={name}
+        >{name}</option
+      >{/each}
+    {#if presetName === 'custom'}<option value="custom"
+        >custom ({configType})</option
+      >{/if}
   </select>
 
   {#if current}
@@ -54,12 +57,19 @@
       bind:args={current.arguments}
       componentType={current.configuration.config_type ?? ''}
       target="init"
-      listId={listId}
+      {listId}
     />
   {/if}
 </div>
 
 <style>
-  .quant { display: flex; flex-direction: column; gap: 0.4rem; }
-  .ctype { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+  .quant {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .ctype {
+    font-family: ui-monospace, monospace;
+    font-size: 0.8rem;
+  }
 </style>

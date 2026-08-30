@@ -3,6 +3,7 @@
         "prompt": "A marmot sits at the counter and drinks a milkshake"
     },
     "id": "FluxIP",
+    "description": "FLUX.1 dev with an IP-Adapter conditioning generation on a reference image.",
     "steps": [
         {
             "name": "main",

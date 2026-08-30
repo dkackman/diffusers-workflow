@@ -1,6 +1,12 @@
 <script lang="ts">
   import { Plus, Trash2 } from 'lucide-svelte'
-  import { classDescription, widgetFor, coerce, isReference } from '../editor'
+  import {
+    classDescription,
+    coerce,
+    displayValue,
+    isReference,
+    widgetFor,
+  } from '../editor'
   import type { PipelineDescription } from '../types'
 
   let {
@@ -20,11 +26,18 @@
   let description = $state<PipelineDescription | null>(null)
   let adding = $state('')
 
+  // Debounced: the class name arrives keystroke by keystroke, and every
+  // prefix would otherwise fire (and cache) a doomed lookup
   $effect(() => {
     description = null
-    if (componentType) {
-      classDescription(componentType, target).then((d) => (description = d))
-    }
+    if (!componentType) return
+    const wanted = componentType
+    const timer = setTimeout(() => {
+      classDescription(wanted, target).then((d) => {
+        if (wanted === componentType) description = d
+      })
+    }, 300)
+    return () => clearTimeout(timer)
   })
 
   const parameters = $derived(
@@ -35,13 +48,9 @@
       (p) => !(p.name in args) && !hide.includes(p.name),
     ),
   )
-  const shownKeys = $derived(Object.keys(args).filter((key) => !hide.includes(key)))
-
-  function displayValue(value: unknown): string {
-    if (value === null || value === undefined) return ''
-    if (typeof value === 'object') return JSON.stringify(value, null, 2)
-    return String(value)
-  }
+  const shownKeys = $derived(
+    Object.keys(args).filter((key) => !hide.includes(key)),
+  )
 
   function update(key: string, raw: string) {
     args[key] = coerce(widgetFor(parameters.get(key), args[key]), raw)
@@ -82,9 +91,8 @@
             id={'arg-' + key}
             class:ref={isReference(args[key])}
             rows="3"
-            value={displayValue(args[key])}
-            onchange={(e) => update(key, e.currentTarget.value)}
-          ></textarea>
+            value={displayValue(args[key], true)}
+            onchange={(e) => update(key, e.currentTarget.value)}></textarea>
         {:else}
           <input
             id={'arg-' + key}
@@ -108,7 +116,7 @@
     <div class="row add">
       <select bind:value={adding}>
         <option value="">add argument…</option>
-        {#each unused as parameter}
+        {#each unused as parameter (parameter.name)}
           <option value={parameter.name} title={parameter.description ?? ''}>
             {parameter.name}{parameter.required ? ' *' : ''}
           </option>
@@ -125,16 +133,46 @@
       </button>
     </div>
   {:else if componentType && !description}
-    <div class="muted hint">no argument schema available for {componentType}</div>
+    <div class="muted hint">
+      no argument schema available for {componentType}
+    </div>
   {/if}
 </div>
 
 <style>
-  .args { display: flex; flex-direction: column; gap: 0.5rem; }
-  .row { display: grid; grid-template-columns: 170px 1fr auto; gap: 0.7rem; align-items: start; }
-  .row.add { grid-template-columns: 1fr auto; max-width: 340px; }
-  label { padding-top: 0.42rem; font-weight: 600; color: var(--muted); overflow-wrap: anywhere; }
-  .req { color: var(--warn); margin-left: 2px; }
-  .hint { font-size: 0.75rem; margin-top: 0.15rem; max-width: 60ch; }
-  .icon { display: inline-flex; align-items: center; padding: 0.4rem 0.5rem; }
+  .args {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 170px 1fr auto;
+    gap: 0.7rem;
+    align-items: start;
+  }
+  .row.add {
+    grid-template-columns: 1fr auto;
+    max-width: 340px;
+  }
+  label {
+    padding-top: 0.42rem;
+    font-weight: 600;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .req {
+    color: var(--warn);
+    margin-left: 2px;
+  }
+  .hint {
+    font-size: 0.75rem;
+    margin-top: 0.15rem;
+    max-width: 60ch;
+  }
+  .icon {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.4rem 0.5rem;
+  }
 </style>

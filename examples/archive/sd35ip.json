@@ -3,6 +3,7 @@
         "prompt": "a marmot drinks a milkshake"
     },
     "id": "sd35ip",
+    "description": "SD 3.5 Large with an IP-Adapter, 4-bit quantized.",
     "steps": [
         {
             "name": "main",

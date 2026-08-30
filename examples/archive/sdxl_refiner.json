@@ -8,6 +8,7 @@
         }
     },
     "id": "sdxl_refiner",
+    "description": "Refines an input image with the SDXL refiner.",
     "steps": [
         {
             "name": "main",

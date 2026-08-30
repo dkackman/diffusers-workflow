@@ -8,6 +8,7 @@
         "height": 1024
     },
     "id": "ZImageSDNQ",
+    "description": "Z-Image Turbo pre-quantized to SDNQ uint4 - the same nine-step generation in a fraction of the VRAM.",
     "steps": [
         {
             "name": "txt2img",

@@ -1,5 +1,6 @@
 {
     "id": "FluxCanny",
+    "description": "Extracts Canny edges from an input image and generates with FLUX.1 Canny dev guided by them.",
     "steps": [
         {
             "name": "canny",

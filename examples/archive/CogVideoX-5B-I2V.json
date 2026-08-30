@@ -7,6 +7,7 @@
         "num_inference_steps": 50
     },
     "id": "CogVideoX-5B-I2V",
+    "description": "Image-to-video with CogVideoX 5B.",
     "steps": [
         {
             "name": "img2vid",

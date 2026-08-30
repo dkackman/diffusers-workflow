@@ -3,6 +3,7 @@
         "ip_adapter_image_location": "https://pbs.twimg.com/media/GeiyNysXUAAYEAs?format=jpg&name=small"
     },
     "id": "ip_adapter",
+    "description": "IP-Adapter reference-image conditioning on both SD 1.5 and SDXL.",
     "steps": [
         {
             "name": "sd15",

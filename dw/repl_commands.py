@@ -782,9 +782,8 @@ class WorkflowCommands:
                     print(
                         "Worker process has terminated. Use 'workflow restart' to start a new worker.\n"
                     )
-                    # Mark worker as inactive (already crashed, no need to shutdown)
-                    self.repl.worker_manager.worker_active = False
-                    self.repl.worker_manager.worker_process = None
+                    # Already crashed - no shutdown handshake to attempt
+                    self.repl.worker_manager.mark_crashed()
                     break
                 else:
                     end_inline()

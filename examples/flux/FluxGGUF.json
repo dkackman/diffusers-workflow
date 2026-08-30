@@ -4,6 +4,7 @@
         "prompt": "a marmot wearing a tophat, in a forest scene."
     },
     "id": "FluxGGUF",
+    "description": "FLUX.1 dev loaded from a GGUF-quantized transformer checkpoint.",
     "steps": [
         {
             "name": "main",

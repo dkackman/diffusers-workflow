@@ -489,8 +489,158 @@ def test_workflow_listing_carries_details(server):
     with server(success_script) as client:
         workflow = valid_workflow("detailed")
         workflow["steps"][0]["result"] = {"content_type": "image/png"}
+        workflow["description"] = "Renders a small test image."
         client.put("/api/workflows/Detailed", json={"workflow": workflow})
 
         listing = client.get("/api/workflows").json()
-        assert listing["details"]["Detailed"] == {"kinds": ["image"], "variables": 1}
-        assert listing["details"]["Basic"] == {"kinds": [], "variables": 1}
+        assert listing["details"]["Detailed"] == {
+            "kinds": ["image"],
+            "variables": 1,
+            "description": "Renders a small test image.",
+        }
+        assert listing["details"]["Basic"]["kinds"] == []
+
+
+def test_sse_resumes_from_last_event_id_header(server):
+    """EventSource reconnects send Last-Event-ID; the stream must resume
+    after it, not replay from the start."""
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, job["id"], ["succeeded"])
+
+        with client.stream(
+            "GET",
+            f"/api/jobs/{job['id']}/events",
+            headers={"Last-Event-ID": "2"},
+        ) as response:
+            seqs = [
+                json.loads(line[len("data: ") :])["seq"]
+                for line in response.iter_lines()
+                if line.startswith("data: ")
+            ]
+        assert seqs and seqs[0] == 3
+
+        # an explicit ?after further along wins over a smaller header
+        with client.stream(
+            "GET",
+            f"/api/jobs/{job['id']}/events?after=4",
+            headers={"Last-Event-ID": "2"},
+        ) as response:
+            seqs = [
+                json.loads(line[len("data: ") :])["seq"]
+                for line in response.iter_lines()
+                if line.startswith("data: ")
+            ]
+        assert seqs and seqs[0] == 5
+
+
+def test_rerun_endpoint_and_historical_job_surface(tmp_path):
+    """The HTTP surface over history: historical detail, empty event
+    stream, and rerun by id - including after a restart."""
+    from dw.server.jobs import JobManager
+
+    history = str(tmp_path / "jobs.sqlite")
+
+    def make_client():
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=history,
+        )
+        app = create_app(
+            workflow_dir=str(tmp_path),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+        )
+        return TestClient(app)
+
+    with make_client() as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, job["id"], ["succeeded"])
+
+    with make_client() as client:  # restarted server
+        detail = client.get(f"/api/jobs/{job['id']}").json()
+        assert detail["historical"] is True and detail["status"] == "succeeded"
+
+        # a historical job has no event log - the stream closes immediately
+        with client.stream("GET", f"/api/jobs/{job['id']}/events") as response:
+            assert response.headers["content-type"].startswith("text/event-stream")
+            assert list(response.iter_lines()) == []
+
+        rerun = client.post(f"/api/jobs/{job['id']}/rerun")
+        assert rerun.status_code == 201
+        assert rerun.json()["id"] != job["id"]
+        wait_for_status(client, rerun.json()["id"], ["succeeded"])
+
+        assert client.post("/api/jobs/nonexistent/rerun").status_code == 404
+
+
+def test_inline_base_dir_is_validated(server, tmp_path):
+    """base_dir is HTTP-supplied path input - traversal and non-directories
+    are refused at submission and validation, per the security rules."""
+    with server(success_script) as client:
+        for bad in ("../../etc", str(tmp_path / "missing"), "/etc/passwd"):
+            response = client.post(
+                "/api/jobs", json={"workflow": valid_workflow(), "base_dir": bad}
+            )
+            assert response.status_code == 400, bad
+            response = client.post(
+                "/api/validate", json={"workflow": valid_workflow(), "base_dir": bad}
+            )
+            assert response.status_code == 400, bad
+        # nothing reached the worker
+        assert client.app.state.job_manager.worker_manager.commands == []
+
+        # a real directory is accepted
+        good = client.post(
+            "/api/jobs", json={"workflow": valid_workflow(), "base_dir": str(tmp_path)}
+        )
+        assert good.status_code == 201
+        wait_for_status(client, good.json()["id"], ["succeeded"])
+
+
+def test_job_for_file_escapes_like_wildcards(tmp_path):
+    """'_' in a file name must not act as a single-character wildcard and
+    attribute the file to a similarly named later job."""
+    from dw.server.jobs import JobHistory, Job
+
+    history = JobHistory(str(tmp_path / "jobs.sqlite"))
+
+    def finished(job_id, file_name):
+        job = Job({"workflow_name": "w", "arguments": {}})
+        job.id = job_id
+        job.manifest = [{"step": "s", "files": [f"/out/{file_name}"]}]
+        job.status = "succeeded"
+        job.finished_at = 1.0 if job_id == "older" else 2.0
+        history.record(job)
+
+    finished("older", "test_image-0.0.png")
+    finished("newer", "testXimage-0.0.png")
+
+    assert history.job_for_file("test_image-0.0.png")["id"] == "older"
+    assert history.job_for_file("testXimage-0.0.png")["id"] == "newer"
+
+
+def test_terminal_jobs_are_trimmed_from_memory(tmp_path):
+    """Finished jobs beyond the replay-grace window leave memory; history
+    still serves them."""
+    from dw.server.jobs import JobManager, TERMINAL_JOBS_KEPT
+
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    ids = []
+    for _ in range(TERMINAL_JOBS_KEPT + 5):
+        job = manager.submit(workflow=valid_workflow())
+        deadline = time.time() + 5
+        while job.status != "succeeded" and time.time() < deadline:
+            time.sleep(0.01)
+        ids.append(job.id)
+    manager.shutdown()
+
+    assert len(manager.jobs) == TERMINAL_JOBS_KEPT
+    # the oldest are gone from memory but fully served from history
+    evicted = manager.get(ids[0])
+    assert evicted["historical"] is True and evicted["status"] == "succeeded"

@@ -8,6 +8,7 @@
         "height": 768
     },
     "id": "NucleusAI",
+    "description": "Text-to-image with Nucleus, using text-KV caching.",
     "steps": [
         {
             "name": "txt2img",

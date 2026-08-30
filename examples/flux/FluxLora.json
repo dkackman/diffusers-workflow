@@ -7,6 +7,7 @@
         "guidance_scale": 3.5
     },
     "id": "FluxLora",
+    "description": "FLUX.1 dev with a LoRA adapter.",
     "steps": [
         {
             "name": "txt2img",

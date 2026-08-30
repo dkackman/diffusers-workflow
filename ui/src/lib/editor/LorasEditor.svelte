@@ -14,11 +14,7 @@
     if (pipeline.loras.length === 0) delete pipeline.loras
   }
 
-  function setScale(lora: Record<string, any>, raw: string) {
-    const parsed = Number(raw)
-    if (raw === '') delete lora.scale
-    else if (!Number.isNaN(parsed)) lora.scale = parsed
-  }
+  import { setNumber } from '../editor'
 </script>
 
 <div class="loras">
@@ -38,24 +34,43 @@
         class="scale"
         value={lora.scale ?? ''}
         placeholder="scale"
-        onchange={(e) => setScale(lora, e.currentTarget.value)}
+        onchange={(e) => setNumber(lora, 'scale', e.currentTarget.value)}
       />
       <button class="quiet icon" onclick={() => remove(index)} title="remove">
         <Trash2 size={14} />
       </button>
     </div>
   {/each}
-  <button class="quiet withicon" onclick={add} title="add a LoRA adapter to load onto this pipeline">
+  <button
+    class="quiet withicon"
+    onclick={add}
+    title="add a LoRA adapter to load onto this pipeline"
+  >
     <Plus size={14} />add LoRA
   </button>
 </div>
 
 <style>
-  .loras { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
-  .row {
-    display: grid; grid-template-columns: 1fr 1fr 80px auto;
-    gap: 0.5rem; width: 100%; align-items: center;
+  .loras {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-start;
   }
-  .icon { display: inline-flex; padding: 0.3rem 0.45rem; }
-  .withicon { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 80px auto;
+    gap: 0.5rem;
+    width: 100%;
+    align-items: center;
+  }
+  .icon {
+    display: inline-flex;
+    padding: 0.3rem 0.45rem;
+  }
+  .withicon {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
 </style>

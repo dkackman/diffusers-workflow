@@ -8,6 +8,7 @@
         }
     },
     "id": "kandinsky_i2i",
+    "description": "Image-to-image with Kandinsky 3.",
     "steps": [
         {
             "name": "resize",

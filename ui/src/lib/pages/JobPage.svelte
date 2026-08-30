@@ -17,16 +17,21 @@
   $effect(() => {
     job = null
     events = []
-    let stop = () => {}
+    // stopped guards the async gap: navigating away mid-fetch must not let
+    // a late-resolving getJob open a stream nothing will ever stop
+    let stopped = false
+    let stop: (() => void) | null = null
     api
       .getJob(jobId)
       .then((detail) => {
+        if (stopped) return
         job = detail
+        if (detail.historical) return // no event log to stream
         stop = streamJobEvents(
           jobId,
           -1,
           (event) => {
-            events = [...events, event]
+            events.push(event)
             if (event.event === 'pipeline_step') {
               stepTimes = [...stepTimes.slice(-6), performance.now()]
             } else if (event.event === 'job_status') {
@@ -38,7 +43,10 @@
         )
       })
       .catch((e) => (error = e.message))
-    return () => stop()
+    return () => {
+      stopped = true
+      stop?.()
+    }
   })
 
   async function refresh() {
@@ -53,26 +61,30 @@
     (events.find((e) => e.event === 'workflow_start')?.steps as string[]) ?? [],
   )
   const currentStep = $derived(
-    [...events].reverse().find((e) => e.event === 'step_start')?.step as string | undefined,
+    [...events].reverse().find((e) => e.event === 'step_start')?.step as
+      string | undefined,
   )
   const finishedSteps = $derived(
-    new Set(events.filter((e) => e.event === 'step_end').map((e) => e.step as string)),
+    new Set(
+      events.filter((e) => e.event === 'step_end').map((e) => e.step as string),
+    ),
   )
   const denoise = $derived(
     [...events].reverse().find((e) => e.event === 'pipeline_step') as
-      | { step: number; total_steps: number | null }
-      | undefined,
+      { step: number; total_steps: number | null } | undefined,
   )
   const logs = $derived(
     events.filter((e) => e.event === 'log').map((e) => e.message as string),
   )
   const seed = $derived(
-    events.find((e) => e.event === 'workflow_start')?.seed as number | undefined,
+    events.find((e) => e.event === 'workflow_start')?.seed as
+      number | undefined,
   )
   const etaSeconds = $derived.by(() => {
     if (!denoise?.total_steps || stepTimes.length < 3) return null
     const window = stepTimes.slice(-6)
-    const perStep = (window[window.length - 1] - window[0]) / (window.length - 1)
+    const perStep =
+      (window[window.length - 1] - window[0]) / (window.length - 1)
     const remaining = denoise.total_steps - denoise.step
     if (remaining <= 0 || perStep <= 0) return null
     return Math.round((remaining * perStep) / 1000)
@@ -100,7 +112,11 @@
     <h1>{job.workflow}</h1>
     <span class="chip {job.status}">{job.status}</span>
     {#if seed !== undefined}
-      <code class="muted seed" title="the seed this run used - embedded in saved images alongside the recipe">seed {seed}</code>
+      <code
+        class="muted seed"
+        title="the seed this run used - embedded in saved images alongside the recipe"
+        >seed {seed}</code
+      >
     {/if}
     <span class="flex"></span>
     {#if running}
@@ -128,7 +144,7 @@
 {#if job}
   {#if job.warnings.length}
     <div class="panel warnings warn-edge">
-      {#each job.warnings as warning}
+      {#each job.warnings as warning, i (i)}
         <div class="warnrow"><TriangleAlert size={14} /> {warning}</div>
       {/each}
     </div>
@@ -137,10 +153,16 @@
   {#if steps.length}
     <div class="panel">
       <h2>Progress</h2>
-      {#each steps as step}
+      {#each steps as step (step)}
         <div class="step">
-          <span class="dot" class:done={finishedSteps.has(step)} class:active={step === currentStep && running}></span>
-          <span class:muted={step !== currentStep && !finishedSteps.has(step)}>{step}</span>
+          <span
+            class="dot"
+            class:done={finishedSteps.has(step)}
+            class:active={step === currentStep && running}
+          ></span>
+          <span class:muted={step !== currentStep && !finishedSteps.has(step)}
+            >{step}</span
+          >
           {#if step === currentStep && running && denoise}
             <div class="bar">
               <div
@@ -151,7 +173,9 @@
               ></div>
             </div>
             <span class="muted count">
-              {denoise.step}{denoise.total_steps ? ` / ${denoise.total_steps}` : ''}
+              {denoise.step}{denoise.total_steps
+                ? ` / ${denoise.total_steps}`
+                : ''}
               {#if etaSeconds !== null}· ~{etaSeconds}s left{/if}
             </span>
           {/if}
@@ -166,7 +190,9 @@
       <div class="media">
         {#each liveFiles as file (file)}
           {#if isImage(file)}
-            <a href={fileUrl(file)} target="_blank"><img src={fileUrl(file)} alt={file.split('/').pop()} /></a>
+            <a href={fileUrl(file)} target="_blank"
+              ><img src={fileUrl(file)} alt={file.split('/').pop()} /></a
+            >
           {:else if isVideo(file)}
             <!-- svelte-ignore a11y_media_has_caption -->
             <video src={fileUrl(file)} controls loop></video>
@@ -195,33 +221,90 @@
 {/if}
 
 <style>
-  .head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
-  .flex { flex: 1; }
-  .withicon { display: inline-flex; align-items: center; gap: 0.35rem; }
-  .seed { font-size: 0.78rem; }
-  .panel { margin-bottom: 1rem; }
-  .warnings { color: var(--warn); }
-  .warnrow { display: flex; align-items: center; gap: 0.45rem; }
-  .step { display: flex; align-items: center; gap: 0.7rem; padding: 0.3rem 0; }
-  .dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: var(--panel-2); border: 1px solid var(--line);
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
   }
-  .dot.done { background: var(--good); border-color: var(--good); }
+  .flex {
+    flex: 1;
+  }
+  .withicon {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .seed {
+    font-size: 0.78rem;
+  }
+  .panel {
+    margin-bottom: 1rem;
+  }
+  .warnings {
+    color: var(--warn);
+  }
+  .warnrow {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.3rem 0;
+  }
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+  }
+  .dot.done {
+    background: var(--good);
+    border-color: var(--good);
+  }
   .dot.active {
-    background: var(--accent); border-color: var(--accent);
+    background: var(--accent);
+    border-color: var(--accent);
     animation: dw-pulse 1.6s ease-in-out infinite;
   }
   @media (prefers-reduced-motion: reduce) {
-    .dot.active { animation: none; }
+    .dot.active {
+      animation: none;
+    }
   }
   .bar {
-    flex: 1; max-width: 340px; height: 8px; border-radius: 4px;
-    background: var(--panel-2); overflow: hidden;
+    flex: 1;
+    max-width: 340px;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--panel-2);
+    overflow: hidden;
   }
-  .fill { height: 100%; background: var(--accent); transition: width 0.3s; }
-  .count { font-variant-numeric: tabular-nums; font-size: 0.8rem; }
-  .media { display: flex; flex-wrap: wrap; gap: 0.7rem; }
-  .media img, .media video { max-width: 340px; border-radius: 6px; display: block; }
-  .error { color: var(--bad); }
+  .fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.3s;
+  }
+  .count {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8rem;
+  }
+  .media {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+  }
+  .media img,
+  .media video {
+    max-width: 340px;
+    border-radius: 6px;
+    display: block;
+  }
+  .error {
+    color: var(--bad);
+  }
 </style>

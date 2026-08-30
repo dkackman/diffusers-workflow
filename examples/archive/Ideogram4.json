@@ -3,6 +3,7 @@
         "prompt": "a picture of a marmot in a top hat, holding a sign saying the 'i for one welcome our new robot overlords'"
     },
     "id": "Ideogram4",
+    "description": "Text-to-image with Ideogram 4 from an nf4-quantized checkpoint.",
     "steps": [
         {
             "name": "txt2img",

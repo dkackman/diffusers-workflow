@@ -5,6 +5,7 @@
         "guidance_scale": 3.5
     },
     "id": "FluxDevTeaCache",
+    "description": "FLUX.1 dev accelerated with TeaCache.",
     "steps": [
         {
             "name": "txt2img",

@@ -1,5 +1,6 @@
 {
     "id": "FluxDepth",
+    "description": "Estimates depth from an input image and generates with FLUX.1 Depth dev guided by it.",
     "steps": [
         {
             "name": "depth",

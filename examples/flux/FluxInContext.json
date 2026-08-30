@@ -9,6 +9,7 @@
         "weight_name": "couple-profile.safetensors"
     },
     "id": "FluxInContext",
+    "description": "Runs the same prompt through ten FLUX.1 in-context LoRA styles - one image per adapter.",
     "steps": [
         {
             "name": "couple",

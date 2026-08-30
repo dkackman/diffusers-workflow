@@ -8,6 +8,7 @@
         "height": 768
     },
     "id": "FluxDevKrea",
+    "description": "Text-to-image with FLUX.1 Krea dev, tuned for photographic aesthetics.",
     "steps": [
         {
             "name": "txt2img",

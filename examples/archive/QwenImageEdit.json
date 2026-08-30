@@ -1,5 +1,6 @@
 {
     "id": "QwenImageEdit",
+    "description": "Instruction-based image editing with Qwen Image Edit Plus, LoRA-accelerated and 4-bit quantized.",
     "variables": {
         "model_name": "Qwen/Qwen-Image-Edit-2509",
         "prompt": "the dragon in the image is flying in the sky over the man giving a speech",

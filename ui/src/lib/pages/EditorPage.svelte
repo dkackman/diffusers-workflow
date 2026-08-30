@@ -35,6 +35,20 @@
   let quantizationClasses = $state<string[]>([])
   let taskCommands = $state<string[]>([])
   let workflowFiles = $state<string[]>([])
+  let folder = $state('')
+  let newFolder = $state('')
+
+  // Existing folders, from the listing - one level is the designed depth,
+  // but any deeper directories that exist still appear and keep working
+  const folders = $derived(
+    [
+      ...new Set(
+        workflowFiles
+          .filter((file) => file.includes('/'))
+          .map((file) => file.split('/').slice(0, -1).join('/')),
+      ),
+    ].sort(),
+  )
   let validation = $state<ValidationResult | null>(null)
   let status = $state('')
   let error = $state('')
@@ -65,13 +79,25 @@
 
   const serialized = $derived(JSON.stringify($state.snapshot(workflow)))
   const dirty = $derived(baseline !== '' && serialized !== baseline)
-  const referenceProblems = $derived(danglingReferences($state.snapshot(workflow)))
+  const referenceProblems = $derived(
+    danglingReferences($state.snapshot(workflow)),
+  )
+  // Memoized so datalist options keep stable DOM identity - churn on every
+  // render made the browser's suggestion dropdown flaky on first focus
+  const stepReferences = $derived.by(() => {
+    const snapshot = $state.snapshot(workflow)
+    return ((snapshot.steps as unknown[]) ?? []).map((_, index) =>
+      referenceSuggestions(snapshot, index),
+    )
+  })
 
   $effect(() => {
     api.listPipelines().then((r) => (pipelines = r.pipelines))
     api.listClasses('models').then((r) => (modelClasses = r.classes))
     api.listClasses('schedulers').then((r) => (schedulerClasses = r.classes))
-    api.listClasses('quantization').then((r) => (quantizationClasses = r.classes))
+    api
+      .listClasses('quantization')
+      .then((r) => (quantizationClasses = r.classes))
     api
       .listTasks()
       .then(
@@ -82,14 +108,16 @@
             ...r.video_processors,
           ].sort()),
       )
-    api
-      .listWorkflows()
-      .then((r) => (workflowFiles = r.workflows.map((name) => `${name}.json`)))
-    api.listWorkflows().then((r) => (workflowDir = r.workflow_dir))
+    api.listWorkflows().then((r) => {
+      workflowFiles = r.workflows.map((file) => `${file}.json`)
+      workflowDir = r.workflow_dir
+    })
     validation = null
     error = ''
     if (name) {
-      saveName = name
+      const segments = name.split('/')
+      saveName = segments[segments.length - 1]
+      folder = segments.slice(0, -1).join('/')
       api
         .getWorkflow(name)
         .then((definition) => {
@@ -100,30 +128,38 @@
     } else {
       // A gallery "open as workflow" hands the definition over in
       // sessionStorage - one-shot, so a plain "New" stays a blank slate
+      folder = sessionStorage.getItem('dw-editor-folder') ?? ''
+      sessionStorage.removeItem('dw-editor-folder')
       const imported = sessionStorage.getItem('dw-editor-import')
+      // Built as a plain local object and assigned once: reading the
+      // workflow proxy here would subscribe this effect to every edit and
+      // re-fire all the listing calls on each keystroke
+      let fresh = emptyWorkflow() as Record<string, any>
       if (imported) {
         sessionStorage.removeItem('dw-editor-import')
         try {
-          workflow = JSON.parse(imported)
+          fresh = JSON.parse(imported)
           status = 'Imported from image metadata'
         } catch {
-          workflow = emptyWorkflow()
+          /* unreadable hand-off - stay with the blank slate */
         }
-      } else {
-        workflow = emptyWorkflow()
       }
-      baseline = JSON.stringify($state.snapshot(workflow))
+      workflow = fresh
+      baseline = JSON.stringify(fresh)
       saveName = ''
     }
   })
 
-  // Unsaved edits should survive an accidental tab close
+  // Unsaved edits should survive an accidental tab close. dirty is read
+  // inside the handler only, so the listener registers exactly once
   $effect(() => {
     const guard = (event: BeforeUnloadEvent) => {
       if (dirty) event.preventDefault()
     }
     window.addEventListener('beforeunload', guard)
-    return () => window.removeEventListener('beforeunload', guard)
+    return () => {
+      window.removeEventListener('beforeunload', guard)
+    }
   })
 
   function onKeydown(event: KeyboardEvent) {
@@ -185,7 +221,9 @@
     busy = true
     status = ''
     try {
-      validation = await api.validate($state.snapshot(workflow) as WorkflowDefinition)
+      validation = await api.validate(
+        $state.snapshot(workflow) as WorkflowDefinition,
+      )
       return validation.valid
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -195,18 +233,37 @@
     }
   }
 
+  function savePath(): string | null {
+    if (!saveName) return null
+    const directory = folder === '__new__' ? newFolder.trim() : folder
+    if (folder === '__new__') {
+      if (!directory) return null
+      if (!/^[\w][\w.-]*$/.test(directory)) {
+        status = 'Folder names: letters, numbers, dot, dash, underscore'
+        return null
+      }
+    }
+    return directory ? `${directory}/${saveName}` : saveName
+  }
+
   async function save() {
-    if (!saveName) {
-      status = 'Give the workflow a file name first'
+    const path = savePath()
+    if (!path) {
+      if (!saveName) status = 'Give the workflow a file name first'
+      else if (folder === '__new__') status ||= 'Name the new folder first'
       return
     }
     if (!(await validate())) return
     busy = true
     try {
       const result = await api.saveWorkflow(
-        saveName,
+        path,
         $state.snapshot(workflow) as WorkflowDefinition,
       )
+      if (folder === '__new__') {
+        folder = newFolder.trim()
+        newFolder = ''
+      }
       baseline = JSON.stringify($state.snapshot(workflow))
       status = `Saved to ${result.path}`
     } catch (e) {
@@ -220,8 +277,12 @@
     if (!(await validate())) return
     busy = true
     try {
+      // base_dir anchors relative paths (images, sub-workflow files) the
+      // way running the saved file would - at the workflow's own folder
+      const directory = folder && folder !== '__new__' ? `/${folder}` : ''
       const job = await api.submitJob({
         workflow: $state.snapshot(workflow) as WorkflowDefinition,
+        base_dir: `${workflowDir}${directory}`,
       })
       go('jobs', job.id)
     } catch (e) {
@@ -232,7 +293,8 @@
   }
 
   function toggleJson() {
-    if (!showJson) jsonDraft = JSON.stringify($state.snapshot(workflow), null, 2)
+    if (!showJson)
+      jsonDraft = JSON.stringify($state.snapshot(workflow), null, 2)
     showJson = !showJson
   }
 
@@ -248,24 +310,29 @@
 </script>
 
 <datalist id="pipeline-classes">
-  {#each pipelines as pipeline}<option value={pipeline}></option>{/each}
+  {#each pipelines as pipeline (pipeline)}<option value={pipeline}
+    ></option>{/each}
 </datalist>
 <datalist id="model-classes">
-  {#each modelClasses as model}<option value={model}></option>{/each}
+  {#each modelClasses as model (model)}<option value={model}></option>{/each}
 </datalist>
 <datalist id="scheduler-classes">
-  {#each schedulerClasses as scheduler}<option value={scheduler}></option>{/each}
+  {#each schedulerClasses as scheduler (scheduler)}<option value={scheduler}
+    ></option>{/each}
 </datalist>
 <datalist id="quantization-classes">
-  {#each quantizationClasses as quantization}<option value={quantization}></option>{/each}
+  {#each quantizationClasses as quantization (quantization)}<option
+      value={quantization}
+    ></option>{/each}
 </datalist>
 <datalist id="task-commands">
-  {#each taskCommands as command}<option value={command}></option>{/each}
+  {#each taskCommands as command (command)}<option value={command}
+    ></option>{/each}
 </datalist>
 <svelte:window onkeydown={onKeydown} />
 
 <datalist id="workflow-files">
-  {#each workflowFiles as file}<option value={file}></option>{/each}
+  {#each workflowFiles as file (file)}<option value={file}></option>{/each}
 </datalist>
 
 <div class="head">
@@ -283,7 +350,9 @@
   <button
     class="quiet withicon"
     onclick={toggleJson}
-    title={showJson ? 'back to the form editor' : 'edit the raw JSON, schema-aware'}
+    title={showJson
+      ? 'back to the form editor'
+      : 'edit the raw JSON, schema-aware'}
   >
     <FileJson size={14} />{showJson ? 'form' : 'JSON'}
   </button>
@@ -315,14 +384,42 @@
 </div>
 
 <div class="savebar muted">
-  saving as <input class="savename" bind:value={saveName} placeholder="MyWorkflow" />
+  saving as
+  <select class="folderpick" bind:value={folder} title="folder to save into">
+    <option value="">(root)</option>
+    {#each folders as existing (existing)}<option value={existing}
+        >{existing}/</option
+      >{/each}
+    <option value="__new__">new folder…</option>
+  </select>
+  {#if folder === '__new__'}
+    <input
+      class="newfolder"
+      bind:value={newFolder}
+      placeholder="folder name"
+      title="name for the new folder at the root of the workflow directory"
+    />
+    <span>/</span>
+  {/if}
+  <input class="savename" bind:value={saveName} placeholder="MyWorkflow" />
   <span>.json in {workflowDir}</span>
+  <input
+    class="descfield"
+    value={workflow.description ?? ''}
+    placeholder="description - shown on the workflow card"
+    title="a short description of what this workflow does"
+    onchange={(e) => {
+      const v = e.currentTarget.value
+      if (v) workflow.description = v
+      else delete workflow.description
+    }}
+  />
 </div>
 
 {#if error}<p class="error">{error}</p>{/if}
 {#if referenceProblems.length}
   <div class="panel warn-edge refproblems">
-    {#each referenceProblems as problem}
+    {#each referenceProblems as problem, i (i)}
       <div><TriangleAlert size={13} /> {problem}</div>
     {/each}
   </div>
@@ -339,9 +436,11 @@
     class:good-edge={validation.valid && validation.warnings.length === 0}
   >
     {#if validation.valid && !validation.warnings.length}
-      <span class="ok"><CircleCheck size={14} /> schema-valid, no argument warnings</span>
+      <span class="ok"
+        ><CircleCheck size={14} /> schema-valid, no argument warnings</span
+      >
     {:else if validation.valid}
-      {#each validation.warnings as warning}
+      {#each validation.warnings as warning, i (i)}
         <div class="warn"><TriangleAlert size={14} /> {warning}</div>
       {/each}
     {:else}
@@ -358,123 +457,209 @@
   </p>
 {:else}
   <div class="editwrap" class:splitcols={split}>
-  <div class="formcol">
-  <div class="panel">
-    <h2>Variables</h2>
-    <div class="vars">
-      {#each variables as key (key)}
-        <label for={'wfvar-' + key}>{key}</label>
-        <input
-          id={'wfvar-' + key}
-          value={typeof workflow.variables[key] === 'object'
-            ? JSON.stringify(workflow.variables[key])
-            : String(workflow.variables[key] ?? '')}
-          onchange={(e) => setVariable(key, e.currentTarget.value)}
+    <div class="formcol">
+      <div class="panel">
+        <h2>Variables</h2>
+        <div class="vars">
+          {#each variables as key (key)}
+            <label for={'wfvar-' + key}>{key}</label>
+            <input
+              id={'wfvar-' + key}
+              value={typeof workflow.variables[key] === 'object'
+                ? JSON.stringify(workflow.variables[key])
+                : String(workflow.variables[key] ?? '')}
+              onchange={(e) => setVariable(key, e.currentTarget.value)}
+            />
+            <button
+              class="quiet icon"
+              onclick={() => removeVariable(key)}
+              title="remove this variable"
+              aria-label="remove this variable"
+            >
+              ×
+            </button>
+          {/each}
+          <input placeholder="new variable name…" bind:value={newVariable} />
+          <button
+            class="quiet withicon addvar"
+            onclick={addVariable}
+            disabled={!newVariable}
+            title="add this variable to the workflow"
+          >
+            <Plus size={14} />add
+          </button>
+          <span></span>
+        </div>
+      </div>
+
+      {#each workflow.steps ?? [] as step, index (step)}
+        <StepEditor
+          bind:step={workflow.steps[index]}
+          {index}
+          count={workflow.steps.length}
+          references={stepReferences[index] ?? []}
+          baseFolder={folder === '__new__' ? '' : folder}
+          onremove={() => removeStep(index)}
+          onmove={(delta) => moveStep(index, delta)}
         />
-        <button
-          class="quiet icon"
-          onclick={() => removeVariable(key)}
-          title="remove this variable"
-          aria-label="remove this variable"
-        >
-          ×
-        </button>
       {/each}
-      <input placeholder="new variable name…" bind:value={newVariable} />
-      <button
-        class="quiet withicon addvar"
-        onclick={addVariable}
-        disabled={!newVariable}
-        title="add this variable to the workflow"
-      >
-        <Plus size={14} />add
-      </button>
-      <span></span>
-    </div>
-  </div>
 
-  {#each workflow.steps ?? [] as step, index (step)}
-    <StepEditor
-      bind:step={workflow.steps[index]}
-      {index}
-      count={workflow.steps.length}
-      {pipelines}
-      references={referenceSuggestions($state.snapshot(workflow), index)}
-      onremove={() => removeStep(index)}
-      onmove={(delta) => moveStep(index, delta)}
-    />
-  {/each}
-
-  <div class="addstep">
-    <button
-      class="quiet withicon"
-      onclick={() => addStep('pipeline')}
-      title="add a step that runs a diffusers pipeline"
-    >
-      <Plus size={14} />pipeline step
-    </button>
-    <button
-      class="quiet withicon"
-      onclick={() => addStep('task')}
-      title="add a utility step - upscaling, segmentation, captioning, frame tools"
-    >
-      <Plus size={14} />task step
-    </button>
-    <button
-      class="quiet withicon"
-      onclick={() => addStep('workflow')}
-      title="add a step that runs another workflow file with mapped arguments"
-    >
-      <Plus size={14} />sub-workflow step
-    </button>
-  </div>
-  </div>
-  {#if split}
-    <div class="jsoncol">
-      <JsonEditor value={liveJson} readonly height="calc(100vh - 200px)" />
+      <div class="addstep">
+        <button
+          class="quiet withicon"
+          onclick={() => addStep('pipeline')}
+          title="add a step that runs a diffusers pipeline"
+        >
+          <Plus size={14} />pipeline step
+        </button>
+        <button
+          class="quiet withicon"
+          onclick={() => addStep('task')}
+          title="add a utility step - upscaling, segmentation, captioning, frame tools"
+        >
+          <Plus size={14} />task step
+        </button>
+        <button
+          class="quiet withicon"
+          onclick={() => addStep('workflow')}
+          title="add a step that runs another workflow file with mapped arguments"
+        >
+          <Plus size={14} />sub-workflow step
+        </button>
+      </div>
     </div>
-  {/if}
+    {#if split}
+      <div class="jsoncol">
+        <JsonEditor value={liveJson} readonly height="calc(100vh - 200px)" />
+      </div>
+    {/if}
   </div>
 {/if}
 
 <style>
-  .head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; }
-  .wfid { max-width: 240px; font-weight: 700; }
-  .flex { flex: 1; }
-  .withicon { display: inline-flex; align-items: center; gap: 0.35rem; }
-  .savebar { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 1rem; font-size: 0.85rem; }
-  .savename { max-width: 200px; }
-  .panel { margin-bottom: 1rem; }
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.4rem;
+  }
+  .wfid {
+    max-width: 240px;
+    font-weight: 700;
+  }
+  .flex {
+    flex: 1;
+  }
+  .withicon {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .savebar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+  }
+  .savename {
+    max-width: 200px;
+  }
+  .folderpick {
+    max-width: 160px;
+  }
+  .newfolder {
+    max-width: 140px;
+  }
+  .descfield {
+    flex: 1;
+    min-width: 220px;
+  }
+  .panel {
+    margin-bottom: 1rem;
+  }
   .vars {
-    display: grid; grid-template-columns: minmax(140px, auto) 1fr auto;
-    gap: 0.5rem 0.8rem; align-items: center;
+    display: grid;
+    grid-template-columns: minmax(140px, auto) 1fr auto;
+    gap: 0.5rem 0.8rem;
+    align-items: center;
   }
-  .vars label { font-weight: 600; color: var(--muted); }
-  .icon { padding: 0.3rem 0.55rem; }
-  .addvar { justify-self: start; }
-  .addstep { display: flex; gap: 0.6rem; }
+  .vars label {
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .icon {
+    padding: 0.3rem 0.55rem;
+  }
+  .addvar {
+    justify-self: start;
+  }
+  .addstep {
+    display: flex;
+    gap: 0.6rem;
+  }
   .editwrap.splitcols {
-    display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 44%);
-    gap: 1.1rem; align-items: start;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 44%);
+    gap: 1.1rem;
+    align-items: start;
   }
-  .jsoncol { position: sticky; top: 66px; }
+  .jsoncol {
+    position: sticky;
+    top: 66px;
+  }
   @media (max-width: 1100px) {
-    .editwrap.splitcols { grid-template-columns: 1fr; }
-    .jsoncol { position: static; }
+    .editwrap.splitcols {
+      grid-template-columns: 1fr;
+    }
+    .jsoncol {
+      position: static;
+    }
   }
-  .activebtn { border-color: var(--accent); color: var(--accent); }
+  .activebtn {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
   .status {
-    display: inline-flex; align-items: center; gap: 0.4rem;
-    color: var(--good); font-size: 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--good);
+    font-size: 0.9rem;
   }
   .dirtydot {
-    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-    background: var(--warn); margin-left: 0.15rem;
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--warn);
+    margin-left: 0.15rem;
   }
-  .refproblems { color: var(--warn); font-size: 0.9rem; }
-  .refproblems div { display: flex; align-items: center; gap: 0.4rem; }
-  .ok { color: var(--good); display: inline-flex; align-items: center; gap: 0.4rem; }
-  .warn { color: var(--warn); display: flex; align-items: center; gap: 0.4rem; }
-  .error { color: var(--bad); }
-  .hint { font-size: 0.8rem; }
+  .refproblems {
+    color: var(--warn);
+    font-size: 0.9rem;
+  }
+  .refproblems div {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .ok {
+    color: var(--good);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .warn {
+    color: var(--warn);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .error {
+    color: var(--bad);
+  }
+  .hint {
+    font-size: 0.8rem;
+  }
 </style>

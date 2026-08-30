@@ -12,6 +12,7 @@
         "height": 96
     },
     "id": "FluxImg2Img",
+    "description": "Image-to-image with FLUX.1 dev - restyles an input image toward the prompt.",
     "steps": [
         {
             "name": "main",

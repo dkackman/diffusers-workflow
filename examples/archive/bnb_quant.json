@@ -3,6 +3,7 @@
         "prompt": "cubart a leaf"
     },
     "id": "sd35",
+    "description": "SD 3.5 Large 4-bit quantized with BitsAndBytes, plus a LoRA.",
     "steps": [
         {
             "name": "main",

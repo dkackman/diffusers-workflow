@@ -7,6 +7,7 @@
         "height": 768
     },
     "id": "kandinsky3",
+    "description": "Text-to-image with Kandinsky 3.",
     "steps": [
         {
             "name": "main",

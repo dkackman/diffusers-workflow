@@ -29,7 +29,7 @@ from ..introspection import (
     workflow_argument_warnings,
 )
 from ..schema import load_schema
-from ..workflow import Workflow
+from ..workflow import Workflow, workflow_from_definition
 from ..result import read_embedded_metadata
 from .jobs import JobManager, TERMINAL_STATES
 
@@ -99,9 +99,10 @@ def workflow_details(workflow_dir, names):
             detail = {
                 "kinds": kinds,
                 "variables": len(definition.get("variables", {})),
+                "description": str(definition.get("description", "") or ""),
             }
         except Exception:
-            detail = {"kinds": [], "variables": 0}
+            detail = {"kinds": [], "variables": 0, "description": ""}
         _workflow_detail_cache[path] = (mtime, detail)
         details[name] = detail
     return details
@@ -179,11 +180,9 @@ def create_app(
                 arguments=request.arguments,
                 base_dir=request.base_dir,
             )
-        except (ValueError, SecurityError) as e:
-            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
-            # workflow_from_file / validate raise plain Exceptions for bad
-            # files and schema failures - those are the client's fault too
+            # workflow_from_file / validate / the security layer all raise for
+            # bad requests - every failure here is the client's fault
             raise HTTPException(status_code=400, detail=str(e))
         return job.detail()
 
@@ -204,8 +203,6 @@ def create_app(
         """Queue a fresh job from a previous job's stored spec."""
         try:
             job = manager.rerun(job_id)
-        except (ValueError, SecurityError) as e:
-            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
         if job is None:
@@ -311,11 +308,12 @@ def create_app(
         against real signatures, without queuing anything."""
         if request.workflow is None:
             raise HTTPException(status_code=400, detail="Provide an inline workflow")
-        candidate = Workflow(
-            copy.deepcopy(request.workflow),
-            manager.output_dir,
-            os.path.join(request.base_dir or os.getcwd(), "__inline__.json"),
-        )
+        try:
+            candidate = workflow_from_definition(
+                copy.deepcopy(request.workflow), manager.output_dir, request.base_dir
+            )
+        except (SecurityError, Exception) as e:
+            raise HTTPException(status_code=400, detail=str(e))
         try:
             candidate.validate()
         except Exception as e:
@@ -380,18 +378,18 @@ def create_app(
 
     # --------------------------------------------------------------- gallery
 
+    # Built from the security layer's allowlists so a new format is added
+    # exactly once - the gallery had already drifted (.bmp, .mkv, .mov)
+    from ..security import (
+        ALLOWED_AUDIO_EXTENSIONS,
+        ALLOWED_IMAGE_EXTENSIONS,
+        ALLOWED_VIDEO_EXTENSIONS,
+    )
+
     MEDIA_KINDS = {
-        ".png": "image",
-        ".jpg": "image",
-        ".jpeg": "image",
-        ".webp": "image",
-        ".gif": "image",
-        ".mp4": "video",
-        ".webm": "video",
-        ".wav": "audio",
-        ".mp3": "audio",
-        ".flac": "audio",
-        ".ogg": "audio",
+        **{ext: "image" for ext in ALLOWED_IMAGE_EXTENSIONS},
+        **{ext: "video" for ext in ALLOWED_VIDEO_EXTENSIONS},
+        **{ext: "audio" for ext in ALLOWED_AUDIO_EXTENSIONS},
     }
 
     def _output_file(name):

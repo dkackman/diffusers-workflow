@@ -8,6 +8,7 @@
         "height": 1264
     },
     "id": "ErnieImageTurbo",
+    "description": "Text-to-image with ERNIE Image Turbo.",
     "steps": [
         {
             "name": "txt2img",

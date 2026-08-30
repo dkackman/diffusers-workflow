@@ -30,7 +30,8 @@
     return () => clearInterval(timer)
   })
 
-  const when = (t: number | null) => (t ? new Date(t * 1000).toLocaleTimeString() : '—')
+  const when = (t: number | null) =>
+    t ? new Date(t * 1000).toLocaleTimeString() : '—'
   const duration = (job: JobSummary) => {
     if (!job.started_at) return ''
     const end = job.finished_at ?? Date.now() / 1000
@@ -48,7 +49,11 @@
     <option value="failed">failed</option>
     <option value="cancelled">cancelled</option>
   </select>
-  <input class="filter" placeholder="filter by workflow…" bind:value={nameFilter} />
+  <input
+    class="filter"
+    placeholder="filter by workflow…"
+    bind:value={nameFilter}
+  />
 </div>
 
 {#if error}<p class="muted">Could not reach the server: {error}</p>{/if}
@@ -67,7 +72,9 @@
         class="row"
         class:historical={job.historical}
         href={'#/jobs/' + job.id}
-        title={job.historical ? 'finished before this server started - loaded from history' : ''}
+        title={job.historical
+          ? 'finished before this server started - loaded from history'
+          : ''}
       >
         <span class="chip {job.status}">{job.status}</span>
         <span class="name">{job.workflow}</span>
@@ -81,22 +88,48 @@
 
 <style>
   .head {
-    display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
   }
-  .head h1 { margin: 0; flex: 1; }
-  .head select { max-width: 150px; }
-  .filter { max-width: 220px; }
-  .list { padding: 0.3rem; }
+  .head h1 {
+    margin: 0;
+    flex: 1;
+  }
+  .head select {
+    max-width: 150px;
+  }
+  .filter {
+    max-width: 220px;
+  }
+  .list {
+    padding: 0.3rem;
+  }
   .row {
-    display: grid; grid-template-columns: 90px 1fr auto auto auto;
-    gap: 1rem; align-items: center; padding: 0.55rem 0.8rem;
-    border-radius: 6px; color: var(--ink);
+    display: grid;
+    grid-template-columns: 90px 1fr auto auto auto;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.55rem 0.8rem;
+    border-radius: 6px;
+    color: var(--ink);
   }
-  .row:hover { background: var(--panel-2); }
-  .row.historical { opacity: 0.72; }
-  .name { font-weight: 600; }
+  .row:hover {
+    background: var(--panel-2);
+  }
+  .row.historical {
+    opacity: 0.72;
+  }
+  .name {
+    font-weight: 600;
+  }
   .empty {
-    display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
-    padding: 3rem 0; opacity: 0.8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 3rem 0;
+    opacity: 0.8;
   }
 </style>

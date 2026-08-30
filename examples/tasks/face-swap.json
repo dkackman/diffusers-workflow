@@ -1,5 +1,6 @@
 {
     "id": "face_swap",
+    "description": "SD 1.5 with an IP-Adapter face model - generates a new scene keeping the face from a reference photo.",
     "steps": [
         {
             "name": "sd15",

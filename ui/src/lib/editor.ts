@@ -11,13 +11,19 @@ export function classDescription(
   const key = `${target}:${name}`
   if (!descriptions.has(key)) {
     const fetcher =
-      target === 'call' ? api.describePipeline(name) : api.describeClass(name, target)
-    descriptions.set(key, fetcher.catch(() => null))
+      target === 'call'
+        ? api.describePipeline(name)
+        : api.describeClass(name, target)
+    descriptions.set(
+      key,
+      fetcher.catch(() => null),
+    )
   }
   return descriptions.get(key)!
 }
 
-export const pipelineDescription = (name: string) => classDescription(name, 'call')
+export const pipelineDescription = (name: string) =>
+  classDescription(name, 'call')
 
 export type Widget = 'number' | 'boolean' | 'text' | 'textarea' | 'json'
 
@@ -31,12 +37,16 @@ export function isReference(value: unknown): boolean {
   )
 }
 
-export function widgetFor(parameter: PipelineParameter | undefined, value: unknown): Widget {
+export function widgetFor(
+  parameter: PipelineParameter | undefined,
+  value: unknown,
+): Widget {
   if (value !== null && typeof value === 'object') return 'json'
   if (isReference(value)) return 'text'
   if (typeof value === 'boolean') return 'boolean'
   if (typeof value === 'number') return 'number'
-  const annotation = (parameter?.annotation ?? '') + ' ' + (parameter?.doc_type ?? '')
+  const annotation =
+    (parameter?.annotation ?? '') + ' ' + (parameter?.doc_type ?? '')
   if (/\bbool\b/.test(annotation)) return 'boolean'
   if (/\b(int|float)\b/.test(annotation)) return 'number'
   if (typeof value === 'string' && value.length > 60) return 'textarea'
@@ -63,11 +73,7 @@ export function coerce(widget: Widget, raw: string): unknown {
   return raw
 }
 
-export const TORCH_DTYPES = [
-  'torch.bfloat16',
-  'torch.float16',
-  'torch.float32',
-]
+export const TORCH_DTYPES = ['torch.bfloat16', 'torch.float16', 'torch.float32']
 
 export const CONTENT_TYPES = [
   'image/png',
@@ -80,6 +86,26 @@ export const CONTENT_TYPES = [
   'application/json',
   'text/plain',
 ]
+
+/** One value-to-input-string rule for every editor field. */
+export function displayValue(value: unknown, pretty = false): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'object') {
+    return pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value)
+  }
+  return String(value)
+}
+
+/** Parse a number into target[key], or delete the key on empty input. */
+export function setNumber(
+  target: Record<string, unknown>,
+  key: string,
+  raw: string,
+) {
+  const parsed = Number(raw)
+  if (raw === '') delete target[key]
+  else if (!Number.isNaN(parsed)) target[key] = parsed
+}
 
 export function emptyWorkflow() {
   return {
@@ -145,13 +171,23 @@ export const COMPONENT_SLOTS = [
   'text_encoder',
   'text_encoder_2',
   'text_encoder_3',
+  'tokenizer',
+  'tokenizer_2',
+  'tokenizer_3',
   'controlnet',
   'image_encoder',
+  'feature_extractor',
   'prompt_enhancer_head',
   'model',
 ]
 
-export const CACHE_TYPES = ['first_block', 'faster', 'mag', 'taylorseer', 'text_kv']
+export const CACHE_TYPES = [
+  'first_block',
+  'faster',
+  'mag',
+  'taylorseer',
+  'text_kv',
+]
 
 export const ATTENTION_BACKENDS = [
   'native',

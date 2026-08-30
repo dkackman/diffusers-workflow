@@ -14,7 +14,7 @@ from typing import Dict, Any
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dw.workflow import workflow_from_file, Workflow
+from dw.workflow import workflow_from_file, workflow_from_definition
 from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
 from dw.security import validate_output_path
@@ -262,12 +262,9 @@ class WorkflowWorker:
             return workflow, ("path", workflow_path)
 
         workflow_data = command["workflow"]
-        validated_output = validate_output_path(output_dir, None)
-        # Relative paths inside an inline workflow resolve against base_dir;
-        # the synthetic file_spec only exists to carry that directory
-        base_dir = command.get("base_dir") or os.getcwd()
-        file_spec = os.path.join(base_dir, "__inline__.json")
-        workflow = Workflow(workflow_data, validated_output, file_spec)
+        workflow = workflow_from_definition(
+            workflow_data, output_dir, command.get("base_dir")
+        )
         return workflow, ("inline", workflow_data.get("id"))
 
     def _watch_commands(self, context):

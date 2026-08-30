@@ -10,6 +10,7 @@
         "height": 512
     },
     "id": "SpandrelUpscale",
+    "description": "Generates with Z-Image Turbo, then upscales with a Spandrel super-resolution model.",
     "steps": [
         {
             "name": "generate",

@@ -3,6 +3,7 @@
         "model_name": "THUDM/CogVideoX1.5-5B"
     },
     "id": "CogVideoX1.5-5B",
+    "description": "Text-to-video with CogVideoX 1.5 5B, int8-quantized via TorchAO.",
     "steps": [
         {
             "name": "text_to_video",

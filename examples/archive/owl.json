@@ -1,5 +1,6 @@
 {
     "id": "owl",
+    "description": "Generates an image with SD 3.5, then animates it with CogVideoX - a workflow-composition demo.",
     "steps": [
         {
             "name": "image_generation",

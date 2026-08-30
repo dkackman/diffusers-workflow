@@ -23,6 +23,7 @@ from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
 from . import get_device, empty_device_cache
 from .security import (
+    validate_path,
     validate_workflow_path,
     validate_json_size,
     validate_output_path,
@@ -55,6 +56,28 @@ def workflow_from_file(file_spec, output_dir):
     except (json.JSONDecodeError, OSError) as e:
         logger.error(f"Failed to load workflow from {file_spec}: {e}")
         raise
+
+
+def workflow_from_definition(workflow_definition, output_dir, base_dir=None):
+    """A Workflow from an inline definition (no file on disk).
+
+    The synthetic '__inline__.json' file_spec exists only to carry the
+    directory that relative paths inside the definition resolve against.
+    base_dir is caller-supplied (over HTTP, client-supplied) path-shaped
+    input, so it goes through the security validator like every other path.
+    """
+    validated_output = validate_output_path(output_dir, None)
+    if base_dir:
+        validated_base = validate_path(base_dir, allow_create=False)
+        if not os.path.isdir(validated_base):
+            raise InvalidInputError(f"base_dir is not a directory: {base_dir}")
+    else:
+        validated_base = os.getcwd()
+    return Workflow(
+        workflow_definition,
+        validated_output,
+        os.path.join(validated_base, "__inline__.json"),
+    )
 
 
 def pipeline_cache_key(pipeline_definition):
@@ -161,7 +184,9 @@ class Workflow:
             raise Exception(f"Validation error: {message}")
         logger.debug(f"Workflow {self.name} validated successfully")
 
-    def run(self, arguments, previous_pipelines=None, context=None):
+    def run(
+        self, arguments, previous_pipelines=None, context=None, prior_step_keys=None
+    ):
         """
         Executes the workflow by:
         1. Processing variables
@@ -179,6 +204,9 @@ class Workflow:
         # Step name -> cache key for this run, so release_pipeline and
         # pipeline_reference still address pipelines by the step that made them
         self._pipeline_keys_by_step = {}
+        # Last run's step->key map: a redefined step's old model is evicted
+        # BEFORE its replacement loads, or the transition holds both at once
+        self._prior_step_keys = prior_step_keys or {}
         self.manifest = []
         try:
             # CRITICAL: Work on a copy to avoid mutating the original workflow definition
@@ -269,23 +297,24 @@ class Workflow:
                 step_seed = step_data.get("seed", default_seed)
 
                 step = Step(step_data, step_seed, self.workflow_definition)
-                result = step.run(
-                    results,
+                step_action = self.create_step_action(
+                    step_data,
+                    shared_components,
                     pipelines,
-                    self.create_step_action(
-                        step_data,
-                        shared_components,
-                        pipelines,
-                        step_seed,
-                        get_device(),
-                    ),
+                    step_seed,
+                    get_device(),
                 )
+                result = step.run(results, pipelines, step_action)
                 last_result = result
                 results[step.name] = result
                 saved_files = result.save(
                     self.output_dir, f"{workflow_id}-{step.name}.{i}"
                 )
                 self.manifest.append({"step": step.name, "files": saved_files})
+                # A sub-workflow's saves land in the child's manifest - roll
+                # them up so job history and the gallery see every file
+                if isinstance(step_action, Workflow):
+                    self.manifest.extend(getattr(step_action, "manifest", []))
                 run_context.emit(
                     "step_end",
                     workflow=workflow_id,
@@ -387,6 +416,11 @@ class Workflow:
             if cache_key in previous_pipelines:
                 logger.debug(f"Reusing cached pipeline for step: {step_name}")
                 cached_pipeline = previous_pipelines[cache_key]
+                # The shared_components dict is fresh every run and only load()
+                # fills it - a cache hit must republish or a later step's
+                # reused_components finds nothing (impossible under the old
+                # whole-file cache, the normal case under identity keys)
+                cached_pipeline.publish_shared_components(shared_components)
                 # Create new Pipeline wrapper with updated step definition
                 # but reuse the loaded model from cache
                 new_pipeline_wrapper = Pipeline(
@@ -415,7 +449,18 @@ class Workflow:
 
                 return new_pipeline_wrapper
 
-            # Not in cache - load fresh
+            # Not in cache - a redefined step frees its previous model first,
+            # so the swap never holds old and new stacks simultaneously
+            prior_key = getattr(self, "_prior_step_keys", {}).get(step_name)
+            if prior_key and prior_key != cache_key and prior_key in previous_pipelines:
+                logger.info(
+                    f"Step '{step_name}' was redefined - releasing its previous "
+                    "pipeline before loading the new one"
+                )
+                previous_pipelines.pop(prior_key, None)
+                gc.collect()
+                empty_device_cache()
+
             logger.debug(f"Creating pipeline for step: {step_name}")
             pipeline = Pipeline(
                 step_definition["pipeline"],

@@ -1,5 +1,6 @@
 {
     "id": "image_processors",
+    "description": "Runs one input image through every image processor - edges, depth, pose, segmentation and more - for side-by-side comparison.",
     "steps": [
         {
             "name": "input_image",

@@ -1,5 +1,6 @@
 {
     "id": "Mochi",
+    "description": "Text-to-video with Mochi 1.",
     "steps": [
         {
             "name": "text_to_video",

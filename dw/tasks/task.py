@@ -337,6 +337,12 @@ class Task:
         logger.debug(f"Task arguments: {arguments}")
 
         try:
+            # Cooperative cancellation reaches task steps too - without this
+            # a cancel during a long task waits for the whole task to finish
+            from ..events import get_context
+
+            get_context().check_cancelled()
+
             # Look up command in registry
             if self.command in _COMMAND_REGISTRY:
                 handler = _COMMAND_REGISTRY[self.command]

@@ -263,6 +263,7 @@ def test_sub_workflow_events_flow_into_parent_context(tmp_path):
                         "num_inference_steps": 2,
                     },
                 },
+                "result": {"content_type": "image/png"},
             }
         ],
     }
@@ -290,6 +291,14 @@ def test_sub_workflow_events_flow_into_parent_context(tmp_path):
 
     workflows_seen = {e["workflow"] for e in events if "workflow" in e}
     assert workflows_seen == {"parent", "child"}
+    # the child's saves roll up into the parent's manifest, so job history
+    # and the gallery see every file the run produced
+    child_files = [
+        entry
+        for entry in workflow.manifest
+        if entry["step"] == "gen" and entry["files"]
+    ]
+    assert child_files, "child workflow saves must appear in the parent manifest"
     assert any(e["event"] == "pipeline_step" for e in events)
     assert context.touched_pipelines, "child pipelines must land in the shared set"
     assert current_context() is None, "context must deactivate after the run"

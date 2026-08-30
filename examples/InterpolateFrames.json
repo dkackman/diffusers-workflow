@@ -1,5 +1,6 @@
 {
     "id": "InterpolateFrames",
+    "description": "Generates a short Mochi video, then smooths it by interpolating extra frames between the generated ones.",
     "variables": {
         "prompt": "A cat walking across a sunlit room",
         "multiplier": 2
