@@ -171,7 +171,9 @@
             {/if}
           </span>
           {#if detail?.description || detail?.text}
-            <span class="carddesc muted">{detail.description || detail.text}</span>
+            <span class="carddesc muted"
+              >{detail.description || detail.text}</span
+            >
           {/if}
           {#if detail?.tags?.length}
             <span class="cardtags">

@@ -14,7 +14,6 @@
     pipeline.loras.splice(index, 1)
     if (pipeline.loras.length === 0) delete pipeline.loras
   }
-
 </script>
 
 <div class="loras">

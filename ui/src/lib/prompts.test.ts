@@ -121,9 +121,9 @@ describe('workflowsReferencing', () => {
 
   it('names the workflows a delete would break, sorted', () => {
     expect(workflowsReferencing('scenic', details)).toEqual(['ZImage'])
-    expect(workflowsReferencing('flux/biomechanical_daffodil', details)).toEqual(
-      ['flux/FluxDev'],
-    )
+    expect(
+      workflowsReferencing('flux/biomechanical_daffodil', details),
+    ).toEqual(['flux/FluxDev'])
   })
 
   it('is empty for unreferenced prompts and pre-upgrade servers', () => {
