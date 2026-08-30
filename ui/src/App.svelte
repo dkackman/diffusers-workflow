@@ -1,5 +1,7 @@
 <script lang="ts">
   import {
+    BookOpen,
+    Braces,
     Database,
     Images,
     Layers,
@@ -115,6 +117,26 @@
       worker idle
     {/if}
   </span>
+  <a
+    class="helplink"
+    href="https://github.com/dkackman/diffusers-workflow#documentation"
+    target="_blank"
+    rel="noopener"
+    title="documentation on GitHub"
+    aria-label="documentation on GitHub"
+  >
+    <BookOpen size={15} />
+  </a>
+  <a
+    class="helplink"
+    href="/docs"
+    target="_blank"
+    rel="noopener"
+    title="interactive API reference (OpenAPI)"
+    aria-label="interactive API reference (OpenAPI)"
+  >
+    <Braces size={15} />
+  </a>
   <button
     class="quiet icon themebtn"
     onclick={cycleTheme}
@@ -194,6 +216,15 @@
   nav a.active {
     color: var(--accent);
     border-bottom-color: var(--accent);
+  }
+  .helplink {
+    display: inline-flex;
+    align-items: center;
+    color: var(--muted);
+    padding: 0.2rem;
+  }
+  .helplink:hover {
+    color: var(--ink);
   }
   .runningnow {
     display: inline-flex;
