@@ -10,7 +10,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "lint": "eslint .",
-    "format": "prettier --write src *.ts *.js",
+    "format": "prettier --write src e2e *.ts *.js",
     "e2e": "playwright test"
   },
   "devDependencies": {
