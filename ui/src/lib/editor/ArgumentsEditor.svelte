@@ -102,6 +102,7 @@
           <textarea
             id={'arg-' + key}
             class:ref={isReference(args[key])}
+            spellcheck={widget === 'textarea' && !isReference(args[key])}
             rows="3"
             value={displayValue(args[key], true)}
             onchange={(e) => update(key, e.currentTarget.value)}></textarea>
@@ -110,6 +111,7 @@
             id={'arg-' + key}
             class:ref={isReference(args[key])}
             list={listId}
+            autocomplete="off"
             value={displayValue(args[key])}
             onchange={(e) => update(key, e.currentTarget.value)}
           />

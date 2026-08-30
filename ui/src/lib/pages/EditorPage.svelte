@@ -405,6 +405,7 @@
   <span>.json in {workflowDir}</span>
   <input
     class="descfield"
+    spellcheck="true"
     value={workflow.description ?? ''}
     placeholder="description - shown on the workflow card"
     title="a short description of what this workflow does"

@@ -38,6 +38,7 @@
       id={'map-' + key}
       class:ref={isReference(args[key])}
       list={listId}
+      autocomplete="off"
       value={displayValue(args[key])}
       placeholder={hintFor(key)}
       onchange={(e) => update(key, e.currentTarget.value)}
