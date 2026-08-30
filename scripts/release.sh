@@ -3,16 +3,20 @@
 # push the tag. CI does the rest (see docs/RELEASING.md).
 #
 #   scripts/release.sh 0.38.0
-#   scripts/release.sh 0.38.0-alpha.1
+#   scripts/release.sh 0.38.0-alpha.1 "UI front end"
+#
+# The optional message annotates the tag (and shows up in git show/describe);
+# without one the tag says "release <version>".
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 version="${1:-}"
 version="${version#v}" # a leading v is forgiven - the tag adds it back
+message="${2:-release $version}"
 
 if [ -z "$version" ]; then
-    echo "usage: $0 <semver>    e.g. $0 0.38.0 or $0 0.38.0-alpha.1" >&2
+    echo "usage: $0 <semver> [tag message]    e.g. $0 0.38.0 or $0 0.38.0-alpha.1 \"UI front end\"" >&2
     exit 1
 fi
 
@@ -74,7 +78,7 @@ else
 fi
 
 git push origin master
-git tag -a "$tag" -m "release $version"
+git tag -a "$tag" -m "$message"
 git push origin "$tag"
 
 echo

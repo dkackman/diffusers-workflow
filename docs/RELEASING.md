@@ -4,6 +4,7 @@ Releases are cut by pushing a `v<semver>` tag. CI does the rest.
 
 ```bash
 scripts/release.sh 0.38.0
+scripts/release.sh 0.38.0-alpha.1 "UI front end"   # optional tag message
 ```
 
 The script bumps `pyproject.toml` (the single source of the version —
