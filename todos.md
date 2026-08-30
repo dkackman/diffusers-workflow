@@ -88,13 +88,17 @@ capabilities. Most of the gap was two generic engine limits, not per-model work.
 
 ## introspection
 
-- Task argument discovery needs a design decision. Task handlers read their
-  arguments via dict lookups inside the function body, so their argument sets
-  are not signature-visible the way pipeline/config classes are. Options to
-  weigh: hand-written metadata on the @register_command registry (explicit,
-  another thing to keep in sync) vs a docstring convention the introspection
-  layer parses (cheaper to author, easier to drift). Whichever wins, the
-  editor's task-step forms consume it through the same describe/classes API.
+- [x] **Task argument discovery.** Resolved 2026-08-30 with a third option
+  neither of the two on the table: the handlers were already thin shims
+  forwarding `**arguments` into implementation functions with real
+  signatures, so `@register_command` now records each implementation's
+  dotted path and the introspection layer reads that function's signature -
+  the same function the dispatch calls, so the schema cannot drift (and a
+  registry-integrity test fails if a path rots). `describe_task` serves
+  `/api/tasks/{command}` in describe_class's shape; the editor's task forms
+  consume it, and `/api/validate` flags task-argument typos like pipeline
+  ones. `provided=` hides dispatch-supplied parameters; `device` is always
+  offered. gather_inputs and the image processors stay declared free-form.
 
 ## deferred
 

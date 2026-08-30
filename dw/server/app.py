@@ -26,6 +26,7 @@ from ..introspection import (
     list_pipelines,
     describe_pipeline,
     list_tasks,
+    describe_task,
     workflow_argument_warnings,
 )
 from ..schema import load_schema
@@ -301,6 +302,15 @@ def create_app(
     def tasks():
         """Every task command a workflow's task step can name."""
         return list_tasks()
+
+    @app.get("/api/tasks/{command}")
+    def get_task(command: str):
+        """A task command's argument schema - the registered implementation
+        function's real signature, in the same shape as a class description."""
+        try:
+            return describe_task(command)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
 
     @app.get("/api/classes")
     def classes(kind: str):

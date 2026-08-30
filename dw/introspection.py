@@ -196,27 +196,9 @@ def _parse_docstring_args(docstring):
     return descriptions
 
 
-def describe_class(name, target="call"):
-    """The argument schema of a class, for form generation.
-
-    target picks what gets inspected: 'call' reads __call__ (pipelines),
-    'init' reads __init__ (quantization configs, schedulers, models), and
-    'load' reads from_pretrained merged with the curated loading knobs -
-    from_pretrained hides everything behind **kwargs, so the knobs are the
-    honest answer there. Output shape is identical across targets, so one
-    arguments editor consumes all three. Scheduler classes additionally
-    report their compatibles list.
-    """
-    cls = load_allowed_class(name)
-    if target == "call":
-        target_callable = cls.__call__
-    elif target == "init":
-        target_callable = cls.__init__
-    elif target == "load":
-        target_callable = getattr(cls, "from_pretrained", cls.__init__)
-    else:
-        raise ValueError(f"Unknown inspection target: {target!r}")
-
+def _callable_parameters(target_callable):
+    """A callable's parameters as form-ready entries, merged with its
+    docstring's Args descriptions. Returns (parameters, accepts_kwargs)."""
     signature = inspect.signature(target_callable)
     documented = _parse_docstring_args(inspect.getdoc(target_callable))
 
@@ -242,6 +224,31 @@ def describe_class(name, target="call"):
         }
         entry.update(documented.get(parameter.name, {}))
         parameters.append(entry)
+    return parameters, accepts_kwargs
+
+
+def describe_class(name, target="call"):
+    """The argument schema of a class, for form generation.
+
+    target picks what gets inspected: 'call' reads __call__ (pipelines),
+    'init' reads __init__ (quantization configs, schedulers, models), and
+    'load' reads from_pretrained merged with the curated loading knobs -
+    from_pretrained hides everything behind **kwargs, so the knobs are the
+    honest answer there. Output shape is identical across targets, so one
+    arguments editor consumes all three. Scheduler classes additionally
+    report their compatibles list.
+    """
+    cls = load_allowed_class(name)
+    if target == "call":
+        target_callable = cls.__call__
+    elif target == "init":
+        target_callable = cls.__init__
+    elif target == "load":
+        target_callable = getattr(cls, "from_pretrained", cls.__init__)
+    else:
+        raise ValueError(f"Unknown inspection target: {target!r}")
+
+    parameters, accepts_kwargs = _callable_parameters(target_callable)
 
     if target == "load":
         named = {parameter["name"] for parameter in parameters}
@@ -311,16 +318,128 @@ def list_tasks():
     }
 
 
+def _first_paragraph(docstring):
+    cleaned = inspect.cleandoc(docstring or "")
+    return cleaned.split("\n\n")[0].replace("\n", " ").strip()
+
+
+def describe_task(command):
+    """A task command's argument schema, in describe_class's shape, so the
+    editor's one arguments form consumes both.
+
+    The schema is the registered implementation function's real signature -
+    the same function the dispatch forwards **arguments into - so it cannot
+    drift from the runtime. Parameters the dispatch supplies itself are
+    removed; 'device' is appended because every task accepts it (the
+    dispatch consumes it before the implementation is called). Raises
+    ValueError for a name that is not a task command.
+    """
+    import importlib
+
+    from .tasks.task import task_command_info
+
+    info = task_command_info(command)
+
+    device_parameter = {
+        "name": "device",
+        "required": False,
+        "default": None,
+        "annotation": None,
+        "description": "Device override for this task (e.g. cpu, cuda:1) - "
+        "keeps a helper model off the accelerator a pipeline is using",
+    }
+
+    if info["kind"] == "image_processor":
+        return {
+            "name": command,
+            "summary": f"'{command}' image processor (ControlNet preprocessor)",
+            "accepts_kwargs": True,
+            "parameters": [
+                {
+                    "name": "image",
+                    "required": True,
+                    "default": None,
+                    "annotation": None,
+                    "description": "The image to process",
+                },
+                device_parameter,
+            ],
+        }
+
+    if info["implementation"] is None:
+        # Free-form by design (gather_inputs): any keys, passed through
+        from .tasks.task import _COMMAND_REGISTRY
+
+        handler = _COMMAND_REGISTRY.get(command)
+        return {
+            "name": command,
+            "summary": _first_paragraph(inspect.getdoc(handler)),
+            "accepts_kwargs": True,
+            "parameters": [],
+        }
+
+    module_name, _, function_name = info["implementation"].rpartition(".")
+    implementation = getattr(importlib.import_module(module_name), function_name)
+    parameters, accepts_kwargs = _callable_parameters(implementation)
+    parameters = [p for p in parameters if p["name"] not in info["provided"]]
+    if not any(p["name"] == "device" for p in parameters):
+        parameters.append(device_parameter)
+
+    summary = _first_paragraph(inspect.getdoc(implementation))
+    if not summary:
+        from .tasks.task import _COMMAND_REGISTRY
+
+        summary = _first_paragraph(inspect.getdoc(_COMMAND_REGISTRY.get(command)))
+
+    return {
+        "name": command,
+        "summary": summary,
+        "accepts_kwargs": accepts_kwargs,
+        "parameters": parameters,
+    }
+
+
+def unknown_task_arguments(command, argument_names):
+    """The given argument names a task command will not accept.
+
+    Same never-wrong contract as unknown_call_arguments: empty when the
+    implementation takes **kwargs, when the command consumes a free-form
+    dict, or when the command cannot be described at all. 'device' is
+    always accepted - the dispatch consumes it before the implementation
+    runs.
+    """
+    try:
+        description = describe_task(command)
+    except Exception:
+        return []
+    if description["accepts_kwargs"]:
+        return []
+    known = {p["name"] for p in description["parameters"]} | {"device"}
+    return sorted(set(argument_names) - known)
+
+
 def workflow_argument_warnings(workflow_definition):
-    """Best-effort pre-load check of a workflow's pipeline arguments.
+    """Best-effort pre-load check of a workflow's arguments.
 
     For each pipeline step whose component_type is a bare diffusers class
     name, reports argument names that class's __call__ does not accept - the
     typo that today surfaces as a TypeError after the model has loaded.
-    Escaped ({...}) and dotted component types are left alone.
+    Escaped ({...}) and dotted component types are left alone. Task steps
+    get the same check against their registered implementation's signature.
     """
     warnings = []
     for step in workflow_definition.get("steps", []):
+        task = step.get("task")
+        if task and isinstance(task.get("arguments"), dict):
+            command = task.get("command")
+            if isinstance(command, str):
+                for argument_name in unknown_task_arguments(
+                    command, task["arguments"].keys()
+                ):
+                    warnings.append(
+                        f"Step '{step.get('name')}': task '{command}' does not "
+                        f"accept argument '{argument_name}'"
+                    )
         pipeline = step.get("pipeline")
         if not pipeline:
             continue
