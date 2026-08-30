@@ -265,3 +265,4 @@ See [examples/](examples/) for more workflow files.
 - [Dependencies](docs/DEPENDENCIES.md) — Installation details
 - [Security](docs/SECURITY.md) — Security model
 - [Testing](docs/TESTING.md) — Running the test suite
+- [Releasing](docs/RELEASING.md) — Cutting a release from a version tag

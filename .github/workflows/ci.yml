@@ -3,7 +3,8 @@ name: CI
 on:
   push:
     branches: [master]
-    tags: ['v*']
+    # v + semver only (glob, so the release job re-checks it exactly)
+    tags: ['v[0-9]*.[0-9]*.[0-9]*']
   pull_request:
   workflow_dispatch:
 
@@ -83,3 +84,41 @@ jobs:
         with:
           name: diffusers-workflow-dist
           path: dist/*
+
+  release:
+    # A v<semver> tag that passed the full test and build chain becomes a
+    # GitHub release carrying the wheel and sdist
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: wheel
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag against the declared versions
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          if ! echo "$tag" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Tag $GITHUB_REF_NAME is not v<semver>"; exit 1
+          fi
+          pyproject=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          module=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' dw/__init__.py)
+          if [ "$tag" != "$pyproject" ] || [ "$tag" != "$module" ]; then
+            echo "Tag $tag != pyproject $pyproject or dw/__init__.py $module"
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: diffusers-workflow-dist
+          path: dist
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # A pre-release marker in the tag (v1.2.3-rc1) marks the release too
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes --verify-tag $prerelease
