@@ -1,0 +1,9 @@
+{
+  "text": "Task: T2VA. Duration: 5.17 seconds. Idea: a blown glass figure's tentacles writhe as it speaks in a deep, echoing voice, calling forth the ancient ones.",
+  "description": "Raw idea in Task: format, ready for the Context-IR enhancer",
+  "intended_model": "minimax-h3",
+  "tags": [
+    "t2va",
+    "idea"
+  ]
+}

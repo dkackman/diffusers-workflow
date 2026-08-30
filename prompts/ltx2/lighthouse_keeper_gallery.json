@@ -1,0 +1,10 @@
+{
+  "text": "A lighthouse keeper in a yellow oilskin climbs the spiral stair of a lighthouse, lamplight flaring on the wet brass rail, then steps out onto the gallery. The beam sweeps past him across low cloud, gulls call, and he says 'still burning' as the wind hums through the tower.",
+  "description": "Continuation of lighthouse_keeper: out onto the gallery ('still burning') - for Extend workflows",
+  "intended_model": "ltx-2",
+  "tags": [
+    "t2v",
+    "lighthouse",
+    "continuation"
+  ]
+}

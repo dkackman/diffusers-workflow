@@ -1,0 +1,7 @@
+{
+  "text": "Close-up portrait of a silver tabby cat in a sunlit window, soft rim lighting through sheer curtains, detailed fur texture, amber eyes in sharp focus, shallow depth of field, warm morning tones",
+  "description": "Window-lit cat portrait for text-to-image models",
+  "intended_model": "z-image",
+  "negative_prompt": "blurry, low quality, distorted anatomy, oversaturated",
+  "tags": ["portrait", "animal"]
+}

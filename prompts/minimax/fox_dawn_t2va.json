@@ -1,0 +1,10 @@
+{
+  "text": "Task: T2VA. Duration: 5.17 seconds. Idea: a red fox trotting through a snowy pine forest at dawn, breath visible in the cold air, low sun flickering between the trunks, soft crunch of snow underfoot.",
+  "description": "H3 Context-IR idea for a T2VA run - enhance before generating",
+  "intended_model": "minimax-h3",
+  "tags": ["t2va", "wildlife"],
+  "enhanced": {
+    "model": "Qwen/Qwen3-4B-Instruct-2507",
+    "idea": "a red fox trotting through a snowy pine forest at dawn"
+  }
+}
