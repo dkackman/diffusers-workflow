@@ -131,12 +131,10 @@ fi
 # Upgrade pip
 python -m pip install --upgrade pip
 
-# Install build tools
-pip install wheel setuptools
-
 # Install PyTorch first - standard install (CUDA auto-detected on Linux,
 # MPS on macOS). The resolver below sees it satisfied and leaves it alone.
-pip install torch torchvision torchaudio
+# torchaudio is deliberately absent: nothing in dw imports it
+pip install torch torchvision
 
 # Everything else resolves from pyproject.toml - the single source of the
 # dependency list (bitsandbytes included, via its linux platform marker).

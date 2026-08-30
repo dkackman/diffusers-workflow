@@ -34,6 +34,7 @@ from ..workflow import Workflow, workflow_from_definition
 from ..result import read_embedded_metadata
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from .jobs import JobManager, TERMINAL_STATES
+from .updater import DiffusersUpdater
 
 logger = logging.getLogger("dw")
 
@@ -143,6 +144,7 @@ def create_app(
     job_manager=None,
     ui_dir=None,
     download_manager=None,
+    diffusers_updater=None,
 ):
     """Build the application. A caller (tests) can inject a JobManager."""
     manager = job_manager or JobManager(output_dir, log_level=log_level)
@@ -550,6 +552,35 @@ def create_app(
         logger.info(f"Deleted {repo} from the hub cache ({freed} bytes)")
         return {"repo_id": repo, "deleted": True, "freed": freed}
 
+    # ------------------------------------------------------ diffusers update
+
+    updater = diffusers_updater or DiffusersUpdater()
+
+    @app.get("/api/system/diffusers")
+    def diffusers_state():
+        """Installed diffusers version (with its git commit when installed
+        from git) and the state of any update."""
+        return updater.status()
+
+    @app.post("/api/system/diffusers/update", status_code=202)
+    def update_diffusers():
+        """Upgrade diffusers to GitHub HEAD in the background.
+
+        Refused while a job is running or queued: pip replacing package
+        files under a loaded pipeline is the model-delete hazard in another
+        form. On success the idle worker is shut down so the next job
+        imports the new version."""
+        if manager.is_busy():
+            raise HTTPException(
+                status_code=409,
+                detail="A job is running or queued - updating diffusers "
+                "underneath it could corrupt the run",
+            )
+        try:
+            return updater.start(on_success=manager.restart_worker_if_idle)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+
     # --------------------------------------------------------- memory/health
 
     @app.get("/api/memory")
@@ -561,9 +592,12 @@ def create_app(
 
     @app.get("/api/health")
     def health():
+        from .. import __version__
+
         worker = manager.worker_manager
         return {
             "status": "ok",
+            "version": __version__,
             "worker_alive": bool(
                 worker.worker_active
                 and worker.worker_process is not None

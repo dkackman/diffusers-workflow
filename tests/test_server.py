@@ -852,3 +852,92 @@ class TestTaskDescription:
             result = client.post("/api/validate", json={"workflow": workflow}).json()
             assert result["valid"]
             assert any("trim_framse" in warning for warning in result["warnings"])
+
+
+class TestDiffusersUpdate:
+    """The diffusers update endpoints run pip in the background and guard
+    the busy worker."""
+
+    def make_client(self, tmp_path, run_fn, manager=None):
+        from dw.server.updater import DiffusersUpdater
+
+        manager = manager or JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+        )
+        app = create_app(
+            workflow_dir=str(tmp_path),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            diffusers_updater=DiffusersUpdater(run_fn=run_fn),
+        )
+        return TestClient(app)
+
+    @staticmethod
+    def wait_for_update(client, statuses, timeout=5.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            state = client.get("/api/system/diffusers").json()
+            if state["status"] in statuses:
+                return state
+            time.sleep(0.02)
+        raise AssertionError(f"update never reached {statuses}: {state}")
+
+    def test_update_lifecycle(self, tmp_path):
+        from types import SimpleNamespace
+
+        pip = SimpleNamespace(returncode=0, stdout="Successfully installed", stderr="")
+        with self.make_client(tmp_path, lambda: pip) as client:
+            state = client.get("/api/system/diffusers").json()
+            assert state["status"] == "idle"
+            assert "version" in state and "commit" in state
+
+            started = client.post("/api/system/diffusers/update")
+            assert started.status_code == 202
+            done = self.wait_for_update(client, ["succeeded", "failed"])
+            assert done["status"] == "succeeded"
+            assert "Successfully installed" in done["log"]
+
+    def test_failed_update_reports_pip_output(self, tmp_path):
+        from types import SimpleNamespace
+
+        pip = SimpleNamespace(returncode=1, stdout="", stderr="No space left")
+        with self.make_client(tmp_path, lambda: pip) as client:
+            client.post("/api/system/diffusers/update")
+            done = self.wait_for_update(client, ["succeeded", "failed"])
+            assert done["status"] == "failed"
+            assert "exited with code 1" in done["error"]
+            assert "No space left" in done["log"]
+
+    def test_second_update_refused_while_running(self, tmp_path):
+        import threading
+        from types import SimpleNamespace
+
+        release = threading.Event()
+
+        def slow_pip():
+            release.wait(timeout=5)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with self.make_client(tmp_path, slow_pip) as client:
+            assert client.post("/api/system/diffusers/update").status_code == 202
+            refused = client.post("/api/system/diffusers/update")
+            assert refused.status_code == 409
+            release.set()
+            self.wait_for_update(client, ["succeeded"])
+
+    def test_update_refused_while_a_job_runs(self, tmp_path):
+        from types import SimpleNamespace
+
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+        )
+        manager.is_busy = lambda: True
+        pip = SimpleNamespace(returncode=0, stdout="", stderr="")
+        with self.make_client(tmp_path, lambda: pip, manager=manager) as client:
+            refused = client.post("/api/system/diffusers/update")
+            assert refused.status_code == 409
+            assert "running or queued" in refused.json()["detail"]

@@ -12,7 +12,4 @@
 # targets. For git HEAD, install it on top afterwards:
 #   pip install git+https://github.com/huggingface/diffusers
 #
-# For exact versions from a known-working environment, see
-# requirements-frozen.txt
-
 -e .[server]

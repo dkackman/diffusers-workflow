@@ -1,4 +1,5 @@
 import type {
+  DiffusersStatus,
   JobDetail,
   ModelCache,
   ModelDownload,
@@ -93,6 +94,11 @@ export const api = {
       `/api/models?repo=${encodeURIComponent(repo)}`,
       { method: 'DELETE' },
     ),
+  diffusersStatus: () => request<DiffusersStatus>('/api/system/diffusers'),
+  updateDiffusers: () =>
+    request<DiffusersStatus>('/api/system/diffusers/update', {
+      method: 'POST',
+    }),
   health: () =>
     request<{
       status: string

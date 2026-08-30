@@ -74,13 +74,10 @@ python -m venv venv
 python.exe -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# Install build tools
-pip install wheel setuptools
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
 # Install PyTorch first - standard install (CUDA auto-detected on Windows).
 # The resolver below sees it satisfied and leaves it alone.
-pip install torch torchvision torchaudio
+# torchaudio is deliberately absent: nothing in dw imports it
+pip install torch torchvision
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Everything else resolves from pyproject.toml - the single source of the
