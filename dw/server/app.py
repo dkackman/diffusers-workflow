@@ -349,8 +349,18 @@ def create_app(
             candidate = workflow_from_definition(
                 copy.deepcopy(request.workflow), manager.output_dir, request.base_dir
             )
-        except (SecurityError, Exception) as e:
+        except SecurityError as e:
+            # Messages the security layer writes itself - safe to surface
             raise HTTPException(status_code=400, detail=str(e))
+        except Exception:
+            # Anything else could carry internals in its message; the log
+            # keeps the detail, the client gets the category
+            logger.exception("Workflow could not be constructed for validation")
+            raise HTTPException(
+                status_code=400,
+                detail="Workflow could not be constructed - the server log "
+                "has the detail",
+            )
         try:
             candidate.validate()
         except Exception as e:
