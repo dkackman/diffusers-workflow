@@ -285,6 +285,12 @@
         folder = newFolder.trim()
         newFolder = ''
       }
+      // The folder picker's options come from the listing - a folder this
+      // save just created must appear there, or the select falls back to
+      // "(root)" while the state still names the folder
+      if (!workflowFiles.includes(`${path}.json`)) {
+        workflowFiles = [...workflowFiles, `${path}.json`]
+      }
       baseline = JSON.stringify($state.snapshot(workflow))
       status = `Saved to ${result.path}`
     } catch (e) {

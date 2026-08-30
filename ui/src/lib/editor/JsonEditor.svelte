@@ -22,10 +22,26 @@
   $effect(() => {
     let disposed = false
     let model: Monaco.editor.ITextModel | null = null
+    let untheme: (() => void) | null = null
     import('../monaco').then(async ({ setupMonaco, currentTheme }) => {
       const monaco = await setupMonaco()
       if (disposed) return
       loading = false
+      // Follow the app theme after mount: the header toggle stamps
+      // data-theme on <html>, and "system" tracks the OS preference. Without
+      // this the editor kept whatever theme it was created with
+      const retheme = () => monaco.editor.setTheme(currentTheme())
+      const observer = new MutationObserver(retheme)
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme'],
+      })
+      const media = window.matchMedia('(prefers-color-scheme: dark)')
+      media.addEventListener('change', retheme)
+      untheme = () => {
+        observer.disconnect()
+        media.removeEventListener('change', retheme)
+      }
       // The model's name is what routes the schema to it - setupMonaco
       // registers one schema per prefix. The random suffix keeps two open
       // editors (the split view) from fighting over one URI
@@ -55,6 +71,7 @@
     })
     return () => {
       disposed = true
+      untheme?.()
       editor?.dispose()
       editor = null
       model?.dispose()

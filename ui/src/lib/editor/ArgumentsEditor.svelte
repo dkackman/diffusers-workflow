@@ -25,6 +25,11 @@
     listId?: string
   } = $props()
 
+  // Element ids are per instance: two steps both taking 'prompt' would
+  // otherwise share id="arg-prompt", and a label click would focus the
+  // wrong step's field
+  const uid = $props.id()
+
   let description = $state<PipelineDescription | null>(null)
   let adding = $state('')
 
@@ -87,13 +92,13 @@
     {@const parameter = parameters.get(key)}
     {@const widget = widgetFor(parameter, args[key])}
     <div class="row">
-      <label for={'arg-' + key} title={parameter?.description ?? ''}>
+      <label for={`${uid}-${key}`} title={parameter?.description ?? ''}>
         {key}{#if parameter?.required}<span class="req">*</span>{/if}
       </label>
       <div class="field">
         {#if widget === 'boolean' && !isReference(args[key])}
           <select
-            id={'arg-' + key}
+            id={`${uid}-${key}`}
             value={String(args[key])}
             onchange={(e) => update(key, e.currentTarget.value)}
           >
@@ -104,7 +109,7 @@
           <!-- A reference is never a textarea: widgetFor routes it to the
                input branch below, which carries the datalist and tooltip -->
           <textarea
-            id={'arg-' + key}
+            id={`${uid}-${key}`}
             spellcheck={widget === 'textarea'}
             rows="3"
             value={displayValue(args[key], true)}
@@ -130,7 +135,7 @@
           {/if}
         {:else}
           <input
-            id={'arg-' + key}
+            id={`${uid}-${key}`}
             class:ref={isReference(args[key])}
             list={listId}
             autocomplete="off"

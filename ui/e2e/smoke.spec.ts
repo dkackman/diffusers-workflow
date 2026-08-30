@@ -91,25 +91,40 @@ test('schema page renders a browsable tree from the live schema', async ({
   await expect(page.locator('#def-step')).toHaveCount(0)
 })
 
-test('editor validates, saves into a folder, and deletes', async ({ page }) => {
+test('editor validates, saves into a new folder, and deletes', async ({
+  page,
+}) => {
   test.setTimeout(60_000)
   await page.goto('/#/edit/ZImage')
   await page.getByRole('button', { name: 'Validate' }).click()
   await expect(page.getByText('schema-valid')).toBeVisible({ timeout: 30_000 })
 
-  // save under a scratch name, then clean up through the UI's own delete
+  // save into a folder that does not exist yet - the "new folder…" flow
+  // exercises the {name:path} route and the server's directory creation
+  await page.locator('select.folderpick').selectOption('__new__')
+  await page.getByPlaceholder('folder name').fill('e2e-scratch')
   await page.getByPlaceholder('MyWorkflow').fill('E2EScratch')
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText(/Saved to/)).toBeVisible({ timeout: 30_000 })
+  await expect(
+    page.getByText(/Saved to .*e2e-scratch.E2EScratch\.json/),
+  ).toBeVisible({ timeout: 30_000 })
+  // the picker now offers the folder it just created
+  await expect(page.locator('select.folderpick')).toHaveValue('e2e-scratch')
 
-  await page.goto('/#/workflows/E2EScratch')
+  // it lists under its folder and opens, then clean up through the UI
+  await page.goto('/#/workflows')
+  await expect(page.getByText('e2e-scratch/')).toBeVisible()
+  await page.goto('/#/workflows/e2e-scratch/E2EScratch')
+  await expect(
+    page.getByRole('heading', { name: 'e2e-scratch/E2EScratch' }),
+  ).toBeVisible()
   page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: /delete this workflow/ }).click()
   await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'E2EScratch' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /E2EScratch/ })).toHaveCount(0)
 })
 
-test('prompts page lists, creates into a folder, and deletes', async ({
+test('prompts page lists, creates at the root, and deletes', async ({
   page,
 }) => {
   test.setTimeout(60_000)
@@ -197,4 +212,45 @@ test('task steps get introspection-driven forms', async ({ page }) => {
   await expect(
     page.getByPlaceholder('add custom argument…').first(),
   ).toBeVisible()
+})
+
+test('editor flags a dangling reference without asking the server', async ({
+  page,
+}) => {
+  await page.goto('/#/edit/ZImage')
+  await expect(page.locator('#wfvar-prompt')).toBeVisible()
+  await expect(page.locator('.refproblems')).toHaveCount(0)
+  // removing the variable the step's prompt argument points at
+  await page
+    .locator('#wfvar-prompt')
+    .locator('xpath=following-sibling::button[1]')
+    .click()
+  await expect(page.locator('.refproblems')).toContainText(
+    'variable:prompt - no such variable is declared',
+  )
+})
+
+test('the theme toggle re-themes an open Monaco editor', async ({ page }) => {
+  // Playwright's default colour scheme is light, so "system" starts light
+  await page.goto('/#/workflows/ZImage')
+  const editor = page.locator('.monaco-editor').first()
+  await expect(editor).toBeVisible({ timeout: 20_000 })
+  await expect(editor).toHaveClass(/\bvs\b/)
+
+  const toggle = page.getByRole('button', { name: /^theme:/ })
+  await toggle.click() // system -> light
+  await toggle.click() // light -> dark
+  await expect(toggle).toHaveAccessibleName(/theme: dark/)
+  await expect(editor).toHaveClass(/vs-dark/)
+
+  await toggle.click() // dark -> system (light)
+  await expect(editor).not.toHaveClass(/vs-dark/)
+  await expect(editor).toHaveClass(/\bvs\b/)
+})
+
+test('an unknown job renders an error rather than a blank page', async ({
+  page,
+}) => {
+  await page.goto('/#/jobs/does-not-exist')
+  await expect(page.getByText('Unknown job')).toBeVisible()
 })

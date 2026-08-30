@@ -177,8 +177,8 @@
         device: device || undefined,
       })
       enhanceJobId = job.id
-      if (job.queue_position) {
-        enhanceStatus = `queued behind ${job.queue_position} job${job.queue_position === 1 ? '' : 's'}`
+      if (job.queue_position !== undefined) {
+        enhanceStatus = `queued · #${job.queue_position + 1} in line`
       }
       stopStream = streamJobEvents(
         job.id,
@@ -393,6 +393,9 @@
         folder = newFolder.trim()
         newFolder = ''
       }
+      // Same as the workflow editor: the picker lists folders from the
+      // listing, so a newly created one must be added or the select resets
+      if (!promptFiles.includes(path)) promptFiles = [...promptFiles, path]
       baseline = JSON.stringify($state.snapshot(doc))
       status = `Saved to ${result.path}`
       loadPromptLibrary()

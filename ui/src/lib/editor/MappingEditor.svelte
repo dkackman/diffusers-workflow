@@ -14,6 +14,7 @@
     listId?: string
   } = $props()
 
+  const uid = $props.id()
   let newKey = $state('')
 
   const unusedSuggestions = $derived(
@@ -35,9 +36,9 @@
 
 <div class="mapping">
   {#each Object.keys(args) as key (key)}
-    <label for={'map-' + key}>{key}</label>
+    <label for={`${uid}-${key}`}>{key}</label>
     <input
-      id={'map-' + key}
+      id={`${uid}-${key}`}
       class:ref={isReference(args[key])}
       list={listId}
       autocomplete="off"

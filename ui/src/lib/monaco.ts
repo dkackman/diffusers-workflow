@@ -54,93 +54,42 @@ export async function setupMonaco() {
     /* schema endpoint unreachable - plain JSON editing still works */
   }
 
-  const styles = getComputedStyle(document.documentElement)
-  const token = (name: string, fallback: string) =>
-    styles.getPropertyValue(name).trim() || fallback
-
   // Quiet, near-monochrome JSON matching the pre-Monaco editor: content
   // in the app ink, punctuation muted - the schema tooling is the value
-  // Monaco adds, not a syntax rainbow. The minifier shortens #ffffff to
-  // #fff and Monaco rejects 3-digit hex, so expand
-  const hex = (value: string) => {
-    const raw = value.replace('#', '').trim()
-    return raw.length === 3
-      ? raw
-          .split('')
-          .map((c) => c + c)
-          .join('')
-      : raw
+  // Monaco adds, not a syntax rainbow. The palettes mirror app.css by
+  // value rather than reading the live CSS tokens: setup runs once, under
+  // whichever theme is active, and the editor re-themes at runtime - a
+  // light theme defined while dark was active would carry dark colours
+  const PALETTES = {
+    'dw-dark': {
+      base: 'vs-dark',
+      ink: 'e4eaed',
+      muted: '8fa0a8',
+      panel: '1c2226',
+    },
+    'dw-light': { base: 'vs', ink: '1c2428', muted: '5b6a72', panel: 'ffffff' },
+  } as const
+  for (const [name, palette] of Object.entries(PALETTES)) {
+    monaco.editor.defineTheme(name, {
+      base: palette.base,
+      inherit: true,
+      rules: [
+        { token: 'string.key.json', foreground: palette.ink },
+        { token: 'string.value.json', foreground: palette.ink },
+        { token: 'number.json', foreground: palette.ink },
+        { token: 'keyword.json', foreground: palette.ink },
+        { token: 'delimiter.bracket.json', foreground: palette.muted },
+        { token: 'delimiter.array.json', foreground: palette.muted },
+        { token: 'delimiter.colon.json', foreground: palette.muted },
+        { token: 'delimiter.comma.json', foreground: palette.muted },
+      ],
+      colors: {
+        'editor.background': '#' + palette.panel,
+        'editor.foreground': '#' + palette.ink,
+        'editorLineNumber.foreground': '#' + palette.muted,
+      },
+    })
   }
-  const color = (name: string, fallback: string) =>
-    '#' + hex(token(name, fallback))
-  monaco.editor.defineTheme('dw-dark', {
-    base: 'vs-dark',
-    inherit: true,
-    rules: [
-      { token: 'string.key.json', foreground: hex(token('--ink', '#e4eaed')) },
-      {
-        token: 'string.value.json',
-        foreground: hex(token('--ink', '#e4eaed')),
-      },
-      { token: 'number.json', foreground: hex(token('--ink', '#e4eaed')) },
-      { token: 'keyword.json', foreground: hex(token('--ink', '#e4eaed')) },
-      {
-        token: 'delimiter.bracket.json',
-        foreground: hex(token('--muted', '#8fa0a8')),
-      },
-      {
-        token: 'delimiter.array.json',
-        foreground: hex(token('--muted', '#8fa0a8')),
-      },
-      {
-        token: 'delimiter.colon.json',
-        foreground: hex(token('--muted', '#8fa0a8')),
-      },
-      {
-        token: 'delimiter.comma.json',
-        foreground: hex(token('--muted', '#8fa0a8')),
-      },
-    ],
-    colors: {
-      'editor.background': color('--panel', '#1c2226'),
-      'editor.foreground': color('--ink', '#e4eaed'),
-      'editorLineNumber.foreground': color('--muted', '#8fa0a8'),
-    },
-  })
-  monaco.editor.defineTheme('dw-light', {
-    base: 'vs',
-    inherit: true,
-    rules: [
-      { token: 'string.key.json', foreground: hex(token('--ink', '#1c2428')) },
-      {
-        token: 'string.value.json',
-        foreground: hex(token('--ink', '#1c2428')),
-      },
-      { token: 'number.json', foreground: hex(token('--ink', '#1c2428')) },
-      { token: 'keyword.json', foreground: hex(token('--ink', '#1c2428')) },
-      {
-        token: 'delimiter.bracket.json',
-        foreground: hex(token('--muted', '#5b6a72')),
-      },
-      {
-        token: 'delimiter.array.json',
-        foreground: hex(token('--muted', '#5b6a72')),
-      },
-      {
-        token: 'delimiter.colon.json',
-        foreground: hex(token('--muted', '#5b6a72')),
-      },
-      {
-        token: 'delimiter.comma.json',
-        foreground: hex(token('--muted', '#5b6a72')),
-      },
-    ],
-    colors: {
-      'editor.background': color('--panel', '#ffffff'),
-      'editor.foreground': color('--ink', '#1c2428'),
-      'editorLineNumber.foreground': color('--muted', '#5b6a72'),
-    },
-  })
   return monaco
 }
 
