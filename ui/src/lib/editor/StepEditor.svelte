@@ -7,6 +7,7 @@
     Layers,
     Timer,
     Trash2,
+    TriangleAlert,
     Zap,
   } from '@lucide/svelte'
   import ArgumentsEditor from './ArgumentsEditor.svelte'
@@ -25,6 +26,7 @@
     emptyComponent,
     setNumber,
   } from '../editor'
+  import type { StepFlow } from '../flow'
 
   let {
     step = $bindable(),
@@ -33,7 +35,10 @@
     references = [],
     baseFolder = '',
     mode = 'full',
+    flow = undefined,
+    problems = [],
     onmodechange = undefined,
+    onhover = undefined,
     onremove,
     onmove,
   }: {
@@ -43,7 +48,10 @@
     references?: string[]
     baseFolder?: string
     mode?: 'collapsed' | 'compact' | 'full'
+    flow?: StepFlow
+    problems?: string[]
     onmodechange?: (mode: 'collapsed' | 'compact' | 'full') => void
+    onhover?: (stepName: string | null) => void
     onremove: () => void
     onmove: (delta: number) => void
   } = $props()
@@ -220,6 +228,25 @@
       title="step name - how later steps reference this one"
     />
     <span class="kind muted">{kind}</span>
+    {#each flow?.inputs ?? [] as producer (producer)}
+      <span
+        class="flowchip in"
+        role="note"
+        onmouseenter={() => onhover?.(producer)}
+        onmouseleave={() => onhover?.(null)}
+        title={`consumes previous_result:${producer}`}>← {producer}</span
+      >
+    {/each}
+    {#each flow?.consumers ?? [] as consumer (consumer)}
+      <span
+        class="flowchip out"
+        role="note"
+        onmouseenter={() => onhover?.(consumer)}
+        onmouseleave={() => onhover?.(null)}
+        title={`step '${consumer}' consumes this step's result`}
+        >→ {consumer}</span
+      >
+    {/each}
     {#if mode === 'collapsed'}
       <span class="muted summary" title={digest.summary}>{digest.summary}</span>
     {/if}
@@ -261,6 +288,16 @@
       <Trash2 size={15} />
     </button>
   </div>
+
+  {#each problems as problem (problem)}
+    <div class="stepwarn"><TriangleAlert size={13} /> {problem}</div>
+  {/each}
+  {#if (flow?.resolvedRefs ?? 0) > 1}
+    <div class="muted hint cartesian">
+      {flow!.resolvedRefs} previous_result inputs - iterations multiply (every combination
+      runs)
+    </div>
+  {/if}
 
   {#if mode === 'compact'}
     <div class="digest">
@@ -543,9 +580,6 @@
 </div>
 
 <style>
-  .step {
-    margin-bottom: 0.7rem;
-  }
   .bar {
     display: flex;
     flex-wrap: wrap;
@@ -734,5 +768,35 @@
     color: var(--accent);
     position: relative;
     z-index: 1;
+  }
+  .flowchip {
+    font-family: ui-monospace, 'Cascadia Code', monospace;
+    font-size: 0.72rem;
+    padding: 0.05rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid;
+    white-space: nowrap;
+    cursor: default;
+  }
+  .flowchip.in {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .flowchip.out {
+    color: var(--good);
+    border-color: color-mix(in srgb, var(--good) 45%, transparent);
+    background: color-mix(in srgb, var(--good) 12%, transparent);
+  }
+  .stepwarn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--warn);
+    font-size: 0.85rem;
+    margin-top: var(--space-2);
+  }
+  .cartesian {
+    margin-top: var(--space-1);
   }
 </style>
