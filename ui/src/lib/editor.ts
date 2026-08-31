@@ -88,6 +88,14 @@ export const CONTENT_TYPES = [
   'text/plain',
 ]
 
+/** Text that deserves a document-scale editing surface: long enough to
+ * be truncated by a single-line input, or already multi-line. */
+export function isLongText(value: unknown): boolean {
+  return (
+    typeof value === 'string' && (value.length > 60 || value.includes('\n'))
+  )
+}
+
 /** One value-to-input-string rule for every editor field. */
 export function displayValue(value: unknown, pretty = false): string {
   if (value === null || value === undefined) return ''

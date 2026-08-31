@@ -1,11 +1,11 @@
 <script lang="ts">
   import { Copy, Play, SquarePen, Trash2 } from '@lucide/svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
+  import VariablesForm from '../editor/VariablesForm.svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
-  import { displayValue as display, isReference } from '../editor'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
-  import { PROMPT_LIST_ID, promptListId, promptTooltip } from '../prompts'
+  import { PROMPT_LIST_ID } from '../prompts'
   import type { WorkflowDefinition } from '../types'
 
   let { name }: { name: string } = $props()
@@ -134,55 +134,12 @@
           >(blank = workflow default · type prompt: to use a stored prompt)</span
         >
       </h2>
-      <div class="vars">
-        {#each variables as [key, defaultValue] (key)}
-          <label for={'var-' + key}>{key}</label>
-          {#if display(defaultValue).length > 60}
-            <div class="fieldcol">
-              <textarea
-                id={'var-' + key}
-                class:ref={isReference(overrides[key] || defaultValue)}
-                rows="3"
-                spellcheck="true"
-                title={promptTooltip(
-                  overrides[key] || defaultValue,
-                  promptLibrary.texts,
-                )}
-                placeholder={display(defaultValue)}
-                bind:value={overrides[key]}></textarea>
-              {#if promptLibrary.names?.length}
-                <select
-                  class="promptpick"
-                  title="override this variable with a stored prompt from the library"
-                  onchange={(e) => {
-                    if (!e.currentTarget.value) return
-                    overrides[key] = 'prompt:' + e.currentTarget.value
-                    e.currentTarget.value = ''
-                  }}
-                >
-                  <option value="">use a stored prompt…</option>
-                  {#each promptLibrary.names ?? [] as promptName (promptName)}
-                    <option value={promptName}>{promptName}</option>
-                  {/each}
-                </select>
-              {/if}
-            </div>
-          {:else}
-            <input
-              id={'var-' + key}
-              class:ref={isReference(overrides[key] || defaultValue)}
-              list={promptListId(overrides[key] || defaultValue)}
-              autocomplete="off"
-              title={promptTooltip(
-                overrides[key] || defaultValue,
-                promptLibrary.texts,
-              )}
-              placeholder={display(defaultValue)}
-              bind:value={overrides[key]}
-            />
-          {/if}
-        {/each}
-      </div>
+      <VariablesForm
+        mode="override"
+        variables={workflow.variables ?? {}}
+        bind:overrides
+        idPrefix="var-"
+      />
     </div>
   {:else}
     <p class="muted">This workflow defines no variables.</p>
@@ -227,36 +184,6 @@
   .icon {
     display: inline-flex;
     padding: 0.4rem 0.5rem;
-  }
-  .vars {
-    display: grid;
-    grid-template-columns: minmax(140px, 40%) minmax(0, 1fr);
-    gap: 0.5rem 1rem;
-    align-items: start;
-  }
-  @container (max-width: 420px) {
-    .vars {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem;
-    }
-  }
-  .vars label {
-    padding-top: 0.45rem;
-    font-weight: 600;
-    color: var(--muted);
-  }
-  .fieldcol {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    align-items: flex-start;
-  }
-  .fieldcol textarea {
-    width: 100%;
-  }
-  .promptpick {
-    max-width: 260px;
-    font-size: 0.8rem;
   }
   .json {
     margin-top: 1rem;

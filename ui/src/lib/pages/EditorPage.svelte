@@ -14,29 +14,24 @@
   import { api } from '../api'
   import { go } from '../router.svelte'
   import {
-    coerce,
     emptyWorkflow,
     emptyStep,
     emptyTaskStep,
     emptyWorkflowStep,
-    isReference,
     referenceSuggestions,
-    widgetFor,
   } from '../editor'
   import { danglingReferenceDetails, flowGraph } from '../flow'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
-  import { PROMPT_LIST_ID, promptListId, promptTooltip } from '../prompts'
+  import { PROMPT_LIST_ID } from '../prompts'
   import { storageGet, storageSet } from '../storage'
   import StepEditor from '../editor/StepEditor.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
+  import VariablesForm from '../editor/VariablesForm.svelte'
   import type { ValidationResult, WorkflowDefinition } from '../types'
 
   let { name = '' }: { name?: string } = $props()
 
   let workflow = $state<Record<string, any>>(emptyWorkflow())
-  // Raw text as typed, per variable - the committed value only updates on
-  // blur, and the prompt datalist should attach as soon as prompt: is typed
-  let varDrafts = $state<Record<string, string>>({})
   let saveName = $state('')
   let workflowDir = $state('')
   let pipelines = $state<string[]>([])
@@ -265,29 +260,6 @@
       event.preventDefault()
       run()
     }
-  }
-
-  function setVariable(key: string, raw: string) {
-    // Coerce to the default's type - schema validation runs on the
-    // definition itself, so "9" where 9 belongs breaks the workflow
-    workflow.variables[key] = coerce(
-      widgetFor(undefined, workflow.variables[key]),
-      raw,
-    )
-  }
-
-  const variables = $derived(Object.keys(workflow.variables ?? {}))
-  let newVariable = $state('')
-
-  function addVariable() {
-    if (!newVariable) return
-    workflow.variables = workflow.variables ?? {}
-    workflow.variables[newVariable] = ''
-    newVariable = ''
-  }
-
-  function removeVariable(key: string) {
-    delete workflow.variables[key]
   }
 
   function addStep(kind: string) {
@@ -650,44 +622,11 @@
     <div class="formcol">
       <div class="panel">
         <h2>Variables</h2>
-        <div class="vars">
-          {#each variables as key (key)}
-            <label for={'wfvar-' + key}>{key}</label>
-            <input
-              id={'wfvar-' + key}
-              class:ref={isReference(workflow.variables[key])}
-              list={promptListId(varDrafts[key] ?? workflow.variables[key])}
-              autocomplete="off"
-              title={promptTooltip(
-                workflow.variables[key],
-                promptLibrary.texts,
-              )}
-              value={typeof workflow.variables[key] === 'object'
-                ? JSON.stringify(workflow.variables[key])
-                : String(workflow.variables[key] ?? '')}
-              oninput={(e) => (varDrafts[key] = e.currentTarget.value)}
-              onchange={(e) => setVariable(key, e.currentTarget.value)}
-            />
-            <button
-              class="quiet icon"
-              onclick={() => removeVariable(key)}
-              title="remove this variable"
-              aria-label="remove this variable"
-            >
-              ×
-            </button>
-          {/each}
-          <input placeholder="new variable name…" bind:value={newVariable} />
-          <button
-            class="quiet withicon addvar"
-            onclick={addVariable}
-            disabled={!newVariable}
-            title="add this variable to the workflow"
-          >
-            <Plus size={14} />add
-          </button>
-          <span></span>
-        </div>
+        <VariablesForm
+          mode="define"
+          bind:variables={workflow.variables}
+          idPrefix="wfvar-"
+        />
       </div>
 
       {#if (workflow.steps ?? []).length > 1}
@@ -924,31 +863,6 @@
   }
   .panel {
     margin-bottom: 1rem;
-  }
-  .vars {
-    display: grid;
-    grid-template-columns: minmax(140px, 40%) minmax(0, 1fr) auto;
-    gap: 0.5rem 0.8rem;
-    align-items: center;
-  }
-  @container (max-width: 400px) {
-    .vars {
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 0.2rem 0.5rem;
-    }
-    .vars > label {
-      grid-column: 1 / -1;
-    }
-  }
-  .vars label {
-    font-weight: 600;
-    color: var(--muted);
-  }
-  .icon {
-    padding: 0.3rem 0.55rem;
-  }
-  .addvar {
-    justify-self: start;
   }
   .addstep {
     display: flex;
