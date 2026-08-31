@@ -106,7 +106,7 @@ test('editor validates, saves into a new folder, and deletes', async ({
   await page.locator('select.folderpick').selectOption('__new__')
   await page.getByPlaceholder('folder name').fill('e2e-scratch')
   await page.getByPlaceholder('MyWorkflow').fill('E2EScratch')
-  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(
     page.getByText(/Saved to .*e2e-scratch.E2EScratch\.json/),
   ).toBeVisible({ timeout: 30_000 })
@@ -219,6 +219,7 @@ test('models page inventories the hub cache', async ({ page }) => {
 
 test('task steps get introspection-driven forms', async ({ page }) => {
   await page.goto('/#/edit/tasks/ImageToText')
+  await page.getByRole('button', { name: 'full' }).first().click()
   // the command's discovered schema renders labeled fields
   await expect(page.locator('label', { hasText: 'image' }).first()).toBeVisible(
     { timeout: 30_000 },
