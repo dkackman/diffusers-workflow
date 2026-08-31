@@ -33,10 +33,13 @@ test('editor opens a workflow with introspected arguments', async ({
   await page.getByRole('button', { name: 'full' }).click()
   await expect(page.locator('#ct-0')).toHaveValue('FluxPipeline')
   // the arguments editor discovered real __call__ parameters - the
-  // add-argument select renders once the description arrives
-  await expect(
-    page.locator('select').filter({ hasText: 'add argument…' }).first(),
-  ).toBeVisible({ timeout: 90_000 })
+  // discovery disclosure renders once the description arrives
+  const discover = page
+    .getByRole('button', { name: /show available arguments/ })
+    .first()
+  await expect(discover).toBeVisible({ timeout: 90_000 })
+  await discover.click()
+  await expect(page.locator('.availdesc').first()).toBeVisible()
   // reference values render as references (accent+mono styling) - the
   // variables grid's prompt: default and a step argument's variable: alike
   await expect(page.locator('input.ref#wfvar-prompt')).toHaveValue(
