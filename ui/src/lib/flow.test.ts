@@ -67,6 +67,21 @@ describe('flowGraph', () => {
     expect(graph[0].inputs).toEqual([])
     expect(graph[1].consumers).toEqual([])
   })
+
+  it('dedupes repeated references to the same producer from different argument keys', () => {
+    const wf = {
+      steps: [
+        step('gen', {}),
+        step('x', {
+          a: 'previous_result:gen',
+          b: 'previous_result:gen',
+        }),
+      ],
+    }
+    const graph = flowGraph(wf)
+    expect(graph[0].consumers).toEqual(['x'])
+    expect(graph[1].resolvedRefs).toBe(2)
+  })
 })
 
 describe('danglingReferenceDetails', () => {

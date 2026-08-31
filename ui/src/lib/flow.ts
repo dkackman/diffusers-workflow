@@ -51,7 +51,10 @@ export function flowGraph(workflow: Record<string, any>): StepFlow[] {
       graph[index].resolvedRefs += 1
       if (!graph[index].inputs.includes(target)) {
         graph[index].inputs.push(target)
-        graph[earlier.get(target)!].consumers.push(step.name ?? '')
+        // A nameless consumer has nothing sensible to show as a chip -
+        // still counted in resolvedRefs/inputs above, just not surfaced
+        // as an edge on the producer
+        if (step.name) graph[earlier.get(target)!].consumers.push(step.name)
       }
     })
   })
