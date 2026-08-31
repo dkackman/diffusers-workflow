@@ -68,3 +68,5 @@ ideas that surface during implementation. append as they come up.
       editor shortcuts (collapse all, move step)
 - [ ] full a11y compliance pass
 - [ ] mobile as a first-class target
+- [ ] compact digest click focuses the exact field (currently opens the section only; main/arguments clicks just switch to full)
+- [ ] cartesian note computes a best-effort multiplier when producers declare num_images_per_prompt (currently generic)

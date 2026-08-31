@@ -63,6 +63,9 @@
   // Mode is parent-owned (EditorPage persists it per step name) - every
   // internal change routes through the callback and flows back down
   function setModeInternal(next: 'collapsed' | 'compact' | 'full') {
+    // A digest-click's section jump is the one case that should survive
+    // the transition - openFull re-applies it right after this call
+    openSection = ''
     onmodechange?.(next)
   }
 
@@ -78,8 +81,8 @@
   // A compact line clicked open jumps straight to its section in full view
   let openSection = $state('')
   function openFull(section: string) {
-    openSection = section
     setModeInternal('full')
+    openSection = section
   }
 
   const kind = $derived(

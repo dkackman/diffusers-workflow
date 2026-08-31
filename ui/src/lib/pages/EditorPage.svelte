@@ -297,6 +297,16 @@
         : kind === 'workflow'
           ? emptyWorkflowStep()
           : emptyStep()
+    // Step mode and flow-graph edges are keyed by name - two steps sharing
+    // the factory default (e.g. 'generate') would collide in stepModes
+    const existingNames = new Set(
+      (workflow.steps ?? []).map((s: Record<string, any>) => s.name),
+    )
+    if (existingNames.has(step.name)) {
+      let n = 2
+      while (existingNames.has(`${step.name}-${n}`)) n++
+      step.name = `${step.name}-${n}`
+    }
     workflow.steps = [...(workflow.steps ?? []), step]
     stepModes[step.name] = 'full'
   }
