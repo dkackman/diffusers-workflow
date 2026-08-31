@@ -19,6 +19,7 @@
     card: Snippet<[string]>
   } = $props()
 
+  // svelte-ignore state_referenced_locally
   let collapsed = $state<Record<string, boolean>>(storageGet(collapseKey, {}))
 
   function toggle(group: string) {

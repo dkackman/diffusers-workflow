@@ -78,7 +78,10 @@
 
 <svelte:window
   onkeydown={(e) => {
-    if (e.key === 'Escape') selected = null
+    if (e.key === 'Escape') {
+      if (document.querySelector('[role="dialog"]')) return
+      selected = null
+    }
   }}
 />
 
@@ -92,7 +95,7 @@
 {#if !error && files.length === 0}
   <Empty>
     {#snippet icon()}<ImageOff size={36} strokeWidth={1.5} />{/snippet}
-    Nothing generated yet - outputs land here as workflows run.
+    Nothing generated yet — outputs land here as workflows run.
   </Empty>
 {/if}
 

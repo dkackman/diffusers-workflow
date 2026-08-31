@@ -48,6 +48,7 @@
       event.preventDefault()
       helpOpen = true
     } else if (event.key === 'Escape' && helpOpen) {
+      event.preventDefault()
       helpOpen = false
     }
   }
@@ -276,9 +277,6 @@
   }
   .statusbar .flex {
     flex: 1;
-  }
-  .idle {
-    font-size: 0.8rem;
   }
   .brand {
     font-weight: 700;

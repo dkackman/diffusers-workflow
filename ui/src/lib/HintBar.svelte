@@ -8,6 +8,7 @@
 
   // The legacy pages stored the string '1' - any truthy stored value
   // counts as dismissed
+  // svelte-ignore state_referenced_locally
   let show = $state(!storageGet(storageKey, false))
 
   function dismiss() {
