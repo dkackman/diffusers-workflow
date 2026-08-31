@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Plus, Trash2 } from '@lucide/svelte'
+  import ExpandingText from './ExpandingText.svelte'
   import {
     classDescription,
     coerce,
@@ -98,34 +99,27 @@
             <option value="true">true</option>
             <option value="false">false</option>
           </select>
-        {:else if widget === 'textarea' || widget === 'json'}
-          <!-- A reference is never a textarea: widgetFor routes it to the
-               input branch below, which carries the datalist and tooltip -->
+        {:else if widget === 'json'}
           <textarea
             id={`${uid}-${key}`}
-            spellcheck={widget === 'textarea'}
+            spellcheck="false"
             rows="3"
             value={displayValue(args[key], true)}
             onchange={(e) => update(key, e.currentTarget.value)}></textarea>
-          {#if widget === 'textarea' && promptLibrary.names?.length}
-            <!-- The one reference a textarea invites: swapping the inline
-                 text for the library's copy (it re-renders as a reference
-                 input, datalist and tooltip included) -->
-            <select
-              class="promptpick"
-              title="replace this text with a stored prompt from the library"
-              onchange={(e) => {
-                if (!e.currentTarget.value) return
-                args[key] = 'prompt:' + e.currentTarget.value
-                e.currentTarget.value = ''
-              }}
-            >
-              <option value="">use a stored prompt…</option>
-              {#each promptLibrary.names ?? [] as promptName (promptName)}
-                <option value={promptName}>{promptName}</option>
-              {/each}
-            </select>
-          {/if}
+        {:else if widget === 'textarea'}
+          <!-- A reference is never a textarea: widgetFor routes it to the
+               input branch below, which carries the datalist and tooltip.
+               Prose fields collapse to one line until asked to be a
+               document; the picker can swap in a stored prompt. -->
+          <ExpandingText
+            id={`${uid}-${key}`}
+            value={displayValue(args[key])}
+            alwaysExpandable
+            onchange={(raw) => update(key, raw)}
+            onpromptpick={(name) => {
+              args[key] = 'prompt:' + name
+            }}
+          />
         {:else}
           <input
             id={`${uid}-${key}`}
@@ -250,12 +244,6 @@
     font-size: 0.75rem;
     margin-top: 0.15rem;
     max-width: 60ch;
-  }
-  .promptpick {
-    display: block;
-    margin-top: 0.3rem;
-    max-width: 260px;
-    font-size: 0.8rem;
   }
   .icon {
     display: inline-flex;

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   coerce,
   danglingReferences,
+  isLongText,
   isReference,
   referenceSuggestions,
   widgetFor,
@@ -179,5 +180,20 @@ describe('danglingReferences', () => {
     const problems = danglingReferences(workflow, ['other'])
     expect(problems).toHaveLength(1)
     expect(problems[0]).toContain('prompt:scenic')
+  })
+})
+
+describe('isLongText', () => {
+  it('long strings and multi-line strings are long', () => {
+    expect(isLongText('x'.repeat(61))).toBe(true)
+    expect(isLongText('one\ntwo')).toBe(true)
+  })
+
+  it('short single-line strings and non-strings are not', () => {
+    expect(isLongText('a cat')).toBe(false)
+    expect(isLongText('')).toBe(false)
+    expect(isLongText(25)).toBe(false)
+    expect(isLongText(null)).toBe(false)
+    expect(isLongText({ a: 1 })).toBe(false)
   })
 })
