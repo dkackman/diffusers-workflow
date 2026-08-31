@@ -62,3 +62,22 @@ test('saving surfaces a toast, not a pinned banner', async ({ page }) => {
     timeout: 10_000,
   })
 })
+
+test('the status area opens a detail popover', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'server & worker status' }).click()
+  const pop = page.getByRole('dialog', { name: 'server status' })
+  await expect(pop).toBeVisible()
+  // server health and worker lifecycle explained, not just blank space
+  await expect(pop).toContainText('Server')
+  await expect(pop).toContainText(/worker|spawns with the first job/i)
+  await expect(pop).toContainText('queued')
+  // Escape closes the popover like every other layer
+  await page.keyboard.press('Escape')
+  await expect(pop).toHaveCount(0)
+  // click-outside closes it too
+  await page.getByRole('button', { name: 'server & worker status' }).click()
+  await expect(pop).toBeVisible()
+  await page.locator('main').click()
+  await expect(pop).toHaveCount(0)
+})

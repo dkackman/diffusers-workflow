@@ -29,6 +29,14 @@ export interface JobEvent {
   [key: string]: unknown
 }
 
+export interface HealthInfo {
+  status: string
+  version?: string
+  worker_alive: boolean
+  current_job: string | null
+  queued?: number
+}
+
 export interface MemoryInfo {
   live: boolean
   info: {

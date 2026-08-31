@@ -7,6 +7,7 @@ import type {
   JobEvent,
   JobSummary,
   GalleryFile,
+  HealthInfo,
   MemoryInfo,
   PipelineDescription,
   PromptDefinition,
@@ -107,12 +108,7 @@ export const api = {
     request<DiffusersStatus>('/api/system/diffusers/update', {
       method: 'POST',
     }),
-  health: () =>
-    request<{
-      status: string
-      worker_alive: boolean
-      current_job: string | null
-    }>('/api/health'),
+  health: () => request<HealthInfo>('/api/health'),
   gallery: (limit = 200) =>
     request<{ files: GalleryFile[]; total: number }>(
       `/api/gallery?limit=${limit}`,
