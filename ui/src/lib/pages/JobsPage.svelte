@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
   import { api } from '../api'
+  import { notify } from '../toast'
   import type { JobSummary } from '../types'
 
   let jobs = $state<JobSummary[]>([])
@@ -44,7 +45,8 @@
       await api.moveJob(id, direction)
       jobs = (await api.listJobs()).jobs.reverse()
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      const msg = e instanceof Error ? e.message : String(e)
+      notify.error(msg)
     }
   }
 

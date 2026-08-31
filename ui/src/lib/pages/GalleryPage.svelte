@@ -2,6 +2,7 @@
   import { FolderOpen, ImageOff, Trash2, X } from '@lucide/svelte'
   import { api } from '../api'
   import { go } from '../router.svelte'
+  import { notify } from '../toast'
   import type { GalleryFile } from '../types'
 
   let files = $state<GalleryFile[]>([])
@@ -51,7 +52,8 @@
       total -= 1
       selected = null
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      const msg = e instanceof Error ? e.message : String(e)
+      notify.error(msg)
     }
   }
 
