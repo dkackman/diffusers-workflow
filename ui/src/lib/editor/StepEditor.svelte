@@ -14,6 +14,7 @@
   import LorasEditor from './LorasEditor.svelte'
   import MappingEditor from './MappingEditor.svelte'
   import { api } from '../api'
+  import { stepDigest } from '../digest'
   import {
     ATTENTION_BACKENDS,
     CACHE_TYPES,
@@ -31,6 +32,8 @@
     count,
     references = [],
     baseFolder = '',
+    mode = 'full',
+    onmodechange = undefined,
     onremove,
     onmove,
   }: {
@@ -39,13 +42,37 @@
     count: number
     references?: string[]
     baseFolder?: string
+    mode?: 'collapsed' | 'compact' | 'full'
+    onmodechange?: (mode: 'collapsed' | 'compact' | 'full') => void
     onremove: () => void
     onmove: (delta: number) => void
   } = $props()
 
   const referenceListId = $derived(`refs-${index}`)
 
-  let open = $state(true)
+  const digest = $derived(stepDigest($state.snapshot(step)))
+
+  // Mode is parent-owned (EditorPage persists it per step name) - every
+  // internal change routes through the callback and flows back down
+  function setModeInternal(next: 'collapsed' | 'compact' | 'full') {
+    onmodechange?.(next)
+  }
+
+  // The chevron re-opens to whichever expanded state the step last had
+  let lastExpanded = $state<'compact' | 'full'>('compact')
+  $effect(() => {
+    if (mode !== 'collapsed') lastExpanded = mode
+  })
+  function toggleCollapsed() {
+    setModeInternal(mode === 'collapsed' ? lastExpanded : 'collapsed')
+  }
+
+  // A compact line clicked open jumps straight to its section in full view
+  let openSection = $state('')
+  function openFull(section: string) {
+    openSection = section
+    setModeInternal('full')
+  }
 
   const kind = $derived(
     step.pipeline
@@ -177,11 +204,15 @@
   <div class="bar">
     <button
       class="quiet icon"
-      onclick={() => (open = !open)}
-      title={open ? 'collapse this step' : 'expand this step'}
-      aria-label={open ? 'collapse this step' : 'expand this step'}
+      onclick={toggleCollapsed}
+      title={mode === 'collapsed' ? 'expand this step' : 'collapse this step'}
+      aria-label={mode === 'collapsed'
+        ? 'expand this step'
+        : 'collapse this step'}
     >
-      {#if open}<ChevronDown size={15} />{:else}<ChevronRight size={15} />{/if}
+      {#if mode === 'collapsed'}<ChevronRight size={15} />{:else}<ChevronDown
+          size={15}
+        />{/if}
     </button>
     <input
       class="name"
@@ -189,7 +220,27 @@
       title="step name - how later steps reference this one"
     />
     <span class="kind muted">{kind}</span>
+    {#if mode === 'collapsed'}
+      <span class="muted summary" title={digest.summary}>{digest.summary}</span>
+    {/if}
     <span class="flex"></span>
+    {#if mode !== 'collapsed'}
+      <div class="modeswitch" role="group" aria-label="step detail level">
+        <button
+          class="quiet"
+          class:activebtn={mode === 'compact'}
+          onclick={() => setModeInternal('compact')}
+          title="one-line-per-area digest of what this step sets"
+          >compact</button
+        >
+        <button
+          class="quiet"
+          class:activebtn={mode === 'full'}
+          onclick={() => setModeInternal('full')}
+          title="every field, editable">full</button
+        >
+      </div>
+    {/if}
     <button
       class="quiet icon"
       disabled={index === 0}
@@ -211,7 +262,22 @@
     </button>
   </div>
 
-  {#if open}
+  {#if mode === 'compact'}
+    <div class="digest">
+      {#each digest.lines as line (line.section)}
+        <button
+          class="digestline"
+          onclick={() => openFull(line.section)}
+          title="edit in full view"
+        >
+          <span class="digestsection muted">{line.section}</span>
+          <span class="digesttext">{line.text}</span>
+        </button>
+      {:else}
+        <div class="muted hint">nothing set yet - switch to full to edit</div>
+      {/each}
+    </div>
+  {:else if mode === 'full'}
     {#if kind === 'pipeline'}
       <div class="grid">
         <label for={'ct-' + index}>pipeline</label>
@@ -273,7 +339,7 @@
         listId={referenceListId}
       />
 
-      <details open={activeSlots.length > 0}>
+      <details open={activeSlots.length > 0 || openSection === 'components'}>
         <summary
           ><Boxes size={13} /> components
           <span class="muted">({activeSlots.length})</span></summary
@@ -305,7 +371,9 @@
         </div>
       </details>
 
-      <details open={(step.pipeline.loras ?? []).length > 0}>
+      <details
+        open={(step.pipeline.loras ?? []).length > 0 || openSection === 'loras'}
+      >
         <summary
           ><Layers size={13} /> LoRAs
           <span class="muted">({(step.pipeline.loras ?? []).length})</span
@@ -316,7 +384,7 @@
         </div>
       </details>
 
-      <details open={!!step.pipeline.scheduler}>
+      <details open={!!step.pipeline.scheduler || openSection === 'scheduler'}>
         <summary><Timer size={13} /> scheduler</summary>
         <div class="section grid2">
           <label for={'sched-' + index}>replace scheduler</label>
@@ -359,7 +427,9 @@
       </details>
 
       <details
-        open={!!configuration.cache || !!configuration.attention_backend}
+        open={!!configuration.cache ||
+          !!configuration.attention_backend ||
+          openSection === 'acceleration'}
       >
         <summary><Zap size={13} /> acceleration</summary>
         <div class="section grid2">
@@ -602,5 +672,67 @@
   .hint {
     font-size: 0.75rem;
     margin-top: 0.3rem;
+  }
+  .summary {
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+  }
+  .modeswitch {
+    display: inline-flex;
+  }
+  .modeswitch button {
+    border-radius: 0;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.75rem;
+  }
+  .modeswitch button:first-child {
+    border-radius: var(--radius-1) 0 0 var(--radius-1);
+  }
+  .modeswitch button:last-child {
+    border-radius: 0 var(--radius-1) var(--radius-1) 0;
+    margin-left: -1px;
+  }
+  .digest {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-top: var(--space-2);
+  }
+  .digestline {
+    display: flex;
+    gap: var(--space-2);
+    align-items: baseline;
+    background: transparent;
+    border: 0;
+    color: var(--ink);
+    font-weight: 400;
+    text-align: left;
+    padding: 0.2rem 0.3rem;
+    border-radius: var(--radius-1);
+    font-size: 0.85rem;
+  }
+  .digestline:hover {
+    background: var(--panel-2);
+    filter: none;
+  }
+  .digestsection {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex: none;
+    width: 90px;
+  }
+  .digesttext {
+    overflow-wrap: anywhere;
+  }
+  .activebtn {
+    border-color: var(--accent);
+    color: var(--accent);
+    position: relative;
+    z-index: 1;
   }
 </style>
