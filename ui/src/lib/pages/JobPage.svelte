@@ -2,6 +2,7 @@
   import { RotateCw, TriangleAlert, X } from '@lucide/svelte'
   import { api, streamJobEvents } from '../api'
   import { go } from '../router.svelte'
+  import { groupResultFiles } from '../results'
   import type { JobDetail, JobEvent } from '../types'
 
   let { jobId }: { jobId: string } = $props()
@@ -96,14 +97,10 @@
     if (remaining <= 0 || perStep <= 0) return null
     return Math.round((remaining * perStep) / 1000)
   })
-  // Files stream in as steps finish - the manifest only lands at the end
-  const liveFiles = $derived.by(() => {
-    const manifest = job?.manifest?.flatMap((entry) => entry.files) ?? []
-    const streamed = events
-      .filter((e) => e.event === 'step_end')
-      .flatMap((e) => (e.files as string[]) ?? [])
-    return [...new Set([...manifest, ...streamed])]
-  })
+  // Files grouped by producing step, streamed first, then confirmed by manifest
+  const fileGroups = $derived(
+    groupResultFiles(job?.manifest, events as JobEvent[]),
+  )
   const running = $derived(job !== null && !TERMINAL.includes(job.status))
 
   function fileUrl(path: string) {
@@ -196,23 +193,29 @@
     </div>
   {/if}
 
-  {#if liveFiles.length}
+  {#if fileGroups.length}
     <div class="panel">
       <h2>Results</h2>
-      <div class="media">
-        {#each liveFiles as file (file)}
-          {#if isImage(file)}
-            <a href={fileUrl(file)} target="_blank"
-              ><img src={fileUrl(file)} alt={file.split('/').pop()} /></a
-            >
-          {:else if isVideo(file)}
-            <!-- svelte-ignore a11y_media_has_caption -->
-            <video src={fileUrl(file)} controls loop></video>
-          {:else}
-            <a href={fileUrl(file)} target="_blank">{file.split('/').pop()}</a>
-          {/if}
-        {/each}
-      </div>
+      {#each fileGroups as group (group.step)}
+        {#if fileGroups.length > 1}
+          <h3 class="stephead muted">{group.step}</h3>
+        {/if}
+        <div class="media">
+          {#each group.files as file (file)}
+            {#if isImage(file)}
+              <a href={fileUrl(file)} target="_blank"
+                ><img src={fileUrl(file)} alt={file.split('/').pop()} /></a
+              >
+            {:else if isVideo(file)}
+              <!-- svelte-ignore a11y_media_has_caption -->
+              <video src={fileUrl(file)} controls loop></video>
+            {:else}
+              <a href={fileUrl(file)} target="_blank">{file.split('/').pop()}</a
+              >
+            {/if}
+          {/each}
+        </div>
+      {/each}
     </div>
   {/if}
 
@@ -319,5 +322,14 @@
   }
   .error {
     color: var(--bad);
+  }
+  .stephead {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: var(--space-3) 0 var(--space-2);
+  }
+  .stephead:first-of-type {
+    margin-top: 0;
   }
 </style>
