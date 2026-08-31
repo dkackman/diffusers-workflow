@@ -31,7 +31,7 @@
   const uid = $props.id()
 
   let description = $state<PipelineDescription | null>(null)
-  let adding = $state('')
+  let showAll = $state(false)
 
   // Debounced: the class name arrives keystroke by keystroke, and every
   // prefix would otherwise fire (and cache) a doomed lookup
@@ -61,13 +61,6 @@
 
   function update(key: string, raw: string) {
     args[key] = coerce(widgetFor(parameters.get(key), args[key]), raw)
-  }
-
-  function add() {
-    if (!adding) return
-    const parameter = parameters.get(adding)
-    args[adding] = parameter?.default ?? ''
-    adding = ''
   }
 
   // Free-form additions belong wherever the schema is open-ended: the
@@ -155,25 +148,37 @@
   {/each}
 
   {#if unused.length}
-    <div class="row add">
-      <select bind:value={adding}>
-        <option value="">add argument…</option>
+    <button
+      class="quiet discover"
+      onclick={() => (showAll = !showAll)}
+      title="every argument this callable accepts, discovered from its signature"
+    >
+      {showAll ? 'hide' : 'show'} available arguments ({unused.length})
+    </button>
+    {#if showAll}
+      <div class="available">
         {#each unused as parameter (parameter.name)}
-          <option value={parameter.name} title={parameter.description ?? ''}>
-            {parameter.name}{parameter.required ? ' *' : ''}
-          </option>
+          <div class="availrow">
+            <button
+              class="quiet icon"
+              onclick={() => {
+                args[parameter.name] = parameter.default ?? ''
+              }}
+              title={`add ${parameter.name}`}
+              aria-label={`add ${parameter.name}`}
+            >
+              <Plus size={14} />
+            </button>
+            <span class="availname"
+              >{parameter.name}{parameter.required ? ' *' : ''}</span
+            >
+            {#if parameter.description}
+              <span class="muted availdesc">{parameter.description}</span>
+            {/if}
+          </div>
         {/each}
-      </select>
-      <button
-        class="quiet icon"
-        onclick={add}
-        disabled={!adding}
-        title="add the selected argument"
-        aria-label="add the selected argument"
-      >
-        <Plus size={14} />
-      </button>
-    </div>
+      </div>
+    {/if}
   {/if}
   {#if openEnded && componentType}
     <div class="row add">
@@ -256,5 +261,33 @@
     display: inline-flex;
     align-items: center;
     padding: 0.4rem 0.5rem;
+  }
+  .discover {
+    align-self: start;
+    font-size: 0.8rem;
+  }
+  .available {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    border-left: 2px solid var(--line);
+    padding-left: var(--space-2);
+  }
+  .availrow {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+  .availrow .icon {
+    align-self: center;
+    flex: none;
+  }
+  .availname {
+    font-weight: 600;
+    flex: none;
+  }
+  .availdesc {
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
   }
 </style>
