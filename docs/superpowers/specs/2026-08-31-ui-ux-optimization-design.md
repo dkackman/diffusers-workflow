@@ -124,6 +124,14 @@ simple easy and the more complex possible.*
 
 Each stage is independently shippable.
 
+## Implementation note: reuse over rewrite
+
+Prefer pulling in battle-tested libraries/components over hand-rolling where it makes
+sense (explicit user preference). Evaluate per component during planning — e.g. a
+maintained Svelte 5-compatible toast library (svelte-sonner or similar), headless
+primitives (bits-ui / melt) for popover-like pieces and the shortcut-help overlay —
+weighing bundle size and fit with the existing token-based CSS before adopting.
+
 ## Risks
 
 - Stage 2 rewrites much of `StepEditor.svelte` (the largest single change). Bounded
