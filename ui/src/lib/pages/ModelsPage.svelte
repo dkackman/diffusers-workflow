@@ -173,27 +173,64 @@
   {/if}
 </div>
 
-<form
-  class="dlform"
-  onsubmit={(e) => {
-    e.preventDefault()
-    startDownload()
-  }}
->
-  <input
-    placeholder="download a model… (org/name)"
-    bind:value={repoInput}
-    title="a Hugging Face repo id, e.g. black-forest-labs/FLUX.1-dev"
-  />
-  <button
-    class="withicon"
-    type="submit"
-    disabled={!repoInput.trim()}
-    title="download this repo into the hub cache"
+<div class="toolrow">
+  <form
+    class="dlform"
+    onsubmit={(e) => {
+      e.preventDefault()
+      startDownload()
+    }}
   >
-    <Download size={14} />Download
-  </button>
-</form>
+    <input
+      placeholder="download a model… (org/name)"
+      bind:value={repoInput}
+      title="a Hugging Face repo id, e.g. black-forest-labs/FLUX.1-dev"
+    />
+    <button
+      class="withicon"
+      type="submit"
+      disabled={!repoInput.trim()}
+      title="download this repo into the hub cache"
+    >
+      <Download size={14} />Download
+    </button>
+  </form>
+
+  {#if diffusers}
+    <div class="engine">
+      <span class="enginename">diffusers</span>
+      <code>{diffusers.version ?? 'not installed'}</code>
+      {#if diffusers.commit}
+        <span
+          class="muted"
+          title="installed from git commit {diffusers.commit}"
+        >
+          @{diffusers.commit.slice(0, 9)}
+        </span>
+      {/if}
+      {#if updating}
+        <span class="muted busy">
+          <RefreshCw size={14} class="spin" />updating from GitHub…
+        </span>
+      {:else}
+        <button
+          class="withicon"
+          onclick={startDiffusersUpdate}
+          title="install the latest diffusers from GitHub - new model pipelines usually land there before a release. The worker restarts when idle so the next job uses it"
+        >
+          <RefreshCw size={14} />Update from GitHub
+        </button>
+        {#if diffusers.status === 'failed'}
+          <span class="warn" title={diffusers.log ?? ''}>
+            update failed: {diffusers.error} (hover for pip output)
+          </span>
+        {:else if diffusers.status === 'succeeded'}
+          <span class="updated">updated - the next job uses it</span>
+        {/if}
+      {/if}
+    </div>
+  {/if}
+</div>
 
 {#if error}<p class="warn">{error}</p>{/if}
 
@@ -240,119 +277,90 @@
 {/if}
 
 {#if cache}
-  <table>
-    <thead>
-      <tr>
-        <th></th>
-        <th>repo</th>
-        <th class="num">size</th>
-        <th class="num">files</th>
-        <th>last used</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {#each cache.repos as repo (repo.repo_id)}
+  <div class="tablewrap">
+    <table>
+      <thead>
         <tr>
-          <td>
-            <button
-              class="quiet icon"
-              onclick={() => (expanded[repo.repo_id] = !expanded[repo.repo_id])}
-              title={expanded[repo.repo_id]
-                ? 'hide revisions'
-                : 'show cached revisions'}
-              aria-label="toggle revisions for {repo.repo_id}"
-            >
-              {#if expanded[repo.repo_id]}<ChevronDown
-                  size={14}
-                />{:else}<ChevronRight size={14} />{/if}
-            </button>
-          </td>
-          <td class="repo">
-            {repo.repo_id}
-            {#if repo.repo_type !== 'model'}
-              <span class="badge">{repo.repo_type}</span>
-            {/if}
-            <a
-              href={hubUrl(repo)}
-              target="_blank"
-              rel="noreferrer"
-              class="muted hublink"
-              title="open on huggingface.co"
-            >
-              <ExternalLink size={12} />
-            </a>
-          </td>
-          <td class="num size">
-            <span
-              class="sizebar"
-              style="width: {(100 * repo.size_on_disk) / largest}%"
-            ></span>
-            <span class="sizenum">{size(repo.size_on_disk)}</span>
-          </td>
-          <td class="num muted">{repo.nb_files}</td>
-          <td class="muted">{day(repo.last_accessed)}</td>
-          <td>
-            <button
-              class="quiet icon danger"
-              onclick={() => remove(repo)}
-              disabled={deleting !== null}
-              title="delete every cached revision of this repo"
-              aria-label="delete {repo.repo_id} from the cache"
-            >
-              <Trash2 size={14} />
-            </button>
-          </td>
+          <th></th>
+          <th>repo</th>
+          <th class="num">size</th>
+          <th class="num">files</th>
+          <th>last used</th>
+          <th></th>
         </tr>
-        {#if expanded[repo.repo_id]}
-          {#each repo.revisions as revision (revision.commit_hash)}
-            <tr class="revision">
-              <td></td>
-              <td class="muted">
-                <code>{revision.commit_hash.slice(0, 12)}</code>
-                {#if revision.refs.length}({revision.refs.join(', ')}){/if}
-              </td>
-              <td class="num muted">{size(revision.size_on_disk)}</td>
-              <td></td>
-              <td class="muted">{day(revision.last_modified)}</td>
-              <td></td>
-            </tr>
-          {/each}
-        {/if}
-      {/each}
-    </tbody>
-  </table>
-{/if}
-
-{#if diffusers}
-  <div class="engine">
-    <span class="enginename">diffusers</span>
-    <code>{diffusers.version ?? 'not installed'}</code>
-    {#if diffusers.commit}
-      <span class="muted" title="installed from git commit {diffusers.commit}">
-        @{diffusers.commit.slice(0, 9)}
-      </span>
-    {/if}
-    {#if updating}
-      <span class="muted busy">
-        <RefreshCw size={14} class="spin" />updating from GitHub…
-      </span>
-    {:else}
-      <button
-        class="withicon"
-        onclick={startDiffusersUpdate}
-        title="install the latest diffusers from GitHub - new model pipelines usually land there before a release. The worker restarts when idle so the next job uses it"
-      >
-        <RefreshCw size={14} />Update from GitHub
-      </button>
-      {#if diffusers.status === 'failed'}
-        <span class="warn" title={diffusers.log ?? ''}>
-          update failed: {diffusers.error} (hover for pip output)
-        </span>
-      {:else if diffusers.status === 'succeeded'}
-        <span class="updated">updated - the next job uses it</span>
-      {/if}
-    {/if}
+      </thead>
+      <tbody>
+        {#each cache.repos as repo (repo.repo_id)}
+          <tr>
+            <td>
+              <button
+                class="quiet icon"
+                onclick={() =>
+                  (expanded[repo.repo_id] = !expanded[repo.repo_id])}
+                title={expanded[repo.repo_id]
+                  ? 'hide revisions'
+                  : 'show cached revisions'}
+                aria-label="toggle revisions for {repo.repo_id}"
+              >
+                {#if expanded[repo.repo_id]}<ChevronDown
+                    size={14}
+                  />{:else}<ChevronRight size={14} />{/if}
+              </button>
+            </td>
+            <td class="repo">
+              {repo.repo_id}
+              {#if repo.repo_type !== 'model'}
+                <span class="badge">{repo.repo_type}</span>
+              {/if}
+              <a
+                href={hubUrl(repo)}
+                target="_blank"
+                rel="noreferrer"
+                class="muted hublink"
+                title="open on huggingface.co"
+              >
+                <ExternalLink size={12} />
+              </a>
+            </td>
+            <td class="num size">
+              <span
+                class="sizebar"
+                style="width: {(100 * repo.size_on_disk) / largest}%"
+              ></span>
+              <span class="sizenum">{size(repo.size_on_disk)}</span>
+            </td>
+            <td class="num muted">{repo.nb_files}</td>
+            <td class="muted">{day(repo.last_accessed)}</td>
+            <td>
+              <button
+                class="quiet icon danger"
+                onclick={() => remove(repo)}
+                disabled={deleting !== null}
+                title="delete every cached revision of this repo"
+                aria-label="delete {repo.repo_id} from the cache"
+              >
+                <Trash2 size={14} />
+              </button>
+            </td>
+          </tr>
+          {#if expanded[repo.repo_id]}
+            {#each repo.revisions as revision (revision.commit_hash)}
+              <tr class="revision">
+                <td></td>
+                <td class="muted">
+                  <code>{revision.commit_hash.slice(0, 12)}</code>
+                  {#if revision.refs.length}({revision.refs.join(', ')}){/if}
+                </td>
+                <td class="num muted">{size(revision.size_on_disk)}</td>
+                <td></td>
+                <td class="muted">{day(revision.last_modified)}</td>
+                <td></td>
+              </tr>
+            {/each}
+          {/if}
+        {/each}
+      </tbody>
+    </table>
   </div>
 {/if}
 
@@ -360,16 +368,21 @@
   .head {
     display: flex;
     align-items: baseline;
-    gap: 1rem;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
     margin-bottom: 1rem;
+  }
+  /* Six columns of repo ids and sizes have a floor well above a phone -
+     scroll the table itself rather than the whole document */
+  .tablewrap {
+    overflow-x: auto;
   }
   .engine {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.6rem;
-    margin-top: 1.2rem;
-    padding-top: 0.8rem;
-    border-top: 1px solid var(--line);
+    margin-left: auto;
     font-size: 0.9rem;
   }
   .enginename {
@@ -422,13 +435,32 @@
     color: var(--danger, #c33);
     font-size: 0.9rem;
   }
+  .toolrow {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.8rem;
+  }
   .dlform {
     display: flex;
     gap: 0.5rem;
-    margin-bottom: 0.8rem;
   }
   .dlform input {
     max-width: 320px;
+    min-width: 0;
+  }
+  @media (max-width: 640px) {
+    .toolrow {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .engine {
+      margin-left: 0;
+    }
+    .dlform input {
+      flex: 1;
+      max-width: none;
+    }
   }
   .withicon {
     display: inline-flex;
@@ -438,7 +470,8 @@
   .dl {
     display: flex;
     align-items: center;
-    gap: 0.7rem;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.7rem;
     font-size: 0.88rem;
     margin-bottom: 0.4rem;
   }

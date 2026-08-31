@@ -135,9 +135,9 @@
             {/if}
           {/if}
         </span>
-        <span class="muted">{when(job.started_at)}</span>
-        <span class="muted">{duration(job)}</span>
-        <code class="muted">{job.id}</code>
+        <span class="muted started">{when(job.started_at)}</span>
+        <span class="muted dur">{duration(job)}</span>
+        <code class="muted jobid">{job.id}</code>
       </a>
     {/each}
   </div>
@@ -146,8 +146,9 @@
 <style>
   .head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.8rem;
+    gap: 0.4rem 0.8rem;
     margin-bottom: 1rem;
   }
   .head h1 {
@@ -165,12 +166,33 @@
   }
   .row {
     display: grid;
-    grid-template-columns: 90px 1fr auto auto auto;
+    grid-template-columns: 90px minmax(0, 1fr) auto auto auto;
     gap: 1rem;
     align-items: center;
     padding: 0.55rem 0.8rem;
     border-radius: 6px;
     color: var(--ink);
+  }
+  /* The job id is the widest unbreakable cell and is repeated on the job
+     page itself, so it is the first thing to go as the row narrows; below
+     that the timestamps drop to a second line under the name */
+  @media (max-width: 860px) {
+    .row {
+      grid-template-columns: 90px minmax(0, 1fr) auto auto;
+    }
+    .jobid {
+      display: none;
+    }
+  }
+  @media (max-width: 560px) {
+    .row {
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.2rem 0.7rem;
+    }
+    .started,
+    .dur {
+      font-size: 0.85rem;
+    }
   }
   .row:hover {
     background: var(--panel-2);
@@ -182,7 +204,10 @@
     font-weight: 600;
     display: inline-flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.4rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .qpos {
     font-size: 0.72rem;

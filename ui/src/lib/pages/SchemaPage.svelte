@@ -62,8 +62,9 @@
 <style>
   .head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.4rem 0.6rem;
   }
   .flex {
     flex: 1;
@@ -73,8 +74,9 @@
   }
   .defshead {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.8rem;
+    gap: 0.4rem 0.8rem;
     margin-top: 1.2rem;
   }
   .defshead input {

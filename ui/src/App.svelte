@@ -85,91 +85,110 @@
 <header>
   <span class="brand">diffusers<span class="accent">-workflow</span></span>
   <nav>
-    <a href="#/workflows" class:active={route.parts[0] === 'workflows'}>
-      <Layers size={15} />Workflows
+    <a
+      href="#/workflows"
+      class:active={route.parts[0] === 'workflows'}
+      title="Workflows"
+    >
+      <Layers size={15} /><span class="navlabel">Workflows</span>
     </a>
     <a
       href="#/prompts"
       class:active={route.parts[0] === 'prompts' ||
         route.parts[0] === 'prompt-edit'}
+      title="Prompts"
     >
-      <MessageSquareText size={15} />Prompts
+      <MessageSquareText size={15} /><span class="navlabel">Prompts</span>
     </a>
-    <a href="#/jobs" class:active={route.parts[0] === 'jobs'}>
-      <ListTodo size={15} />Jobs
+    <a href="#/jobs" class:active={route.parts[0] === 'jobs'} title="Jobs">
+      <ListTodo size={15} /><span class="navlabel">Jobs</span>
     </a>
-    <a href="#/edit" class:active={route.parts[0] === 'edit'}>
-      <SquarePen size={15} />Editor
+    <a href="#/edit" class:active={route.parts[0] === 'edit'} title="Editor">
+      <SquarePen size={15} /><span class="navlabel">Editor</span>
     </a>
-    <a href="#/gallery" class:active={route.parts[0] === 'gallery'}>
-      <Images size={15} />Gallery
+    <a
+      href="#/gallery"
+      class:active={route.parts[0] === 'gallery'}
+      title="Gallery"
+    >
+      <Images size={15} /><span class="navlabel">Gallery</span>
     </a>
-    <a href="#/models" class:active={route.parts[0] === 'models'}>
-      <Database size={15} />Models
+    <a
+      href="#/models"
+      class:active={route.parts[0] === 'models'}
+      title="Models"
+    >
+      <Database size={15} /><span class="navlabel">Models</span>
     </a>
-    <a href="#/schema" class:active={route.parts[0] === 'schema'}>
-      <ListTree size={15} />Schema
+    <a
+      href="#/schema"
+      class:active={route.parts[0] === 'schema'}
+      title="Schema"
+    >
+      <ListTree size={15} /><span class="navlabel">Schema</span>
     </a>
   </nav>
-  {#if currentJob}
-    <a
-      class="runningnow"
-      href={'#/jobs/' + currentJob}
-      title="a job is running - click to watch"
-    >
-      <span class="pulse-dot"></span>running
-    </a>
-  {/if}
-  <span class="vram muted">
-    {#if memory?.info?.gpu_available}
-      {memory.info.gpu_device_name} · {gb(
-        memory.info.gpu_memory_allocated_mb ?? 0,
-      )} /
-      {gb(memory.info.gpu_memory_total_mb ?? 0)} GB
-    {:else}
-      worker idle
+  <div class="tools">
+    {#if currentJob}
+      <a
+        class="runningnow"
+        href={'#/jobs/' + currentJob}
+        title="a job is running - click to watch"
+      >
+        <span class="pulse-dot"></span>running
+      </a>
     {/if}
-  </span>
-  <a
-    class="helplink"
-    href="https://github.com/dkackman/diffusers-workflow#documentation"
-    target="_blank"
-    rel="noopener"
-    title="documentation on GitHub"
-    aria-label="documentation on GitHub"
-  >
-    <BookOpen size={15} />
-  </a>
-  <a
-    class="helplink"
-    href="/docs"
-    target="_blank"
-    rel="noopener"
-    title="interactive API reference (OpenAPI)"
-    aria-label="interactive API reference (OpenAPI)"
-  >
-    <Braces size={15} />
-  </a>
-  <button
-    class="quiet icon themebtn"
-    onclick={cycleTheme}
-    title="theme: {theme} - click to change"
-    aria-label="theme: {theme} - click to change"
-  >
-    {#if theme === 'light'}<Sun size={15} />{:else if theme === 'dark'}<Moon
-        size={15}
-      />{:else}<MonitorCog size={15} />{/if}
-  </button>
-  {#if vramPct !== null}
-    <div class="meter" title="VRAM allocated">
-      <div
-        class="fill"
-        class:hot={vramPct > 75}
-        class:critical={vramPct > 92}
-        style:width={vramPct + '%'}
-      ></div>
-    </div>
-  {/if}
+    <span class="vram muted">
+      {#if memory?.info?.gpu_available}
+        {memory.info.gpu_device_name} · {gb(
+          memory.info.gpu_memory_allocated_mb ?? 0,
+        )} /
+        {gb(memory.info.gpu_memory_total_mb ?? 0)} GB
+      {:else}
+        worker idle
+      {/if}
+    </span>
+    <a
+      class="helplink"
+      href="https://github.com/dkackman/diffusers-workflow#documentation"
+      target="_blank"
+      rel="noopener"
+      title="documentation on GitHub"
+      aria-label="documentation on GitHub"
+    >
+      <BookOpen size={15} />
+    </a>
+    <a
+      class="helplink"
+      href="/docs"
+      target="_blank"
+      rel="noopener"
+      title="interactive API reference (OpenAPI)"
+      aria-label="interactive API reference (OpenAPI)"
+    >
+      <Braces size={15} />
+    </a>
+    <button
+      class="quiet icon themebtn"
+      onclick={cycleTheme}
+      title="theme: {theme} - click to change"
+      aria-label="theme: {theme} - click to change"
+    >
+      {#if theme === 'light'}<Sun size={15} />{:else if theme === 'dark'}<Moon
+          size={15}
+        />{:else}<MonitorCog size={15} />{/if}
+    </button>
+    {#if vramPct !== null}
+      <div class="meter" title="VRAM allocated">
+        <div
+          class="fill"
+          class:hot={vramPct > 75}
+          class:critical={vramPct > 92}
+          style:width={vramPct + '%'}
+        ></div>
+      </div>
+    {/if}
+  </div>
 </header>
 
 <main
@@ -202,7 +221,8 @@
   header {
     display: flex;
     align-items: center;
-    gap: 1.5rem;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
     padding: 0.7rem 1.2rem;
     border-bottom: 1px solid var(--line);
     background: var(--panel);
@@ -219,8 +239,16 @@
   }
   nav {
     display: flex;
-    gap: 1.1rem;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.1rem;
     flex: 1;
+  }
+  .tools {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem 1rem;
+    margin-left: auto;
   }
   nav a {
     display: inline-flex;
@@ -257,6 +285,10 @@
   }
   .vram {
     font-size: 0.8rem;
+    max-width: 22ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .themebtn {
     display: inline-flex;
@@ -287,5 +319,37 @@
   }
   main.wide {
     max-width: 1560px;
+  }
+
+  /* Below the nav's natural width the header wraps to a second row rather
+     than overflowing - a sticky header does not pin horizontally, so any
+     document-level scroll would slide it off screen */
+  @media (max-width: 900px) {
+    header {
+      gap: 0.5rem 1rem;
+    }
+    nav {
+      order: 3;
+      flex-basis: 100%;
+    }
+  }
+  /* Icons alone below the small breakpoint: seven labelled links do not fit
+     a phone, and each keeps its title for the tooltip */
+  @media (max-width: 640px) {
+    header {
+      padding: 0.6rem 0.8rem;
+    }
+    main {
+      padding: 0.8rem;
+    }
+    .navlabel {
+      display: none;
+    }
+    nav {
+      gap: 0.4rem 1.3rem;
+    }
+    .vram {
+      max-width: 14ch;
+    }
   }
 </style>

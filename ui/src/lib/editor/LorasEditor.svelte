@@ -58,10 +58,20 @@
   }
   .row {
     display: grid;
-    grid-template-columns: 1fr 1fr 80px auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 80px auto;
     gap: 0.5rem;
     width: 100%;
     align-items: center;
+  }
+  /* Two repo fields side by side need ~460px; below that they stack and the
+     scale keeps the remove button company on the last line */
+  @container (max-width: 460px) {
+    .row {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .row > input:not(.scale) {
+      grid-column: 1 / -1;
+    }
   }
   .icon {
     display: inline-flex;

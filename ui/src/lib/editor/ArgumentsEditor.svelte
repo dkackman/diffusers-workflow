@@ -211,9 +211,21 @@
   }
   .row {
     display: grid;
-    grid-template-columns: 170px 1fr auto;
+    grid-template-columns: 170px minmax(0, 1fr) auto;
     gap: 0.7rem;
     align-items: start;
+  }
+  /* The 170px label track plus an input's intrinsic width needs ~400px;
+     under that the label takes its own line above the field */
+  @container (max-width: 420px) {
+    .row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.2rem 0.5rem;
+    }
+    .row > label {
+      grid-column: 1 / -1;
+      padding-top: 0;
+    }
   }
   .row.add {
     grid-template-columns: 1fr auto;

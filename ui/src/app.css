@@ -181,11 +181,18 @@ h2 {
   margin: 0 0 0.6rem;
 }
 
+/* Every panel is a query container, so the label/field grids nested inside
+   one can collapse on the width they actually get rather than the viewport's
+   - editor panels sit three levels deep and in a half-width split view, so a
+   media query would fire long after they have run out of room. Responsive
+   convention: viewport @media at 900px/640px for page-level layout,
+   @container for anything inside a panel. */
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 1rem;
+  container-type: inline-size;
 }
 .chip {
   display: inline-block;
