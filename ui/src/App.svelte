@@ -13,6 +13,7 @@
     SquarePen,
     Sun,
   } from '@lucide/svelte'
+  import { Toaster } from 'svelte-sonner'
   import { route } from './lib/router.svelte'
   import { api } from './lib/api'
   import type { MemoryInfo } from './lib/types'
@@ -190,6 +191,8 @@
     {/if}
   </div>
 </header>
+
+<Toaster position="bottom-right" closeButton {theme} duration={4000} />
 
 <main
   class:wide={route.parts[0] === 'edit' || route.parts[0] === 'prompt-edit'}

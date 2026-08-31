@@ -34,7 +34,8 @@
   },
   "dependencies": {
     "@lucide/svelte": "^1.37.0",
-    "monaco-editor": "^0.56.0"
+    "monaco-editor": "^0.56.0",
+    "svelte-sonner": "^1.2.1"
   },
   "allowScripts": {
     "fsevents@2.3.3": true,
