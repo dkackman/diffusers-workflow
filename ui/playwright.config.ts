@@ -8,6 +8,14 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
   retries: 0,
+  // Serialized on purpose: the fixture server's first-time import of a
+  // diffusers pipeline module is not concurrency-safe (CPython import-lock
+  // deadlock) - two specs hitting introspection/validation/save at once
+  // (e.g. an editor page load racing another editor page's save) can wedge
+  // the server. A real fix belongs in the engine, not the test config; this
+  // is a recorded follow-up. Until then the suite runs on one worker so the
+  // gate is deterministic.
+  workers: 1,
   use: {
     baseURL: 'http://127.0.0.1:8971',
   },
