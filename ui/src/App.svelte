@@ -17,6 +17,7 @@
   import { route } from './lib/router.svelte'
   import { api } from './lib/api'
   import type { MemoryInfo } from './lib/types'
+  import KeyboardHelp from './lib/KeyboardHelp.svelte'
   import WorkflowsPage from './lib/pages/WorkflowsPage.svelte'
   import WorkflowPage from './lib/pages/WorkflowPage.svelte'
   import JobsPage from './lib/pages/JobsPage.svelte'
@@ -30,6 +31,26 @@
 
   let memory = $state<MemoryInfo | null>(null)
   let currentJob = $state<string | null>(null)
+  let helpOpen = $state(false)
+
+  function isEditable(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false
+    return (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      target.isContentEditable
+    )
+  }
+
+  function onKeydown(event: KeyboardEvent) {
+    if (event.key === '?' && !isEditable(event.target)) {
+      event.preventDefault()
+      helpOpen = true
+    } else if (event.key === 'Escape' && helpOpen) {
+      helpOpen = false
+    }
+  }
 
   $effect(() => {
     const poll = async () => {
@@ -82,6 +103,8 @@
     )
   })
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <header>
   <div class="navrow">
@@ -198,6 +221,8 @@
 </header>
 
 <Toaster position="bottom-right" closeButton {theme} duration={4000} />
+
+<KeyboardHelp bind:open={helpOpen} />
 
 <main
   class:wide={route.parts[0] === 'edit' || route.parts[0] === 'prompt-edit'}
