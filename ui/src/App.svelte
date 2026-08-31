@@ -16,8 +16,9 @@
   import { Toaster } from 'svelte-sonner'
   import { route } from './lib/router.svelte'
   import { api } from './lib/api'
-  import type { MemoryInfo } from './lib/types'
+  import type { HealthInfo, MemoryInfo } from './lib/types'
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
+  import StatusPopover from './lib/StatusPopover.svelte'
   import WorkflowsPage from './lib/pages/WorkflowsPage.svelte'
   import WorkflowPage from './lib/pages/WorkflowPage.svelte'
   import JobsPage from './lib/pages/JobsPage.svelte'
@@ -30,8 +31,10 @@
   import SchemaPage from './lib/pages/SchemaPage.svelte'
 
   let memory = $state<MemoryInfo | null>(null)
-  let currentJob = $state<string | null>(null)
+  let health = $state<HealthInfo | null>(null)
   let helpOpen = $state(false)
+  let statusOpen = $state(false)
+  const currentJob = $derived(health?.current_job ?? null)
 
   function isEditable(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false
@@ -50,6 +53,9 @@
     } else if (event.key === 'Escape' && helpOpen) {
       event.preventDefault()
       helpOpen = false
+    } else if (event.key === 'Escape' && statusOpen) {
+      event.preventDefault()
+      statusOpen = false
     }
   }
 
@@ -57,13 +63,12 @@
     const poll = async () => {
       // Settled independently: memory answers 503 while the worker is
       // unreachable, and that must not blank the "running" indicator too
-      const [memoryInfo, health] = await Promise.allSettled([
+      const [memoryInfo, healthInfo] = await Promise.allSettled([
         api.memory(),
         api.health(),
       ])
       memory = memoryInfo.status === 'fulfilled' ? memoryInfo.value : null
-      currentJob =
-        health.status === 'fulfilled' ? health.value.current_job : null
+      health = healthInfo.status === 'fulfilled' ? healthInfo.value : null
     }
     poll()
     const timer = setInterval(poll, 5000)
@@ -166,17 +171,21 @@
     </button>
   </div>
   <div class="statusbar">
-    {#if currentJob}
-      <a
-        class="runningnow"
-        href={'#/jobs/' + currentJob}
-        title="a job is running - click to watch"
-      >
-        <span class="pulse-dot"></span>running
-      </a>
-    {:else}
-      <span class="muted idle">idle</span>
-    {/if}
+    <button
+      class="statusbtn"
+      class:runningnow={currentJob !== null}
+      class:muted={currentJob === null}
+      onclick={(e) => {
+        e.stopPropagation()
+        statusOpen = !statusOpen
+      }}
+      title="server & worker status"
+      aria-label="server & worker status"
+      aria-expanded={statusOpen}
+    >
+      {#if currentJob}<span class="pulse-dot"></span>running{:else}idle{/if}
+    </button>
+    <StatusPopover bind:open={statusOpen} {health} {memory} />
     <span class="flex"></span>
     <span class="vram muted">
       {#if memory?.info?.gpu_available}
@@ -267,6 +276,7 @@
     padding: 0.7rem 1.2rem 0.5rem;
   }
   .statusbar {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 0.6rem 1rem;
@@ -274,6 +284,24 @@
     border-top: 1px solid var(--line);
     font-size: 0.8rem;
     min-height: 1.6rem;
+  }
+  .statusbtn {
+    background: none;
+    border: 0;
+    padding: 0.1rem 0.4rem;
+    margin-left: -0.4rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    border-radius: var(--radius-1);
+  }
+  .statusbtn:hover {
+    background: var(--panel-2);
+    color: var(--ink);
+    filter: none;
   }
   .statusbar .flex {
     flex: 1;
