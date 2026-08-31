@@ -65,6 +65,21 @@
   color-scheme: light;
 }
 
+/* Layout tokens. Spacing steps and radii for all new CSS; existing rules
+   migrate as their files are touched. Container-query breakpoints cannot
+   read custom properties, so the scale is a convention instead:
+   @container at 400px (a panel too narrow for a label column) and 640px;
+   viewport @media at 640px / 900px for page-level layout. */
+:root {
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.7rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --radius-1: 6px;
+  --radius-2: 8px;
+}
+
 * {
   box-sizing: border-box;
 }

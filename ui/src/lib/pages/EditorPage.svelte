@@ -807,7 +807,7 @@
     color: var(--muted);
     font-size: 0.85rem;
   }
-  @container (max-width: 420px) {
+  @container (max-width: 400px) {
     .filegrid {
       grid-template-columns: minmax(0, 1fr);
       gap: 0.2rem 0.5rem;
@@ -851,7 +851,7 @@
     gap: 0.5rem 0.8rem;
     align-items: center;
   }
-  @container (max-width: 420px) {
+  @container (max-width: 400px) {
     .vars {
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 0.2rem 0.5rem;

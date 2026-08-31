@@ -504,7 +504,7 @@
     margin-top: 0.8rem;
     align-items: center;
   }
-  @container (max-width: 420px) {
+  @container (max-width: 400px) {
     .grid,
     .grid2 {
       grid-template-columns: minmax(0, 1fr);
