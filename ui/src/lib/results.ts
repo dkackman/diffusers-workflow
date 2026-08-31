@@ -20,7 +20,10 @@ export function groupResultFiles(
   }
   for (const event of events) {
     if (event.event === 'step_end') {
-      add((event.step as string) || '(unnamed)', (event.files as string[]) ?? [])
+      add(
+        (event.step as string) || '(unnamed)',
+        (event.files as string[]) ?? [],
+      )
     }
   }
   for (const entry of manifest ?? []) add(entry.step, entry.files)

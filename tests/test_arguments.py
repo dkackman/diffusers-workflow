@@ -8,7 +8,7 @@ import os
 import tempfile
 from dataclasses import dataclass
 from PIL import Image
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from dw.arguments import (
     build_objects,
     realize_args,
@@ -447,7 +447,8 @@ class TestRealizeObject:
 
             reference = args["references"][0]
             assert isinstance(reference, Reference)
-            assert reference.location == audio_path
+            # validate_path resolves symlinks (macOS /var -> /private/var)
+            assert reference.location == os.path.realpath(audio_path)
 
     def test_remaining_keys_are_passed_to_from_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
