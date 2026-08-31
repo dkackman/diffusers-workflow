@@ -10,6 +10,7 @@
     X,
   } from '@lucide/svelte'
   import { api } from '../api'
+  import { notify } from '../toast'
   import type {
     DiffusersStatus,
     ModelCache,
@@ -68,7 +69,8 @@
       diffusers = await api.updateDiffusers()
       error = ''
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      const msg = e instanceof Error ? e.message : String(e)
+      notify.error(msg)
     }
   }
 
@@ -95,7 +97,8 @@
       error = ''
       await refreshDownloads()
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      const msg = e instanceof Error ? e.message : String(e)
+      notify.error(msg)
     }
   }
 
@@ -104,7 +107,8 @@
       await api.cancelDownload(id)
       await refreshDownloads()
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      const msg = e instanceof Error ? e.message : String(e)
+      notify.error(msg)
     }
   }
 
@@ -126,7 +130,8 @@
       await api.deleteModel(repo.repo_id)
       await refresh()
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      const msg = e instanceof Error ? e.message : String(e)
+      notify.error(msg)
     } finally {
       deleting = null
     }

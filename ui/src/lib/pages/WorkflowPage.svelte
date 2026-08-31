@@ -6,6 +6,7 @@
   import { go } from '../router.svelte'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
   import { PROMPT_LIST_ID } from '../prompts'
+  import { notify } from '../toast'
   import type { WorkflowDefinition } from '../types'
 
   let { name }: { name: string } = $props()
@@ -43,7 +44,8 @@
       await api.deleteWorkflow(name)
       go('workflows')
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      const msg = e instanceof Error ? e.message : String(e)
+      notify.error(msg)
     }
   }
 
@@ -61,7 +63,8 @@
       })
       go('jobs', job.id)
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      const msg = e instanceof Error ? e.message : String(e)
+      notify.error(msg)
     } finally {
       submitting = false
     }
