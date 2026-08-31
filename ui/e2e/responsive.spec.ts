@@ -41,7 +41,13 @@ for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#/edit/flux/FluxDev')
     await page.waitForLoadState('networkidle')
-    await page.locator('.step .bar').first().click()
+    // loaded steps default to the compact digest - switch to full to render
+    // the deepest layout (the component/arguments grid)
+    await page
+      .locator('.step')
+      .first()
+      .getByRole('button', { name: 'full' })
+      .click()
     await expect(page.locator('.step .grid').first()).toBeVisible()
     expect(await overflowOf(page)).toBeLessThanOrEqual(1)
   })
