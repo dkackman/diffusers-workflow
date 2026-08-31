@@ -1,6 +1,7 @@
 <script lang="ts">
   import { FolderOpen, ImageOff, Trash2, X } from '@lucide/svelte'
   import { api } from '../api'
+  import Empty from '../Empty.svelte'
   import { go } from '../router.svelte'
   import { notify } from '../toast'
   import type { GalleryFile } from '../types'
@@ -89,10 +90,10 @@
 
 {#if error}<p class="muted">Could not read the gallery: {error}</p>{/if}
 {#if !error && files.length === 0}
-  <div class="empty muted">
-    <ImageOff size={36} strokeWidth={1.5} />
-    <p>Nothing generated yet - outputs land here as workflows run.</p>
-  </div>
+  <Empty>
+    {#snippet icon()}<ImageOff size={36} strokeWidth={1.5} />{/snippet}
+    Nothing generated yet - outputs land here as workflows run.
+  </Empty>
 {/if}
 
 <div class="grid">
@@ -210,14 +211,6 @@
     align-items: baseline;
     gap: 0.4rem 1rem;
     margin-bottom: 1rem;
-  }
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 3rem 0;
-    opacity: 0.8;
   }
   .filter {
     max-width: 220px;

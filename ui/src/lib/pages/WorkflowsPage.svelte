@@ -1,14 +1,9 @@
 <script lang="ts">
-  import {
-    ChevronDown,
-    ChevronRight,
-    Film,
-    Image,
-    Music,
-    Plus,
-    X,
-  } from '@lucide/svelte'
+  import { Film, Image, Layers, Music, Plus } from '@lucide/svelte'
   import { api } from '../api'
+  import Empty from '../Empty.svelte'
+  import FolderGroups from '../FolderGroups.svelte'
+  import HintBar from '../HintBar.svelte'
 
   let workflows = $state<string[]>([])
   let details = $state<
@@ -18,46 +13,6 @@
   let filter = $state('')
   let error = $state('')
   let loaded = $state(false)
-
-  const STORAGE_KEY = 'dw-collapsed-folders'
-
-  function readCollapsed(): Record<string, boolean> {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
-    } catch {
-      return {}
-    }
-  }
-
-  let collapsed = $state<Record<string, boolean>>(readCollapsed())
-
-  let showHint = $state(
-    (() => {
-      try {
-        return localStorage.getItem('dw-hint-dismissed') !== '1'
-      } catch {
-        return true
-      }
-    })(),
-  )
-
-  function dismissHint() {
-    showHint = false
-    try {
-      localStorage.setItem('dw-hint-dismissed', '1')
-    } catch {
-      /* session-only dismissal */
-    }
-  }
-
-  function toggle(group: string) {
-    collapsed[group] = !collapsed[group]
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed))
-    } catch {
-      /* private mode etc. - collapse still works for the session */
-    }
-  }
 
   $effect(() => {
     api
@@ -80,16 +35,6 @@
       )
     }),
   )
-  const groupOf = (name: string) =>
-    name.includes('/') ? name.split('/')[0] : ''
-  const groups = $derived(
-    [...new Set(visible.map(groupOf))].sort((a, b) => a.localeCompare(b)),
-  )
-  const inGroup = (group: string) =>
-    visible.filter((name) => groupOf(name) === group)
-  // While filtering, everything stays visible - a collapsed folder hiding
-  // matches would make the filter look broken
-  const isOpen = (group: string) => filter !== '' || !collapsed[group]
 
   const href = (name: string) =>
     '#/workflows/' + name.split('/').map(encodeURIComponent).join('/')
@@ -106,81 +51,52 @@
   <p class="muted">Could not load workflows: {error}</p>
 {/if}
 
-{#if showHint}
-  <div class="hintbar muted">
-    <span
-      >Pick a workflow → tweak its variables → Run. Every image saves its recipe
-      — reopen it from the Gallery.</span
-    >
-    <button
-      class="quiet icon"
-      onclick={dismissHint}
-      title="dismiss"
-      aria-label="dismiss this hint"
-    >
-      <X size={13} />
-    </button>
-  </div>
-{/if}
+<HintBar storageKey="hint-dismissed">
+  Pick a workflow → tweak its variables → Run. Every image saves its recipe —
+  reopen it from the Gallery.
+</HintBar>
 
-{#each groups as group (group)}
-  {#if group}
-    <div class="grouprow">
-      <button
-        class="group"
-        onclick={() => toggle(group)}
-        title={isOpen(group) ? 'collapse this folder' : 'expand this folder'}
-      >
-        {#if isOpen(group)}<ChevronDown size={14} />{:else}<ChevronRight
-            size={14}
-          />{/if}
-        {group}/ <span class="muted">({inGroup(group).length})</span>
-      </button>
-      <a
-        class="groupnew"
-        href="#/edit"
-        onclick={() => sessionStorage.setItem('dw-editor-folder', group)}
-        title="new workflow in {group}/"
-        aria-label="new workflow in {group}/"
-      >
-        <Plus size={13} />
-      </a>
-    </div>
-  {/if}
-  {#if isOpen(group)}
-    <div class="grid">
-      {#each inGroup(group) as name (name)}
-        {@const detail = details[name]}
-        <a
-          class="card panel"
-          href={href(name)}
-          title={detail?.description || undefined}
+<FolderGroups
+  names={visible}
+  collapseKey="collapsed-folders"
+  filterActive={filter !== ''}
+  newHref="#/edit"
+  onnewingroup={(group) => sessionStorage.setItem('dw-editor-folder', group)}
+>
+  {#snippet card(name)}
+    {@const detail = details[name]}
+    {@const group = name.includes('/') ? name.split('/')[0] : ''}
+    <a
+      class="card panel"
+      href={href(name)}
+      title={detail?.description || undefined}
+    >
+      <span class="cardtop">
+        <span class="cardname"
+          >{group ? name.split('/').slice(1).join('/') : name}</span
         >
-          <span class="cardtop">
-            <span class="cardname"
-              >{group ? name.split('/').slice(1).join('/') : name}</span
-            >
-            <span class="cardmeta muted">
-              {#if detail?.kinds.includes('image')}<Image size={13} />{/if}
-              {#if detail?.kinds.includes('video')}<Film size={13} />{/if}
-              {#if detail?.kinds.includes('audio')}<Music size={13} />{/if}
-              {#if detail?.variables}<span
-                  title="{detail.variables} variables to tweak"
-                  >{detail.variables} vars</span
-                >{/if}
-            </span>
-          </span>
-          {#if detail?.description}
-            <span class="carddesc muted">{detail.description}</span>
-          {/if}
-        </a>
-      {/each}
-    </div>
-  {/if}
-{/each}
+        <span class="cardmeta muted">
+          {#if detail?.kinds.includes('image')}<Image size={13} />{/if}
+          {#if detail?.kinds.includes('video')}<Film size={13} />{/if}
+          {#if detail?.kinds.includes('audio')}<Music size={13} />{/if}
+          {#if detail?.variables}<span
+              title="{detail.variables} variables to tweak"
+              >{detail.variables} vars</span
+            >{/if}
+        </span>
+      </span>
+      {#if detail?.description}
+        <span class="carddesc muted">{detail.description}</span>
+      {/if}
+    </a>
+  {/snippet}
+</FolderGroups>
 
 {#if loaded && workflows.length === 0}
-  <p class="muted">No workflows yet - the + above creates the first one.</p>
+  <Empty>
+    {#snippet icon()}<Layers size={36} strokeWidth={1.5} />{/snippet}
+    No workflows yet — the + above creates the first one.
+  </Empty>
 {:else if loaded && visible.length === 0}
   <p class="muted">Nothing matches "{filter}".</p>
 {/if}
@@ -208,71 +124,6 @@
   .newlink:hover {
     border-color: var(--accent);
     color: var(--accent);
-  }
-  .hintbar {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    border: 1px dashed var(--line);
-    border-radius: 6px;
-    padding: 0.45rem 0.7rem;
-    font-size: 0.85rem;
-    margin-bottom: 1rem;
-  }
-  .hintbar span {
-    flex: 1;
-  }
-  .hintbar .icon {
-    display: inline-flex;
-    padding: 0.2rem 0.3rem;
-  }
-  .grouprow {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 1.2rem 0 0.5rem;
-  }
-  .grouprow .group {
-    margin: 0;
-  }
-  .groupnew {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.15rem;
-    color: var(--muted);
-    border: 1px solid transparent;
-    border-radius: 4px;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-  }
-  .grouprow:hover .groupnew {
-    opacity: 1;
-  }
-  .groupnew:hover {
-    color: var(--accent);
-    border-color: var(--line);
-  }
-  .group {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-weight: 600;
-    font-size: 0.95rem;
-    padding: 0;
-    margin: 1.2rem 0 0.5rem;
-    cursor: pointer;
-  }
-  .group:hover {
-    color: var(--ink);
-    filter: none;
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-    gap: 0.6rem;
   }
   .card {
     color: var(--ink);
