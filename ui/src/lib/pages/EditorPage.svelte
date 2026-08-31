@@ -10,8 +10,10 @@
     Plus,
     Save,
     TriangleAlert,
+    X,
   } from '@lucide/svelte'
   import { api } from '../api'
+  import { notify } from '../toast'
   import { go } from '../router.svelte'
   import {
     emptyWorkflow,
@@ -75,8 +77,6 @@
     ].sort(),
   )
   let validation = $state<ValidationResult | null>(null)
-  let status = $state('')
-  let error = $state('')
   type EditorView = 'form' | 'split' | 'json'
   let view = $state<EditorView>(
     (() => {
@@ -193,7 +193,6 @@
     })
     loadPromptLibrary()
     validation = null
-    error = ''
     if (name) {
       const segments = name.split('/')
       saveName = segments[segments.length - 1]
@@ -206,7 +205,7 @@
           baseline = JSON.stringify(definition)
           stepModes = storageGet(modesKey, {})
         })
-        .catch((e) => (error = e.message))
+        .catch((e) => notify.error(e.message))
     } else {
       // A gallery "open as workflow" hands the definition over in
       // sessionStorage - one-shot, so a plain "New" stays a blank slate
@@ -222,7 +221,7 @@
         sessionStorage.removeItem('dw-editor-import')
         try {
           fresh = JSON.parse(imported)
-          status = 'Imported from image metadata'
+          notify.success('Imported from image metadata')
           didImport = true
         } catch {
           /* unreadable hand-off - stay with the blank slate */
@@ -296,14 +295,13 @@
 
   async function validate(): Promise<boolean> {
     busy = true
-    status = ''
     try {
       validation = await api.validate(
         $state.snapshot(workflow) as WorkflowDefinition,
       )
       return validation.valid
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      notify.error(e instanceof Error ? e.message : String(e))
       return false
     } finally {
       busy = false
@@ -318,13 +316,11 @@
   }
 
   async function save() {
-    // Validation failures are errors (red), not statuses (green checkmark)
-    status = ''
     const path = savePath()
     if (!path) {
-      if (!saveName) error = 'Give the workflow a file name first'
-      else if (!newFolder.trim()) error = 'Name the new folder first'
-      else error = 'Folder names: letters, numbers, dot, dash, underscore'
+      if (!saveName) notify.error('Give the workflow a file name first')
+      else if (!newFolder.trim()) notify.error('Name the new folder first')
+      else notify.error('Folder names: letters, numbers, dot, dash, underscore')
       // The message names a field the user cannot see while collapsed
       fileOpen = true
       return
@@ -347,9 +343,9 @@
         workflowFiles = [...workflowFiles, `${path}.json`]
       }
       baseline = JSON.stringify($state.snapshot(workflow))
-      status = `Saved to ${result.path}`
+      notify.success(`Saved to ${result.path}`)
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      notify.error(e instanceof Error ? e.message : String(e))
     } finally {
       busy = false
     }
@@ -368,7 +364,7 @@
       })
       go('jobs', job.id)
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      notify.error(e instanceof Error ? e.message : String(e))
     } finally {
       busy = false
     }
@@ -379,10 +375,10 @@
     try {
       workflow = JSON.parse(raw)
       jsonParseFailed = false
-      error = ''
+      notify.dismiss('json-parse')
     } catch (e) {
       jsonParseFailed = true
-      error = `JSON: ${e instanceof Error ? e.message : e}`
+      notify.error(`JSON: ${e instanceof Error ? e.message : e}`, 'json-parse')
     }
   }
 </script>
@@ -585,11 +581,6 @@
   </div>
 {/if}
 
-{#if error}<p class="error">{error}</p>{/if}
-{#if status}
-  <p class="status"><CircleCheck size={14} />{status}</p>
-{/if}
-
 {#if validation}
   <div
     class="panel validation"
@@ -597,6 +588,14 @@
     class:warn-edge={validation.valid && validation.warnings.length > 0}
     class:good-edge={validation.valid && validation.warnings.length === 0}
   >
+    <button
+      class="quiet icon dismiss"
+      onclick={() => (validation = null)}
+      title="dismiss"
+      aria-label="dismiss validation results"
+    >
+      <X size={13} />
+    </button>
     {#if validation.valid && !validation.warnings.length}
       <span class="ok"
         ><CircleCheck size={14} /> schema-valid, no argument warnings</span
@@ -919,12 +918,16 @@
     position: relative;
     z-index: 1;
   }
-  .status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    color: var(--good);
-    font-size: 0.9rem;
+  .validation {
+    position: relative;
+    padding-right: 2.2rem;
+  }
+  .dismiss {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    border: 0;
+    padding: 0.2rem 0.3rem;
   }
   /* Unsaved work makes Save the thing to do next, so it stops looking
      like the two quiet buttons beside it */

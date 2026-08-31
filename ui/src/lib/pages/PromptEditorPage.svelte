@@ -12,6 +12,7 @@
   } from '@lucide/svelte'
   import { api, fetchOutputText, streamJobEvents } from '../api'
   import { go } from '../router.svelte'
+  import { notify } from '../toast'
   import { loadPromptLibrary } from '../promptlib.svelte'
   import {
     emptyPrompt,
@@ -38,8 +39,6 @@
   let saveName = $state('')
   let folder = $state('')
   let newFolder = $state('')
-  let status = $state('')
-  let error = $state('')
   let busy = $state(false)
   let baseline = $state('')
 
@@ -239,8 +238,6 @@
   // ---------------------------------------------------------------- lifecycle
 
   $effect(() => {
-    error = ''
-    status = ''
     api
       .listPrompts()
       .then((r) => {
@@ -248,7 +245,7 @@
         promptDir = r.prompt_dir
         promptDetails = r.details ?? {}
       })
-      .catch((e) => (error = e.message))
+      .catch((e) => notify.error(e.message))
     refreshModels()
     if (name) {
       const segments = name.split('/')
@@ -262,7 +259,7 @@
           idea = definition.enhanced?.idea ?? ''
           preselect()
         })
-        .catch((e) => (error = e.message))
+        .catch((e) => notify.error(e.message))
     } else {
       folder = sessionStorage.getItem('dw-prompt-editor-folder') ?? ''
       sessionStorage.removeItem('dw-prompt-editor-folder')
@@ -272,7 +269,7 @@
         sessionStorage.removeItem('dw-prompt-editor-import')
         try {
           fresh = JSON.parse(imported)
-          status = 'Duplicated - save under a new name'
+          notify.success('Duplicated - save under a new name')
         } catch {
           /* unreadable hand-off - stay with the blank slate */
         }
@@ -344,10 +341,10 @@
     try {
       doc = JSON.parse(raw)
       jsonParseFailed = false
-      error = ''
+      notify.dismiss('json-parse')
     } catch (e) {
       jsonParseFailed = true
-      error = `JSON: ${e instanceof Error ? e.message : e}`
+      notify.error(`JSON: ${e instanceof Error ? e.message : e}`, 'json-parse')
     }
   }
 
@@ -375,15 +372,13 @@
   }
 
   async function save() {
-    status = ''
     const blocker = saveBlocker()
     if (blocker) {
-      error = blocker
+      notify.error(blocker)
       return
     }
     const path = savePath()!
     busy = true
-    error = ''
     try {
       const result = await api.savePrompt(
         path,
@@ -397,10 +392,10 @@
       // listing, so a newly created one must be added or the select resets
       if (!promptFiles.includes(path)) promptFiles = [...promptFiles, path]
       baseline = JSON.stringify($state.snapshot(doc))
-      status = `Saved to ${result.path}`
+      notify.success(`Saved to ${result.path}`)
       loadPromptLibrary()
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      notify.error(e instanceof Error ? e.message : String(e))
     } finally {
       busy = false
     }
@@ -436,7 +431,7 @@
       loadPromptLibrary()
       go('prompts')
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      notify.error(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -545,11 +540,6 @@
     >
   {/if}
 </div>
-
-{#if error}<p class="error">{error}</p>{/if}
-{#if status}
-  <p class="status"><CircleCheck size={14} />{status}</p>
-{/if}
 
 {#if view === 'json'}
   <JsonEditor
@@ -924,13 +914,6 @@
     color: var(--accent);
     position: relative;
     z-index: 1;
-  }
-  .status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    color: var(--good);
-    font-size: 0.9rem;
   }
   .dirtydot {
     display: inline-block;
