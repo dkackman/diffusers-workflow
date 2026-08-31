@@ -15,7 +15,6 @@
   import { go } from '../router.svelte'
   import {
     coerce,
-    danglingReferences,
     emptyWorkflow,
     emptyStep,
     emptyTaskStep,
@@ -24,6 +23,7 @@
     referenceSuggestions,
     widgetFor,
   } from '../editor'
+  import { danglingReferenceDetails, flowGraph } from '../flow'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
   import { PROMPT_LIST_ID, promptListId, promptTooltip } from '../prompts'
   import { storageGet, storageSet } from '../storage'
@@ -144,11 +144,28 @@
     const file = saveName || 'unnamed'
     return `${workflowDir}/${directory ? directory + '/' : ''}${file}.json`
   })
-  // promptLibrary.names stays undefined until the listing lands - a
-  // missing library must not flag every prompt: reference as dangling
-  const referenceProblems = $derived(
-    danglingReferences($state.snapshot(workflow), promptLibrary.names),
-  )
+  // The data-flow graph and per-step reference problems drive the rail's
+  // producer/consumer chips and inline warnings - promptLibrary.names stays
+  // undefined until the listing lands, so a missing library must not flag
+  // every prompt: reference as dangling
+  const flow = $derived(flowGraph($state.snapshot(workflow)))
+  const problemsByStep = $derived.by(() => {
+    const details = danglingReferenceDetails(
+      $state.snapshot(workflow),
+      promptLibrary.names,
+    )
+    const grouped: Record<number, string[]> = {}
+    for (const d of details) {
+      grouped[d.stepIndex] = [...(grouped[d.stepIndex] ?? []), d.message]
+    }
+    return new Map(
+      Object.entries(grouped).map(([index, messages]) => [
+        Number(index),
+        messages,
+      ]),
+    )
+  })
+  let hovered = $state<string | null>(null)
   // Memoized so datalist options keep stable DOM identity - churn on every
   // render made the browser's suggestion dropdown flaky on first focus
   const stepReferences = $derived.by(() => {
@@ -587,13 +604,6 @@
 {/if}
 
 {#if error}<p class="error">{error}</p>{/if}
-{#if referenceProblems.length}
-  <div class="panel warn-edge refproblems">
-    {#each referenceProblems as problem, i (i)}
-      <div><TriangleAlert size={13} /> {problem}</div>
-    {/each}
-  </div>
-{/if}
 {#if status}
   <p class="status"><CircleCheck size={14} />{status}</p>
 {/if}
@@ -686,19 +696,36 @@
         </div>
       {/if}
 
-      {#each workflow.steps ?? [] as step, index (step)}
-        <StepEditor
-          bind:step={workflow.steps[index]}
-          {index}
-          count={workflow.steps.length}
-          references={stepReferences[index] ?? []}
-          baseFolder={folder === '__new__' ? '' : folder}
-          mode={modeOf(step)}
-          onmodechange={(m) => setMode(step, m)}
-          onremove={() => removeStep(index)}
-          onmove={(delta) => moveStep(index, delta)}
-        />
-      {/each}
+      <div class="steps">
+        {#each workflow.steps ?? [] as step, index (step)}
+          <div
+            class="steprow"
+            class:flowlit={hovered !== null && step.name === hovered}
+          >
+            <div class="railcell">
+              <span
+                class="ordinal"
+                title={`step ${index + 1} of ${workflow.steps.length}`}
+                >{index + 1}</span
+              >
+            </div>
+            <StepEditor
+              bind:step={workflow.steps[index]}
+              {index}
+              count={workflow.steps.length}
+              references={stepReferences[index] ?? []}
+              baseFolder={folder === '__new__' ? '' : folder}
+              mode={modeOf(step)}
+              flow={flow[index]}
+              problems={problemsByStep.get(index) ?? []}
+              onmodechange={(m) => setMode(step, m)}
+              onhover={(n) => (hovered = n)}
+              onremove={() => removeStep(index)}
+              onmove={(delta) => moveStep(index, delta)}
+            />
+          </div>
+        {/each}
+      </div>
 
       <div class="addstep">
         <button
@@ -981,14 +1008,47 @@
     border-color: var(--warn);
     color: var(--warn);
   }
-  .refproblems {
-    color: var(--warn);
-    font-size: 0.9rem;
-  }
-  .refproblems div {
+  .steps {
     display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+  .steprow {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 0 var(--space-2);
+  }
+  .railcell {
+    position: relative;
+    display: flex;
+    justify-content: center;
+  }
+  /* the connecting line - drawn per row so it spans the gaps too */
+  .steprow:not(:last-child) .railcell::before {
+    content: '';
+    position: absolute;
+    top: 26px;
+    bottom: calc(-1 * var(--space-3));
+    width: 2px;
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .ordinal {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
+    justify-content: center;
+    margin-top: var(--space-2);
+    z-index: 1;
+  }
+  .steprow.flowlit :global(.panel.step) {
+    border-color: var(--accent);
   }
   .ok {
     color: var(--good);

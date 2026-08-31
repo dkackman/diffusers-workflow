@@ -235,13 +235,13 @@ test('editor flags a dangling reference without asking the server', async ({
 }) => {
   await page.goto('/#/edit/ZImage')
   await expect(page.locator('#wfvar-prompt')).toBeVisible()
-  await expect(page.locator('.refproblems')).toHaveCount(0)
+  await expect(page.locator('.stepwarn')).toHaveCount(0)
   // removing the variable the step's prompt argument points at
   await page
     .locator('#wfvar-prompt')
     .locator('xpath=following-sibling::button[1]')
     .click()
-  await expect(page.locator('.refproblems')).toContainText(
+  await expect(page.locator('.stepwarn')).toContainText(
     'variable:prompt - no such variable is declared',
   )
 })
