@@ -101,6 +101,7 @@ test('editor validates, saves into a new folder, and deletes', async ({
 
   // save into a folder that does not exist yet - the "new folder…" flow
   // exercises the {name:path} route and the server's directory creation
+  await page.getByRole('button', { name: /\.json$/ }).click()
   await page.locator('select.folderpick').selectOption('__new__')
   await page.getByPlaceholder('folder name').fill('e2e-scratch')
   await page.getByPlaceholder('MyWorkflow').fill('E2EScratch')
@@ -122,6 +123,19 @@ test('editor validates, saves into a new folder, and deletes', async ({
   await page.getByRole('button', { name: /delete this workflow/ }).click()
   await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
   await expect(page.getByRole('link', { name: /E2EScratch/ })).toHaveCount(0)
+})
+
+test('the editor breadcrumb walks back to the workflow it opened', async ({
+  page,
+}) => {
+  await page.goto('/#/workflows/ZImage')
+  await page.getByRole('link', { name: 'Edit', exact: true }).click()
+  await expect(page).toHaveURL(/#\/edit\/ZImage$/)
+  // the way back to the read-only page, which the bare "← workflows"
+  // link never offered
+  await page.getByRole('link', { name: 'ZImage', exact: true }).click()
+  await expect(page).toHaveURL(/#\/workflows\/ZImage$/)
+  await expect(page.getByRole('heading', { name: 'ZImage' })).toBeVisible()
 })
 
 test('prompts page lists, creates at the root, and deletes', async ({
