@@ -1,5 +1,6 @@
 import { api } from './api'
 import type { PipelineDescription, PipelineParameter } from './types'
+import { danglingReferenceDetails } from './flow'
 
 /** Introspection descriptions, cached per class+target for the session. */
 const descriptions = new Map<string, Promise<PipelineDescription | null>>()
@@ -259,52 +260,5 @@ export function danglingReferences(
   workflow: Record<string, any>,
   promptNames?: string[],
 ): string[] {
-  const problems: string[] = []
-  const variables = new Set(Object.keys(workflow.variables ?? {}))
-  const prompts = promptNames === undefined ? null : new Set(promptNames)
-  const steps: Array<Record<string, any>> = workflow.steps ?? []
-
-  steps.forEach((step, index) => {
-    const earlier = new Set(
-      steps
-        .slice(0, index)
-        .map((s) => s.name)
-        .filter(Boolean),
-    )
-
-    const scan = (value: unknown) => {
-      if (typeof value === 'string') {
-        if (value.startsWith('variable:')) {
-          const name = value.slice('variable:'.length)
-          if (!variables.has(name)) {
-            problems.push(
-              `Step '${step.name}': variable:${name} - no such variable is declared`,
-            )
-          }
-        } else if (value.startsWith('previous_result:')) {
-          const name = value.slice('previous_result:'.length).split('.')[0]
-          if (!earlier.has(name)) {
-            problems.push(
-              `Step '${step.name}': previous_result:${name} - no earlier step has that name`,
-            )
-          }
-        } else if (value.startsWith('prompt:')) {
-          // Without a listing the server resolves these at run time - only
-          // a supplied library can say a name is missing
-          const name = value.slice('prompt:'.length)
-          if (prompts !== null && !prompts.has(name)) {
-            problems.push(
-              `Step '${step.name}': prompt:${name} - the prompt library has no such prompt`,
-            )
-          }
-        }
-      } else if (Array.isArray(value)) {
-        value.forEach(scan)
-      } else if (value !== null && typeof value === 'object') {
-        Object.values(value).forEach(scan)
-      }
-    }
-    scan(step)
-  })
-  return problems
+  return danglingReferenceDetails(workflow, promptNames).map((d) => d.message)
 }
