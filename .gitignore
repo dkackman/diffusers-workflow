@@ -146,3 +146,4 @@ test_outputs/
 
 # built SPA copied into the package by scripts/build_dist.sh
 dw/server/ui/
+venv
