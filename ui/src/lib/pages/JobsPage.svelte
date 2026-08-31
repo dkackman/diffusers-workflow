@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
   import { api } from '../api'
+  import Empty from '../Empty.svelte'
   import { notify } from '../toast'
   import type { JobSummary } from '../types'
 
@@ -79,10 +80,10 @@
 {#if error}<p class="muted">Could not reach the server: {error}</p>{/if}
 
 {#if jobs.length === 0}
-  <div class="empty muted">
-    <Inbox size={36} strokeWidth={1.5} />
-    <p>No jobs yet — pick a workflow and run it.</p>
-  </div>
+  <Empty>
+    {#snippet icon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
+    No jobs yet — pick a workflow and run it.
+  </Empty>
 {:else if visible.length === 0}
   <p class="muted">No jobs match the filter.</p>
 {:else}
@@ -226,13 +227,5 @@
   .icon {
     display: inline-flex;
     padding: 0.15rem 0.3rem;
-  }
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 3rem 0;
-    opacity: 0.8;
   }
 </style>
