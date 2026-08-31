@@ -590,8 +590,9 @@
 <style>
   .head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.4rem 0.6rem;
     margin-bottom: 0.4rem;
   }
   .wfid {
@@ -608,8 +609,9 @@
   }
   .savebar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.4rem 0.4rem;
     margin-bottom: 1rem;
     font-size: 0.85rem;
   }
@@ -624,16 +626,25 @@
   }
   .descfield {
     flex: 1;
-    min-width: 220px;
+    min-width: min(220px, 100%);
   }
   .panel {
     margin-bottom: 1rem;
   }
   .vars {
     display: grid;
-    grid-template-columns: minmax(140px, auto) 1fr auto;
+    grid-template-columns: minmax(140px, 40%) minmax(0, 1fr) auto;
     gap: 0.5rem 0.8rem;
     align-items: center;
+  }
+  @container (max-width: 420px) {
+    .vars {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.2rem 0.5rem;
+    }
+    .vars > label {
+      grid-column: 1 / -1;
+    }
   }
   .vars label {
     font-weight: 600;
@@ -647,7 +658,8 @@
   }
   .addstep {
     display: flex;
-    gap: 0.6rem;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.6rem;
   }
   .editwrap.splitcols {
     display: grid;

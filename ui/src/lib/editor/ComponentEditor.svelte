@@ -131,9 +131,18 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: 120px 1fr;
+    grid-template-columns: 120px minmax(0, 1fr);
     gap: 0.45rem 0.7rem;
     align-items: start;
+  }
+  @container (max-width: 380px) {
+    .grid {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.2rem;
+    }
+    .grid > label {
+      padding-top: 0.3rem;
+    }
   }
   .grid > label {
     font-weight: 600;

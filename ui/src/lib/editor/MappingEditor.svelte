@@ -91,9 +91,18 @@
 <style>
   .mapping {
     display: grid;
-    grid-template-columns: minmax(140px, auto) 1fr auto;
+    grid-template-columns: minmax(140px, 40%) minmax(0, 1fr) auto;
     gap: 0.5rem 0.8rem;
     align-items: center;
+  }
+  @container (max-width: 420px) {
+    .mapping {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.2rem 0.5rem;
+    }
+    .mapping > label {
+      grid-column: 1 / -1;
+    }
   }
   .mapping label {
     font-weight: 600;

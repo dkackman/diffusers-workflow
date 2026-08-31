@@ -54,9 +54,10 @@ export async function setupMonaco() {
     /* schema endpoint unreachable - plain JSON editing still works */
   }
 
-  // Quiet, near-monochrome JSON matching the pre-Monaco editor: content
-  // in the app ink, punctuation muted - the schema tooling is the value
-  // Monaco adds, not a syntax rainbow. The palettes mirror app.css by
+  // Quiet JSON matching the pre-Monaco editor: values in the app ink,
+  // property names in the accent, punctuation muted - enough to read the
+  // shape of a document at a glance without a syntax rainbow. The
+  // palettes mirror app.css by
   // value rather than reading the live CSS tokens: setup runs once, under
   // whichever theme is active, and the editor re-themes at runtime - a
   // light theme defined while dark was active would carry dark colours
@@ -64,17 +65,24 @@ export async function setupMonaco() {
     'dw-dark': {
       base: 'vs-dark',
       ink: 'e4eaed',
+      key: '4cb8cc',
       muted: '8fa0a8',
       panel: '1c2226',
     },
-    'dw-light': { base: 'vs', ink: '1c2428', muted: '5b6a72', panel: 'ffffff' },
+    'dw-light': {
+      base: 'vs',
+      ink: '1c2428',
+      key: '0b7285',
+      muted: '5b6a72',
+      panel: 'ffffff',
+    },
   } as const
   for (const [name, palette] of Object.entries(PALETTES)) {
     monaco.editor.defineTheme(name, {
       base: palette.base,
       inherit: true,
       rules: [
-        { token: 'string.key.json', foreground: palette.ink },
+        { token: 'string.key.json', foreground: palette.key },
         { token: 'string.value.json', foreground: palette.ink },
         { token: 'number.json', foreground: palette.ink },
         { token: 'keyword.json', foreground: palette.ink },

@@ -478,8 +478,9 @@
   }
   .bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.4rem 0.5rem;
   }
   .name {
     max-width: 220px;
@@ -498,10 +499,17 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: 170px minmax(200px, 480px);
+    grid-template-columns: 170px minmax(0, 480px);
     gap: 0.5rem 0.7rem;
     margin-top: 0.8rem;
     align-items: center;
+  }
+  @container (max-width: 420px) {
+    .grid,
+    .grid2 {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.2rem;
+    }
   }
   .grid label {
     font-weight: 600;
@@ -546,12 +554,13 @@
   }
   .addrow {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
     max-width: 300px;
   }
   .grid2 {
     display: grid;
-    grid-template-columns: 150px 1fr;
+    grid-template-columns: 150px minmax(0, 1fr);
     gap: 0.5rem 0.7rem;
     align-items: center;
   }

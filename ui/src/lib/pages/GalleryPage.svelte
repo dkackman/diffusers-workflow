@@ -204,8 +204,9 @@
 <style>
   .head {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
-    gap: 1rem;
+    gap: 0.4rem 1rem;
     margin-bottom: 1rem;
   }
   .empty {
@@ -269,8 +270,9 @@
   }
   .bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.8rem;
+    gap: 0.4rem 0.8rem;
     margin-bottom: 0.7rem;
   }
   .flex {

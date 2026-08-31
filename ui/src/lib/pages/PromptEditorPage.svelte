@@ -565,167 +565,173 @@
 {:else}
   <div class="editwrap" class:splitcols={view === 'split'}>
     <div class="formcol">
-      <div class="panel">
-        <h2>Prompt</h2>
-        <label class="fieldlabel" for="prompt-text">text</label>
-        <textarea
-          id="prompt-text"
-          class="prompttext"
-          rows="8"
-          spellcheck="true"
-          value={doc.text ?? ''}
-          placeholder="the prompt itself - what prompt:{savePath() ??
-            'name'} resolves to"
-          onchange={(e) => (doc.text = e.currentTarget.value)}></textarea>
-        <label class="fieldlabel" for="prompt-negative">negative prompt</label>
-        <textarea
-          id="prompt-negative"
-          rows="2"
-          spellcheck="true"
-          value={doc.negative_prompt ?? ''}
-          placeholder="optional - for models that take one"
-          onchange={(e) => setField('negative_prompt', e.currentTarget.value)}
-        ></textarea>
-        <div class="metagrid">
-          <label for="prompt-desc">description</label>
-          <input
-            id="prompt-desc"
-            spellcheck="true"
-            value={doc.description ?? ''}
-            placeholder="shown on the prompt's library card"
-            onchange={(e) => setField('description', e.currentTarget.value)}
-          />
-          <label for="prompt-model">intended model</label>
-          <input
-            id="prompt-model"
-            list="intended-models"
-            value={doc.intended_model ?? ''}
-            placeholder="e.g. minimax-h3 - badges the card, preselects the enhancer"
-            onchange={(e) => {
-              setField('intended_model', e.currentTarget.value)
-              preselect()
-            }}
-          />
-          <label for="prompt-tags">tags</label>
-          <input
-            id="prompt-tags"
-            value={(doc.tags ?? []).join(', ')}
-            placeholder="comma-separated, for filtering the library"
-            onchange={(e) => setTags(e.currentTarget.value)}
-          />
-        </div>
-        {#if doc.enhanced?.model}
-          <p class="muted provenance" title={doc.enhanced.idea}>
-            <Sparkles size={13} /> enhanced by {doc.enhanced.model}
-          </p>
-        {/if}
-      </div>
-
-      <div class="panel">
-        <h2><Sparkles size={15} /> Enhance with AI</h2>
-        <p class="muted hint">
-          Expand an idea into a full prompt with a local language model. Runs as
-          an ordinary job - it waits its turn behind anything generating.
-        </p>
-        {#if enhancersDown}
-          <p class="muted hint">
-            Enhancement is unavailable - the server reported no enhancer
-            presets. Editing and saving still work.
-          </p>
-        {/if}
-        <div class="metagrid">
-          <label for="enhance-preset">preset</label>
-          <select
-            id="enhance-preset"
-            value={presetKey}
-            onchange={(e) => pickPreset(e.currentTarget.value)}
-          >
-            {#each presets as p (p.key)}
-              <option value={p.key}>{p.label}</option>
-            {/each}
-          </select>
-          <label for="enhance-model">model</label>
-          <span class="modelrow">
-            <input
-              id="enhance-model"
-              list="enhancer-models"
-              bind:value={enhanceModel}
-              placeholder="Hugging Face repo id"
-            />
-            {#if enhanceModel}
-              {#if modelCached}
-                <span class="chip good" title="already in the local model cache"
-                  >cached</span
-                >
-              {:else if downloading}
-                <span class="chip" title="downloading to the local model cache"
-                  >downloading…</span
-                >
-              {:else}
-                <button
-                  class="quiet withicon"
-                  onclick={downloadModel}
-                  title="download this model to the local cache now - otherwise the first enhancement downloads it"
-                >
-                  <Download size={13} />get
-                </button>
-              {/if}
-            {/if}
-          </span>
-          <label for="enhance-device">device</label>
-          <select
-            id="enhance-device"
-            bind:value={device}
-            title="where the language model runs - cpu keeps VRAM free for generation"
-          >
-            <option value="">preset default (cpu)</option>
-            <option value="cuda">cuda</option>
-            <option value="mps">mps</option>
-            <option value="cpu">cpu</option>
-          </select>
-          <label for="enhance-idea">idea</label>
+      <div class="panelgrid">
+        <div class="panel">
+          <h2>Prompt</h2>
+          <label class="fieldlabel" for="prompt-text">text</label>
           <textarea
-            id="enhance-idea"
-            rows="3"
+            id="prompt-text"
+            class="prompttext"
+            rows="8"
             spellcheck="true"
-            bind:value={idea}
-            placeholder={preset?.placeholder ?? 'describe what to generate'}
-          ></textarea>
-        </div>
-        <div class="enhanceactions">
-          <button
-            class="withicon"
-            onclick={generate}
-            disabled={enhanceBusy || !presets.length}
-            title="expand the idea with the selected model"
+            value={doc.text ?? ''}
+            placeholder="the prompt itself - what prompt:{savePath() ??
+              'name'} resolves to"
+            onchange={(e) => (doc.text = e.currentTarget.value)}></textarea>
+          <label class="fieldlabel" for="prompt-negative">negative prompt</label
           >
-            <Sparkles size={14} />Generate
-          </button>
-          {#if enhanceBusy && enhanceJobId}
-            <button class="quiet" onclick={cancelEnhance}>cancel</button>
-            <a class="muted joblink" href={'#/jobs/' + enhanceJobId}
-              >watch job</a
-            >
-          {/if}
-          {#if enhanceStatus}
-            <span class="muted enhancestatus"
-              ><span class="pulse-dot"></span>{enhanceStatus}</span
-            >
+          <textarea
+            id="prompt-negative"
+            rows="2"
+            spellcheck="true"
+            value={doc.negative_prompt ?? ''}
+            placeholder="optional - for models that take one"
+            onchange={(e) => setField('negative_prompt', e.currentTarget.value)}
+          ></textarea>
+          <div class="metagrid">
+            <label for="prompt-desc">description</label>
+            <input
+              id="prompt-desc"
+              spellcheck="true"
+              value={doc.description ?? ''}
+              placeholder="shown on the prompt's library card"
+              onchange={(e) => setField('description', e.currentTarget.value)}
+            />
+            <label for="prompt-model">intended model</label>
+            <input
+              id="prompt-model"
+              list="intended-models"
+              value={doc.intended_model ?? ''}
+              placeholder="e.g. minimax-h3 - badges the card, preselects the enhancer"
+              onchange={(e) => {
+                setField('intended_model', e.currentTarget.value)
+                preselect()
+              }}
+            />
+            <label for="prompt-tags">tags</label>
+            <input
+              id="prompt-tags"
+              value={(doc.tags ?? []).join(', ')}
+              placeholder="comma-separated, for filtering the library"
+              onchange={(e) => setTags(e.currentTarget.value)}
+            />
+          </div>
+          {#if doc.enhanced?.model}
+            <p class="muted provenance" title={doc.enhanced.idea}>
+              <Sparkles size={13} /> enhanced by {doc.enhanced.model}
+            </p>
           {/if}
         </div>
-        {#if enhanceError}<p class="error">{enhanceError}</p>{/if}
-        {#if enhanceResult}
-          <textarea class="resultbox" rows="8" readonly value={enhanceResult}
-          ></textarea>
-          <div class="enhanceactions">
-            <button class="withicon" onclick={useResult}>
-              <CircleCheck size={14} />Use as prompt text
-            </button>
-            <button class="quiet" onclick={() => (enhanceResult = '')}>
-              discard
-            </button>
+
+        <div class="panel">
+          <h2><Sparkles size={15} /> Enhance with AI</h2>
+          <p class="muted hint">
+            Expand an idea into a full prompt with a local language model. Runs
+            as an ordinary job - it waits its turn behind anything generating.
+          </p>
+          {#if enhancersDown}
+            <p class="muted hint">
+              Enhancement is unavailable - the server reported no enhancer
+              presets. Editing and saving still work.
+            </p>
+          {/if}
+          <div class="metagrid">
+            <label for="enhance-preset">preset</label>
+            <select
+              id="enhance-preset"
+              value={presetKey}
+              onchange={(e) => pickPreset(e.currentTarget.value)}
+            >
+              {#each presets as p (p.key)}
+                <option value={p.key}>{p.label}</option>
+              {/each}
+            </select>
+            <label for="enhance-model">model</label>
+            <span class="modelrow">
+              <input
+                id="enhance-model"
+                list="enhancer-models"
+                bind:value={enhanceModel}
+                placeholder="Hugging Face repo id"
+              />
+              {#if enhanceModel}
+                {#if modelCached}
+                  <span
+                    class="chip good"
+                    title="already in the local model cache">cached</span
+                  >
+                {:else if downloading}
+                  <span
+                    class="chip"
+                    title="downloading to the local model cache"
+                    >downloading…</span
+                  >
+                {:else}
+                  <button
+                    class="quiet withicon"
+                    onclick={downloadModel}
+                    title="download this model to the local cache now - otherwise the first enhancement downloads it"
+                  >
+                    <Download size={13} />get
+                  </button>
+                {/if}
+              {/if}
+            </span>
+            <label for="enhance-device">device</label>
+            <select
+              id="enhance-device"
+              bind:value={device}
+              title="where the language model runs - cpu keeps VRAM free for generation"
+            >
+              <option value="">preset default (cpu)</option>
+              <option value="cuda">cuda</option>
+              <option value="mps">mps</option>
+              <option value="cpu">cpu</option>
+            </select>
+            <label for="enhance-idea">idea</label>
+            <textarea
+              id="enhance-idea"
+              rows="3"
+              spellcheck="true"
+              bind:value={idea}
+              placeholder={preset?.placeholder ?? 'describe what to generate'}
+            ></textarea>
           </div>
-        {/if}
+          <div class="enhanceactions">
+            <button
+              class="withicon"
+              onclick={generate}
+              disabled={enhanceBusy || !presets.length}
+              title="expand the idea with the selected model"
+            >
+              <Sparkles size={14} />Generate
+            </button>
+            {#if enhanceBusy && enhanceJobId}
+              <button class="quiet" onclick={cancelEnhance}>cancel</button>
+              <a class="muted joblink" href={'#/jobs/' + enhanceJobId}
+                >watch job</a
+              >
+            {/if}
+            {#if enhanceStatus}
+              <span class="muted enhancestatus"
+                ><span class="pulse-dot"></span>{enhanceStatus}</span
+              >
+            {/if}
+          </div>
+          {#if enhanceError}<p class="error">{enhanceError}</p>{/if}
+          {#if enhanceResult}
+            <textarea class="resultbox" rows="8" readonly value={enhanceResult}
+            ></textarea>
+            <div class="enhanceactions">
+              <button class="withicon" onclick={useResult}>
+                <CircleCheck size={14} />Use as prompt text
+              </button>
+              <button class="quiet" onclick={() => (enhanceResult = '')}>
+                discard
+              </button>
+            </div>
+          {/if}
+        </div>
       </div>
     </div>
     {#if view === 'split'}
@@ -744,8 +750,9 @@
 <style>
   .head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.4rem 0.6rem;
     margin-bottom: 0.4rem;
   }
   .head h1 {
@@ -762,8 +769,9 @@
   }
   .savebar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.4rem 0.4rem;
     margin-bottom: 1rem;
     font-size: 0.85rem;
   }
@@ -780,8 +788,25 @@
     font-size: 0.8rem;
     color: var(--accent);
   }
+  /* Queried by .panelgrid below, so the panels stack on their own column's
+     width - the split view narrows the form column well before the viewport */
+  .formcol {
+    container-type: inline-size;
+  }
+  .panelgrid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1.1rem;
+    align-items: start;
+  }
+  @container (max-width: 900px) {
+    .panelgrid {
+      grid-template-columns: 1fr;
+    }
+  }
   .panel {
     margin-bottom: 1rem;
+    min-width: 0;
   }
   .panel h2 {
     display: flex;
@@ -804,10 +829,16 @@
   }
   .metagrid {
     display: grid;
-    grid-template-columns: minmax(120px, auto) 1fr;
+    grid-template-columns: minmax(120px, 40%) minmax(0, 1fr);
     gap: 0.5rem 0.8rem;
     align-items: center;
     margin-top: 0.6rem;
+  }
+  @container (max-width: 420px) {
+    .metagrid {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.2rem;
+    }
   }
   .metagrid label {
     font-weight: 600;

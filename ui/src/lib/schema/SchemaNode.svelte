@@ -254,4 +254,12 @@
     padding-left: 0.75rem;
     border-left: 1px solid var(--line);
   }
+  /* The indent compounds per nesting level; a deep schema would walk itself
+     off a narrow screen */
+  @media (max-width: 640px) {
+    .children {
+      margin-left: 0;
+      padding-left: 0.5rem;
+    }
+  }
 </style>

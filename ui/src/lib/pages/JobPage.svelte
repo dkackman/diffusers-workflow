@@ -235,8 +235,9 @@
 <style>
   .head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 1rem;
+    gap: 0.4rem 1rem;
     margin-bottom: 1rem;
   }
   .flex {
@@ -312,7 +313,7 @@
   }
   .media img,
   .media video {
-    max-width: 340px;
+    max-width: min(340px, 100%);
     border-radius: 6px;
     display: block;
   }

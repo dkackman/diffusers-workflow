@@ -188,8 +188,9 @@
 <style>
   .head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 1rem;
+    gap: 0.4rem 1rem;
     margin-bottom: 1rem;
   }
   .filter {

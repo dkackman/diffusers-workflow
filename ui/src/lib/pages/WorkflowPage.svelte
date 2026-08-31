@@ -202,8 +202,9 @@
 <style>
   .head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 1rem;
+    gap: 0.4rem 1rem;
     margin-bottom: 1rem;
   }
   .head h1 {
@@ -229,9 +230,15 @@
   }
   .vars {
     display: grid;
-    grid-template-columns: minmax(140px, auto) 1fr;
+    grid-template-columns: minmax(140px, 40%) minmax(0, 1fr);
     gap: 0.5rem 1rem;
     align-items: start;
+  }
+  @container (max-width: 420px) {
+    .vars {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.2rem;
+    }
   }
   .vars label {
     padding-top: 0.45rem;
