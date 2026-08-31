@@ -721,7 +721,7 @@
     align-items: center;
     gap: 0.4rem 0.6rem;
     position: sticky;
-    top: 50px;
+    top: 76px;
     z-index: 5;
     background: var(--bg);
     padding: 0.5rem 0;
@@ -887,7 +887,7 @@
   /* Clears the app header plus the editor's own sticky toolbar */
   .jsoncol {
     position: sticky;
-    top: 110px;
+    top: 136px;
   }
   @media (max-width: 1100px) {
     .editwrap.splitcols {

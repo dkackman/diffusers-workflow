@@ -84,91 +84,52 @@
 </script>
 
 <header>
-  <span class="brand">diffusers<span class="accent">-workflow</span></span>
-  <nav>
-    <a
-      href="#/workflows"
-      class:active={route.parts[0] === 'workflows'}
-      title="Workflows"
-    >
-      <Layers size={15} /><span class="navlabel">Workflows</span>
-    </a>
-    <a
-      href="#/prompts"
-      class:active={route.parts[0] === 'prompts' ||
-        route.parts[0] === 'prompt-edit'}
-      title="Prompts"
-    >
-      <MessageSquareText size={15} /><span class="navlabel">Prompts</span>
-    </a>
-    <a href="#/jobs" class:active={route.parts[0] === 'jobs'} title="Jobs">
-      <ListTodo size={15} /><span class="navlabel">Jobs</span>
-    </a>
-    <a href="#/edit" class:active={route.parts[0] === 'edit'} title="Editor">
-      <SquarePen size={15} /><span class="navlabel">Editor</span>
-    </a>
-    <a
-      href="#/gallery"
-      class:active={route.parts[0] === 'gallery'}
-      title="Gallery"
-    >
-      <Images size={15} /><span class="navlabel">Gallery</span>
-    </a>
-    <a
-      href="#/models"
-      class:active={route.parts[0] === 'models'}
-      title="Models"
-    >
-      <Database size={15} /><span class="navlabel">Models</span>
-    </a>
-    <a
-      href="#/schema"
-      class:active={route.parts[0] === 'schema'}
-      title="Schema"
-    >
-      <ListTree size={15} /><span class="navlabel">Schema</span>
-    </a>
-  </nav>
-  <div class="tools">
-    {#if currentJob}
+  <div class="navrow">
+    <span class="brand">diffusers<span class="accent">-workflow</span></span>
+    <nav>
       <a
-        class="runningnow"
-        href={'#/jobs/' + currentJob}
-        title="a job is running - click to watch"
+        href="#/workflows"
+        class:active={route.parts[0] === 'workflows'}
+        title="Workflows"
       >
-        <span class="pulse-dot"></span>running
+        <Layers size={15} /><span class="navlabel">Workflows</span>
       </a>
-    {/if}
-    <span class="vram muted">
-      {#if memory?.info?.gpu_available}
-        {memory.info.gpu_device_name} · {gb(
-          memory.info.gpu_memory_allocated_mb ?? 0,
-        )} /
-        {gb(memory.info.gpu_memory_total_mb ?? 0)} GB
-      {:else}
-        worker idle
-      {/if}
-    </span>
-    <a
-      class="helplink"
-      href="https://github.com/dkackman/diffusers-workflow#documentation"
-      target="_blank"
-      rel="noopener"
-      title="documentation on GitHub"
-      aria-label="documentation on GitHub"
-    >
-      <BookOpen size={15} />
-    </a>
-    <a
-      class="helplink"
-      href="/docs"
-      target="_blank"
-      rel="noopener"
-      title="interactive API reference (OpenAPI)"
-      aria-label="interactive API reference (OpenAPI)"
-    >
-      <Braces size={15} />
-    </a>
+      <a
+        href="#/prompts"
+        class:active={route.parts[0] === 'prompts' ||
+          route.parts[0] === 'prompt-edit'}
+        title="Prompts"
+      >
+        <MessageSquareText size={15} /><span class="navlabel">Prompts</span>
+      </a>
+      <a href="#/jobs" class:active={route.parts[0] === 'jobs'} title="Jobs">
+        <ListTodo size={15} /><span class="navlabel">Jobs</span>
+      </a>
+      <a href="#/edit" class:active={route.parts[0] === 'edit'} title="Editor">
+        <SquarePen size={15} /><span class="navlabel">Editor</span>
+      </a>
+      <a
+        href="#/gallery"
+        class:active={route.parts[0] === 'gallery'}
+        title="Gallery"
+      >
+        <Images size={15} /><span class="navlabel">Gallery</span>
+      </a>
+      <a
+        href="#/models"
+        class:active={route.parts[0] === 'models'}
+        title="Models"
+      >
+        <Database size={15} /><span class="navlabel">Models</span>
+      </a>
+      <a
+        href="#/schema"
+        class:active={route.parts[0] === 'schema'}
+        title="Schema"
+      >
+        <ListTree size={15} /><span class="navlabel">Schema</span>
+      </a>
+    </nav>
     <button
       class="quiet icon themebtn"
       onclick={cycleTheme}
@@ -179,6 +140,30 @@
           size={15}
         />{:else}<MonitorCog size={15} />{/if}
     </button>
+  </div>
+  <div class="statusbar">
+    {#if currentJob}
+      <a
+        class="runningnow"
+        href={'#/jobs/' + currentJob}
+        title="a job is running - click to watch"
+      >
+        <span class="pulse-dot"></span>running
+      </a>
+    {:else}
+      <span class="muted idle">idle</span>
+    {/if}
+    <span class="flex"></span>
+    <span class="vram muted">
+      {#if memory?.info?.gpu_available}
+        {memory.info.gpu_device_name} · {gb(
+          memory.info.gpu_memory_allocated_mb ?? 0,
+        )} /
+        {gb(memory.info.gpu_memory_total_mb ?? 0)} GB
+      {:else}
+        worker idle
+      {/if}
+    </span>
     {#if vramPct !== null}
       <div class="meter" title="VRAM allocated">
         <div
@@ -189,6 +174,26 @@
         ></div>
       </div>
     {/if}
+    <a
+      class="helplink"
+      href="https://github.com/dkackman/diffusers-workflow#documentation"
+      target="_blank"
+      rel="noopener"
+      title="documentation on GitHub"
+      aria-label="documentation on GitHub"
+    >
+      <BookOpen size={14} />
+    </a>
+    <a
+      class="helplink"
+      href="/docs"
+      target="_blank"
+      rel="noopener"
+      title="interactive API reference (OpenAPI)"
+      aria-label="interactive API reference (OpenAPI)"
+    >
+      <Braces size={14} />
+    </a>
   </div>
 </header>
 
@@ -222,16 +227,33 @@
 
 <style>
   header {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.5rem 1.5rem;
-    padding: 0.7rem 1.2rem;
     border-bottom: 1px solid var(--line);
     background: var(--panel);
     position: sticky;
     top: 0;
     z-index: 10;
+  }
+  .navrow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    padding: 0.7rem 1.2rem 0.5rem;
+  }
+  .statusbar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem 1rem;
+    padding: 0.25rem 1.2rem;
+    border-top: 1px solid var(--line);
+    font-size: 0.8rem;
+    min-height: 1.6rem;
+  }
+  .statusbar .flex {
+    flex: 1;
+  }
+  .idle {
+    font-size: 0.8rem;
   }
   .brand {
     font-weight: 700;
@@ -245,13 +267,6 @@
     flex-wrap: wrap;
     gap: 0.4rem 1.1rem;
     flex: 1;
-  }
-  .tools {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.6rem 1rem;
-    margin-left: auto;
   }
   nav a {
     display: inline-flex;
@@ -284,10 +299,8 @@
     gap: 0.45rem;
     color: var(--accent);
     font-weight: 600;
-    font-size: 0.85rem;
   }
   .vram {
-    font-size: 0.8rem;
     max-width: 22ch;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -328,7 +341,7 @@
      than overflowing - a sticky header does not pin horizontally, so any
      document-level scroll would slide it off screen */
   @media (max-width: 900px) {
-    header {
+    .navrow {
       gap: 0.5rem 1rem;
     }
     nav {
@@ -339,8 +352,11 @@
   /* Icons alone below the small breakpoint: seven labelled links do not fit
      a phone, and each keeps its title for the tooltip */
   @media (max-width: 640px) {
-    header {
-      padding: 0.6rem 0.8rem;
+    .navrow {
+      padding: 0.6rem 0.8rem 0.5rem;
+    }
+    .statusbar {
+      padding: 0.25rem 0.8rem;
     }
     main {
       padding: 0.8rem;
