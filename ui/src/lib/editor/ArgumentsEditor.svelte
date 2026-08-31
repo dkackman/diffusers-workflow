@@ -217,7 +217,7 @@
   }
   /* The 170px label track plus an input's intrinsic width needs ~400px;
      under that the label takes its own line above the field */
-  @container (max-width: 420px) {
+  @container (max-width: 400px) {
     .row {
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 0.2rem 0.5rem;
