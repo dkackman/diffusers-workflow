@@ -1,8 +1,10 @@
 <script lang="ts">
   import {
+    ChevronUp,
     CircleCheck,
     Columns2,
     Braces,
+    FileCog,
     LayoutList,
     Play,
     Plus,
@@ -44,6 +46,9 @@
   let workflowFiles = $state<string[]>([])
   let folder = $state('')
   let newFolder = $state('')
+  // The file fields collapse behind the path chip once the workflow has a
+  // name - they are settings, not something you retouch on every edit
+  let fileOpen = $state(false)
 
   // Existing folders, from the listing - one level is the designed depth,
   // but any deeper directories that exist still appear and keep working
@@ -100,6 +105,27 @@
 
   const serialized = $derived(JSON.stringify($state.snapshot(workflow)))
   const dirty = $derived(baseline !== '' && serialized !== baseline)
+
+  // Crumbs back out of the editor. The read-only page is where an edit
+  // usually starts, and until now the only exit landed on the list - so
+  // the last crumb links back to the workflow itself, when one is saved.
+  const crumbFolders = $derived(name ? name.split('/').slice(0, -1) : [])
+  const crumbName = $derived(name ? name.split('/').slice(-1)[0] : '')
+  const workflowHref = $derived(
+    '#/workflows/' + name.split('/').map(encodeURIComponent).join('/'),
+  )
+
+  // Leaving with unsaved edits used to drop them without a word
+  function confirmLeave(event: MouseEvent) {
+    if (dirty && !window.confirm('Discard unsaved changes?'))
+      event.preventDefault()
+  }
+
+  const savePreview = $derived.by(() => {
+    const directory = folder === '__new__' ? newFolder.trim() : folder
+    const file = saveName || 'unnamed'
+    return `${workflowDir}/${directory ? directory + '/' : ''}${file}.json`
+  })
   // promptLibrary.names stays undefined until the listing lands - a
   // missing library must not flag every prompt: reference as dangling
   const referenceProblems = $derived(
@@ -142,6 +168,7 @@
       const segments = name.split('/')
       saveName = segments[segments.length - 1]
       folder = segments.slice(0, -1).join('/')
+      fileOpen = false
       api
         .getWorkflow(name)
         .then((definition) => {
@@ -171,6 +198,8 @@
       workflow = fresh
       baseline = JSON.stringify(fresh)
       saveName = ''
+      // A new workflow has nowhere to save to yet - show the fields
+      fileOpen = true
     }
   })
 
@@ -272,6 +301,8 @@
       if (!saveName) error = 'Give the workflow a file name first'
       else if (!newFolder.trim()) error = 'Name the new folder first'
       else error = 'Folder names: letters, numbers, dot, dash, underscore'
+      // The message names a field the user cannot see while collapsed
+      fileOpen = true
       return
     }
     if (!(await validate())) return
@@ -365,8 +396,38 @@
 </datalist>
 
 <div class="head">
-  <a href="#/workflows" class="muted">← workflows</a>
-  <input class="wfid" bind:value={workflow.id} title="workflow id" />
+  <nav class="crumbs muted" aria-label="breadcrumb">
+    <a href="#/workflows" onclick={confirmLeave}>← workflows</a>
+    {#each crumbFolders as part (part)}
+      <span class="sep">/</span><span>{part}</span>
+    {/each}
+    {#if crumbName}
+      <span class="sep">/</span>
+      <a
+        href={workflowHref}
+        onclick={confirmLeave}
+        title="back to the read-only view of this workflow"
+      >
+        {crumbName}
+      </a>
+    {/if}
+  </nav>
+  <label class="wfidwrap">
+    <span class="wfidlabel">id</span>
+    <input
+      class="wfid"
+      bind:value={workflow.id}
+      placeholder="workflow id"
+      aria-label="workflow id"
+      title="the workflow's id - how it names itself, independent of the file name"
+    />
+  </label>
+  {#if dirty}
+    <span
+      class="chip unsaved"
+      title="this definition differs from the last save">unsaved</span
+    >
+  {/if}
   <span class="flex"></span>
   <div class="viewswitch" role="group" aria-label="editor view">
     <button
@@ -409,7 +470,7 @@
     disabled={busy}
     title="validate, then write to the workflow directory under the name below (Ctrl+S)"
   >
-    <Save size={14} />Save{#if dirty}<span class="dirtydot"></span>{/if}
+    <Save size={14} />Save
   </button>
   <button
     class="withicon"
@@ -421,39 +482,84 @@
   </button>
 </div>
 
-<div class="savebar muted">
-  saving as
-  <select class="folderpick" bind:value={folder} title="folder to save into">
-    <option value="">(root)</option>
-    {#each folders as existing (existing)}<option value={existing}
-        >{existing}/</option
-      >{/each}
-    <option value="__new__">new folder…</option>
-  </select>
-  {#if folder === '__new__'}
-    <input
-      class="newfolder"
-      bind:value={newFolder}
-      placeholder="folder name"
-      title="name for the new folder at the root of the workflow directory"
-    />
-    <span>/</span>
-  {/if}
-  <input class="savename" bind:value={saveName} placeholder="MyWorkflow" />
-  <span>.json in {workflowDir}</span>
-  <input
-    class="descfield"
-    spellcheck="true"
-    value={workflow.description ?? ''}
-    placeholder="description - shown on the workflow card"
-    title="a short description of what this workflow does"
-    onchange={(e) => {
-      const v = e.currentTarget.value
-      if (v) workflow.description = v
-      else delete workflow.description
-    }}
-  />
-</div>
+{#if fileOpen}
+  <div class="filebar panel">
+    <div class="filegrid">
+      <label for="wf-folder">folder</label>
+      <div class="folderrow">
+        <select
+          id="wf-folder"
+          class="folderpick"
+          bind:value={folder}
+          title="folder to save into"
+        >
+          <option value="">(root)</option>
+          {#each folders as existing (existing)}<option value={existing}
+              >{existing}/</option
+            >{/each}
+          <option value="__new__">new folder…</option>
+        </select>
+        {#if folder === '__new__'}
+          <input
+            class="newfolder"
+            bind:value={newFolder}
+            placeholder="folder name"
+            title="name for the new folder at the root of the workflow directory"
+          />
+        {/if}
+      </div>
+
+      <label for="wf-savename">file name</label>
+      <div class="namerow">
+        <input
+          id="wf-savename"
+          class="savename"
+          bind:value={saveName}
+          placeholder="MyWorkflow"
+        />
+        <span class="muted">.json</span>
+      </div>
+
+      <label for="wf-description">description</label>
+      <input
+        id="wf-description"
+        spellcheck="true"
+        value={workflow.description ?? ''}
+        placeholder="shown on the workflow card"
+        title="a short description of what this workflow does"
+        onchange={(e) => {
+          const v = e.currentTarget.value
+          if (v) workflow.description = v
+          else delete workflow.description
+        }}
+      />
+    </div>
+    <div class="filefoot">
+      <span class="muted path">{savePreview}</span>
+      <button
+        class="quiet withicon"
+        onclick={() => (fileOpen = false)}
+        disabled={!saveName}
+        title="collapse the file settings"
+      >
+        <ChevronUp size={14} />done
+      </button>
+    </div>
+  </div>
+{:else}
+  <div class="savebar">
+    <button
+      class="quiet withicon pathchip"
+      onclick={() => (fileOpen = true)}
+      title="change the folder, file name or description"
+    >
+      <FileCog size={14} /><span class="path">{savePreview}</span>
+    </button>
+    {#if workflow.description}
+      <span class="muted desc">{workflow.description}</span>
+    {/if}
+  </div>
+{/if}
 
 {#if error}<p class="error">{error}</p>{/if}
 {#if referenceProblems.length}
@@ -588,16 +694,65 @@
 {/if}
 
 <style>
+  /* Save, Run and the way out stay reachable while a long workflow
+     scrolls. Below 900px the app header wraps to a second row and its
+     height stops being predictable, so the pinning is dropped there. */
   .head {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.4rem 0.6rem;
-    margin-bottom: 0.4rem;
+    position: sticky;
+    top: 50px;
+    z-index: 5;
+    background: var(--bg);
+    padding: 0.5rem 0;
+    margin-bottom: 0.2rem;
+    border-bottom: 1px solid var(--line);
   }
+  @media (max-width: 900px) {
+    .head {
+      position: static;
+    }
+  }
+  .crumbs {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    min-width: 0;
+  }
+  .crumbs .sep {
+    opacity: 0.5;
+  }
+  .wfidwrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    max-width: 280px;
+  }
+  .wfidlabel {
+    color: var(--muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  /* Reads as a title until you reach for it, rather than as an unexplained
+     text box sitting next to a breadcrumb */
   .wfid {
-    max-width: 240px;
     font-weight: 700;
+    background: transparent;
+    border-color: transparent;
+  }
+  .wfid:hover {
+    border-color: var(--line);
+  }
+  .wfid:focus {
+    background: var(--panel-2);
+  }
+  .chip.unsaved {
+    background: color-mix(in srgb, var(--warn) 22%, transparent);
+    color: var(--warn);
   }
   .flex {
     flex: 1;
@@ -611,9 +766,72 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.4rem 0.4rem;
+    gap: 0.4rem 0.6rem;
     margin-bottom: 1rem;
     font-size: 0.85rem;
+    min-width: 0;
+  }
+  .pathchip {
+    font-family: ui-monospace, 'Cascadia Code', monospace;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.6rem;
+    max-width: 100%;
+  }
+  .pathchip:hover {
+    color: var(--ink);
+    border-color: var(--accent);
+  }
+  .path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .savebar .desc {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .filebar {
+    margin-bottom: 1rem;
+  }
+  .filegrid {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.5rem 0.8rem;
+    align-items: center;
+  }
+  .filegrid label {
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  @container (max-width: 420px) {
+    .filegrid {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.2rem 0.5rem;
+    }
+  }
+  .folderrow,
+  .namerow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .filefoot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem 0.8rem;
+    margin-top: 0.8rem;
+  }
+  .filefoot .path {
+    font-family: ui-monospace, 'Cascadia Code', monospace;
+    font-size: 0.8rem;
+    min-width: 0;
   }
   .savename {
     max-width: 200px;
@@ -623,10 +841,6 @@
   }
   .newfolder {
     max-width: 140px;
-  }
-  .descfield {
-    flex: 1;
-    min-width: min(220px, 100%);
   }
   .panel {
     margin-bottom: 1rem;
@@ -667,9 +881,10 @@
     gap: 1.1rem;
     align-items: start;
   }
+  /* Clears the app header plus the editor's own sticky toolbar */
   .jsoncol {
     position: sticky;
-    top: 66px;
+    top: 110px;
   }
   @media (max-width: 1100px) {
     .editwrap.splitcols {
@@ -707,13 +922,11 @@
     color: var(--good);
     font-size: 0.9rem;
   }
-  .dirtydot {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--warn);
-    margin-left: 0.15rem;
+  /* Unsaved work makes Save the thing to do next, so it stops looking
+     like the two quiet buttons beside it */
+  .dirtybtn {
+    border-color: var(--warn);
+    color: var(--warn);
   }
   .refproblems {
     color: var(--warn);

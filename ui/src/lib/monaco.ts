@@ -54,10 +54,11 @@ export async function setupMonaco() {
     /* schema endpoint unreachable - plain JSON editing still works */
   }
 
-  // Quiet JSON matching the pre-Monaco editor: values in the app ink,
-  // property names in the accent, punctuation muted - enough to read the
-  // shape of a document at a glance without a syntax rainbow. The
-  // palettes mirror app.css by
+  // Quiet JSON matching the pre-Monaco editor: string values in the app
+  // ink, property names in the accent, numbers and true/false/null in the
+  // status colours, punctuation muted - enough to read the shape of a
+  // document at a glance without a syntax rainbow. The palettes mirror
+  // app.css by
   // value rather than reading the live CSS tokens: setup runs once, under
   // whichever theme is active, and the editor re-themes at runtime - a
   // light theme defined while dark was active would carry dark colours
@@ -66,6 +67,8 @@ export async function setupMonaco() {
       base: 'vs-dark',
       ink: 'e4eaed',
       key: '4cb8cc',
+      number: '63b784',
+      literal: 'd9a84e',
       muted: '8fa0a8',
       panel: '1c2226',
     },
@@ -73,6 +76,8 @@ export async function setupMonaco() {
       base: 'vs',
       ink: '1c2428',
       key: '0b7285',
+      number: '2b7a4b',
+      literal: '9a6a12',
       muted: '5b6a72',
       panel: 'ffffff',
     },
@@ -84,8 +89,8 @@ export async function setupMonaco() {
       rules: [
         { token: 'string.key.json', foreground: palette.key },
         { token: 'string.value.json', foreground: palette.ink },
-        { token: 'number.json', foreground: palette.ink },
-        { token: 'keyword.json', foreground: palette.ink },
+        { token: 'number.json', foreground: palette.number },
+        { token: 'keyword.json', foreground: palette.literal },
         { token: 'delimiter.bracket.json', foreground: palette.muted },
         { token: 'delimiter.array.json', foreground: palette.muted },
         { token: 'delimiter.colon.json', foreground: palette.muted },
