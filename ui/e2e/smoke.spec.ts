@@ -30,6 +30,7 @@ test('editor opens a workflow with introspected arguments', async ({
 }) => {
   test.setTimeout(120_000) // first describe imports the pipeline class server-side
   await page.goto('/#/edit/flux/FluxDev')
+  await page.getByRole('button', { name: 'full' }).click()
   await expect(page.locator('#ct-0')).toHaveValue('FluxPipeline')
   // the arguments editor discovered real __call__ parameters - the
   // add-argument select renders once the description arrives

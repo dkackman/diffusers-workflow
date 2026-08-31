@@ -26,6 +26,7 @@
   } from '../editor'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
   import { PROMPT_LIST_ID, promptListId, promptTooltip } from '../prompts'
+  import { storageGet, storageSet } from '../storage'
   import StepEditor from '../editor/StepEditor.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import type { ValidationResult, WorkflowDefinition } from '../types'
@@ -49,6 +50,23 @@
   // The file fields collapse behind the path chip once the workflow has a
   // name - they are settings, not something you retouch on every edit
   let fileOpen = $state(false)
+
+  type StepMode = 'collapsed' | 'compact' | 'full'
+  // Keyed by step name; existing steps open compact, new ones full
+  let stepModes = $state<Record<string, StepMode>>({})
+  const modesKey = $derived(`step-modes:${name || '(unsaved)'}`)
+
+  function modeOf(step: Record<string, any>): StepMode {
+    return stepModes[step.name] ?? 'compact'
+  }
+  function setMode(step: Record<string, any>, mode: StepMode) {
+    stepModes[step.name] = mode
+    storageSet(modesKey, $state.snapshot(stepModes))
+  }
+  function setAllModes(mode: StepMode) {
+    for (const step of workflow.steps ?? []) stepModes[step.name] = mode
+    storageSet(modesKey, $state.snapshot(stepModes))
+  }
 
   // Existing folders, from the listing - one level is the designed depth,
   // but any deeper directories that exist still appear and keep working
@@ -174,6 +192,7 @@
         .then((definition) => {
           workflow = definition as WorkflowDefinition
           baseline = JSON.stringify(definition)
+          stepModes = storageGet(modesKey, {})
         })
         .catch((e) => (error = e.message))
     } else {
@@ -186,11 +205,13 @@
       // workflow proxy here would subscribe this effect to every edit and
       // re-fire all the listing calls on each keystroke
       let fresh = emptyWorkflow() as Record<string, any>
+      let didImport = false
       if (imported) {
         sessionStorage.removeItem('dw-editor-import')
         try {
           fresh = JSON.parse(imported)
           status = 'Imported from image metadata'
+          didImport = true
         } catch {
           /* unreadable hand-off - stay with the blank slate */
         }
@@ -200,6 +221,9 @@
       saveName = ''
       // A new workflow has nowhere to save to yet - show the fields
       fileOpen = true
+      stepModes = didImport
+        ? storageGet(modesKey, {})
+        : { [fresh.steps[0].name]: 'full' }
     }
   })
 
@@ -257,6 +281,7 @@
           ? emptyWorkflowStep()
           : emptyStep()
     workflow.steps = [...(workflow.steps ?? []), step]
+    stepModes[step.name] = 'full'
   }
 
   function removeStep(index: number) {
@@ -645,6 +670,22 @@
         </div>
       </div>
 
+      {#if (workflow.steps ?? []).length > 1}
+        <div class="densityrow">
+          <span class="muted">steps</span>
+          <span class="flex"></span>
+          <button class="quiet" onclick={() => setAllModes('collapsed')}
+            >collapse all</button
+          >
+          <button class="quiet" onclick={() => setAllModes('compact')}
+            >compact all</button
+          >
+          <button class="quiet" onclick={() => setAllModes('full')}
+            >expand all</button
+          >
+        </div>
+      {/if}
+
       {#each workflow.steps ?? [] as step, index (step)}
         <StepEditor
           bind:step={workflow.steps[index]}
@@ -652,6 +693,8 @@
           count={workflow.steps.length}
           references={stepReferences[index] ?? []}
           baseFolder={folder === '__new__' ? '' : folder}
+          mode={modeOf(step)}
+          onmodechange={(m) => setMode(step, m)}
           onremove={() => removeStep(index)}
           onmove={(delta) => moveStep(index, delta)}
         />
@@ -874,6 +917,16 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem 0.6rem;
+  }
+  .densityrow {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+  .densityrow button {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.55rem;
   }
   .editwrap.splitcols {
     display: grid;
