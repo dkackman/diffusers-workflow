@@ -298,6 +298,44 @@ class TestGenerateKwargsPassThrough(unittest.TestCase):
         )
 
 
+class TestTextGenerationLoadDevice(unittest.TestCase):
+    """How the model gets onto the device it runs on.
+
+    transformers materializes weights across a thread pool, and on MPS each
+    thread's cast-copy races inside torch's Metal shader cache - a crash
+    during loading, not during generation. Handing the pipeline a `device`
+    instead of a `device_map` keeps that load on the CPU and leaves the move
+    to the calling thread.
+    """
+
+    @staticmethod
+    def _mock_pipe(mock_pipeline):
+        pipe = MagicMock()
+        pipe.return_value = [{"generated_text": "output"}]
+        mock_pipeline.return_value = pipe
+        return pipe
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_mps_loads_on_cpu_then_moves(self, mock_pipeline):
+        self._mock_pipe(mock_pipeline)
+
+        generate_text("test", device="mps")
+
+        kwargs = mock_pipeline.call_args[1]
+        self.assertEqual(kwargs["device"], "mps")
+        self.assertNotIn("device_map", kwargs)
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_other_devices_still_use_device_map(self, mock_pipeline):
+        self._mock_pipe(mock_pipeline)
+
+        generate_text("test", device="cuda")
+
+        kwargs = mock_pipeline.call_args[1]
+        self.assertEqual(kwargs["device_map"], "cuda")
+        self.assertNotIn("device", kwargs)
+
+
 class TestTextGenerationRegistration(unittest.TestCase):
     """Test that text_generation is registered as a task command."""
 

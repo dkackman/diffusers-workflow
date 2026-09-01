@@ -19,9 +19,12 @@ logger = logging.getLogger("dw")
 
 _NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-# Matches a diffusers-style docstring parameter header:
+# Matches a docstring parameter header, with or without a declared type:
 #     prompt (`str` or `List[str]`, *optional*):
-_DOC_PARAM_PATTERN = re.compile(r"^(\w+) \((.+?)\):\s*(.*)$")
+#     prompt: The user message
+# The leading stars let a '**kwargs:' block be recognized as a header of its
+# own, so what it documents can be read as parameters too.
+_DOC_PARAM_PATTERN = re.compile(r"^(\*{0,2}[A-Za-z_]\w*)(?: \((.+?)\))?:\s*(.*)$")
 
 
 # Companion packages whose classes workflows commonly name. Extending this
@@ -150,14 +153,21 @@ def _json_safe_default(value):
 
 
 def _parse_docstring_args(docstring):
-    """Parameter descriptions from a diffusers-style 'Args:' docstring block.
+    """Parameter descriptions from a docstring's 'Args:' block.
 
-    Best effort by design: a pipeline with an unusual docstring simply
-    yields fewer descriptions, never an error.
+    Returns (documented, documented_kwargs): the entries at the block's own
+    indent, and those nested one level under a '**kwargs:' entry. The nested
+    ones are the only declaration a task that funnels its real arguments
+    through **kwargs ever makes, so discovery needs them as much as the
+    signature.
+
+    Best effort by design: a docstring with an unusual shape simply yields
+    fewer descriptions, never an error.
     """
-    descriptions = {}
+    documented = {}
+    documented_kwargs = {}
     if not docstring:
-        return descriptions
+        return documented, documented_kwargs
 
     lines = docstring.splitlines()
     try:
@@ -167,11 +177,15 @@ def _parse_docstring_args(docstring):
             if line.strip() in ("Args:", "Parameters:")
         )
     except StopIteration:
-        return descriptions
+        return documented, documented_kwargs
 
+    # The entry being described, and where its description is accumulating:
+    # a top-level entry, or one nested inside the **kwargs block
     current = None
+    target = documented
     parts = []
     base_indent = None
+    kwargs_indent = None
     for line in lines[start + 1 :]:
         stripped = line.strip()
         if not stripped:
@@ -182,25 +196,56 @@ def _parse_docstring_args(docstring):
         if indent < base_indent:
             break  # left the Args block (Returns:, Examples:, ...)
 
-        header = _DOC_PARAM_PATTERN.match(stripped) if indent == base_indent else None
+        nested = kwargs_indent is not None and indent == kwargs_indent
+        header = (
+            _DOC_PARAM_PATTERN.match(stripped)
+            if indent == base_indent or nested
+            else None
+        )
         if header:
             if current:
-                descriptions[current]["description"] = " ".join(parts).strip()
-            current = header.group(1)
-            descriptions[current] = {"doc_type": header.group(2)}
+                target[current]["description"] = " ".join(parts).strip()
+            name = header.group(1)
+            if name.startswith("*"):
+                # The kwargs entry itself is not a parameter; what it
+                # indents is. Its own indent is unknown until the first
+                # nested line arrives
+                current = None
+                target = documented_kwargs
+                kwargs_indent = None
+                parts = []
+                continue
+            if indent == base_indent:
+                target = documented
+                kwargs_indent = None
+            elif kwargs_indent is None:
+                kwargs_indent = indent
+            current = name
+            target[current] = {"doc_type": header.group(2)}
             parts = [header.group(3)] if header.group(3) else []
         elif current:
             parts.append(stripped)
+        elif target is documented_kwargs and kwargs_indent is None:
+            # First line under '**kwargs:' - it sets the nested indent, and
+            # is a header if it reads like one
+            kwargs_indent = indent
+            header = _DOC_PARAM_PATTERN.match(stripped)
+            if header and not header.group(1).startswith("*"):
+                current = header.group(1)
+                target[current] = {"doc_type": header.group(2)}
+                parts = [header.group(3)] if header.group(3) else []
     if current:
-        descriptions[current]["description"] = " ".join(parts).strip()
-    return descriptions
+        target[current]["description"] = " ".join(parts).strip()
+    return documented, documented_kwargs
 
 
 def _callable_parameters(target_callable):
     """A callable's parameters as form-ready entries, merged with its
     docstring's Args descriptions. Returns (parameters, accepts_kwargs)."""
     signature = inspect.signature(target_callable)
-    documented = _parse_docstring_args(inspect.getdoc(target_callable))
+    documented, documented_kwargs = _parse_docstring_args(
+        inspect.getdoc(target_callable)
+    )
 
     parameters = []
     accepts_kwargs = False
@@ -223,7 +268,23 @@ def _callable_parameters(target_callable):
             ),
         }
         entry.update(documented.get(parameter.name, {}))
+        documented_kwargs.pop(parameter.name, None)
         parameters.append(entry)
+
+    if accepts_kwargs:
+        # Whatever the **kwargs block names is a real argument the callable
+        # takes; the signature just never says so. There is no default to
+        # read, and anything funnelled through kwargs is optional
+        for name, entry in documented_kwargs.items():
+            parameters.append(
+                {
+                    "name": name,
+                    "required": False,
+                    "default": None,
+                    "annotation": None,
+                    **entry,
+                }
+            )
     return parameters, accepts_kwargs
 
 

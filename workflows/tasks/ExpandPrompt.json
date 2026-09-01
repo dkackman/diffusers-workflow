@@ -1,22 +1,23 @@
 {
-    "id": "ExpandPrompt",
-    "description": "Expands a short prompt into a detailed one with a language model - text out, no image.",
-    "variables": {
-        "prompt": "a cat sitting on a windowsill"
-    },
-    "steps": [
-        {
-            "name": "expand",
-            "task": {
-                "command": "text_generation",
-                "arguments": {
-                    "prompt": "variable:prompt",
-                    "system_prompt": "You are a helpful AI assistant that creates detailed prompts for text to image generative AI. When supplied input generate only the prompt, no other text."
-                }
-            },
-            "result": {
-                "content_type": "text/plain"
-            }
+  "id": "ExpandPrompt",
+  "description": "Expands a short prompt into a detailed one with a language model - text out, no image.",
+  "variables": {
+    "prompt": "a cat sitting on a windowsill",
+    "system_prompt": "prompt:prompt_enhancement/text_to_image"
+  },
+  "steps": [
+    {
+      "name": "expand",
+      "task": {
+        "command": "text_generation",
+        "arguments": {
+          "prompt": "variable:prompt",
+          "system_prompt": "variable:system_prompt"
         }
-    ]
+      },
+      "result": {
+        "content_type": "text/plain"
+      }
+    }
+  ]
 }

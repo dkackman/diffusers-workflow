@@ -26,6 +26,7 @@
                 "path": "builtin:h3_context_ir.json",
                 "arguments": {
                     "prompt": "variable:idea",
+                    "system_prompt": "prompt:prompt_enhancement/minimax_h3",
                     "image": "variable:image",
                     "device": "variable:enhancer_device",
                     "model_name": "variable:enhancer_model_name"

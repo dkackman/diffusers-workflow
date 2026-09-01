@@ -23,6 +23,7 @@
     workflowsReferencing,
   } from '../prompts'
   import JsonEditor from '../editor/JsonEditor.svelte'
+  import CopyButton from '../CopyButton.svelte'
   import type {
     EnhancerPreset,
     ModelRepo,
@@ -41,7 +42,6 @@
   let newFolder = $state('')
   let busy = $state(false)
   let baseline = $state('')
-  let refCopied = $state(false)
 
   // Existing folders, from the listing - one level is the designed depth
   const folders = $derived(
@@ -436,18 +436,6 @@
     }
   }
 
-  async function copyRef() {
-    const ref = savePath()
-    if (!ref) return
-    try {
-      await navigator.clipboard.writeText(`prompt:${ref}`)
-      refCopied = true
-      setTimeout(() => (refCopied = false), 1500)
-    } catch {
-      notify.error('Could not copy to clipboard')
-    }
-  }
-
   function duplicate() {
     sessionStorage.setItem(
       'dw-prompt-editor-import',
@@ -551,15 +539,10 @@
     <code class="refhint" title="use the stored prompt from any workflow"
       >prompt:{savePath()}</code
     >
-    <button
-      class="quiet copyref"
-      class:copied={refCopied}
-      onclick={copyRef}
+    <CopyButton
+      text={`prompt:${savePath()}`}
       title="copy reference to clipboard"
-      aria-label="copy reference to clipboard"
-    >
-      {#if refCopied}<CircleCheck size={14} />{:else}<Copy size={14} />{/if}
-    </button>
+    />
   {/if}
 </div>
 
@@ -799,14 +782,6 @@
   .refhint {
     font-size: 0.8rem;
     color: var(--accent);
-  }
-  .copyref {
-    padding: 0.3rem;
-    line-height: 0;
-  }
-  .copyref.copied {
-    color: var(--good);
-    border-color: var(--good);
   }
   /* Queried by .panelgrid below, so the panels stack on their own column's
      width - the split view narrows the form column well before the viewport */
