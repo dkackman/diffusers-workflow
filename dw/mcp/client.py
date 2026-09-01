@@ -84,17 +84,22 @@ class DwClient:
     def _raise_for_status(self, response, path):
         if response.status_code < 400:
             return
-        detail = None
-        try:
-            body = response.json()
-            if isinstance(body, dict):
-                detail = body.get("detail")
-        except ValueError:
+        # 5xx is always a server-side failure, even when the body happens to
+        # carry a `detail` (dw/server/app.py raises 500s with one) - the
+        # status has to survive so it reads as distinct from a validation
+        # message.
+        if response.status_code < 500:
             detail = None
-        if detail:
-            # The API writes these for humans already - 400s carry validation
-            # messages, 404s and 409s carry the reason
-            raise DwApiError(str(detail))
+            try:
+                body = response.json()
+                if isinstance(body, dict):
+                    detail = body.get("detail")
+            except ValueError:
+                detail = None
+            if detail:
+                # The API writes these for humans already - 400s carry
+                # validation messages, 404s and 409s carry the reason
+                raise DwApiError(str(detail))
         raise DwApiError(
             f"{path} failed with HTTP {response.status_code}: "
             f"{response.text[:200] or 'no body'}"
