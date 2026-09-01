@@ -37,7 +37,7 @@ naming the URL tried and telling the user to start `dw-serve` — not a raw
 
 | File | Responsibility | Depends on |
 | --- | --- | --- |
-| `dw/mcp/__init__.py` | package marker, version re-export | — |
+| `dw/mcp/__init__.py` | package marker (docstring only — no re-export, to keep the package free of eager imports) | — |
 | `dw/mcp/client.py` | `DwClient`: `httpx.Client` wrapper. One method per REST call. Owns base URL, timeouts, and HTTP-status→`ToolError` translation. Knows nothing about MCP. | `httpx` |
 | `dw/mcp/catalog.py` | read-only tool handlers | `client` |
 | `dw/mcp/authoring.py` | `validate_workflow`, `save_workflow`, `delete_workflow` | `client` |
@@ -142,7 +142,10 @@ validation, only clear error text when the server refuses.
   the job. Refuses with a cost explanation unless `acknowledged_cost` is
   true. `base_dir` is not exposed.
 - `get_job_events(job_id, after=-1, limit=200)` — the new endpoint.
-- `cancel_job(job_id)`, `rerun_job(job_id)`, `move_job(job_id, direction)`.
+- `rerun_job(job_id, acknowledged_cost=False)` — queues the same work as a
+  run, from a stored spec, so it is behind the same gate and reuses the same
+  refusal message.
+- `cancel_job(job_id)`, `move_job(job_id, direction)`.
 
 ### Confirm-gating
 
@@ -155,6 +158,10 @@ Three layers, in order of preference:
 3. **`acknowledged_cost`** — a required-to-be-true argument, the floor
    that works on every client. Claude Code does not implement elicitation
    today, so in practice this is the gate that fires.
+
+The gate covers **every tool that queues GPU work**: `run_workflow` and
+`rerun_job` both refuse until the flag is true, and both raise the same
+`COST_REFUSAL` text. A gate on one of two doors is not a gate.
 
 The tool description states the cost plainly and instructs the agent to
 run `validate_workflow` first.

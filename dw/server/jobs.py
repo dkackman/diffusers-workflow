@@ -37,14 +37,18 @@ RERUN_SPEC_KEYS = ("workflow_path", "workflow", "base_dir")
 # history only, so a long-running server's memory stays bounded
 TERMINAL_JOBS_KEPT = 20
 
+# A long run emits thousands of progress events; the tail is what explains
+# the outcome. Bounded so history stays a summary store, not an event log
+MAX_PERSISTED_EVENTS = 200
+
 
 class JobHistory:
     """Finished jobs, persisted so the Jobs view survives server restarts.
 
     Records land at terminal state only - a crash mid-run loses that run's
     row, which is the right trade for never blocking the runner on disk.
-    Events are not persisted; a historical job is its outcome (status,
-    manifest, error) plus enough of the spec to run it again.
+    The last MAX_PERSISTED_EVENTS progress events ride along, so a job can
+    still explain itself after a restart; everything earlier is dropped.
     """
 
     def __init__(self, db_path):
@@ -62,8 +66,14 @@ class JobHistory:
                     spec TEXT,
                     manifest TEXT,
                     warnings TEXT,
-                    error TEXT
+                    error TEXT,
+                    events TEXT
                 )""")
+            # Databases written before events were persisted are missing the
+            # column; ALTER is the whole migration, and rows keep NULL
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+            if "events" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN events TEXT")
 
     def _connect(self):
         return sqlite3.connect(self.db_path, timeout=5)
@@ -73,7 +83,9 @@ class JobHistory:
         rerun_spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
         with self._lock, self._connect() as connection:
             connection.execute(
-                "INSERT OR REPLACE INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
+                " started_at, finished_at, arguments, spec, manifest, warnings,"
+                " error, events) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -86,6 +98,7 @@ class JobHistory:
                     json.dumps(job.manifest, default=str),
                     json.dumps(job.warnings, default=str),
                     job.error,
+                    json.dumps(job.events[-MAX_PERSISTED_EVENTS:], default=str),
                 ),
             )
 
@@ -119,6 +132,23 @@ class JobHistory:
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
+
+    def events_for(self, job_id):
+        """A finished job's persisted event tail. [] for a job recorded
+        before events were kept, None for a job history has never seen -
+        the caller needs to tell 'no events' from 'no such job'."""
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT events FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        if not row[0]:
+            return []
+        try:
+            return json.loads(row[0])
+        except json.JSONDecodeError:
+            return []
 
     def job_for_file(self, file_name):
         """The most recent job whose manifest names this output file.

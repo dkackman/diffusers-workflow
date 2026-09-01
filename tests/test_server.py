@@ -1347,3 +1347,306 @@ class TestEnhance:
         with server(success_script) as client:
             response = client.post("/api/enhance", json={"idea": "  ", "preset": "h3"})
             assert response.status_code == 400
+
+
+def test_history_persists_a_finished_jobs_event_tail(tmp_path):
+    from dw.server.jobs import JobHistory
+
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    job = _finished_job_with_events(
+        "job-1", [{"seq": 0, "event": "phase", "phase": "loading"}]
+    )
+
+    history.record(job)
+
+    assert history.events_for("job-1") == [
+        {"seq": 0, "event": "phase", "phase": "loading"}
+    ]
+
+
+def test_history_keeps_only_the_last_events(tmp_path):
+    """A long run emits thousands of progress events. The tail is what
+    explains an outcome; the head is step-by-step noise."""
+    from dw.server.jobs import JobHistory, MAX_PERSISTED_EVENTS
+
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    events = [{"seq": i, "event": "log", "message": f"line {i}"} for i in range(500)]
+    history.record(_finished_job_with_events("job-1", events))
+
+    stored = history.events_for("job-1")
+
+    assert len(stored) == MAX_PERSISTED_EVENTS
+    assert stored[-1]["seq"] == 499, "the tail, not the head, is what is kept"
+
+
+def test_events_for_is_empty_for_a_job_recorded_before_this_change(tmp_path):
+    """An existing install's sqlite file has rows with no events column
+    value. They must read as 'nothing stored', not crash."""
+    import sqlite3
+
+    from dw.server.jobs import JobHistory
+
+    db = tmp_path / "jobs.sqlite"
+    history = JobHistory(db)
+    history.record(_finished_job_with_events("job-1", [{"seq": 0}]))
+    with sqlite3.connect(db) as connection:
+        connection.execute("UPDATE jobs SET events = NULL WHERE id = 'job-1'")
+
+    assert history.events_for("job-1") == []
+
+
+def test_events_for_is_none_for_an_unknown_job(tmp_path):
+    from dw.server.jobs import JobHistory
+
+    assert JobHistory(tmp_path / "jobs.sqlite").events_for("ghost") is None
+
+
+def test_an_existing_database_without_the_events_column_migrates(tmp_path):
+    """Opening a pre-change database must add the column, not fail and not
+    lose the rows already in it."""
+    import sqlite3
+
+    from dw.server.jobs import JobHistory
+
+    db = tmp_path / "jobs.sqlite"
+    with sqlite3.connect(db) as connection:
+        connection.execute("""CREATE TABLE jobs (
+                id TEXT PRIMARY KEY, workflow TEXT, status TEXT,
+                created_at REAL, started_at REAL, finished_at REAL,
+                arguments TEXT, spec TEXT, manifest TEXT, warnings TEXT,
+                error TEXT
+            )""")
+        connection.execute(
+            "INSERT INTO jobs VALUES ('old',?,?,?,?,?,?,?,?,?,?)",
+            ("w", "complete", 1.0, 1.0, 2.0, "{}", "{}", "[]", "[]", None),
+        )
+
+    history = JobHistory(db)
+
+    assert history.get("old")["status"] == "complete"
+    assert history.events_for("old") == []
+
+
+def test_recording_still_writes_every_other_column(tmp_path):
+    """The insert names its columns, so widening the table cannot shift a
+    value into the wrong one. This pins the columns that would have moved."""
+    from dw.server.jobs import JobHistory
+
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    history.record(_finished_job_with_events("job-1", [{"seq": 0}]))
+
+    detail = history.get("job-1")
+
+    assert detail["id"] == "job-1"
+    assert detail["status"] == "complete"
+    assert detail["workflow"] == "w"
+    assert detail["error"] is None
+
+
+def _finished_job_with_events(job_id, events):
+    """A minimal stand-in for a finished Job: JobHistory.record reads plain
+    attributes, so a real worker run is not needed to test persistence."""
+
+    class FinishedJob:
+        id = job_id
+        workflow_name = "w"
+        status = "complete"
+        created_at = 1.0
+        started_at = 1.0
+        finished_at = 2.0
+        manifest = []
+        warnings = []
+        error = None
+        spec = {"arguments": {}, "workflow_path": "w.json"}
+
+    job = FinishedJob()
+    job.events = events
+    return job
+
+
+def test_event_log_returns_events_for_a_live_job(server):
+    with server(success_script) as client:
+        job_id = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()[
+            "id"
+        ]
+        wait_for_status(client, job_id, TERMINAL_STATES)
+
+        body = client.get(f"/api/jobs/{job_id}/event-log").json()
+
+        assert body["id"] == job_id
+        assert body["events"], "a completed job should have recorded events"
+        assert [event["seq"] for event in body["events"]] == list(
+            range(len(body["events"]))
+        )
+        assert body["last_seq"] == body["events"][-1]["seq"]
+        assert body["truncated"] is False
+        assert body["note"] is None
+
+
+def test_event_log_pages_with_after_and_limit(server):
+    with server(success_script) as client:
+        job_id = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()[
+            "id"
+        ]
+        wait_for_status(client, job_id, TERMINAL_STATES)
+        total = client.get(f"/api/jobs/{job_id}/event-log").json()["events"]
+        assert len(total) >= 3, "test needs a job with at least three events"
+
+        first = client.get(f"/api/jobs/{job_id}/event-log?limit=2").json()
+        assert len(first["events"]) == 2
+        assert first["truncated"] is True
+        assert first["last_seq"] == 1
+
+        rest = client.get(
+            f"/api/jobs/{job_id}/event-log?after={first['last_seq']}"
+        ).json()
+        assert rest["events"][0]["seq"] == 2
+        assert rest["truncated"] is False
+
+
+def test_event_log_clamps_a_negative_after(server):
+    with server(success_script) as client:
+        job_id = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()[
+            "id"
+        ]
+        wait_for_status(client, job_id, TERMINAL_STATES)
+
+        body = client.get(f"/api/jobs/{job_id}/event-log?after=-99").json()
+
+        assert body["events"][0]["seq"] == 0
+
+
+def test_event_log_serves_a_historical_jobs_persisted_events(server):
+    """A job recovered from sqlite is a plain dict, but its event tail was
+    persisted with it - that is what makes last night's failure explainable."""
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.get = lambda job_id: {"id": job_id, "status": "failed"}
+        manager.history.events_for = lambda job_id: [
+            {"seq": 0, "event": "phase", "phase": "loading"},
+            {"seq": 1, "event": "job_status", "status": "failed"},
+        ]
+
+        body = client.get("/api/jobs/historical/event-log").json()
+
+        assert [event["seq"] for event in body["events"]] == [0, 1]
+        assert body["last_seq"] == 1
+        assert body["truncated"] is False
+        assert body["note"] is None
+
+
+def test_event_log_pages_a_historical_jobs_events(server):
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.get = lambda job_id: {"id": job_id, "status": "complete"}
+        manager.history.events_for = lambda job_id: [
+            {"seq": index} for index in range(5)
+        ]
+
+        body = client.get("/api/jobs/historical/event-log?after=1&limit=2").json()
+
+        assert [event["seq"] for event in body["events"]] == [2, 3]
+        assert body["truncated"] is True
+
+
+def test_event_log_says_so_when_a_historical_job_kept_no_events(server):
+    """A job recorded before events were persisted. Say that, rather than
+    returning an empty list that reads as 'nothing happened'."""
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.get = lambda job_id: {"id": job_id, "status": "complete"}
+        manager.history.events_for = lambda job_id: []
+
+        body = client.get("/api/jobs/historical/event-log").json()
+
+        assert body["events"] == []
+        assert "not retained" in body["note"]
+
+
+def test_event_log_404s_for_an_unknown_job(server):
+    with server(success_script) as client:
+        response = client.get("/api/jobs/nope/event-log")
+
+        assert response.status_code == 404
+
+
+def test_event_log_says_so_when_a_historical_jobs_log_was_truncated(server):
+    """History keeps only the last MAX_PERSISTED_EVENTS. A tail that fits one
+    page would otherwise answer `after=-1` with `truncated: false` and no
+    note - reading as the whole log of a job that emitted thousands."""
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.get = lambda job_id: {"id": job_id, "status": "failed"}
+        manager.history.events_for = lambda job_id: [
+            {"seq": index} for index in range(2800, 3000)
+        ]
+
+        body = client.get("/api/jobs/historical/event-log").json()
+
+        assert body["events"][0]["seq"] == 2800
+        assert body["truncated"] is False, "this page is not itself cut short"
+        assert "last 200" in body["note"]
+        assert "not retained" not in body["note"], "distinct from the no-log note"
+
+
+def test_event_log_does_not_claim_truncation_for_a_complete_historical_log(server):
+    """A job that genuinely emitted exactly MAX_PERSISTED_EVENTS lost nothing.
+    The signal is the first stored seq, not the length of the tail."""
+    from dw.server.jobs import MAX_PERSISTED_EVENTS
+
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.get = lambda job_id: {"id": job_id, "status": "complete"}
+        manager.history.events_for = lambda job_id: [
+            {"seq": index} for index in range(MAX_PERSISTED_EVENTS)
+        ]
+
+        body = client.get(
+            f"/api/jobs/historical/event-log?limit={MAX_PERSISTED_EVENTS}"
+        ).json()
+
+        assert body["note"] is None
+
+
+def test_a_recorded_job_reads_back_through_the_event_log_route(server):
+    """The whole persistence seam end to end: JobHistory.record writes the
+    tail, the route reads it back. Both halves are tested in isolation
+    elsewhere; this is the join, which is where a lossy tail hides."""
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.history.record(
+            _finished_job_with_events(
+                "recorded",
+                [
+                    {"seq": 0, "event": "phase", "phase": "loading"},
+                    {"seq": 1, "event": "job_status", "status": "failed"},
+                ],
+            )
+        )
+
+        body = client.get("/api/jobs/recorded/event-log").json()
+
+        assert [event["seq"] for event in body["events"]] == [0, 1]
+        assert body["events"][0]["phase"] == "loading"
+        assert body["status"] == "complete"
+        assert body["truncated"] is False
+        assert body["note"] is None
+
+
+def test_a_recorded_job_whose_log_was_dropped_says_so_through_the_route(server):
+    """The Finding-4 case with no stand-ins: a long run really recorded, read
+    back through the route. The head is gone and the answer has to admit it."""
+    from dw.server.jobs import MAX_PERSISTED_EVENTS
+
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.history.record(
+            _finished_job_with_events("long", [{"seq": index} for index in range(3000)])
+        )
+
+        body = client.get("/api/jobs/long/event-log?limit=1000").json()
+
+        assert len(body["events"]) == MAX_PERSISTED_EVENTS
+        assert body["events"][0]["seq"] == 3000 - MAX_PERSISTED_EVENTS
+        assert body["truncated"] is False
+        assert f"last {MAX_PERSISTED_EVENTS}" in body["note"]

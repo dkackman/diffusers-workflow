@@ -123,7 +123,7 @@ but never complete the validate-then-save loop.
 | `get_job(job_id)` | `GET /api/jobs/{id}` | status, arguments, warnings, manifest, error, traceback, `event_count` |
 | `get_job_events(job_id, after, limit)` | `GET /api/jobs/{id}/event-log` **(new)** | live or persisted `job_status` / `phase` / `memory` / `log` events — phase transitions (loading → generating → decoding → saving) |
 | `cancel_job(job_id)` | `POST /api/jobs/{id}/cancel` | cooperative cancel |
-| `rerun_job(job_id)` | `POST /api/jobs/{id}/rerun` | re-queue after a fix |
+| `rerun_job(job_id, acknowledged_cost)` | `POST /api/jobs/{id}/rerun` | re-queue after a fix — cost-gated like a run |
 | `move_job(job_id, direction)` | `POST /api/jobs/{id}/move` | reorder queued jobs |
 
 ### Deferred / optional
