@@ -381,6 +381,45 @@ def create_app(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    @app.get("/api/jobs/{job_id}/event-log")
+    def job_event_log(job_id: str, after: int = -1, limit: int = 200):
+        """Job events as one JSON page rather than a stream, for clients that
+        poll instead of holding a connection open (the MCP server). `after` is
+        exclusive, matching the SSE route's parameter of the same name."""
+        job = manager.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        limit = max(1, min(limit, 1000))
+        if isinstance(job, dict):
+            # A job restored from sqlite: history persists a bounded tail of
+            # its events, so it can still explain itself after a restart
+            stored = manager.history.events_for(job_id) or []
+            pending = [event for event in stored if event.get("seq", -1) > after]
+            page = pending[:limit]
+            return {
+                "id": job_id,
+                "status": job.get("status"),
+                "events": page,
+                "last_seq": page[-1]["seq"] if page else max(after, -1),
+                "truncated": len(pending) > len(page),
+                "note": (
+                    None
+                    if stored
+                    else "This job kept no event log - events were not retained "
+                    "with job history."
+                ),
+            }
+        pending = job.events_after(after)
+        page = pending[:limit]
+        return {
+            "id": job_id,
+            "status": job.status,
+            "events": page,
+            "last_seq": page[-1]["seq"] if page else max(after, -1),
+            "truncated": len(pending) > len(page),
+            "note": None,
+        }
+
     # ---------------------------------------------------------- introspection
 
     @app.get("/api/pipelines")
