@@ -4,8 +4,8 @@ run costs GPU time on an engine that runs one job at a time."""
 import httpx
 import pytest
 
-from dw.mcp import diagnose
-from dw.mcp.client import DwApiError, DwClient
+from dw_mcp import diagnose
+from dw_mcp.client import DwApiError, DwClient
 
 WORKFLOW = {"id": "w", "steps": []}
 SUBMITTED = {"id": "job-1", "status": "queued", "queue_position": 2}

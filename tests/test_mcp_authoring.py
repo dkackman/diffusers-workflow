@@ -4,8 +4,8 @@ the caller meant."""
 import httpx
 import pytest
 
-from dw.mcp import authoring
-from dw.mcp.client import DwApiError, DwClient
+from dw_mcp import authoring
+from dw_mcp.client import DwApiError, DwClient
 
 WORKFLOW = {"id": "w", "steps": []}
 

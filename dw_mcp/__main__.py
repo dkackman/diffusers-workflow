@@ -1,10 +1,10 @@
-"""`python -m dw.mcp` / `dw-mcp`: serve the tool surface over stdio."""
+"""`python -m dw_mcp` / `dw-mcp`: serve the tool surface over stdio."""
 
 import argparse
 import sys
 
-from dw.mcp.client import DwClient, resolve_base_url
-from dw.mcp.server import build_server
+from dw_mcp.client import DwClient, resolve_base_url
+from dw_mcp.server import build_server
 
 
 def main(argv=None):

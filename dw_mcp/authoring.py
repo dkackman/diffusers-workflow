@@ -6,8 +6,8 @@ traversal and anything outside the workflow directory). Nothing here
 re-implements it - a second, subtly different check is how the two drift.
 """
 
-from dw.mcp.catalog import get_workflow
-from dw.mcp.client import DwApiError, path_segment
+from dw_mcp.catalog import get_workflow
+from dw_mcp.client import DwApiError, path_segment
 
 
 def validate_workflow(client, workflow=None, name=None):

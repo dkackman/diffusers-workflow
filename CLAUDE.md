@@ -63,11 +63,11 @@ Packaging: `pyproject.toml` (console scripts dw-run/dw-validate/dw-repl/dw-serve
 
 ### MCP Server
 
-`dw/mcp/` is a stdio MCP server (`dw-mcp`, `python -m dw.mcp`) that wraps the
+`dw_mcp/` is a stdio MCP server (`dw-mcp`, `python -m dw_mcp`) that wraps the
 `dw.serve` REST API in a structured tool surface: workflow catalog and
 introspection, validate/save/delete, queue a run, poll its events, and view a
 generated image. It is an HTTP client of a *running* `dw.serve` — it owns no
-job state and no GPU worker. Only `dw/mcp/server.py` imports the MCP SDK; the
+job state and no GPU worker. Only `dw_mcp/server.py` imports the MCP SDK; the
 handlers in `catalog.py`, `authoring.py`, `diagnose.py` and `media.py` are
 plain `(client, **kwargs)` functions, which is what makes them testable
 without an MCP session. `run_workflow` requires `acknowledged_cost=True` and

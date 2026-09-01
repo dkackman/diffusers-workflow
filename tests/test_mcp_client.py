@@ -4,7 +4,7 @@ every API failure is turned into a message a non-developer can act on."""
 import httpx
 import pytest
 
-from dw.mcp.client import DwApiError, DwClient, path_segment, resolve_base_url
+from dw_mcp.client import DwApiError, DwClient, path_segment, resolve_base_url
 
 
 def client_with(handler, **kwargs):

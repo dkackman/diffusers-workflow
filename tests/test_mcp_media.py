@@ -8,8 +8,8 @@ import httpx
 import pytest
 from PIL import Image
 
-from dw.mcp.client import DwApiError, DwClient
-from dw.mcp.media import MAX_RETURNED_BYTES, get_output_image
+from dw_mcp.client import DwApiError, DwClient
+from dw_mcp.media import MAX_RETURNED_BYTES, get_output_image
 
 
 def png_bytes(width, height, color=(120, 30, 200)):
