@@ -157,3 +157,36 @@ def test_a_non_json_error_body_does_not_mask_the_status():
         client_with(handler).get_json("/api/workflows/x")
 
     assert "404" in str(caught.value)
+
+
+def test_a_transport_level_failure_still_names_the_request():
+    """Anything httpx raises has to arrive as a DwApiError - a bare
+    httpx exception reaching the tool layer would be reported as a crash."""
+
+    def handler(request):
+        raise httpx.ReadError("connection reset", request=request)
+
+    with pytest.raises(DwApiError) as caught:
+        client_with(handler).get_json("/api/health")
+
+    assert "/api/health" in str(caught.value)
+    assert "connection reset" in str(caught.value)
+
+
+def test_a_successful_response_that_is_not_json_is_reported_as_such():
+    def handler(request):
+        return httpx.Response(200, text="<html>not the API</html>")
+
+    with pytest.raises(DwApiError) as caught:
+        client_with(handler).get_json("/api/health")
+
+    assert "non-JSON" in str(caught.value)
+    assert "not the API" in str(caught.value)
+
+
+def test_close_releases_the_underlying_http_client():
+    client = client_with(lambda request: httpx.Response(200, json={}))
+
+    client.close()
+
+    assert client._http.is_closed
