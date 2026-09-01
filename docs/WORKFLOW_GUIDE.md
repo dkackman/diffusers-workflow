@@ -585,6 +585,26 @@ Device is auto-detected (CUDA > MPS > CPU). Dtype is set per-component:
 }
 ```
 
+A step can name a device instead, in a pipeline `configuration` (which becomes the
+default for that pipeline's components), in a component `configuration`, or in a task's
+`arguments`. A device naming a backend the machine running the workflow does not have is
+translated to the one it does, with a warning, so a workflow written on a CUDA box runs
+on a Mac and back again:
+
+```json
+"configuration": {
+    "component_type": "FluxPipeline",
+    "device": "cuda"
+}
+```
+
+Only the backend is translated. A device index survives when the backend matches, so
+`cuda:1` on a single-GPU CUDA box remains the error it always was; when the backend does
+not match, the index is dropped and the warning says so — a workflow that meant to spread
+work across two accelerators will not on a machine that has one. `"device": "cpu"` is
+never translated, since pinning a step to the CPU is how a GPU-specific problem gets
+ruled out.
+
 ### Modular Pipelines
 
 Modular pipelines (`ModularPipeline` and its subclasses) load their configuration and

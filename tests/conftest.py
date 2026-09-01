@@ -26,6 +26,20 @@ def _clear_task_model_cache():
 
 
 @pytest.fixture
+def all_backends_available(monkeypatch):
+    """Let a device named in a test reach the code under test unchanged.
+
+    resolve_device translates a device whose backend this machine does not have,
+    so a test that hardcodes 'cuda' to exercise placement or offload plumbing would
+    otherwise be testing the translation instead. Portability itself is covered in
+    tests/test_device_portability.py.
+    """
+    import dw
+
+    monkeypatch.setattr(dw, "backend_available", lambda backend: True)
+
+
+@pytest.fixture
 def test_data_dir():
     """Get path to test data directory"""
     return os.path.join(os.path.dirname(__file__), "test_data")

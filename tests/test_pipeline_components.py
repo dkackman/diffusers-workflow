@@ -237,7 +237,7 @@ class TestConfigureReusedComponents:
 
         pipeline.text_encoder.model.to.assert_not_called()
 
-    def test_a_component_this_step_loaded_is_still_placed(self):
+    def test_a_component_this_step_loaded_is_still_placed(self, all_backends_available):
         pipeline = MagicMock()
         configuration = {"components": {"vae": {"device": "cuda"}}}
 

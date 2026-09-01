@@ -9,6 +9,8 @@ catching at the dict level instead.
 import pytest
 import torch
 
+import dw
+
 from dw.pipeline_processors.config_objects import (
     create_quantization_config,
     get_cache_configuration,
@@ -117,7 +119,11 @@ class TestGroupOffloadConfiguration:
     def test_no_group_offload_returns_none(self):
         assert get_group_offload_configuration({}, "cuda") is None
 
-    def test_device_strings_become_torch_devices(self):
+    def test_device_strings_become_torch_devices(self, monkeypatch):
+        # Stand CUDA up as present so the conversion is what is under test rather
+        # than the translation a machine without CUDA would apply
+        monkeypatch.setattr(dw, "backend_available", lambda backend: True)
+
         config = get_group_offload_configuration(
             {"group_offload": {"onload_device": "cuda:1", "offload_device": "cpu"}},
             "cuda",
@@ -126,9 +132,11 @@ class TestGroupOffloadConfiguration:
         assert config["onload_device"] == torch.device("cuda:1")
         assert config["offload_device"] == torch.device("cpu")
 
-    def test_onload_defaults_to_the_pipeline_device(self):
+    def test_onload_defaults_to_the_pipeline_device(self, monkeypatch):
         # The default must follow DW_DEVICE / the device setting, not a hardcoded
         # accelerator - "cuda:1" here stands for a resolved non-default device
+        monkeypatch.setattr(dw, "backend_available", lambda backend: True)
+
         config = get_group_offload_configuration(
             {"group_offload": {"num_blocks_per_group": 1}}, "cuda:1"
         )

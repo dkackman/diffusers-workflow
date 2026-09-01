@@ -14,6 +14,11 @@ from dw.pipeline_processors import pipeline as pipeline_module
 from dw.pipeline_processors.pipeline import place_component
 
 
+@pytest.fixture(autouse=True)
+def _devices_are_present(all_backends_available):
+    """The backend under test is chosen by stubbing get_device_type, so the device string itself has to reach place_component untranslated."""
+
+
 class FakeComponent:
     """Records the placement calls a real pipeline would act on."""
 

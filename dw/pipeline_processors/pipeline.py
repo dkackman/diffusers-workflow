@@ -16,7 +16,7 @@ from .remote import remote_text_encoder
 from ..cache_blocks import register_cache_blocks
 from ..teacache import teacache_context
 from ..type_helpers import has_method
-from .. import empty_device_cache, get_device_type
+from .. import empty_device_cache, get_device_type, resolve_device
 from diffusers import attention_backend
 
 # dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
@@ -114,8 +114,9 @@ class Pipeline:
         self.pipeline_definition = pipeline_definition
         self.default_seed = default_seed
         # A step can pin itself to a device, overriding the one dw is running on. It
-        # becomes the default for this pipeline's components as well
-        self.device = self.configuration.get("device", device)
+        # becomes the default for this pipeline's components as well, and is
+        # translated to a backend this machine has so the workflow travels
+        self.device = resolve_device(self.configuration.get("device", device))
         self.pipeline = pipeline
         self.output_dir = output_dir
         self.file_prefix = file_prefix
@@ -556,7 +557,9 @@ class Pipeline:
                         quantization_configuration
                     )
 
-                device = component_configuration.get("device", default_device)
+                device = resolve_device(
+                    component_configuration.get("device", default_device)
+                )
 
                 component = load_component(
                     component_name,
@@ -694,7 +697,7 @@ def configure_components(pipeline, configuration, default_device, reused_compone
         # in one allocation unless it is told to tile
         enable_tiling(component, component_name, component_configuration)
 
-        device = component_configuration.get("device", None)
+        device = resolve_device(component_configuration.get("device", None))
         residency = component_configuration.get("residency", "resident")
         if residency == "on_demand":
             apply_on_demand_placement(
@@ -1383,6 +1386,10 @@ def place_component(
     Returns:
         The placed component
     """
+    # Translate before anything reads the backend - the offload downgrades below
+    # have to see the device the component will actually run on
+    device = resolve_device(device)
+
     # Handle group_offload configuration
     group_offload_configuration = get_group_offload_configuration(configuration, device)
     if group_offload_configuration is not None:

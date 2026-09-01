@@ -138,6 +138,81 @@ def get_device_type(device=None):
     return torch.device(device if device is not None else get_device()).type
 
 
+def backend_available(device_type):
+    """
+    Whether this machine can actually run on a backend.
+
+    Only the backends dw knows how to probe get an answer. An unrecognized one is
+    reported available rather than guessed at, so a device torch understands and dw
+    does not is left alone instead of being rewritten.
+
+    Args:
+        device_type: Backend name ('cuda', 'mps', 'cpu', ...)
+
+    Returns:
+        bool: Whether the backend is usable here
+    """
+    if not _TORCH_AVAILABLE:
+        return device_type == "cpu"
+
+    if device_type == "cpu":
+        return True
+
+    if device_type == "cuda":
+        return torch.cuda.is_available()
+
+    if device_type == "mps":
+        return hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+
+    is_available = getattr(getattr(torch, device_type, None), "is_available", None)
+    return bool(is_available()) if callable(is_available) else True
+
+
+def resolve_device(requested):
+    """
+    Translate a device a workflow asked for into one this machine has.
+
+    A device named in a workflow is nearly always the author saying 'the accelerator'
+    rather than 'specifically NVIDIA', so a workflow written on a CUDA box runs on a
+    Mac and back again. The backend is what gets translated - an index is left alone
+    when the backend matches, since 'cuda:1' on a single-GPU CUDA box is a genuine
+    mistake and not a portability problem. A CPU device is never rewritten: pinning a
+    step to the CPU is how a GPU-specific problem gets ruled out.
+
+    Args:
+        requested: Device identifier from a workflow, or None for no override
+
+    Returns:
+        The device to use, or None if None was passed
+    """
+    if requested is None or not _TORCH_AVAILABLE:
+        return requested
+
+    try:
+        device = torch.device(requested)
+    except (RuntimeError, TypeError, ValueError):
+        # Not a device torch understands - let the failure surface where it is used
+        return requested
+
+    if device.type == "cpu" or backend_available(device.type):
+        return requested
+
+    target = get_device()
+    if device.index is not None:
+        logging.warning(
+            f"Workflow asks for '{requested}', which this machine has no {device.type} "
+            f"backend for - running on {target}. The device index is dropped, so a "
+            "workflow that meant to spread work across accelerators will not."
+        )
+    else:
+        logging.warning(
+            f"Workflow asks for '{requested}', which this machine has no {device.type} "
+            f"backend for - running on {target}"
+        )
+
+    return target
+
+
 def get_autocast_device_type():
     """
     Get the device type to use for torch.autocast.

@@ -62,6 +62,26 @@
     (metadata?.workflow as Record<string, unknown> | undefined) ?? null,
   )
 
+  // The step's realized arguments, so the prompt shown is the text the
+  // pipeline actually saw rather than the 'variable:' reference in the JSON
+  const args = $derived(
+    (metadata?.arguments as Record<string, unknown> | undefined) ?? null,
+  )
+
+  /** A prompt argument as displayable text - pipelines accept a list too. */
+  function promptText(value: unknown): string {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value))
+      return value.filter((v) => typeof v === 'string').join('\n')
+    return ''
+  }
+
+  const prompt = $derived(promptText(args?.prompt))
+  const negativePrompt = $derived(promptText(args?.negative_prompt))
+  const seed = $derived(
+    typeof metadata?.seed === 'number' ? metadata.seed : args?.seed,
+  )
+
   function openAsWorkflow() {
     if (!embeddedWorkflow) return
     // Pin the run's seed into the definition so reopening reproduces this
@@ -176,9 +196,21 @@
               <span class="muted">model</span>
               {metadata.model_name}
             </div>{/if}
-          {#if metadata.seed !== undefined}
+          {#if seed !== undefined}
             <div>
-              <span class="muted">seed</span> <code>{metadata.seed}</code>
+              <span class="muted">seed</span> <code>{seed}</code>
+            </div>
+          {/if}
+          {#if prompt}
+            <div class="prompt">
+              <span class="muted">prompt</span>
+              <p>{prompt}</p>
+            </div>
+          {/if}
+          {#if negativePrompt}
+            <div class="prompt">
+              <span class="muted">negative prompt</span>
+              <p>{negativePrompt}</p>
             </div>
           {/if}
           {#if sourceJob}
@@ -301,8 +333,14 @@
     flex-direction: column;
     gap: 0.2rem;
     font-size: 0.85rem;
+    max-width: 46ch;
   }
   .meta .muted {
     margin-right: 0.4rem;
+  }
+  .prompt p {
+    margin: 0.15rem 0 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 </style>
