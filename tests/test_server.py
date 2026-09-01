@@ -1347,3 +1347,118 @@ class TestEnhance:
         with server(success_script) as client:
             response = client.post("/api/enhance", json={"idea": "  ", "preset": "h3"})
             assert response.status_code == 400
+
+
+def test_history_persists_a_finished_jobs_event_tail(tmp_path):
+    from dw.server.jobs import JobHistory
+
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    job = _finished_job_with_events(
+        "job-1", [{"seq": 0, "event": "phase", "phase": "loading"}]
+    )
+
+    history.record(job)
+
+    assert history.events_for("job-1") == [
+        {"seq": 0, "event": "phase", "phase": "loading"}
+    ]
+
+
+def test_history_keeps_only_the_last_events(tmp_path):
+    """A long run emits thousands of progress events. The tail is what
+    explains an outcome; the head is step-by-step noise."""
+    from dw.server.jobs import JobHistory, MAX_PERSISTED_EVENTS
+
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    events = [{"seq": i, "event": "log", "message": f"line {i}"} for i in range(500)]
+    history.record(_finished_job_with_events("job-1", events))
+
+    stored = history.events_for("job-1")
+
+    assert len(stored) == MAX_PERSISTED_EVENTS
+    assert stored[-1]["seq"] == 499, "the tail, not the head, is what is kept"
+
+
+def test_events_for_is_empty_for_a_job_recorded_before_this_change(tmp_path):
+    """An existing install's sqlite file has rows with no events column
+    value. They must read as 'nothing stored', not crash."""
+    import sqlite3
+
+    from dw.server.jobs import JobHistory
+
+    db = tmp_path / "jobs.sqlite"
+    history = JobHistory(db)
+    history.record(_finished_job_with_events("job-1", [{"seq": 0}]))
+    with sqlite3.connect(db) as connection:
+        connection.execute("UPDATE jobs SET events = NULL WHERE id = 'job-1'")
+
+    assert history.events_for("job-1") == []
+
+
+def test_events_for_is_none_for_an_unknown_job(tmp_path):
+    from dw.server.jobs import JobHistory
+
+    assert JobHistory(tmp_path / "jobs.sqlite").events_for("ghost") is None
+
+
+def test_an_existing_database_without_the_events_column_migrates(tmp_path):
+    """Opening a pre-change database must add the column, not fail and not
+    lose the rows already in it."""
+    import sqlite3
+
+    from dw.server.jobs import JobHistory
+
+    db = tmp_path / "jobs.sqlite"
+    with sqlite3.connect(db) as connection:
+        connection.execute("""CREATE TABLE jobs (
+                id TEXT PRIMARY KEY, workflow TEXT, status TEXT,
+                created_at REAL, started_at REAL, finished_at REAL,
+                arguments TEXT, spec TEXT, manifest TEXT, warnings TEXT,
+                error TEXT
+            )""")
+        connection.execute(
+            "INSERT INTO jobs VALUES ('old',?,?,?,?,?,?,?,?,?,?)",
+            ("w", "complete", 1.0, 1.0, 2.0, "{}", "{}", "[]", "[]", None),
+        )
+
+    history = JobHistory(db)
+
+    assert history.get("old")["status"] == "complete"
+    assert history.events_for("old") == []
+
+
+def test_recording_still_writes_every_other_column(tmp_path):
+    """The insert is positional. Widening the table without naming columns
+    would shift every value - this pins the ones that would move."""
+    from dw.server.jobs import JobHistory
+
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    history.record(_finished_job_with_events("job-1", [{"seq": 0}]))
+
+    detail = history.get("job-1")
+
+    assert detail["id"] == "job-1"
+    assert detail["status"] == "complete"
+    assert detail["workflow"] == "w"
+    assert detail["error"] is None
+
+
+def _finished_job_with_events(job_id, events):
+    """A minimal stand-in for a finished Job: JobHistory.record reads plain
+    attributes, so a real worker run is not needed to test persistence."""
+
+    class FinishedJob:
+        id = job_id
+        workflow_name = "w"
+        status = "complete"
+        created_at = 1.0
+        started_at = 1.0
+        finished_at = 2.0
+        manifest = []
+        warnings = []
+        error = None
+        spec = {"arguments": {}, "workflow_path": "w.json"}
+
+    job = FinishedJob()
+    job.events = events
+    return job
