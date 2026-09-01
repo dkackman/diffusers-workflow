@@ -258,6 +258,88 @@ class TestStep:
         assert "model_name" not in result.metadata
         assert result.metadata["step_name"] == "anon_step"
 
+    def test_embed_metadata_realizes_previous_result_prompt(self):
+        """A prompt built from a previous step is embedded as the text it became"""
+        step_def = {
+            "name": "generate",
+            "pipeline": {
+                "from_pretrained_arguments": {"model_name": "org/model"},
+                "arguments": {
+                    "prompt": "previous_result:expand",
+                    "num_inference_steps": 25,
+                },
+            },
+            "result": {"embed_metadata": True},
+        }
+        step = Step(step_def, default_seed=42)
+
+        mock_action = Mock()
+        mock_action.name = "mock_action"
+        mock_action.argument_template = {
+            "prompt": "previous_result:expand",
+            "num_inference_steps": 25,
+        }
+        mock_action.run = Mock(return_value="img.png")
+
+        expand = Result({})
+        expand.add_result("a cat, expanded at length")
+
+        result = step.run({"expand": expand}, {}, mock_action)
+
+        assert result.metadata["arguments"]["prompt"] == "a cat, expanded at length"
+        assert result.metadata["arguments"]["num_inference_steps"] == 25
+
+    def test_embed_metadata_keeps_every_realized_prompt(self):
+        """Iterations that disagree embed all their values rather than one"""
+        step_def = {
+            "name": "generate",
+            "pipeline": {
+                "from_pretrained_arguments": {},
+                "arguments": {"prompt": "previous_result:expand"},
+            },
+            "result": {"embed_metadata": True},
+        }
+        step = Step(step_def, default_seed=42)
+
+        mock_action = Mock()
+        mock_action.name = "mock_action"
+        mock_action.argument_template = {"prompt": "previous_result:expand"}
+        mock_action.run = Mock(return_value="img.png")
+
+        expand = Result({})
+        expand.add_result(["first prompt", "second prompt"])
+
+        result = step.run({"expand": expand}, {}, mock_action)
+
+        assert result.metadata["arguments"]["prompt"] == [
+            "first prompt",
+            "second prompt",
+        ]
+
+    def test_embed_metadata_leaves_media_arguments_as_references(self):
+        """A realized image is not JSON - the reference stays in the metadata"""
+        step_def = {
+            "name": "generate",
+            "pipeline": {
+                "from_pretrained_arguments": {},
+                "arguments": {"image": "previous_result:images"},
+            },
+            "result": {"embed_metadata": True},
+        }
+        step = Step(step_def, default_seed=42)
+
+        mock_action = Mock()
+        mock_action.name = "mock_action"
+        mock_action.argument_template = {"image": "previous_result:images"}
+        mock_action.run = Mock(return_value="img.png")
+
+        images = Result({})
+        images.add_result([object(), object()])
+
+        result = step.run({"images": images}, {}, mock_action)
+
+        assert result.metadata["arguments"]["image"] == "previous_result:images"
+
     def test_embed_metadata_shared_across_all_iterations(self):
         """With embed_metadata=True and multiple iterations the single Result carries metadata"""
         step_def = {

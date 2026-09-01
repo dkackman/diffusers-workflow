@@ -8,6 +8,7 @@ import pytest
 
 from dw.pipeline_processors.pipeline import (
     Pipeline,
+    warn_if_safety_checker_blanked,
     configure_components,
     declared_component_names,
     enable_cache_on_transformer,
@@ -449,3 +450,34 @@ class TestDefinitionIsNotMutatedByLoading:
 
         assert arguments["text_encoder"] is None
         assert "text_encoder" not in definition["from_pretrained_arguments"]
+
+
+class TestSafetyCheckerWarning:
+    """A blanked image looks like a repeated result - it has to say so."""
+
+    def test_warns_when_the_safety_checker_blanked_an_image(self, caplog):
+        output = MagicMock()
+        output.nsfw_content_detected = [False, True]
+
+        with caplog.at_level("WARNING", logger="dw"):
+            warn_if_safety_checker_blanked(output)
+
+        assert "safety checker" in caplog.text.lower()
+        assert "1 of 2" in caplog.text
+
+    def test_silent_when_nothing_was_flagged(self, caplog):
+        output = MagicMock()
+        output.nsfw_content_detected = [False, False]
+
+        with caplog.at_level("WARNING", logger="dw"):
+            warn_if_safety_checker_blanked(output)
+
+        assert caplog.text == ""
+
+    def test_silent_for_a_pipeline_without_a_safety_checker(self, caplog):
+        output = MagicMock(spec=[])
+
+        with caplog.at_level("WARNING", logger="dw"):
+            warn_if_safety_checker_blanked(output)
+
+        assert caplog.text == ""
