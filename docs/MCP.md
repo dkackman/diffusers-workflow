@@ -14,13 +14,17 @@ is not running, every tool fails with a message telling you to start it.
 
 ```bash
 pip install -e ".[server,mcp]"
-
-# terminal 1
-dw-serve
-
-# terminal 2 (or your MCP client's configured command)
-dw-mcp
 ```
+
+The MCP server needs a running `dw.serve`, so two processes are involved:
+
+```bash
+# terminal 1 - the engine. Leave it running.
+dw-serve
+```
+
+You do not start `dw-mcp` yourself. Your MCP client launches it on demand,
+which is why the client needs a command it can actually find (see below).
 
 `dw-mcp` (equivalently `python -m dw.mcp`) speaks MCP over stdio. Flags:
 
@@ -32,43 +36,121 @@ dw-mcp
 The `DW_MCP_URL` environment variable sets the same default the `--url` flag
 overrides.
 
+### Use the absolute path to `dw-mcp`
+
+**This is the one setup detail that reliably goes wrong.** If you installed
+the way `install.sh` does, `dw-mcp` lives in the project's virtualenv and is
+only on `PATH` while that venv is activated. Your MCP client is launched by
+your shell, your desktop app, or your editor — usually *without* the venv
+activated — so a bare `dw-mcp` fails to spawn:
+
+```
+Failed to reconnect to dw: ENOENT
+```
+
+Registering it once from an activated terminal hides this: that session
+works, and the next one, started somewhere else, does not.
+
+Always register the venv's absolute path. Console scripts have the
+interpreter baked into their shebang, so they run correctly with no venv
+activated — which is exactly why the absolute path is more robust than
+telling people to activate first:
+
+```bash
+echo "$(pwd)/venv/bin/dw-mcp"    # the value to register
+```
+
 ## Client configuration
 
-Both Claude Code and Claude Desktop take an `mcpServers` block naming the
-launch command. Point it at `dw-mcp` (or `python -m dw.mcp` if you have not
-installed the console script).
+### Claude Code
 
-**Claude Code** — `.mcp.json` in the project root:
+The CLI is the shortest path. From the project directory:
+
+```bash
+claude mcp add dw -- "$(pwd)/venv/bin/dw-mcp"
+```
+
+`--` separates Claude Code's own flags from the command it will spawn. Add
+subprocess flags after it:
+
+```bash
+claude mcp add dw -- "$(pwd)/venv/bin/dw-mcp" --url http://127.0.0.1:8791
+```
+
+Pick the scope deliberately with `-s`:
+
+| Scope | Stored in | Use when |
+| --- | --- | --- |
+| `local` (default) | `~/.claude.json`, keyed to this project | Just you, just this checkout |
+| `user` | `~/.claude.json`, global | You want it in every project. The absolute path makes this work |
+| `project` | `.mcp.json`, **committed to the repo** | You intend every clone to get it. Note an absolute path is machine-specific and will not port |
+
+Equivalent hand-written `.mcp.json`, if you prefer a file:
 
 ```json
 {
   "mcpServers": {
-    "diffusers-workflow": {
-      "command": "dw-mcp",
+    "dw": {
+      "command": "/absolute/path/to/venv/bin/dw-mcp",
       "args": ["--url", "http://127.0.0.1:8765"]
     }
   }
 }
 ```
 
-**Claude Desktop** — `claude_desktop_config.json`:
+**A running session does not pick up a registration change** - start a new
+one after adding or editing the server.
+
+### Claude Desktop
+
+`claude_desktop_config.json`, same shape - and the same absolute-path rule,
+which matters more here because a desktop app never inherits a shell's
+`PATH`:
 
 ```json
 {
   "mcpServers": {
-    "diffusers-workflow": {
-      "command": "dw-mcp",
+    "dw": {
+      "command": "/absolute/path/to/venv/bin/dw-mcp",
       "args": []
     }
   }
 }
 ```
 
-If `dw-mcp` is not on the launching process's `PATH` (for example, it is
-installed in a virtualenv), use the venv's absolute path as `command`, e.g.
-`/path/to/venv/bin/dw-mcp`. `DW_MCP_URL` can be set instead of `--url` via
-an `"env"` object alongside `"command"`/`"args"` in either config, if your
-client and `dw.serve` are not both on the default port.
+`DW_MCP_URL` can be set instead of `--url` via an `"env"` object alongside
+`"command"`/`"args"` in either config.
+
+## Verify the setup
+
+Three checks, in order. Each isolates a different failure, so run them in
+sequence rather than jumping to the last one.
+
+**1. The command launches without a venv.** This reproduces the environment
+your client actually spawns it in, and is the check that catches ENOENT:
+
+```bash
+env -i PATH=/usr/bin:/bin HOME="$HOME" /path/to/venv/bin/dw-mcp --help
+```
+
+Prints usage and exits 0. If it does not, the path is wrong or the package
+is not installed into that venv.
+
+**2. The client sees the server.** Start a new Claude Code session and run
+`/mcp`; `dw` should be listed and connected. From the shell,
+`claude mcp list` and `claude mcp get dw` show the same thing.
+
+Note that a "connected" status only means the process launched - it says
+nothing about whether `dw.serve` is reachable.
+
+**3. The tools reach the engine.** With `dw-serve` running, ask the client
+something free, such as "list my diffusers workflows" (`list_workflows`) or
+"check the diffusers-workflow server health" (`get_health`). A real answer
+means the whole chain works. "Cannot reach diffusers-workflow at ..." means
+step 3 failed while steps 1 and 2 passed - the client is fine and the engine
+is not running.
+
+Nothing in this sequence costs GPU time.
 
 ## Tool reference
 
@@ -175,6 +257,10 @@ way you would treat opening the web UI to the network: don't.
 
 | Symptom | Likely cause |
 | --- | --- |
+| `Failed to reconnect to dw: ENOENT` (or the client cannot start the server) | The client cannot find the command. Register the venv's **absolute** path to `dw-mcp`, not the bare name - see [Use the absolute path](#use-the-absolute-path-to-dw-mcp). A bare name works only when the client was launched from an activated venv, so this often appears in a second terminal after the first one worked |
+| The server shows connected, but every tool fails | "Connected" means the `dw-mcp` process launched, not that the engine is reachable. Check `dw.serve` is running |
 | "Cannot reach diffusers-workflow at …" | `dw.serve` is not running. Start it with `dw-serve` (or `python -m dw.serve`) and try again |
+| A config change seems to have no effect | A running session holds the old config. Start a new session |
+| It worked, then broke after rebuilding the venv | Re-run `pip install -e ".[server,mcp]"`. If the repo moved or was renamed, re-register the server with the new absolute path |
 | A tool call times out | Usually a model loading into VRAM/RAM for the first time; retry, or raise `--timeout` |
 | `run_workflow` or `rerun_job` refuses with a cost message | Not an error — it is the `acknowledged_cost` gate. Confirm with the user and call again with `acknowledged_cost=true` |
