@@ -49,6 +49,12 @@ Around 57 files and 1,500+ tests as of this writing (`pytest tests/ --collect-on
 | test_prompt_weighting.py, test_teacache.py | Prompt weighting device handling, TeaCache forward guard |
 | test_argument_updates.py | Cached pipelines pick up fresh arguments across runs |
 | test_examples.py | Validates every workflow in `workflows/` against the schema |
+| test_mcp_client.py, test_mcp_catalog.py, test_mcp_authoring.py, test_mcp_diagnose.py, test_mcp_media.py, test_mcp_server.py | MCP tool surface |
+
+The MCP tests fake the REST API with `httpx.MockTransport` — they never
+start a `dw.serve` process and never touch a GPU. `test_mcp_server.py`
+(which builds a real `MCPServer` and calls tools through it) skips with
+`pytest.importorskip("mcp", ...)` when the `mcp` extra is not installed.
 
 ## conftest.py
 
