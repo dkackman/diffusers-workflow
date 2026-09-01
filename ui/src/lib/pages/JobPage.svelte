@@ -3,6 +3,7 @@
   import { api, streamJobEvents } from '../api'
   import { go } from '../router.svelte'
   import { groupResultFiles } from '../results'
+  import { stepProgress } from '../progress'
   import type { JobDetail, JobEvent } from '../types'
 
   let { jobId }: { jobId: string } = $props()
@@ -77,10 +78,9 @@
       events.filter((e) => e.event === 'step_end').map((e) => e.step as string),
     ),
   )
-  const denoise = $derived(
-    [...events].reverse().find((e) => e.event === 'pipeline_step') as
-      { step: number; total_steps: number | null } | undefined,
-  )
+  // Scoped to the step now running: its phase, and its own denoise counter
+  const progress = $derived(stepProgress(events as JobEvent[]))
+  const denoise = $derived(progress.denoise)
   const logs = $derived(
     events.filter((e) => e.event === 'log').map((e) => e.message as string),
   )
@@ -172,21 +172,30 @@
           <span class:muted={step !== currentStep && !finishedSteps.has(step)}
             >{step}</span
           >
-          {#if step === currentStep && running && denoise}
-            <div class="bar">
-              <div
-                class="fill"
-                style:width={denoise.total_steps
-                  ? (100 * denoise.step) / denoise.total_steps + '%'
-                  : '100%'}
-              ></div>
-            </div>
-            <span class="muted count">
-              {denoise.step}{denoise.total_steps
-                ? ` / ${denoise.total_steps}`
-                : ''}
-              {#if etaSeconds !== null}· ~{etaSeconds}s left{/if}
-            </span>
+          {#if step === currentStep && running}
+            {#if denoise}
+              <div class="bar">
+                <div
+                  class="fill"
+                  style:width={denoise.total_steps
+                    ? (100 * denoise.step) / denoise.total_steps + '%'
+                    : '100%'}
+                ></div>
+              </div>
+              <span class="muted count">
+                {denoise.step}{denoise.total_steps
+                  ? ` / ${denoise.total_steps}`
+                  : ''}
+                {#if etaSeconds !== null}· ~{etaSeconds}s left{/if}
+              </span>
+            {/if}
+            <!-- The counter tells the generating story on its own; every
+                 other phase is time the bar cannot account for -->
+            {#if progress.label && (!denoise || progress.phase !== 'generating')}
+              <span class="muted phase" title="what this step is doing now"
+                >{progress.label}</span
+              >
+            {/if}
           {/if}
         </div>
       {/each}
@@ -253,6 +262,12 @@
   }
   .seed {
     font-size: 0.78rem;
+  }
+  .phase {
+    font-size: 0.82rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .panel {
     margin-bottom: 1rem;

@@ -76,3 +76,20 @@ def activate_context(context):
 
 def deactivate_context(token):
     _active_context.reset(token)
+
+
+# The coarse states a run passes through. Small on purpose: a phase says what
+# the run is waiting on, not what any one library is doing internally
+PHASES = ("loading", "cached", "generating", "decoding", "saving", "task")
+
+
+def emit_phase(phase, detail=None):
+    """Report a coarse phase change on the active run.
+
+    A step spends most of its wall clock outside the denoise loop - pulling
+    weights, decoding latents, encoding video - and a step counter says
+    nothing about any of that. These are the rest of the story. They are rare
+    enough (a handful per step) to carry a free-text detail alongside, which
+    is what makes 'loading' readable as 'which model'.
+    """
+    get_context().emit("phase", phase=phase, detail=detail)

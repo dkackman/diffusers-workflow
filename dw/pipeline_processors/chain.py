@@ -326,6 +326,9 @@ def run_chain(pipeline, chain_definition, arguments):
             + (f": {segment.num_frames} frames" if segment.num_frames else "")
         )
 
+        # The denoise counter restarts for every segment - without this the
+        # bar rewinds to zero with nothing saying why
+        pipeline.segment_label = f"segment {segment.index + 1}/{len(config.plan)}"
         output = pipeline._run_once(segment_arguments)
         artifact = _single_artifact(output)
 
@@ -354,6 +357,8 @@ def run_chain(pipeline, chain_definition, arguments):
         del output, artifact, segment_frames, segment_audio, kept_frames
         gc.collect()
         empty_device_cache()
+
+    pipeline.segment_label = None
 
     if spill is not None:
         # match_audio overshoots by design - the tail trim happens as the

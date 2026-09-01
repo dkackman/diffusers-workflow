@@ -9,6 +9,7 @@ import logging
 from .arguments import realize_args, realize_constants
 from .events import (
     RunContext,
+    emit_phase,
     WorkflowCancelled,
     get_context,
     current_context,
@@ -459,6 +460,9 @@ class Workflow:
                         )
                     )
 
+                # A cache hit and a cold load look identical from the outside -
+                # same step, same dot - and they differ by minutes
+                emit_phase("cached", detail=new_pipeline_wrapper.name)
                 return new_pipeline_wrapper
 
             # Not in cache - a redefined step frees its previous model first,
@@ -481,6 +485,9 @@ class Workflow:
                 output_dir=self.output_dir,
                 file_prefix=self.step_file_prefix(step_name),
             )
+            # Loading is the longest silence in a run: weights, quantization,
+            # adapters and placement all happen inside this call
+            emit_phase("loading", detail=pipeline.name)
             pipeline.load(shared_components)
             previous_pipelines[cache_key] = pipeline
             return pipeline

@@ -12,6 +12,7 @@
   } from '@lucide/svelte'
   import { api, fetchOutputText, streamJobEvents } from '../api'
   import { go } from '../router.svelte'
+  import { phaseLabel } from '../progress'
   import { notify } from '../toast'
   import { loadPromptLibrary } from '../promptlib.svelte'
   import {
@@ -185,7 +186,10 @@
         -1,
         (event) => {
           if (event.event === 'log') enhanceStatus = String(event.message)
-          else if (event.event === 'step_start') enhanceStatus = 'generating…'
+          // The enhancer is one task step - its phase is the whole story,
+          // and 'loading' is most of the wait on a cold model
+          else if (event.event === 'phase')
+            enhanceStatus = phaseLabel(event) + '…'
           else if (event.event === 'job_status')
             enhanceStatus = String(event.status)
         },
