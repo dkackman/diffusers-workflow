@@ -14,6 +14,7 @@ A declarative workflow engine and web UI for the [Hugging Face Diffusers library
 ## Features
 
 - **Web UI** — browse and run workflows, edit them in introspection-driven forms, watch jobs stream live progress, manage generated output and the models on disk. `python -m dw.serve` and open a browser. See [Server & Web UI](docs/SERVER.md).
+- **MCP server** — a stdio server that lets an MCP client (Claude Code first) author, validate, save, run and diagnose workflows against a running `dw.serve`. `dw-mcp`. See [MCP Server](docs/MCP.md).
 - **Declarative JSON workflows** with variable substitution and cross-step data flow
 - **Multi-step pipelines** — chain text-to-image, image-to-video, inpainting, ControlNet
 - **Reproducible by construction** — outputs embed their full workflow definition and seed; any image in the gallery reopens as the exact workflow that made it
@@ -252,6 +253,7 @@ See [workflows/](workflows/) for more workflow files.
 ### Guides
 
 - [Server & Web UI](docs/SERVER.md) — The web UI, jobs API, and introspection service
+- [MCP Server](docs/MCP.md) — Tool surface for MCP clients (Claude Code, Claude Desktop)
 - [Workflow Guide](docs/WORKFLOW_GUIDE.md) — JSON structure, variables, steps, data flow
 - [Quantization](docs/QUANTIZATION.md) — BitsAndBytes, TorchAO, GGUF, SDNQ
 - [Inference Acceleration](docs/ACCELERATION.md) — torch.compile, FirstBlockCache, MagCache, TaylorSeer, TeaCache

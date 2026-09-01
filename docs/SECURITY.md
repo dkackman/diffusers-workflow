@@ -39,6 +39,14 @@ diffusers-workflow validates all file paths, user inputs, and URLs to protect ag
 | `result.py` | Output directories and filenames |
 | `server/app.py`, `server/jobs.py` | Every HTTP-supplied path — workflow files confined to the workflow directory, gallery files to the output directory, inline-workflow `base_dir`, `Origin`-header guard on every request |
 
+## MCP Server
+
+`dw/mcp/` introduces no new file access and no authentication of its own. It
+is an HTTP client of a running `dw.serve`: every path a tool touches (a
+workflow name, a gallery file, a job id) is sent to the REST API as-is and
+validated there, exactly as it would be for a browser request from the web
+UI. Localhost only — see [MCP Server](MCP.md#security).
+
 ## Exception Hierarchy
 
 ```text
