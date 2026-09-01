@@ -49,6 +49,14 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
 
 DESTRUCTIVE_TOOLS = {"save_workflow", "delete_workflow"}
 
+# a real 1x1 PNG, so the image handler can actually decode it
+PNG_1X1 = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+    b"\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01"
+    b"\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
 
 def server_over(handler):
     client = DwClient(transport=httpx.MockTransport(handler))
@@ -181,15 +189,10 @@ async def test_an_unreachable_server_reports_how_to_start_it():
 
 @pytest.mark.asyncio
 async def test_an_image_comes_back_as_an_image_block():
-    png = (
-        b"\x89PNG\r\n\x1a\n"  # a real 1x1 PNG, so the handler can open it
-        b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
-        b"\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01"
-        b"\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
-    )
-
     def serving_png(request):
-        return httpx.Response(200, content=png, headers={"content-type": "image/png"})
+        return httpx.Response(
+            200, content=PNG_1X1, headers={"content-type": "image/png"}
+        )
 
     server = server_over(serving_png)
 
@@ -199,3 +202,142 @@ async def test_an_image_comes_back_as_an_image_block():
     assert block.type == "image"
     assert block.mime_type.startswith("image/")
     assert block.data
+
+
+# Every tool, the arguments a client would send, and the one API call it is
+# expected to make. This is the wiring: a tool bound to the wrong handler or
+# handed its arguments in the wrong order shows up here and nowhere else.
+TOOL_WIRING = [
+    ("list_workflows", {}, "GET", "/api/workflows"),
+    ("get_workflow", {"name": "w"}, "GET", "/api/workflows/w"),
+    ("get_schema", {}, "GET", "/api/schema"),
+    ("list_pipelines", {}, "GET", "/api/pipelines"),
+    (
+        "get_pipeline_signature",
+        {"name": "FluxPipeline"},
+        "GET",
+        "/api/pipelines/FluxPipeline",
+    ),
+    ("list_classes", {"kind": "models"}, "GET", "/api/classes"),
+    (
+        "get_class",
+        {"name": "FluxTransformer2DModel"},
+        "GET",
+        "/api/classes/FluxTransformer2DModel",
+    ),
+    ("list_tasks", {}, "GET", "/api/tasks"),
+    ("get_task", {"command": "resize"}, "GET", "/api/tasks/resize"),
+    ("list_models", {}, "GET", "/api/models"),
+    ("get_memory", {}, "GET", "/api/memory"),
+    ("get_health", {}, "GET", "/api/health"),
+    ("list_jobs", {}, "GET", "/api/jobs"),
+    ("list_gallery", {"limit": 5}, "GET", "/api/gallery"),
+    (
+        "get_gallery_metadata",
+        {"name": "out.png"},
+        "GET",
+        "/api/gallery/out.png/metadata",
+    ),
+    ("get_output_image", {"name": "out.png"}, "GET", "/outputs/out.png"),
+    ("validate_workflow", {"workflow": {"id": "w"}}, "POST", "/api/validate"),
+    (
+        "save_workflow",
+        {"name": "w", "workflow": {"id": "w"}},
+        "PUT",
+        "/api/workflows/w",
+    ),
+    ("delete_workflow", {"name": "w"}, "DELETE", "/api/workflows/w"),
+    (
+        "run_workflow",
+        {"workflow_path": "w.json", "acknowledged_cost": True},
+        "POST",
+        "/api/jobs",
+    ),
+    ("get_job", {"job_id": "j1"}, "GET", "/api/jobs/j1"),
+    ("get_job_events", {"job_id": "j1"}, "GET", "/api/jobs/j1/event-log"),
+    ("cancel_job", {"job_id": "j1"}, "POST", "/api/jobs/j1/cancel"),
+    ("rerun_job", {"job_id": "j1"}, "POST", "/api/jobs/j1/rerun"),
+    ("move_job", {"job_id": "j1", "direction": "up"}, "POST", "/api/jobs/j1/move"),
+]
+
+
+def test_the_wiring_table_covers_every_registered_tool():
+    assert {name for name, _, _, _ in TOOL_WIRING} == EXPECTED_TOOLS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name,arguments,method,path", TOOL_WIRING)
+async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
+    seen = []
+
+    def handler(request):
+        seen.append((request.method, request.url.path))
+        if request.url.path.startswith("/outputs/"):
+            return httpx.Response(
+                200, content=PNG_1X1, headers={"content-type": "image/png"}
+            )
+        return httpx.Response(200, json={"id": "j1", "status": "queued"})
+
+    result = await server_over(handler).call_tool(name, arguments)
+
+    assert seen == [(method, path)]
+    assert result.content
+
+
+class RecordingServer:
+    def __init__(self):
+        self.transport = None
+        self.raises = None
+
+    def run(self, transport=None):
+        self.transport = transport
+        if self.raises is not None:
+            raise self.raises
+
+
+def entry_point_over(monkeypatch, server):
+    """`main` with the real client construction but a stub server."""
+    from dw.mcp import __main__ as entry
+
+    built = {}
+
+    def build(client):
+        built["client"] = client
+        return server
+
+    monkeypatch.setattr(entry, "build_server", build)
+    return entry, built
+
+
+def test_the_entry_point_serves_over_stdio(monkeypatch):
+    monkeypatch.delenv("DW_MCP_URL", raising=False)
+    server = RecordingServer()
+    entry, built = entry_point_over(monkeypatch, server)
+
+    assert entry.main([]) == 0
+
+    assert server.transport == "stdio"
+    assert built["client"].base_url == "http://127.0.0.1:8765"
+    assert built["client"].timeout == 30.0
+
+
+def test_the_entry_point_takes_a_url_and_a_timeout(monkeypatch):
+    server = RecordingServer()
+    entry, built = entry_point_over(monkeypatch, server)
+
+    entry.main(["--url", "http://127.0.0.1:9000/", "--timeout", "5"])
+
+    assert built["client"].base_url == "http://127.0.0.1:9000"
+    assert built["client"].timeout == 5.0
+
+
+def test_the_entry_point_closes_the_client_when_serving_fails(monkeypatch):
+    """The connection is released on the way out, however the loop ends."""
+    server = RecordingServer()
+    server.raises = KeyboardInterrupt()
+    entry, built = entry_point_over(monkeypatch, server)
+
+    with pytest.raises(KeyboardInterrupt):
+        entry.main([])
+
+    assert built["client"]._http.is_closed

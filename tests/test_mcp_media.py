@@ -146,3 +146,26 @@ def test_the_name_is_url_quoted_in_the_request():
 
     assert "%23" in seen["raw_path"]
     assert seen["path"] == "/outputs/a b#1.png"
+
+
+def test_bytes_that_are_not_a_decodable_image_are_refused():
+    """A truncated or corrupt file is served with an image content type like
+    any other - only the decode tells us it is unusable."""
+    client = serving(b"\x89PNG\r\n\x1a\ntruncated", "image/png")
+
+    with pytest.raises(DwApiError) as caught:
+        get_output_image(client, "broken.png")
+
+    assert "could not be decoded" in str(caught.value)
+
+
+def test_a_jpeg_in_an_unencodable_mode_is_converted_before_re_encoding():
+    """A CMYK JPEG cannot be re-saved as JPEG without a conversion first."""
+    buffer = io.BytesIO()
+    Image.new("CMYK", (200, 100)).save(buffer, format="JPEG")
+    client = serving(buffer.getvalue(), "image/jpeg")
+
+    result = get_output_image(client, "cmyk.jpg", max_dimension=64)
+
+    assert result["mime_type"] == "image/jpeg"
+    assert decoded(result).mode == "RGB"
