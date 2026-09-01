@@ -5,7 +5,7 @@ A fourth way to drive the engine, alongside `dw.run`, `dw.repl`, and
 an MCP client — Claude Code first — author, validate, save, run and diagnose
 workflows without shell access or a repo checkout.
 
-`dw/mcp/` is an HTTP client of a **running** `dw.serve`. It owns no job
+`dw_mcp/` is an HTTP client of a **running** `dw.serve`. It owns no job
 state and no GPU worker of its own; every tool call is a REST request
 against the server described in [Server & Web UI](SERVER.md). If `dw.serve`
 is not running, every tool fails with a message telling you to start it.
@@ -26,7 +26,7 @@ dw-serve
 You do not start `dw-mcp` yourself. Your MCP client launches it on demand,
 which is why the client needs a command it can actually find (see below).
 
-`dw-mcp` (equivalently `python -m dw.mcp`) speaks MCP over stdio. Flags:
+`dw-mcp` (equivalently `python -m dw_mcp`) speaks MCP over stdio. Flags:
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
@@ -155,7 +155,7 @@ Nothing in this sequence costs GPU time.
 ## Tool reference
 
 25 tools in four groups. Names and arguments below are generated from
-`dw/mcp/server.py` — nothing here is renamed or reshaped for the docs.
+`dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
 
@@ -232,7 +232,7 @@ The MCP server adds no authentication of its own — it inherits the REST
 API's posture exactly, described in full in [Security](SECURITY.md):
 localhost binding, no auth, `Origin` header checks, and path confinement in
 `dw/security.py` for every workflow, gallery and prompt path a tool touches.
-Nothing under `dw/mcp/` re-implements or loosens that confinement; it is
+Nothing under `dw_mcp/` re-implements or loosens that confinement; it is
 purely a client of the same validated endpoints the web UI uses.
 
 Because it adds no authentication, `dw-mcp` must not be pointed at a

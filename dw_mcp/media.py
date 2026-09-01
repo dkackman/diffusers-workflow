@@ -11,7 +11,7 @@ import io
 
 from PIL import Image
 
-from dw.mcp.client import DwApiError, path_segment
+from dw_mcp.client import DwApiError, path_segment
 
 # Roughly 4MB of encoded image. Past this the payload crowds out the
 # conversation it is supposed to inform

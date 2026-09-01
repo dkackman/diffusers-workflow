@@ -3,7 +3,7 @@ time. Each is a pass-through - the API's shapes are already the ones the
 web UI consumes, and reshaping them here would only add a second thing to
 keep in sync."""
 
-from dw.mcp.client import path_segment
+from dw_mcp.client import path_segment
 
 
 def list_workflows(client):

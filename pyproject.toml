@@ -109,7 +109,7 @@ dw-validate = "dw.validate:main"
 dw-repl = "dw.repl:main"
 dw-serve = "dw.serve:main"
 dw-test = "dw.test:main"
-dw-mcp = "dw.mcp.__main__:main"
+dw-mcp = "dw_mcp.__main__:main"
 
 [tool.setuptools.packages.find]
 # tasks/, pipeline_processors/ and community_pipelines/ are namespace

@@ -11,8 +11,8 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, ToolAnnotations
 
-from dw.mcp import authoring, catalog, diagnose, media
-from dw.mcp.client import DwApiError
+from dw_mcp import authoring, catalog, diagnose, media
+from dw_mcp.client import DwApiError
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 WRITES = ToolAnnotations(read_only_hint=False, open_world_hint=False)

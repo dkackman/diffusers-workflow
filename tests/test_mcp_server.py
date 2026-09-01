@@ -7,8 +7,8 @@ import pytest
 
 pytest.importorskip("mcp", reason="the mcp extra is not installed")
 
-from dw.mcp.client import DwClient  # noqa: E402
-from dw.mcp.server import build_server  # noqa: E402
+from dw_mcp.client import DwClient  # noqa: E402
+from dw_mcp.server import build_server  # noqa: E402
 
 EXPECTED_TOOLS = {
     "list_workflows",
@@ -302,7 +302,7 @@ class RecordingServer:
 
 def entry_point_over(monkeypatch, server):
     """`main` with the real client construction but a stub server."""
-    from dw.mcp import __main__ as entry
+    from dw_mcp import __main__ as entry
 
     built = {}
 
@@ -437,3 +437,34 @@ async def test_rerun_job_refuses_without_acknowledgement_and_sends_nothing():
 
     assert "acknowledged_cost" in str(caught.value)
     assert seen == []
+
+
+class TestStartupWeight:
+    def test_the_server_starts_without_importing_the_engine(self):
+        """`dw_mcp` is a top-level package rather than `dw.mcp` precisely so
+        that starting it does not drag in torch and diffusers: it is an HTTP
+        client of a server that owns the models, and needs none of them.
+
+        Importing any `dw.*` submodule runs `dw/__init__.py`, which imports
+        torch - so a single convenience import from the engine would quietly
+        put ~1s of model-framework startup back into every client session.
+        This asserts the boundary rather than the timing, which is the part
+        a future edit can actually break.
+        """
+        import subprocess
+        import sys
+
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; import dw_mcp.server; "
+                "print(','.join(m for m in ('torch', 'diffusers', 'dw') "
+                "if m in sys.modules))",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        assert probe.stdout.strip() == ""

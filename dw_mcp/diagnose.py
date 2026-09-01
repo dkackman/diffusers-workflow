@@ -7,7 +7,7 @@ client will hold a tool call open, so submitting returns immediately and
 progress is polled from the event log.
 """
 
-from dw.mcp.client import DwApiError, path_segment
+from dw_mcp.client import DwApiError, path_segment
 
 COST_REFUSAL = (
     "Running a workflow occupies the GPU for minutes and the engine runs one "

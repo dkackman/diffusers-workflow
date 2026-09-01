@@ -69,8 +69,9 @@ subscription.
 
 ## Topology
 
-`dw/mcp/` is a **stdio MCP server that is an HTTP client of a running
-`dw.serve`**. It owns no job state, no GPU, and no worker process; it
+`dw_mcp/` is a **stdio MCP server that is an HTTP client of a running
+`dw.serve`**. (It shipped as `dw/mcp/` and moved to a top-level package in
+F8, below.) It owns no job state, no GPU, and no worker process; it
 holds no state the REST API doesn't already hold. If `dw.serve` isn't
 reachable it fails with an instruction to start it, rather than starting
 one itself.
@@ -223,3 +224,18 @@ the wrong trade for the non-developer audience this is aimed at.)
 - **F7 — Remote/auth story.** Required before the embedded-in-app phase.
   Blocks any non-localhost exposure of either the REST API or the MCP
   server.
+- **F8 — The MCP server imported the whole engine.** *(Found during the v1
+  build; not part of the original scoping. Done 2026-09-01.)* The package
+  shipped as `dw/mcp/`, and importing any `dw.*` submodule runs
+  `dw/__init__.py`, which imports torch and diffusers — so a process that is
+  a pure HTTP client, owning no models, paid for the model framework at
+  startup. Measured: `import dw` 1.05s (1.40s cumulative) against 0.35s for
+  the client's own dependencies (`httpx`, `PIL`, `mcp`). Paid once per
+  client session, since a stdio server is spawned once and lives for the
+  session — a real but modest cost, which is why this is recorded with its
+  numbers rather than asserted as severe. Fixed by moving the package to a
+  top-level `dw_mcp/`, taking startup to 0.36s with torch never imported.
+  A regression guard in `tests/test_mcp_server.py` asserts the boundary
+  (`torch`, `diffusers` and `dw` absent from `sys.modules` after importing
+  `dw_mcp.server`), because the failure mode is one convenience import away
+  and is otherwise invisible.

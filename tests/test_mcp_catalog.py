@@ -4,8 +4,8 @@ route, the parameters, and that nothing is reshaped on the way back."""
 import httpx
 import pytest
 
-from dw.mcp import catalog
-from dw.mcp.client import DwApiError, DwClient
+from dw_mcp import catalog
+from dw_mcp.client import DwApiError, DwClient
 
 
 def recording_client(body=None, status=200):
