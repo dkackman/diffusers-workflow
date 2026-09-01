@@ -169,3 +169,22 @@ def test_a_jpeg_in_an_unencodable_mode_is_converted_before_re_encoding():
 
     assert result["mime_type"] == "image/jpeg"
     assert decoded(result).mode == "RGB"
+
+
+def test_a_dot_segment_name_survives_intact_onto_the_wire():
+    """httpx normalizes `..` out of a request path client-side, which would
+    escape the /outputs prefix entirely and skip the static mount's own
+    confinement. Quoting the separator keeps the literal bytes on the wire so
+    it is the server that refuses the name. Gallery names come from a listing
+    of one flat directory, so a legitimate one never contains '/'."""
+    seen = {}
+
+    def handler(request):
+        seen["raw_path"] = request.url.raw_path
+        return httpx.Response(
+            200, content=png_bytes(10, 10), headers={"content-type": "image/png"}
+        )
+
+    get_output_image(DwClient(transport=httpx.MockTransport(handler)), "../api/models")
+
+    assert seen["raw_path"] == b"/outputs/..%2Fapi%2Fmodels"

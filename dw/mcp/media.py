@@ -8,11 +8,10 @@ cost more context than the answer it is meant to support.
 
 import base64
 import io
-from urllib.parse import quote
 
 from PIL import Image
 
-from dw.mcp.client import DwApiError
+from dw.mcp.client import DwApiError, path_segment
 
 # Roughly 4MB of encoded image. Past this the payload crowds out the
 # conversation it is supposed to inform
@@ -23,7 +22,7 @@ MIN_DIMENSION = 64
 def get_output_image(client, name, max_dimension=768):
     """One image from the output directory, downscaled, as base64 plus the
     sizes it went in and came out at."""
-    body, content_type = client.get_bytes(f"/outputs/{quote(name)}")
+    body, content_type = client.get_bytes(f"/outputs/{path_segment(name)}")
     if content_type and not content_type.startswith("image/"):
         raise DwApiError(
             f"{name} is {content_type}, not an image - this tool returns "
