@@ -190,3 +190,59 @@ def test_close_releases_the_underlying_http_client():
     client.close()
 
     assert client._http.is_closed
+
+
+def test_a_connect_timeout_says_how_to_start_the_server():
+    """ConnectTimeout is a subclass of TimeoutException, so it must be caught
+    before TimeoutException to show the "cannot reach" message instead of the
+    "server may be busy" timeout message."""
+
+    def handler(request):
+        raise httpx.ConnectTimeout("connection timed out", request=request)
+
+    client = client_with(handler, base_url="http://127.0.0.1:8765")
+    with pytest.raises(DwApiError) as caught:
+        client.get_json("/api/health")
+
+    message = str(caught.value)
+    assert "Cannot reach" in message
+    assert "http://127.0.0.1:8765" in message
+    assert "dw-serve" in message
+
+
+def test_a_422_with_list_detail_formats_it_as_human_readable():
+    """FastAPI validation errors (422) have detail as a list of dicts.
+    Format each as 'field: message' instead of showing the Python repr."""
+
+    def handler(request):
+        return httpx.Response(
+            422,
+            json={
+                "detail": [
+                    {
+                        "loc": ["body", "model_name"],
+                        "msg": "Field required",
+                        "type": "value_error.missing",
+                    },
+                    {
+                        "loc": ["body", "num_steps"],
+                        "msg": "ensure this value is greater than 0",
+                        "type": "value_error.number.not_gt",
+                    },
+                ]
+            },
+        )
+
+    with pytest.raises(DwApiError) as caught:
+        client_with(handler).post_json("/api/validate", {})
+
+    message = str(caught.value)
+    # Should have readable field names, not Python repr
+    assert "model_name" in message
+    assert "num_steps" in message
+    # Should have the error messages
+    assert "Field required" in message
+    assert "ensure this value is greater than 0" in message
+    # Should not contain Python dict repr fragments
+    assert "[{" not in message
+    assert "'loc'" not in message
