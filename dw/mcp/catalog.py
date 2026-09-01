@@ -3,6 +3,8 @@ time. Each is a pass-through - the API's shapes are already the ones the
 web UI consumes, and reshaping them here would only add a second thing to
 keep in sync."""
 
+from dw.mcp.client import path_segment
+
 
 def list_workflows(client):
     """Workflow names in the server's workflow directory, with details."""
@@ -11,7 +13,7 @@ def list_workflows(client):
 
 def get_workflow(client, name):
     """One workflow's full JSON definition."""
-    return client.get_json(f"/api/workflows/{name}")
+    return client.get_json(f"/api/workflows/{path_segment(name)}")
 
 
 def get_schema(client):
@@ -26,7 +28,7 @@ def list_pipelines(client):
 
 def get_pipeline_signature(client, name):
     """A pipeline's real __call__ arguments - check before proposing a fix."""
-    return client.get_json(f"/api/pipelines/{name}")
+    return client.get_json(f"/api/pipelines/{path_segment(name)}")
 
 
 def list_classes(client, kind):
@@ -36,7 +38,9 @@ def list_classes(client, kind):
 
 def get_class(client, name, target="init"):
     """A class's argument schema. target: init, call, or load."""
-    return client.get_json(f"/api/classes/{name}", params={"target": target})
+    return client.get_json(
+        f"/api/classes/{path_segment(name)}", params={"target": target}
+    )
 
 
 def list_tasks(client):
@@ -46,7 +50,7 @@ def list_tasks(client):
 
 def get_task(client, command):
     """A task command's argument schema."""
-    return client.get_json(f"/api/tasks/{command}")
+    return client.get_json(f"/api/tasks/{path_segment(command)}")
 
 
 def list_models(client):
@@ -77,4 +81,4 @@ def list_gallery(client, limit=50):
 def get_gallery_metadata(client, name):
     """Metadata embedded in a saved file: the full workflow that made it,
     plus the job that produced it when history remembers one."""
-    return client.get_json(f"/api/gallery/{name}/metadata")
+    return client.get_json(f"/api/gallery/{path_segment(name)}/metadata")

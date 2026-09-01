@@ -97,3 +97,22 @@ def test_a_missing_workflow_propagates_the_api_error():
 
     with pytest.raises(DwApiError, match="ghost"):
         catalog.get_workflow(client, "ghost")
+
+
+def test_get_workflow_sends_the_name_percent_encoded_on_the_wire():
+    """httpx.URL.path decodes escapes back for display, so an unquoted and
+    a quoted request can look identical on `.path` - only the wire bytes
+    (`.raw_path`) tell them apart. A name with '..' has to survive intact
+    onto the wire so the server's own traversal check is what refuses it,
+    rather than httpx silently normalizing the dot-segment away first."""
+    seen = {}
+
+    def handler(request):
+        seen["raw_path"] = request.url.raw_path
+        return httpx.Response(200, json={})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    catalog.get_workflow(client, "../escape")
+
+    assert seen["raw_path"] == b"/api/workflows/..%2Fescape"
