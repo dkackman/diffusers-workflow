@@ -70,6 +70,49 @@ def test_get_bytes_returns_the_body_and_content_type():
     assert content_type == "image/png"
 
 
+def test_get_bytes_if_downloads_the_body_when_accepted():
+    def handler(request):
+        return httpx.Response(
+            200, content=b"\x89PNG", headers={"content-type": "image/png"}
+        )
+
+    body, content_type = client_with(handler).get_bytes_if(
+        "/outputs/a.png", lambda ct: ct.startswith("image/")
+    )
+
+    assert body == b"\x89PNG"
+    assert content_type == "image/png"
+
+
+def test_get_bytes_if_rejects_without_reading_the_body():
+    class TrackingStream(httpx.SyncByteStream):
+        def __init__(self, chunks):
+            self.chunks = chunks
+            self.iterated = False
+
+        def __iter__(self):
+            self.iterated = True
+            yield from self.chunks
+
+        def close(self):
+            pass
+
+    stream = TrackingStream([b"\x00\x00\x00\x18ftypmp42" * 1000])
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "video/mp4"}, stream=stream)
+
+    client = client_with(handler)
+
+    body, content_type = client.get_bytes_if(
+        "/outputs/clip.mp4", lambda ct: ct.startswith("image/")
+    )
+
+    assert body is None
+    assert content_type == "video/mp4"
+    assert stream.iterated is False
+
+
 def test_a_refused_connection_says_how_to_start_the_server():
     def handler(request):
         raise httpx.ConnectError("refused", request=request)

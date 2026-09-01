@@ -71,11 +71,46 @@ class DwClient:
         self._raise_for_status(response, path)
         return response.content, response.headers.get("content-type", "")
 
+    def get_bytes_if(self, path, accept_content_type):
+        """Like `get_bytes`, but the body is only downloaded when
+        `accept_content_type(content_type)` is true.
+
+        Headers arrive before the body over HTTP, so a rejection closes the
+        connection having read nothing past them - useful for `/outputs`,
+        where a rejected file (a video, say) can be arbitrarily large.
+        Returns `(None, content_type)` on rejection, `(body, content_type)`
+        on acceptance. An error status is still raised either way, since the
+        body has to be read to report it.
+        """
+        response = self._stream_request("GET", path)
+        try:
+            content_type = response.headers.get("content-type", "")
+            if response.status_code < 400 and not accept_content_type(content_type):
+                return None, content_type
+            response.read()
+            self._raise_for_status(response, path)
+            return response.content, content_type
+        finally:
+            response.close()
+
     # ------------------------------------------------------------ internals
 
     def _request(self, method, path, **kwargs):
+        return self._call_httpx(
+            lambda: self._http.request(method, path, **kwargs), path
+        )
+
+    def _stream_request(self, method, path, **kwargs):
+        return self._call_httpx(
+            lambda: self._http.send(
+                self._http.build_request(method, path, **kwargs), stream=True
+            ),
+            path,
+        )
+
+    def _call_httpx(self, send, path):
         try:
-            return self._http.request(method, path, **kwargs)
+            return send()
         except httpx.ConnectTimeout:
             raise DwApiError(
                 f"Cannot reach diffusers-workflow at {self.base_url}. "
