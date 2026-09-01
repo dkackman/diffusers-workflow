@@ -12,6 +12,7 @@ from diffusers.utils import (
     is_av_available,
 )
 from collections.abc import Mapping
+from .events import emit_phase
 from .security import validate_output_path, validate_string_input, SecurityError
 
 logger = logging.getLogger("dw")
@@ -251,6 +252,10 @@ class Result:
         logger.debug(
             f"Saving with content type: {content_type}, extension: {extension}"
         )
+
+        # Encoding a video here is minutes of work after the last denoise
+        # step, with the step's bar sitting full
+        emit_phase("saving", detail=content_type)
 
         # Save each result, collecting the paths written as the step's manifest
         saved_files = []

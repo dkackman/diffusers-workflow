@@ -35,7 +35,9 @@ load entirely.
   and deleting a prompt warns which workflows reference it.
 - **Jobs** — the queue and full run history (persisted in
   `~/.diffusers_helper/jobs.sqlite`). A running job streams step-by-step
-  progress, per-step denoising ticks, and its result files as they land.
+  progress, per-step denoising ticks, what each step is doing when it is not
+  denoising (loading a model, decoding, saving), and its result files as
+  they land.
   Jobs can be cancelled mid-denoise and re-run with one click.
 - **Editor** — build or modify workflows without writing JSON by hand.
   Forms are generated from the live pipeline signatures (see
@@ -78,6 +80,31 @@ load entirely.
 
 One job runs at a time (it is one GPU); submissions queue in order, and
 the waiting portion of the queue can be reordered.
+
+### Progress events
+
+Every event in the stream carries a `seq` and an `event` name:
+
+| event | when | payload |
+| --- | --- | --- |
+| `job_status` | queued/running/terminal transitions | `status` |
+| `log` | worker output lines | `message` |
+| `memory` | device memory after a run | `info` |
+| `workflow_start` | the run begins | `workflow`, `total_steps`, `steps`, `seed` |
+| `step_start` / `step_end` | each step | `step`, `index`, `total_steps`; `files` at the end |
+| `iteration_start` | each argument combination in a step | `step`, `iteration`, `total_iterations` |
+| `pipeline_step` | each denoise step | `step`, `total_steps` |
+| `phase` | the step changes what it is doing | `phase`, `detail` |
+| `workflow_end` | the run finishes | `manifest` |
+
+A step spends most of its wall clock outside the denoise loop, and
+`pipeline_step` cannot see any of it. `phase` is what fills that silence:
+`loading` (with the model or component in `detail`), `cached` (the same
+pipeline as a previous run - milliseconds, not minutes), `generating`
+(the denoise loop, or a chain's `segment N/M` - which is why the counter
+restarts), `decoding` (latents, after the last denoise step), `saving`
+(writing files, including video encode) and `task` (a task step, named in
+`detail`). Emits are a handful per step, not per denoise tick.
 
 ## Introspection API
 

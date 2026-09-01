@@ -22,7 +22,7 @@ from diffusers import attention_backend
 # dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
 # imported where they are used - at module scope they add seconds to every startup
 
-from ..events import WorkflowCancelled, get_context
+from ..events import WorkflowCancelled, emit_phase, get_context
 
 logger = logging.getLogger("dw")
 
@@ -119,6 +119,9 @@ class Pipeline:
         self.pipeline = pipeline
         self.output_dir = output_dir
         self.file_prefix = file_prefix
+        # What a chained run calls the segment it is on, so progress can say
+        # which one the denoise counter belongs to - it restarts per segment
+        self.segment_label = None
         logger.debug(f"Initialized pipeline with device: {self.device}")
 
     @property
@@ -482,6 +485,10 @@ class Pipeline:
     def _call_pipeline(self, arguments, attn_backend):
         """Call the pipeline with optional attention backend and cache contexts."""
         arguments = self._with_step_callback(arguments)
+        # The load is over and the denoise loop is starting. Pipelines whose
+        # signature has no step callback report nothing else at all, so this
+        # is the only thing that distinguishes running from still loading
+        emit_phase("generating", detail=self.segment_label or self.name)
         with contextlib.ExitStack() as stack:
             if attn_backend is not None:
                 logger.info(f"Using attention backend: {attn_backend}")
@@ -511,11 +518,12 @@ class Pipeline:
         num_steps = arguments.get("num_inference_steps", None)
 
         def on_step_end(pipe, step_index, timestep, callback_kwargs):
-            run_context.emit(
-                "pipeline_step",
-                step=step_index + 1,
-                total_steps=getattr(pipe, "_num_timesteps", None) or num_steps,
-            )
+            total = getattr(pipe, "_num_timesteps", None) or num_steps
+            run_context.emit("pipeline_step", step=step_index + 1, total_steps=total)
+            # Past the last step the pipeline still has to decode the latents,
+            # which on video is minutes with the bar sitting at 100%
+            if total is not None and step_index + 1 >= total:
+                emit_phase("decoding")
             run_context.check_cancelled()
             return callback_kwargs
 
@@ -1080,6 +1088,7 @@ def load_loras(loras, pipeline):
     for i, lora in enumerate(loras):
         model_name = lora.pop("model_name", None)
         logger.info(f"Loading LoRA: {model_name}")
+        emit_phase("loading", detail=f"LoRA: {model_name}")
 
         # Use provided adapter_name or generate from index
         adapter_name = lora.pop("adapter_name", str(i))
@@ -1501,6 +1510,7 @@ def load_component(
             if "model_name" in from_pretrained_arguments:
                 model_name = from_pretrained_arguments.pop("model_name")
                 logger.info(f"Loading {component_name} from model: {model_name}")
+                emit_phase("loading", detail=f"{component_name}: {model_name}")
                 component = component_type.from_pretrained(
                     model_name, **from_pretrained_arguments
                 )
@@ -1511,6 +1521,7 @@ def load_component(
                 logger.info(
                     f"Loading {component_name} from single file: {from_single_file}"
                 )
+                emit_phase("loading", detail=f"{component_name}: {from_single_file}")
                 component = component_type.from_single_file(
                     from_single_file, **from_pretrained_arguments
                 )

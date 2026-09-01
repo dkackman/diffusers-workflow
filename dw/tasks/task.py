@@ -417,9 +417,12 @@ class Task:
         try:
             # Cooperative cancellation reaches task steps too - without this
             # a cancel during a long task waits for the whole task to finish
-            from ..events import get_context
+            from ..events import emit_phase, get_context
 
             get_context().check_cancelled()
+            # A task reports nothing of its own - a captioning model loading
+            # and decoding is otherwise indistinguishable from a hang
+            emit_phase("task", detail=self.command)
 
             # Look up command in registry
             if self.command in _COMMAND_REGISTRY:
