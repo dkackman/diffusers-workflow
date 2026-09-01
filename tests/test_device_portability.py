@@ -30,14 +30,25 @@ class TestPipelineDevice:
 
 class TestComponentDevice:
     def test_a_components_device_is_translated(self, cuda_is_missing):
-        component = torch.nn.Linear(2, 2)
+        # A fake component rather than a real module: this asserts which device
+        # is asked for, and a CI machine with neither CUDA nor MPS cannot
+        # actually place a torch module on the device the translation names
+        class FakeComponent:
+            def __init__(self):
+                self.placed_on = None
+
+            def to(self, device):
+                self.placed_on = device
+                return self
+
+        component = FakeComponent()
         pipeline = type("FakePipeline", (), {"vae": component})()
 
         configure_components(
             pipeline, {"components": {"vae": {"device": "cuda"}}}, "mps"
         )
 
-        assert component.weight.device.type == "mps"
+        assert component.placed_on == "mps"
 
 
 class TestGroupOffloadDevice:
