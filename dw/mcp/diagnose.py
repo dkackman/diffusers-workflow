@@ -1,8 +1,8 @@
 """Queue a run and work out what happened.
 
 Two rules shape this module. A run costs real GPU time on an engine that
-runs one job at a time, so `run_workflow` refuses until the caller has
-acknowledged that. And a generation takes minutes, longer than any MCP
+runs one job at a time, so `run_workflow` - and `rerun_job`, which queues
+the same work - refuses until the caller has acknowledged that. And a generation takes minutes, longer than any MCP
 client will hold a tool call open, so submitting returns immediately and
 progress is polled from the event log.
 """
@@ -69,8 +69,13 @@ def cancel_job(client, job_id):
     return client.post_json(f"/api/jobs/{path_segment(job_id)}/cancel")
 
 
-def rerun_job(client, job_id):
-    """Queue a fresh job from a previous job's stored spec."""
+def rerun_job(client, job_id, acknowledged_cost=False):
+    """Queue a fresh job from a previous job's stored spec. This costs the
+    same GPU time as `run_workflow` and passes through the same gate - a
+    rerun is a run, and the gate would be worth nothing if a job id bought
+    a way around it."""
+    if not acknowledged_cost:
+        raise DwApiError(COST_REFUSAL)
     return client.post_json(f"/api/jobs/{path_segment(job_id)}/rerun")
 
 
