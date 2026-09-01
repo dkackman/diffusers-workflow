@@ -61,8 +61,8 @@ class DwClient:
     def put_json(self, path, payload):
         return self._json(self._request("PUT", path, json=payload), path)
 
-    def delete_json(self, path):
-        return self._json(self._request("DELETE", path), path)
+    def delete_json(self, path, params=None):
+        return self._json(self._request("DELETE", path, params=params), path)
 
     def get_bytes(self, path):
         """Raw body plus content type - for the output media served from the

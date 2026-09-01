@@ -36,6 +36,12 @@ EXPECTED_TOOLS = {
     "cancel_job",
     "rerun_job",
     "move_job",
+    "download_model",
+    "list_downloads",
+    "cancel_download",
+    "delete_model",
+    "get_diffusers_state",
+    "update_diffusers",
 }
 
 READ_ONLY_TOOLS = EXPECTED_TOOLS - {
@@ -45,9 +51,24 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "cancel_job",
     "rerun_job",
     "move_job",
+    "download_model",
+    "cancel_download",
+    "delete_model",
+    "update_diffusers",
 }
 
-DESTRUCTIVE_TOOLS = {"save_workflow", "delete_workflow"}
+DESTRUCTIVE_TOOLS = {"save_workflow", "delete_workflow", "delete_model"}
+
+# Tools that refuse until the caller passes acknowledged_cost=true. The
+# annotations are a hint a client may or may not surface; this flag is the
+# floor that holds on every client, so which tools carry it is pinned here.
+GATED_TOOLS = {
+    "run_workflow",
+    "rerun_job",
+    "download_model",
+    "delete_model",
+    "update_diffusers",
+}
 
 # a real 1x1 PNG, so the image handler can actually decode it
 PNG_1X1 = (
@@ -263,6 +284,32 @@ TOOL_WIRING = [
         "/api/jobs/j1/rerun",
     ),
     ("move_job", {"job_id": "j1", "direction": "up"}, "POST", "/api/jobs/j1/move"),
+    (
+        "download_model",
+        {"repo_id": "org/model", "acknowledged_cost": True},
+        "POST",
+        "/api/models/download",
+    ),
+    ("list_downloads", {}, "GET", "/api/models/downloads"),
+    (
+        "cancel_download",
+        {"download_id": "d1"},
+        "POST",
+        "/api/models/downloads/d1/cancel",
+    ),
+    (
+        "delete_model",
+        {"repo": "org/model", "acknowledged_cost": True},
+        "DELETE",
+        "/api/models",
+    ),
+    ("get_diffusers_state", {}, "GET", "/api/system/diffusers"),
+    (
+        "update_diffusers",
+        {"acknowledged_cost": True},
+        "POST",
+        "/api/system/diffusers/update",
+    ),
 ]
 
 
@@ -468,3 +515,39 @@ class TestStartupWeight:
         )
 
         assert probe.stdout.strip() == ""
+
+
+# The arguments each gated tool needs apart from the acknowledgement itself
+GATED_ARGUMENTS = {
+    "run_workflow": {"workflow_path": "w.json"},
+    "rerun_job": {"job_id": "j1"},
+    "download_model": {"repo_id": "org/model"},
+    "delete_model": {"repo": "org/model"},
+    "update_diffusers": {},
+}
+
+
+def test_every_gated_tool_has_arguments_to_test_with():
+    assert set(GATED_ARGUMENTS) == GATED_TOOLS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", sorted(GATED_TOOLS))
+async def test_a_gated_tool_refuses_through_the_session(name):
+    """The gate has to survive the trip through the SDK.
+
+    A refusal is raised as a DwApiError and only becomes a ToolError at the
+    tool boundary; anything else the SDK treats as a crash and replaces the
+    text with "Error executing tool <name>". That would leave the model with
+    no idea a flag exists, so this asserts the message a client really sees.
+    """
+
+    def refusing(request):
+        raise AssertionError(f"gate let {request.method} {request.url.path} through")
+
+    server = server_over(refusing)
+
+    with pytest.raises(Exception) as caught:
+        await server.call_tool(name, dict(GATED_ARGUMENTS[name]))
+
+    assert "acknowledged_cost=true" in str(caught.value)

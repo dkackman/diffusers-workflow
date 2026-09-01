@@ -43,7 +43,7 @@ jobs:
           pip install -r requirements.txt -r requirements-test.txt
           pip install git+https://github.com/huggingface/diffusers
       - name: Format check
-        run: black --check dw tests
+        run: black --check dw dw_mcp tests
       - name: Tests
         run: pytest -q
 

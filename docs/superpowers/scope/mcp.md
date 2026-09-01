@@ -213,9 +213,21 @@ the wrong trade for the non-developer audience this is aimed at.)
   `get_server_log(tail)` tool would help diagnosis, but it widens the read
   surface beyond the confined directories and needs its own redaction
   thinking first.
-- **F4 — Model and dependency management tools.** The deferred
-  `/api/models/*` and `/api/system/diffusers*` routes. Natural once a
-  non-developer user hits "that model isn't downloaded."
+- **F4 — Model and dependency management tools.** *(Done 2026-09-01.)* The
+  deferred `/api/models/*` and `/api/system/diffusers*` routes — the first
+  wall a non-developer hits is "that model isn't downloaded," and until this
+  the agent could see the gap and not close it. Six tools in `dw_mcp/models.py`:
+  `download_model`, `list_downloads`, `cancel_download`, `delete_model`,
+  `get_diffusers_state`, `update_diffusers`.
+
+  This widened the `acknowledged_cost` gate past its original GPU-only
+  charter. `download_model` (tens of gigabytes), `delete_model`
+  (unrecoverable without re-downloading) and `update_diffusers` (an untagged
+  development build, no undo) each carry it, with a distinct refusal message
+  apiece: one shared message would be wrong for each of them in a different
+  way, and a gate the user learns to wave through is not a gate. The two
+  cancels stay ungated — they end a cost rather than starting one, and
+  gating them would make the safe direction the harder one.
 - **F5 — Prompt library tools.** `/api/prompts*` and `/api/enhance`, for
   an agent that helps compose prompts rather than only workflows.
 - **F6 — MCP resources and prompts.** Re-expose the schema, workflows, and
