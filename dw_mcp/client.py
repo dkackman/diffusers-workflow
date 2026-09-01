@@ -76,6 +76,12 @@ class DwClient:
     def _request(self, method, path, **kwargs):
         try:
             return self._http.request(method, path, **kwargs)
+        except httpx.ConnectTimeout:
+            raise DwApiError(
+                f"Cannot reach diffusers-workflow at {self.base_url}. "
+                "Start the server with `dw-serve` (or `python -m dw.serve`) "
+                "and try again."
+            )
         except httpx.ConnectError:
             raise DwApiError(
                 f"Cannot reach diffusers-workflow at {self.base_url}. "
@@ -115,8 +121,33 @@ class DwClient:
             if detail:
                 # The API writes these for humans already - 400s carry
                 # validation messages, 404s and 409s carry the reason
-                raise DwApiError(str(detail))
+                formatted_detail = self._format_detail(detail)
+                raise DwApiError(formatted_detail)
         raise DwApiError(
             f"{path} failed with HTTP {response.status_code}: "
             f"{response.text[:200] or 'no body'}"
         )
+
+    def _format_detail(self, detail):
+        """Format a detail from an API error response into a human-readable
+        message. FastAPI validation errors (422) have detail as a list of dicts
+        with 'loc' and 'msg' keys; string details are returned verbatim."""
+        if isinstance(detail, list):
+            # FastAPI validation error format
+            messages = []
+            for entry in detail:
+                if isinstance(entry, dict):
+                    msg = entry.get("msg", "Unknown error")
+                    loc = entry.get("loc")
+                    if loc and isinstance(loc, list):
+                        # Extract the field name from the location
+                        # loc is typically ["body", "field_name"] or similar
+                        field_name = loc[-1] if loc else "field"
+                        messages.append(f"{field_name}: {msg}")
+                    else:
+                        messages.append(msg)
+                else:
+                    # Fallback for unexpected entry format
+                    messages.append(str(entry))
+            return ". ".join(messages) if messages else str(detail)
+        return str(detail)
