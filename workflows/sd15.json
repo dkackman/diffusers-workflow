@@ -14,7 +14,7 @@
                 },
                 "from_pretrained_arguments": {
                     "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                    "torch_dtype": "torch.float16"
+                    "torch_dtype": "torch.float32"
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
