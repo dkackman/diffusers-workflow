@@ -20,6 +20,11 @@ from dw.pipeline_processors.pipeline import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _devices_are_present(all_backends_available):
+    """These tests name a device to exercise placement, not portability - resolve_device would otherwise translate 'cuda' on a machine without it."""
+
+
 def make_component_type(component):
     """Build a mock pipeline class whose from_pretrained returns the given component"""
     component_type = MagicMock()

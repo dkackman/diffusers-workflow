@@ -1,6 +1,8 @@
 import logging
 import torch
 
+from .. import resolve_device
+
 logger = logging.getLogger("dw")
 
 
@@ -105,10 +107,10 @@ def get_group_offload_configuration(configuration, default_device):
         logger.debug(f"Group offload parameters: {group_offload_config}")
         # replace device references with device objects
         group_offload_config["onload_device"] = torch.device(
-            group_offload_config.get("onload_device", default_device)
+            resolve_device(group_offload_config.get("onload_device", default_device))
         )
         group_offload_config["offload_device"] = torch.device(
-            group_offload_config.get("offload_device", "cpu")
+            resolve_device(group_offload_config.get("offload_device", "cpu"))
         )
 
         return group_offload_config

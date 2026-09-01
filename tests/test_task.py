@@ -154,7 +154,7 @@ def test_batch_decode_post_process_task():
 class TestTaskDevice:
     """Test the device a task runs on"""
 
-    def test_defaults_to_the_workflow_device(self):
+    def test_defaults_to_the_workflow_device(self, all_backends_available):
         task = Task({"command": "upscale", "arguments": {}}, "cuda")
         assert task.device_for({}) == "cuda"
 

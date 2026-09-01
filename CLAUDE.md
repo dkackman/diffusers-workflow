@@ -101,6 +101,8 @@ Detection is overridden by the `DW_DEVICE` environment variable (single run) or 
 
 A step can override the device it runs on: `device` in a pipeline `configuration` (also the default for that pipeline's components), in a component `configuration`, or in a task's `arguments`.
 
+Every device a workflow names passes through `resolve_device()`, which translates a backend this machine does not have into the one it does and warns — a `cuda` workflow runs on a Mac and an `mps` one runs on a CUDA box. Only the backend is translated: an index survives when the backend matches (`cuda:1` on a single-GPU CUDA box stays a genuine error) and is dropped when it does not. `cpu` is never rewritten, since pinning a step to the CPU is how a GPU-specific problem gets ruled out. Translation happens before anything reads the backend, so the MPS accommodations (the sequential-offload downgrade, attention slicing, the compile skip) fire for a translated device too.
+
 A `components` entry can additionally set `residency: "on_demand"`, which rests the component on the CPU and wraps its `forward`/`encode`/`decode` to move it to the device around each call (`apply_on_demand_placement` in `pipeline.py`). The wrappers use `functools.wraps` because callers introspect the signature — MiniMax H3's denoiser picks its arguments from `signature(transformer.forward)`. It is mutually exclusive with `group_offload` on the same component, and like `group_offload` it suppresses the wholesale `pipeline.to(device)` at load.
 
 Settings in `~/.diffusers_helper/settings.json`: `device`, `enable_tf32`, `cudnn_benchmark`, `cudnn_deterministic`, `log_level`, `log_filename`.

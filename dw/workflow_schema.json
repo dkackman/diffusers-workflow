@@ -407,7 +407,7 @@
                     "$ref": "#/$defs/group_offload"
                 },
                 "device": {
-                    "description": "The device to run this pipeline on, e.g. 'cuda', 'cuda:1', 'mps' or 'cpu'. Defaults to the device dw is running on and becomes the default for this pipeline's components.",
+                    "description": "The device to run this pipeline on, e.g. 'cuda', 'cuda:1', 'mps' or 'cpu'. Defaults to the device dw is running on and becomes the default for this pipeline's components. A backend this machine does not have is translated to the one it does, with a warning, so a workflow written on a CUDA box runs on a Mac and back again - the index is dropped in that translation. A 'cpu' device is never translated.",
                     "type": "string"
                 },
                 "component_type": {
@@ -781,7 +781,7 @@
                     "type": "object",
                     "properties": {
                         "device": {
-                            "description": "The device to load this component onto, e.g. 'cuda', 'cuda:1', 'mps' or 'cpu'. Defaults to the device its pipeline runs on.",
+                            "description": "The device to load this component onto, e.g. 'cuda', 'cuda:1', 'mps' or 'cpu'. Defaults to the device its pipeline runs on. A backend this machine does not have is translated to the one it does, with a warning.",
                             "type": "string"
                         },
                         "component_type": {

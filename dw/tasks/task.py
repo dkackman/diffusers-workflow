@@ -1,5 +1,7 @@
 import logging
 from typing import Callable, Dict
+
+from .. import resolve_device
 from .qr_code import get_qrcode_image
 from .image_utils import process_image
 from .video_utils import process_video
@@ -373,7 +375,7 @@ class Task:
         Returns:
             Device identifier the task should run on
         """
-        return arguments.pop("device", self.device)
+        return resolve_device(arguments.pop("device", self.device))
 
     @property
     def argument_template(self):
