@@ -490,6 +490,30 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
         assert read_embedded_metadata(str(outputs / "meta.jpg"))["step_name"] == "gen"
 
 
+def test_gallery_urls_change_when_a_file_is_rewritten(server, tmp_path):
+    """A rerun overwrites the same name - the URL must move or the browser
+    keeps showing the image it already cached."""
+    import os
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        path = outputs / "test_image-gen.0-0.0.png"
+        Image.new("RGB", (4, 4), "red").save(path)
+
+        first = client.get("/api/gallery").json()["files"][0]["url"]
+        assert first.startswith("/outputs/test_image-gen.0-0.0.png?")
+        assert client.get(first).status_code == 200
+
+        # the same file, rewritten - as a second run of the workflow does
+        Image.new("RGB", (4, 4), "blue").save(path)
+        os.utime(path, (0, os.stat(path).st_mtime + 10))
+
+        second = client.get("/api/gallery").json()["files"][0]["url"]
+        assert second != first
+        assert client.get(second).status_code == 200
+
+
 def test_embed_metadata_carries_the_workflow_definition(tmp_path):
     """A run with embed_metadata writes an image the gallery can reopen."""
     from unittest.mock import patch

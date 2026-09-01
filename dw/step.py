@@ -67,6 +67,12 @@ class Step:
             iterations = get_iterations(step_action.argument_template, previous_results)
             logger.debug(f"Generated {len(iterations)} argument combinations")
 
+            # The metadata above was read from the definition, where an
+            # argument may still be a 'previous_result:' reference - now that
+            # the iterations exist, record what the step actually ran with
+            if result.metadata is not None:
+                _realize_metadata_arguments(result.metadata, iterations)
+
             # Execute the action for each set of arguments
             if not iterations:
                 logger.warning(f"Step {step_name} has no iterations to execute")
@@ -130,3 +136,38 @@ class Step:
             metadata["arguments"] = dict(task_def.get("arguments", {}))
 
         return metadata
+
+
+# What json.dumps can embed without falling back to str() - anything else
+# (a PIL image, a tensor, a video's frames) keeps its reference in metadata
+JSON_SCALARS = (str, int, float, bool)
+
+
+def _realize_metadata_arguments(metadata, iterations):
+    """Replace the embedded arguments with the values the step really ran with.
+
+    Step metadata is collected from the definition, so an argument written as
+    "previous_result:expand" is still a reference there - a gallery showing it
+    would display the reference instead of the prompt the pipeline saw. The
+    iterations hold the resolved values, so lift the JSON-safe ones back into
+    the metadata. When iterations disagree (a step fanned out over several
+    prior results) every distinct value is kept, in order.
+    """
+    arguments = metadata.get("arguments")
+    if not arguments or not iterations:
+        return
+
+    for key in list(arguments):
+        values = []
+        for iteration in iterations:
+            if not isinstance(iteration, dict) or key not in iteration:
+                values = []
+                break
+            value = iteration[key]
+            if not isinstance(value, JSON_SCALARS):
+                values = []
+                break
+            if value not in values:
+                values.append(value)
+        if values:
+            arguments[key] = values[0] if len(values) == 1 else values

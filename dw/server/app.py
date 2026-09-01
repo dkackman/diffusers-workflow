@@ -678,8 +678,11 @@ def create_app(
                 {
                     "name": name,
                     # Quoted: a name carrying '#', '?' or '%' would otherwise
-                    # break the src the gallery renders it into
-                    "url": f"/outputs/{quote(name)}",
+                    # break the src the gallery renders it into. The mtime
+                    # rides along because a rerun overwrites the same name -
+                    # on an unchanging URL the browser would keep showing the
+                    # image it cached from the previous run
+                    "url": f"/outputs/{quote(name)}?v={int(stat.st_mtime)}",
                     "kind": kind,
                     "size": stat.st_size,
                     "mtime": stat.st_mtime,

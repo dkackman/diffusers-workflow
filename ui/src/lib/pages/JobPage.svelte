@@ -103,8 +103,12 @@
   )
   const running = $derived(job !== null && !TERMINAL.includes(job.status))
 
+  // Two runs of a workflow write the same file names, so the job id rides
+  // along - without it the browser shows this job the image it cached from
+  // the previous one
   function fileUrl(path: string) {
-    return '/outputs/' + encodeURIComponent(path.split('/').pop() ?? '')
+    const name = encodeURIComponent(path.split('/').pop() ?? '')
+    return `/outputs/${name}?v=${encodeURIComponent(job?.id ?? '')}`
   }
   const isVideo = (path: string) => /\.(mp4|webm)$/i.test(path)
   const isImage = (path: string) => /\.(png|jpe?g|webp|gif)$/i.test(path)

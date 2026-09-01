@@ -456,6 +456,7 @@ class Pipeline:
             output = output.to("cpu")
 
         attach_audio_sample_rate(self.pipeline, output)
+        warn_if_safety_checker_blanked(output)
 
         return output
 
@@ -1054,6 +1055,31 @@ def get_component(pipeline, component_name):
             return None
 
     return component
+
+
+def warn_if_safety_checker_blanked(output):
+    """Say so when a safety checker replaced a generated image with a black one.
+
+    Stable Diffusion 1.5's checker false-positives readily, and it returns a
+    solid black image rather than an error. Run to run that reads as the seed
+    having no effect - the same result every time - so the reason belongs in
+    the log where the identical images do.
+
+    Args:
+        output: The pipeline output, which may carry nsfw_content_detected
+    """
+    flags = getattr(output, "nsfw_content_detected", None)
+    if not flags:
+        return
+
+    blanked = sum(1 for flag in flags if flag)
+    if blanked:
+        logger.warning(
+            f"The safety checker blanked {blanked} of {len(flags)} generated "
+            "images - they are solid black, and no seed will change that. "
+            "Pass 'safety_checker': null in from_pretrained_arguments to "
+            "load the pipeline without it."
+        )
 
 
 def attach_audio_sample_rate(pipeline, output):
