@@ -165,7 +165,9 @@ def build_server(client):
 
     # ----------------------------------------------------------- authoring
 
-    def validate_workflow(workflow: dict = None, name: str = None) -> dict:
+    def validate_workflow(
+        workflow: dict | None = None, name: str | None = None
+    ) -> dict:
         """Check a workflow against the schema and against real pipeline
         signatures. Free and instant - always run this before run_workflow.
         Give exactly one of `workflow` or `name`."""
@@ -187,9 +189,9 @@ def build_server(client):
     # ------------------------------------------------------------ diagnose
 
     def run_workflow(
-        workflow_path: str = None,
-        inline_workflow: dict = None,
-        arguments: dict = None,
+        workflow_path: str | None = None,
+        inline_workflow: dict | None = None,
+        arguments: dict | None = None,
         acknowledged_cost: bool = False,
     ) -> dict:
         """Queue a workflow for generation. THIS COSTS GPU TIME: a run

@@ -341,3 +341,61 @@ def test_the_entry_point_closes_the_client_when_serving_fails(monkeypatch):
         entry.main([])
 
     assert built["client"]._http.is_closed
+
+
+@pytest.mark.asyncio
+async def test_validate_workflow_accepts_explicit_nulls_and_says_pick_one():
+    """A model filling in every declared property with null is routine, and
+    for a 'give exactly one of' tool it is the likely call. A non-optional
+    annotation with a None default makes the schema reject it before the
+    handler runs, replacing the written message with a validation dump."""
+    server = server_over(ok({}))
+
+    with pytest.raises(Exception) as caught:
+        await server.call_tool("validate_workflow", {"workflow": None, "name": None})
+
+    assert "exactly one" in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_validate_workflow_reaches_the_handler_past_an_explicit_null():
+    """A null filled in beside a real value must not be a schema error - the
+    handler is what decides whether the combination makes sense."""
+    server = server_over(ok({"valid": True, "errors": []}))
+
+    result = await server.call_tool(
+        "validate_workflow", {"workflow": None, "name": "w"}
+    )
+
+    assert "valid" in json.dumps(_text_of(result))
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_accepts_explicit_nulls_and_says_pick_one():
+    server = server_over(ok({"id": "job-1", "status": "queued"}))
+
+    with pytest.raises(Exception) as caught:
+        await server.call_tool(
+            "run_workflow",
+            {
+                "workflow_path": "w.json",
+                "inline_workflow": None,
+                "arguments": None,
+                "acknowledged_cost": False,
+            },
+        )
+
+    assert "acknowledged_cost" in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_optional_parameters_are_declared_nullable():
+    """A `{"type": "object", "default": null}` schema contradicts itself."""
+    tools = await tools_of(server_over(ok({})))
+
+    for name, tool in tools.items():
+        for parameter, schema in tool.input_schema["properties"].items():
+            if schema.get("default", "missing") is None:
+                assert (
+                    "anyOf" in schema or schema.get("type") == "null"
+                ), f"{name}.{parameter} defaults to null but is not nullable"
