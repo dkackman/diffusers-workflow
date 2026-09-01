@@ -12,8 +12,9 @@ read workflows, introspect real pipeline signatures, validate and save a
 workflow, queue a run, poll its progress, and look at the image it
 produced, without shell access or a repo checkout.
 
-One server-side endpoint is added; everything else maps onto routes that
-already exist.
+Two server-side changes support it — job history persists a bounded event
+tail, and a new non-streaming event-log route serves it — and everything else
+maps onto routes that already exist.
 
 ## Architecture
 
@@ -60,7 +61,22 @@ MCP client (Claude Code)
                                   └─> JobManager -> GPU worker
 ```
 
-## Server-side change
+## Server-side changes
+
+### Persisted event tail
+
+Events live only on the in-memory `Job` (`jobs.py:182`), so a job's trail
+dies with the server process — which makes the diagnostic loop useless for
+the question a non-developer actually asks, "why did last night's run fail?"
+`JobHistory` gains an `events TEXT` column holding the last
+`MAX_PERSISTED_EVENTS = 200` events, an `ALTER TABLE` migration for databases
+that predate it, and a `events_for(job_id)` reader returning `[]` for a job
+recorded before the change and `None` for an unknown job. The positional
+`INSERT` becomes a named-column insert so widening the table cannot shift
+values silently. `_to_detail` and `recent_summaries` are unchanged — the web
+UI polls those, and events go out through the event-log route instead.
+
+### Non-streaming event log
 
 `GET /api/jobs/{job_id}/event-log?after=-1&limit=200`
 
@@ -71,10 +87,10 @@ MCP client (Claude Code)
 
 - Live job: `job.events_after(after)`, capped at `limit`; `truncated` is
   true when more remain, so the caller knows to page.
-- Historical job (a dict from `JobHistory`): `events: []`, `truncated`
-  false, and `note` explaining the trail was not retained across the
-  process — the honest answer rather than an empty one. Follow-up F1 in
-  the scope doc removes this case.
+- Historical job (a dict from `JobHistory`): the persisted tail, paged the
+  same way. A job that finished before events were retained returns an empty
+  list and a `note` saying so — the honest answer rather than an empty one
+  that reads as "nothing happened".
 - Unknown job: 404, matching the sibling routes.
 
 A separate path rather than a `?stream=false` flag on the SSE route, so
@@ -207,7 +223,7 @@ links are checked automatically.
 
 ## Out of scope
 
-Everything in the scope doc's "Post-v1 follow-ups" (F1–F7): event
-persistence, run-time estimation, server-log exposure, model and prompt
+Everything in the scope doc's "Post-v1 follow-ups" except F1, which was
+pulled into this build: run-time estimation, server-log exposure, model and prompt
 tools, MCP resources/prompts, and the remote auth story. Also out: any
 change to the web UI, and `base_dir` on inline runs.

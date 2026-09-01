@@ -4,7 +4,7 @@
 
 **Goal:** Ship a stdio MCP server (`dw/mcp/`) that wraps the existing `dw.serve` REST API so an MCP client can author, validate, save, run, and diagnose workflows without shell access.
 
-**Architecture:** `dw/mcp/` is an HTTP client of a *running* `dw.serve` — it owns no job state, no GPU worker, and starts no subprocess. `client.py` speaks HTTP and translates errors; `catalog.py` / `authoring.py` / `diagnose.py` / `media.py` hold plain handler functions taking `(client, **kwargs)`; only `server.py` imports the MCP SDK, registering each handler as a tool with annotations. One new REST endpoint (`GET /api/jobs/{id}/event-log`) is added because the existing event stream is SSE-only.
+**Architecture:** `dw/mcp/` is an HTTP client of a *running* `dw.serve` — it owns no job state, no GPU worker, and starts no subprocess. `client.py` speaks HTTP and translates errors; `catalog.py` / `authoring.py` / `diagnose.py` / `media.py` hold plain handler functions taking `(client, **kwargs)`; only `server.py` imports the MCP SDK, registering each handler as a tool with annotations. Two server-side changes support it: job history now persists a bounded event tail, and a new `GET /api/jobs/{id}/event-log` serves events in a request/response shape, because the existing stream is SSE-only.
 
 **Tech Stack:** Python 3.10+, the `mcp` Python SDK (`FastMCP`, stdio transport), `httpx` (with `httpx.MockTransport` in tests), FastAPI (existing server), Pillow, pytest + pytest-asyncio.
 
@@ -21,29 +21,324 @@
 - Path/security validation stays server-side in `dw/security.py`. The MCP layer adds no second validation layer — only clear error text.
 - Format every touched Python file with `black dw/ tests/` before committing.
 - Coverage bar: `pytest --cov=dw.mcp --cov-report=term-missing` at ≥90% line coverage on `dw/mcp/`.
-- Follow-ups F1–F7 in [../scope/mcp.md](../scope/mcp.md) are **out of scope**. Do not implement them.
+- Follow-ups **F2–F7** in [../scope/mcp.md](../scope/mcp.md) are out of scope. Do not implement them. F1 (event persistence) was pulled forward and is Task 1.
+- `MAX_PERSISTED_EVENTS = 200`: the bound on a job's persisted event tail.
 
 ## Subagent Assignment
 
 | Task | Suggested model | Why |
 | --- | --- | --- |
-| 1. Event-log endpoint | **Sonnet** | Mechanical: one route mirroring siblings, TDD against an existing test harness |
-| 2. `DwClient` + packaging | **Sonnet** | Mechanical, but error-translation table must be followed exactly |
-| 3. Catalog handlers | **Sonnet** | Repetitive one-line-per-route wrappers |
-| 4. Media / image tool | **Sonnet** | Self-contained; the downscale loop is the only real logic |
-| 5. Authoring handlers | **Sonnet** | Small; the "exactly one source" rule is the only subtlety |
-| 6. Diagnose handlers + confirm-gating | **Opus** | Gating semantics are the design's load-bearing decision |
-| 7. Server assembly + annotations + entry point | **Opus** | SDK surface, annotation correctness, async tool dispatch |
-| 8. Documentation | **Sonnet** | Prose against a finished, verifiable surface |
-| 9. Verification + review sweep | **Opus** | Cross-task consistency, coverage, spec coverage |
+| 1. Persist a job's event tail | **Opus** | Touches a live sqlite schema: needs a migration for existing databases and a positional INSERT that breaks silently if widened carelessly |
+| 2. Event-log endpoint | **Sonnet** | Mechanical: one route mirroring siblings, TDD against an existing test harness |
+| 3. `DwClient` + packaging | **Sonnet** | Mechanical, but error-translation table must be followed exactly |
+| 4. Catalog handlers | **Sonnet** | Repetitive one-line-per-route wrappers |
+| 5. Media / image tool | **Sonnet** | Self-contained; the downscale loop is the only real logic |
+| 6. Authoring handlers | **Sonnet** | Small; the "exactly one source" rule is the only subtlety |
+| 7. Diagnose handlers + confirm-gating | **Opus** | Gating semantics are the design's load-bearing decision |
+| 8. Server assembly + annotations + entry point | **Opus** | SDK surface, annotation correctness, async tool dispatch |
+| 9. Documentation | **Sonnet** | Prose against a finished, verifiable surface |
+| 10. Verification + review sweep | **Opus** | Cross-task consistency, coverage, spec coverage |
 
-Dependency order: **1** and **2** are independent and may run in parallel. **3**, **4**, **5** each depend only on 2. **6** depends on 1 and 2. **7** depends on 3, 4, 5, 6. **8** depends on 7. **9** depends on everything.
+Dependency order: **1** and **3** are independent and may run in parallel. **2** depends on 1. **4**, **5**, **6** each depend only on 3. **7** depends on 2 and 3. **8** depends on 4, 5, 6, 7. **9** depends on 8. **10** depends on everything.
 
 ---
 
-### Task 1: Non-streaming job event-log endpoint
+### Task 1: Persist a job's event tail
 
-The MCP server needs job events in a request/response shape. Today they exist only behind SSE (`GET /api/jobs/{id}/events`), and `Job.detail()` returns `event_count`, not the events. This adds a sibling route.
+**Model: Opus.** The `jobs` table is live on every existing install and the
+insert is positional — widening it carelessly writes every column one place
+to the left. Existing databases must migrate in place.
+
+Today events live only on the in-memory `Job` (`jobs.py:182`); `JobHistory`
+persists eleven columns and none is the event log, so a job's trail dies with
+the server process. That makes the diagnostic loop useless for exactly the
+question a non-developer asks — "why did last night's run fail?"
+
+**Files:**
+- Modify: `dw/server/jobs.py` (`JobHistory.__init__`, `JobHistory.record`; add `JobHistory.events_for`)
+- Test: `tests/test_server.py` (append)
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces:
+  - `MAX_PERSISTED_EVENTS: int = 200` — module-level constant in `dw/server/jobs.py`.
+  - `JobHistory.events_for(job_id) -> list[dict] | None` — the persisted tail, `[]` for a job recorded before this change, `None` for an unknown job. Task 2 consumes this.
+  - The `jobs` table gains an `events TEXT` column.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `tests/test_server.py`. Use the same `JobManager`/`JobHistory` import
+the file already has at the top.
+
+```python
+def test_history_persists_a_finished_jobs_event_tail(tmp_path):
+    from dw.server.jobs import JobHistory
+
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    job = _finished_job_with_events(
+        "job-1", [{"seq": 0, "event": "phase", "phase": "loading"}]
+    )
+
+    history.record(job)
+
+    assert history.events_for("job-1") == [
+        {"seq": 0, "event": "phase", "phase": "loading"}
+    ]
+
+
+def test_history_keeps_only_the_last_events(tmp_path):
+    """A long run emits thousands of progress events. The tail is what
+    explains an outcome; the head is step-by-step noise."""
+    from dw.server.jobs import JobHistory, MAX_PERSISTED_EVENTS
+
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    events = [{"seq": i, "event": "log", "message": f"line {i}"} for i in range(500)]
+    history.record(_finished_job_with_events("job-1", events))
+
+    stored = history.events_for("job-1")
+
+    assert len(stored) == MAX_PERSISTED_EVENTS
+    assert stored[-1]["seq"] == 499, "the tail, not the head, is what is kept"
+
+
+def test_events_for_is_empty_for_a_job_recorded_before_this_change(tmp_path):
+    """An existing install's sqlite file has rows with no events column
+    value. They must read as 'nothing stored', not crash."""
+    import sqlite3
+
+    from dw.server.jobs import JobHistory
+
+    db = tmp_path / "jobs.sqlite"
+    history = JobHistory(db)
+    history.record(_finished_job_with_events("job-1", [{"seq": 0}]))
+    with sqlite3.connect(db) as connection:
+        connection.execute("UPDATE jobs SET events = NULL WHERE id = 'job-1'")
+
+    assert history.events_for("job-1") == []
+
+
+def test_events_for_is_none_for_an_unknown_job(tmp_path):
+    from dw.server.jobs import JobHistory
+
+    assert JobHistory(tmp_path / "jobs.sqlite").events_for("ghost") is None
+
+
+def test_an_existing_database_without_the_events_column_migrates(tmp_path):
+    """Opening a pre-change database must add the column, not fail and not
+    lose the rows already in it."""
+    import sqlite3
+
+    from dw.server.jobs import JobHistory
+
+    db = tmp_path / "jobs.sqlite"
+    with sqlite3.connect(db) as connection:
+        connection.execute(
+            """CREATE TABLE jobs (
+                id TEXT PRIMARY KEY, workflow TEXT, status TEXT,
+                created_at REAL, started_at REAL, finished_at REAL,
+                arguments TEXT, spec TEXT, manifest TEXT, warnings TEXT,
+                error TEXT
+            )"""
+        )
+        connection.execute(
+            "INSERT INTO jobs VALUES ('old',?,?,?,?,?,?,?,?,?,?)",
+            ("w", "complete", 1.0, 1.0, 2.0, "{}", "{}", "[]", "[]", None),
+        )
+
+    history = JobHistory(db)
+
+    assert history.get("old")["status"] == "complete"
+    assert history.events_for("old") == []
+
+
+def test_recording_still_writes_every_other_column(tmp_path):
+    """The insert is positional. Widening the table without naming columns
+    would shift every value - this pins the ones that would move."""
+    from dw.server.jobs import JobHistory
+
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    history.record(_finished_job_with_events("job-1", [{"seq": 0}]))
+
+    detail = history.get("job-1")
+
+    assert detail["id"] == "job-1"
+    assert detail["status"] == "complete"
+    assert detail["workflow"] == "w"
+    assert detail["error"] is None
+
+
+def _finished_job_with_events(job_id, events):
+    """A minimal stand-in for a finished Job: JobHistory.record reads plain
+    attributes, so a real worker run is not needed to test persistence."""
+
+    class FinishedJob:
+        id = job_id
+        workflow_name = "w"
+        status = "complete"
+        created_at = 1.0
+        started_at = 1.0
+        finished_at = 2.0
+        manifest = []
+        warnings = []
+        error = None
+        spec = {"arguments": {}, "workflow_path": "w.json"}
+
+    job = FinishedJob()
+    job.events = events
+    return job
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `pytest tests/test_server.py -k "history or events_for or migrates" -v`
+Expected: FAIL — `ImportError` on `MAX_PERSISTED_EVENTS` and `AttributeError: 'JobHistory' object has no attribute 'events_for'`.
+
+- [ ] **Step 3: Add the column, the migration, and the reader**
+
+In `dw/server/jobs.py`, add the constant near the other module-level
+constants at the top of the file:
+
+```python
+# A long run emits thousands of progress events; the tail is what explains
+# the outcome. Bounded so history stays a summary store, not an event log
+MAX_PERSISTED_EVENTS = 200
+```
+
+In `JobHistory.__init__`, add `events TEXT` to the `CREATE TABLE` and migrate
+databases that predate it:
+
+```python
+            connection.execute("""CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT PRIMARY KEY,
+                    workflow TEXT,
+                    status TEXT,
+                    created_at REAL,
+                    started_at REAL,
+                    finished_at REAL,
+                    arguments TEXT,
+                    spec TEXT,
+                    manifest TEXT,
+                    warnings TEXT,
+                    error TEXT,
+                    events TEXT
+                )""")
+            # Databases written before events were persisted are missing the
+            # column; ALTER is the whole migration, and rows keep NULL
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(jobs)")
+            }
+            if "events" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN events TEXT")
+```
+
+Update the class docstring, which currently says events are not persisted:
+
+```python
+    """Finished jobs, persisted so the Jobs view survives server restarts.
+
+    Records land at terminal state only - a crash mid-run loses that run's
+    row, which is the right trade for never blocking the runner on disk.
+    The last MAX_PERSISTED_EVENTS progress events ride along, so a job can
+    still explain itself after a restart; everything earlier is dropped.
+    """
+```
+
+Name the columns in `record` so the insert cannot silently shift, and write
+the tail:
+
+```python
+            connection.execute(
+                "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
+                " started_at, finished_at, arguments, spec, manifest, warnings,"
+                " error, events) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    job.id,
+                    job.workflow_name,
+                    job.status,
+                    job.created_at,
+                    job.started_at,
+                    job.finished_at,
+                    json.dumps(job.spec.get("arguments", {}), default=str),
+                    json.dumps(rerun_spec, default=str),
+                    json.dumps(job.manifest, default=str),
+                    json.dumps(job.warnings, default=str),
+                    job.error,
+                    json.dumps(job.events[-MAX_PERSISTED_EVENTS:], default=str),
+                ),
+            )
+```
+
+Add the reader beside `get`:
+
+```python
+    def events_for(self, job_id):
+        """A finished job's persisted event tail. [] for a job recorded
+        before events were kept, None for a job history has never seen -
+        the caller needs to tell 'no events' from 'no such job'."""
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT events FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        if not row[0]:
+            return []
+        try:
+            return json.loads(row[0])
+        except json.JSONDecodeError:
+            return []
+```
+
+`_to_detail` and `recent_summaries` are deliberately unchanged: `GET
+/api/jobs/{id}` is polled by the web UI, and events go out through the
+event-log route instead.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `pytest tests/test_server.py -k "history or events_for or migrates" -v`
+Expected: PASS, 6 tests.
+
+- [ ] **Step 5: Run the full server suite for regressions**
+
+Run: `pytest tests/test_server.py -q`
+Expected: PASS, no failures.
+
+- [ ] **Step 6: Verify a real database migrates**
+
+Run:
+
+```bash
+python - <<'EOF'
+import shutil, os
+from dw.server.jobs import JobHistory
+live = os.path.expanduser("~/.diffusers_helper/jobs.sqlite")
+if os.path.exists(live):
+    shutil.copy(live, "/tmp/jobs-migration-check.sqlite")
+    history = JobHistory("/tmp/jobs-migration-check.sqlite")
+    rows = history.recent_summaries(limit=5)
+    print(len(rows), "rows survived; events_for:",
+          [history.events_for(row["id"]) for row in rows])
+else:
+    print("no live database to check - skipped")
+EOF
+```
+
+Expected: the existing rows still list, and `events_for` returns `[]` for each
+(they predate the column). Do not run this against the live file itself.
+
+- [ ] **Step 7: Format and commit**
+
+```bash
+black dw/ tests/
+git add dw/server/jobs.py tests/test_server.py
+git commit -m "feat(server): persist a bounded event tail with job history"
+```
+
+---
+
+### Task 2: Non-streaming job event-log endpoint
+
+The MCP server needs job events in a request/response shape. Today they exist only behind SSE (`GET /api/jobs/{id}/events`), and `Job.detail()` returns `event_count`, not the events. This adds a sibling route, serving a live job from memory and a finished one from the tail Task 1 persisted.
 
 **Files:**
 - Modify: `dw/server/app.py` (insert after the `job_events` SSE route, which ends around line 386)
@@ -51,10 +346,10 @@ The MCP server needs job events in a request/response shape. Today they exist on
 - Test: `tests/test_server.py` (append)
 
 **Interfaces:**
-- Consumes: nothing from other tasks.
+- Consumes: `JobHistory.events_for` from Task 1.
 - Produces: `GET /api/jobs/{job_id}/event-log?after=-1&limit=200` returning
   `{"id": str, "status": str, "events": list[dict], "last_seq": int, "truncated": bool, "note": str | None}`.
-  Task 6 consumes this.
+  Task 7 consumes this.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -107,16 +402,47 @@ def test_event_log_clamps_a_negative_after(client_and_manager):
     assert body["events"][0]["seq"] == 0
 
 
-def test_event_log_explains_a_historical_job_has_no_trail(client_and_manager):
-    """A job recovered from sqlite is a plain dict with no event list. Say so
-    rather than returning an empty list that reads as 'nothing happened'."""
+def test_event_log_serves_a_historical_jobs_persisted_events(client_and_manager):
+    """A job recovered from sqlite is a plain dict, but its event tail was
+    persisted with it - that is what makes last night's failure explainable."""
+    client, manager = client_and_manager
+    manager.get = lambda job_id: {"id": job_id, "status": "failed"}
+    manager.history.events_for = lambda job_id: [
+        {"seq": 0, "event": "phase", "phase": "loading"},
+        {"seq": 1, "event": "job_status", "status": "failed"},
+    ]
+
+    body = client.get("/api/jobs/historical/event-log").json()
+
+    assert [event["seq"] for event in body["events"]] == [0, 1]
+    assert body["last_seq"] == 1
+    assert body["truncated"] is False
+    assert body["note"] is None
+
+
+def test_event_log_pages_a_historical_jobs_events(client_and_manager):
     client, manager = client_and_manager
     manager.get = lambda job_id: {"id": job_id, "status": "complete"}
+    manager.history.events_for = lambda job_id: [
+        {"seq": index} for index in range(5)
+    ]
+
+    body = client.get("/api/jobs/historical/event-log?after=1&limit=2").json()
+
+    assert [event["seq"] for event in body["events"]] == [2, 3]
+    assert body["truncated"] is True
+
+
+def test_event_log_says_so_when_a_historical_job_kept_no_events(client_and_manager):
+    """A job recorded before events were persisted. Say that, rather than
+    returning an empty list that reads as 'nothing happened'."""
+    client, manager = client_and_manager
+    manager.get = lambda job_id: {"id": job_id, "status": "complete"}
+    manager.history.events_for = lambda job_id: []
 
     body = client.get("/api/jobs/historical/event-log").json()
 
     assert body["events"] == []
-    assert body["truncated"] is False
     assert "not retained" in body["note"]
 
 
@@ -148,19 +474,24 @@ Insert into `dw/server/app.py` immediately after the `job_events` SSE handler:
         job = manager.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
+        limit = max(1, min(limit, 1000))
         if isinstance(job, dict):
-            # A job restored from sqlite: history keeps the summary, not the
-            # event log, so there is nothing to page through
+            # A job restored from sqlite: history persists a bounded tail of
+            # its events, so it can still explain itself after a restart
+            stored = manager.history.events_for(job_id) or []
+            pending = [event for event in stored if event.get("seq", -1) > after]
+            page = pending[:limit]
             return {
                 "id": job_id,
                 "status": job.get("status"),
-                "events": [],
-                "last_seq": after,
-                "truncated": False,
-                "note": "This job's event log was not retained - events live "
-                "only while the server process that ran the job is alive.",
+                "events": page,
+                "last_seq": page[-1]["seq"] if page else max(after, -1),
+                "truncated": len(pending) > len(page),
+                "note": None
+                if stored
+                else "This job kept no event log - it finished before events "
+                "were retained with job history.",
             }
-        limit = max(1, min(limit, 1000))
         pending = job.events_after(after)
         page = pending[:limit]
         return {
@@ -178,7 +509,7 @@ Insert into `dw/server/app.py` immediately after the `job_events` SSE handler:
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `pytest tests/test_server.py -k event_log -v`
-Expected: PASS, 5 tests.
+Expected: PASS, 7 tests.
 
 - [ ] **Step 5: Run the full server suite for regressions**
 
@@ -193,8 +524,9 @@ Add to `docs/SERVER.md`, in the same table/section style the file already uses f
 `GET /api/jobs/{id}/event-log?after=-1&limit=200` — the same events as the
 SSE stream, as one JSON page: `{id, status, events, last_seq, truncated,
 note}`. `after` is exclusive; page by passing back the previous `last_seq`.
-For a job restored from history the list is empty and `note` explains that
-events are not retained across a server restart.
+A job restored from history serves the bounded event tail persisted with it;
+a job that finished before events were retained returns an empty list and a
+`note` saying so.
 ```
 
 - [ ] **Step 7: Format and commit**
@@ -207,7 +539,7 @@ git commit -m "feat(server): add non-streaming job event-log endpoint"
 
 ---
 
-### Task 2: `DwClient` HTTP layer and packaging
+### Task 3: `DwClient` HTTP layer and packaging
 
 **Files:**
 - Create: `dw/mcp/__init__.py`
@@ -535,14 +867,14 @@ git commit -m "feat(mcp): add DwClient HTTP layer and mcp packaging extra"
 
 ---
 
-### Task 3: Catalog (read-only) handlers
+### Task 4: Catalog (read-only) handlers
 
 **Files:**
 - Create: `dw/mcp/catalog.py`
 - Test: `tests/test_mcp_catalog.py`
 
 **Interfaces:**
-- Consumes: `DwClient` from Task 2 (`get_json`).
+- Consumes: `DwClient` from Task 3 (`get_json`).
 - Produces — each takes `client` first and returns the API body unchanged unless noted:
   `list_workflows(client)`, `get_workflow(client, name)`, `get_schema(client)`,
   `list_pipelines(client)`, `get_pipeline_signature(client, name)`,
@@ -760,7 +1092,7 @@ git commit -m "feat(mcp): add read-only catalog tool handlers"
 
 ---
 
-### Task 4: Output image handler
+### Task 5: Output image handler
 
 The agent cannot answer "why does this look wrong" without seeing the image. Output media is served from the `/outputs` **static mount** (`app.py:840`), not an `/api` route.
 
@@ -769,10 +1101,10 @@ The agent cannot answer "why does this look wrong" without seeing the image. Out
 - Test: `tests/test_mcp_media.py`
 
 **Interfaces:**
-- Consumes: `DwClient.get_bytes` and `DwApiError` from Task 2.
+- Consumes: `DwClient.get_bytes` and `DwApiError` from Task 3.
 - Produces: `get_output_image(client, name, max_dimension=768) -> dict` with keys
   `{"name": str, "data": str (base64), "mime_type": "image/png" | "image/jpeg", "original_size": [w, h], "returned_size": [w, h], "bytes": int}`.
-  Task 7 wraps this into an MCP image content block — this module must **not** import the MCP SDK.
+  Task 8 wraps this into an MCP image content block — this module must **not** import the MCP SDK.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1028,14 +1360,14 @@ git commit -m "feat(mcp): return downscaled output images to the agent"
 
 ---
 
-### Task 5: Authoring handlers
+### Task 6: Authoring handlers
 
 **Files:**
 - Create: `dw/mcp/authoring.py`
 - Test: `tests/test_mcp_authoring.py`
 
 **Interfaces:**
-- Consumes: `DwClient`, `DwApiError` (Task 2); `catalog.get_workflow` (Task 3).
+- Consumes: `DwClient`, `DwApiError` (Task 3); `catalog.get_workflow` (Task 4).
 - Produces:
   `validate_workflow(client, workflow=None, name=None) -> dict` (the API's `{"valid", "error", "warnings"}`),
   `save_workflow(client, name, workflow) -> dict`,
@@ -1259,7 +1591,7 @@ git commit -m "feat(mcp): add workflow validate/save/delete handlers"
 
 ---
 
-### Task 6: Diagnose handlers and the run gate
+### Task 7: Diagnose handlers and the run gate
 
 **Model: Opus.** The gating contract is the design's load-bearing decision — a run costs real GPU time on a single-job-at-a-time engine.
 
@@ -1268,14 +1600,14 @@ git commit -m "feat(mcp): add workflow validate/save/delete handlers"
 - Test: `tests/test_mcp_diagnose.py`
 
 **Interfaces:**
-- Consumes: `DwClient`, `DwApiError` (Task 2); `GET /api/jobs/{id}/event-log` (Task 1).
+- Consumes: `DwClient`, `DwApiError` (Task 3); `GET /api/jobs/{id}/event-log` (Task 2).
 - Produces:
   `run_workflow(client, workflow_path=None, inline_workflow=None, arguments=None, acknowledged_cost=False) -> dict`
   returning `{"job_id", "status", "queue_position", "next"}`;
   `get_job(client, job_id)`, `get_job_events(client, job_id, after=-1, limit=200)`,
   `cancel_job(client, job_id)`, `rerun_job(client, job_id)`,
   `move_job(client, job_id, direction)`.
-  Also `COST_REFUSAL: str` — the message Task 7's tool description quotes.
+  Also `COST_REFUSAL: str` — the message Task 8's tool description quotes.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1600,7 +1932,7 @@ git commit -m "feat(mcp): add run/diagnose handlers with a cost gate on runs"
 
 ---
 
-### Task 7: MCP server assembly and entry point
+### Task 8: MCP server assembly and entry point
 
 **Model: Opus.** This is the only code touching the SDK; annotation correctness and the elicitation fallback are the risk.
 
@@ -1610,7 +1942,7 @@ git commit -m "feat(mcp): add run/diagnose handlers with a cost gate on runs"
 - Test: `tests/test_mcp_server.py`
 
 **Interfaces:**
-- Consumes: every handler module (Tasks 3–6) and `DwClient` (Task 2).
+- Consumes: every handler module (Tasks 4–7) and `DwClient` (Task 3).
 - Produces: `build_server(client) -> FastMCP` and `main(argv=None) -> int`.
 
 **Read first:** the installed SDK's `FastMCP` API — `pip show mcp`, then `python -c "from mcp.server.fastmcp import FastMCP; help(FastMCP.tool)"`. If `FastMCP.tool` does not accept an `annotations=` argument in the installed version, pass annotations however that version supports (check `mcp.types.ToolAnnotations`) and note the deviation in the commit message. Do not skip annotations.
@@ -2103,14 +2435,14 @@ git commit -m "feat(mcp): assemble the MCP tool surface and stdio entry point"
 
 ---
 
-### Task 8: Documentation
+### Task 9: Documentation
 
 **Files:**
 - Create: `docs/MCP.md`
 - Modify: `README.md`, `CLAUDE.md`, `docs/SECURITY.md`, `docs/SECURITY_QUICKREF.md`, `docs/TESTING.md`
 
 **Interfaces:**
-- Consumes: the finished tool surface from Task 7. Every tool name and argument in the docs must match `dw/mcp/server.py` exactly.
+- Consumes: the finished tool surface from Task 8. Every tool name and argument in the docs must match `dw/mcp/server.py` exactly.
 - Produces: documentation only.
 
 - [ ] **Step 1: Read the neighbouring docs for house style**
@@ -2127,7 +2459,7 @@ Cover, in this order:
 4. **Tool reference** — one table per group (catalog, media, authoring, diagnose) with tool name, arguments, and one line of purpose. Generate the rows from `dw/mcp/server.py` so they cannot drift; all 25 tools must appear.
 5. **The run gate** — `run_workflow` requires `acknowledged_cost=true`, returns as soon as the job is queued, and never waits. The polling loop: `validate_workflow` → `run_workflow` → `get_job_events` until a terminal status → `get_job` for the manifest, `get_output_image` to look at the result.
 6. **Security** — inherits the REST API's posture exactly: localhost binding, no authentication, path confinement in `dw/security.py`, `Origin` checks. State plainly that the MCP server adds no authentication and must not be exposed beyond localhost. Link to `docs/SECURITY.md`.
-7. **Known limits** — a job's event log does not survive a server restart (`get_job_events` returns a `note` saying so); `get_output_image` returns images only, not video; model download, dependency management and the prompt library are not exposed yet.
+7. **Known limits** — only the last 200 events of a finished job are retained, and a job that ran before this feature returns an empty list with a `note` saying so; `get_output_image` returns images only, not video; model download, dependency management and the prompt library are not exposed yet.
 8. **Troubleshooting** — "Cannot reach diffusers-workflow at …" means `dw.serve` is not running; a tool timing out usually means a model is loading; a `run_workflow` refusal is the cost gate, not an error.
 
 - [ ] **Step 3: Update the surrounding docs**
@@ -2189,7 +2521,7 @@ git commit -m "docs: document the MCP server surface, gate and limits"
 
 ---
 
-### Task 9: Verification sweep
+### Task 10: Verification sweep
 
 **Model: Opus.** Cross-task consistency is what a per-task reviewer cannot see.
 
@@ -2228,7 +2560,7 @@ Expected: the first prints nothing; the second prints only the explanatory comme
 
 - [ ] **Step 5: Check the spec is fully covered**
 
-Read `docs/superpowers/specs/2026-09-01-mcp-server-design.md` alongside the implementation. Confirm each section has landed: topology, module layout, the event-log endpoint, all 25 tools, the three-layer gate, the error table, packaging, tests, docs. Confirm nothing from the "Out of scope" section (follow-ups F1–F7, `base_dir`, UI changes) was implemented.
+Read `docs/superpowers/specs/2026-09-01-mcp-server-design.md` alongside the implementation. Confirm each section has landed: topology, module layout, the event-log endpoint, all 25 tools, the three-layer gate, the error table, packaging, tests, docs. Confirm nothing from the "Out of scope" section (follow-ups F2–F7, `base_dir`, UI changes) was implemented. F1 is in scope and lands in Task 1.
 
 - [ ] **Step 6: Format and report**
 
@@ -2249,5 +2581,5 @@ git commit -m "chore(mcp): verification sweep fixes"
 ## Notes for the executor
 
 - **Elicitation is not implemented in this plan.** The design names it as gate layer 2, but Claude Code does not advertise the capability, so there is nothing to test against and an untested code path is worse than an absent one. Layers 1 (annotations) and 3 (`acknowledged_cost`) are implemented and tested. If the SDK version you install supports `Context.elicit` and you can exercise it in a test, adding it to `run_workflow` is in scope; adding it untested is not.
-- **The `mcp` SDK version floor is unpinned in this plan** because the SDK is not installed in the development venv. Task 2 Step 5 pins it from the version that actually installs, matching `scripts/refresh_dep_floors.py`.
-- **If `FastMCP`'s API differs** from what Task 7 assumes, adapt the registration mechanics but keep the surface identical: same 25 tool names, same arguments, same annotations, same docstrings. The tests in Task 7 assert the surface, not the mechanics.
+- **The `mcp` SDK version floor is unpinned in this plan** because the SDK is not installed in the development venv. Task 3 Step 5 pins it from the version that actually installs, matching `scripts/refresh_dep_floors.py`.
+- **If `FastMCP`'s API differs** from what Task 8 assumes, adapt the registration mechanics but keep the surface identical: same 25 tool names, same arguments, same annotations, same docstrings. The tests in Task 8 assert the surface, not the mechanics.
