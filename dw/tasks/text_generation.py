@@ -13,7 +13,7 @@ workflow whose prompt agrees with its keyframe and one whose prompt fights it.
 
 import logging
 from transformers import pipeline as hf_pipeline
-from .. import preferred_task_dtype
+from .. import get_device_type, preferred_task_dtype
 from .model_cache import cached_model
 
 logger = logging.getLogger("dw")
@@ -109,11 +109,24 @@ def generate_text(prompt, device="cpu", **kwargs):
 
     def load_pipe():
         logger.info(f"Generating text with {model_name} on {device}")
+        # transformers materializes the weights across a thread pool, and a
+        # device_map makes each of those threads cast its shard straight onto
+        # the device. On MPS that races inside torch's Metal shader cache and
+        # takes the process down mid-load - the same load crashed in
+        # MetalShaderLibrary::exec_unary_kernel twice, once on a garbage
+        # pointer and once on NULL. Passing `device` instead leaves the load on
+        # the CPU and lets the pipeline move the finished model in one call on
+        # this thread
+        placement = (
+            {"device": device}
+            if get_device_type(device) == "mps"
+            else {"device_map": device}
+        )
         return hf_pipeline(
             pipeline_task,
             model=model_name,
-            device_map=device,
             torch_dtype=dtype,
+            **placement,
         )
 
     # The task is part of the identity - the same model name can be loaded

@@ -122,3 +122,46 @@ class TestTaskArgumentWarnings:
             ]
         }
         assert workflow_argument_warnings(definition) == []
+
+
+class TestDocumentedKwargs:
+    """A task whose real arguments live behind **kwargs still has to offer
+    them: the docstring's nested block is the only place they are declared,
+    so discovery reads it."""
+
+    def names(self, description):
+        return [p["name"] for p in description["parameters"]]
+
+    def test_nested_kwargs_become_parameters(self):
+        description = describe_task("text_generation")
+        names = self.names(description)
+        assert description["accepts_kwargs"]
+        for name in (
+            "prompt",
+            "device",
+            "model_name",
+            "system_prompt",
+            "max_new_tokens",
+            "image",
+            "repetition_penalty",
+            "generate_kwargs",
+        ):
+            assert name in names, name
+
+    def test_documented_kwargs_are_optional_and_described(self):
+        by_name = {p["name"]: p for p in describe_task("text_generation")["parameters"]}
+        assert not by_name["system_prompt"]["required"]
+        assert by_name["system_prompt"]["default"] is None
+        assert "system instruction" in by_name["system_prompt"]["description"].lower()
+
+    def test_a_typeless_docstring_header_still_describes(self):
+        # Google-style 'name: description' has no parenthesized type, and the
+        # named parameters of these tasks are written that way
+        by_name = {p["name"]: p for p in describe_task("text_generation")["parameters"]}
+        assert "prompt" in by_name["prompt"]["description"].lower()
+
+    def test_named_parameters_win_over_the_nested_block(self):
+        # device is a real parameter; it must not be duplicated by anything
+        # the kwargs block says
+        names = self.names(describe_task("text_generation"))
+        assert names.count("device") == 1

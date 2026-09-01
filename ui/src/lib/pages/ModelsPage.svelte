@@ -11,6 +11,7 @@
   } from '@lucide/svelte'
   import { api } from '../api'
   import { notify } from '../toast'
+  import CopyButton from '../CopyButton.svelte'
   import type {
     DiffusersStatus,
     ModelCache,
@@ -317,6 +318,11 @@
               {#if repo.repo_type !== 'model'}
                 <span class="badge">{repo.repo_type}</span>
               {/if}
+              <CopyButton
+                text={repo.repo_id}
+                title="copy model id to clipboard"
+                class="copymodel"
+              />
               <a
                 href={hubUrl(repo)}
                 target="_blank"
@@ -543,6 +549,10 @@
     margin-left: 0.3rem;
   }
   .hublink {
+    margin-left: 0.3rem;
+    vertical-align: middle;
+  }
+  :global(.copymodel) {
     margin-left: 0.3rem;
     vertical-align: middle;
   }

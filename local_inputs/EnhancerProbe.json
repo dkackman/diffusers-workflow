@@ -20,6 +20,7 @@
                     "prompt": "variable:opening_idea",
                     "image": "variable:image",
                     "device": "variable:enhancer_device",
+                    "system_prompt": "prompt:prompt_enhancement/minimax_h3",
                     "model_name": "variable:enhancer_model_name",
                     "max_new_tokens": "variable:enhancer_max_new_tokens",
                     "keep_preamble": false
@@ -38,6 +39,7 @@
                     "prompt": "variable:continuation_idea",
                     "image": "variable:image",
                     "device": "variable:enhancer_device",
+                    "system_prompt": "prompt:prompt_enhancement/minimax_h3",
                     "model_name": "variable:enhancer_model_name",
                     "max_new_tokens": "variable:enhancer_max_new_tokens",
                     "keep_preamble": false
