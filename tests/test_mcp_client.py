@@ -126,6 +126,18 @@ def test_a_500_is_labelled_a_server_side_failure():
     assert "boom" in message
 
 
+def test_a_5xx_with_a_json_detail_is_still_labelled_a_server_side_failure():
+    def handler(request):
+        return httpx.Response(500, json={"detail": "Could not read workflow: boom"})
+
+    with pytest.raises(DwApiError) as caught:
+        client_with(handler).get_json("/api/workflows/x")
+
+    message = str(caught.value)
+    assert "500" in message
+    assert message != "Could not read workflow: boom"
+
+
 def test_a_non_json_error_body_does_not_mask_the_status():
     def handler(request):
         return httpx.Response(404, text="<html>not found</html>")
