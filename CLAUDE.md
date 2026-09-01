@@ -61,6 +61,19 @@ Front-end checks from `ui/`: `npm run check`, `npm run lint`,
 Packaging: `pyproject.toml` (console scripts dw-run/dw-validate/dw-repl/dw-serve/dw-test);
 `scripts/build_dist.sh` builds the SPA into the wheel.
 
+### MCP Server
+
+`dw/mcp/` is a stdio MCP server (`dw-mcp`, `python -m dw.mcp`) that wraps the
+`dw.serve` REST API in a structured tool surface: workflow catalog and
+introspection, validate/save/delete, queue a run, poll its events, and view a
+generated image. It is an HTTP client of a *running* `dw.serve` — it owns no
+job state and no GPU worker. Only `dw/mcp/server.py` imports the MCP SDK; the
+handlers in `catalog.py`, `authoring.py`, `diagnose.py` and `media.py` are
+plain `(client, **kwargs)` functions, which is what makes them testable
+without an MCP session. `run_workflow` requires `acknowledged_cost=True` and
+returns as soon as the job is queued — a generation outlasts any client's
+tool-call timeout. See docs/MCP.md.
+
 ### REPL Architecture
 
 The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`) to keep GPU models cached between runs. Communication is via `multiprocessing.Queue`. Worker management is in `dw/repl_worker.py`, command handlers in `dw/repl_commands.py`.
