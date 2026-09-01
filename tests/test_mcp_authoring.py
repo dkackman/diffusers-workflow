@@ -1,6 +1,8 @@
 """Authoring tools: validate before saving, and never guess which workflow
 the caller meant."""
 
+import json
+
 import httpx
 import pytest
 
@@ -41,22 +43,24 @@ def test_validate_posts_an_inline_workflow():
     assert seen == [("POST", "/api/validate")]
 
 
-def test_validate_by_name_fetches_then_posts_inline():
-    """/api/validate refuses a request that carries only a path, so a
-    name has to be resolved to a definition first."""
-    client, seen = scripted(
-        {
-            ("GET", "/api/workflows/mine"): (200, WORKFLOW),
-            ("POST", "/api/validate"): (
-                200,
-                {"valid": True, "error": None, "warnings": []},
-            ),
-        }
-    )
+def test_validate_by_name_posts_the_name_as_a_workflow_path():
+    """The server resolves a stored name itself, which keeps validation on
+    the same footing as a run - relative paths inside the workflow resolve
+    against the workflow file's own directory."""
+    body_seen = {}
 
-    authoring.validate_workflow(client, name="mine")
+    def handler(request):
+        body_seen["path"] = request.url.path
+        body_seen["body"] = json.loads(request.read())
+        return httpx.Response(200, json={"valid": True, "error": None, "warnings": []})
 
-    assert seen == [("GET", "/api/workflows/mine"), ("POST", "/api/validate")]
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    authoring.validate_workflow(client, name="nested/mine")
+
+    assert body_seen["path"] == "/api/validate"
+    assert body_seen["body"]["workflow_path"] == "nested/mine"
+    assert "workflow" not in body_seen["body"]
 
 
 def test_validate_refuses_both_sources_at_once():

@@ -319,6 +319,91 @@ def test_submit_validation(server):
         assert client.app.state.job_manager.worker_manager.commands == []
 
 
+def test_submit_accepts_a_stored_workflow_name(server, tmp_path):
+    """The names /api/workflows hands out are what an agent has in hand, so
+    they must be submittable as-is - with or without .json, nested included."""
+    with server(success_script) as client:
+        nested = tmp_path / "workflows" / "nested"
+        nested.mkdir()
+        (nested / "Deep.json").write_text(json.dumps(valid_workflow("deep")))
+
+        for name, expected in [
+            ("Basic", "basic"),
+            ("Basic.json", "basic"),
+            ("nested/Deep", "deep"),
+        ]:
+            response = client.post("/api/jobs", json={"workflow_path": name})
+            assert response.status_code == 201, (name, response.json())
+            assert response.json()["workflow"] == expected
+
+        # the worker gets the resolved file, not the catalog name
+        manager = client.app.state.job_manager
+        executes = [
+            c for c in manager.worker_manager.commands if c["type"] == "execute"
+        ]
+        assert executes[0]["workflow_path"].endswith("Basic.json")
+
+
+def test_submit_accepts_a_real_path(server, tmp_path):
+    with server(success_script) as client:
+        path = tmp_path / "loose.json"
+        path.write_text(json.dumps(valid_workflow("loose")))
+
+        response = client.post("/api/jobs", json={"workflow_path": str(path)})
+
+        assert response.status_code == 201
+        assert response.json()["workflow"] == "loose"
+
+
+def test_submit_rejects_a_traversal_shaped_name(server):
+    with server(success_script) as client:
+        assert (
+            client.post("/api/jobs", json={"workflow_path": "../secret"}).status_code
+            == 400
+        )
+        assert (
+            client.post("/api/jobs", json={"workflow_path": "nope"}).status_code == 400
+        )
+        assert client.app.state.job_manager.worker_manager.commands == []
+
+
+def test_validate_accepts_a_stored_workflow_name(server, tmp_path):
+    with server(success_script) as client:
+        result = client.post("/api/validate", json={"workflow_path": "Basic"}).json()
+        assert result["valid"] is True and result["error"] is None
+
+        # the stored file is what gets checked, warnings and all
+        typo = valid_workflow("typo")
+        typo["steps"][0]["pipeline"]["configuration"][
+            "component_type"
+        ] = "ZImagePipeline"
+        typo["steps"][0]["pipeline"]["arguments"]["guidance_scael"] = 3
+        (tmp_path / "workflows" / "Typo.json").write_text(json.dumps(typo))
+
+        result = client.post("/api/validate", json={"workflow_path": "Typo"}).json()
+
+        assert result["valid"] is True
+        assert any("guidance_scael" in w for w in result["warnings"])
+
+
+def test_validate_requires_exactly_one_workflow_source(server):
+    with server(success_script) as client:
+        assert client.post("/api/validate", json={}).status_code == 400
+        assert (
+            client.post(
+                "/api/validate",
+                json={"workflow": valid_workflow(), "workflow_path": "Basic"},
+            ).status_code
+            == 400
+        )
+        assert (
+            client.post(
+                "/api/validate", json={"workflow_path": "../secret"}
+            ).status_code
+            == 400
+        )
+
+
 def test_workflow_browsing_and_confinement(server):
     with server(success_script) as client:
         listing = client.get("/api/workflows").json()
