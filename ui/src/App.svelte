@@ -187,16 +187,14 @@
     </button>
     <StatusPopover bind:open={statusOpen} {health} {memory} />
     <span class="flex"></span>
-    <span class="vram muted">
-      {#if memory?.info?.gpu_available}
+    {#if memory?.info?.gpu_available}
+      <span class="vram muted">
         {memory.info.gpu_device_name} · {gb(
           memory.info.gpu_memory_allocated_mb ?? 0,
         )} /
         {gb(memory.info.gpu_memory_total_mb ?? 0)} GB
-      {:else}
-        worker idle
-      {/if}
-    </span>
+      </span>
+    {/if}
     {#if vramPct !== null}
       <div class="meter" title="VRAM allocated">
         <div

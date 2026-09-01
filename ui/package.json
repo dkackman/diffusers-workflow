@@ -11,7 +11,8 @@
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write src e2e *.ts *.js",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "preflight": "npm run check && npm run lint && npm run format && npm run build && npm run test && npm run e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
