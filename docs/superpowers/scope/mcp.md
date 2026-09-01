@@ -121,7 +121,7 @@ but never complete the validate-then-save loop.
 | --- | --- | --- |
 | `run_workflow(workflow_path \| inline_workflow, arguments, acknowledged_cost)` | `POST /api/jobs` | **Costs GPU time; one job runs at a time.** Submits and returns immediately. See confirm-gating below. |
 | `get_job(job_id)` | `GET /api/jobs/{id}` | status, arguments, warnings, manifest, error, traceback, `event_count` |
-| `get_job_events(job_id, after, limit)` | `GET /api/jobs/{id}/event-log` **(new)** | `job_status` / `phase` / `memory` / `log` events — phase transitions (loading → generating → decoding → saving) |
+| `get_job_events(job_id, after, limit)` | `GET /api/jobs/{id}/event-log` **(new)** | live or persisted `job_status` / `phase` / `memory` / `log` events — phase transitions (loading → generating → decoding → saving) |
 | `cancel_job(job_id)` | `POST /api/jobs/{id}/cancel` | cooperative cancel |
 | `rerun_job(job_id)` | `POST /api/jobs/{id}/rerun` | re-queue after a fix |
 | `move_job(job_id, direction)` | `POST /api/jobs/{id}/move` | reorder queued jobs |
@@ -156,10 +156,11 @@ Checked against `dw/server/app.py` and `dw/server/jobs.py` on 2026-09-01.
    (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`)
    exist for exactly this purpose. The earlier claim that confirmation had
    to live entirely in client prose was wrong.
-4. **Events do not survive a restart.** They live in the in-memory `Job`
-   object (`jobs.py:182`); `JobHistory` persists eleven columns and none
-   of them is the event log. A job diagnosed after a server restart, or
-   any job recovered from history, has no trail. See follow-up F1.
+4. **Events did not survive a restart.** They live in the in-memory `Job`
+   object (`jobs.py:182`); `JobHistory` persisted eleven columns and none
+   of them was the event log, so a job recovered from history had no
+   trail. Originally deferred as F1, this has been pulled into the build —
+   history now persists a bounded tail of each job's events.
 
 ## Key design decisions
 
@@ -198,12 +199,11 @@ Checked against `dw/server/app.py` and `dw/server/jobs.py` on 2026-09-01.
 
 ## Post-v1 follow-ups
 
-Deliberately out of the first build. Each is its own change.
+Deliberately out of the first build. Each is its own change. (F1, persisting
+a job's event tail, was pulled into the build instead — without it the
+diagnostic loop only explains jobs from the current server process, which is
+the wrong trade for the non-developer audience this is aimed at.)
 
-- **F1 — Persist a job's event tail.** Add a bounded `events_json` column
-  (last ~200 events) to the `jobs` history table so `get_job_events`, and
-  the web UI, can still explain a job after a restart. Without it the
-  diagnostic loop only works on jobs from the current server process.
 - **F2 — Cost/time estimation for the confirm prompt.** Nothing in the API
   can say "this will take about four minutes." Job history holds durations
   per workflow id; a `GET /api/workflows/{name}/stats` could turn that
