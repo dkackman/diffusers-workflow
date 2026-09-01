@@ -86,6 +86,7 @@ dependencies = [
 
 [project.optional-dependencies]
 server = ["fastapi>=0.141.1", "uvicorn[standard]>=0.52.4"]
+mcp = ["mcp>=2.1.1", "httpx>=0.28.1"]
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
@@ -96,6 +97,7 @@ dev = [
     "httpx>=0.28.1",
     "black>=26.5.1",
     "build",
+    "mcp>=2.1.1",
 ]
 
 [project.urls]
@@ -107,6 +109,7 @@ dw-validate = "dw.validate:main"
 dw-repl = "dw.repl:main"
 dw-serve = "dw.serve:main"
 dw-test = "dw.test:main"
+dw-mcp = "dw.mcp.__main__:main"
 
 [tool.setuptools.packages.find]
 # tasks/, pipeline_processors/ and community_pipelines/ are namespace
