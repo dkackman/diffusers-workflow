@@ -11,7 +11,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, ToolAnnotations
 
-from dw_mcp import authoring, catalog, diagnose, media
+from dw_mcp import authoring, catalog, diagnose, media, models
 from dw_mcp.client import DwApiError
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
@@ -238,5 +238,54 @@ def build_server(client):
     tool(get_job_events, READ_ONLY)
     for fn in (run_workflow, cancel_job, rerun_job, move_job):
         tool(fn, WRITES)
+
+    # -------------------------------------------------------------- models
+
+    def download_model(repo_id: str, acknowledged_cost: bool = False) -> dict:
+        """Fetch a model repo into the Hugging Face cache. THIS COSTS DISK
+        AND BANDWIDTH: a model repo is commonly tens of gigabytes. Check
+        list_models first - it may already be cached. Tell the user what you
+        are about to fetch and get their go-ahead, then pass
+        acknowledged_cost=true. Returns as soon as the download starts; poll
+        list_downloads for progress."""
+        return models.download_model(
+            client, repo_id, acknowledged_cost=acknowledged_cost
+        )
+
+    def list_downloads() -> dict:
+        """List model downloads the server is running or recently ran."""
+        return models.list_downloads(client)
+
+    def cancel_download(download_id: str) -> dict:
+        """Ask a running model download to stop. Partial files stay in the
+        cache and resume if it is retried."""
+        return models.cancel_download(client, download_id)
+
+    def delete_model(repo: str, acknowledged_cost: bool = False) -> dict:
+        """Delete every cached revision of one model repo. THIS IS NOT
+        RECOVERABLE: getting the model back means downloading it again. Tell
+        the user which repo and how much it frees, get their go-ahead, then
+        pass acknowledged_cost=true. Refused while a job or download is
+        active."""
+        return models.delete_model(client, repo, acknowledged_cost=acknowledged_cost)
+
+    def get_diffusers_state() -> dict:
+        """Get the installed diffusers version and any update in flight."""
+        return models.get_diffusers_state(client)
+
+    def update_diffusers(acknowledged_cost: bool = False) -> dict:
+        """Upgrade diffusers to GitHub HEAD. THIS CAN BREAK THE INSTALL: it
+        installs an untagged development build that workflows running today
+        may not survive, and this tool cannot undo it. Report the current
+        version, explain why the update is worth it, get the user's
+        go-ahead, then pass acknowledged_cost=true. Refused while a job is
+        running or queued."""
+        return models.update_diffusers(client, acknowledged_cost=acknowledged_cost)
+
+    tool(list_downloads, READ_ONLY)
+    tool(get_diffusers_state, READ_ONLY)
+    for fn in (download_model, cancel_download, update_diffusers):
+        tool(fn, WRITES)
+    tool(delete_model, DELETES)
 
     return server

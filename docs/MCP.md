@@ -154,7 +154,7 @@ Nothing in this sequence costs GPU time.
 
 ## Tool reference
 
-25 tools in four groups. Names and arguments below are generated from
+31 tools in five groups. Names and arguments below are generated from
 `dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
@@ -202,17 +202,48 @@ Nothing in this sequence costs GPU time.
 | `rerun_job(job_id, acknowledged_cost=False)` | `job_id`, `acknowledged_cost` | Queue a fresh job from a previous job's stored specification. Costs GPU time, so it passes the same gate as `run_workflow` |
 | `move_job(job_id, direction)` | `job_id`, `direction` (`up`\|`down`\|`front`\|`back`) | Reorder a queued job |
 
-## The run gate
+### Models
 
-`run_workflow` and `rerun_job` refuse unless `acknowledged_cost=true` is
-passed — a run occupies the machine for minutes and the engine runs one job
-at a time, so the tools' instructions tell the model to describe what is
-about to run and get the user's go-ahead first. `rerun_job` is gated for the
-same reason as `run_workflow`: it queues the identical work from a stored
-spec, so leaving it open would make the gate worth nothing — any job id from
-`list_jobs` would buy a way around it. Passing the flag does not make the tool
-wait: it returns as soon as the job is queued, the same way queuing a job
-from the web UI does not block the browser tab.
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `list_models()` | — | (Catalog) List what the Hugging Face cache holds, largest first |
+| `download_model(repo_id, acknowledged_cost=False)` | `repo_id`, `acknowledged_cost` | Fetch a model repo into the cache. Costs disk and bandwidth, so it passes the gate. Returns as soon as the download starts |
+| `list_downloads()` | — | List downloads the server is running or recently ran |
+| `cancel_download(download_id)` | `download_id` | Stop a running download. Partial files stay cached and resume on a retry |
+| `delete_model(repo, acknowledged_cost=False)` | `repo`, `acknowledged_cost` | Delete every cached revision of one repo. Not recoverable locally |
+| `get_diffusers_state()` | — | Installed diffusers version, its git commit, and any update in flight |
+| `update_diffusers(acknowledged_cost=False)` | `acknowledged_cost` | Upgrade diffusers to GitHub HEAD in the background |
+
+The server refuses `delete_model` and `update_diffusers` while a job is
+running or queued, and `delete_model` while a download is active — pulling
+files or package contents out from under a loaded pipeline is the same
+hazard twice. That refusal arrives as the server's own explanation.
+
+## The cost gate
+
+Five tools refuse unless `acknowledged_cost=true` is passed. Each commits
+the machine to something the user would want to have been asked about first,
+and each says so in its own words — a single shared refusal would be wrong
+for each of them in a different way, and a gate the user learns to wave
+through is not a gate.
+
+| Tool | What it commits |
+| --- | --- |
+| `run_workflow` | Minutes of GPU time; the engine runs one job at a time |
+| `rerun_job` | The same run, from a stored spec |
+| `download_model` | Tens of gigabytes of network and disk |
+| `delete_model` | Cached weights, unrecoverably — getting them back means downloading again |
+| `update_diffusers` | Replacing the installed library with an untagged development build |
+
+`rerun_job` is gated for the same reason as `run_workflow`: it queues the
+identical work, so leaving it open would make the gate worth nothing — any
+job id from `list_jobs` would buy a way around it. `cancel_job` and
+`cancel_download` are deliberately *not* gated: they end a cost rather than
+starting one, and gating them would make the safe direction the harder one.
+
+Passing the flag does not make a tool wait. Each returns as soon as the work
+is queued or started, the same way queuing a job from the web UI does not
+block the browser tab.
 
 The intended loop:
 
@@ -248,8 +279,7 @@ way you would treat opening the web UI to the network: don't.
 - **Images only.** `get_output_image` decodes and returns images; it refuses
   video and audio outputs. Use `get_gallery_metadata` to inspect other media
   kinds.
-- **Not exposed yet:** model download/deletion, dependency/diffusers-version
-  management, and the prompt library (`prompt:` references still work
+- **Not exposed yet:** the prompt library (`prompt:` references still work
   inside a workflow's own JSON — there is just no tool to browse or edit
   stored prompts).
 
