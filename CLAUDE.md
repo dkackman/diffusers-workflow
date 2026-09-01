@@ -121,7 +121,7 @@ All entry points use `dw/security.py`. When adding features:
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
-- **MPS differences from CUDA**: no autocast, no bitsandbytes, no flash_attn, no triton, no torch.compile. Model offloading has less benefit on unified memory.
+- **MPS differences from CUDA**: no autocast, no bitsandbytes, no flash_attn, no triton, no torch.compile. Model offloading has less benefit on unified memory, and `"offload": "sequential"` is downgraded to `"model"` with a warning there (`place_component`) — per-submodule streaming hands back no residency when the CPU and the accelerator share one pool. `exclude_from_cpu_offload` is sequential-only and does not survive the downgrade.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
 - **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
