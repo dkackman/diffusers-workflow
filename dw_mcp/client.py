@@ -87,7 +87,7 @@ class DwClient:
             content_type = response.headers.get("content-type", "")
             if response.status_code < 400 and not accept_content_type(content_type):
                 return None, content_type
-            response.read()
+            self._call_httpx(response.read, path)
             self._raise_for_status(response, path)
             return response.content, content_type
         finally:
