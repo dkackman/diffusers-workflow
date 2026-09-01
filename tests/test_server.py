@@ -1428,8 +1428,8 @@ def test_an_existing_database_without_the_events_column_migrates(tmp_path):
 
 
 def test_recording_still_writes_every_other_column(tmp_path):
-    """The insert is positional. Widening the table without naming columns
-    would shift every value - this pins the ones that would move."""
+    """The insert names its columns, so widening the table cannot shift a
+    value into the wrong one. This pins the columns that would have moved."""
     from dw.server.jobs import JobHistory
 
     history = JobHistory(tmp_path / "jobs.sqlite")
@@ -1568,3 +1568,85 @@ def test_event_log_404s_for_an_unknown_job(server):
         response = client.get("/api/jobs/nope/event-log")
 
         assert response.status_code == 404
+
+
+def test_event_log_says_so_when_a_historical_jobs_log_was_truncated(server):
+    """History keeps only the last MAX_PERSISTED_EVENTS. A tail that fits one
+    page would otherwise answer `after=-1` with `truncated: false` and no
+    note - reading as the whole log of a job that emitted thousands."""
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.get = lambda job_id: {"id": job_id, "status": "failed"}
+        manager.history.events_for = lambda job_id: [
+            {"seq": index} for index in range(2800, 3000)
+        ]
+
+        body = client.get("/api/jobs/historical/event-log").json()
+
+        assert body["events"][0]["seq"] == 2800
+        assert body["truncated"] is False, "this page is not itself cut short"
+        assert "last 200" in body["note"]
+        assert "not retained" not in body["note"], "distinct from the no-log note"
+
+
+def test_event_log_does_not_claim_truncation_for_a_complete_historical_log(server):
+    """A job that genuinely emitted exactly MAX_PERSISTED_EVENTS lost nothing.
+    The signal is the first stored seq, not the length of the tail."""
+    from dw.server.jobs import MAX_PERSISTED_EVENTS
+
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.get = lambda job_id: {"id": job_id, "status": "complete"}
+        manager.history.events_for = lambda job_id: [
+            {"seq": index} for index in range(MAX_PERSISTED_EVENTS)
+        ]
+
+        body = client.get(
+            f"/api/jobs/historical/event-log?limit={MAX_PERSISTED_EVENTS}"
+        ).json()
+
+        assert body["note"] is None
+
+
+def test_a_recorded_job_reads_back_through_the_event_log_route(server):
+    """The whole persistence seam end to end: JobHistory.record writes the
+    tail, the route reads it back. Both halves are tested in isolation
+    elsewhere; this is the join, which is where a lossy tail hides."""
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.history.record(
+            _finished_job_with_events(
+                "recorded",
+                [
+                    {"seq": 0, "event": "phase", "phase": "loading"},
+                    {"seq": 1, "event": "job_status", "status": "failed"},
+                ],
+            )
+        )
+
+        body = client.get("/api/jobs/recorded/event-log").json()
+
+        assert [event["seq"] for event in body["events"]] == [0, 1]
+        assert body["events"][0]["phase"] == "loading"
+        assert body["status"] == "complete"
+        assert body["truncated"] is False
+        assert body["note"] is None
+
+
+def test_a_recorded_job_whose_log_was_dropped_says_so_through_the_route(server):
+    """The Finding-4 case with no stand-ins: a long run really recorded, read
+    back through the route. The head is gone and the answer has to admit it."""
+    from dw.server.jobs import MAX_PERSISTED_EVENTS
+
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.history.record(
+            _finished_job_with_events("long", [{"seq": index} for index in range(3000)])
+        )
+
+        body = client.get("/api/jobs/long/event-log?limit=1000").json()
+
+        assert len(body["events"]) == MAX_PERSISTED_EVENTS
+        assert body["events"][0]["seq"] == 3000 - MAX_PERSISTED_EVENTS
+        assert body["truncated"] is False
+        assert f"last {MAX_PERSISTED_EVENTS}" in body["note"]

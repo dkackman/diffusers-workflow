@@ -40,7 +40,7 @@ from ..workflow import Workflow, workflow_from_definition
 from .enhancers import build_enhance_workflow, preset_descriptions
 from ..result import read_embedded_metadata
 from ..hub_cache import scan_models, delete_model, DownloadManager
-from .jobs import JobManager, TERMINAL_STATES
+from .jobs import JobManager, MAX_PERSISTED_EVENTS, TERMINAL_STATES
 from .updater import DiffusersUpdater
 
 logger = logging.getLogger("dw")
@@ -235,6 +235,26 @@ def default_ui_dir():
     return None
 
 
+def _historical_log_note(stored):
+    """What a restored job's event page has to admit about itself.
+
+    History keeps only the last MAX_PERSISTED_EVENTS of a run, so a page can
+    be complete as a page and still be missing the start of the job. The
+    first stored event's seq is the direct signal: anything above zero means
+    the head was dropped at record time. Length is not the signal - a job
+    that emitted exactly MAX_PERSISTED_EVENTS events lost nothing.
+    """
+    if not stored:
+        return "This job kept no event log - events were not retained with job history."
+    if stored[0].get("seq", 0) > 0:
+        return (
+            f"Only the last {MAX_PERSISTED_EVENTS} events of this job were "
+            f"retained; everything before seq {stored[0]['seq']} was dropped "
+            "when the job was recorded."
+        )
+    return None
+
+
 def create_app(
     workflow_dir="./workflows",
     output_dir="./outputs",
@@ -393,31 +413,23 @@ def create_app(
         if isinstance(job, dict):
             # A job restored from sqlite: history persists a bounded tail of
             # its events, so it can still explain itself after a restart
+            status = job.get("status")
             stored = manager.history.events_for(job_id) or []
             pending = [event for event in stored if event.get("seq", -1) > after]
-            page = pending[:limit]
-            return {
-                "id": job_id,
-                "status": job.get("status"),
-                "events": page,
-                "last_seq": page[-1]["seq"] if page else max(after, -1),
-                "truncated": len(pending) > len(page),
-                "note": (
-                    None
-                    if stored
-                    else "This job kept no event log - events were not retained "
-                    "with job history."
-                ),
-            }
-        pending = job.events_after(after)
+            note = _historical_log_note(stored)
+        else:
+            status = job.status
+            pending = job.events_after(after)
+            note = None
         page = pending[:limit]
         return {
             "id": job_id,
-            "status": job.status,
+            "status": status,
             "events": page,
             "last_seq": page[-1]["seq"] if page else max(after, -1),
+            # this page is cut short; `note` covers what record time dropped
             "truncated": len(pending) > len(page),
-            "note": None,
+            "note": note,
         }
 
     # ---------------------------------------------------------- introspection
