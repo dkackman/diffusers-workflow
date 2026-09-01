@@ -595,6 +595,7 @@ def test_workflow_listing_carries_details(server):
         listing = client.get("/api/workflows").json()
         assert listing["details"]["Detailed"] == {
             "kinds": ["image"],
+            "steps": 1,
             "variables": 1,
             "description": "Renders a small test image.",
             "prompt_refs": [],

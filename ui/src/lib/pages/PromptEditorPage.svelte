@@ -443,7 +443,7 @@
       await navigator.clipboard.writeText(`prompt:${ref}`)
       refCopied = true
       setTimeout(() => (refCopied = false), 1500)
-    } catch (e) {
+    } catch {
       notify.error('Could not copy to clipboard')
     }
   }

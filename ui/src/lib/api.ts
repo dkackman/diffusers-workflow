@@ -43,6 +43,7 @@ export const api = {
         string,
         {
           kinds: string[]
+          steps?: number
           variables: number
           description: string
           prompt_refs?: string[]

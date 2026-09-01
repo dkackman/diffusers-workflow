@@ -107,7 +107,7 @@ def collect_prompt_references(value):
 
 
 def workflow_details(workflow_dir, names):
-    """Per-workflow card metadata: output kinds and variable count."""
+    """Per-workflow card metadata: output kinds, step and variable counts."""
     details = {}
     for name in names:
         path = os.path.join(workflow_dir, f"{name}.json")
@@ -132,6 +132,7 @@ def workflow_details(workflow_dir, names):
             )
             detail = {
                 "kinds": kinds,
+                "steps": len(definition.get("steps", [])),
                 "variables": len(definition.get("variables", {})),
                 "description": str(definition.get("description", "") or ""),
                 "prompt_refs": sorted(collect_prompt_references(definition)),
@@ -139,6 +140,7 @@ def workflow_details(workflow_dir, names):
         except Exception:
             detail = {
                 "kinds": [],
+                "steps": 0,
                 "variables": 0,
                 "description": "",
                 "prompt_refs": [],

@@ -7,7 +7,15 @@
 
   let workflows = $state<string[]>([])
   let details = $state<
-    Record<string, { kinds: string[]; variables: number; description: string }>
+    Record<
+      string,
+      {
+        kinds: string[]
+        steps?: number
+        variables: number
+        description: string
+      }
+    >
   >({})
   let workflowDir = $state('')
   let filter = $state('')
@@ -79,6 +87,10 @@
           {#if detail?.kinds.includes('image')}<Image size={13} />{/if}
           {#if detail?.kinds.includes('video')}<Film size={13} />{/if}
           {#if detail?.kinds.includes('audio')}<Music size={13} />{/if}
+          {#if (detail?.steps ?? 0) > 1}<span
+              title="{detail.steps} steps run in sequence"
+              >{detail.steps} steps</span
+            >{/if}
           {#if detail?.variables}<span
               title="{detail.variables} variables to tweak"
               >{detail.variables} vars</span
