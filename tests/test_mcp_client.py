@@ -113,6 +113,32 @@ def test_get_bytes_if_rejects_without_reading_the_body():
     assert stream.iterated is False
 
 
+def test_get_bytes_if_translates_a_body_read_failure():
+    """Anything httpx raises has to arrive as a DwApiError, even when it
+    happens while reading the body after the headers already came back
+    clean - not just on the initial send()."""
+
+    class FailingStream(httpx.SyncByteStream):
+        def __iter__(self):
+            raise httpx.ReadError("connection reset", request=None)
+            yield b""  # pragma: no cover
+
+        def close(self):
+            pass
+
+    def handler(request):
+        return httpx.Response(
+            200, headers={"content-type": "image/png"}, stream=FailingStream()
+        )
+
+    client = client_with(handler)
+
+    with pytest.raises(DwApiError) as caught:
+        client.get_bytes_if("/outputs/a.png", lambda ct: ct.startswith("image/"))
+
+    assert "/outputs/a.png" in str(caught.value)
+
+
 def test_a_refused_connection_says_how_to_start_the_server():
     def handler(request):
         raise httpx.ConnectError("refused", request=request)
