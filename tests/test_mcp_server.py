@@ -219,10 +219,17 @@ async def test_an_image_comes_back_as_an_image_block():
 
     result = await server.call_tool("get_output_image", {"name": "out.png"})
 
-    block = result.content[0]
-    assert block.type == "image"
-    assert block.mime_type.startswith("image/")
-    assert block.data
+    image_block = result.content[0]
+    assert image_block.type == "image"
+    assert image_block.mime_type.startswith("image/")
+    assert image_block.data
+
+    text_block = result.content[1]
+    assert text_block.type == "text"
+    assert "out.png" in text_block.text
+    assert "original_size" in text_block.text
+    assert "returned_size" in text_block.text
+    assert "bytes" in text_block.text
 
 
 # Every tool, the arguments a client would send, and the one API call it is

@@ -181,7 +181,7 @@ Nothing in this sequence costs GPU time.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `get_output_image(name, max_dimension=768)` | `name`, `max_dimension` | Look at a generated image, downscaled to `max_dimension` on its longest side |
+| `get_output_image(name, max_dimension=768)` | `name`, `max_dimension` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent |
 
 ### Authoring
 
