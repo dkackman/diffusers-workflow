@@ -165,8 +165,10 @@ class TestOffloadDevice:
         component.enable_model_cpu_offload.assert_called_once_with(device="cuda:1")
 
     def test_sequential_offload_targets_the_configured_device(self):
-        component = self.load({"offload": "sequential"}, "mps")
-        component.enable_sequential_cpu_offload.assert_called_once_with(device="mps")
+        # Not MPS: sequential offload is downgraded to model offload there
+        # (see tests/test_offload_placement.py)
+        component = self.load({"offload": "sequential"}, "cuda:1")
+        component.enable_sequential_cpu_offload.assert_called_once_with(device="cuda:1")
 
     def test_offload_is_skipped_on_the_cpu(self):
         # There is no accelerator to stream the model onto

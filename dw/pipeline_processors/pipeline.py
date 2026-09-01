@@ -1396,6 +1396,26 @@ def place_component(
         logger.warning(f"Ignoring '{offload}' offload - {device} is not an accelerator")
         offload = None
 
+    # Sequential offload streams each submodule onto the accelerator as it runs,
+    # a trade only a separate memory pool rewards. MPS shares one pool with the
+    # CPU, so the streaming hands back no residency and costs a copy per
+    # submodule per step. Model offload keeps the coarse win - idle components
+    # off the Metal allocator - without paying that
+    if offload == "sequential" and get_device_type(device) == "mps":
+        excluded = configuration.get("exclude_from_cpu_offload", [])
+        ignored = (
+            f"; 'exclude_from_cpu_offload' ({', '.join(excluded)}) is sequential-only "
+            "and does not carry over"
+            if excluded
+            else ""
+        )
+        logger.warning(
+            f"Using model offload in place of sequential on {device} - sequential "
+            f"streams weights per submodule, which buys back no memory on unified "
+            f"memory{ignored}"
+        )
+        offload = "model"
+
     if offload == "model":
         logger.debug(f"Enabling model CPU offload onto {device}")
         component.enable_model_cpu_offload(device=device)

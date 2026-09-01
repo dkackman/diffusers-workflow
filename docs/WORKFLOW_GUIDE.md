@@ -275,7 +275,7 @@ Control how models use memory:
 ```
 
 - `"model"` — Moves entire models between CPU and GPU. Good balance of speed and memory.
-- `"sequential"` — Moves individual layers. Slowest but uses least GPU memory.
+- `"sequential"` — Moves individual layers. Slowest but uses least GPU memory. On MPS it is downgraded to `"model"` with a warning: with unified memory there is no separate pool to keep small, so the per-layer copies cost speed and save nothing.
   `exclude_from_cpu_offload` names components the sweep should leave alone.
 - Omit for no offloading (fastest, requires enough VRAM).
 
