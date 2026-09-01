@@ -4,7 +4,7 @@ every API failure is turned into a message a non-developer can act on."""
 import httpx
 import pytest
 
-from dw.mcp.client import DwApiError, DwClient, resolve_base_url
+from dw.mcp.client import DwApiError, DwClient, path_segment, resolve_base_url
 
 
 def client_with(handler, **kwargs):
@@ -136,6 +136,17 @@ def test_a_5xx_with_a_json_detail_is_still_labelled_a_server_side_failure():
     message = str(caught.value)
     assert "500" in message
     assert message != "Could not read workflow: boom"
+
+
+def test_path_segment_encodes_characters_a_url_path_cannot_carry_raw():
+    # Pins the exact encoding so a later "simplification" to the default
+    # safe="/" (which would leave '/' - and so a traversal segment like
+    # "../escape" - unescaped) breaks visibly.
+    assert path_segment("a b#1") == "a%20b%231"
+
+
+def test_path_segment_encodes_its_own_slashes():
+    assert path_segment("folder/w") == "folder%2Fw"
 
 
 def test_a_non_json_error_body_does_not_mask_the_status():

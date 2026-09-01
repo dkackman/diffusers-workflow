@@ -2,10 +2,26 @@
 becomes a message a non-developer can act on."""
 
 import os
+from urllib.parse import quote
 
 import httpx
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8765"
+
+
+def path_segment(name):
+    """Percent-encode a name for interpolation into a request path,
+    including its '/' characters.
+
+    httpx normalizes dot-segments (`..`) out of a request URL client-side,
+    before the request ever reaches the server - so an unquoted name like
+    `../escape` is silently rewritten into a different, valid-looking path
+    and the server's own path-traversal check never runs on it. Quoting
+    keeps the literal bytes intact on the wire, so it is the server's own
+    validation - not this client - that decides what a name is allowed to
+    contain.
+    """
+    return quote(name, safe="")
 
 
 class DwApiError(Exception):
