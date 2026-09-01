@@ -223,9 +223,12 @@ def build_server(client):
         """Ask a queued or running job to stop."""
         return diagnose.cancel_job(client, job_id)
 
-    def rerun_job(job_id: str) -> dict:
-        """Queue a fresh job from a previous job's stored specification."""
-        return diagnose.rerun_job(client, job_id)
+    def rerun_job(job_id: str, acknowledged_cost: bool = False) -> dict:
+        """Queue a fresh job from a previous job's stored specification. THIS
+        COSTS GPU TIME: a rerun is a run - it occupies the machine for
+        minutes and the engine runs one job at a time. Tell the user what
+        will run and get their go-ahead, then pass acknowledged_cost=true."""
+        return diagnose.rerun_job(client, job_id, acknowledged_cost=acknowledged_cost)
 
     def move_job(job_id: str, direction: str) -> dict:
         """Reorder a queued job: up, down, front, or back."""

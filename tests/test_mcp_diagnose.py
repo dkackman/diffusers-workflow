@@ -193,7 +193,7 @@ def test_cancel_rerun_and_move_call_their_routes():
     )
 
     diagnose.cancel_job(client, "job-1")
-    diagnose.rerun_job(client, "job-1")
+    diagnose.rerun_job(client, "job-1", acknowledged_cost=True)
     diagnose.move_job(client, "job-1", "front")
 
     assert [entry["key"][1] for entry in seen] == [
@@ -216,3 +216,37 @@ def test_move_surfaces_a_job_that_has_left_the_queue():
 
     with pytest.raises(DwApiError, match="only queued jobs move"):
         diagnose.move_job(client, "job-1", "up")
+
+
+def test_rerun_refuses_without_an_acknowledged_cost():
+    """A rerun queues the same generation from a stored spec - the same GPU
+    minutes on the same one-job-at-a-time engine. The gate on run_workflow
+    would be pointless if a job id from list_jobs bought a way around it."""
+    client, seen = scripted({("POST", "/api/jobs/job-1/rerun"): (201, {"id": "job-2"})})
+
+    with pytest.raises(DwApiError) as caught:
+        diagnose.rerun_job(client, "job-1")
+
+    assert "acknowledged_cost" in str(caught.value)
+    assert seen == [], "nothing may be queued before the cost is acknowledged"
+
+
+def test_rerun_reuses_the_run_refusal_message():
+    """One gate, one wording - a second message would drift from the first."""
+    client, _seen = scripted({})
+
+    with pytest.raises(DwApiError) as caught:
+        diagnose.rerun_job(client, "job-1")
+
+    assert str(caught.value) == diagnose.COST_REFUSAL
+
+
+def test_rerun_submits_once_the_cost_is_acknowledged():
+    client, seen = scripted(
+        {("POST", "/api/jobs/job-1/rerun"): (201, {"id": "job-2", "status": "queued"})}
+    )
+
+    result = diagnose.rerun_job(client, "job-1", acknowledged_cost=True)
+
+    assert result["id"] == "job-2"
+    assert [entry["key"][1] for entry in seen] == ["/api/jobs/job-1/rerun"]

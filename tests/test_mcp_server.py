@@ -256,7 +256,12 @@ TOOL_WIRING = [
     ("get_job", {"job_id": "j1"}, "GET", "/api/jobs/j1"),
     ("get_job_events", {"job_id": "j1"}, "GET", "/api/jobs/j1/event-log"),
     ("cancel_job", {"job_id": "j1"}, "POST", "/api/jobs/j1/cancel"),
-    ("rerun_job", {"job_id": "j1"}, "POST", "/api/jobs/j1/rerun"),
+    (
+        "rerun_job",
+        {"job_id": "j1", "acknowledged_cost": True},
+        "POST",
+        "/api/jobs/j1/rerun",
+    ),
     ("move_job", {"job_id": "j1", "direction": "up"}, "POST", "/api/jobs/j1/move"),
 ]
 
@@ -399,3 +404,36 @@ async def test_optional_parameters_are_declared_nullable():
                 assert (
                     "anyOf" in schema or schema.get("type") == "null"
                 ), f"{name}.{parameter} defaults to null but is not nullable"
+
+
+@pytest.mark.asyncio
+async def test_rerun_job_takes_an_acknowledged_cost_flag():
+    tools = await tools_of(server_over(ok({})))
+
+    assert "acknowledged_cost" in tools["rerun_job"].input_schema["properties"]
+
+
+@pytest.mark.asyncio
+async def test_rerun_job_advertises_its_cost():
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["rerun_job"].description
+    assert "COSTS GPU TIME" in description
+    assert "acknowledged_cost" in description
+
+
+@pytest.mark.asyncio
+async def test_rerun_job_refuses_without_acknowledgement_and_sends_nothing():
+    seen = []
+
+    def handler(request):
+        seen.append((request.method, request.url.path))
+        return httpx.Response(201, json={"id": "job-2", "status": "queued"})
+
+    server = server_over(handler)
+
+    with pytest.raises(Exception) as caught:
+        await server.call_tool("rerun_job", {"job_id": "job-1"})
+
+    assert "acknowledged_cost" in str(caught.value)
+    assert seen == []

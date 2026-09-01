@@ -117,15 +117,18 @@ client and `dw.serve` are not both on the default port.
 | `get_job(job_id)` | `job_id` | Get a job's status, warnings, output manifest, error and traceback |
 | `get_job_events(job_id, after=-1, limit=200)` | `job_id`, `after`, `limit` | Get a page of a job's progress events |
 | `cancel_job(job_id)` | `job_id` | Ask a queued or running job to stop |
-| `rerun_job(job_id)` | `job_id` | Queue a fresh job from a previous job's stored specification |
+| `rerun_job(job_id, acknowledged_cost=False)` | `job_id`, `acknowledged_cost` | Queue a fresh job from a previous job's stored specification. Costs GPU time, so it passes the same gate as `run_workflow` |
 | `move_job(job_id, direction)` | `job_id`, `direction` (`up`\|`down`\|`front`\|`back`) | Reorder a queued job |
 
 ## The run gate
 
-`run_workflow` refuses unless `acknowledged_cost=true` is passed — a run
-occupies the machine for minutes and the engine runs one job at a time, so
-the tool's instructions tell the model to describe what is about to run and
-get the user's go-ahead first. Passing the flag does not make the tool
+`run_workflow` and `rerun_job` refuse unless `acknowledged_cost=true` is
+passed — a run occupies the machine for minutes and the engine runs one job
+at a time, so the tools' instructions tell the model to describe what is
+about to run and get the user's go-ahead first. `rerun_job` is gated for the
+same reason as `run_workflow`: it queues the identical work from a stored
+spec, so leaving it open would make the gate worth nothing — any job id from
+`list_jobs` would buy a way around it. Passing the flag does not make the tool
 wait: it returns as soon as the job is queued, the same way queuing a job
 from the web UI does not block the browser tab.
 
@@ -174,4 +177,4 @@ way you would treat opening the web UI to the network: don't.
 | --- | --- |
 | "Cannot reach diffusers-workflow at …" | `dw.serve` is not running. Start it with `dw-serve` (or `python -m dw.serve`) and try again |
 | A tool call times out | Usually a model loading into VRAM/RAM for the first time; retry, or raise `--timeout` |
-| `run_workflow` refuses with a cost message | Not an error — it is the `acknowledged_cost` gate. Confirm with the user and call again with `acknowledged_cost=true` |
+| `run_workflow` or `rerun_job` refuses with a cost message | Not an error — it is the `acknowledged_cost` gate. Confirm with the user and call again with `acknowledged_cost=true` |
