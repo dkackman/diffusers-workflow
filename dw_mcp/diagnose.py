@@ -24,14 +24,17 @@ def run_workflow(
     arguments=None,
     acknowledged_cost=False,
 ):
-    """Queue a workflow. Returns as soon as it is queued - it does not wait
-    for the job to finish. Poll `get_job_events` for progress."""
+    """Queue a workflow. `workflow_path` is either a catalog name from
+    `list_workflows` or a path to a workflow file on the server. Returns as
+    soon as it is queued - it does not wait for the job to finish. Poll
+    `get_job_events` for progress."""
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
     if (workflow_path is None) == (inline_workflow is None):
         raise DwApiError(
-            "Provide exactly one of `workflow_path` (a workflow on the "
-            "server) or `inline_workflow` (a definition to run as-is)."
+            "Provide exactly one of `workflow_path` (a catalog name or a "
+            "path to a workflow on the server) or `inline_workflow` (a "
+            "definition to run as-is)."
         )
     payload = {"arguments": arguments or {}}
     if workflow_path is not None:

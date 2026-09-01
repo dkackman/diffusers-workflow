@@ -6,22 +6,23 @@ traversal and anything outside the workflow directory). Nothing here
 re-implements it - a second, subtly different check is how the two drift.
 """
 
-from dw_mcp.catalog import get_workflow
 from dw_mcp.client import DwApiError, path_segment
 
 
 def validate_workflow(client, workflow=None, name=None):
     """Schema- and signature-check a workflow without queuing anything. This
     is free (no GPU work) and should be called before any run or save. Give
-    either an inline definition or the name of a stored one."""
+    either an inline definition or the name of a stored one, as
+    `list_workflows` reports it."""
     if (workflow is None) == (name is None):
         raise DwApiError(
             "Provide exactly one of `workflow` (an inline definition) or "
             "`name` (a stored workflow)."
         )
     if workflow is None:
-        # /api/validate only accepts an inline definition, so resolve first
-        workflow = get_workflow(client, name)
+        # The server resolves the name against its own workflow directory,
+        # so validation sees the same base directory a run would
+        return client.post_json("/api/validate", {"workflow_path": name})
     return client.post_json("/api/validate", {"workflow": workflow})
 
 
