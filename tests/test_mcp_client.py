@@ -1,6 +1,7 @@
 """The HTTP layer under the MCP tools: URL resolution and the one place
 every API failure is turned into a message a non-developer can act on."""
 
+import json
 import re
 from pathlib import Path
 
@@ -368,3 +369,55 @@ def test_a_422_with_list_detail_formats_it_as_human_readable():
     # Should not contain Python dict repr fragments
     assert "[{" not in message
     assert "'loc'" not in message
+
+
+# --------------------------------------------------- server.json resolution
+#
+# The desktop shell records the port it actually bound in
+# ~/.diffusers_helper/server.json, so a generated MCP config needs no port
+# baked into it. A stale or malformed file is a miss, never an error.
+
+
+def write_server_file(tmp_path, payload):
+    (tmp_path / "server.json").write_text(json.dumps(payload))
+
+
+def test_resolve_base_url_reads_the_server_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("DW_MCP_URL", raising=False)
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(tmp_path))
+    write_server_file(tmp_path, {"base_url": "http://127.0.0.1:9001", "port": 9001})
+    assert resolve_base_url(None) == "http://127.0.0.1:9001"
+
+
+def test_explicit_value_beats_the_server_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("DW_MCP_URL", raising=False)
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(tmp_path))
+    write_server_file(tmp_path, {"base_url": "http://127.0.0.1:9001"})
+    assert resolve_base_url("http://127.0.0.1:1234") == "http://127.0.0.1:1234"
+
+
+def test_environment_beats_the_server_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("DW_MCP_URL", "http://127.0.0.1:9999")
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(tmp_path))
+    write_server_file(tmp_path, {"base_url": "http://127.0.0.1:9001"})
+    assert resolve_base_url(None) == "http://127.0.0.1:9999"
+
+
+def test_missing_server_file_falls_through_to_the_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("DW_MCP_URL", raising=False)
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(tmp_path))
+    assert resolve_base_url(None) == "http://127.0.0.1:8765"
+
+
+def test_unreadable_server_file_falls_through_to_the_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("DW_MCP_URL", raising=False)
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(tmp_path))
+    (tmp_path / "server.json").write_text("{not json")
+    assert resolve_base_url(None) == "http://127.0.0.1:8765"
+
+
+def test_server_file_without_a_base_url_falls_through(tmp_path, monkeypatch):
+    monkeypatch.delenv("DW_MCP_URL", raising=False)
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(tmp_path))
+    write_server_file(tmp_path, {"port": 9001})
+    assert resolve_base_url(None) == "http://127.0.0.1:8765"
