@@ -35,6 +35,54 @@ test('? opens the shortcuts overlay; Escape closes it; typing ? in a field does 
   await expect(filter).toHaveValue('?')
 })
 
+test('the shortcuts overlay traps focus and returns it to the trigger', async ({
+  page,
+}) => {
+  await page.goto('/')
+  // give a known element focus before opening, so "focus returns to the
+  // trigger" has something concrete to check against
+  const trigger = page.getByRole('link', { name: 'Workflows' }).first()
+  await trigger.focus()
+  await page.keyboard.press('?')
+  const dialog = page.getByRole('dialog', { name: 'keyboard shortcuts' })
+  await expect(dialog).toBeVisible()
+  // focus moved into the dialog on open, not left on whatever had it before
+  await expect(dialog.getByRole('button', { name: 'close' })).toBeFocused()
+  // Tab cycles within the dialog - it never escapes to the nav behind it
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('button', { name: 'close' })).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(dialog.getByRole('button', { name: 'close' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  // closing hands focus back to whatever had it before the dialog opened
+  await expect(trigger).toBeFocused()
+})
+
+test('the status popover traps focus and returns it to its trigger button', async ({
+  page,
+}) => {
+  await page.goto('/')
+  const trigger = page.getByRole('button', { name: 'server & worker status' })
+  await trigger.click()
+  const pop = page.getByRole('dialog', { name: 'server status' })
+  await expect(pop).toBeVisible()
+  // focus moved into the popover, not left on the trigger button - the
+  // idle fixture has no current job, so the popover has no focusable
+  // content of its own and the dialog panel itself takes focus
+  await expect(pop).toBeFocused()
+  // Tab has nothing to cycle to inside the popover, so it must not escape
+  // to the page behind it - focus stays trapped on the dialog panel
+  await page.keyboard.press('Tab')
+  await expect(pop).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(pop).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(pop).toHaveCount(0)
+  // closing returns focus to the button that opened it
+  await expect(trigger).toBeFocused()
+})
+
 test('tab order walks the nav row in reading order', async ({ page }) => {
   await page.goto('/')
   // From the top of the document, Tab lands on the nav links in their

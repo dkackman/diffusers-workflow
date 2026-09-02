@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HealthInfo, MemoryInfo } from './types'
+  import { focusTrap } from './focusTrap'
 
   let {
     open = $bindable(false),
@@ -31,7 +32,9 @@
     class="pop panel"
     role="dialog"
     aria-label="server status"
+    aria-modal="true"
     tabindex="-1"
+    use:focusTrap
     onclick={(e) => e.stopPropagation()}
   >
     <dl>
