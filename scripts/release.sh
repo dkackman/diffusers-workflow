@@ -71,10 +71,47 @@ EOF
     echo "pyproject.toml: $current -> $version"
 fi
 
-if ! git diff --quiet -- pyproject.toml; then
-    git commit -m "release $version" -- pyproject.toml
+# The desktop shell pins the wheel to its own version, so the two must be
+# released together - a shell at a version PyPI has never seen would try to
+# install a wheel that does not exist. Cargo takes the semver form as-is;
+# pip normalizes it (0.4.0-alpha.10 -> 0.4.0a10) and an exact pin still
+# matches, so no second spelling of the version is needed.
+desktop_manifest="desktop/Cargo.toml"
+desktop_current=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$desktop_manifest" | head -1)
+if [ "$desktop_current" != "$version" ]; then
+    python3 - "$version" "$desktop_manifest" <<'EOF'
+import re, sys
+
+version, path = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as f:
+    text = f.read()
+text, n = re.subn(
+    r'^version = ".*"$', f'version = "{version}"', text, count=1, flags=re.MULTILINE
+)
+if n != 1:
+    sys.exit(f"error: no version line found in {path}")
+with open(path, "w", encoding="utf-8") as f:
+    f.write(text)
+EOF
+    echo "$desktop_manifest: $desktop_current -> $version"
+fi
+
+# Refresh the lockfile so the bump does not leave CI with a dirty tree
+if command -v cargo >/dev/null; then
+    (cd desktop && cargo metadata --format-version 1 >/dev/null)
+fi
+
+release_paths="pyproject.toml $desktop_manifest"
+if [ -f desktop/Cargo.lock ]; then
+    release_paths="$release_paths desktop/Cargo.lock"
+fi
+
+# shellcheck disable=SC2086
+if ! git diff --quiet -- $release_paths; then
+    # shellcheck disable=SC2086
+    git commit -m "release $version" -- $release_paths
 else
-    echo "pyproject.toml already at $version and committed - tagging HEAD"
+    echo "pyproject.toml and $desktop_manifest already at $version - tagging HEAD"
 fi
 
 git push origin master

@@ -208,6 +208,13 @@ jobs:
             echo "Tag $tag != pyproject version $pyproject"
             exit 1
           fi
+          # The shell pins the wheel to its own version, so a shell built at
+          # a different version would install a wheel that does not exist
+          desktop=$(sed -n 's/^version = "\(.*\)"$/\1/p' desktop/Cargo.toml | head -1)
+          if [ "$tag" != "$desktop" ]; then
+            echo "Tag $tag != desktop shell version $desktop"
+            exit 1
+          fi
       - uses: actions/download-artifact@v8
         with:
           name: diffusers-workflow-dist
