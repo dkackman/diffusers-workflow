@@ -12,7 +12,7 @@ import math
 
 from PIL import Image
 
-from dw_mcp.client import DwApiError, path_segment
+from dw_mcp.client import DwApiError, api_path
 
 # Roughly 4MB. The cap is on the returned payload's base64 size - the bytes
 # actually sent over MCP - not the raw encoded image, which is smaller by a
@@ -29,7 +29,7 @@ def get_output_image(client, name, max_dimension=768):
     def is_image(content_type):
         return not content_type or content_type.startswith("image/")
 
-    body, content_type = client.get_bytes_if(f"/outputs/{path_segment(name)}", is_image)
+    body, content_type = client.get_bytes_if(api_path("outputs", name), is_image)
     if body is None:
         raise DwApiError(
             f"{name} is {content_type}, not an image - this tool returns "

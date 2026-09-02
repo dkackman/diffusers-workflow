@@ -6,7 +6,7 @@ traversal and anything outside the workflow directory). Nothing here
 re-implements it - a second, subtly different check is how the two drift.
 """
 
-from dw_mcp.client import DwApiError, path_segment
+from dw_mcp.client import DwApiError, api_path
 
 
 def validate_workflow(client, workflow=None, name=None):
@@ -29,11 +29,9 @@ def validate_workflow(client, workflow=None, name=None):
 def save_workflow(client, name, workflow):
     """Write a workflow into the server's workflow directory, overwriting any
     file already under that name. The server validates before writing."""
-    return client.put_json(
-        f"/api/workflows/{path_segment(name)}", {"workflow": workflow}
-    )
+    return client.put_json(api_path("api", "workflows", name), {"workflow": workflow})
 
 
 def delete_workflow(client, name):
     """Remove a workflow from the server's workflow directory."""
-    return client.delete_json(f"/api/workflows/{path_segment(name)}")
+    return client.delete_json(api_path("api", "workflows", name))

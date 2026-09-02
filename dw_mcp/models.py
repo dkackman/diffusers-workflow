@@ -13,7 +13,7 @@ something, confirm it" would be wrong for each of them in a different way,
 and a gate the user learns to wave through is not a gate.
 """
 
-from dw_mcp.client import DwApiError, path_segment
+from dw_mcp.client import DwApiError, api_path
 
 DOWNLOAD_REFUSAL = (
     "Downloading a model pulls tens of gigabytes over the network and into "
@@ -63,7 +63,9 @@ def cancel_download(client, download_id):
     """Ask a running download to stop. Not gated: this ends a cost rather
     than starting one, and partial files stay in the cache and resume on a
     retry, so it is cheap to get wrong in the safe direction."""
-    return client.post_json(f"/api/models/downloads/{path_segment(download_id)}/cancel")
+    return client.post_json(
+        api_path("api", "models", "downloads", download_id, "cancel")
+    )
 
 
 def delete_model(client, repo, acknowledged_cost=False):

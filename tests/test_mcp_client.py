@@ -1,10 +1,13 @@
 """The HTTP layer under the MCP tools: URL resolution and the one place
 every API failure is turned into a message a non-developer can act on."""
 
+import re
+from pathlib import Path
+
 import httpx
 import pytest
 
-from dw_mcp.client import DwApiError, DwClient, path_segment, resolve_base_url
+from dw_mcp.client import DwApiError, DwClient, api_path, path_segment, resolve_base_url
 
 
 def client_with(handler, **kwargs):
@@ -216,6 +219,56 @@ def test_path_segment_encodes_characters_a_url_path_cannot_carry_raw():
 
 def test_path_segment_encodes_its_own_slashes():
     assert path_segment("folder/w") == "folder%2Fw"
+
+
+def test_api_path_joins_literal_and_encoded_segments():
+    assert api_path("api", "jobs", "j1", "cancel") == "/api/jobs/j1/cancel"
+
+
+def test_api_path_quotes_a_slash_in_a_segment():
+    assert (
+        api_path("api", "workflows", "flux/FluxDev") == "/api/workflows/flux%2FFluxDev"
+    )
+
+
+def test_api_path_quotes_dot_segments_so_they_cannot_traverse():
+    assert api_path("api", "workflows", "../escape") == "/api/workflows/..%2Fescape"
+
+
+def test_api_path_quotes_a_hash():
+    assert api_path("api", "gallery", "a#1") == "/api/gallery/a%231"
+
+
+def test_api_path_quotes_a_space():
+    assert api_path("outputs", "a b.png") == "/outputs/a%20b.png"
+
+
+# Every dw_mcp handler module that talks to the API must build request paths
+# through `api_path`, not by hand - `path_segment` alone is easy to forget on
+# one call site among many, and a bare f-string skips quoting entirely. This
+# scans source text rather than testing behavior, because the bug this guards
+# against is a *new* call site written the old way, which no behavioral test
+# would catch until someone thought to write it.
+HANDLER_MODULES = [
+    "authoring.py",
+    "catalog.py",
+    "diagnose.py",
+    "media.py",
+    "models.py",
+    "server.py",
+]
+
+# An f-string whose literal part begins with /api or /outputs and contains an
+# interpolation, e.g. f"/api/jobs/{job_id}" or f"/outputs/{name}/thumb".
+RAW_INTERPOLATED_PATH = re.compile(r"""f(['"])/(?:api|outputs)[^'"]*\{[^'"]*\1""")
+
+
+@pytest.mark.parametrize("module_name", HANDLER_MODULES)
+def test_handler_modules_do_not_build_paths_by_hand(module_name):
+    source = (Path(__file__).parent.parent / "dw_mcp" / module_name).read_text()
+
+    assert "path_segment(" not in source
+    assert not RAW_INTERPOLATED_PATH.search(source)
 
 
 def test_a_non_json_error_body_does_not_mask_the_status():
