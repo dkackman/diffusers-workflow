@@ -130,13 +130,9 @@ class DwClient:
     def _call_httpx(self, send, path):
         try:
             return send()
-        except httpx.ConnectTimeout:
-            raise DwApiError(
-                f"Cannot reach diffusers-workflow at {self.base_url}. "
-                "Start the server with `dw-serve` (or `python -m dw.serve`) "
-                "and try again."
-            )
-        except httpx.ConnectError:
+        # ConnectTimeout is a subclass of TimeoutException, so it must be
+        # caught here, before TimeoutException below.
+        except (httpx.ConnectTimeout, httpx.ConnectError):
             raise DwApiError(
                 f"Cannot reach diffusers-workflow at {self.base_url}. "
                 "Start the server with `dw-serve` (or `python -m dw.serve`) "
@@ -187,21 +183,19 @@ class DwClient:
         message. FastAPI validation errors (422) have detail as a list of dicts
         with 'loc' and 'msg' keys; string details are returned verbatim."""
         if isinstance(detail, list):
-            # FastAPI validation error format
             messages = []
             for entry in detail:
                 if isinstance(entry, dict):
-                    msg = entry.get("msg", "Unknown error")
+                    msg = entry.get("msg")
                     loc = entry.get("loc")
-                    if loc and isinstance(loc, list):
-                        # Extract the field name from the location
-                        # loc is typically ["body", "field_name"] or similar
-                        field_name = loc[-1] if loc else "field"
+                    if msg is None:
+                        messages.append(str(entry))
+                    elif loc and isinstance(loc, list):
+                        field_name = loc[-1]
                         messages.append(f"{field_name}: {msg}")
                     else:
                         messages.append(msg)
                 else:
-                    # Fallback for unexpected entry format
                     messages.append(str(entry))
             return ". ".join(messages) if messages else str(detail)
         return str(detail)

@@ -70,7 +70,7 @@ load entirely.
 
 | Route | What it does |
 | --- | --- |
-| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. Answers with argument warnings from signature checking. |
+| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` also accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included); an existing filesystem path wins on a collision. Answers with argument warnings from signature checking. |
 | `GET /api/jobs` | Queue + history summaries |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error |
 | `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless |
@@ -122,7 +122,8 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/schema` — the workflow JSON schema
 - `POST /api/validate` — schema validation plus signature-level argument
   warnings for pipeline and task steps (catches the typo before the model
-  loads)
+  loads). Accepts `workflow_path` (same resolution as `/api/jobs`, above) as
+  an alternative to inline `workflow` - exactly one of the two, or a 400
 
 ## Files and models
 

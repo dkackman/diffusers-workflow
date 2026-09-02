@@ -595,6 +595,9 @@ async def test_wrapper_and_handler_defaults_match():
 
     for tool_name, (handler_module, handler_fn_name) in WRAPPER_HANDLER_MAP.items():
         if tool_name not in tools:
+            mismatches.append(
+                f"{tool_name}: mapped in WRAPPER_HANDLER_MAP but not a registered tool"
+            )
             continue
 
         tool = tools[tool_name]
@@ -629,3 +632,30 @@ async def test_wrapper_and_handler_defaults_match():
                 )
 
     assert not mismatches, "\n".join(mismatches)
+
+
+def test_wrapper_handler_map_covers_every_defaulted_handler():
+    """WRAPPER_HANDLER_MAP is hand-maintained, so a handler gaining a default
+    parameter and never being added to the map would go unnoticed - the
+    comparison above only checks tools that are already listed. Walk every
+    handler module and require any registered-tool handler with a default on
+    a non-client parameter to be a mapped key."""
+    modules = [catalog, diagnose, media, models, authoring]
+
+    missing = []
+    for module in modules:
+        for fn_name, fn in inspect.getmembers(module, inspect.isfunction):
+            if fn_name not in EXPECTED_TOOLS:
+                continue
+            sig = inspect.signature(fn)
+            has_default = any(
+                param_name != "client" and param.default is not inspect.Parameter.empty
+                for param_name, param in sig.parameters.items()
+            )
+            if has_default and fn_name not in WRAPPER_HANDLER_MAP:
+                missing.append(f"{module.__name__}.{fn_name}")
+
+    assert not missing, (
+        "handlers with defaulted parameters missing from WRAPPER_HANDLER_MAP: "
+        + ", ".join(missing)
+    )
