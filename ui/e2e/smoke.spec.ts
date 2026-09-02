@@ -95,6 +95,22 @@ test('schema page renders a browsable tree from the live schema', async ({
   await expect(page.locator('#def-step')).toHaveCount(0)
 })
 
+test('a $ref jump-to-definition link activates from the keyboard', async ({
+  page,
+}) => {
+  await page.goto('/#/schema')
+  // expand the step definition so a $ref link (e.g. "pipeline") is on screen
+  await page.locator('#def-step').getByRole('button').first().click()
+  const refLink = page
+    .locator('#def-step')
+    .getByRole('link', { name: 'pipeline', exact: true })
+  await expect(refLink).toBeVisible()
+  await refLink.focus()
+  await expect(refLink).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#def-pipeline')).toBeInViewport()
+})
+
 test('editor validates, saves into a new folder, and deletes', async ({
   page,
 }) => {
