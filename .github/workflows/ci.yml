@@ -176,6 +176,36 @@ jobs:
           mkdir -p desktop/src-tauri/resources/seed
           cp -r workflows desktop/src-tauri/resources/seed/workflows
           cp -r prompts desktop/src-tauri/resources/seed/prompts
+      - name: Import the signing certificate (macOS)
+        if: matrix.os == 'macos-14'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # A throwaway keychain, unlocked for this job only. Tauri's own
+          # signing reuses it because it is on the search list.
+          KEYCHAIN=$RUNNER_TEMP/signing.keychain-db
+          PASSWORD=$(uuidgen)
+          security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $RUNNER_TEMP/cert.p12
+          security import $RUNNER_TEMP/cert.p12 -k "$KEYCHAIN" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          rm $RUNNER_TEMP/cert.p12
+          security find-identity -v -p codesigning "$KEYCHAIN"
+      - name: Sign the bundled runtime (macOS)
+        # python-build-standalone and uv ship ad-hoc signed, which
+        # notarization rejects. Tauri signs the app binary and seals
+        # Contents/Resources by hash, but does not re-sign what is in
+        # there - so this runs before the bundler copies them in.
+        if: matrix.os == 'macos-14'
+        run: bash desktop/scripts/sign-macos-runtime.sh
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
       - run: cd desktop && npm ci
       - name: Build the installer
         run: cd desktop && npm run tauri build -- --target ${{ matrix.target }}
@@ -198,6 +228,9 @@ jobs:
             desktop/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             desktop/target/${{ matrix.target }}/release/bundle/msi/*.msi
             desktop/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+            desktop/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            desktop/target/${{ matrix.target }}/release/bundle/msi/*.msi.zip
+            desktop/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.tar.gz
             desktop/target/${{ matrix.target }}/release/bundle/**/*.sig
 
   release:
@@ -238,6 +271,12 @@ jobs:
           pattern: desktop-*
           merge-multiple: true
           path: installers
+      - name: Build the updater manifest
+        # Tauri emits a per-platform archive and .sig but not the manifest
+        # tying them together, which is what the updater endpoint fetches
+        run: |
+          bash desktop/scripts/make-latest-json.sh \
+            "${GITHUB_REF_NAME#v}" installers installers/latest.json
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

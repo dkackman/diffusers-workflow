@@ -175,9 +175,55 @@ fatter - but the bundler genuinely requires it either way.
   **not** in `ci.yml` - production CI should not be reshaped to suit a
   local emulator.
 
+## macOS signing, resolved against a real certificate
+
+The Developer ID cert now exists (team `86TDY6D9V2`) and all eight secrets
+are registered, so the two risks flagged in item 9 could be tested rather
+than guessed at. Both were real.
+
+**The bundled binaries were ad-hoc signed.** A signed build showed
+`Signature=adhoc` on `uv`, `python3.12` and `libpython3.12.dylib` -
+how python-build-standalone and uv ship on arm64. Tauri signs the app
+binary and seals `Contents/Resources` by hash, but does not re-sign what
+lives there, and `codesign --deep --strict` passes anyway because those
+files are sealed as resources rather than nested code. Notarization is
+stricter and rejects ad-hoc signatures. `scripts/sign-macos-runtime.sh`
+now signs all five Mach-O files deepest-first before the bundler copies
+them, and fails loudly if any ad-hoc signature survives.
+
+**Library validation would have broken every install.** Under the
+Hardened Runtime a process may only load libraries signed by its own
+team, and a provisioned venv loads pip-built extensions signed by nobody.
+`python.entitlements` grants `disable-library-validation` (plus JIT and
+dyld-environment entitlements the worker's `spawn` re-exec needs).
+Verified end to end: numpy 2.5.2 - whose `_multiarray_umath.so` is
+`adhoc, linker-signed` - imports and computes under the signed
+interpreter. Without the entitlement the app would have installed
+cleanly and failed on the first import.
+
+After both fixes the bundle reports `Authority=Developer ID Application`
+on every nested binary and `spctl` gives `source=Unnotarized Developer
+ID`, which is the correct state for a signed build that has not been
+through notarization yet.
+
+**Two updater gaps found alongside.** `bundle.createUpdaterArtifacts` was
+absent, so no update archives or `.sig` files were produced at all; and
+nothing generated `latest.json`, which the endpoint in `tauri.conf.json`
+fetches. Both are fixed - the manifest is built in the release job by
+`scripts/make-latest-json.sh`, tested against fixtures including a
+platform whose `.sig` is missing.
+
+### Still unverified
+
+Notarization itself has not run - it needs the app-specific password,
+which only CI holds. The first tagged build is the first real test of
+`APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` and of
+`createUpdaterArtifacts`, which could not be exercised locally because
+the Tauri signing key is password-protected.
+
 ## State
 
-Branch `desktop-installers`, 16 commits. 1,984 Python tests pass
+Branch `desktop-installers`, 17 commits. 1,984 Python tests pass
 (4 skipped), 45 Rust tests pass, `black --check`, `cargo fmt --check` and
 `clippy -D warnings` all clean. Nothing merged to master except the spec
 and the plan.
