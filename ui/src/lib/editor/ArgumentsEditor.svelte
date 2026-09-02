@@ -1,12 +1,16 @@
 <script lang="ts">
   import { Plus, Trash2 } from '@lucide/svelte'
   import ExpandingText from './ExpandingText.svelte'
+  import MediaArgumentInput from './MediaArgumentInput.svelte'
   import {
     classDescription,
     coerce,
     displayValue,
     isReference,
+    mediaKindFor,
+    mediaLocation,
     widgetFor,
+    withMediaLocation,
   } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
@@ -85,12 +89,25 @@
   {#each shownKeys as key (key)}
     {@const parameter = parameters.get(key)}
     {@const widget = widgetFor(parameter, args[key])}
+    {@const mediaKind =
+      !isReference(args[key]) && !Array.isArray(args[key])
+        ? mediaKindFor(parameter, key)
+        : null}
     <div class="row">
       <label for={`${uid}-${key}`} title={parameter?.description ?? ''}>
         {key}{#if parameter?.required}<span class="req">*</span>{/if}
       </label>
       <div class="field">
-        {#if widget === 'boolean' && !isReference(args[key])}
+        {#if mediaKind}
+          <MediaArgumentInput
+            id={`${uid}-${key}`}
+            location={mediaLocation(args[key])}
+            kind={mediaKind}
+            onchange={(location) => {
+              args[key] = withMediaLocation(args[key], location)
+            }}
+          />
+        {:else if widget === 'boolean' && !isReference(args[key])}
           <select
             id={`${uid}-${key}`}
             value={String(args[key])}

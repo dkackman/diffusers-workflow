@@ -14,8 +14,12 @@ export default defineConfig({
   // Svelte's server-side build (the default package resolution) has no
   // mount()/component lifecycle - @testing-library/svelte needs the
   // client build, which the 'browser' condition selects.
-  resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
+  resolve: {
+    conditions: process.env.VITEST ? ['browser'] : undefined,
+  },
   test: {
     exclude: ['e2e/**', 'node_modules/**'],
+    environment: 'jsdom',
+    setupFiles: ['./vitest.setup.ts'],
   },
 })

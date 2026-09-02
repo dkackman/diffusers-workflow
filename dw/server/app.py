@@ -9,6 +9,7 @@ import os
 import io
 import copy
 import json
+import uuid
 import asyncio
 import logging
 from contextlib import asynccontextmanager
@@ -22,7 +23,10 @@ from pydantic import BaseModel, Field
 
 from ..security import (
     validate_path,
+    validate_output_path,
     validate_prompt_reference,
+    ALLOWED_IMAGE_EXTENSIONS,
+    ALLOWED_VIDEO_EXTENSIONS,
     InvalidInputError,
     SecurityError,
 )
@@ -880,6 +884,52 @@ def create_app(
         os.remove(path)
         logger.info(f"Deleted output file {name}")
         return {"name": name, "deleted": True}
+
+    # ---------------------------------------------------------------- uploads
+
+    UPLOADS_SUBDIR = "uploads"
+    ALLOWED_UPLOAD_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS
+    MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200MB - covers a short video clip
+
+    @app.post("/api/uploads", status_code=201)
+    async def upload_media(request: Request, filename: str):
+        """Save a browser-picked image or video into the output directory's
+        uploads/ subfolder and hand back its path - the same string shape a
+        workflow's 'image'/'video' arguments already accept (a plain path,
+        resolved absolute so it works regardless of the workflow file's own
+        directory). The body is the raw file bytes: no multipart parser
+        dependency needed for a single-file upload.
+        """
+        extension = os.path.splitext(os.path.basename(filename))[1].lower()
+        if extension not in ALLOWED_UPLOAD_EXTENSIONS:
+            raise HTTPException(
+                status_code=400, detail=f"File extension not allowed: {extension}"
+            )
+
+        body = await request.body()
+        if not body:
+            raise HTTPException(status_code=400, detail="Empty upload")
+        if len(body) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Upload too large: {len(body)} > {MAX_UPLOAD_BYTES}",
+            )
+
+        uploads_dir = os.path.join(manager.output_dir, UPLOADS_SUBDIR)
+        os.makedirs(uploads_dir, exist_ok=True)
+        name = f"{uuid.uuid4().hex}{extension}"
+        try:
+            dest = validate_output_path(os.path.join(uploads_dir, name), uploads_dir)
+        except SecurityError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        with open(dest, "wb") as f:
+            f.write(body)
+        logger.info(f"Saved upload {filename!r} -> {dest}")
+        return {
+            "path": dest,
+            "url": f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}",
+        }
 
     # ----------------------------------------------------------------- models
 
