@@ -107,7 +107,11 @@ def collect_prompt_references(value):
 
 
 def workflow_details(workflow_dir, names):
-    """Per-workflow card metadata: output kinds, step and variable counts."""
+    """Per-workflow card metadata: output kinds, step and variable counts,
+    and the variable names themselves - enough for an agent to pick a
+    workflow and know what to pass it without fetching each candidate. The
+    names but not their defaults: across the workflows on disk the defaults
+    are an order of magnitude more payload, on a listing the UI reloads."""
     details = {}
     for name in names:
         path = os.path.join(workflow_dir, f"{name}.json")
@@ -130,10 +134,12 @@ def workflow_details(workflow_dir, names):
                     and "content_type" in step["result"]
                 }
             )
+            variables = definition.get("variables", {}) or {}
             detail = {
                 "kinds": kinds,
                 "steps": len(definition.get("steps", [])),
-                "variables": len(definition.get("variables", {})),
+                "variables": len(variables),
+                "variable_names": sorted(variables),
                 "description": str(definition.get("description", "") or ""),
                 "prompt_refs": sorted(collect_prompt_references(definition)),
             }
@@ -142,6 +148,7 @@ def workflow_details(workflow_dir, names):
                 "kinds": [],
                 "steps": 0,
                 "variables": 0,
+                "variable_names": [],
                 "description": "",
                 "prompt_refs": [],
             }

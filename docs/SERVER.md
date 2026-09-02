@@ -127,6 +127,13 @@ The editor's forms come from these; they are just as usable from scripts:
 
 ## Files and models
 
+- `GET /api/workflows` — the stored workflow names, plus a `details` entry
+  per workflow: `description`, `kinds` (the output content types' top-level
+  halves), `steps`, `variables` (a count) and `variable_names`, and
+  `prompt_refs` naming the stored prompts it leans on. Enough to choose a
+  workflow and know what to pass it without reading each one; the variable
+  defaults are deliberately left out, being an order of magnitude more
+  payload on a listing the UI reloads. Cached by file mtime
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`)
 - `GET /api/prompts`, `GET/PUT/DELETE /api/prompts/{name}` — the prompt
