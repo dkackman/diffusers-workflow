@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The bundled interpreter loads libraries that pip installed at run
+	     time - torch and friends - which are signed by nobody. Under the
+	     Hardened Runtime, library validation would refuse every one of
+	     them, so the app would install successfully and then fail on the
+	     first import. This is the entitlement that keeps a provisioned
+	     venv usable. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<!-- Torch's inductor/JIT paths and several native extensions map
+	     writable-executable memory. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<!-- The worker re-execs the interpreter under the spawn start method
+	     and passes DYLD_/PYTHON* variables through. -->
+	<key>com.apple.security.cs.allow-dyld-environment-variables</key>
+	<true/>
+</dict>
+</plist>
