@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("mcp", reason="the mcp extra is not installed")
 
-from dw_mcp import authoring, catalog, diagnose, media, models  # noqa: E402
+from dw_mcp import authoring, catalog, diagnose, media, models, prompts  # noqa: E402
 from dw_mcp.client import DwClient  # noqa: E402
 from dw_mcp.server import build_server  # noqa: E402
 
@@ -44,6 +44,15 @@ EXPECTED_TOOLS = {
     "delete_model",
     "get_diffusers_state",
     "update_diffusers",
+    "list_prompts",
+    "get_prompt",
+    "get_prompt_schema",
+    "save_prompt",
+    "delete_prompt",
+    "list_enhancers",
+    "enhance_prompt",
+    "get_output_text",
+    "delete_output",
 }
 
 READ_ONLY_TOOLS = EXPECTED_TOOLS - {
@@ -57,9 +66,20 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "cancel_download",
     "delete_model",
     "update_diffusers",
+    "save_prompt",
+    "delete_prompt",
+    "enhance_prompt",
+    "delete_output",
 }
 
-DESTRUCTIVE_TOOLS = {"save_workflow", "delete_workflow", "delete_model"}
+DESTRUCTIVE_TOOLS = {
+    "save_workflow",
+    "delete_workflow",
+    "delete_model",
+    "save_prompt",
+    "delete_prompt",
+    "delete_output",
+}
 
 # Tools that refuse until the caller passes acknowledged_cost=true. The
 # annotations are a hint a client may or may not surface; this flag is the
@@ -70,6 +90,7 @@ GATED_TOOLS = {
     "download_model",
     "delete_model",
     "update_diffusers",
+    "enhance_prompt",
 }
 
 # a real 1x1 PNG, so the image handler can actually decode it
@@ -319,6 +340,25 @@ TOOL_WIRING = [
         "POST",
         "/api/system/diffusers/update",
     ),
+    ("list_prompts", {}, "GET", "/api/prompts"),
+    ("get_prompt", {"name": "duke"}, "GET", "/api/prompts/duke"),
+    ("get_prompt_schema", {}, "GET", "/api/prompt-schema"),
+    (
+        "save_prompt",
+        {"name": "duke", "prompt": {"text": "a duke"}},
+        "PUT",
+        "/api/prompts/duke",
+    ),
+    ("delete_prompt", {"name": "duke"}, "DELETE", "/api/prompts/duke"),
+    ("list_enhancers", {}, "GET", "/api/enhancers"),
+    (
+        "enhance_prompt",
+        {"idea": "a duke", "acknowledged_cost": True},
+        "POST",
+        "/api/enhance",
+    ),
+    ("get_output_text", {"name": "enhanced.txt"}, "GET", "/outputs/enhanced.txt"),
+    ("delete_output", {"name": "out.png"}, "DELETE", "/api/gallery/out.png"),
 ]
 
 
@@ -333,6 +373,10 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
 
     def handler(request):
         seen.append((request.method, request.url.path))
+        if request.url.path.endswith(".txt"):
+            return httpx.Response(
+                200, content=b"a duke", headers={"content-type": "text/plain"}
+            )
         if request.url.path.startswith("/outputs/"):
             return httpx.Response(
                 200, content=PNG_1X1, headers={"content-type": "image/png"}
@@ -533,6 +577,7 @@ GATED_ARGUMENTS = {
     "download_model": {"repo_id": "org/model"},
     "delete_model": {"repo": "org/model"},
     "update_diffusers": {},
+    "enhance_prompt": {"idea": "a duke"},
 }
 
 
@@ -575,6 +620,8 @@ WRAPPER_HANDLER_MAP = {
     "validate_workflow": (authoring, "validate_workflow"),
     "run_workflow": (diagnose, "run_workflow"),
     "rerun_job": (diagnose, "rerun_job"),
+    "get_output_text": (media, "get_output_text"),
+    "enhance_prompt": (prompts, "enhance_prompt"),
 }
 
 
@@ -640,7 +687,7 @@ def test_wrapper_handler_map_covers_every_defaulted_handler():
     comparison above only checks tools that are already listed. Walk every
     handler module and require any registered-tool handler with a default on
     a non-client parameter to be a mapped key."""
-    modules = [catalog, diagnose, media, models, authoring]
+    modules = [catalog, diagnose, media, models, authoring, prompts]
 
     missing = []
     for module in modules:
@@ -659,3 +706,12 @@ def test_wrapper_handler_map_covers_every_defaulted_handler():
         "handlers with defaulted parameters missing from WRAPPER_HANDLER_MAP: "
         + ", ".join(missing)
     )
+
+
+def test_the_instructions_explain_how_a_workflow_reaches_a_prompt():
+    """The prompt tools are only useful to a model that knows a workflow
+    argument reaches the library by `prompt:name` - nothing else in the tool
+    surface connects the two halves of authoring."""
+    server = server_over(ok({}))
+
+    assert "prompt:" in server.instructions

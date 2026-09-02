@@ -154,7 +154,7 @@ Nothing in this sequence costs GPU time.
 
 ## Tool reference
 
-31 tools in five groups. Names and arguments below are transcribed from
+40 tools in six groups. Names and arguments below are transcribed from
 `dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
@@ -177,11 +177,13 @@ Nothing in this sequence costs GPU time.
 | `list_gallery(limit=50)` | `limit` | List generated output files, newest first |
 | `get_gallery_metadata(name)` | `name` | Get the metadata embedded in a generated file: the exact workflow and arguments that produced it |
 
-### Media (read-only)
+### Media
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `get_output_image(name, max_dimension=768)` | `name`, `max_dimension` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent |
+| `get_output_text(name, max_characters=20000)` | `name`, `max_characters` | Read a text output — a prompt enhancement, or any step whose result is `text/plain` or JSON. Reports the file's real length and whether it was truncated |
+| `delete_output(name)` | `name` | Permanently remove one generated file from the output directory |
 
 ### Authoring
 
@@ -190,6 +192,23 @@ Nothing in this sequence costs GPU time.
 | `validate_workflow(workflow=None, name=None)` | exactly one of `workflow` (inline definition) or `name` (a stored workflow, as `list_workflows` reports it) | Check a workflow against the schema and against real pipeline signatures. Free and instant. Validating by name uses the workflow file's own directory as the base directory, so it sees what a run would |
 | `save_workflow(name, workflow)` | `name`, `workflow` | Save a workflow to the server, overwriting any existing workflow of that name |
 | `delete_workflow(name)` | `name` | Permanently delete a stored workflow |
+
+### Prompts
+
+The stored prompt library is the other half of authoring: a workflow
+argument written as `"prompt:name"` or `"prompt:folder/name"` resolves
+against it at load time, so a workflow can be authored and the text it
+references written in the same session.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `list_prompts()` | — | List the stored prompts with their text and descriptions |
+| `get_prompt(name)` | `name` | Get one stored prompt's full definition |
+| `get_prompt_schema()` | — | Get the JSON schema every stored prompt must satisfy. Its own route rather than a name under `/api/prompts`, so a prompt called `schema` cannot shadow it |
+| `save_prompt(name, prompt)` | `name`, `prompt` | Save a prompt, overwriting any prompt of that name. The server validates first, and refuses a `text` that itself begins with `variable:`, `previous_result:`, `constant:` or `prompt:` |
+| `delete_prompt(name)` | `name` | Permanently delete a stored prompt. A workflow still referencing it will fail to load |
+| `list_enhancers()` | — | List the enhancer presets `enhance_prompt` accepts |
+| `enhance_prompt(idea, preset="h3", model_name=None, device=None, acknowledged_cost=False)` | `idea`, `preset`, optional `model_name` and `device`, `acknowledged_cost` | Expand a short idea into a full prompt with a language model. Queued as an ordinary job, so it passes the gate; the enhanced text is the text file in the finished manifest, readable with `get_output_text` |
 
 ### Diagnose
 
@@ -221,7 +240,7 @@ hazard twice. That refusal arrives as the server's own explanation.
 
 ## The cost gate
 
-Five tools refuse unless `acknowledged_cost=true` is passed. Each commits
+Six tools refuse unless `acknowledged_cost=true` is passed. Each commits
 the machine to something the user would want to have been asked about first,
 and each says so in its own words — a single shared refusal would be wrong
 for each of them in a different way, and a gate the user learns to wave
@@ -234,6 +253,7 @@ through is not a gate.
 | `download_model` | Tens of gigabytes of network and disk |
 | `delete_model` | Cached weights, unrecoverably — getting them back means downloading again |
 | `update_diffusers` | Replacing the installed library with an untagged development build |
+| `enhance_prompt` | A real job on the one-at-a-time engine, delaying any generation behind it |
 
 `rerun_job` is gated for the same reason as `run_workflow`: it queues the
 identical work, so leaving it open would make the gate worth nothing — any
