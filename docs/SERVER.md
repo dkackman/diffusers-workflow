@@ -47,7 +47,15 @@ load entirely.
   The split view puts the form beside the JSON with both sides editable;
   changes apply when a side loses focus. Validate, save, and run from the
   same screen. A Monaco editor with the workflow JSON schema backs the
-  JSON views.
+  JSON views. A fourth view, **flow**, renders the workflow's data-flow
+  graph read-only: one box per step, arrows for each `previous_result`
+  reference labeled with the argument it feeds, entry-point steps marked
+  apart from steps that depend on earlier ones, and fan-in points -
+  steps combining more than one upstream producer - flagged with the
+  cartesian-product multiplier where it's known statically (e.g. a
+  literal `num_images_per_prompt` on both producers). It's a diagram of
+  the JSON, not a second way to edit it; clicking a step jumps to it in
+  the form view.
 - **Gallery** — everything in the output directory. Images generated with
   `embed_metadata` carry their full workflow definition and seed; **open as
   workflow** loads that definition into the editor with the seed pinned, so

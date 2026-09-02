@@ -11,6 +11,10 @@ export default defineConfig({
       '/outputs': 'http://127.0.0.1:8765',
     },
   },
+  // Svelte's server-side build (the default package resolution) has no
+  // mount()/component lifecycle - @testing-library/svelte needs the
+  // client build, which the 'browser' condition selects.
+  resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
   test: {
     exclude: ['e2e/**', 'node_modules/**'],
   },
