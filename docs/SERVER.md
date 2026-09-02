@@ -9,6 +9,7 @@ past generations in a gallery, and manage the models on disk.
 python -m dw.serve                       # http://127.0.0.1:8765
 python -m dw.serve --port 8000 --workflow-dir ./workflows --output-dir ./outputs --prompt-dir ./prompts
 python -m dw.serve --host 0.0.0.0 --token "some-long-random-string"   # reachable off this machine
+python -m dw.serve --trust-workflows      # only if nothing untrusted can reach POST /api/jobs - see Security model
 ```
 
 Installed as a package, the same server is `dw-serve`. Interactive API docs
@@ -201,6 +202,12 @@ network:
   the output directory, and traversal (`../`) is blocked throughout.
 - Inline workflow definitions are schema-validated before queueing, and
   their `base_dir` is validated like any other path input.
+- A workflow JSON file can execute arbitrary Python (`pre_load_modules`,
+  dotted `*_type`/`config_type` values - see [Trust
+  model](SECURITY.md#trust-model)). `dw-serve` refuses that surface by
+  default for every job it runs, inline or from a file, MCP-submitted or
+  not; `--trust-workflows` lifts the refusal for the whole server and
+  should only be passed when nothing untrusted can reach `POST /api/jobs`.
 
 ### Authentication
 

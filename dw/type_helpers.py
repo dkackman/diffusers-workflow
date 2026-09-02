@@ -1,5 +1,7 @@
 import importlib
 
+from .security import require_trusted_dotted_name
+
 
 def get_type(module_name, type_name):
     module = __import__(module_name)
@@ -14,6 +16,11 @@ def load_type_from_name(type_name):
 
 
 def load_type_from_full_name(full_name):
+    # A bare name resolves against diffusers regardless of trust; a dotted
+    # name imports whatever module it names, which is the code-execution
+    # surface an untrusted workflow is refused unless it stays in-ecosystem
+    require_trusted_dotted_name(full_name, "a dotted type reference")
+
     # Split the full name into module path and object name
     module_path, object_name = full_name.rsplit(".", 1)
 

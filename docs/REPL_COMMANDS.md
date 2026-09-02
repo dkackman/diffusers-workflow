@@ -6,8 +6,15 @@ The REPL uses hierarchical commands grouped by function. Use `?` after any comma
 
 ```bash
 python -m dw.repl
-python -m dw.repl -l DEBUG    # with debug logging
+python -m dw.repl -l DEBUG              # with debug logging
+python -m dw.repl --trust-workflows     # only for workflow files you trust - see docs/SECURITY.md
 ```
+
+A workflow JSON file can execute arbitrary Python (`pre_load_modules`,
+dotted `*_type`/`config_type` values). `--trust-workflows` is off by
+default for the whole session; `workflow load`/`workflow run` on a
+workflow that needs it without the flag fails with a clear error. See
+[Trust model](SECURITY.md#trust-model).
 
 ## Commands
 

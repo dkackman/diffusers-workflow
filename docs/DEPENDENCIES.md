@@ -76,6 +76,14 @@ bash ./install.sh
 
 ## Troubleshooting
 
+**Hugging Face authentication (401/403 downloading a model):** Most workflows under `workflows/` (Flux, LTX-2, MiniMax...) point at **gated** models on the Hub — repos that require the owner to approve your account before you can download them. A run against one of these fails with an actionable error naming the repo and `huggingface-cli login` (mapped from the Hub's 401/403 in `load_component()`, `dw/pipeline_processors/pipeline.py`) — request access on the model's page (e.g. [black-forest-labs/FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev)) and then log in once, locally:
+
+```bash
+huggingface-cli login
+```
+
+`workflows/sd15.json` uses an ungated model and needs no login - start there if you just want to confirm the install works.
+
 **Package conflicts:** Re-run the install script — it recreates the venv from scratch.
 
 **CUDA not detected:** PyTorch auto-detects CUDA. Verify with `python -c "import torch; print(torch.cuda.is_available())"`.

@@ -302,6 +302,13 @@ Because it adds no authentication, `dw-mcp` must not be pointed at a
 `dw.serve` reachable beyond localhost. Treat `--url`/`DW_MCP_URL` the same
 way you would treat opening the web UI to the network: don't.
 
+`save_workflow` and `run_workflow` together let an MCP client write and
+then execute a workflow it authored - and a workflow JSON file can execute
+arbitrary Python (see [Trust model](SECURITY.md#trust-model)). What
+protects a `dw.serve` an MCP client talks to is the server's own
+`--trust-workflows` flag, off by default: run `dw-serve` without it (the
+default) for any server an MCP client can reach.
+
 ## Known limits
 
 - **Event history is bounded.** `get_job_events` serves at most the last 200
@@ -311,9 +318,6 @@ way you would treat opening the web UI to the network: don't.
 - **Images only.** `get_output_image` decodes and returns images; it refuses
   video and audio outputs. Use `get_gallery_metadata` to inspect other media
   kinds.
-- **Not exposed yet:** the prompt library (`prompt:` references still work
-  inside a workflow's own JSON — there is just no tool to browse or edit
-  stored prompts).
 
 ## Troubleshooting
 
