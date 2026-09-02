@@ -1,3 +1,4 @@
+import copy
 import logging
 import PIL
 from .security import (
@@ -10,46 +11,79 @@ from .security import (
 logger = logging.getLogger("dw")
 
 
+class VariableNotFoundError(ValueError):
+    """Raised when a workflow references a "variable:name" that isn't declared."""
+
+
+def _resolve_variable_reference(value, variables):
+    """
+    If value is a "variable:name" reference, look it up and return (True, resolved).
+    Otherwise return (False, None) so the caller knows to recurse instead.
+
+    Raises:
+        VariableNotFoundError: if the referenced name isn't in variables, naming the
+            variables that are actually available.
+    """
+    if isinstance(value, str) and value.startswith("variable:"):
+        variable_name = value.removeprefix("variable:")
+        logger.debug(f"Replacing variable reference: {variable_name}")
+        if variable_name not in variables:
+            available = ", ".join(sorted(variables.keys())) or "<none>"
+            message = f"Variable <{variable_name}> not found; available variables: {available}"
+            raise VariableNotFoundError(message)
+        return True, variables[variable_name]
+    return False, None
+
+
 def replace_variables(data, variables):
     """
-    Recursively replaces variable references in data structures with their actual values
+    Recursively replaces variable references in data structures with their actual values.
+
+    Does not mutate its input - a new structure is returned and `data` is left as it
+    was passed in, so callers don't have to deep-copy defensively before calling.
+
     Args:
         data: The data structure (dict or list) containing variable references
         variables: Dictionary of variable names and their values
+    Returns:
+        A new structure with "variable:name" references replaced. Any part of `data`
+        that isn't a dict/list/reference string is returned as-is.
     """
-    if variables is not None:
-        logger.debug(f"Processing variables: {list(variables.keys())}")
+    if variables is None:
+        return data
 
-        # Handle lists - replace any "variable:name" strings with their values
-        if isinstance(data, list):
-            logger.debug(f"Processing list of length {len(data)}")
-            for i, item in enumerate(data):
-                # Check for variable reference format "variable:name"
-                if isinstance(item, str) and item.startswith("variable:"):
-                    variable_name = item.removeprefix("variable:")
-                    logger.debug(f"Replacing variable reference: {variable_name}")
-                    if not variable_name in variables:
-                        logger.error(f"Variable <{variable_name}> not found")
-                        raise Exception(f"Variable <{variable_name}> not found")
-                    data[i] = variables[variable_name]
-                else:
-                    # Recursively process nested structures
-                    replace_variables(item, variables)
+    logger.debug(f"Processing variables: {list(variables.keys())}")
 
-        # Handle dictionaries - replace values that are variable references
-        elif isinstance(data, dict):
-            logger.debug(f"Processing dictionary with keys: {list(data.keys())}")
-            for k, v in data.items():
-                if isinstance(v, str) and v.startswith("variable:"):
-                    variable_name = v.removeprefix("variable:")
-                    logger.debug(f"Replacing variable reference: {variable_name}")
-                    if not variable_name in variables:
-                        logger.error(f"Variable <{variable_name}> not found")
-                        raise Exception(f"Variable <{variable_name}> not found")
-                    data[k] = variables[variable_name]
-                else:
-                    # Recursively process nested structures in dictionary values
-                    replace_variables(v, variables)
+    # Handle lists - replace any "variable:name" strings with their values
+    if isinstance(data, list):
+        logger.debug(f"Processing list of length {len(data)}")
+        result = []
+        for item in data:
+            matched, resolved = _resolve_variable_reference(item, variables)
+            if matched:
+                result.append(resolved)
+            else:
+                # Recursively process nested structures
+                result.append(replace_variables(item, variables))
+        return result
+
+    # Handle dictionaries - replace values that are variable references
+    if isinstance(data, dict):
+        logger.debug(f"Processing dictionary with keys: {list(data.keys())}")
+        result = {}
+        for k, v in data.items():
+            matched, resolved = _resolve_variable_reference(v, variables)
+            if matched:
+                result[k] = resolved
+            else:
+                # Recursively process nested structures in dictionary values
+                result[k] = replace_variables(v, variables)
+        return result
+
+    # Scalars (and anything else) pass through unchanged. copy.deepcopy guards
+    # against a caller mutating a returned mutable leaf (e.g. a PIL.Image or a
+    # list-typed variable's value) and having that reach back into `variables`.
+    return copy.deepcopy(data)
 
 
 def set_variables(values, variables):
@@ -110,7 +144,11 @@ def get_value(v, desired_type, name=None):
         desired_type: Target type for conversion
         name: Name of the variable being converted, used for error messages
     Returns:
-        Converted value, or original value if conversion fails
+        Converted value
+
+    Raises:
+        ValueError: if v cannot be converted to desired_type, naming the variable,
+            its target type, and the offending value.
     """
     logger.debug(f"Converting value {v} to type {desired_type}")
 
@@ -143,11 +181,19 @@ def get_value(v, desired_type, name=None):
     if isinstance(v, PIL.Image.Image):
         return v
 
-    # Attempt type conversion, return original value if it fails
+    # Attempt type conversion. A failure here is surfaced immediately with a clear,
+    # named error instead of silently passing the unconverted value through - letting
+    # it through would fail several layers later inside diffusers/torch with a
+    # confusing traceback that doesn't mention the variable at fault.
     try:
         converted = desired_type(v)
         logger.debug(f"Successfully converted to {desired_type.__name__}: {converted}")
         return converted
     except Exception as e:
-        logger.warning(f"Failed to convert to {desired_type.__name__}: {e}")
-        return v
+        var_label = name if name is not None else "<unknown>"
+        message = (
+            f"Cannot convert variable '{var_label}' value {v!r} to type "
+            f"{desired_type.__name__}: {e}"
+        )
+        logger.error(message)
+        raise ValueError(message) from e

@@ -54,7 +54,24 @@ class TestValidateEntryPoint:
 
         code = invoke(validate_module, monkeypatch, ["dw-validate", str(path)])
         assert code == 1
-        assert "Error validating workflow" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        # Printed once - not doubled as "Error validating workflow: Validation error: ..."
+        assert out.count("Validation error") == 1
+        assert "Error validating workflow" not in out
+
+    def test_a_schema_violation_names_the_json_path(
+        self, workflow_file, monkeypatch, capsys
+    ):
+        definition = json.loads(workflow_file.read_text())
+        # "seed" on a step must be an integer per the schema - give it a string
+        definition["steps"][0]["seed"] = "not-a-number"
+        workflow_file.write_text(json.dumps(definition))
+
+        code = invoke(validate_module, monkeypatch, ["dw-validate", str(workflow_file)])
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "steps[0]" in out
+        assert "seed" in out
 
     def test_a_traversing_path_is_refused_before_anything_is_read(
         self, monkeypatch, capsys
