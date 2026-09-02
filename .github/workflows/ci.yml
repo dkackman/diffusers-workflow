@@ -95,11 +95,149 @@ jobs:
           name: diffusers-workflow-dist
           path: dist/*
 
+  desktop-core:
+    # The shell's decisions - paths, GPU detection, ports, provisioning,
+    # config merging - live in a crate with no Tauri dependency precisely
+    # so they can be tested in seconds on every push rather than only at
+    # release time. The contract test needs the Python side, so this job
+    # installs the package without torch.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install the Python side of the contract test
+        # dw_mcp imports nothing from dw (test_mcp_server.py::TestStartupWeight
+        # guards that), so httpx plus the repo on PYTHONPATH is enough to run
+        # its half of the contract for real - no torch in this job. The
+        # dw.repl half needs the whole engine and skips here; the backend
+        # job's pytest run covers that side's own behaviour.
+        run: pip install httpx
+      - name: Format check
+        run: cd desktop && cargo fmt --all --check
+      - name: Clippy
+        run: cd desktop && cargo clippy -p dw_desktop_core --all-targets -- -D warnings
+      - name: Tests
+        run: cd desktop && cargo test -p dw_desktop_core
+        env:
+          DW_CONTRACT_PYTHON: python
+          PYTHONPATH: ${{ github.workspace }}
+          # A skipped test still reports ok, so name the half this job is
+          # meant to prove: if dw_mcp ever stops being importable here, the
+          # job fails instead of going quietly green. dw.repl is not listed -
+          # it needs torch and is expected to skip in this job.
+          DW_CONTRACT_REQUIRE: dw_mcp.client
+
+  desktop:
+    # The installers. Tags and manual runs only - these are slow and large.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [backend, ui, desktop-core]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14        # arm64 - the only macOS target we ship
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-22.04    # older glibc/webkit2gtk = widest AppImage reach
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Linux system dependencies
+        # xdg-utils supplies xdg-open, which the AppImage bundler embeds
+        # into the bundle: without it `tauri build` fails at packaging
+        # time, after an otherwise successful compile
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libssl-dev xdg-utils
+      - name: Fetch the bundled runtime
+        # python-build-standalone + uv, verified against pinned checksums
+        shell: bash
+        run: bash desktop/scripts/fetch-runtime.sh "${{ matrix.target }}"
+      - name: Seed content for the bundle
+        # The example workflows and prompts are not in the wheel, so the
+        # app bundle is the only place they can come from
+        shell: bash
+        run: |
+          mkdir -p desktop/src-tauri/resources/seed
+          cp -r workflows desktop/src-tauri/resources/seed/workflows
+          cp -r prompts desktop/src-tauri/resources/seed/prompts
+      - name: Import the signing certificate (macOS)
+        if: matrix.os == 'macos-14'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # A throwaway keychain, unlocked for this job only. Tauri's own
+          # signing reuses it because it is on the search list.
+          KEYCHAIN=$RUNNER_TEMP/signing.keychain-db
+          PASSWORD=$(uuidgen)
+          security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $RUNNER_TEMP/cert.p12
+          security import $RUNNER_TEMP/cert.p12 -k "$KEYCHAIN" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          rm $RUNNER_TEMP/cert.p12
+          security find-identity -v -p codesigning "$KEYCHAIN"
+      - name: Sign the bundled runtime (macOS)
+        # python-build-standalone and uv ship ad-hoc signed, which
+        # notarization rejects. Tauri signs the app binary and seals
+        # Contents/Resources by hash, but does not re-sign what is in
+        # there - so this runs before the bundler copies them in.
+        if: matrix.os == 'macos-14'
+        run: bash desktop/scripts/sign-macos-runtime.sh
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      - run: cd desktop && npm ci
+      - name: Build the installer
+        run: cd desktop && npm run tauri build -- --target ${{ matrix.target }}
+        env:
+          # Tauri's own update-signing key. Independent of OS code signing,
+          # so the unsigned Windows build still auto-updates.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS only; the other runners ignore these
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            desktop/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            desktop/target/${{ matrix.target }}/release/bundle/msi/*.msi
+            desktop/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+            desktop/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            desktop/target/${{ matrix.target }}/release/bundle/msi/*.msi.zip
+            desktop/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.tar.gz
+            desktop/target/${{ matrix.target }}/release/bundle/**/*.sig
+
   release:
     # A v<semver> tag that passed the full test and build chain becomes a
     # GitHub release carrying the wheel and sdist
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: wheel
+    needs: [wheel, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -116,10 +254,29 @@ jobs:
             echo "Tag $tag != pyproject version $pyproject"
             exit 1
           fi
+          # The shell pins the wheel to its own version, so a shell built at
+          # a different version would install a wheel that does not exist
+          desktop=$(sed -n 's/^version = "\(.*\)"$/\1/p' desktop/Cargo.toml | head -1)
+          if [ "$tag" != "$desktop" ]; then
+            echo "Tag $tag != desktop shell version $desktop"
+            exit 1
+          fi
       - uses: actions/download-artifact@v8
         with:
           name: diffusers-workflow-dist
           path: dist
+      - name: Collect the desktop installers
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: installers
+      - name: Build the updater manifest
+        # Tauri emits a per-platform archive and .sig but not the manifest
+        # tying them together, which is what the updater endpoint fetches
+        run: |
+          bash desktop/scripts/make-latest-json.sh \
+            "${GITHUB_REF_NAME#v}" installers installers/latest.json
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -127,7 +284,7 @@ jobs:
         run: |
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease";; esac
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$GITHUB_REF_NAME" dist/* installers/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes --verify-tag $prerelease

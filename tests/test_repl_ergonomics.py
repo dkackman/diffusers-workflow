@@ -111,3 +111,61 @@ def test_completion_offers_variables_for_run_and_set(tmp_path):
     assert repl.complete_set("pr", "set pr", 4, 6) == ["prompt="]
     assert repl.complete_run("st", "run st", 4, 6) == ["steps="]
     assert "load" in repl.complete_workflow("l", "workflow l", 9, 10)
+
+
+# ------------------------------------------------ already-running server
+#
+# The REPL starts its own persistent worker, so running it beside the
+# desktop app (or a plain dw-serve) puts two processes on one GPU. Warn,
+# never refuse - pinning a step to CPU while the server runs is legitimate.
+
+
+def test_warns_when_a_server_answers(capsys, monkeypatch):
+    from dw.repl import warn_if_server_running
+
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", "/nonexistent")
+    url = warn_if_server_running(probe=lambda base: True)
+    assert url == "http://127.0.0.1:8765"
+    out = capsys.readouterr().out
+    assert "already running" in out
+    assert "GPU memory" in out
+
+
+def test_silent_when_nothing_answers(capsys, monkeypatch):
+    from dw.repl import warn_if_server_running
+
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", "/nonexistent")
+    assert warn_if_server_running(probe=lambda base: False) is None
+    assert capsys.readouterr().out == ""
+
+
+def test_probe_failure_is_not_fatal(capsys, monkeypatch):
+    from dw.repl import warn_if_server_running
+
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", "/nonexistent")
+
+    def boom(base):
+        raise OSError("network down")
+
+    assert warn_if_server_running(probe=boom) is None
+    assert capsys.readouterr().out == ""
+
+
+def test_reads_the_port_the_desktop_shell_recorded(tmp_path, monkeypatch):
+    import json
+
+    from dw.repl import running_server_url
+
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(tmp_path))
+    (tmp_path / "server.json").write_text(
+        json.dumps({"base_url": "http://127.0.0.1:9001"})
+    )
+    assert running_server_url() == "http://127.0.0.1:9001"
+
+
+def test_malformed_server_file_falls_back_to_the_default_port(tmp_path, monkeypatch):
+    from dw.repl import running_server_url
+
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(tmp_path))
+    (tmp_path / "server.json").write_text("{not json")
+    assert running_server_url() == "http://127.0.0.1:8765"
