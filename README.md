@@ -31,7 +31,16 @@ A declarative workflow engine and web UI for the [Hugging Face Diffusers library
 
 ## Installation
 
-### Linux / macOS
+### Desktop app
+
+Installers for macOS (Apple Silicon), Windows and Linux are attached to
+each [release](https://github.com/dkackman/diffusers-workflow/releases).
+They carry a private Python runtime and build the environment on first
+launch — no Python install required. See [Desktop App](docs/DESKTOP.md).
+
+### From source
+
+#### Linux / macOS
 
 ```bash
 bash ./install.sh
@@ -39,7 +48,7 @@ source ./activate
 python -m dw.test
 ```
 
-### Windows
+#### Windows
 
 ```powershell
 .\install.ps1
@@ -252,6 +261,7 @@ See [workflows/](workflows/) for more workflow files.
 
 ### Guides
 
+- [Desktop App](docs/DESKTOP.md) — Installers, first-run provisioning, and where files land
 - [Server & Web UI](docs/SERVER.md) — The web UI, jobs API, and introspection service
 - [MCP Server](docs/MCP.md) — Tool surface for MCP clients (Claude Code, Claude Desktop)
 - [Workflow Guide](docs/WORKFLOW_GUIDE.md) — JSON structure, variables, steps, data flow

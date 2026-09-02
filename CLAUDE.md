@@ -83,6 +83,39 @@ timeout. Authoring has two halves: `get_schema` describes a workflow and
 `get_prompt_schema` a stored prompt, which a workflow reaches by
 `"prompt:name"`. See docs/MCP.md.
 
+### Desktop Shell
+
+`desktop/` is a Tauri 2 app that packages the whole thing as a native
+installer for macOS (Apple Silicon), Windows and Linux. It is a
+supervisor, not a second application: it provisions a real Python venv,
+starts `python -m dw.serve` in it, and points its webview at the SPA that
+server already serves. **`ui/` is not modified and knows nothing about
+it** - the shell's own screens (provisioning, Connect, Developer, Logs)
+are separate Tauri windows.
+
+Two crates on purpose. `desktop/core/` holds every decision - platform
+paths, `nvidia-smi` detection, port selection, the provisioning marker
+and install sequence, MCP config merging - and depends on nothing from
+Tauri, so `cargo test -p dw_desktop_core` runs in seconds. `desktop/src-tauri/`
+is the thin app wiring those to windows and child processes.
+
+Nothing is frozen, and that is a hard constraint: the engine resolves
+classes by name via `importlib` at runtime, `dw/worker.py` re-execs the
+interpreter under `spawn`, and `dw/server/updater.py` runs pip against
+its own venv. PyInstaller breaks all three. The installer instead carries
+a pinned python-build-standalone interpreter and `uv`
+(`desktop/scripts/fetch-runtime.sh`, SHA256-verified) and installs the
+published wheel at its own exact version.
+
+The shell prefers port 8765 and publishes whichever port it bound to
+`~/.diffusers_helper/server.json`. Both `dw_mcp/client.py`
+(`resolve_base_url`) and `dw/repl.py` (`running_server_url`) read it, so
+a generated MCP config needs no port. `desktop/core/tests/python_contract.rs`
+runs the real Python against a file the real Rust wrote - a renamed key
+fails there rather than in someone's install. The REPL also warns when a
+server is already running, since its own worker would contend for the
+same VRAM. See docs/DESKTOP.md.
+
 ### REPL Architecture
 
 The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`) to keep GPU models cached between runs. Communication is via `multiprocessing.Queue`. Worker management is in `dw/repl_worker.py`, command handlers in `dw/repl_commands.py`.
