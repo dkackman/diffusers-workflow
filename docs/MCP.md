@@ -159,9 +159,16 @@ Nothing in this sequence costs GPU time.
 
 ### Catalog (read-only)
 
+The catalog is large, so the server's instructions point a client at
+`list_workflows` first: its listing carries enough about each workflow -
+description, output kinds, variable names - to pick one and know what to
+pass it, without fetching every candidate's definition. Reusing a stored
+workflow is a preference, not a rule; `run_workflow` still takes an
+`inline_workflow` for a request nothing on disk covers.
+
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `list_workflows()` | — | List stored workflows with descriptions, output kinds and variables |
+| `list_workflows()` | — | List stored workflows, each with its description, output kinds, step count, variable names and the stored prompts it references. The first call to make for a request an existing workflow might cover |
 | `get_workflow(name)` | `name` | Get one stored workflow's full JSON definition |
 | `get_schema()` | — | Get the JSON schema every workflow definition must satisfy |
 | `list_pipelines()` | — | List every diffusers pipeline class this installation provides |

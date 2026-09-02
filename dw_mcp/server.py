@@ -55,7 +55,12 @@ def build_server(client):
         "diffusers-workflow",
         instructions=(
             "Author, run and diagnose diffusers-workflow jobs against a "
-            "running dw.serve. Validate a workflow before running it - "
+            "running dw.serve. Start from `list_workflows`: the server "
+            "keeps a large catalog, and its listing carries each "
+            "workflow's description, output kinds and variable names - "
+            "run what is already there rather than authoring a new "
+            "workflow for a request an existing one covers. "
+            "Validate a workflow before running it - "
             "validation is free, a run occupies the GPU for minutes. "
             "Authoring has two halves: `get_schema` describes a workflow "
             "and `get_prompt_schema` a stored prompt, and a workflow "
@@ -71,7 +76,9 @@ def build_server(client):
 
     def list_workflows() -> dict:
         """List the workflows stored on the server, with their descriptions,
-        output kinds and variables."""
+        output kinds and variable names. Look here before authoring a new
+        workflow - the catalog is large and usually already covers the
+        request."""
         return catalog.list_workflows(client)
 
     def get_workflow(name: str) -> dict:

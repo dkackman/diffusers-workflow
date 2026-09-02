@@ -715,3 +715,13 @@ def test_the_instructions_explain_how_a_workflow_reaches_a_prompt():
     server = server_over(ok({}))
 
     assert "prompt:" in server.instructions
+
+
+def test_the_instructions_send_an_agent_to_the_catalog_before_authoring():
+    """An agent asked to "run a zimage workflow" should reach for the
+    hundred workflows already on disk rather than write a new one. Only
+    run_workflow's own docstring says so today, and a model that has
+    decided to author never reads it."""
+    server = server_over(ok({}))
+
+    assert "list_workflows" in server.instructions

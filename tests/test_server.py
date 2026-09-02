@@ -706,6 +706,7 @@ def test_workflow_listing_carries_details(server):
             "kinds": ["image"],
             "steps": 1,
             "variables": 1,
+            "variable_names": ["prompt"],
             "description": "Renders a small test image.",
             "prompt_refs": [],
         }
@@ -1735,3 +1736,18 @@ def test_a_recorded_job_whose_log_was_dropped_says_so_through_the_route(server):
         assert body["events"][0]["seq"] == 3000 - MAX_PERSISTED_EVENTS
         assert body["truncated"] is False
         assert f"last {MAX_PERSISTED_EVENTS}" in body["note"]
+
+
+def test_workflow_details_name_their_variables(server):
+    """The listing says which knobs a workflow takes, so an agent picking a
+    workflow to run knows what to pass without fetching each candidate's
+    full definition. Names only - the defaults of every workflow on disk
+    are an order of magnitude more payload on a listing the UI reloads."""
+    with server(success_script) as client:
+        workflow = valid_workflow("knobby")
+        workflow["variables"] = {"prompt": "a cat", "steps": 25}
+        client.put("/api/workflows/Knobby", json={"workflow": workflow})
+
+        details = client.get("/api/workflows").json()["details"]
+        assert details["Knobby"]["variable_names"] == ["prompt", "steps"]
+        assert details["Knobby"]["variables"] == 2
