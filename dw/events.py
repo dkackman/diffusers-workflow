@@ -27,6 +27,10 @@ class RunContext:
     def __init__(self, on_event=None):
         self._on_event = on_event
         self._cancel = threading.Event()
+        # The most recent phase this run reported (see emit_phase/PHASES) -
+        # cancel() reads it to tell a client whether the cancel takes effect
+        # right away or has to wait out an in-flight, non-interruptible phase
+        self._current_phase = None
         # Pipeline cache keys this run resolved - the worker evicts entries a
         # run no longer touches, so an edited workflow drops stale models
         self.touched_pipelines = set()
@@ -40,8 +44,18 @@ class RunContext:
             # A broken sink must not kill a run that is otherwise fine
             logger.warning(f"Progress event sink failed on '{event_type}': {e}")
 
+    def note_phase(self, phase):
+        """Record the run's latest phase - called by emit_phase, read by
+        cancel() to judge whether the current phase can be interrupted."""
+        self._current_phase = phase
+
     def cancel(self):
         self._cancel.set()
+        if self._current_phase in NON_INTERRUPTIBLE_PHASES:
+            # A model load or a task step has no checkpoint to catch this
+            # flag until it finishes - say so, or the client sees the cancel
+            # request go silent for however long that takes
+            self.emit("cancel_pending", phase=self._current_phase)
 
     @property
     def cancelled(self):
@@ -82,6 +96,11 @@ def deactivate_context(token):
 # the run is waiting on, not what any one library is doing internally
 PHASES = ("loading", "cached", "generating", "decoding", "saving", "task")
 
+# Phases with no checkpoint of their own: nothing inside a from_pretrained()
+# call or a task handler consults the cancel flag, so a cancel requested
+# during one of these can only take effect once the phase finishes on its own
+NON_INTERRUPTIBLE_PHASES = ("loading", "task")
+
 
 def emit_phase(phase, detail=None):
     """Report a coarse phase change on the active run.
@@ -92,4 +111,6 @@ def emit_phase(phase, detail=None):
     enough (a handful per step) to carry a free-text detail alongside, which
     is what makes 'loading' readable as 'which model'.
     """
-    get_context().emit("phase", phase=phase, detail=detail)
+    context = get_context()
+    context.note_phase(phase)
+    context.emit("phase", phase=phase, detail=detail)
