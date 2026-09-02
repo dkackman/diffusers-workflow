@@ -276,3 +276,102 @@ def test_a_dot_segment_name_survives_intact_onto_the_wire():
     get_output_image(DwClient(transport=httpx.MockTransport(handler)), "../api/models")
 
     assert seen["raw_path"] == b"/outputs/..%2Fapi%2Fmodels"
+
+
+# ------------------------------------------------------------- text output
+
+
+def test_a_text_output_comes_back_as_text():
+    client = serving(b"a duke on a velvet sofa", "text/plain; charset=utf-8")
+
+    result = media.get_output_text(client, "enhanced.txt")
+
+    assert result["text"] == "a duke on a velvet sofa"
+    assert result["name"] == "enhanced.txt"
+    assert result["truncated"] is False
+
+
+def test_a_text_output_reports_its_length():
+    client = serving(b"four", "text/plain")
+
+    assert media.get_output_text(client, "e.txt")["characters"] == 4
+
+
+def test_a_json_output_is_text_too():
+    """The manifest can hold a .json result, and it is as readable as a
+    .txt one - refusing it would send the agent to the raw HTTP API."""
+    client = serving(b'{"a": 1}', "application/json")
+
+    assert media.get_output_text(client, "e.json")["text"] == '{"a": 1}'
+
+
+def test_a_long_text_output_is_truncated_and_says_so():
+    client = serving(b"x" * 500, "text/plain")
+
+    result = media.get_output_text(client, "long.txt", max_characters=100)
+
+    assert len(result["text"]) == 100
+    assert result["truncated"] is True
+    assert result["characters"] == 500
+
+
+def test_an_image_is_refused_by_the_text_tool():
+    """Rejection happens on the content type, before the body is read - a
+    video output could be gigabytes."""
+    client = serving(png_bytes(8, 8), "image/png")
+
+    with pytest.raises(DwApiError, match="not text"):
+        media.get_output_text(client, "out.png")
+
+
+def test_the_text_tool_names_the_tool_that_can_read_an_image():
+    client = serving(png_bytes(8, 8), "image/png")
+
+    with pytest.raises(DwApiError, match="get_output_image"):
+        media.get_output_text(client, "out.png")
+
+
+def test_a_missing_text_output_surfaces_the_error():
+    def handler(request):
+        return httpx.Response(404, json={"detail": "Unknown file"})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(DwApiError):
+        media.get_output_text(client, "ghost.txt")
+
+
+def test_undecodable_bytes_do_not_crash_the_tool():
+    """A file the server labels text but that is not valid UTF-8 should read
+    as damaged output, not as a tool that blew up."""
+    client = serving(b"\xff\xfe\x00bad", "text/plain")
+
+    result = media.get_output_text(client, "odd.txt")
+
+    assert isinstance(result["text"], str)
+
+
+# ----------------------------------------------------------- output removal
+
+
+def test_delete_output_calls_delete_on_the_gallery_route():
+    seen = []
+
+    def handler(request):
+        seen.append((request.method, request.url.path))
+        return httpx.Response(200, json={"name": "out.png", "deleted": True})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    assert media.delete_output(client, "out.png")["deleted"] is True
+    assert seen == [("DELETE", "/api/gallery/out.png")]
+
+
+def test_delete_output_surfaces_a_missing_file():
+    def handler(request):
+        return httpx.Response(404, json={"detail": "Unknown file"})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(DwApiError, match="Unknown file"):
+        media.delete_output(client, "ghost.png")

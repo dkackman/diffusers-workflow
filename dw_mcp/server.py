@@ -11,7 +11,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, TextContent, ToolAnnotations
 
-from dw_mcp import authoring, catalog, diagnose, media, models
+from dw_mcp import authoring, catalog, diagnose, media, models, prompts
 from dw_mcp.client import DwApiError
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
@@ -56,7 +56,11 @@ def build_server(client):
         instructions=(
             "Author, run and diagnose diffusers-workflow jobs against a "
             "running dw.serve. Validate a workflow before running it - "
-            "validation is free, a run occupies the GPU for minutes."
+            "validation is free, a run occupies the GPU for minutes. "
+            "Authoring has two halves: `get_schema` describes a workflow "
+            "and `get_prompt_schema` a stored prompt, and a workflow "
+            'argument written as "prompt:name" (or "prompt:folder/name") '
+            "resolves against the prompt library at load time."
         ),
     )
 
@@ -175,7 +179,20 @@ def build_server(client):
         )
         return [image, telemetry]
 
+    def get_output_text(name: str, max_characters: int = 20000) -> dict:
+        """Read a text output - a prompt enhancement, or any step whose
+        result is text/plain or JSON. Truncated to `max_characters`, and
+        the reply says how long the file really was."""
+        return media.get_output_text(client, name, max_characters=max_characters)
+
+    def delete_output(name: str) -> dict:
+        """Permanently remove one generated file from the output
+        directory."""
+        return media.delete_output(client, name)
+
     tool(get_output_image, READ_ONLY)
+    tool(get_output_text, READ_ONLY)
+    tool(delete_output, DELETES)
 
     # ----------------------------------------------------------- authoring
 
@@ -200,6 +217,67 @@ def build_server(client):
     tool(validate_workflow, READ_ONLY)
     tool(save_workflow, OVERWRITES)
     tool(delete_workflow, DELETES)
+
+    # ------------------------------------------------------------- prompts
+
+    def list_prompts() -> dict:
+        """List the stored prompts, with their text and descriptions. A
+        workflow argument reaches one of these by writing
+        "prompt:name" or "prompt:folder/name"."""
+        return prompts.list_prompts(client)
+
+    def get_prompt(name: str) -> dict:
+        """Get one stored prompt's full definition."""
+        return prompts.get_prompt(client, name)
+
+    def get_prompt_schema() -> dict:
+        """Get the JSON schema every stored prompt must satisfy. Check this
+        before writing one, as you would get_schema before a workflow."""
+        return prompts.get_prompt_schema(client)
+
+    def save_prompt(name: str, prompt: dict) -> dict:
+        """Save a prompt to the library, overwriting any prompt of that
+        name. Its `text` may not itself begin with a reference prefix
+        (variable:, previous_result:, constant:, prompt:) - the engine
+        refuses that to prevent a reference resolving twice."""
+        return prompts.save_prompt(client, name, prompt)
+
+    def delete_prompt(name: str) -> dict:
+        """Permanently delete a stored prompt. A workflow that still
+        references it by "prompt:name" will fail to load."""
+        return prompts.delete_prompt(client, name)
+
+    def list_enhancers() -> dict:
+        """List the enhancer presets `enhance_prompt` accepts."""
+        return prompts.list_enhancers(client)
+
+    def enhance_prompt(
+        idea: str,
+        preset: str = "h3",
+        model_name: str | None = None,
+        device: str | None = None,
+        acknowledged_cost: bool = False,
+    ) -> dict:
+        """Expand a short idea into a full prompt with a language model.
+        THIS COSTS TIME ON THE ENGINE: it queues a real job, and the engine
+        runs one at a time, so a generation waiting behind it is delayed.
+        Tell the user what will be enhanced and get their go-ahead, then
+        pass acknowledged_cost=true. Returns as soon as the job is queued;
+        the enhanced text is the text file in its finished manifest."""
+        return prompts.enhance_prompt(
+            client,
+            idea,
+            preset=preset,
+            model_name=model_name,
+            device=device,
+            acknowledged_cost=acknowledged_cost,
+        )
+
+    for fn in (list_prompts, get_prompt, get_prompt_schema, list_enhancers):
+        tool(fn, READ_ONLY)
+    tool(save_prompt, OVERWRITES)
+    tool(delete_prompt, DELETES)
+    tool(enhance_prompt, WRITES)
 
     # ------------------------------------------------------------ diagnose
 

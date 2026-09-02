@@ -1,9 +1,11 @@
-"""Hand a generated image back to the agent.
+"""The output directory: hand a generated file back to the agent, or remove
+one.
 
 Output media is served from the /outputs static mount rather than an /api
-route, so this is the one tool that reaches outside /api. Everything is
-downscaled and capped before it is returned: a full-resolution render would
-cost more context than the answer it is meant to support.
+route, so these are the tools that reach outside /api. Everything returned
+is downscaled or truncated first, and says so: a full-resolution render or
+an unbounded text file would cost more context than the answer it is meant
+to support.
 """
 
 import base64
@@ -20,6 +22,10 @@ from dw_mcp.client import DwApiError, api_path
 # supposed to inform.
 MAX_RETURNED_BYTES = 4 * 1024 * 1024
 MIN_DIMENSION = 64
+
+# Text is cheap next to an image, but an unbounded output file is not:
+# a job that logged its way to a megabyte would otherwise arrive whole.
+MAX_RETURNED_CHARACTERS = 20000
 
 
 def get_output_image(client, name, max_dimension=768):
@@ -91,3 +97,37 @@ def _fit(image, limit):
         (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
         Image.LANCZOS,
     )
+
+
+def get_output_text(client, name, max_characters=MAX_RETURNED_CHARACTERS):
+    """One text output from the output directory - the form a prompt
+    enhancement and any `text/plain` result arrive in."""
+
+    def is_text(content_type):
+        kind = content_type.split(";")[0].strip().lower()
+        return kind.startswith("text/") or kind == "application/json"
+
+    body, content_type = client.get_bytes_if(api_path("outputs", name), is_text)
+    if body is None:
+        raise DwApiError(
+            f"{name} is {content_type or 'of no declared type'}, not text - "
+            "this tool returns text only. Use get_output_image for an image, "
+            "or get_gallery_metadata for other media."
+        )
+    # A file the server labels text but that is not valid UTF-8 is damaged
+    # output, and reading it that way is more use than a decoding traceback
+    text = body.decode("utf-8", errors="replace")
+    limit = max(1, int(max_characters))
+    return {
+        "name": name,
+        "text": text[:limit],
+        "content_type": content_type,
+        "characters": len(text),
+        "truncated": len(text) > limit,
+    }
+
+
+def delete_output(client, name):
+    """Remove one file from the output directory. The gallery is the output
+    directory read back, so this is where a delete belongs."""
+    return client.delete_json(api_path("api", "gallery", name))
