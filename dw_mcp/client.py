@@ -1,12 +1,15 @@
 """HTTP access to a running dw.serve, and the single place an API failure
 becomes a message a non-developer can act on."""
 
+import json
 import os
+from pathlib import Path
 from urllib.parse import quote
 
 import httpx
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8765"
+SERVER_FILE_NAME = "server.json"
 
 
 def path_segment(name):
@@ -48,10 +51,42 @@ class DwApiError(Exception):
     person driving the MCP client, not by a developer with a stack trace."""
 
 
+def settings_dir():
+    """The ~/.diffusers_helper root, resolved the way dw.settings resolves it.
+
+    Deliberately duplicated rather than imported: importing any dw.* module
+    runs dw/__init__.py and pulls in torch, which this pure HTTP client has
+    no use for (test_mcp_server.py::TestStartupWeight guards the boundary).
+    """
+    root = os.environ.get("DIFFUSERS_HELPER_ROOT") or "~/.diffusers_helper/"
+    return Path(root).expanduser()
+
+
+def _base_url_from_server_file():
+    """The base URL the desktop shell recorded for the server it started, or
+    None. The shell prefers port 8765 but falls back when it is taken, so
+    this is what lets a generated MCP config carry no port at all.
+
+    An unreadable, malformed or half-written file is simply absent: a stale
+    file must never be an error, only a miss.
+    """
+    try:
+        with open(settings_dir() / SERVER_FILE_NAME, encoding="utf-8") as handle:
+            url = json.load(handle).get("base_url")
+    except (OSError, ValueError):
+        return None
+    return url if isinstance(url, str) and url else None
+
+
 def resolve_base_url(explicit=None):
-    """Where dw.serve is: the explicit value, else DW_MCP_URL, else the
-    default port."""
-    url = explicit or os.environ.get("DW_MCP_URL") or DEFAULT_BASE_URL
+    """Where dw.serve is: the explicit value, else DW_MCP_URL, else the port
+    the desktop shell recorded in server.json, else the default port."""
+    url = (
+        explicit
+        or os.environ.get("DW_MCP_URL")
+        or _base_url_from_server_file()
+        or DEFAULT_BASE_URL
+    )
     return url.rstrip("/")
 
 
