@@ -121,6 +121,14 @@ uv and CPython, both checksums verified, and the extracted binaries
 report `uv 0.12.9` and `Python 3.12.14`. The frontend builds all four
 entry points. Unsigned, since the Apple secrets are not on this machine.
 
+## Deliberately not included
+
+HTTP MCP transport. `dw_mcp` is already an HTTP client of `dw.serve` and
+already reaches a remote engine via `--url`, so the transport is not what
+makes a split front end and back end possible — authentication is, and
+there is none today. Scoped separately in
+[remote-backend.md](../scope/remote-backend.md).
+
 ## State
 
 Branch `desktop-installers`, 13 commits. 1,984 Python tests pass
