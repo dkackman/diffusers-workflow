@@ -133,6 +133,14 @@ export const api = {
       `/api/gallery/${encodePath(name)}`,
       { method: 'DELETE' },
     ),
+  /** Save a browser-picked file server-side and get back the path a
+   * workflow's image/video argument can reference. The body is the raw
+   * file bytes - no multipart form needed for a single file. */
+  uploadMedia: (file: File) =>
+    request<{ path: string; url: string }>(
+      `/api/uploads?filename=${encodeURIComponent(file.name)}`,
+      { method: 'POST', body: file },
+    ),
   listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
   describePipeline: (name: string) =>
     request<PipelineDescription>(`/api/pipelines/${name}`),
