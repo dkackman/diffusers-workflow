@@ -36,7 +36,7 @@ from ..introspection import (
 )
 from ..schema import load_schema, validate_data
 from ..prompts import PROMPT_PREFIX, RESERVED_TEXT_PREFIXES
-from ..workflow import Workflow, workflow_from_definition
+from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
 from ..result import read_embedded_metadata
 from ..hub_cache import scan_models, delete_model, DownloadManager
@@ -161,6 +161,24 @@ def resolve_workflow_name(workflow_dir, name, allow_create=False):
         )
     except SecurityError as e:
         raise HTTPException(status_code=404, detail=f"Unknown workflow: {e}")
+
+
+def resolve_workflow_reference(workflow_dir, workflow_path):
+    """A submitted workflow_path, resolved to a file on disk.
+
+    An absolute or relative path that names a real file is taken as-is, the
+    way it always has been. Otherwise it is tried as a stored workflow name -
+    exactly what /api/workflows hands out, with or without .json and nested
+    names included - so an agent can run what a listing gave it. A reference
+    that is neither is returned unchanged, leaving the loader to report it as
+    the bad request it is.
+    """
+    if workflow_path is None or os.path.isfile(workflow_path):
+        return workflow_path
+    try:
+        return resolve_workflow_name(workflow_dir, workflow_path)
+    except HTTPException:
+        return workflow_path
 
 
 # What each prompt says about itself, for listing cards - cached by mtime
@@ -304,7 +322,9 @@ def create_app(
     def submit_job(request: JobRequest):
         try:
             job = manager.submit(
-                workflow_path=request.workflow_path,
+                workflow_path=resolve_workflow_reference(
+                    app.state.workflow_dir, request.workflow_path
+                ),
                 workflow=request.workflow,
                 arguments=request.arguments,
                 base_dir=request.base_dir,
@@ -493,13 +513,32 @@ def create_app(
     @app.post("/api/validate")
     def validate_workflow(request: JobRequest):
         """Schema-validate a workflow and check its pipeline arguments
-        against real signatures, without queuing anything."""
-        if request.workflow is None:
-            raise HTTPException(status_code=400, detail="Provide an inline workflow")
-        try:
-            candidate = workflow_from_definition(
-                copy.deepcopy(request.workflow), manager.output_dir, request.base_dir
+        against real signatures, without queuing anything. Give either an
+        inline workflow or a workflow_path - a path on the server or a
+        stored workflow name from /api/workflows."""
+        if (request.workflow is None) == (request.workflow_path is None):
+            raise HTTPException(
+                status_code=400,
+                detail="Provide exactly one of workflow or workflow_path",
             )
+        try:
+            if request.workflow_path is not None:
+                # Built from the file so relative paths inside it resolve
+                # against its own directory, exactly as a run would
+                candidate = workflow_from_file(
+                    resolve_workflow_reference(
+                        app.state.workflow_dir, request.workflow_path
+                    ),
+                    manager.output_dir,
+                )
+                definition = candidate.workflow_definition
+            else:
+                definition = request.workflow
+                candidate = workflow_from_definition(
+                    copy.deepcopy(request.workflow),
+                    manager.output_dir,
+                    request.base_dir,
+                )
         except SecurityError as e:
             # Messages the security layer writes itself - safe to surface
             raise HTTPException(status_code=400, detail=str(e))
@@ -519,7 +558,7 @@ def create_app(
         return {
             "valid": True,
             "error": None,
-            "warnings": workflow_argument_warnings(request.workflow),
+            "warnings": workflow_argument_warnings(definition),
         }
 
     # ------------------------------------------------------------- workflows

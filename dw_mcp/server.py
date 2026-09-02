@@ -9,7 +9,7 @@ import functools
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import ImageContent, ToolAnnotations
+from mcp.types import ImageContent, TextContent, ToolAnnotations
 
 from dw_mcp import authoring, catalog, diagnose, media, models
 from dw_mcp.client import DwApiError
@@ -152,14 +152,28 @@ def build_server(client):
 
     # --------------------------------------------------------------- media
 
-    def get_output_image(name: str, max_dimension: int = 768) -> ImageContent:
+    def get_output_image(
+        name: str, max_dimension: int = 768
+    ) -> list[ImageContent | TextContent]:
         """Look at a generated image. Use this to judge output quality - it
         is the only way to see what a workflow actually produced. The image
-        is downscaled to `max_dimension` on its longest side."""
+        is downscaled to `max_dimension` on its longest side; the second
+        part of the result reports the size it went in and came out at, so
+        a downscale is never silent."""
         result = media.get_output_image(client, name, max_dimension=max_dimension)
-        return ImageContent(
+        image = ImageContent(
             type="image", data=result["data"], mime_type=result["mime_type"]
         )
+        telemetry = TextContent(
+            type="text",
+            text=(
+                f"name: {result['name']}\n"
+                f"original_size: {result['original_size']}\n"
+                f"returned_size: {result['returned_size']}\n"
+                f"bytes: {result['bytes']}"
+            ),
+        )
+        return [image, telemetry]
 
     tool(get_output_image, READ_ONLY)
 
@@ -170,7 +184,8 @@ def build_server(client):
     ) -> dict:
         """Check a workflow against the schema and against real pipeline
         signatures. Free and instant - always run this before run_workflow.
-        Give exactly one of `workflow` or `name`."""
+        Give exactly one of `workflow` or `name` - `name` being a stored
+        workflow as `list_workflows` reports it."""
         return authoring.validate_workflow(client, workflow=workflow, name=name)
 
     def save_workflow(name: str, workflow: dict) -> dict:
@@ -198,7 +213,8 @@ def build_server(client):
         occupies the machine for minutes and the engine runs one job at a
         time. Tell the user what will run and get their go-ahead, then pass
         acknowledged_cost=true. Returns as soon as the job is queued; poll
-        get_job_events for progress. Give exactly one of `workflow_path` or
+        get_job_events for progress. Give exactly one of `workflow_path` -
+        a catalog name from `list_workflows` or a path on the server - or
         `inline_workflow`."""
         return diagnose.run_workflow(
             client,

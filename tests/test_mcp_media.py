@@ -5,11 +5,21 @@ import base64
 import io
 
 import httpx
+import numpy as np
 import pytest
 from PIL import Image
 
+import dw_mcp.media as media
 from dw_mcp.client import DwApiError, DwClient
 from dw_mcp.media import MAX_RETURNED_BYTES, get_output_image
+
+
+def noise_png_bytes(width, height, seed=0):
+    rng = np.random.default_rng(seed)
+    pixels = rng.integers(0, 256, size=(height, width, 3), dtype=np.uint8)
+    buffer = io.BytesIO()
+    Image.fromarray(pixels, "RGB").save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def png_bytes(width, height, color=(120, 30, 200)):
@@ -109,6 +119,35 @@ def test_a_video_output_is_refused_by_name():
     assert "video/mp4" in str(caught.value)
 
 
+def test_a_non_image_output_is_refused_without_reading_the_body():
+    """A video can be arbitrarily large - the content-type header alone
+    should be enough to refuse it, before the body is ever downloaded."""
+
+    class TrackingStream(httpx.SyncByteStream):
+        def __init__(self, chunks):
+            self.chunks = chunks
+            self.iterated = False
+
+        def __iter__(self):
+            self.iterated = True
+            yield from self.chunks
+
+        def close(self):
+            pass
+
+    stream = TrackingStream([b"\x00\x00\x00\x18ftypmp42" * 100000])
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "video/mp4"}, stream=stream)
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(DwApiError):
+        get_output_image(client, "clip.mp4")
+
+    assert stream.iterated is False
+
+
 def test_an_undecodable_body_is_refused_clearly():
     client = serving(b"not an image at all", "image/png")
 
@@ -157,6 +196,55 @@ def test_bytes_that_are_not_a_decodable_image_are_refused():
         get_output_image(client, "broken.png")
 
     assert "could not be decoded" in str(caught.value)
+
+
+def test_the_budget_is_checked_against_the_base64_size_not_the_raw_bytes(monkeypatch):
+    """The payload the caller actually receives is base64 text (4/3 the raw
+    bytes). A cap that only looked at the raw encoded bytes would let a
+    payload through that is over budget once encoded."""
+    client = serving(noise_png_bytes(300, 300), "image/png")
+
+    raw_result = get_output_image(client, "noise.png", max_dimension=300)
+    raw_bytes = raw_result["bytes"]
+
+    # Set the cap strictly between the raw size and its base64 expansion, so
+    # a raw-bytes comparison would accept the first encoding while a
+    # base64-aware comparison must keep shrinking.
+    budget = raw_bytes + 1
+    assert budget < 4 * -(-raw_bytes // 3)
+    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", budget)
+
+    client = serving(noise_png_bytes(300, 300), "image/png")
+    result = get_output_image(client, "noise.png", max_dimension=300)
+
+    encoded_len = len(base64.b64decode(result["data"]))
+    base64_len = 4 * -(-encoded_len // 3)
+    assert base64_len <= budget
+    assert result["returned_size"] != raw_result["returned_size"]
+
+
+def test_the_downscale_loop_resizes_from_the_previous_result_not_the_original(
+    monkeypatch,
+):
+    calls = []
+    original_fit = media._fit
+
+    def tracking_fit(image, limit):
+        result = original_fit(image, limit)
+        calls.append((image, result))
+        return result
+
+    monkeypatch.setattr(media, "_fit", tracking_fit)
+    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", 1)
+
+    client = serving(noise_png_bytes(600, 600), "image/png")
+    get_output_image(client, "noise.png", max_dimension=600)
+
+    assert len(calls) >= 2
+    for previous, current in zip(calls, calls[1:]):
+        _, previous_sized = previous
+        current_source, _ = current
+        assert current_source is previous_sized
 
 
 def test_a_jpeg_in_an_unencodable_mode_is_converted_before_re_encoding():
