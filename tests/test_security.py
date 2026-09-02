@@ -17,6 +17,7 @@ from dw.security import (
     validate_prompt_path,
     validate_constant_name,
     validate_prompt_reference,
+    validate_commit_hash,
     validate_url,
     validate_variable_name,
     validate_string_input,
@@ -293,6 +294,45 @@ def test_a_trailing_newline_does_not_slip_past_a_name_validator(validator, name)
     could round-trip, and a variable or constant name nothing can resolve."""
     with pytest.raises(InvalidInputError):
         validator(name)
+
+
+class TestValidateCommitHash:
+    """The diffusers updater's commit-pinned install interpolates this
+    value into 'git+<url>@<commit>' for pip - only hex digits, 7-40 chars,
+    ever reach that string."""
+
+    @pytest.mark.parametrize(
+        "commit",
+        [
+            "abc1234",  # short (7)
+            "a" * 40,  # full SHA-1 length
+            "ABCDEF1",  # uppercase hex is fine
+            "DeAdBeEf",
+        ],
+    )
+    def test_valid_hashes_are_accepted(self, commit):
+        assert validate_commit_hash(commit) == commit
+
+    @pytest.mark.parametrize(
+        "commit",
+        [
+            "",
+            "abc123",  # 6 - one short of the minimum
+            "a" * 41,  # one over the maximum
+            "not-hex!",
+            "abc123g",  # 'g' is not hex
+            "abc1234; rm -rf /",
+            "abc1234 && echo pwned",
+            "$(whoami)",
+            "`whoami`",
+            "abc1234\nrm -rf /",
+            "../../etc/passwd",
+            "abc 1234",
+        ],
+    )
+    def test_malformed_or_injection_input_is_rejected(self, commit):
+        with pytest.raises(InvalidInputError):
+            validate_commit_hash(commit)
 
 
 class TestValidatePromptPath:
