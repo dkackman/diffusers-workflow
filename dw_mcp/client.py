@@ -24,6 +24,25 @@ def path_segment(name):
     return quote(name, safe="")
 
 
+def api_path(*segments):
+    """Build a request path from literal and caller-supplied segments,
+    percent-encoding each one - including its '/' characters.
+
+    httpx normalizes dot-segments (`..`) out of a request URL client-side,
+    before the request ever reaches the server - so an unquoted segment like
+    `../escape` is silently rewritten into a different, valid-looking path
+    and the server's own path-traversal check never runs on it. Quoting
+    keeps the literal bytes intact on the wire, so it is the server's own
+    validation - not this client - that decides what a segment is allowed to
+    contain.
+
+    This is the only sanctioned way to interpolate a value into a request
+    path: a handler that builds one with an f-string instead re-opens the
+    hole this closes, one call site at a time.
+    """
+    return "/" + "/".join(path_segment(str(segment)) for segment in segments)
+
+
 class DwApiError(Exception):
     """A request to dw.serve failed. The message is meant to be read by the
     person driving the MCP client, not by a developer with a stack trace."""
