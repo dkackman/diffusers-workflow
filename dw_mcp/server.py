@@ -320,6 +320,16 @@ def build_server(client):
         call's `last_seq` to continue."""
         return diagnose.get_job_events(client, job_id, after=after, limit=limit)
 
+    def wait_for_job(job_id: str, timeout_seconds: int = 20) -> dict:
+        """Block until a job finishes, instead of polling get_job or
+        get_job_events by hand. Returns as soon as the job's status is
+        succeeded, failed or cancelled, or - if timeout_seconds elapses
+        first - returns its current status with still_running: true so you
+        can call again. Does not queue anything, so no acknowledged_cost.
+        timeout_seconds is capped well under a generation's real runtime;
+        call it repeatedly for a long job."""
+        return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
+
     def cancel_job(job_id: str) -> dict:
         """Ask a queued or running job to stop."""
         return diagnose.cancel_job(client, job_id)
@@ -337,6 +347,7 @@ def build_server(client):
 
     tool(get_job, READ_ONLY)
     tool(get_job_events, READ_ONLY)
+    tool(wait_for_job, READ_ONLY)
     for fn in (run_workflow, cancel_job, rerun_job, move_job):
         tool(fn, WRITES)
 
