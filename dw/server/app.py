@@ -6,6 +6,7 @@ Interactive API docs are served at /docs (OpenAPI at /openapi.json).
 """
 
 import os
+import io
 import copy
 import json
 import asyncio
@@ -15,7 +16,7 @@ from urllib.parse import quote, urlparse
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -737,6 +738,9 @@ def create_app(
         **{ext: "audio" for ext in ALLOWED_AUDIO_EXTENSIONS},
     }
 
+    # Longest side of an on-demand gallery thumbnail, in pixels
+    GALLERY_THUMBNAIL_MAX_DIM = 320
+
     def _output_file(name):
         """A file inside the output directory, or a 404 - never outside it."""
         try:
@@ -751,48 +755,84 @@ def create_app(
             raise HTTPException(status_code=404, detail="Unknown file")
         return path
 
-    @app.get("/api/gallery")
-    def gallery(limit: int = 200):
-        """Media files in the output directory, newest first. Stateless by
-        design - the gallery survives server restarts because it reads the
-        directory, not job history."""
+    def _iter_gallery_files():
+        """Every media file under the output directory, recursing into the
+        per-workflow subfolders (dw/workflow.py's effective_output_dir mirrors
+        a workflow's position under a 'workflows' tree into the output dir).
+        Yields (relative_name, folder, kind, path) - relative_name always
+        uses '/' so it round-trips through a URL the same way on every
+        platform."""
+        for root, _dirs, names in os.walk(manager.output_dir):
+            rel_root = os.path.relpath(root, manager.output_dir)
+            folder = "" if rel_root == "." else rel_root.replace(os.sep, "/")
+            for name in names:
+                extension = os.path.splitext(name)[1].lower()
+                kind = MEDIA_KINDS.get(extension)
+                if kind is None:
+                    continue
+                relative_name = name if not folder else f"{folder}/{name}"
+                yield relative_name, folder, kind, os.path.join(root, name)
+
+    def _gallery_entries():
         entries = []
         try:
-            names = os.listdir(manager.output_dir)
+            files = list(_iter_gallery_files())
         except OSError:
-            names = []
-        for name in names:
-            extension = os.path.splitext(name)[1].lower()
-            kind = MEDIA_KINDS.get(extension)
-            if kind is None:
-                continue
-            path = os.path.join(manager.output_dir, name)
+            files = []
+        for relative_name, folder, kind, path in files:
             try:
                 stat = os.stat(path)
             except OSError:
                 continue
+            # File names look like '{workflow}-{step}.{i}-{j}.{k}.ext'; the
+            # part before the first dot is a readable label and embedded
+            # metadata carries the precise identity
+            label = os.path.basename(relative_name).split(".")[0]
             entries.append(
                 {
-                    "name": name,
-                    # Quoted: a name carrying '#', '?' or '%' would otherwise
-                    # break the src the gallery renders it into. The mtime
-                    # rides along because a rerun overwrites the same name -
-                    # on an unchanging URL the browser would keep showing the
-                    # image it cached from the previous run
-                    "url": f"/outputs/{quote(name)}?v={int(stat.st_mtime)}",
+                    "name": relative_name,
+                    "folder": folder,
+                    # Quoted (slashes kept literal): a name carrying '#', '?'
+                    # or '%' would otherwise break the src the gallery
+                    # renders it into. The mtime rides along because a rerun
+                    # overwrites the same name - on an unchanging URL the
+                    # browser would keep showing the image it cached from
+                    # the previous run
+                    "url": f"/outputs/{quote(relative_name)}?v={int(stat.st_mtime)}",
                     "kind": kind,
                     "size": stat.st_size,
                     "mtime": stat.st_mtime,
-                    # File names look like '{workflow}-{step}.{i}-{j}.{k}.ext';
-                    # the part before the first dot is a readable label and
-                    # embedded metadata carries the precise identity
-                    "label": name.split(".")[0],
+                    "label": label,
                 }
             )
         entries.sort(key=lambda e: e["mtime"], reverse=True)
-        return {"files": entries[: max(0, limit)], "total": len(entries)}
+        return entries
 
-    @app.get("/api/gallery/{name}/metadata")
+    @app.get("/api/gallery")
+    def gallery(limit: int = 200, offset: int = 0, folder: Optional[str] = None):
+        """A page of media files in the output directory, newest first.
+        Stateless by design - the gallery survives server restarts because
+        it reads the directory tree, not job history. 'folders' lists every
+        distinct workflow subfolder present (over the whole directory, not
+        just this page), for the UI's folder filter - '' stands for files
+        saved directly at the output root, and is itself always a member so
+        that folder-less outputs stay selectable once anything is nested."""
+        entries = _gallery_entries()
+        folders = sorted({e["folder"] for e in entries} | {""})
+        if folder is not None:
+            entries = [e for e in entries if e["folder"] == folder]
+        offset = max(0, offset)
+        limit = max(0, limit)
+        page = entries[offset : offset + limit]
+        return {
+            "files": page,
+            "total": len(entries),
+            "offset": offset,
+            "limit": limit,
+            "folders": folders,
+        }
+
+    @app.get("/api/gallery/{name:path}/metadata")
     def gallery_metadata(name: str):
         """Generation metadata embedded in a saved image ('workflow' inside
         it is the full definition the editor can reopen), plus the job that
@@ -805,7 +845,35 @@ def create_app(
             job = None
         return {"name": name, "metadata": metadata, "job": job}
 
-    @app.delete("/api/gallery/{name}")
+    @app.get("/api/gallery/{name:path}/thumbnail")
+    def gallery_thumbnail(name: str):
+        """A small JPEG rendition of an image output, for the grid - the
+        full-resolution file is only fetched for the detail/lightbox view.
+        Generated on demand rather than cached to disk, so it never grows
+        the output directory the gallery itself scans."""
+        path = _output_file(name)
+        extension = os.path.splitext(path)[1].lower()
+        if MEDIA_KINDS.get(extension) != "image":
+            raise HTTPException(
+                status_code=404, detail="Thumbnails are only generated for images"
+            )
+        try:
+            from PIL import Image
+
+            with Image.open(path) as image:
+                image = image.convert("RGB")
+                image.thumbnail((GALLERY_THUMBNAIL_MAX_DIM, GALLERY_THUMBNAIL_MAX_DIM))
+                buffer = io.BytesIO()
+                image.save(buffer, format="JPEG", quality=80)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Could not generate thumbnail: {e}"
+            )
+        return Response(content=buffer.getvalue(), media_type="image/jpeg")
+
+    @app.delete("/api/gallery/{name:path}")
     def delete_output(name: str):
         """Remove one file from the output directory."""
         path = _output_file(name)

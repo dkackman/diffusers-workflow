@@ -105,6 +105,7 @@ export interface ValidationResult {
 
 export interface GalleryFile {
   name: string
+  folder: string
   url: string
   kind: 'image' | 'video' | 'audio'
   size: number

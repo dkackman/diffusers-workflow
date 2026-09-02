@@ -81,6 +81,30 @@ def workflow_from_definition(workflow_definition, output_dir, base_dir=None):
     )
 
 
+def workflow_output_subfolder(file_spec):
+    """The subfolder a workflow's outputs land in, mirroring its position
+    under the nearest directory literally named 'workflows' in its path.
+
+    'workflows/ltx/Foo.json' -> 'ltx'; 'workflows/Foo.json' (or a builtin,
+    always dw/workflows/<name>.json) -> '' (flat, no spurious subfolder);
+    a path with no 'workflows' segment at all (an inline definition's
+    synthetic file_spec, say) -> '' as a fallback. The *last* 'workflows'
+    segment wins, matching the packaged dw/workflows tree when a checkout
+    also has a top-level workflows/ directory somewhere in its ancestry.
+    """
+    if not file_spec:
+        return ""
+
+    directory = os.path.dirname(os.path.abspath(file_spec))
+    parts = os.path.normpath(directory).split(os.sep)
+    try:
+        index = len(parts) - 1 - parts[::-1].index("workflows")
+    except ValueError:
+        return ""
+
+    return os.path.join(*parts[index + 1 :]) if index + 1 < len(parts) else ""
+
+
 def pipeline_cache_key(pipeline_definition):
     """Stable identity for a loaded pipeline.
 
@@ -178,6 +202,26 @@ class Workflow:
         spills), matching the workflow-id-step naming its results are saved
         under."""
         return f"{self.name}-{step_name}"
+
+    @property
+    def effective_output_dir(self):
+        """Where this workflow's own results are written: output_dir, plus a
+        subfolder mirroring the workflow file's position under a 'workflows'
+        directory, if it has one.
+
+        A workflow at 'workflows/ltx/Foo.json' writes under
+        '<output_dir>/ltx/'; one directly inside a 'workflows' folder (or a
+        builtin, which always resolves to dw/workflows/<name>.json) writes
+        flat at '<output_dir>/', same as one outside any 'workflows' tree
+        entirely (an inline definition, say). self.output_dir itself always
+        stays the plain root - this is derived fresh from it every time, so
+        a sub-workflow computes its own subfolder from its own file, not the
+        parent's.
+        """
+        subfolder = workflow_output_subfolder(self.file_spec)
+        return (
+            os.path.join(self.output_dir, subfolder) if subfolder else self.output_dir
+        )
 
     def validate(self):
         """Validates workflow definition against JSON schema"""
@@ -314,7 +358,7 @@ class Workflow:
                 last_result = result
                 results[step.name] = result
                 saved_files = result.save(
-                    self.output_dir, f"{workflow_id}-{step.name}.{i}"
+                    self.effective_output_dir, f"{workflow_id}-{step.name}.{i}"
                 )
                 self.manifest.append({"step": step.name, "files": saved_files})
                 # A sub-workflow's saves land in the child's manifest - roll
@@ -441,7 +485,7 @@ class Workflow:
                     default_seed,
                     device,
                     cached_pipeline.pipeline,  # Reuse the actual loaded model
-                    output_dir=self.output_dir,
+                    output_dir=self.effective_output_dir,
                     file_prefix=self.step_file_prefix(step_name),
                 )
                 # Set up generator with potentially new seed. no_generator is a
@@ -482,7 +526,7 @@ class Workflow:
                 step_definition["pipeline"],
                 default_seed,
                 device,
-                output_dir=self.output_dir,
+                output_dir=self.effective_output_dir,
                 file_prefix=self.step_file_prefix(step_name),
             )
             # Loading is the longest silence in a run: weights, quantization,
@@ -511,7 +555,7 @@ class Workflow:
                 default_seed,
                 device,
                 previous_pipeline.pipeline,
-                output_dir=self.output_dir,
+                output_dir=self.effective_output_dir,
                 file_prefix=self.step_file_prefix(step_definition["name"]),
             )
 
