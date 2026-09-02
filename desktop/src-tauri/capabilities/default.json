@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the shell's own screens are allowed to do. The main window navigates to the local server once it is healthy; these grants cover only the shell pages.",
+  "windows": ["main", "connect", "developer", "logs"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-set-focus",
+    "opener:default",
+    "updater:default"
+  ]
+}
