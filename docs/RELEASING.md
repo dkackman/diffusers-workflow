@@ -30,7 +30,7 @@ The tag must point at a commit whose pyproject already declares the
 same version — the release job checks and refuses a mismatch.
 
 The tag triggers the full CI chain: backend tests, UI lint/type-check/
-unit tests, then the wheel build (SPA compiled into the package via
+unit tests, the desktop shell's Rust tests, then the wheel build (SPA compiled into the package via
 `scripts/build_dist.sh`). Only if all of that passes does the `release`
 job run — it verifies the tag matches the pyproject version, then
 creates a GitHub release named after the tag with auto-generated notes
@@ -44,6 +44,21 @@ only the wheel filename and pip metadata show the normalized one.
 A pre-release tag like `v0.38.0-rc1` is marked as a pre-release on
 GitHub. Tags that aren't `v` + semver (or that don't match the declared
 versions) fail the release job before anything is published.
+
+Alongside the wheel, the `desktop` job builds the native installers -
+a signed and notarized `.dmg` on `macos-14`, an `.msi` on
+`windows-latest`, and an `.AppImage` on `ubuntu-22.04` - and the release
+job attaches all three. Each runner first fetches the bundled Python
+runtime and `uv` with `desktop/scripts/fetch-runtime.sh`, which verifies
+both against pinned SHA256 hashes.
+
+The shell pins the wheel to its own version, so the installers and the
+PyPI release always come from one tag. Two sets of secrets are involved:
+`TAURI_SIGNING_PRIVATE_KEY` (Tauri's own update signing, unrelated to OS
+code signing, so the unsigned Windows build still auto-updates) and the
+`APPLE_*` pair used to sign and notarize the macOS build. Windows code
+signing is not yet configured; adding it is a matter of adding secrets
+and a step, not restructuring the job.
 
 After the GitHub release, the `pypi` job publishes the same artifacts to
 PyPI via [trusted publishing](https://docs.pypi.org/trusted-publishers/)
