@@ -347,6 +347,39 @@ def validate_constant_name(name: str) -> str:
     return name
 
 
+# A git commit: hex digits only, short (7) to full (40) SHA-1 length. Used
+# to pin the diffusers updater's "git+URL@<commit>" install target - a git
+# ref grammar accepts far more than a hash would (branch names, shell-
+# adjacent punctuation), so this is deliberately narrower than "anything
+# git allows"
+COMMIT_HASH_PATTERN = r"^[0-9a-fA-F]{7,40}\Z"
+
+
+def validate_commit_hash(commit: str) -> str:
+    """
+    Validate a git commit hash before it is interpolated into a
+    'git+<url>@<commit>' pip install target.
+
+    Args:
+        commit: Commit hash to validate
+
+    Returns:
+        The validated commit hash
+
+    Raises:
+        InvalidInputError: If the hash is not 7-40 hex characters
+    """
+    if not commit:
+        raise InvalidInputError("Commit hash cannot be empty")
+
+    if not re.match(COMMIT_HASH_PATTERN, commit):
+        raise InvalidInputError(
+            f"Invalid commit hash: {commit} - expected 7 to 40 hex characters"
+        )
+
+    return commit
+
+
 def validate_json_size(file_path: str) -> None:
     """
     Validate JSON file size before loading.

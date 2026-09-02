@@ -28,6 +28,7 @@ from ..security import (
     validate_prompt_reference,
     ALLOWED_IMAGE_EXTENSIONS,
     ALLOWED_VIDEO_EXTENSIONS,
+    validate_commit_hash,
     InvalidInputError,
     SecurityError,
 )
@@ -1078,14 +1079,40 @@ def create_app(
         from git) and the state of any update."""
         return updater.status()
 
+    class UpdateDiffusersRequest(BaseModel):
+        commit: Optional[str] = Field(
+            default=None,
+            description="Git commit hash to pin the install to (7-40 hex "
+            "characters) instead of tracking GitHub HEAD",
+        )
+        revert: bool = Field(
+            default=False,
+            description="Pin back to the known-good published release "
+            "(pyproject.toml's diffusers floor) instead of installing from "
+            "git. Mutually exclusive with commit.",
+        )
+
     @app.post("/api/system/diffusers/update", status_code=202)
-    def update_diffusers():
-        """Upgrade diffusers to GitHub HEAD in the background.
+    def update_diffusers(body: UpdateDiffusersRequest = UpdateDiffusersRequest()):
+        """Upgrade diffusers in the background: GitHub HEAD by default, a
+        pinned commit when `commit` is given, or a revert to the last
+        known-good published release when `revert` is true.
 
         Refused while a job is running or queued: pip replacing package
         files under a loaded pipeline is the model-delete hazard in another
         form. On success the idle worker is shut down so the next job
         imports the new version."""
+        if body.commit and body.revert:
+            raise HTTPException(
+                status_code=400,
+                detail="commit and revert are mutually exclusive",
+            )
+        commit = None
+        if body.commit:
+            try:
+                commit = validate_commit_hash(body.commit)
+            except InvalidInputError as e:
+                raise HTTPException(status_code=400, detail=str(e))
         if manager.is_busy():
             raise HTTPException(
                 status_code=409,
@@ -1099,7 +1126,11 @@ def create_app(
                 "files while it runs could corrupt the download",
             )
         try:
-            return updater.start(on_success=manager.restart_worker_if_idle)
+            return updater.start(
+                on_success=manager.restart_worker_if_idle,
+                commit=commit,
+                revert=body.revert,
+            )
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e))
 

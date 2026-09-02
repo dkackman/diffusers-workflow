@@ -1389,7 +1389,7 @@ class TestModelDownloads:
             output_dir=str(tmp_path / "outputs"),
             job_manager=manager,
             download_manager=downloads,
-            diffusers_updater=DiffusersUpdater(run_fn=lambda: pip),
+            diffusers_updater=DiffusersUpdater(run_fn=lambda **kwargs: pip),
         )
         with TestClient(app, base_url="http://localhost") as client:
             assert (
@@ -1510,7 +1510,7 @@ class TestDiffusersUpdate:
         from types import SimpleNamespace
 
         pip = SimpleNamespace(returncode=0, stdout="Successfully installed", stderr="")
-        with self.make_client(tmp_path, lambda: pip) as client:
+        with self.make_client(tmp_path, lambda **kwargs: pip) as client:
             state = client.get("/api/system/diffusers").json()
             assert state["status"] == "idle"
             assert "version" in state and "commit" in state
@@ -1525,7 +1525,7 @@ class TestDiffusersUpdate:
         from types import SimpleNamespace
 
         pip = SimpleNamespace(returncode=1, stdout="", stderr="No space left")
-        with self.make_client(tmp_path, lambda: pip) as client:
+        with self.make_client(tmp_path, lambda **kwargs: pip) as client:
             client.post("/api/system/diffusers/update")
             done = self.wait_for_update(client, ["succeeded", "failed"])
             assert done["status"] == "failed"
@@ -1538,7 +1538,7 @@ class TestDiffusersUpdate:
 
         release = threading.Event()
 
-        def slow_pip():
+        def slow_pip(**kwargs):
             release.wait(timeout=5)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -1559,10 +1559,81 @@ class TestDiffusersUpdate:
         )
         manager.is_busy = lambda: True
         pip = SimpleNamespace(returncode=0, stdout="", stderr="")
-        with self.make_client(tmp_path, lambda: pip, manager=manager) as client:
+        with self.make_client(
+            tmp_path, lambda **kwargs: pip, manager=manager
+        ) as client:
             refused = client.post("/api/system/diffusers/update")
             assert refused.status_code == 409
             assert "running or queued" in refused.json()["detail"]
+
+    def test_update_with_commit_passes_it_through_and_reports_before_state(
+        self, tmp_path
+    ):
+        from types import SimpleNamespace
+
+        calls = []
+
+        def run_fn(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+        with self.make_client(tmp_path, run_fn) as client:
+            started = client.post(
+                "/api/system/diffusers/update", json={"commit": "abc1234"}
+            )
+            assert started.status_code == 202
+            body = started.json()
+            assert body["requested_commit"] == "abc1234"
+            assert body["revert"] is False
+            assert "before" in body
+            self.wait_for_update(client, ["succeeded", "failed"])
+        assert calls == [{"commit": "abc1234", "revert": False}]
+
+    def test_update_with_invalid_commit_is_rejected_before_pip_runs(self, tmp_path):
+        calls = []
+
+        def run_fn(**kwargs):
+            calls.append(kwargs)
+            from types import SimpleNamespace
+
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with self.make_client(tmp_path, run_fn) as client:
+            rejected = client.post(
+                "/api/system/diffusers/update", json={"commit": "not-hex!"}
+            )
+            assert rejected.status_code == 400
+        assert calls == []
+
+    def test_commit_and_revert_together_is_rejected(self, tmp_path):
+        from types import SimpleNamespace
+
+        pip = SimpleNamespace(returncode=0, stdout="", stderr="")
+        with self.make_client(tmp_path, lambda **kwargs: pip) as client:
+            rejected = client.post(
+                "/api/system/diffusers/update",
+                json={"commit": "abc1234", "revert": True},
+            )
+            assert rejected.status_code == 400
+            assert "mutually exclusive" in rejected.json()["detail"]
+
+    def test_revert_pins_to_release_and_reports_it(self, tmp_path):
+        from types import SimpleNamespace
+
+        calls = []
+
+        def run_fn(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(returncode=0, stdout="reverted", stderr="")
+
+        with self.make_client(tmp_path, run_fn) as client:
+            started = client.post("/api/system/diffusers/update", json={"revert": True})
+            assert started.status_code == 202
+            body = started.json()
+            assert body["revert"] is True
+            assert body["requested_commit"] is None
+            self.wait_for_update(client, ["succeeded", "failed"])
+        assert calls == [{"commit": None, "revert": True}]
 
 
 class TestPromptLibrary:
