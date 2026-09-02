@@ -27,6 +27,81 @@ diffusers-workflow validates all file paths, user inputs, and URLs to protect ag
 - `sanitize_command_args()` — Rejects arguments containing shell metacharacters ( `` ` `` `$` `|` `&` `;` `>` `<` and newline/CR). It does **not** call `shlex.quote()` — with `shell=False`, argument list separation is handled safely by Python/the OS, so this function is a defense-in-depth check, not an escaping step.
 - As of this writing, `dw/` does not invoke `subprocess` anywhere — the REPL's worker process (`dw/repl_worker.py`, `dw/worker.py`) is a `multiprocessing.Process` communicating over `multiprocessing.Queue`, not a shelled-out command. `sanitize_command_args()` is exercised by `tests/test_security.py` but is otherwise unused; it exists for any future code path that shells out.
 
+## Trust model
+
+**A workflow JSON file can execute arbitrary Python.** This is a deliberate
+design choice, in the same spirit as ComfyUI custom nodes - the engine's
+dynamic-import machinery is what lets a workflow name any diffusers
+pipeline, scheduler, or quantization backend without dw shipping a bespoke
+adapter for each one. But the same machinery means loading a workflow file
+is not a passive data-load. Three things in a workflow JSON run
+`importlib.import_module()` on a name the file supplies, which executes
+that module's top-level code:
+
+- **`pre_load_modules`** (`dw/pipeline_processors/pipeline.py`) - a list of
+  module names imported before the pipeline loads, for their import-time
+  registration side effects (`sdnq` registering its quantization method
+  with diffusers, for instance)
+- **A dotted `*_type`/`*_dtype`/`dtype`/`config_type` value**
+  (`dw/type_helpers.py`, reached from `dw/arguments.py` and
+  `dw/pipeline_processors/config_objects.py`) - `"sdnq.SDNQConfig"` imports
+  `sdnq` and reads `SDNQConfig` off it; nothing stops the module part from
+  naming something with no legitimate reason to appear in a workflow
+- **A `constant:`-prefixed reference** (`dw/type_helpers.py`'s
+  `load_constant_from_name`, reached from `dw/arguments.py`) - imports the
+  module the constant is declared in the same way, before reading the
+  attribute off it. `fetch_constant` refuses anything callable it finds,
+  but the import itself has already run by that point
+
+**Treat an untrusted workflow file exactly like an untrusted Python
+script.** Don't run one from a source you would not run a `.py` file from -
+a random download, a link in an issue, an LLM-authored file you have not
+read.
+
+### `--trust-workflows`
+
+`dw-run`, `dw-serve`, and `dw-repl` all take a `--trust-workflows` flag,
+**off by default**. Untrusted (the default), `pre_load_modules` and any
+dotted `*_type`/`*_dtype`/`dtype`/`config_type` value are refused unless
+they resolve under a top-level package the tool already depends on for
+exactly this purpose - the framework packages (`diffusers`, `torch`,
+`torchvision`, `transformers`, `accelerate`, `peft`) and the quantization
+backends `pyproject.toml` declares for `config_objects.py`'s dynamic
+loading (`sdnq`, `torchao`, `optimum` for optimum-quanto, `gguf`,
+`bitsandbytes`), plus `dw` itself (a workflow's `component_type` can name a
+pipeline under `dw.community_pipelines`, which ships in this repo, not a
+third party one). The refusal names exactly what triggered it and points
+back at `--trust-workflows`. The bundled examples under `workflows/` (not
+`workflows/archive/`) all stay inside this set and load untrusted; a
+workflow that needs to reach outside it - a community pipeline module from
+somewhere else, a custom scheduler package - needs `--trust-workflows`.
+
+`constant:` references are not currently gated by `--trust-workflows` (see
+`dw/type_helpers.load_constant_from_name` / `dw/arguments.fetch_constant`) -
+they are part of the same trust boundary described above, but narrower in
+practice since `fetch_constant` refuses anything callable the name resolves
+to. Treat a `constant:` reference to an unfamiliar dotted name with the
+same suspicion as the other two.
+
+`--trust-workflows` is a blanket, process-wide choice - it is not scoped
+per-workflow or per-request. A `dw-serve` instance that accepts jobs from
+anything other than yourself (including an MCP client - see below) should
+be run without it.
+
+### MCP-authored workflows (M3)
+
+The MCP server's `save_workflow` and `run_workflow` tools let an LLM write
+and then execute a workflow through `dw.serve` - `save_workflow` writes a
+JSON file into the workflow directory, `run_workflow` queues it (or an
+inline definition) as a job. Nothing in `dw_mcp/` inspects what a workflow
+it saves or runs actually contains. What protects a server used this way
+is exactly the mechanism above: `dw-serve`'s own `--trust-workflows`
+default is untrusted, so an MCP-authored or MCP-submitted workflow gets
+the same code-execution gate a workflow from any other untrusted source
+does, with no code change needed in `dw_mcp` itself. Running `dw-serve
+--trust-workflows` removes that gate for every job the server accepts,
+MCP-submitted or not - see the blanket-choice note just above.
+
 ## Integration Points
 
 | Entry Point | What's Validated |

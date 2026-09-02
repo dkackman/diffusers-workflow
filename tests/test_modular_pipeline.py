@@ -86,6 +86,73 @@ class TestLoadComponents:
             )
 
 
+class TestHubAuthErrorMapping:
+    """A 401/403 from the Hub loading a gated model becomes an actionable
+    RuntimeError naming the repo and 'huggingface-cli login', instead of
+    surfacing huggingface_hub's own error message unexplained."""
+
+    def _http_error(self, status_code):
+        from huggingface_hub.errors import HfHubHTTPError
+
+        response = MagicMock()
+        response.status_code = status_code
+        error = HfHubHTTPError("403 Forbidden", response=response)
+        error.response = response
+        return error
+
+    def test_403_becomes_actionable_message(self):
+        component_type = MagicMock()
+        component_type.__name__ = "MockPipeline"
+        component_type.from_pretrained.side_effect = self._http_error(403)
+        configuration = {"component_type": component_type}
+
+        with pytest.raises(RuntimeError, match="huggingface-cli login") as excinfo:
+            load_component(
+                "pipeline",
+                configuration,
+                {"model_name": "black-forest-labs/FLUX.1-dev"},
+                "cpu",
+            )
+        assert "black-forest-labs/FLUX.1-dev" in str(excinfo.value)
+
+    def test_401_becomes_actionable_message(self):
+        component_type = MagicMock()
+        component_type.__name__ = "MockPipeline"
+        component_type.from_pretrained.side_effect = self._http_error(401)
+        configuration = {"component_type": component_type}
+
+        with pytest.raises(RuntimeError, match="huggingface-cli login"):
+            load_component(
+                "pipeline", configuration, {"model_name": "some/gated-repo"}, "cpu"
+            )
+
+    def test_other_status_codes_pass_through_unchanged(self):
+        from huggingface_hub.errors import HfHubHTTPError
+
+        component_type = MagicMock()
+        component_type.__name__ = "MockPipeline"
+        original = self._http_error(500)
+        component_type.from_pretrained.side_effect = original
+        configuration = {"component_type": component_type}
+
+        with pytest.raises(HfHubHTTPError) as excinfo:
+            load_component(
+                "pipeline", configuration, {"model_name": "some/repo"}, "cpu"
+            )
+        assert excinfo.value is original
+
+    def test_non_hub_errors_are_unaffected(self):
+        component_type = MagicMock()
+        component_type.__name__ = "MockPipeline"
+        component_type.from_pretrained.side_effect = ValueError("unrelated failure")
+        configuration = {"component_type": component_type}
+
+        with pytest.raises(ValueError, match="unrelated failure"):
+            load_component(
+                "pipeline", configuration, {"model_name": "some/repo"}, "cpu"
+            )
+
+
 class TestConfiguredDevice:
     """Test the device a pipeline and its components are placed on"""
 

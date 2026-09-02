@@ -12,9 +12,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install
 bash ./install.sh && source ./activate
 
-# Run a workflow
-python -m dw.run workflows/ZImage.json
-python -m dw.run workflows/ZImage.json prompt="a cat" num_images_per_prompt=4
+# Run a workflow - sd15.json uses a small, ungated model and a literal
+# prompt, so it needs no Hugging Face login and downloads only a few GB
+python -m dw.run workflows/sd15.json
+python -m dw.run workflows/sd15.json prompt="a cat" num_images_per_prompt=4
+
+# A gated model (e.g. workflows/flux/FluxDev.json) needs Hugging Face auth
+# first: huggingface-cli login
 
 # Validate a workflow against schema
 python -m dw.validate workflows/ZImage.json
