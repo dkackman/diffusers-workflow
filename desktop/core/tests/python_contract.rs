@@ -6,8 +6,12 @@
 //! own half. This runs the real Python against a file the real Rust wrote,
 //! so a rename of any key fails here instead of in a user's install.
 //!
-//! Skips when there is no development virtual environment to run - it must
-//! never be the reason a checkout without one fails to build.
+//! Each half skips when its Python module cannot be imported, so this is
+//! never the reason a checkout fails to build. The two halves have very
+//! different costs: `dw_mcp` deliberately imports nothing from `dw`, so it
+//! needs only httpx and the repo on `PYTHONPATH` - which is why CI can run
+//! that half for real in a job with no torch in it. `dw.repl` pulls in the
+//! whole engine, so its half runs where a full install already exists.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -29,6 +33,35 @@ fn dev_python() -> Option<PathBuf> {
     candidate.exists().then_some(candidate)
 }
 
+/// Whether this Python can import the module a half needs.
+///
+/// A skipped test still reports `ok`, so an environment that quietly stops
+/// being able to import anything would leave this file green while proving
+/// nothing. `DW_CONTRACT_REQUIRE` (a comma-separated list of modules) turns
+/// a skip into a failure, and CI sets it for the half it intends to run.
+fn can_import(python: &PathBuf, module: &str) -> bool {
+    let importable = Command::new(python)
+        .args(["-c", &format!("import {module}")])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !importable && required(module) {
+        panic!(
+            "DW_CONTRACT_REQUIRE names {module}, but {} cannot import it - \
+             this half of the contract would have silently skipped",
+            python.display()
+        );
+    }
+    importable
+}
+
+fn required(module: &str) -> bool {
+    std::env::var("DW_CONTRACT_REQUIRE")
+        .map(|v| v.split(',').any(|m| m.trim() == module))
+        .unwrap_or(false)
+}
+
 fn read_back(python: &PathBuf, settings_dir: &std::path::Path, code: &str) -> String {
     let output = Command::new(python)
         .args(["-c", code])
@@ -47,9 +80,13 @@ fn read_back(python: &PathBuf, settings_dir: &std::path::Path, code: &str) -> St
 #[test]
 fn the_mcp_client_reads_the_port_the_shell_wrote() {
     let Some(python) = dev_python() else {
-        eprintln!("skipping: no development venv found");
+        eprintln!("skipping: no Python available");
         return;
     };
+    if !can_import(&python, "dw_mcp.client") {
+        eprintln!("skipping: dw_mcp is not importable by {}", python.display());
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     dw_desktop_core::ports::write_server_file(dir.path(), 9123, 4242).unwrap();
 
@@ -64,9 +101,14 @@ fn the_mcp_client_reads_the_port_the_shell_wrote() {
 #[test]
 fn the_repl_reads_the_port_the_shell_wrote() {
     let Some(python) = dev_python() else {
-        eprintln!("skipping: no development venv found");
+        eprintln!("skipping: no Python available");
         return;
     };
+    // dw.repl imports the engine, and therefore torch - only a full install
+    if !can_import(&python, "dw.repl") {
+        eprintln!("skipping: dw is not importable by {}", python.display());
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     dw_desktop_core::ports::write_server_file(dir.path(), 9124, 4243).unwrap();
 

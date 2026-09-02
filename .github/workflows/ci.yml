@@ -111,8 +111,11 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Install the Python side of the contract test
-        # dw_mcp is a pure HTTP client; dw.repl needs the engine, so the
-        # REPL half of the contract test is exercised by pytest instead
+        # dw_mcp imports nothing from dw (test_mcp_server.py::TestStartupWeight
+        # guards that), so httpx plus the repo on PYTHONPATH is enough to run
+        # its half of the contract for real - no torch in this job. The
+        # dw.repl half needs the whole engine and skips here; the backend
+        # job's pytest run covers that side's own behaviour.
         run: pip install httpx
       - name: Format check
         run: cd desktop && cargo fmt --all --check
@@ -122,6 +125,12 @@ jobs:
         run: cd desktop && cargo test -p dw_desktop_core
         env:
           DW_CONTRACT_PYTHON: python
+          PYTHONPATH: ${{ github.workspace }}
+          # A skipped test still reports ok, so name the half this job is
+          # meant to prove: if dw_mcp ever stops being importable here, the
+          # job fails instead of going quietly green. dw.repl is not listed -
+          # it needs torch and is expected to skip in this job.
+          DW_CONTRACT_REQUIRE: dw_mcp.client
 
   desktop:
     # The installers. Tags and manual runs only - these are slow and large.
