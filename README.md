@@ -4,6 +4,8 @@
 
 A declarative workflow engine and web UI for the [Hugging Face Diffusers library](https://github.com/huggingface/diffusers). Define image/video generation pipelines in JSON — with full access to the configuration diffusers exposes — and run them from the command line, an interactive REPL, or a browser.
 
+A workflow JSON file is portable and easy to hand off — but that same flexibility means loading one can execute arbitrary Python (dynamic imports are how it reaches any diffusers pipeline or quantization backend without a bespoke adapter for each). Treat a workflow file from someone else the way you'd treat a `.py` script: see [Trust model](docs/SECURITY.md#trust-model) before running one you didn't write.
+
 **Python 3.10-3.14 | CUDA (NVIDIA) | MPS (Apple Silicon) | CPU**
 
 <picture>
@@ -17,7 +19,7 @@ A declarative workflow engine and web UI for the [Hugging Face Diffusers library
 - **MCP server** — a stdio server that lets an MCP client (Claude Code first) author, validate, save, run and diagnose workflows against a running `dw.serve`. `dw-mcp`. See [MCP Server](docs/MCP.md).
 - **Declarative JSON workflows** with variable substitution and cross-step data flow
 - **Multi-step pipelines** — chain text-to-image, image-to-video, inpainting, ControlNet
-- **Reproducible by construction** — outputs embed their full workflow definition and seed; any image in the gallery reopens as the exact workflow that made it
+- **Reproducible by construction** — outputs embed their full workflow definition and seed; any image in the gallery reopens as the exact workflow that made it (see [Trust model](docs/SECURITY.md#trust-model) before reopening one someone else sent you)
 - **Long-video chaining** — run a video pipeline once per segment and stitch the segments into one clip, with audio-driven length and frame-to-frame continuity
 - **Quantization** — BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto
 - **Inference acceleration** — TeaCache, FirstBlockCache, FasterCache, MagCache, TaylorSeerCache
@@ -78,15 +80,26 @@ Jobs queue, stream progress live (per denoising step), cancel cooperatively, and
 
 ### Run a Workflow
 
+`workflows/sd15.json` is the smallest, fastest starting point — a small, ungated model and a literal prompt, so the first run needs no Hugging Face login and downloads only a few GB:
+
 ```bash
-python -m dw.run workflows/flux/FluxDev.json
-python -m dw.run workflows/flux/FluxDev.json prompt="a cat" num_images_per_prompt=4
+python -m dw.run workflows/sd15.json
+python -m dw.run workflows/sd15.json prompt="a cat" num_images_per_prompt=4
 ```
+
+Most of the workflows under `workflows/` (Flux, LTX-2, MiniMax...) use **gated** Hugging Face models — the repo owner has to approve your account before you can download them. Before running one of those, request access on the model's Hugging Face page (e.g. [black-forest-labs/FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev)) and log in locally:
+
+```bash
+huggingface-cli login
+python -m dw.run workflows/flux/FluxDev.json
+```
+
+Without this, the run fails partway through with an HTTP 401/403 from the Hub.
 
 ### Validate a Workflow
 
 ```bash
-python -m dw.validate workflows/flux/FluxDev.json
+python -m dw.validate workflows/sd15.json
 ```
 
 ### Interactive REPL

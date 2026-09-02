@@ -44,7 +44,28 @@ def main():
         default="INFO",
         help="DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
+    parser.add_argument(
+        "--trust-workflows",
+        action="store_true",
+        default=False,
+        help="Trust every workflow this server loads - inline (from a "
+        "POST /api/jobs body, e.g. MCP-authored), a stored one, or one at "
+        "an arbitrary path - to execute arbitrary Python: allow "
+        "pre_load_modules and any dotted *_type/*_dtype/dtype/config_type "
+        "value, not just ones inside the diffusers/torch/transformers/"
+        "quantization-backend ecosystem the tool already depends on. Off "
+        "by default - see docs/SECURITY.md's Trust model. A server "
+        "anything can submit jobs to (including an MCP client) should "
+        "stay untrusted.",
+    )
     args = parser.parse_args()
+
+    # Set before create_app / before the worker subprocess is ever spawned -
+    # 'spawn' launches a fresh interpreter that inherits this environment
+    # variable, so the job runner sees the same trust choice the API does
+    from .security import set_trust_workflows
+
+    set_trust_workflows(args.trust_workflows)
 
     # Resolve the prompt directory once, with the same discovery a CLI run
     # uses, anchored at the workflow directory - then pin it, so the library

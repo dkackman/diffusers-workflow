@@ -53,6 +53,135 @@ class InvalidInputError(SecurityError):
     pass
 
 
+class UntrustedWorkflowError(SecurityError):
+    """Raised when an untrusted workflow reaches the code-execution surface.
+
+    Loading a workflow JSON file is not a passive data-load: pre_load_modules,
+    a dotted '*_type'/'*_dtype'/'dtype'/'config_type' value, and a 'constant:'
+    reference all run importlib.import_module() on a name the file supplies,
+    which executes that module's top-level code. See docs/SECURITY.md's Trust
+    model section. Untrusted here means "not explicitly vouched for by
+    --trust-workflows" - the default - not "known malicious".
+    """
+
+    pass
+
+
+# The environment variable a parent process sets to hand its --trust-workflows
+# choice down to a spawned worker subprocess - multiprocessing's 'spawn' start
+# method launches a fresh interpreter that inherits os.environ, the same way
+# DW_PROMPT_DIR reaches the worker (see dw/serve.py, dw/repl.py)
+TRUST_WORKFLOWS_ENV_VAR = "DW_TRUST_WORKFLOWS"
+
+# Dotted type/pre_load_modules references that resolve under one of these
+# top-level packages are treated as part of the diffusers ecosystem the tool
+# already assumes, and are allowed even for an untrusted workflow - everything
+# else requires --trust-workflows. This is the dependency set pyproject.toml
+# declares for exactly this purpose ("Quantization backends - config_objects.py
+# loads them dynamically"), plus the framework packages workflows target
+# directly, plus 'dw' itself - a workflow's own community_pipelines component
+# lives in this package, not a third party one
+TRUSTED_TOP_LEVEL_PACKAGES = (
+    "diffusers",
+    "torch",
+    "torchvision",
+    "transformers",
+    "accelerate",
+    "peft",
+    "sdnq",
+    "torchao",
+    "optimum",  # optimum-quanto
+    "gguf",
+    "bitsandbytes",
+    "dw",
+)
+
+
+def set_trust_workflows(trusted: bool) -> None:
+    """Record the process-wide --trust-workflows choice.
+
+    Called once at CLI/server startup, before any workflow loads. A spawned
+    worker subprocess reads the same choice back from the environment
+    variable this sets, rather than needing it passed as an argument.
+    """
+    os.environ[TRUST_WORKFLOWS_ENV_VAR] = "1" if trusted else "0"
+
+
+def workflows_are_trusted() -> bool:
+    """Whether the process has been told to trust workflow files fully.
+
+    Defaults to untrusted (False) when nothing has set the flag, which is
+    the secure default for any code path that loads a workflow without
+    going through the CLI/server startup that calls set_trust_workflows().
+    """
+    return os.environ.get(TRUST_WORKFLOWS_ENV_VAR) == "1"
+
+
+def _top_level_package(dotted_name: str) -> str:
+    return dotted_name.split(".", 1)[0]
+
+
+def require_trusted_dotted_name(dotted_name: str, what: str) -> None:
+    """Refuse a dotted-name import outside the diffusers ecosystem unless
+    the workflow is trusted.
+
+    Args:
+        dotted_name: The module.path.Name a workflow supplied
+        what: Short phrase naming what kind of value this was ('a *_type
+            value', 'a config_type value', ...), for the error message
+
+    Raises:
+        UntrustedWorkflowError: If untrusted and the name is outside
+            TRUSTED_TOP_LEVEL_PACKAGES
+    """
+    if workflows_are_trusted():
+        return
+
+    top_level = _top_level_package(dotted_name)
+    if top_level in TRUSTED_TOP_LEVEL_PACKAGES:
+        return
+
+    raise UntrustedWorkflowError(
+        f"Refusing to load {what} '{dotted_name}': it imports the "
+        f"'{top_level}' module, which is outside the ecosystem "
+        f"({', '.join(TRUSTED_TOP_LEVEL_PACKAGES)}) this workflow is "
+        f"allowed to reach untrusted. Loading a workflow JSON file can "
+        f"execute arbitrary Python - see docs/SECURITY.md. Pass "
+        f"--trust-workflows if you trust this workflow's source."
+    )
+
+
+def require_trusted_pre_load_modules(module_names) -> None:
+    """Refuse a pre_load_modules entry outside the diffusers ecosystem
+    unless the workflow is trusted.
+
+    pre_load_modules exists to run a module's import-time registration
+    side effects - sdnq registering its quantization method with diffusers
+    is the pattern the bundled example workflows use - so an in-ecosystem
+    module name is allowed the same way an in-ecosystem dotted type
+    reference is; anything else requires trust.
+
+    Raises:
+        UntrustedWorkflowError: If untrusted and any name is outside
+            TRUSTED_TOP_LEVEL_PACKAGES
+    """
+    if workflows_are_trusted():
+        return
+
+    for module_name in module_names or []:
+        top_level = _top_level_package(module_name)
+        if top_level not in TRUSTED_TOP_LEVEL_PACKAGES:
+            raise UntrustedWorkflowError(
+                f"Refusing to load pre_load_modules entry '{module_name}': "
+                f"it imports the '{top_level}' module, which is outside the "
+                f"ecosystem ({', '.join(TRUSTED_TOP_LEVEL_PACKAGES)}) this "
+                f"workflow is allowed to reach untrusted. Loading a "
+                f"workflow JSON file can execute arbitrary Python - see "
+                f"docs/SECURITY.md. Pass --trust-workflows if you trust "
+                f"this workflow's source."
+            )
+
+
 def validate_path(
     path: Union[str, Path], base_dir: Optional[str] = None, allow_create: bool = True
 ) -> str:

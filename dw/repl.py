@@ -278,7 +278,25 @@ def main():
         default="INFO",
         help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
+    parser.add_argument(
+        "--trust-workflows",
+        action="store_true",
+        default=False,
+        help="Trust every workflow loaded this session to execute arbitrary "
+        "Python: allow pre_load_modules and any dotted "
+        "*_type/*_dtype/dtype/config_type value, not just ones inside the "
+        "diffusers/torch/transformers/quantization-backend ecosystem the "
+        "tool already depends on. Off by default - see docs/SECURITY.md's "
+        "Trust model.",
+    )
     args = parser.parse_args()
+
+    # Set before the worker subprocess is ever spawned - 'spawn' launches a
+    # fresh interpreter that inherits this environment variable, so
+    # 'workflow load/run' in the worker sees the same trust choice
+    from .security import set_trust_workflows
+
+    set_trust_workflows(args.trust_workflows)
 
     # Initialize logging
     startup(args.log_level)

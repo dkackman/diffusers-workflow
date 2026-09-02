@@ -16,6 +16,7 @@ from .remote import remote_text_encoder
 from ..cache_blocks import register_cache_blocks
 from ..teacache import teacache_context
 from ..type_helpers import has_method
+from ..security import require_trusted_pre_load_modules
 from .. import empty_device_cache, get_device_type, resolve_device
 from diffusers import attention_backend
 
@@ -23,6 +24,7 @@ from diffusers import attention_backend
 # imported where they are used - at module scope they add seconds to every startup
 
 from ..events import WorkflowCancelled, emit_phase, get_context
+from huggingface_hub.errors import HfHubHTTPError
 
 logger = logging.getLogger("dw")
 
@@ -224,8 +226,12 @@ class Pipeline:
         logger.debug(f"Loading pipeline: {self.name}")
 
         # Import modules that need to register with diffusers/transformers before loading
-        # (e.g., sdnq registers its quantization method on import)
-        for module_name in self.configuration.get("pre_load_modules", []):
+        # (e.g., sdnq registers its quantization method on import). This runs
+        # arbitrary python at import time, so an untrusted workflow is refused
+        # here unless --trust-workflows was passed - see docs/SECURITY.md
+        pre_load_modules = self.configuration.get("pre_load_modules", [])
+        require_trusted_pre_load_modules(pre_load_modules)
+        for module_name in pre_load_modules:
             logger.info(f"Pre-loading module: {module_name}")
             importlib.import_module(module_name)
 
@@ -1537,6 +1543,7 @@ def load_component(
             f"Consider changing torch_dtype from float16 to float32 for {component_name} "
         )
 
+    model_name = None
     try:
         with loading_device(configuration):
             # Load from model name
@@ -1599,6 +1606,28 @@ def load_component(
             component, component_name, configuration, device, components_manager
         )
 
+    except HfHubHTTPError as e:
+        # 401/403 from the Hub means the account behind whatever token (or
+        # lack of one) HfApi is using cannot read this repo - almost always
+        # a gated model the user has not requested access to, or has not
+        # logged in for. Every other status (a real outage, a bad repo id
+        # diffusers itself reports differently) falls through unchanged
+        # below, so this narrows to exactly the actionable case
+        status_code = getattr(getattr(e, "response", None), "status_code", None)
+        if status_code in (401, 403):
+            repo = model_name or component_name
+            logger.error(
+                f"Hugging Face authentication required loading {component_name} "
+                f"({repo}): {e}",
+                exc_info=True,
+            )
+            raise RuntimeError(
+                f"Model '{repo}' requires Hugging Face authentication - run "
+                f"'huggingface-cli login', or request access at "
+                f"https://huggingface.co/{repo}"
+            ) from e
+        logger.error(f"{type(e).__name__} loading {component_name}: {e}", exc_info=True)
+        raise
     except Exception as e:
         # One log line with the full traceback - every error class was logged
         # and re-raised identically
