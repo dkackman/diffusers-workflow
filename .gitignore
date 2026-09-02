@@ -149,3 +149,13 @@ test_outputs/
 # built SPA copied into the package by scripts/build_dist.sh
 dw/server/ui/
 venv
+
+# Desktop shell build products
+desktop/node_modules/
+desktop/dist/
+desktop/target/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/resources/python/
+desktop/src-tauri/resources/uv
+desktop/src-tauri/resources/uv.exe

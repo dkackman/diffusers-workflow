@@ -1,0 +1,13 @@
+# A two-crate workspace on purpose: `core` holds every decision the shell
+# makes (paths, GPU detection, ports, provisioning, config merging) and
+# depends on nothing from Tauri, so `cargo test -p dw_desktop_core` runs in
+# seconds without building a GUI toolkit. `src-tauri` is the thin app that
+# wires those decisions to windows, menus and child processes.
+[workspace]
+members = ["core", "src-tauri"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.77"
