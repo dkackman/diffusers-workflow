@@ -2,6 +2,7 @@
 request validation, and workflow browsing confinement."""
 
 import json
+import os
 import queue
 import time
 
@@ -692,6 +693,67 @@ def test_gallery_delete_and_job_linkage(server, tmp_path):
         # encoded traversal: refused by routing (405) or validation (404)
         assert client.delete("/api/gallery/..%2Fjobs.sqlite").status_code in (404, 405)
         assert (tmp_path / "jobs.sqlite").exists()
+
+
+def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):
+    with server(success_script) as client:
+        response = client.post(
+            "/api/uploads",
+            params={"filename": "source-image.png"},
+            content=b"not-really-png-bytes",
+        )
+        assert response.status_code == 201
+        body = response.json()
+
+        saved = tmp_path / "outputs" / "uploads"
+        assert saved.is_dir()
+        files = list(saved.iterdir())
+        assert len(files) == 1
+        assert files[0].read_bytes() == b"not-really-png-bytes"
+        assert body["path"] == str(files[0])
+        assert os.path.isabs(body["path"])
+        assert body["url"] == f"/outputs/uploads/{files[0].name}"
+
+        # served back through the same static mount the gallery uses
+        fetched = client.get(body["url"])
+        assert fetched.status_code == 200
+        assert fetched.content == b"not-really-png-bytes"
+
+
+def test_upload_media_rejects_disallowed_extension(server):
+    with server(success_script) as client:
+        response = client.post(
+            "/api/uploads",
+            params={"filename": "script.py"},
+            content=b"print(1)",
+        )
+        assert response.status_code == 400
+
+
+def test_upload_media_rejects_empty_body(server):
+    with server(success_script) as client:
+        response = client.post(
+            "/api/uploads",
+            params={"filename": "empty.png"},
+            content=b"",
+        )
+        assert response.status_code == 400
+
+
+def test_upload_media_ignores_path_parts_in_filename(server, tmp_path):
+    """A crafted filename with directory components must not escape the
+    uploads folder - only the extension is used, the name is generated."""
+    with server(success_script) as client:
+        response = client.post(
+            "/api/uploads",
+            params={"filename": "../../evil.png"},
+            content=b"data",
+        )
+        assert response.status_code == 201
+        saved = tmp_path / "outputs" / "uploads"
+        files = list(saved.iterdir())
+        assert len(files) == 1
+        assert files[0].parent == saved
 
 
 def test_workflow_listing_carries_details(server):

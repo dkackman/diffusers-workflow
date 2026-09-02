@@ -13,5 +13,12 @@ export default defineConfig({
   },
   test: {
     exclude: ['e2e/**', 'node_modules/**'],
+    environment: 'jsdom',
+    setupFiles: ['./vitest.setup.ts'],
+  },
+  resolve: {
+    // vitest otherwise resolves svelte's server-side (SSR) build, which
+    // has no mount() - component tests need the browser build.
+    conditions: process.env.VITEST ? ['browser'] : undefined,
   },
 })
