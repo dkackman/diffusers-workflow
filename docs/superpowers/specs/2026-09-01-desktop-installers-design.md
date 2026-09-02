@@ -216,9 +216,18 @@ The Tauri app version tracks `pyproject.toml`, and the app pins
 the wheel and all three installers, so `scripts/release.sh` keeps
 driving releases unchanged.
 
-Tauri's updater ships the shell. On the first launch after a shell
-update, the app compares the installed wheel version against its own
-and runs `uv pip install --upgrade` when they differ.
+Tauri's updater ships the shell, reading its manifest from the GitHub
+release feed and verifying it with a Tauri minisign key — a separate
+mechanism from OS code signing, so it works on the unsigned Windows
+build too. On the first launch after a shell update, the app compares
+the installed wheel version against its own and, when they differ, runs
+`uv pip install "diffusers-workflow[server]==<new version>"` — an exact
+pin rather than `--upgrade`, so a downgrade is handled by the same path
+as an upgrade.
+
+Note on pre-release versions: pip normalizes the project's semver-style
+`0.4.0-alpha.10` to `0.4.0a10`, and an exact `==` pin is sufficient to
+install a pre-release without `--pre`.
 
 ## CI and signing
 
