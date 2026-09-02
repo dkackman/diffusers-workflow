@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { focusTrap } from './focusTrap'
+
   let { open = $bindable(false) }: { open?: boolean } = $props()
 </script>
 
@@ -9,7 +11,9 @@
       class="sheet panel"
       role="dialog"
       aria-label="keyboard shortcuts"
+      aria-modal="true"
       tabindex="-1"
+      use:focusTrap
       onclick={(e) => e.stopPropagation()}
     >
       <h2>Keyboard shortcuts</h2>
