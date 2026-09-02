@@ -1,6 +1,8 @@
 """Running and diagnosing jobs. The gate on run_workflow is the point: a
 run costs GPU time on an engine that runs one job at a time."""
 
+import time
+
 import httpx
 import pytest
 
@@ -250,3 +252,83 @@ def test_rerun_submits_once_the_cost_is_acknowledged():
 
     assert result["id"] == "job-2"
     assert [entry["key"][1] for entry in seen] == ["/api/jobs/job-1/rerun"]
+
+
+def sequenced(route, bodies):
+    """Like `scripted`, but one route replays a list of bodies in order -
+    for a poller that expects the job to look different call to call. The
+    last body repeats once the list runs out."""
+    seen = []
+
+    def handler(request):
+        key = (request.method, request.url.path)
+        seen.append({"key": key, "params": dict(request.url.params)})
+        if key != route:
+            return httpx.Response(404, json={"detail": f"unrouted {key}"})
+        index = min(len(seen) - 1, len(bodies) - 1)
+        return httpx.Response(200, json=bodies[index])
+
+    return DwClient(transport=httpx.MockTransport(handler)), seen
+
+
+def test_wait_for_job_returns_promptly_once_terminal(monkeypatch):
+    """Two polls: running, then succeeded. Should return right after the
+    second poll rather than waiting out the timeout."""
+    monkeypatch.setattr(diagnose, "WAIT_POLL_SECONDS", 0.01)
+    client, seen = sequenced(
+        ("GET", "/api/jobs/job-1"),
+        [
+            {"id": "job-1", "status": "running"},
+            {"id": "job-1", "status": "succeeded", "manifest": ["out.png"]},
+        ],
+    )
+
+    result = diagnose.wait_for_job(client, "job-1", timeout_seconds=5)
+
+    assert result["status"] == "succeeded"
+    assert result["still_running"] is False
+    assert result["job"]["manifest"] == ["out.png"]
+    assert len(seen) == 2, "must not keep polling once the job is terminal"
+
+
+def test_wait_for_job_reports_still_running_at_timeout(monkeypatch):
+    """The job never finishes within the budget: returns still_running
+    rather than hanging past timeout_seconds, and never oversleeps it."""
+    monkeypatch.setattr(diagnose, "WAIT_POLL_SECONDS", 0.01)
+    client, seen = sequenced(
+        ("GET", "/api/jobs/job-1"), [{"id": "job-1", "status": "running"}]
+    )
+
+    started = time.monotonic()
+    result = diagnose.wait_for_job(client, "job-1", timeout_seconds=0.03)
+    elapsed = time.monotonic() - started
+
+    assert result["status"] == "running"
+    assert result["still_running"] is True
+    assert "next" in result
+    assert len(seen) >= 2, "should have polled more than once inside the budget"
+    assert elapsed < 1, "must return once timeout_seconds elapses, not hang"
+
+
+def test_wait_for_job_caps_the_timeout_it_is_given():
+    """A caller asking for an absurd timeout does not get an absurd wait -
+    the value is clamped before it ever reaches the poll loop."""
+    client, seen = sequenced(
+        ("GET", "/api/jobs/job-1"), [{"id": "job-1", "status": "succeeded"}]
+    )
+
+    diagnose.wait_for_job(client, "job-1", timeout_seconds=10_000)
+
+    assert len(seen) == 1, "a terminal status on the first poll returns immediately"
+
+
+def test_wait_for_job_does_not_require_acknowledged_cost():
+    """It reads an already-queued job rather than starting anything, so the
+    cost gate other job-queuing tools carry does not apply here."""
+    client, _seen = sequenced(
+        ("GET", "/api/jobs/job-1"), [{"id": "job-1", "status": "succeeded"}]
+    )
+
+    result = diagnose.wait_for_job(client, "job-1")
+
+    assert result["status"] == "succeeded"

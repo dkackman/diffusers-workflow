@@ -35,6 +35,7 @@ EXPECTED_TOOLS = {
     "run_workflow",
     "get_job",
     "get_job_events",
+    "wait_for_job",
     "cancel_job",
     "rerun_job",
     "move_job",
@@ -306,6 +307,17 @@ TOOL_WIRING = [
     ),
     ("get_job", {"job_id": "j1"}, "GET", "/api/jobs/j1"),
     ("get_job_events", {"job_id": "j1"}, "GET", "/api/jobs/j1/event-log"),
+    (
+        # timeout_seconds=0 keeps this to the single poll the wiring test
+        # expects: wait_for_job has no route of its own, it reuses get_job's.
+        # Its polling loop across several calls is exercised separately in
+        # test_mcp_diagnose.py, with WAIT_POLL_SECONDS shrunk so the tests
+        # stay fast.
+        "wait_for_job",
+        {"job_id": "j1", "timeout_seconds": 0},
+        "GET",
+        "/api/jobs/j1",
+    ),
     ("cancel_job", {"job_id": "j1"}, "POST", "/api/jobs/j1/cancel"),
     (
         "rerun_job",
@@ -611,6 +623,7 @@ async def test_a_gated_tool_refuses_through_the_session(name):
 # Only includes tools whose handlers declare parameter defaults (beyond the client arg).
 WRAPPER_HANDLER_MAP = {
     "get_job_events": (diagnose, "get_job_events"),
+    "wait_for_job": (diagnose, "wait_for_job"),
     "get_output_image": (media, "get_output_image"),
     "get_class": (catalog, "get_class"),
     "list_gallery": (catalog, "list_gallery"),

@@ -7,7 +7,20 @@ client will hold a tool call open, so submitting returns immediately and
 progress is polled from the event log.
 """
 
+import time
+
 from dw_mcp.client import DwApiError, api_path
+
+TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
+
+# How often wait_for_job re-polls /api/jobs/{id} - matches SSE_POLL_SECONDS,
+# the interval the SSE stream itself re-checks a job at (dw/server/app.py).
+WAIT_POLL_SECONDS = 1.0
+
+# A generation can run for minutes, far longer than an MCP client holds a
+# tool call open, so wait_for_job's own budget stays well under that no
+# matter what a caller asks for.
+MAX_WAIT_SECONDS = 55
 
 COST_REFUSAL = (
     "Running a workflow occupies the GPU for minutes and the engine runs one "
@@ -65,6 +78,43 @@ def get_job_events(client, job_id, after=-1, limit=200):
         api_path("api", "jobs", job_id, "event-log"),
         params={"after": after, "limit": limit},
     )
+
+
+def wait_for_job(client, job_id, timeout_seconds=20):
+    """Block until a job reaches a terminal status, or `timeout_seconds`
+    elapses - a bounded alternative to polling `get_job`/`get_job_events` by
+    hand. Does not queue anything, so it does not require
+    `acknowledged_cost`; it only reads a job someone already queued.
+
+    `timeout_seconds` is clamped to [0, MAX_WAIT_SECONDS]: a generation can
+    run for minutes, far longer than an MCP client holds a tool call open,
+    so this never blocks past a budget kept well under that. Returns as
+    soon as the job's status is succeeded, failed or cancelled. If the
+    timeout elapses first, returns the job's last-seen status with
+    `still_running: true` instead of hanging - call again to keep waiting."""
+    timeout_seconds = max(0.0, min(float(timeout_seconds), MAX_WAIT_SECONDS))
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        job = client.get_json(api_path("api", "jobs", job_id))
+        status = job.get("status")
+        if status in TERMINAL_STATUSES:
+            return {
+                "job_id": job_id,
+                "status": status,
+                "still_running": False,
+                "job": job,
+            }
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {
+                "job_id": job_id,
+                "status": status,
+                "still_running": True,
+                "job": job,
+                "next": "Call wait_for_job again, or get_job_events for "
+                "incremental progress.",
+            }
+        time.sleep(min(WAIT_POLL_SECONDS, remaining))
 
 
 def cancel_job(client, job_id):
