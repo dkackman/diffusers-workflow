@@ -68,6 +68,36 @@ describe('name encoding', () => {
     expect(calls[0][0]).toBe('/api/gallery/wf-gen.0-0.0%20copy.png/metadata')
     expect(calls[1][0]).toBe('/api/gallery/wf-gen.0-0.0%20copy.png')
   })
+
+  it('keeps the workflow-folder separator in a gallery name but escapes the segments', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.galleryMetadata('ltx/wf-gen.0-0.0 copy.png')
+    await api.deleteOutput('ltx/wf-gen.0-0.0 copy.png')
+    expect(calls[0][0]).toBe('/api/gallery/ltx/wf-gen.0-0.0%20copy.png/metadata')
+    expect(calls[1][0]).toBe('/api/gallery/ltx/wf-gen.0-0.0%20copy.png')
+  })
+})
+
+describe('gallery pagination and thumbnails', () => {
+  it('sends limit and offset, and omits folder when unset', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.gallery(120, 240)
+    expect(calls[0][0]).toBe('/api/gallery?limit=120&offset=240')
+  })
+
+  it('sends an explicit folder filter, including the root folder as an empty string', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.gallery(50, 0, 'ltx')
+    await api.gallery(50, 0, '')
+    expect(calls[0][0]).toBe('/api/gallery?limit=50&offset=0&folder=ltx')
+    expect(calls[1][0]).toBe('/api/gallery?limit=50&offset=0&folder=')
+  })
+
+  it('builds a thumbnail URL that keeps folder separators', () => {
+    expect(api.galleryThumbnailUrl('ltx/wf-gen.0-0.0.png')).toBe(
+      '/api/gallery/ltx/wf-gen.0-0.0.png/thumbnail',
+    )
+  })
 })
 
 describe('fetchOutputText', () => {
