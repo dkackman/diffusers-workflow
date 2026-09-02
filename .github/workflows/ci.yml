@@ -156,10 +156,14 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - name: Linux system dependencies
+        # xdg-utils supplies xdg-open, which the AppImage bundler embeds
+        # into the bundle: without it `tauri build` fails at packaging
+        # time, after an otherwise successful compile
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev             librsvg2-dev patchelf libssl-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libssl-dev xdg-utils
       - name: Fetch the bundled runtime
         # python-build-standalone + uv, verified against pinned checksums
         shell: bash
