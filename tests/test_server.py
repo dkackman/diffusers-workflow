@@ -146,7 +146,7 @@ def server(tmp_path):
             job_manager=manager,
             prompt_dir=str(prompt_dir),
         )
-        return TestClient(app)
+        return TestClient(app, base_url="http://localhost")
 
     return make
 
@@ -345,15 +345,41 @@ def test_submit_accepts_a_stored_workflow_name(server, tmp_path):
         assert executes[0]["workflow_path"].endswith("Basic.json")
 
 
-def test_submit_accepts_a_real_path(server, tmp_path):
+def test_submit_rejects_a_real_path_outside_the_workflow_dir(server, tmp_path):
+    """workflow_path is confined to --workflow-dir, the same as the
+    /api/workflows CRUD routes - a real, existing file elsewhere on disk
+    must not be openable just by naming it."""
     with server(success_script) as client:
         path = tmp_path / "loose.json"
         path.write_text(json.dumps(valid_workflow("loose")))
 
         response = client.post("/api/jobs", json={"workflow_path": str(path)})
 
+        assert response.status_code == 400
+        assert client.app.state.job_manager.worker_manager.commands == []
+
+
+def test_submit_accepts_an_absolute_path_inside_the_workflow_dir(server, tmp_path):
+    """An absolute path is fine as long as it still resolves under
+    workflow_dir - only escaping the directory is refused."""
+    with server(success_script) as client:
+        path = tmp_path / "workflows" / "loose.json"
+        path.write_text(json.dumps(valid_workflow("loose")))
+
+        response = client.post("/api/jobs", json={"workflow_path": str(path)})
+
         assert response.status_code == 201
         assert response.json()["workflow"] == "loose"
+
+
+def test_validate_rejects_a_real_path_outside_the_workflow_dir(server, tmp_path):
+    with server(success_script) as client:
+        path = tmp_path / "loose.json"
+        path.write_text(json.dumps(valid_workflow("loose")))
+
+        response = client.post("/api/validate", json={"workflow_path": str(path)})
+
+        assert response.status_code == 400
 
 
 def test_submit_rejects_a_traversal_shaped_name(server):
@@ -493,6 +519,116 @@ def test_foreign_origin_requests_are_rejected(server):
             ).status_code
             == 200
         )
+        assert client.get("/api/health").status_code == 200
+
+
+def test_foreign_host_header_requests_are_rejected(tmp_path):
+    """Defense-in-depth for clients that never send Origin (curl, scripts,
+    the MCP client): a Host header naming an unrelated public domain is
+    rejected even though the Origin check above never sees it."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    (workflow_dir / "Basic.json").write_text(json.dumps(valid_workflow("basic")))
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        # a genuinely local Host passes
+        assert client.get("/api/health").status_code == 200
+        assert (
+            client.get("/api/health", headers={"Host": "127.0.0.1"}).status_code == 200
+        )
+        # a Host claiming to be some unrelated public domain does not
+        response = client.get("/api/health", headers={"Host": "evil.example"})
+        assert response.status_code == 400
+
+
+def test_configured_bind_host_is_allowed(tmp_path):
+    """A deployment bound to one specific non-loopback address still
+    accepts requests addressed to that host."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        host="my-server.local",
+    )
+    with TestClient(app, base_url="http://my-server.local") as client:
+        assert client.get("/api/health").status_code == 200
+    with TestClient(app, base_url="http://other.example") as client:
+        assert client.get("/api/health").status_code == 400
+
+
+def test_bearer_token_gates_the_api_when_configured(tmp_path):
+    """A static token, when configured, is required on /api/* but not on
+    static assets - EventSource also accepts it as a query parameter since
+    it cannot set custom headers."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    (workflow_dir / "Basic.json").write_text(json.dumps(valid_workflow("basic")))
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        token="s3cr3t",
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        # missing token
+        assert client.get("/api/health").status_code == 401
+        # wrong token
+        assert (
+            client.get(
+                "/api/health", headers={"Authorization": "Bearer nope"}
+            ).status_code
+            == 401
+        )
+        # correct token
+        assert (
+            client.get(
+                "/api/health", headers={"Authorization": "Bearer s3cr3t"}
+            ).status_code
+            == 200
+        )
+
+        job = client.post(
+            "/api/jobs",
+            json={"workflow": valid_workflow()},
+            headers={"Authorization": "Bearer s3cr3t"},
+        ).json()
+
+        # the SSE route accepts the token as a query param too, since
+        # EventSource cannot set custom headers
+        assert (
+            client.get(f"/api/jobs/{job['id']}/events?token=s3cr3t").status_code == 200
+        )
+        assert client.get(f"/api/jobs/{job['id']}/events").status_code == 401
+
+
+def test_no_token_configured_means_no_auth(server):
+    """The default, unconfigured behavior is unchanged: no token means no
+    Authorization check at all."""
+    with server(success_script) as client:
         assert client.get("/api/health").status_code == 200
 
 
@@ -946,7 +1082,7 @@ def test_rerun_endpoint_and_historical_job_surface(tmp_path):
             output_dir=str(tmp_path / "outputs"),
             job_manager=manager,
         )
-        return TestClient(app)
+        return TestClient(app, base_url="http://localhost")
 
     with make_client() as client:
         job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
@@ -1198,7 +1334,7 @@ class TestModelDownloads:
             job_manager=manager,
             download_manager=self.make_manager(),
         )
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost") as client:
             started = client.post("/api/models/download", json={"repo_id": "acme/tiny"})
             assert started.status_code == 202
             download_id = started.json()["id"]
@@ -1255,7 +1391,7 @@ class TestModelDownloads:
             download_manager=downloads,
             diffusers_updater=DiffusersUpdater(run_fn=lambda: pip),
         )
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost") as client:
             assert (
                 client.post(
                     "/api/models/download", json={"repo_id": "acme/tiny"}
@@ -1358,7 +1494,7 @@ class TestDiffusersUpdate:
             job_manager=manager,
             diffusers_updater=DiffusersUpdater(run_fn=run_fn),
         )
-        return TestClient(app)
+        return TestClient(app, base_url="http://localhost")
 
     @staticmethod
     def wait_for_update(client, statuses, timeout=5.0):
