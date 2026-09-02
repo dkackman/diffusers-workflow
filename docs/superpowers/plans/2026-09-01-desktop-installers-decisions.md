@@ -75,13 +75,24 @@ half in the `TAURI_SIGNING_PRIVATE_KEY` secret. **Auto-update does not
 work until this is done**, and I could not do it — it generates a
 credential.
 
-**10. The app version is `0.0.0` and nothing syncs it.** The spec says
-the shell tracks `pyproject.toml` and pins the wheel to its own version.
-`scripts/release.sh` bumps `pyproject.toml` only; it does not yet touch
-`desktop/src-tauri/Cargo.toml` or `tauri.conf.json`. Until it does, a
-release would build a shell that tries to install
-`diffusers-workflow[server]==0.0.0`. This is the one thing I would fix
-first.
+**10. Version syncing — found as a gap, then fixed.** The shell pins the
+wheel to its own version, but `scripts/release.sh` bumped only
+`pyproject.toml`, so a release would have built a shell installing
+`diffusers-workflow[server]==0.0.0`. Now `release.sh` bumps
+`desktop/Cargo.toml` in the same path-limited commit, refreshes
+`Cargo.lock`, and the CI release job refuses a tag that does not match
+both. I removed the duplicate `version` from `tauri.conf.json` so Cargo
+is the single source.
+
+Verified rather than assumed: bumping the workspace version propagates
+to both crates (`cargo metadata` reports `0.4.0-alpha.11` for each), and
+pip's own parser confirms the semver pin resolves —
+`Requirement("diffusers-workflow[server]==0.4.0-alpha.10")` matches
+version `0.4.0a10`. So no second spelling of the version is needed
+anywhere.
+
+The shell is still at `0.0.0` on this branch; the next `release.sh` run
+sets it.
 
 **11. Placeholder app icons.** Generated programmatically — a blue
 rounded square with a faint concentric sweep. They satisfy the build;
@@ -101,9 +112,18 @@ the first time the app actually runs.
 for the oldest glibc/webkit2gtk, which gives the AppImage the widest
 reach. Worth revisiting before it is retired.
 
+## Built and verified here
+
+`npm run tauri build --target aarch64-apple-darwin` produced a real
+**59 MB `diffusers-workflow_0.0.0_aarch64.dmg`** — within the 60–100 MB
+the spec predicted. `fetch-runtime.sh` was run for real: it downloaded
+uv and CPython, both checksums verified, and the extracted binaries
+report `uv 0.12.9` and `Python 3.12.14`. The frontend builds all four
+entry points. Unsigned, since the Apple secrets are not on this machine.
+
 ## State
 
-Branch `desktop-installers`, 11 commits. 1,984 Python tests pass
+Branch `desktop-installers`, 13 commits. 1,984 Python tests pass
 (4 skipped), 45 Rust tests pass, `black --check`, `cargo fmt --check` and
 `clippy -D warnings` all clean. Nothing merged to master except the spec
 and the plan.
