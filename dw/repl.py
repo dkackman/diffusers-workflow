@@ -9,9 +9,12 @@ import cmd
 import sys
 import argparse
 import difflib
+import json
 import logging
 import os
 import multiprocessing
+import urllib.request
+from pathlib import Path
 from . import startup
 from .repl_worker import WorkerManager
 from .repl_commands import (
@@ -268,6 +271,56 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         print()
 
 
+HEALTH_TIMEOUT_SECONDS = 0.5
+
+
+def running_server_url():
+    """The base URL a desktop shell recorded in server.json, else the default
+    serve port. Resolved the way dw.settings resolves its root."""
+    root = Path(
+        os.environ.get("DIFFUSERS_HELPER_ROOT") or "~/.diffusers_helper/"
+    ).expanduser()
+    try:
+        with open(root / "server.json", encoding="utf-8") as handle:
+            url = json.load(handle).get("base_url")
+        if isinstance(url, str) and url:
+            return url.rstrip("/")
+    except (OSError, ValueError):
+        pass
+    return "http://127.0.0.1:8765"
+
+
+def _health_probe(base_url):
+    with urllib.request.urlopen(
+        f"{base_url}/api/health", timeout=HEALTH_TIMEOUT_SECONDS
+    ) as response:
+        return response.status == 200
+
+
+def warn_if_server_running(probe=None):
+    """Warn - but never refuse - when a dw.serve is already up.
+
+    The REPL loads models into its own persistent worker (repl_worker.py),
+    so the two processes would hold GPU memory at the same time. Running
+    both is still legitimate - pinning a step to the CPU while the server
+    works is how a GPU-specific problem gets ruled out - so this is advice,
+    not a gate. Returns the URL warned about, else None.
+    """
+    base_url = running_server_url()
+    try:
+        if not (probe or _health_probe)(base_url):
+            return None
+    except Exception:
+        # No server, no network stack, no problem - this is a courtesy check
+        return None
+
+    print(f"\nNote: a diffusers-workflow server is already running at {base_url}.")
+    print("The REPL loads models into its own worker process, so both will")
+    print("hold GPU memory at once. Quit the other one first unless you mean")
+    print("to run them side by side (for example, pinning a step to CPU).\n")
+    return base_url
+
+
 def main():
     """Start the REPL interface"""
     parser = argparse.ArgumentParser(description="Start Diffusers Workflow REPL.")
@@ -282,6 +335,8 @@ def main():
 
     # Initialize logging
     startup(args.log_level)
+
+    warn_if_server_running()
 
     try:
         repl = DiffusersWorkflowREPL()
