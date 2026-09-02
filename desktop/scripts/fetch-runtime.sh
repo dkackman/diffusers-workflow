@@ -79,6 +79,26 @@ mkdir -p "$RESOURCES"
 tar -xzf "$WORK/$PBS_ASSET" -C "$RESOURCES"
 test -d "$RESOURCES/python" || { echo "error: expected $RESOURCES/python" >&2; exit 1; }
 
+# Drop Tk from the bundled interpreter.
+#
+# Not merely a size saving: linuxdeploy walks every ELF in the AppDir and
+# resolves its shared libraries, and _tkinter.so links against a Tcl/Tk that
+# python-build-standalone ships in a layout it cannot resolve -
+# "Could not find dependency: libtcl9tk9.0.so" - which fails the AppImage
+# build outright. Nothing in dw imports tkinter; matplotlib runs headless on
+# the Agg backend. The macOS and Windows bundlers do no such resolution,
+# so this only ever showed up on Linux.
+find "$RESOURCES/python" -name '_tkinter*.so' -delete
+rm -rf "$RESOURCES/python/lib/python${PBS_PYTHON%.*}/tkinter" \
+       "$RESOURCES/python/lib/python${PBS_PYTHON%.*}/idlelib"
+# Recursive, not just lib/: the Tcl packages nest their own copies
+# (lib/itcl4.3.8/, lib/thread3.0.6/), and linuxdeploy scans every ELF it
+# finds, not only the ones something links to
+find "$RESOURCES/python" \( -name 'libtcl*' -o -name 'libtk*' \) -delete
+rm -rf "$RESOURCES"/python/lib/tcl* "$RESOURCES"/python/lib/tk* \
+       "$RESOURCES"/python/lib/itcl* "$RESOURCES"/python/lib/thread* \
+       "$RESOURCES"/python/lib/tdbc*
+
 case "$UV_ASSET" in
   *.zip) unzip -qo "$WORK/$UV_ASSET" -d "$WORK/uv-extract" ;;
   *)     mkdir -p "$WORK/uv-extract" && tar -xzf "$WORK/$UV_ASSET" -C "$WORK/uv-extract" ;;
