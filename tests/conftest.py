@@ -10,6 +10,17 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="timm")
 
 
 @pytest.fixture(autouse=True)
+def _trust_workflows_by_default(monkeypatch):
+    """Most of this suite exercises engine mechanics, not the trust gate
+    itself - default every test to trusted so a dotted type/pre_load_modules
+    fixture used to test something else does not also need to be an
+    in-ecosystem name. tests/test_workflow_trust.py explicitly sets this
+    False (or unsets it) to exercise the untrusted-by-default behavior.
+    """
+    monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
+
+
+@pytest.fixture(autouse=True)
 def _clear_task_model_cache():
     """Ensure dw.tasks.model_cache is empty at the start of every test.
 

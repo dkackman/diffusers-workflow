@@ -7,6 +7,7 @@ from .security import (
     validate_output_path,
     validate_variable_name,
     validate_string_input,
+    set_trust_workflows,
     SecurityError,
     MAX_VARIABLE_VALUE_LENGTH,
 )
@@ -44,6 +45,17 @@ def main():
         "DW_PROMPT_DIR, else ./prompts if it exists, else the nearest "
         "prompts/ above the workflow file)",
     )
+    parser.add_argument(
+        "--trust-workflows",
+        action="store_true",
+        default=False,
+        help="Trust this workflow file to execute arbitrary Python: allow "
+        "pre_load_modules and any dotted *_type/*_dtype/dtype/config_type "
+        "value, not just ones inside the diffusers/torch/transformers/"
+        "quantization-backend ecosystem the tool already depends on. Off "
+        "by default - see docs/SECURITY.md's Trust model. Only pass this "
+        "for a workflow file whose source you trust.",
+    )
     # parse_intermixed_args, not parse_args: argparse splits positionals into
     # groups around an option, and with a nargs='*' positional that means
     # 'dw-run wf.json -o outputs prompt=cat' - an option between the file
@@ -52,6 +64,8 @@ def main():
 
     if args.prompt_dir:
         os.environ["DW_PROMPT_DIR"] = os.path.abspath(args.prompt_dir)
+
+    set_trust_workflows(args.trust_workflows)
 
     # Parse key-value pairs with validation
     variables = {}
