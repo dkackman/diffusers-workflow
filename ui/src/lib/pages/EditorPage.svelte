@@ -10,6 +10,7 @@
     Plus,
     Save,
     TriangleAlert,
+    Workflow,
     X,
   } from '@lucide/svelte'
   import { api } from '../api'
@@ -29,6 +30,7 @@
   import StepEditor from '../editor/StepEditor.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
+  import FlowView from '../editor/FlowView.svelte'
   import type { ValidationResult, WorkflowDefinition } from '../types'
 
   let { name = '' }: { name?: string } = $props()
@@ -77,12 +79,17 @@
     ].sort(),
   )
   let validation = $state<ValidationResult | null>(null)
-  type EditorView = 'form' | 'split' | 'json'
+  type EditorView = 'form' | 'split' | 'json' | 'flow'
   let view = $state<EditorView>(
     (() => {
       try {
         const stored = localStorage.getItem('dw-editor-view')
-        if (stored === 'form' || stored === 'split' || stored === 'json')
+        if (
+          stored === 'form' ||
+          stored === 'split' ||
+          stored === 'json' ||
+          stored === 'flow'
+        )
           return stored
         // migrate the old boolean split preference
         return localStorage.getItem('dw-editor-split') === '1'
@@ -370,6 +377,23 @@
     }
   }
 
+  // The flow view's click-to-navigate: land back on the form view with the
+  // step's row scrolled into place and briefly lit, the same highlight the
+  // rail chips already use on hover - a reasonable cross-reference without
+  // teaching the flow view anything about editing.
+  function focusStep(stepName: string) {
+    setView('form')
+    hovered = stepName
+    requestAnimationFrame(() => {
+      document
+        .getElementById('step-' + stepName)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+    setTimeout(() => {
+      if (hovered === stepName) hovered = null
+    }, 2000)
+  }
+
   function applyJson(raw: string) {
     jsonDraft = raw
     try {
@@ -473,6 +497,14 @@
       title="edit the raw JSON, schema-aware"
     >
       <Braces size={14} />JSON
+    </button>
+    <button
+      class="quiet withicon"
+      class:activebtn={view === 'flow'}
+      onclick={() => setView('flow')}
+      title="read-only data-flow diagram: steps as boxes, previous_result as edges"
+    >
+      <Workflow size={14} />flow
     </button>
   </div>
   <button
@@ -616,6 +648,8 @@
     Schema-aware: completion, hover docs and validation come from the workflow
     schema. Changes apply when the editor loses focus.
   </p>
+{:else if view === 'flow'}
+  <FlowView workflow={$state.snapshot(workflow)} onselect={focusStep} />
 {:else}
   <div class="editwrap" class:splitcols={view === 'split'}>
     <div class="formcol">
@@ -647,6 +681,7 @@
       <div class="steps">
         {#each workflow.steps ?? [] as step, index (step)}
           <div
+            id={'step-' + step.name}
             class="steprow"
             class:flowlit={hovered !== null && step.name === hovered}
           >
