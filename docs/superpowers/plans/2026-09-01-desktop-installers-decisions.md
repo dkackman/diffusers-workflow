@@ -129,9 +129,55 @@ makes a split front end and back end possible — authentication is, and
 there is none today. Scoped separately in
 [remote-backend.md](../scope/remote-backend.md).
 
+## What running CI locally through `act` found
+
+Run against a remote linux/amd64 Docker host, so these are native results
+rather than emulated ones. Three real defects, none of which the macOS
+build had any way to reveal:
+
+**The `desktop-core` job would have failed outright.** It installed only
+`httpx`, but the contract test imports `dw_mcp` and `dw`. It passed on my
+machine solely because the dev venv has the package installed. Fixed by
+following the boundary that already exists: `dw_mcp` imports nothing from
+`dw`, so its half runs for real with `httpx` plus a `PYTHONPATH`, and the
+REPL half skips where torch is absent.
+
+**A green job that proved nothing.** After that fix the job passed - but a
+skipped Rust test still prints `ok`, so "green" was not evidence. Added
+`DW_CONTRACT_REQUIRE`, which turns a skip of a named half into a loud
+failure; CI names `dw_mcp.client`. Verified in both directions.
+
+**The AppImage could never have built.** `linuxdeploy` walks every ELF in
+the AppDir and resolves its shared libraries. The bundled interpreter's
+`_tkinter.so` links against a Tcl/Tk that python-build-standalone ships in
+a layout it cannot resolve, so bundling failed with
+`Could not find dependency: libtcl9tk9.0.so`. `fetch-runtime.sh` now
+strips Tcl/Tk recursively - the nested copies in `lib/itcl4.3.8/` and
+`lib/thread3.0.6/` matter too, since linuxdeploy scans every ELF it finds,
+not only ones something links to. The macOS and Windows bundlers do no ELF
+resolution, which is exactly why building the `.dmg` locally said nothing
+about this.
+
+Also fixed: the AppImage bundler needs `xdg-open`, so the job installs
+`xdg-utils`. That one may be act-specific - GitHub's runner images are far
+fatter - but the bundler genuinely requires it either way.
+
+### What `act` still does not prove
+
+- It maps every `ubuntu-*` runner to one image (a cache key showed
+  `24.04-Ubuntu`), so the deliberate `ubuntu-22.04` choice - older
+  glibc/webkit2gtk for the widest AppImage reach - is untested.
+- Windows and macOS runners cannot run under it at all.
+- `actions/upload-artifact` fails for want of `ACTIONS_RUNTIME_TOKEN`, so
+  the release attachment path is unverified.
+- Docker has no `/dev/fuse`, so verifying the AppImage needed
+  `APPIMAGE_EXTRACT_AND_RUN=1` passed to `act` only. It is deliberately
+  **not** in `ci.yml` - production CI should not be reshaped to suit a
+  local emulator.
+
 ## State
 
-Branch `desktop-installers`, 13 commits. 1,984 Python tests pass
+Branch `desktop-installers`, 16 commits. 1,984 Python tests pass
 (4 skipped), 45 Rust tests pass, `black --check`, `cargo fmt --check` and
 `clippy -D warnings` all clean. Nothing merged to master except the spec
 and the plan.
