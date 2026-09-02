@@ -575,6 +575,86 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
         assert read_embedded_metadata(str(outputs / "meta.jpg"))["step_name"] == "gen"
 
 
+def test_gallery_paginates_and_groups_by_workflow_folder(server, tmp_path):
+    """Outputs nested under a workflow subfolder (dw/workflow.py's
+    effective_output_dir) still show up in the gallery, tagged with their
+    folder, and a limit/offset page returns exactly that page plus an
+    accurate total - so an output directory with more files than any single
+    page still has every file reachable."""
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        (outputs / "ltx").mkdir()
+
+        # five files at the root, two nested under 'ltx'
+        for i in range(5):
+            Image.new("RGB", (2, 2)).save(outputs / f"root-{i}.png")
+        for i in range(2):
+            Image.new("RGB", (2, 2)).save(outputs / "ltx" / f"nested-{i}.png")
+
+        full = client.get("/api/gallery").json()
+        assert full["total"] == 7
+        assert set(full["folders"]) == {"", "ltx"}
+        names = {f["name"] for f in full["files"]}
+        assert "ltx/nested-0.png" in names
+        assert "root-0.png" in names
+        nested_entry = next(f for f in full["files"] if f["name"] == "ltx/nested-0.png")
+        assert nested_entry["folder"] == "ltx"
+
+        # a page smaller than the total returns exactly that many, and the
+        # next page picks up where it left off with no overlap
+        first_page = client.get("/api/gallery?limit=3&offset=0").json()
+        assert len(first_page["files"]) == 3
+        assert first_page["total"] == 7
+        second_page = client.get("/api/gallery?limit=3&offset=3").json()
+        assert len(second_page["files"]) == 3
+        first_names = {f["name"] for f in first_page["files"]}
+        second_names = {f["name"] for f in second_page["files"]}
+        assert first_names.isdisjoint(second_names)
+
+        # filtering by folder narrows both the listing and its total
+        ltx_only = client.get("/api/gallery?folder=ltx").json()
+        assert ltx_only["total"] == 2
+        assert all(f["folder"] == "ltx" for f in ltx_only["files"])
+
+        root_only = client.get("/api/gallery?folder=").json()
+        assert root_only["total"] == 5
+        assert all(f["folder"] == "" for f in root_only["files"])
+
+        # the nested file's own routes (metadata, delete) work through the
+        # slash in its name
+        meta = client.get("/api/gallery/ltx/nested-0.png/metadata").json()
+        assert meta["name"] == "ltx/nested-0.png"
+        assert client.delete("/api/gallery/ltx/nested-0.png").status_code == 200
+        assert not (outputs / "ltx" / "nested-0.png").exists()
+
+
+def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        Image.new("RGB", (1200, 1200), "red").save(outputs / "big.png")
+
+        original = client.get("/outputs/big.png")
+        thumbnail = client.get("/api/gallery/big.png/thumbnail")
+
+        assert thumbnail.status_code == 200
+        assert thumbnail.headers["content-type"] == "image/jpeg"
+        assert len(thumbnail.content) < len(original.content)
+
+        import io
+        from PIL import Image as PILImage
+
+        thumb_image = PILImage.open(io.BytesIO(thumbnail.content))
+        assert max(thumb_image.size) <= 320
+
+        # a non-image file has no thumbnail rendition
+        (outputs / "clip.mp4").write_bytes(b"\x00" * 10)
+        assert client.get("/api/gallery/clip.mp4/thumbnail").status_code == 404
+
+
 def test_gallery_urls_change_when_a_file_is_rewritten(server, tmp_path):
     """A rerun overwrites the same name - the URL must move or the browser
     keeps showing the image it already cached."""

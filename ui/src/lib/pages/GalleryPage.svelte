@@ -6,22 +6,63 @@
   import { notify } from '../toast'
   import type { GalleryFile } from '../types'
 
+  // One request page - "load more" (and infinite scroll) fetch further
+  // pages of this size rather than one unbounded request, so a folder of
+  // thousands of outputs never has to be listed in a single round trip.
+  const PAGE_SIZE = 120
+
   let files = $state<GalleryFile[]>([])
   let total = $state(0)
+  let folders = $state<string[]>([])
+  let folder = $state<string>('') // '' = "all folders" in the UI
+  let offset = $state(0)
+  let loading = $state(false)
   let filter = $state('')
   let error = $state('')
   let selected = $state<GalleryFile | null>(null)
   let metadata = $state<Record<string, unknown> | null>(null)
   let sourceJob = $state<{ id: string; status: string } | null>(null)
+  let sentinel = $state<HTMLDivElement | null>(null)
 
-  $effect(() => {
+  const hasMore = $derived(files.length < total)
+  // '' server-side means "no folder filter"; the UI's own '' means "all
+  // folders", so the literal output-root folder needs a value that survives
+  // the round trip - '(root)' can't collide with a real relative path
+  const ROOT_FOLDER = '(root)'
+
+  function load(reset: boolean) {
+    if (loading) return
+    loading = true
+    const nextOffset = reset ? 0 : offset
+    const folderQuery =
+      folder === '' ? undefined : folder === ROOT_FOLDER ? '' : folder
     api
-      .gallery(400)
+      .gallery(PAGE_SIZE, nextOffset, folderQuery)
       .then((result) => {
-        files = result.files
+        files = reset ? result.files : [...files, ...result.files]
         total = result.total
+        offset = nextOffset + result.files.length
+        folders = result.folders
+        error = ''
       })
       .catch((e) => (error = e.message))
+      .finally(() => (loading = false))
+  }
+
+  // Reload from the top whenever the folder filter changes; runs once more
+  // on mount for the initial load
+  $effect(() => {
+    void folder
+    load(true)
+  })
+
+  $effect(() => {
+    if (!sentinel) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting && hasMore && !loading) load(false)
+    })
+    observer.observe(sentinel)
+    return () => observer.disconnect()
   })
 
   const visible = $derived(
@@ -51,6 +92,7 @@
       await api.deleteOutput(name)
       files = files.filter((f) => f.name !== name)
       total -= 1
+      offset -= 1
       selected = null
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -107,12 +149,22 @@
 
 <div class="head">
   <h1>Gallery</h1>
-  <span class="muted">{total} files in outputs</span>
-  <input class="filter" placeholder="filter…" bind:value={filter} />
+  <span class="muted">{files.length} of {total} loaded</span>
+  {#if folders.length > 1}
+    <select class="folder" bind:value={folder} title="filter by source workflow folder">
+      <option value="">all folders</option>
+      {#each folders as f (f)}
+        <option value={f === '' ? '(root)' : f}
+          >{f === '' ? '(root)' : f}</option
+        >
+      {/each}
+    </select>
+  {/if}
+  <input class="filter" placeholder="filter loaded…" bind:value={filter} />
 </div>
 
 {#if error}<p class="muted">Could not read the gallery: {error}</p>{/if}
-{#if !error && files.length === 0}
+{#if !error && files.length === 0 && !loading}
   <Empty>
     {#snippet icon()}<ImageOff size={36} strokeWidth={1.5} />{/snippet}
     Nothing generated yet — outputs land here as workflows run.
@@ -130,16 +182,30 @@
         : ''}"
     >
       {#if file.kind === 'image'}
-        <img src={file.url} alt={file.name} loading="lazy" />
+        <img
+          src={api.galleryThumbnailUrl(file.name)}
+          alt={file.name}
+          loading="lazy"
+        />
       {:else if file.kind === 'video'}
         <video src={file.url} preload="metadata" muted></video>
       {:else}
         <span class="audio">♪ {file.label}</span>
       {/if}
-      <span class="caption">{file.label}</span>
+      <span class="caption" title={file.folder ? `${file.folder}/${file.label}` : file.label}
+        >{file.folder ? `${file.folder}/` : ''}{file.label}</span
+      >
     </button>
   {/each}
 </div>
+
+{#if hasMore}
+  <div bind:this={sentinel} class="sentinel">
+    <button class="quiet" onclick={() => load(false)} disabled={loading}>
+      {loading ? 'loading…' : 'load more'}
+    </button>
+  </div>
+{/if}
 
 {#if selected}
   <div class="detail panel">
@@ -247,9 +313,11 @@
     gap: 0.4rem 1rem;
     margin-bottom: 1rem;
   }
+  .folder {
+    margin-left: auto;
+  }
   .filter {
     max-width: 220px;
-    margin-left: auto;
   }
   .grid {
     display: grid;
@@ -268,6 +336,18 @@
     color: var(--muted);
     font-weight: 500;
     font-size: 0.75rem;
+    /* A folder of thousands of outputs still renders every cell's DOM node
+       (no true windowing library is in the project's dependencies yet),
+       but content-visibility skips layout/paint for cells scrolled out of
+       view, which is most of the win for cheap. contain-intrinsic-size
+       keeps scrollbar height stable before a cell has ever been measured. */
+    content-visibility: auto;
+    contain-intrinsic-size: 150px 190px;
+  }
+  .sentinel {
+    display: flex;
+    justify-content: center;
+    padding: 1.2rem 0;
   }
   .cell:hover,
   .cell.active {
