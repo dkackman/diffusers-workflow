@@ -15,13 +15,17 @@ import type {
   ValidationResult,
   WorkflowDefinition,
 } from './types'
+import { getApiToken } from './token'
 
 /** Encode a workflow name for a URL, keeping its folder separators. */
 const encodePath = (name: string) =>
   name.split('/').map(encodeURIComponent).join('/')
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init)
+  const token = getApiToken()
+  const headers = new Headers(init?.headers)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const response = await fetch(path, { ...init, headers })
   if (!response.ok) {
     let detail = response.statusText
     try {
@@ -228,7 +232,13 @@ export function streamJobEvents(
   onEvent: (event: JobEvent) => void,
   onEnd: () => void,
 ): () => void {
-  const source = new EventSource(`/api/jobs/${jobId}/events?after=${after}`)
+  // EventSource cannot set custom headers, so a configured token rides
+  // along as a query parameter for this one route - see docs/SERVER.md.
+  const token = getApiToken()
+  const tokenParam = token ? `&token=${encodeURIComponent(token)}` : ''
+  const source = new EventSource(
+    `/api/jobs/${jobId}/events?after=${after}${tokenParam}`,
+  )
   source.onmessage = (message) => {
     const event: JobEvent = JSON.parse(message.data)
     onEvent(event)

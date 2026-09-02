@@ -8,6 +8,7 @@ past generations in a gallery, and manage the models on disk.
 ```bash
 python -m dw.serve                       # http://127.0.0.1:8765
 python -m dw.serve --port 8000 --workflow-dir ./workflows --output-dir ./outputs --prompt-dir ./prompts
+python -m dw.serve --host 0.0.0.0 --token "some-long-random-string"   # reachable off this machine
 ```
 
 Installed as a package, the same server is `dw-serve`. Interactive API docs
@@ -78,7 +79,7 @@ load entirely.
 
 | Route | What it does |
 | --- | --- |
-| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` also accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included); an existing filesystem path wins on a collision. Answers with argument warnings from signature checking. |
+| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. |
 | `GET /api/jobs` | Queue + history summaries |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error |
 | `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless |
@@ -130,8 +131,9 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/schema` — the workflow JSON schema
 - `POST /api/validate` — schema validation plus signature-level argument
   warnings for pipeline and task steps (catches the typo before the model
-  loads). Accepts `workflow_path` (same resolution as `/api/jobs`, above) as
-  an alternative to inline `workflow` - exactly one of the two, or a 400
+  loads). Accepts `workflow_path` (same resolution and confinement as
+  `/api/jobs`, above) as an alternative to inline `workflow` - exactly one
+  of the two, or a 400
 
 ## Files and models
 
@@ -170,12 +172,59 @@ The editor's forms come from these; they are just as usable from scripts:
 The server is built to serve **your own GPU to your own browser**, not the
 network:
 
-- Binds to `127.0.0.1` by default. `--host 0.0.0.0` is possible but there is
-  no authentication — treat it as trusted-LAN only.
+- Binds to `127.0.0.1` by default. `--host 0.0.0.0` (or any other
+  non-loopback address) is possible; without a token configured (see
+  Authentication, below) the server logs a startup warning, since anything
+  that can reach that address can queue jobs and browse/delete files.
 - Requests carrying a non-local `Origin` header are rejected (403), which
   blocks cross-site requests from web pages you happen to have open.
+- Requests carrying a `Host` header that names neither a loopback address
+  nor the configured `--host` are rejected (400). This is defense-in-depth,
+  not the DNS-rebinding fix by itself - the `Origin` check above already
+  covers browser requests, since a browser's `Origin` reflects the real
+  requesting origin regardless of what DNS name resolved to this address.
+  The `Host` check closes the remaining gap: a non-browser client (curl, a
+  script, the MCP client) that never sends `Origin` at all.
 - Every path from HTTP input goes through `dw/security.py` validation;
-  workflow files are confined to the workflow directory, outputs to the
-  output directory, and traversal (`../`) is blocked.
+  workflow files (both the `/api/workflows` CRUD routes and a
+  `workflow_path` given to `/api/jobs` or `/api/validate`) are confined to
+  the workflow directory, prompt files to the prompt directory, outputs to
+  the output directory, and traversal (`../`) is blocked throughout.
 - Inline workflow definitions are schema-validated before queueing, and
   their `base_dir` is validated like any other path input.
+
+### Authentication
+
+There is no authentication by default - the checks above assume a trusted
+local machine or LAN. An optional static bearer token closes that gap:
+
+```bash
+python -m dw.serve --token "some-long-random-string"
+# or
+export DW_API_TOKEN="some-long-random-string"
+python -m dw.serve
+```
+
+When a token is configured, every `/api/*` request must carry
+`Authorization: Bearer <token>` or gets a 401. The UI's own static files and
+`/outputs` (generated media) stay reachable without it - the page has to
+load far enough for a user to enter the token, and an `<img>`/`<script>`
+tag cannot attach a header anyway. The one exception on the API side is the
+SSE stream, `GET /api/jobs/{id}/events`: `EventSource` cannot set custom
+headers, so that route additionally accepts the token as a `?token=...`
+query parameter. That is a deliberate, narrower trade-off (a token that can
+leak into logs or browser history for that one URL) rather than a general
+alternative to the header - every other route accepts the header only.
+
+The web UI has a one-time token field (next to the theme toggle) that
+stores the token in `localStorage` and attaches it to every API call,
+including the SSE connection's query parameter. It is a convenience, not a
+credential vault - anyone with access to the browser profile can read it
+back out of `localStorage`.
+
+A token configured this way is a single shared static secret, not a login
+system: there is one token, checked with a constant-time comparison, and no
+notion of separate users or sessions. It raises the bar for exposing the
+server on a LAN or beyond; it is not a substitute for a real network
+boundary (a firewall, a VPN, or simply binding to `127.0.0.1`) for anything
+more exposed than that.
