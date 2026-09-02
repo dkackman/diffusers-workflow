@@ -1,5 +1,6 @@
 """The assembled MCP server: what a client actually sees when it connects."""
 
+import inspect
 import json
 
 import httpx
@@ -7,6 +8,7 @@ import pytest
 
 pytest.importorskip("mcp", reason="the mcp extra is not installed")
 
+from dw_mcp import authoring, catalog, diagnose, media, models  # noqa: E402
 from dw_mcp.client import DwClient  # noqa: E402
 from dw_mcp.server import build_server  # noqa: E402
 
@@ -219,10 +221,17 @@ async def test_an_image_comes_back_as_an_image_block():
 
     result = await server.call_tool("get_output_image", {"name": "out.png"})
 
-    block = result.content[0]
-    assert block.type == "image"
-    assert block.mime_type.startswith("image/")
-    assert block.data
+    image_block = result.content[0]
+    assert image_block.type == "image"
+    assert image_block.mime_type.startswith("image/")
+    assert image_block.data
+
+    text_block = result.content[1]
+    assert text_block.type == "text"
+    assert "out.png" in text_block.text
+    assert "original_size" in text_block.text
+    assert "returned_size" in text_block.text
+    assert "bytes" in text_block.text
 
 
 # Every tool, the arguments a client would send, and the one API call it is
@@ -551,3 +560,102 @@ async def test_a_gated_tool_refuses_through_the_session(name):
         await server.call_tool(name, dict(GATED_ARGUMENTS[name]))
 
     assert "acknowledged_cost=true" in str(caught.value)
+
+
+# Explicit mapping of wrapper tool name -> (handler_module, handler_function_name)
+# Only includes tools whose handlers declare parameter defaults (beyond the client arg).
+WRAPPER_HANDLER_MAP = {
+    "get_job_events": (diagnose, "get_job_events"),
+    "get_output_image": (media, "get_output_image"),
+    "get_class": (catalog, "get_class"),
+    "list_gallery": (catalog, "list_gallery"),
+    "download_model": (models, "download_model"),
+    "delete_model": (models, "delete_model"),
+    "update_diffusers": (models, "update_diffusers"),
+    "validate_workflow": (authoring, "validate_workflow"),
+    "run_workflow": (diagnose, "run_workflow"),
+    "rerun_job": (diagnose, "rerun_job"),
+}
+
+
+@pytest.mark.asyncio
+async def test_wrapper_and_handler_defaults_match():
+    """Wrapper functions always pass every argument, so handler defaults
+    should never be reached. This test pinpoints any drift: if a developer
+    changes a handler default, the wrapper must be updated to match, or the
+    change is silently lost.
+
+    Compares inspect.signature defaults for identically named parameters
+    between wrapper (from MCP schema) and handler (from inspect.signature).
+    """
+    server = server_over(ok({}))
+    tools = await tools_of(server)
+
+    mismatches = []
+
+    for tool_name, (handler_module, handler_fn_name) in WRAPPER_HANDLER_MAP.items():
+        if tool_name not in tools:
+            mismatches.append(
+                f"{tool_name}: mapped in WRAPPER_HANDLER_MAP but not a registered tool"
+            )
+            continue
+
+        tool = tools[tool_name]
+        handler_fn = getattr(handler_module, handler_fn_name)
+        handler_sig = inspect.signature(handler_fn)
+
+        # Extract defaults from handler signature (skip 'client' parameter)
+        handler_defaults = {
+            param_name: param.default
+            for param_name, param in handler_sig.parameters.items()
+            if param_name != "client" and param.default is not inspect.Parameter.empty
+        }
+
+        # Extract defaults from wrapper tool schema
+        tool_schema_defaults = {
+            param_name: schema.get("default", inspect.Parameter.empty)
+            for param_name, schema in tool.input_schema.get("properties", {}).items()
+            if "default" in schema
+        }
+
+        # Compare: every handler default must match the tool schema default
+        for param_name, handler_default in handler_defaults.items():
+            if param_name not in tool_schema_defaults:
+                mismatches.append(
+                    f"{tool_name}.{param_name}: handler has default {handler_default!r} "
+                    f"but wrapper schema has no default"
+                )
+            elif tool_schema_defaults[param_name] != handler_default:
+                mismatches.append(
+                    f"{tool_name}.{param_name}: handler default {handler_default!r} "
+                    f"does not match wrapper schema default {tool_schema_defaults[param_name]!r}"
+                )
+
+    assert not mismatches, "\n".join(mismatches)
+
+
+def test_wrapper_handler_map_covers_every_defaulted_handler():
+    """WRAPPER_HANDLER_MAP is hand-maintained, so a handler gaining a default
+    parameter and never being added to the map would go unnoticed - the
+    comparison above only checks tools that are already listed. Walk every
+    handler module and require any registered-tool handler with a default on
+    a non-client parameter to be a mapped key."""
+    modules = [catalog, diagnose, media, models, authoring]
+
+    missing = []
+    for module in modules:
+        for fn_name, fn in inspect.getmembers(module, inspect.isfunction):
+            if fn_name not in EXPECTED_TOOLS:
+                continue
+            sig = inspect.signature(fn)
+            has_default = any(
+                param_name != "client" and param.default is not inspect.Parameter.empty
+                for param_name, param in sig.parameters.items()
+            )
+            if has_default and fn_name not in WRAPPER_HANDLER_MAP:
+                missing.append(f"{module.__name__}.{fn_name}")
+
+    assert not missing, (
+        "handlers with defaulted parameters missing from WRAPPER_HANDLER_MAP: "
+        + ", ".join(missing)
+    )

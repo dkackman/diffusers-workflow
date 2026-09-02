@@ -7,7 +7,7 @@ client will hold a tool call open, so submitting returns immediately and
 progress is polled from the event log.
 """
 
-from dw_mcp.client import DwApiError, path_segment
+from dw_mcp.client import DwApiError, api_path
 
 COST_REFUSAL = (
     "Running a workflow occupies the GPU for minutes and the engine runs one "
@@ -24,14 +24,17 @@ def run_workflow(
     arguments=None,
     acknowledged_cost=False,
 ):
-    """Queue a workflow. Returns as soon as it is queued - it does not wait
-    for the job to finish. Poll `get_job_events` for progress."""
+    """Queue a workflow. `workflow_path` is either a catalog name from
+    `list_workflows` or a path to a workflow file on the server. Returns as
+    soon as it is queued - it does not wait for the job to finish. Poll
+    `get_job_events` for progress."""
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
     if (workflow_path is None) == (inline_workflow is None):
         raise DwApiError(
-            "Provide exactly one of `workflow_path` (a workflow on the "
-            "server) or `inline_workflow` (a definition to run as-is)."
+            "Provide exactly one of `workflow_path` (a catalog name or a "
+            "path to a workflow on the server) or `inline_workflow` (a "
+            "definition to run as-is)."
         )
     payload = {"arguments": arguments or {}}
     if workflow_path is not None:
@@ -52,21 +55,21 @@ def run_workflow(
 
 def get_job(client, job_id):
     """A job's status, arguments, warnings, manifest, error and traceback."""
-    return client.get_json(f"/api/jobs/{path_segment(job_id)}")
+    return client.get_json(api_path("api", "jobs", job_id))
 
 
 def get_job_events(client, job_id, after=-1, limit=200):
     """One page of a job's progress events. `after` is exclusive - pass back
     the previous call's `last_seq` to continue."""
     return client.get_json(
-        f"/api/jobs/{path_segment(job_id)}/event-log",
+        api_path("api", "jobs", job_id, "event-log"),
         params={"after": after, "limit": limit},
     )
 
 
 def cancel_job(client, job_id):
     """Ask a queued or running job to stop."""
-    return client.post_json(f"/api/jobs/{path_segment(job_id)}/cancel")
+    return client.post_json(api_path("api", "jobs", job_id, "cancel"))
 
 
 def rerun_job(client, job_id, acknowledged_cost=False):
@@ -76,11 +79,11 @@ def rerun_job(client, job_id, acknowledged_cost=False):
     a way around it."""
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
-    return client.post_json(f"/api/jobs/{path_segment(job_id)}/rerun")
+    return client.post_json(api_path("api", "jobs", job_id, "rerun"))
 
 
 def move_job(client, job_id, direction):
     """Reorder a queued job: up, down, front, or back."""
     return client.post_json(
-        f"/api/jobs/{path_segment(job_id)}/move", {"direction": direction}
+        api_path("api", "jobs", job_id, "move"), {"direction": direction}
     )

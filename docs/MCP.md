@@ -154,7 +154,7 @@ Nothing in this sequence costs GPU time.
 
 ## Tool reference
 
-31 tools in five groups. Names and arguments below are generated from
+31 tools in five groups. Names and arguments below are transcribed from
 `dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
@@ -181,13 +181,13 @@ Nothing in this sequence costs GPU time.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `get_output_image(name, max_dimension=768)` | `name`, `max_dimension` | Look at a generated image, downscaled to `max_dimension` on its longest side |
+| `get_output_image(name, max_dimension=768)` | `name`, `max_dimension` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent |
 
 ### Authoring
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `validate_workflow(workflow=None, name=None)` | exactly one of `workflow` (inline definition) or `name` (stored workflow) | Check a workflow against the schema and against real pipeline signatures. Free and instant |
+| `validate_workflow(workflow=None, name=None)` | exactly one of `workflow` (inline definition) or `name` (a stored workflow, as `list_workflows` reports it) | Check a workflow against the schema and against real pipeline signatures. Free and instant. Validating by name uses the workflow file's own directory as the base directory, so it sees what a run would |
 | `save_workflow(name, workflow)` | `name`, `workflow` | Save a workflow to the server, overwriting any existing workflow of that name |
 | `delete_workflow(name)` | `name` | Permanently delete a stored workflow |
 
@@ -195,7 +195,7 @@ Nothing in this sequence costs GPU time.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `run_workflow(workflow_path=None, inline_workflow=None, arguments=None, acknowledged_cost=False)` | exactly one of `workflow_path` or `inline_workflow`, optional `arguments`, `acknowledged_cost` | Queue a workflow for generation. Returns as soon as the job is queued |
+| `run_workflow(workflow_path=None, inline_workflow=None, arguments=None, acknowledged_cost=False)` | exactly one of `workflow_path` (a catalog name from `list_workflows`, with or without `.json`, or a path to a workflow file on the server) or `inline_workflow`, optional `arguments`, `acknowledged_cost` | Queue a workflow for generation. Returns as soon as the job is queued |
 | `get_job(job_id)` | `job_id` | Get a job's status, warnings, output manifest, error and traceback |
 | `get_job_events(job_id, after=-1, limit=200)` | `job_id`, `after`, `limit` | Get a page of a job's progress events |
 | `cancel_job(job_id)` | `job_id` | Ask a queued or running job to stop |
@@ -249,7 +249,8 @@ The intended loop:
 
 1. `validate_workflow` — free, checks schema and pipeline signatures, no GPU
    time spent
-2. `run_workflow` with `acknowledged_cost=true` — queues the job and returns
+2. `run_workflow` with `acknowledged_cost=true` — pass a name straight from
+   `list_workflows` as `workflow_path`; queues the job and returns
    immediately with a `job_id`
 3. `get_job_events(job_id)` repeatedly, passing back the previous call's
    `last_seq` as `after`, until the status is terminal
