@@ -29,8 +29,20 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# Lazy import torch to avoid import errors when torch isn't available
-# (e.g., when using system Python instead of venv)
+# Eager (but guarded) import of torch. This module's own top-level code needs
+# torch's exceptions/types unconditionally to detect its absence gracefully
+# (see _TORCH_AVAILABLE below) rather than deferring the try/except to first
+# use everywhere torch is touched. It would be nice for a torch-free path like
+# `python -m dw.validate` (pure JSON schema validation) to skip this multi-
+# second import, but that isn't achievable by changing dw/__init__.py alone:
+# dw/validate.py imports dw/workflow.py, which does its own unconditional
+# `import torch` at module scope (Workflow.run() uses torch.Generator() for
+# seeding) - so torch loads regardless of what this module does. Making the
+# import here lazy without also restructuring dw/workflow.py's random-seed
+# handling would just move the cost around, not remove it, and touching
+# dw/workflow.py's import structure is a larger, riskier change than this
+# fix pass is meant to make. Left eager on purpose; see the audit notes for
+# why a real fix needs to start in dw/workflow.py, not here.
 try:
     import torch
     import diffusers

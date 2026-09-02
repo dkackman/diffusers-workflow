@@ -242,7 +242,9 @@ class Workflow:
                 # realize the variables, initialiting downloads of images etc
                 realize_args(variables, base_dir)
                 ## then replace any variable references in the workflow definition with the actual values
-                replace_variables(workflow_def, variables)
+                # replace_variables returns a new structure rather than mutating in
+                # place, so the result must be captured here
+                workflow_def = replace_variables(workflow_def, variables)
 
             # Set up random seed for reproducibility. Resolved lazily - as a
             # dict.get default, torch.seed() would run on every call and reseed

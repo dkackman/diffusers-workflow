@@ -1,32 +1,48 @@
 import pytest
-from dw.variables import replace_variables, set_variables
+from dw.variables import replace_variables, set_variables, VariableNotFoundError
 
 
 def test_replace_variables_in_dict():
     data = {"key1": "variable:test", "key2": "static_value"}
     variables = {"test": "replaced_value"}
 
-    replace_variables(data, variables)
-    assert data["key1"] == "replaced_value"
-    assert data["key2"] == "static_value"
+    result = replace_variables(data, variables)
+    assert result["key1"] == "replaced_value"
+    assert result["key2"] == "static_value"
 
 
 def test_replace_variables_in_list():
     data = ["variable:test", "static_value"]
     variables = {"test": "replaced_value"}
 
-    replace_variables(data, variables)
-    assert data[0] == "replaced_value"
-    assert data[1] == "static_value"
+    result = replace_variables(data, variables)
+    assert result[0] == "replaced_value"
+    assert result[1] == "static_value"
 
 
 def test_replace_variables_missing():
     data = {"key": "variable:missing"}
-    variables = {}
+    variables = {"other": 1}
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(VariableNotFoundError) as exc_info:
         replace_variables(data, variables)
-    assert "Variable <missing> not found" in str(exc_info.value)
+    message = str(exc_info.value)
+    assert "Variable <missing> not found" in message
+    assert "other" in message
+
+
+def test_replace_variables_does_not_mutate_input():
+    data = {"key1": "variable:test", "key2": ["variable:test", "static"]}
+    original = {"key1": "variable:test", "key2": ["variable:test", "static"]}
+    variables = {"test": "replaced_value"}
+
+    result = replace_variables(data, variables)
+
+    # The input structure is left exactly as passed in
+    assert data == original
+    # ...while the returned structure has the substitution applied
+    assert result["key1"] == "replaced_value"
+    assert result["key2"][0] == "replaced_value"
 
 
 def test_set_variables():
@@ -60,17 +76,17 @@ def test_replace_variables_nested():
     data = {"outer": {"inner": {"value": "variable:nested_var"}}}
     variables = {"nested_var": "replaced"}
 
-    replace_variables(data, variables)
-    assert data["outer"]["inner"]["value"] == "replaced"
+    result = replace_variables(data, variables)
+    assert result["outer"]["inner"]["value"] == "replaced"
 
 
 def test_replace_variables_in_nested_list():
     data = {"items": [{"name": "variable:item1"}, {"name": "variable:item2"}]}
     variables = {"item1": "first", "item2": "second"}
 
-    replace_variables(data, variables)
-    assert data["items"][0]["name"] == "first"
-    assert data["items"][1]["name"] == "second"
+    result = replace_variables(data, variables)
+    assert result["items"][0]["name"] == "first"
+    assert result["items"][1]["name"] == "second"
 
 
 def test_set_variables_invalid_name():
@@ -124,6 +140,21 @@ def test_set_variables_list_default_single_value():
 
     set_variables(values, variables)
     assert variables["items"] == ["single"]
+
+
+def test_set_variables_numeric_conversion_failure_raises():
+    variables = {"num_inference_steps": 25}
+    values = {"num_inference_steps": "abc"}
+
+    with pytest.raises(ValueError) as exc_info:
+        set_variables(values, variables)
+    message = str(exc_info.value)
+    assert "num_inference_steps" in message
+    assert "abc" in message
+    assert "int" in message
+    # The unconvertible value must never silently pass through unconverted -
+    # the variable is left at its prior value once the error is raised.
+    assert variables["num_inference_steps"] == 25
 
 
 def test_set_variables_unknown_name_raises():
