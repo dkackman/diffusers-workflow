@@ -110,19 +110,27 @@ export const api = {
       method: 'POST',
     }),
   health: () => request<HealthInfo>('/api/health'),
-  gallery: (limit = 200) =>
-    request<{ files: GalleryFile[]; total: number }>(
-      `/api/gallery?limit=${limit}`,
+  gallery: (limit = 200, offset = 0, folder?: string) =>
+    request<{
+      files: GalleryFile[]
+      total: number
+      offset: number
+      limit: number
+      folders: string[]
+    }>(
+      `/api/gallery?limit=${limit}&offset=${offset}` +
+        (folder !== undefined ? `&folder=${encodeURIComponent(folder)}` : ''),
     ),
   galleryMetadata: (name: string) =>
     request<{
       name: string
       metadata: Record<string, unknown> | null
       job: { id: string; status: string } | null
-    }>(`/api/gallery/${encodeURIComponent(name)}/metadata`),
+    }>(`/api/gallery/${encodePath(name)}/metadata`),
+  galleryThumbnailUrl: (name: string) => `/api/gallery/${encodePath(name)}/thumbnail`,
   deleteOutput: (name: string) =>
     request<{ name: string; deleted: boolean }>(
-      `/api/gallery/${encodeURIComponent(name)}`,
+      `/api/gallery/${encodePath(name)}`,
       { method: 'DELETE' },
     ),
   listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),

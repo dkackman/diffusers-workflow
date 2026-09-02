@@ -8,6 +8,7 @@ from dw.workflow import (
     pipeline_cache_key,
     referenced_result_names,
     release_unreferenced_results,
+    workflow_output_subfolder,
 )
 from dw.pipeline_processors.pipeline import Pipeline
 import os
@@ -54,6 +55,74 @@ def test_workflow_security_validation():
     # Test path traversal protection
     with pytest.raises(SecurityError):
         workflow_from_file("../../../etc/passwd", "./output")
+
+
+class TestWorkflowOutputSubfolder:
+    """Output files land under output_dir/<subfolder>, where <subfolder>
+    mirrors the workflow file's position under a 'workflows' directory."""
+
+    def test_top_level_workflow_is_flat(self):
+        assert workflow_output_subfolder("/repo/workflows/ZImage.json") == ""
+
+    def test_nested_workflow_gets_a_subfolder(self):
+        assert (
+            workflow_output_subfolder("/repo/workflows/ltx/SomeWorkflow.json") == "ltx"
+        )
+
+    def test_deeply_nested_workflow_keeps_the_full_relative_path(self):
+        assert workflow_output_subfolder(
+            "/repo/workflows/ltx/variants/A.json"
+        ) == os.path.join("ltx", "variants")
+
+    def test_workflow_outside_any_workflows_tree_is_flat(self):
+        assert workflow_output_subfolder("/repo/somewhere/else/Foo.json") == ""
+
+    def test_builtin_workflow_directly_in_dw_workflows_is_flat(self):
+        import dw.workflow as workflow_module
+
+        builtin = os.path.join(
+            os.path.dirname(os.path.abspath(workflow_module.__file__)),
+            "workflows",
+            "builtin_example.json",
+        )
+        assert workflow_output_subfolder(builtin) == ""
+
+    def test_no_file_spec_is_flat(self):
+        assert workflow_output_subfolder("") == ""
+        assert workflow_output_subfolder(None) == ""
+
+    def test_effective_output_dir_appends_the_subfolder(self, tmp_path):
+        workflows_dir = tmp_path / "workflows" / "ltx"
+        workflows_dir.mkdir(parents=True)
+        file_spec = str(workflows_dir / "Foo.json")
+        workflow = Workflow({"id": "x"}, str(tmp_path / "outputs"), file_spec)
+        assert workflow.effective_output_dir == str(tmp_path / "outputs" / "ltx")
+
+    def test_effective_output_dir_is_flat_for_a_top_level_workflow(self, tmp_path):
+        workflows_dir = tmp_path / "workflows"
+        workflows_dir.mkdir()
+        file_spec = str(workflows_dir / "Foo.json")
+        workflow = Workflow({"id": "x"}, str(tmp_path / "outputs"), file_spec)
+        assert workflow.effective_output_dir == str(tmp_path / "outputs")
+
+    def test_sub_workflow_computes_its_own_subfolder_not_the_parents(self, tmp_path):
+        """A parent workflow nested under 'ltx' running a sub-workflow that
+        lives directly under 'workflows' must not inherit the parent's
+        subfolder - each workflow's own file position decides its output
+        location, since workflow_from_file always receives the plain root
+        output_dir, not the parent's effective_output_dir."""
+        (tmp_path / "workflows" / "ltx").mkdir(parents=True)
+        (tmp_path / "workflows" / "Child.json").write_text(
+            json.dumps({"id": "child", "steps": []})
+        )
+        parent_spec = str(tmp_path / "workflows" / "ltx" / "Parent.json")
+        parent = Workflow({"id": "parent"}, str(tmp_path / "outputs"), parent_spec)
+        assert parent.effective_output_dir == str(tmp_path / "outputs" / "ltx")
+
+        child = workflow_from_file(
+            str(tmp_path / "workflows" / "Child.json"), parent.output_dir
+        )
+        assert child.effective_output_dir == str(tmp_path / "outputs")
 
 
 class TestResultEviction:
