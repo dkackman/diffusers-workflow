@@ -152,9 +152,18 @@ The editor's forms come from these; they are just as usable from scripts:
   `POST /api/models/downloads/{id}/cancel` — background snapshot downloads
   with byte-level progress
 - `GET /api/system/diffusers`, `POST /api/system/diffusers/update` —
-  installed diffusers version/commit, and a background
-  `pip install --upgrade` from the diffusers GitHub repo (fixed argument
-  list; refused while a job is running or queued)
+  installed diffusers version/commit, and a background diffusers install/
+  update (refused while a job is running or queued). The POST body is
+  optional JSON, `{"commit": ..., "revert": ...}`: with neither, it
+  `pip install --upgrade`s from GitHub HEAD; `commit` (7-40 hex characters,
+  validated before it reaches the command line) pins the git install to
+  that commit instead of HEAD; `revert: true` pins back to the known-good
+  published release instead of installing from git - the diffusers floor
+  version read from `pyproject.toml` (`pip install diffusers==<floor>`).
+  `commit` and `revert` are mutually exclusive. The status response
+  includes `before` (the version/commit that was installed when the update
+  started) alongside the live `version`/`commit`, so a revert has a
+  concrete before/after to compare
 - `GET /api/memory`, `GET /api/health` — worker VRAM/RAM stats and liveness
 
 ## Security model
