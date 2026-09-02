@@ -108,11 +108,21 @@
     return out
   })
 
-  function jumpToDef(event: MouseEvent, ref: string) {
+  function jumpToDef(event: Event, ref: string) {
     event.stopPropagation()
     document
       .getElementById('def-' + refName(ref))
       ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  // The link sits inside the row's own <button>, so it can't be a nested
+  // <button> or <a> (invalid/unreachable inside another interactive
+  // control) - it gets its own tab stop and real Enter/Space activation
+  // instead, mirroring what those elements do natively.
+  function jumpToDefOnKeydown(event: KeyboardEvent, ref: string) {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    jumpToDef(event, ref)
   }
 </script>
 
@@ -136,10 +146,10 @@
       <span
         class="type reflink"
         role="link"
-        tabindex="-1"
+        tabindex="0"
         title="jump to definition"
         onclick={(e) => jumpToDef(e, node.$ref)}
-        onkeydown={() => {}}
+        onkeydown={(e) => jumpToDefOnKeydown(e, node.$ref)}
       >
         {typeLabel(node, root)}
       </span>
