@@ -102,6 +102,13 @@
     groupResultFiles(job?.manifest, events as JobEvent[]),
   )
   const running = $derived(job !== null && !TERMINAL.includes(job.status))
+  // A cancel requested while loading a model or running a task step has no
+  // checkpoint to catch it until that phase finishes - without this the UI
+  // goes silent for however long that takes, and looks hung rather than
+  // "on its way out"
+  const cancelPending = $derived(
+    running && events.some((e) => e.event === 'cancel_pending'),
+  )
 
   // Two runs of a workflow write the same file names, so the job id rides
   // along - without it the browser shows this job the image it cached from
@@ -119,6 +126,13 @@
   {#if job}
     <h1>{job.workflow}</h1>
     <span class="chip {job.status}">{job.status}</span>
+    {#if cancelPending}
+      <span
+        class="muted"
+        title="cancel requested - it takes effect once the current model load or task finishes, since neither can be interrupted mid-operation"
+        >cancelling after current phase…</span
+      >
+    {/if}
     {#if job.queue_position !== undefined}
       <span class="muted" title="position in the waiting queue"
         >#{job.queue_position + 1} in line</span
@@ -136,9 +150,12 @@
       <button
         class="quiet withicon"
         onclick={() => api.cancelJob(jobId)}
-        title="stop this run at the next step - models stay cached"
+        disabled={cancelPending}
+        title={cancelPending
+          ? 'cancel already requested - waiting on the current phase'
+          : 'stop this run at the next step - models stay cached'}
       >
-        <X size={14} />Cancel
+        <X size={14} />{cancelPending ? 'Cancelling…' : 'Cancel'}
       </button>
     {:else}
       <button

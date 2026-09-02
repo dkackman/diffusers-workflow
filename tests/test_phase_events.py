@@ -6,9 +6,11 @@ step counter can see. These cover the emits that fill that silence.
 
 from types import SimpleNamespace
 from unittest.mock import patch
+import pytest
 from PIL import Image
 
-from dw.events import RunContext
+from dw.events import RunContext, WorkflowCancelled, emit_phase
+from dw.events import activate_context, deactivate_context
 from dw.result import Result
 from dw.workflow import Workflow
 from dw.pipeline_processors.pipeline import Pipeline
@@ -225,3 +227,77 @@ def test_a_chain_labels_each_segment_for_the_restarting_counter():
     assert pipeline.labels == ["segment 1/3", "segment 2/3", "segment 3/3"]
     # Cleared at the end - the label belongs to the run that set it
     assert pipeline.segment_label is None
+
+
+# ---------------------------------------------------------- cancel_pending
+#
+# A model load or a task step has no checkpoint of its own to catch the
+# cancel flag - cancel() has to tell the client the request landed but will
+# only take effect once that phase finishes on its own.
+
+
+def test_cancel_during_loading_emits_cancel_pending():
+    events = []
+    context = RunContext(on_event=events.append)
+    token = activate_context(context)
+    try:
+        emit_phase("loading", detail="acme/model")
+        context.cancel()
+    finally:
+        deactivate_context(token)
+
+    pending = [e for e in events if e["event"] == "cancel_pending"]
+    assert len(pending) == 1
+    assert pending[0]["phase"] == "loading"
+
+
+def test_cancel_during_task_emits_cancel_pending():
+    events = []
+    context = RunContext(on_event=events.append)
+    token = activate_context(context)
+    try:
+        emit_phase("task", detail="some_task")
+        context.cancel()
+    finally:
+        deactivate_context(token)
+
+    pending = [e for e in events if e["event"] == "cancel_pending"]
+    assert len(pending) == 1
+    assert pending[0]["phase"] == "task"
+
+
+def test_cancel_during_an_interruptible_phase_emits_nothing_extra():
+    """generating/decoding/saving/cached all have (or are near) a checkpoint
+    of their own - cancel_pending would be noise there, since the run stops
+    at the very next callback."""
+    events = []
+    context = RunContext(on_event=events.append)
+    for phase in ("generating", "decoding", "saving", "cached"):
+        token = activate_context(context)
+        try:
+            emit_phase(phase)
+            context.cancel()
+        finally:
+            deactivate_context(token)
+        # cancel() is idempotent to call again, but the Event only fires once
+        context._cancel.clear()
+
+    assert not [e for e in events if e["event"] == "cancel_pending"]
+
+
+def test_cancel_pending_is_eventually_honored_at_the_next_checkpoint():
+    """The pending state is not a dead end: once the non-interruptible phase
+    ends and execution reaches a checkpoint, the run still stops."""
+    events = []
+    context = RunContext(on_event=events.append)
+    token = activate_context(context)
+    try:
+        emit_phase("loading", detail="acme/model")
+        context.cancel()
+        assert any(e["event"] == "cancel_pending" for e in events)
+        # The load "finishes" and the next checkpoint (e.g. step.py's
+        # per-step check) is reached
+        with pytest.raises(WorkflowCancelled):
+            context.check_cancelled()
+    finally:
+        deactivate_context(token)
