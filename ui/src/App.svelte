@@ -4,6 +4,7 @@
     Braces,
     Database,
     Images,
+    KeyRound,
     Layers,
     ListTodo,
     ListTree,
@@ -19,6 +20,7 @@
   import type { HealthInfo, MemoryInfo } from './lib/types'
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
   import StatusPopover from './lib/StatusPopover.svelte'
+  import TokenPopover from './lib/TokenPopover.svelte'
   import WorkflowsPage from './lib/pages/WorkflowsPage.svelte'
   import WorkflowPage from './lib/pages/WorkflowPage.svelte'
   import JobsPage from './lib/pages/JobsPage.svelte'
@@ -34,6 +36,7 @@
   let health = $state<HealthInfo | null>(null)
   let helpOpen = $state(false)
   let statusOpen = $state(false)
+  let tokenOpen = $state(false)
   const currentJob = $derived(health?.current_job ?? null)
 
   function isEditable(target: EventTarget | null): boolean {
@@ -56,6 +59,9 @@
     } else if (event.key === 'Escape' && statusOpen) {
       event.preventDefault()
       statusOpen = false
+    } else if (event.key === 'Escape' && tokenOpen) {
+      event.preventDefault()
+      tokenOpen = false
     }
   }
 
@@ -159,6 +165,19 @@
         <ListTree size={15} /><span class="navlabel">Schema</span>
       </a>
     </nav>
+    <button
+      class="quiet icon themebtn"
+      onclick={(e) => {
+        e.stopPropagation()
+        tokenOpen = !tokenOpen
+      }}
+      title="API token"
+      aria-label="API token"
+      aria-expanded={tokenOpen}
+    >
+      <KeyRound size={15} />
+    </button>
+    <TokenPopover bind:open={tokenOpen} />
     <button
       class="quiet icon themebtn"
       onclick={cycleTheme}
@@ -267,6 +286,7 @@
     z-index: 10;
   }
   .navrow {
+    position: relative;
     display: flex;
     align-items: center;
     flex-wrap: wrap;

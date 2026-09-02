@@ -44,7 +44,15 @@ def main():
         default="INFO",
         help="DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
+    parser.add_argument(
+        "--token",
+        default=None,
+        help="Static bearer token required on every /api/ request "
+        "(default: DW_API_TOKEN env var, else no authentication)",
+    )
     args = parser.parse_args()
+
+    token = args.token or os.environ.get("DW_API_TOKEN") or None
 
     # Resolve the prompt directory once, with the same discovery a CLI run
     # uses, anchored at the workflow directory - then pin it, so the library
@@ -69,6 +77,20 @@ def main():
 
     startup(args.log_level)
 
+    import logging
+
+    logger = logging.getLogger("dw")
+
+    if args.host not in ("127.0.0.1", "localhost", "::1") and not token:
+        logger.warning(
+            "Binding to %s with no API token configured (--token or "
+            "DW_API_TOKEN) - anything that can reach this address can "
+            "queue jobs, read and write workflows/prompts, and browse "
+            "generated output. Set a token, or bind to 127.0.0.1 if this "
+            "server does not need to be reachable off this machine.",
+            args.host,
+        )
+
     from .server.app import create_app
 
     from .server.app import default_ui_dir
@@ -78,6 +100,8 @@ def main():
         output_dir=args.output_dir,
         log_level=args.log_level,
         prompt_dir=prompt_dir,
+        host=args.host,
+        token=token,
     )
     ui = " - UI at /" if default_ui_dir() else ""
     print(

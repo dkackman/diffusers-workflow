@@ -10,6 +10,7 @@ import copy
 import json
 import asyncio
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from urllib.parse import quote, urlparse
 from typing import Any, Dict, Optional
@@ -171,21 +172,31 @@ def resolve_workflow_name(workflow_dir, name, allow_create=False):
 
 
 def resolve_workflow_reference(workflow_dir, workflow_path):
-    """A submitted workflow_path, resolved to a file on disk.
+    """A submitted workflow_path, resolved to a file on disk, confined to
+    workflow_dir - the same confinement the /api/workflows CRUD routes
+    already enforce via resolve_workflow_name.
 
-    An absolute or relative path that names a real file is taken as-is, the
-    way it always has been. Otherwise it is tried as a stored workflow name -
-    exactly what /api/workflows hands out, with or without .json and nested
-    names included - so an agent can run what a listing gave it. A reference
-    that is neither is returned unchanged, leaving the loader to report it as
-    the bad request it is.
+    Tried as a stored workflow name - exactly what /api/workflows hands
+    out, with or without .json and nested names included - so an agent can
+    run what a listing gave it. A relative or absolute path that already
+    names a file under workflow_dir resolves the same way: os.path.join
+    discards workflow_dir in favor of an absolute second argument, so an
+    absolute path under workflow_dir reaches the same containment check.
+    Anything that does not resolve under workflow_dir - an unknown name, a
+    traversal attempt, or a real file elsewhere on disk - is rejected with
+    400, rather than silently opened: a workflow_path is not a general
+    filesystem path.
     """
-    if workflow_path is None or os.path.isfile(workflow_path):
+    if workflow_path is None:
         return workflow_path
     try:
         return resolve_workflow_name(workflow_dir, workflow_path)
     except HTTPException:
-        return workflow_path
+        raise HTTPException(
+            status_code=400,
+            detail=f"workflow_path must name a workflow under the workflow "
+            f"directory: {workflow_path}",
+        )
 
 
 # What each prompt says about itself, for listing cards - cached by mtime
@@ -280,6 +291,12 @@ def _historical_log_note(stored):
     return None
 
 
+#  Host header values a locally-bound server accepts by default, regardless
+# of what --host is configured to - a loopback request always presents one
+# of these regardless of the server's own bind address.
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
 def create_app(
     workflow_dir="./workflows",
     output_dir="./outputs",
@@ -289,8 +306,17 @@ def create_app(
     download_manager=None,
     diffusers_updater=None,
     prompt_dir="./prompts",
+    host="127.0.0.1",
+    token=None,
 ):
-    """Build the application. A caller (tests) can inject a JobManager."""
+    """Build the application. A caller (tests) can inject a JobManager.
+
+    `host` is the address the server is bound to (informational here - it
+    is added to the Host-header allowlist alongside the loopback names, so
+    a deployment bound to one specific non-loopback address still accepts
+    its own requests). `token`, if given, is a static bearer token required
+    on every /api/* request - see require_bearer_token below.
+    """
     manager = job_manager or JobManager(output_dir, log_level=log_level)
 
     @asynccontextmanager
@@ -315,12 +341,61 @@ def create_app(
         without an Origin header (curl, scripts, same-origin GETs) pass."""
         origin = request.headers.get("origin")
         if origin:
-            host = urlparse(origin).hostname
-            if host not in ("localhost", "127.0.0.1", "::1"):
+            origin_host = urlparse(origin).hostname
+            if origin_host not in LOOPBACK_HOSTS:
                 return JSONResponse(
                     status_code=403,
                     content={"detail": "Cross-origin requests are not allowed"},
                 )
+        return await call_next(request)
+
+    # Defense-in-depth for requests that carry no Origin at all (curl,
+    # scripts, the MCP client) and so skip the check above entirely: a
+    # request that arrived on this port but claims to be addressed to some
+    # unrelated public domain is rejected. This does not stop DNS rebinding
+    # by itself (the Origin check already does, since a browser's Origin
+    # header reflects the real requesting origin regardless of DNS) - it
+    # only closes the gap for non-browser clients that never send Origin.
+    allowed_hosts = set(LOOPBACK_HOSTS)
+    if host:
+        allowed_hosts.add(host.lower())
+
+    @app.middleware("http")
+    async def reject_foreign_hosts(request, call_next):
+        hostname = request.url.hostname
+        if hostname is not None and hostname.lower() not in allowed_hosts:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Unrecognized Host header"},
+            )
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def require_bearer_token(request: Request, call_next):
+        """Static bearer-token auth (opt-in via --token / DW_API_TOKEN).
+        Only /api/* is gated - the UI's own static files and /outputs (an
+        <img>/<script> tag cannot attach an Authorization header anyway)
+        stay reachable so the page can load far enough to let a user enter
+        the token in the first place. EventSource cannot set custom headers
+        either, so the SSE events route additionally accepts the token as a
+        `token` query parameter - a documented trade-off, not a header-auth
+        peer."""
+        if not token:
+            return await call_next(request)
+        path = request.url.path
+        if not path.startswith("/api/"):
+            return await call_next(request)
+        provided = None
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            provided = auth[len("bearer ") :].strip()
+        if provided is None and path.endswith("/events"):
+            provided = request.query_params.get("token")
+        if provided is None or not secrets.compare_digest(provided, token):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Missing or invalid bearer token"},
+            )
         return await call_next(request)
 
     # ------------------------------------------------------------------ jobs
@@ -336,6 +411,8 @@ def create_app(
                 arguments=request.arguments,
                 base_dir=request.base_dir,
             )
+        except HTTPException:
+            raise
         except Exception as e:
             # workflow_from_file / validate / the security layer all raise for
             # bad requests - every failure here is the client's fault
@@ -546,6 +623,8 @@ def create_app(
                     manager.output_dir,
                     request.base_dir,
                 )
+        except HTTPException:
+            raise
         except SecurityError as e:
             # Messages the security layer writes itself - safe to surface
             raise HTTPException(status_code=400, detail=str(e))
