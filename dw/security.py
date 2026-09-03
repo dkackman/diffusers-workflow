@@ -165,20 +165,39 @@ def require_trusted_pre_load_modules(module_names) -> None:
         UntrustedWorkflowError: If untrusted and any name is outside
             TRUSTED_TOP_LEVEL_PACKAGES
     """
-    if workflows_are_trusted():
-        return
-
     for module_name in module_names or []:
-        top_level = _top_level_package(module_name)
-        if top_level not in TRUSTED_TOP_LEVEL_PACKAGES:
+        require_trusted_dotted_name(module_name, "pre_load_modules entry")
+
+
+REMOTE_CODE_ARGUMENTS = ("trust_remote_code", "custom_pipeline")
+
+
+def require_trusted_from_pretrained_arguments(arguments, what: str) -> None:
+    """Refuse from_pretrained arguments that make diffusers/transformers
+    download and execute Python from the Hub unless the workflow is trusted.
+
+    `trust_remote_code: true` runs a repo's own modeling code; `custom_pipeline`
+    fetches a pipeline module from the Hub (or a local path) and imports it.
+    Both are arbitrary code chosen by the workflow file, reached without any
+    importlib call of ours - so the importlib gate alone would leave them open.
+
+    Args:
+        arguments: The from_pretrained_arguments block
+        what: The component being loaded, for the error message
+
+    Raises:
+        UntrustedWorkflowError: If untrusted and either argument is set
+    """
+    if workflows_are_trusted() or not arguments:
+        return
+    for key in REMOTE_CODE_ARGUMENTS:
+        if arguments.get(key):
             raise UntrustedWorkflowError(
-                f"Refusing to load pre_load_modules entry '{module_name}': "
-                f"it imports the '{top_level}' module, which is outside the "
-                f"ecosystem ({', '.join(TRUSTED_TOP_LEVEL_PACKAGES)}) this "
-                f"workflow is allowed to reach untrusted. Loading a "
-                f"workflow JSON file can execute arbitrary Python - see "
-                f"docs/SECURITY.md. Pass --trust-workflows if you trust "
-                f"this workflow's source."
+                f"Refusing to load {what}: its from_pretrained_arguments set "
+                f"'{key}', which downloads and executes Python from the model "
+                f"repository. Loading a workflow JSON file can execute arbitrary "
+                f"Python - see docs/SECURITY.md. Pass --trust-workflows if you "
+                f"trust this workflow's source."
             )
 
 

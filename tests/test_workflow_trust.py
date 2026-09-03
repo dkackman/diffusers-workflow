@@ -152,3 +152,86 @@ class TestPipelinePreLoadModulesGate:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestConstantReferencesAreGated:
+    """A 'constant:' reference imports the module it names before anything
+    reads the attribute, so it is the same code-execution surface as a
+    dotted type - gated the same way."""
+
+    def test_out_of_ecosystem_constant_refused_when_untrusted(self, monkeypatch):
+        from dw.type_helpers import load_constant_from_name
+
+        _untrust(monkeypatch)
+        with pytest.raises(UntrustedWorkflowError, match="trust-workflows"):
+            load_constant_from_name("os.sep")
+
+    def test_in_ecosystem_constant_allowed_when_untrusted(self, monkeypatch):
+        from dw.type_helpers import load_constant_from_name
+
+        _untrust(monkeypatch)
+        assert load_constant_from_name("torch.float16") is not None
+
+    def test_out_of_ecosystem_constant_allowed_when_trusted(self, monkeypatch):
+        from dw.type_helpers import load_constant_from_name
+
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
+        assert load_constant_from_name("os.sep") == "/"
+
+
+class TestRemoteCodeIsGated:
+    """diffusers/transformers' own remote-code paths - trust_remote_code and
+    custom_pipeline in from_pretrained_arguments - download and execute
+    Python from the Hub, which is arbitrary code an untrusted workflow must
+    not be able to reach whatever the importlib gate refuses."""
+
+    def test_trust_remote_code_refused_when_untrusted(self, monkeypatch):
+        from dw.security import require_trusted_from_pretrained_arguments
+
+        _untrust(monkeypatch)
+        with pytest.raises(UntrustedWorkflowError, match="trust_remote_code"):
+            require_trusted_from_pretrained_arguments(
+                {"model_name": "a/b", "trust_remote_code": True}, "transformer"
+            )
+
+    def test_custom_pipeline_refused_when_untrusted(self, monkeypatch):
+        from dw.security import require_trusted_from_pretrained_arguments
+
+        _untrust(monkeypatch)
+        with pytest.raises(UntrustedWorkflowError, match="custom_pipeline"):
+            require_trusted_from_pretrained_arguments(
+                {"model_name": "a/b", "custom_pipeline": "someone/repo"}, "pipeline"
+            )
+
+    def test_plain_arguments_and_a_false_flag_pass_when_untrusted(self, monkeypatch):
+        from dw.security import require_trusted_from_pretrained_arguments
+
+        _untrust(monkeypatch)
+        require_trusted_from_pretrained_arguments({"model_name": "a/b"}, "x")
+        require_trusted_from_pretrained_arguments(
+            {"model_name": "a/b", "trust_remote_code": False}, "x"
+        )
+
+    def test_allowed_when_trusted(self, monkeypatch):
+        from dw.security import require_trusted_from_pretrained_arguments
+
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
+        require_trusted_from_pretrained_arguments(
+            {"trust_remote_code": True, "custom_pipeline": "x/y"}, "x"
+        )
+
+    def test_load_component_refuses_before_touching_the_hub(self, monkeypatch):
+        from unittest.mock import MagicMock
+        from dw.pipeline_processors.pipeline import load_component
+
+        _untrust(monkeypatch)
+        component_type = MagicMock()
+        component_type.__name__ = "MockPipeline"
+        with pytest.raises(UntrustedWorkflowError):
+            load_component(
+                "pipeline",
+                {"component_type": component_type},
+                {"model_name": "a/b", "trust_remote_code": True},
+                "cpu",
+            )
+        component_type.from_pretrained.assert_not_called()

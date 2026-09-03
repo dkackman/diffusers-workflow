@@ -76,12 +76,19 @@ back at `--trust-workflows`. The bundled examples under `workflows/` (not
 workflow that needs to reach outside it - a community pipeline module from
 somewhere else, a custom scheduler package - needs `--trust-workflows`.
 
-`constant:` references are not currently gated by `--trust-workflows` (see
-`dw/type_helpers.load_constant_from_name` / `dw/arguments.fetch_constant`) -
-they are part of the same trust boundary described above, but narrower in
-practice since `fetch_constant` refuses anything callable the name resolves
-to. Treat a `constant:` reference to an unfamiliar dotted name with the
-same suspicion as the other two.
+A dotted `constant:` reference is gated the same way
+(`dw/type_helpers.load_constant_from_name`): the module it names is
+imported before `fetch_constant` gets to refuse a callable, so the import
+itself is what the gate has to stop. A bare name (`constant:SOME_NAME`)
+reads from `diffusers` and is always allowed.
+
+Two `from_pretrained_arguments` keys are refused untrusted as well, for
+every component and pipeline: `trust_remote_code` (runs the model repo's
+own modeling code) and `custom_pipeline` (fetches and imports a pipeline
+module from the Hub or a local path). Neither goes through an
+`importlib` call of ours, so the dotted-name gate alone would leave
+diffusers' remote-code paths open. A workflow that needs them
+(`workflows/Krea2Edit.json`, say) needs `--trust-workflows`.
 
 `--trust-workflows` is a blanket, process-wide choice - it is not scoped
 per-workflow or per-request. A `dw-serve` instance that accepts jobs from

@@ -526,6 +526,22 @@ class JobManager:
                 status, error, traceback_text = outcome
                 self._finish(job, status, error=error, traceback_text=traceback_text)
 
+    def _relative_output_names(self, paths):
+        """The worker reports absolute paths; clients build '/outputs/<name>'
+        URLs, and a workflow under a subfolder writes under
+        '<output_dir>/<sub>/' (dw/workflow.py's effective_output_dir) - so
+        every file is reported by its name relative to output_dir, with
+        forward slashes. A path outside output_dir (a task step writing
+        elsewhere) is left as it came."""
+        names = []
+        for path in paths:
+            relative = os.path.relpath(path, self.output_dir)
+            if relative.startswith(".."):
+                names.append(path)
+            else:
+                names.append(relative.replace(os.sep, "/"))
+        return names
+
     def _consume_results(self, job):
         """Read worker messages until the run ends; returns the terminal
         (status, error, traceback) for _run_job to apply once the manager
@@ -536,6 +552,8 @@ class JobManager:
 
             if message_type == "progress":
                 event = {k: v for k, v in message.items() if k != "type"}
+                if "files" in event:
+                    event["files"] = self._relative_output_names(event["files"])
                 job.add_event(event)
             elif message_type in ("output", "workflow_loaded"):
                 text = message.get("message") or message.get("workflow_name", "")
@@ -544,7 +562,14 @@ class JobManager:
                 self.last_memory = message.get("info")
                 job.add_event({"event": "memory", "info": self.last_memory})
             elif message_type == "success":
-                job.manifest = message.get("manifest", [])
+                job.manifest = [
+                    (
+                        {**entry, "files": self._relative_output_names(entry["files"])}
+                        if "files" in entry
+                        else entry
+                    )
+                    for entry in message.get("manifest", [])
+                ]
                 return (SUCCEEDED, None, None)
             elif message_type == "cancelled":
                 return (CANCELLED, None, None)

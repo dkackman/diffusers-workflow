@@ -189,7 +189,10 @@ network:
 - Requests carrying a non-local `Origin` header are rejected (403), which
   blocks cross-site requests from web pages you happen to have open.
 - Requests carrying a `Host` header that names neither a loopback address
-  nor the configured `--host` are rejected (400). This is defense-in-depth,
+  nor the configured `--host` are rejected (400). A wildcard bind
+  (`--host 0.0.0.0` or `::`) skips this check - clients reach such a
+  server by the machine's LAN IP or hostname, never by the bind address,
+  so there is no allowlist to build from it. This is defense-in-depth,
   not the DNS-rebinding fix by itself - the `Origin` check above already
   covers browser requests, since a browser's `Origin` reflects the real
   requesting origin regardless of what DNS name resolved to this address.
@@ -225,16 +228,20 @@ When a token is configured, every `/api/*` request must carry
 `Authorization: Bearer <token>` or gets a 401. The UI's own static files and
 `/outputs` (generated media) stay reachable without it - the page has to
 load far enough for a user to enter the token, and an `<img>`/`<script>`
-tag cannot attach a header anyway. The one exception on the API side is the
-SSE stream, `GET /api/jobs/{id}/events`: `EventSource` cannot set custom
-headers, so that route additionally accepts the token as a `?token=...`
-query parameter. That is a deliberate, narrower trade-off (a token that can
-leak into logs or browser history for that one URL) rather than a general
-alternative to the header - every other route accepts the header only.
+tag cannot attach a header anyway. Two API routes additionally accept the
+token as a `?token=...` query parameter, because the browser loads them
+without being able to set headers: the SSE stream,
+`GET /api/jobs/{id}/events` (`EventSource`), and the gallery grid's
+`GET /api/gallery/{name}/thumbnail` (an `<img>` tag). That is a deliberate,
+narrower trade-off (a token that can leak into logs or browser history for
+those URLs) rather than a general alternative to the header - every other
+route accepts the header only.
 
 The web UI has a one-time token field (next to the theme toggle) that
 stores the token in `localStorage` and attaches it to every API call,
-including the SSE connection's query parameter. It is a convenience, not a
+including the two query-parameter routes above. The MCP server reads the
+same `DW_API_TOKEN` variable (or `dw-mcp --token`), so one export
+configures both ends - see [MCP.md](MCP.md). It is a convenience, not a
 credential vault - anyone with access to the browser profile can read it
 back out of `localStorage`.
 

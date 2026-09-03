@@ -115,6 +115,27 @@ class TestHubAuthErrorMapping:
             )
         assert "black-forest-labs/FLUX.1-dev" in str(excinfo.value)
 
+    def test_wrapped_403_from_a_component_load_is_still_actionable(self):
+        """diffusers' _get_model_file (and transformers' cached_file) wrap the
+        Hub error into an EnvironmentError before it reaches load_component,
+        which is the path every per-component load takes - the cause chain
+        is what still carries the 403."""
+        component_type = MagicMock()
+        component_type.__name__ = "MockTransformer"
+        wrapped = EnvironmentError("Can't load the model for 'x/y'.")
+        wrapped.__cause__ = self._http_error(403)
+        component_type.from_pretrained.side_effect = wrapped
+        configuration = {"component_type": component_type}
+
+        with pytest.raises(RuntimeError, match="huggingface-cli login") as excinfo:
+            load_component(
+                "transformer",
+                configuration,
+                {"model_name": "black-forest-labs/FLUX.1-dev"},
+                "cpu",
+            )
+        assert "black-forest-labs/FLUX.1-dev" in str(excinfo.value)
+
     def test_401_becomes_actionable_message(self):
         component_type = MagicMock()
         component_type.__name__ = "MockPipeline"

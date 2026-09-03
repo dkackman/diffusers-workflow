@@ -48,6 +48,13 @@ class DwApiError(Exception):
     person driving the MCP client, not by a developer with a stack trace."""
 
 
+def resolve_token(explicit=None):
+    """The bearer token dw.serve was started with, if any: the explicit
+    value, else DW_API_TOKEN - the same variable dw.serve itself reads, so
+    one export configures both ends. Empty means unauthenticated."""
+    return explicit or os.environ.get("DW_API_TOKEN") or ""
+
+
 def resolve_base_url(explicit=None):
     """Where dw.serve is: the explicit value, else DW_MCP_URL, else the
     default port."""
@@ -59,11 +66,16 @@ class DwClient:
     """One method per kind of REST call. Knows nothing about MCP - the tool
     handlers are plain functions over this."""
 
-    def __init__(self, base_url=None, timeout=30.0, transport=None):
+    def __init__(self, base_url=None, timeout=30.0, transport=None, token=None):
         self.base_url = resolve_base_url(base_url)
         self.timeout = timeout
+        token = resolve_token(token)
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
         self._http = httpx.Client(
-            base_url=self.base_url, timeout=timeout, transport=transport
+            base_url=self.base_url,
+            timeout=timeout,
+            transport=transport,
+            headers=headers,
         )
 
     def close(self):

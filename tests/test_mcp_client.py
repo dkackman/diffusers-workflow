@@ -368,3 +368,42 @@ def test_a_422_with_list_detail_formats_it_as_human_readable():
     # Should not contain Python dict repr fragments
     assert "[{" not in message
     assert "'loc'" not in message
+
+
+def test_a_configured_token_rides_along_as_a_bearer_header(monkeypatch):
+    """dw.serve --token gates /api/*; the MCP client must be able to present
+    it. DW_API_TOKEN is the same variable dw.serve itself reads, so one
+    export configures both ends."""
+    monkeypatch.setenv("DW_API_TOKEN", "s3cr3t")
+    seen = {}
+
+    def handler(request):
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"ok": True})
+
+    client_with(handler).get_json("/api/health")
+    assert seen["auth"] == "Bearer s3cr3t"
+
+
+def test_an_explicit_token_wins_over_the_environment(monkeypatch):
+    monkeypatch.setenv("DW_API_TOKEN", "from-env")
+    seen = {}
+
+    def handler(request):
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"ok": True})
+
+    client_with(handler, token="explicit").get_json("/api/health")
+    assert seen["auth"] == "Bearer explicit"
+
+
+def test_no_token_means_no_authorization_header(monkeypatch):
+    monkeypatch.delenv("DW_API_TOKEN", raising=False)
+    seen = {}
+
+    def handler(request):
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"ok": True})
+
+    client_with(handler).get_json("/api/health")
+    assert seen["auth"] is None
