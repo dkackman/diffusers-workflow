@@ -153,6 +153,7 @@ All entry points use `dw/security.py`. When adding features:
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
 - **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
+- **`residency: on_demand` components share one process-wide eviction pool** (`dw/pipeline_processors/memory_manager.py`) — under memory pressure the lowest `residency_priority` (default `1`), least-recently-used resident is evicted and retried, not the calling component. Only applies to `on_demand`, not `offload`/`group_offload`.
 
 ## JSON Workflow Structure
 

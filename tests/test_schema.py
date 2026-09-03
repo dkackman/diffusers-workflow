@@ -85,6 +85,22 @@ def test_component_compile_configuration_validates():
     assert status is True, message
 
 
+def test_residency_priority_configuration_validates():
+    schema = load_schema("workflow")
+    workflow = _pipeline_step(
+        {
+            "components": {
+                "text_encoder": {
+                    "residency": "on_demand",
+                    "residency_priority": 5,
+                }
+            }
+        }
+    )
+    status, message = validate_data(workflow, schema)
+    assert status is True, message
+
+
 def test_compile_options_are_typed():
     schema = load_schema("workflow")
     workflow = _pipeline_step(

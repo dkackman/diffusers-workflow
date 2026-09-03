@@ -502,7 +502,8 @@
                             },
                             "residency_priority": {
                                 "description": "This 'residency: on_demand' component's standing when two of them contend for the device: if moving one on would run out of memory, the lowest-priority, least-recently-used other on-demand component is moved back to system memory to make room. Higher survives longer. Defaults to 1.",
-                                "type": "integer"
+                                "type": "integer",
+                                "default": 1
                             },
                             "enable_tiling": {
                                 "description": "Enable tiled decoding on this component, for a decoder that is not the one named 'vae' (which the pipeline-level 'vae' block covers) - LTX-2.5's 'diffusion_decoder', say, which otherwise decodes the whole video volume in one allocation. 'true' uses the model's own default tile size; an object passes tile and stride sizes through to enable_tiling(), which is what a card smaller than those defaults needs.",
