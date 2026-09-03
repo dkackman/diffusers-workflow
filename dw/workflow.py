@@ -336,6 +336,11 @@ class Workflow:
 
             last_result = None  # Final result is the workflow return value
 
+            # Lazy import - dw.step_cache imports referenced_result_names
+            # from this module at its own top level, so importing step_cache
+            # at module scope here would create an import cycle
+            from .step_cache import step_cache
+
             # realize any arguments for the steps, i.e. load images etc
             # that are referenced directly in the step
             steps = workflow_def.get("steps", [])
@@ -354,6 +359,11 @@ class Workflow:
                 seed=default_seed,
             )
 
+            # Step name -> whether that step's result this run came from the
+            # cache, so a step that reads another step's result can tell
+            # whether its own inputs are still all cache-fresh
+            hits_this_run = set()
+
             # Execute each step in sequence
             for i, step_data in enumerate(steps):
                 run_context.check_cancelled()
@@ -370,19 +380,48 @@ class Workflow:
                 step_seed = step_data.get("seed", default_seed)
 
                 step = Step(step_data, step_seed, self.workflow_definition)
-                step_action = self.create_step_action(
-                    step_data,
-                    shared_components,
-                    pipelines,
-                    step_seed,
-                    get_device(),
+
+                # create_step_action (and the pipeline load it triggers)
+                # mutates step_data in place - injecting a "generator" key -
+                # so the cache must key off a snapshot taken before that
+                # happens, and that same snapshot must be reused for the
+                # put() below. Caching off the live, later-mutated step_data
+                # would make every step's dict keys diverge from a freshly
+                # deep-copied future run's step_data, so get() would never
+                # match again after the first run.
+                is_cacheable = "workflow" not in step_data
+                step_data_snapshot = (
+                    copy.deepcopy(step_data) if is_cacheable else None
                 )
-                result = step.run(results, pipelines, step_action)
+                cached_result = (
+                    step_cache.get(step_data_snapshot, step_seed, hits_this_run)
+                    if is_cacheable
+                    else None
+                )
+
+                if cached_result is not None:
+                    logger.info(f"Step '{step.name}' unchanged - reusing cached result")
+                    result = cached_result
+                    saved_files = result.saved_files
+                    hits_this_run.add(step.name)
+                    step_action = None
+                else:
+                    step_action = self.create_step_action(
+                        step_data,
+                        shared_components,
+                        pipelines,
+                        step_seed,
+                        get_device(),
+                    )
+                    result = step.run(results, pipelines, step_action)
+                    saved_files = result.save(
+                        self.effective_output_dir, f"{workflow_id}-{step.name}.{i}"
+                    )
+                    if is_cacheable:
+                        step_cache.put(step_data_snapshot, step_seed, result)
+
                 last_result = result
                 results[step.name] = result
-                saved_files = result.save(
-                    self.effective_output_dir, f"{workflow_id}-{step.name}.{i}"
-                )
                 self.manifest.append({"step": step.name, "files": saved_files})
                 # A sub-workflow's saves land in the child's manifest - roll
                 # them up so job history and the gallery see every file
