@@ -1,77 +1,35 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
-  import { FolderOpen, ImageOff, Trash2, X } from '@lucide/svelte'
+  import { ImageOff, FolderOpen, Trash2, X } from '@lucide/svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
+  import FolderGroups from '../FolderGroups.svelte'
   import { go } from '../router.svelte'
   import { notify } from '../toast'
   import type { GalleryFile } from '../types'
 
-  // One request page - "load more" (and infinite scroll) fetch further
-  // pages of this size rather than one unbounded request, so a folder of
-  // thousands of outputs never has to be listed in a single round trip.
-  const PAGE_SIZE = 120
-
   let files = $state<GalleryFile[]>([])
-  let total = $state(0)
-  let folders = $state<string[]>([])
-  let folder = $state<string>('') // '' = "all folders" in the UI
-  let offset = $state(0)
-  let loading = $state(false)
+  let loaded = $state(false)
   let filter = $state('')
   let error = $state('')
   let selected = $state<GalleryFile | null>(null)
   let metadata = $state<Record<string, unknown> | null>(null)
   let sourceJob = $state<{ id: string; status: string } | null>(null)
-  let sentinel = $state<HTMLDivElement | null>(null)
 
-  const hasMore = $derived(files.length < total)
-  // '' server-side means "no folder filter"; the UI's own '' means "all
-  // folders", so the literal output-root folder needs a value that survives
-  // the round trip - '(root)' can't collide with a real relative path
-  const ROOT_FOLDER = '(root)'
-
-  function load(reset: boolean) {
-    if (loading) return
-    loading = true
-    const nextOffset = reset ? 0 : offset
-    const folderQuery =
-      folder === '' ? undefined : folder === ROOT_FOLDER ? '' : folder
+  $effect(() => {
     api
-      .gallery(PAGE_SIZE, nextOffset, folderQuery)
+      .gallery()
       .then((result) => {
-        files = reset ? result.files : [...files, ...result.files]
-        total = result.total
-        offset = nextOffset + result.files.length
-        folders = result.folders
+        files = result.files
         error = ''
       })
       .catch((e) => (error = e.message))
-      .finally(() => (loading = false))
-  }
-
-  // Reload from the top whenever the folder filter changes; runs once more
-  // on mount for the initial load. load() reads and later writes
-  // `loading`/`offset`/`files`, and an effect that depended on those would
-  // re-run on every completed fetch - untrack keeps `folder` the only
-  // dependency
-  $effect(() => {
-    void folder
-    untrack(() => load(true))
-  })
-
-  $effect(() => {
-    if (!sentinel) return
-    const observer = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting && hasMore && !loading) load(false)
-    })
-    observer.observe(sentinel)
-    return () => observer.disconnect()
+      .finally(() => (loaded = true))
   })
 
   const visible = $derived(
     files.filter((f) => f.name.toLowerCase().includes(filter.toLowerCase())),
   )
+  const byName = $derived(new Map(visible.map((f) => [f.name, f])))
 
   function select(file: GalleryFile) {
     selected = file
@@ -95,8 +53,6 @@
     try {
       await api.deleteOutput(name)
       files = files.filter((f) => f.name !== name)
-      total -= 1
-      offset -= 1
       selected = null
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -153,37 +109,29 @@
 
 <div class="head">
   <h1>Gallery</h1>
-  <span class="muted">{files.length} of {total} loaded</span>
-  {#if folders.length > 1}
-    <select
-      class="folder"
-      bind:value={folder}
-      title="filter by source workflow folder"
-    >
-      <option value="">all folders</option>
-      {#each folders as f (f)}
-        <option value={f === '' ? '(root)' : f}
-          >{f === '' ? '(root)' : f}</option
-        >
-      {/each}
-    </select>
-  {/if}
-  <input class="filter" placeholder="filter loaded…" bind:value={filter} />
+  <span class="muted">{files.length} files</span>
+  <input class="filter" placeholder="filter…" bind:value={filter} />
 </div>
 
 {#if error}<p class="muted">Could not read the gallery: {error}</p>{/if}
-{#if !error && files.length === 0 && !loading}
+{#if loaded && !error && files.length === 0}
   <Empty>
     {#snippet icon()}<ImageOff size={36} strokeWidth={1.5} />{/snippet}
     Nothing generated yet — outputs land here as workflows run.
   </Empty>
 {/if}
 
-<div class="grid">
-  {#each visible as file (file.name)}
+<FolderGroups
+  names={visible.map((f) => f.name)}
+  collapseKey="collapsed-gallery-folders"
+  filterActive={filter !== ''}
+  minColumn="150px"
+>
+  {#snippet card(name)}
+    {@const file = byName.get(name)!}
     <button
       class="cell"
-      class:active={selected?.name === file.name}
+      class:active={selected?.name === name}
       onclick={() => select(file)}
       title="show details{file.kind === 'image'
         ? ' and generation metadata'
@@ -200,22 +148,10 @@
       {:else}
         <span class="audio">♪ {file.label}</span>
       {/if}
-      <span
-        class="caption"
-        title={file.folder ? `${file.folder}/${file.label}` : file.label}
-        >{file.folder ? `${file.folder}/` : ''}{file.label}</span
-      >
+      <span class="caption" title={file.name}>{file.label}</span>
     </button>
-  {/each}
-</div>
-
-{#if hasMore}
-  <div bind:this={sentinel} class="sentinel">
-    <button class="quiet" onclick={() => load(false)} disabled={loading}>
-      {loading ? 'loading…' : 'load more'}
-    </button>
-  </div>
-{/if}
+  {/snippet}
+</FolderGroups>
 
 {#if selected}
   <div class="detail panel">
@@ -323,16 +259,9 @@
     gap: 0.4rem 1rem;
     margin-bottom: 1rem;
   }
-  .folder {
-    margin-left: auto;
-  }
   .filter {
     max-width: 220px;
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 0.6rem;
+    margin-left: auto;
   }
   .cell {
     background: var(--panel);
@@ -353,11 +282,6 @@
        keeps scrollbar height stable before a cell has ever been measured. */
     content-visibility: auto;
     contain-intrinsic-size: 150px 190px;
-  }
-  .sentinel {
-    display: flex;
-    justify-content: center;
-    padding: 1.2rem 0;
   }
   .cell:hover,
   .cell.active {

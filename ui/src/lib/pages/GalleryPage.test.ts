@@ -5,18 +5,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 // timers this test waits on - the failure then shows as a call count
 const gallery = vi.fn(
   () =>
-    new Promise<{
-      files: never[]
-      total: number
-      offset: number
-      limit: number
-      folders: never[]
-    }>((resolve) =>
-      setTimeout(
-        () =>
-          resolve({ files: [], total: 0, offset: 0, limit: 120, folders: [] }),
-        0,
-      ),
+    new Promise<{ files: never[] }>((resolve) =>
+      setTimeout(() => resolve({ files: [] }), 0),
     ),
 )
 vi.mock('../api', () => ({
@@ -31,7 +21,7 @@ vi.mock('../api', () => ({
 
 afterEach(() => gallery.mockClear())
 
-it('fetches the first page exactly once on mount', async () => {
+it('fetches the gallery listing exactly once on mount', async () => {
   const GalleryPage = (await import('./GalleryPage.svelte')).default
   render(GalleryPage)
   // Let the request settle and any (wrongly) re-triggered effects run

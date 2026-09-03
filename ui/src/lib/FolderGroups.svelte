@@ -9,6 +9,7 @@
     filterActive,
     newHref = undefined,
     onnewingroup = undefined,
+    minColumn = '210px',
     card,
   }: {
     names: string[]
@@ -16,6 +17,7 @@
     filterActive: boolean
     newHref?: string
     onnewingroup?: (group: string) => void
+    minColumn?: string
     card: Snippet<[string]>
   } = $props()
 
@@ -66,7 +68,10 @@
     </div>
   {/if}
   {#if isOpen(group)}
-    <div class="grid">
+    <div
+      class="grid"
+      style="grid-template-columns: repeat(auto-fill, minmax({minColumn}, 1fr))"
+    >
       {#each inGroup(group) as name (name)}
         {@render card(name)}
       {/each}
@@ -117,7 +122,6 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
     gap: 0.6rem;
   }
 </style>
