@@ -51,7 +51,7 @@ arg clear [<name>]      Clear one variable, or all of them
 
 ```text
 memory show             Show current GPU memory usage
-memory clear            Clear GPU memory and cached models
+memory clear            Clear GPU memory, cached models, and cached step results
 ```
 
 ### config — REPL settings

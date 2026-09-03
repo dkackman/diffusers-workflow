@@ -15,6 +15,7 @@ from typing import Dict, Any
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dw.workflow import workflow_from_file, workflow_from_definition
+from dw.step_cache import step_cache
 from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
 from dw.security import validate_output_path
@@ -384,6 +385,10 @@ class WorkflowWorker:
         self.loaded_pipelines.clear()
         self.shared_components.clear()
         clear_model_cache()
+        # Drop cached step results too - stale results would otherwise
+        # survive a memory clear and keep getting served for steps whose
+        # models/components were just evicted
+        step_cache.clear()
 
         # Reset state
         self.run_count = 0
