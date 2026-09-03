@@ -30,8 +30,28 @@ def output_file_path(output_dir, file_name):
     they are concatenated into a file name. Without this a name carrying a
     path separator would write outside the output directory, so the joined
     path goes through the same validator every other path in the engine does.
+
+    A rerun that would otherwise produce a name already on disk gets a
+    '-2', '-3', ... counter instead of silently overwriting it - the same
+    guarantee ComfyUI's SaveImage node makes by scanning its output
+    directory before every write.
     """
-    return validate_output_path(os.path.join(output_dir, file_name), output_dir)
+    candidate = validate_output_path(os.path.join(output_dir, file_name), output_dir)
+    return _dedupe_existing_path(candidate)
+
+
+def _dedupe_existing_path(path):
+    """Append an incrementing counter before the extension until `path` is free."""
+    if not os.path.exists(path):
+        return path
+
+    base, ext = os.path.splitext(path)
+    counter = 2
+    while True:
+        candidate = f"{base}-{counter}{ext}"
+        if not os.path.exists(candidate):
+            return candidate
+        counter += 1
 
 
 # Audio content types soundfile can write, mapped to their file extension and to any
