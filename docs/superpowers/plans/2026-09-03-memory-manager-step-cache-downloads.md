@@ -392,8 +392,22 @@ def apply_on_demand_placement(
     component, component_name, device, group_offloaded, offload_device="cpu", priority=1
 ):
     """Keep a component in system memory and move it to the device only while it runs.
-    ...
-    (docstring unchanged)
+
+    Sits between the two placements dw already has. A 'device' component is resident
+    for the whole run, which wastes the accelerator on something used twice; group
+    offloading streams per submodule forward, which restreams the whole model once
+    per call of every leaf - ruinous for a VAE, whose tiled decode calls its blocks
+    once per tile. This moves the model as a whole around each entry point, so a
+    tiling loop sits inside a single pair of transfers.
+
+    That trade only pays for components called a handful of times per run. A
+    denoising transformer is called once per step, so per-call transfers would cost
+    far more than they save - group offloading is the tool for those.
+
+    A cross-step memory manager (memory_manager.py) tracks every on_demand
+    component process-wide: if moving this one onto `device` would OOM, it evicts
+    whichever other on_demand component is lowest-priority and least-recently-used
+    first, then retries - see MemoryManager.load.
 
     Args:
         component: The component to place
