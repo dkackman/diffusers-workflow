@@ -80,19 +80,11 @@ describe('name encoding', () => {
   })
 })
 
-describe('gallery pagination and thumbnails', () => {
-  it('sends limit and offset, and omits folder when unset', async () => {
+describe('gallery listing and thumbnails', () => {
+  it('fetches the whole listing in one request', async () => {
     const calls = stubFetch({ ok: true, body: {} })
-    await api.gallery(120, 240)
-    expect(calls[0][0]).toBe('/api/gallery?limit=120&offset=240')
-  })
-
-  it('sends an explicit folder filter, including the root folder as an empty string', async () => {
-    const calls = stubFetch({ ok: true, body: {} })
-    await api.gallery(50, 0, 'ltx')
-    await api.gallery(50, 0, '')
-    expect(calls[0][0]).toBe('/api/gallery?limit=50&offset=0&folder=ltx')
-    expect(calls[1][0]).toBe('/api/gallery?limit=50&offset=0&folder=')
+    await api.gallery()
+    expect(calls[0][0]).toBe('/api/gallery?limit=100000')
   })
 
   it('builds a thumbnail URL that keeps folder separators', () => {
