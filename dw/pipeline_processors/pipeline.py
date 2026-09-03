@@ -12,6 +12,7 @@ from .config_objects import (
     get_cache_configuration,
     get_load_components_arguments,
 )
+from .memory_manager import memory_manager
 from .remote import remote_text_encoder
 from ..cache_blocks import register_cache_blocks
 from ..teacache import teacache_context
@@ -715,6 +716,7 @@ def configure_components(pipeline, configuration, default_device, reused_compone
                 component_name,
                 device if device is not None else default_device,
                 group_offload_configuration is not None,
+                priority=component_configuration.get("residency_priority", 1),
             )
         elif device is not None:
             logger.info(f"Moving {component_name} to device: {device}")
@@ -899,7 +901,7 @@ _ON_DEMAND_ENTRY_POINTS = ("forward", "encode", "decode")
 
 
 def apply_on_demand_placement(
-    component, component_name, device, group_offloaded, offload_device="cpu"
+    component, component_name, device, group_offloaded, offload_device="cpu", priority=1
 ):
     """Keep a component in system memory and move it to the device only while it runs.
 
@@ -914,12 +916,20 @@ def apply_on_demand_placement(
     denoising transformer is called once per step, so per-call transfers would cost
     far more than they save - group offloading is the tool for those.
 
+    A cross-step memory manager (memory_manager.py) tracks every on_demand
+    component process-wide: if moving this one onto `device` would OOM, it evicts
+    whichever other on_demand component is lowest-priority and least-recently-used
+    first, then retries - see MemoryManager.load.
+
     Args:
         component: The component to place
         component_name: Name of the component, for logging
         device: Device to run the component on
         group_offloaded: Whether group offloading was applied to this component
         offload_device: Where the component rests between calls
+        priority: This component's standing in the cross-step eviction order -
+            higher survives longer under memory pressure from other on_demand
+            components. See MemoryManager.
 
     Raises:
         ValueError: If the component is also group offloaded
@@ -941,6 +951,7 @@ def apply_on_demand_placement(
         return
 
     component.to(offload_device)
+    memory_manager.register(component, priority=priority)
 
     # One depth counter for the whole component, not one per entry point: decode()
     # calls forward() internally, and an inner return must not offload the model
@@ -955,7 +966,7 @@ def apply_on_demand_placement(
         @functools.wraps(original)
         def on_demand(*args, **kwargs):
             if state["depth"] == 0:
-                component.to(device)
+                memory_manager.load(component, device, offload_device)
             state["depth"] += 1
             try:
                 return original(*args, **kwargs)
@@ -963,6 +974,7 @@ def apply_on_demand_placement(
                 state["depth"] -= 1
                 if state["depth"] == 0:
                     component.to(offload_device)
+                    memory_manager.mark_idle(component, offload_device)
                     # Hand the freed space back to the driver rather than leaving it
                     # reserved - the headroom is the entire point of doing this
                     empty_device_cache()
@@ -975,6 +987,7 @@ def apply_on_demand_placement(
 
     wrapped = [name for name in _ON_DEMAND_ENTRY_POINTS if wrap(name)]
     if not wrapped:
+        memory_manager.unregister(component)
         raise ValueError(
             f"Component '{component_name}' sets 'residency: on_demand' but defines "
             f"none of {', '.join(_ON_DEMAND_ENTRY_POINTS)}, so there is no call to "
@@ -982,7 +995,7 @@ def apply_on_demand_placement(
         )
     logger.info(
         f"Placing {component_name} on demand: resting on {offload_device}, "
-        f"running on {device} around {', '.join(wrapped)}"
+        f"running on {device} around {', '.join(wrapped)} (priority {priority})"
     )
 
 
