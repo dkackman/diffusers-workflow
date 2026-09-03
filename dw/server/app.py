@@ -930,10 +930,11 @@ def create_app(
                     "folder": folder,
                     # Quoted (slashes kept literal): a name carrying '#', '?'
                     # or '%' would otherwise break the src the gallery
-                    # renders it into. The mtime rides along because a rerun
-                    # overwrites the same name - on an unchanging URL the
-                    # browser would keep showing the image it cached from
-                    # the previous run
+                    # renders it into. The mtime still rides along for cache
+                    # busting when a file's content changes without its name
+                    # changing (e.g. a manual overwrite outside the engine) -
+                    # normal reruns get a fresh name instead, see
+                    # dw/result.py's output_file_path
                     "url": f"/outputs/{quote(relative_name)}?v={int(stat.st_mtime)}",
                     "kind": kind,
                     "size": stat.st_size,
