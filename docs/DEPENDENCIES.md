@@ -26,7 +26,7 @@ If you prefer manual control:
 python3 -m venv venv
 source venv/bin/activate
 
-pip install torch torchvision torchaudio
+pip install torch torchvision torchaudio  # add --index-url https://download.pytorch.org/whl/cu130 for CUDA on Linux
 pip install -r requirements.txt
 pip install git+https://github.com/huggingface/diffusers
 ```
@@ -86,6 +86,6 @@ huggingface-cli login
 
 **Package conflicts:** Re-run the install script — it recreates the venv from scratch.
 
-**CUDA not detected:** PyTorch auto-detects CUDA. Verify with `python -c "import torch; print(torch.cuda.is_available())"`.
+**CUDA not detected:** `install.sh` probes for a working `nvidia-smi` on Linux and installs the CUDA build of torch (cu130) only when it finds one; otherwise (or on a manual install with plain `pip install torch`) you get PyPI's CPU-only Linux wheel. Verify with `python -c "import torch; print(torch.cuda.is_available())"`.
 
 **MPS not detected:** Requires Apple Silicon. Verify with `python -c "import torch; print(torch.backends.mps.is_available())"`.
