@@ -131,10 +131,33 @@ fi
 # Upgrade pip
 python -m pip install --upgrade pip
 
-# Install PyTorch first - standard install (CUDA auto-detected on Linux,
-# MPS on macOS). The resolver below sees it satisfied and leaves it alone.
-# torchaudio is deliberately absent: nothing in dw imports it
-pip install torch torchvision
+# Install PyTorch first - platform/GPU-aware, so the resolver below sees it
+# satisfied and leaves it alone. torchaudio is deliberately absent: nothing
+# in dw imports it.
+#
+# PyPI's wheels are CPU-only on Linux (no CUDA), but are the correct choice
+# on macOS (MPS support is built in there). So on Linux we probe for an
+# actual working NVIDIA driver via nvidia-smi and, if found, point pip at
+# the CUDA build index instead of letting it fall through to the CPU wheel.
+if $MACOS; then
+  echo "macOS detected - installing torch with MPS support"
+  pip install torch torchvision
+else
+  CUDA_AVAILABLE=false
+  # `command -v` alone only proves the binary exists; a stale/broken driver
+  # can leave nvidia-smi installed but failing, so also require it to run.
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+    CUDA_AVAILABLE=true
+  fi
+
+  if $CUDA_AVAILABLE; then
+    echo "CUDA detected - installing GPU-enabled torch (cu130)"
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+  else
+    echo "No CUDA GPU detected - installing CPU-only torch"
+    pip install torch torchvision
+  fi
+fi
 
 # Everything else resolves from pyproject.toml - the single source of the
 # dependency list (bitsandbytes included, via its linux platform marker).
