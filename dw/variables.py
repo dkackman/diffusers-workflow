@@ -181,6 +181,14 @@ def get_value(v, desired_type, name=None):
     if isinstance(v, PIL.Image.Image):
         return v
 
+    # A string cannot be coerced into a dict or a None - dict('/a/b.png') is
+    # nonsense, NoneType('x') a TypeError. Those defaults are how media
+    # variables ({'location': ...}) and optional inputs (null) are declared,
+    # and a string override is a path or a reference that realize_args
+    # resolves later, so it passes through as written
+    if isinstance(v, str) and desired_type in (dict, type(None)):
+        return v
+
     # Attempt type conversion. A failure here is surfaced immediately with a clear,
     # named error instead of silently passing the unconverted value through - letting
     # it through would fail several layers later inside diffusers/torch with a

@@ -20,6 +20,12 @@ def main(argv=None):
         "(default: $DW_MCP_URL, else http://127.0.0.1:8765)",
     )
     parser.add_argument(
+        "--token",
+        default=None,
+        help="Bearer token the dw.serve was started with, if any "
+        "(default: $DW_API_TOKEN)",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=30.0,
@@ -27,7 +33,9 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
-    client = DwClient(base_url=resolve_base_url(args.url), timeout=args.timeout)
+    client = DwClient(
+        base_url=resolve_base_url(args.url), timeout=args.timeout, token=args.token
+    )
     try:
         build_server(client).run(transport="stdio")
     finally:

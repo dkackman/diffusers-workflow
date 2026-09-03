@@ -2100,3 +2100,185 @@ def test_workflow_details_name_their_variables(server):
         details = client.get("/api/workflows").json()["details"]
         assert details["Knobby"]["variable_names"] == ["prompt", "steps"]
         assert details["Knobby"]["variables"] == 2
+
+
+def test_submit_accepts_a_cwd_relative_path_with_a_relative_workflow_dir(
+    tmp_path, monkeypatch
+):
+    """dw.serve's default --workflow-dir is the relative './workflows', and
+    the Workflow page submits '<workflow_dir>/<name>.json' verbatim - so
+    the two joined must still resolve to the file, not a doubled path."""
+    monkeypatch.chdir(tmp_path)
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    (workflow_dir / "Basic.json").write_text(json.dumps(valid_workflow("basic")))
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir="./workflows",
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        response = client.post(
+            "/api/jobs", json={"workflow_path": "./workflows/Basic.json"}
+        )
+        assert response.status_code == 201, response.text
+        validated = client.post(
+            "/api/validate", json={"workflow_path": "./workflows/Basic.json"}
+        )
+        assert validated.status_code == 200, validated.text
+
+
+def test_wildcard_bind_accepts_requests_addressed_to_any_host(tmp_path):
+    """--host 0.0.0.0 means 'reachable from other machines'; those machines
+    address the server by its LAN IP or hostname, never by 0.0.0.0, so a
+    wildcard bind cannot use the bind string as a Host allowlist."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    for wildcard in ("0.0.0.0", "::"):
+        app = create_app(
+            workflow_dir=str(workflow_dir),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            prompt_dir=str(tmp_path / "prompts"),
+            host=wildcard,
+        )
+        with TestClient(app, base_url="http://192.168.1.5:8765") as client:
+            assert client.get("/api/health").status_code == 200, wildcard
+        with TestClient(app, base_url="http://gpu-box.local") as client:
+            assert client.get("/api/health").status_code == 200, wildcard
+
+
+def test_gallery_thumbnail_accepts_the_token_as_a_query_param(tmp_path):
+    """The gallery grid loads thumbnails through <img src>, which cannot
+    carry an Authorization header - so like the SSE route, the thumbnail
+    route takes the token as a query parameter."""
+    from PIL import Image
+
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    Image.new("RGB", (64, 64), "red").save(outputs / "big.png")
+    manager = JobManager(
+        str(outputs),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(outputs),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        token="s3cr3t",
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/api/gallery/big.png/thumbnail").status_code == 401
+        assert (
+            client.get("/api/gallery/big.png/thumbnail?token=s3cr3t").status_code == 200
+        )
+        # the query form is for header-less media loads only, not a
+        # general alternative for the rest of the API
+        assert client.get("/api/health?token=s3cr3t").status_code == 401
+
+
+def test_a_non_ascii_token_still_rejects_a_wrong_token_with_401(tmp_path):
+    """secrets.compare_digest refuses non-ASCII str; the comparison must
+    happen on bytes so an unusual token yields 401, not a 500."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        token="tokén",
+    )
+    with TestClient(
+        app, base_url="http://localhost", raise_server_exceptions=False
+    ) as client:
+        response = client.get("/api/health", headers={"Authorization": "Bearer nope"})
+        assert response.status_code == 401
+
+
+def test_job_files_are_reported_relative_to_the_output_dir(server, tmp_path):
+    """Workflows under a subfolder write to '<output_dir>/<sub>/'. The job
+    page and the MCP media tools build '/outputs/<name>' URLs from what the
+    job reports, so files must arrive as output-dir-relative names (with
+    forward slashes), never as the worker's absolute paths."""
+    outputs = tmp_path / "outputs"
+    nested = str(outputs / "flux" / "FluxDev-gen.0.png")
+    flat = str(outputs / "sd15-gen.0.png")
+
+    def nested_script(command):
+        yield {
+            "type": "progress",
+            "event": "step_end",
+            "step": "gen",
+            "index": 0,
+            "total_steps": 1,
+            "files": [nested, flat],
+        }
+        yield {
+            "type": "success",
+            "message": "ok",
+            "run_count": 1,
+            "manifest": [{"step": "gen", "files": [nested, flat]}],
+        }
+
+    with server(nested_script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, job["id"], TERMINAL_STATES)
+        assert detail["manifest"] == [
+            {"step": "gen", "files": ["flux/FluxDev-gen.0.png", "sd15-gen.0.png"]}
+        ]
+        events = client.get(f"/api/jobs/{job['id']}/event-log").json()
+        step_end = next(e for e in events["events"] if e["event"] == "step_end")
+        assert step_end["files"] == ["flux/FluxDev-gen.0.png", "sd15-gen.0.png"]
+
+
+def test_gallery_thumbnails_are_cacheable(server, tmp_path):
+    """The grid re-requests every visible thumbnail on each visit; a
+    validator lets the browser skip the decode/resize/encode round-trip
+    when the file has not changed, and a rerun that overwrites the file
+    changes the validator."""
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        Image.new("RGB", (64, 64), "red").save(outputs / "a.png")
+
+        first = client.get("/api/gallery/a.png/thumbnail")
+        assert first.status_code == 200
+        etag = first.headers.get("etag")
+        assert etag
+        # always revalidate: a rerun overwriting the file must show at once
+        assert "no-cache" in first.headers.get("cache-control", "")
+
+        again = client.get(
+            "/api/gallery/a.png/thumbnail", headers={"If-None-Match": etag}
+        )
+        assert again.status_code == 304
+
+        Image.new("RGB", (64, 64), "blue").save(outputs / "a.png")
+        os.utime(outputs / "a.png", (time.time() + 5, time.time() + 5))
+        changed = client.get(
+            "/api/gallery/a.png/thumbnail", headers={"If-None-Match": etag}
+        )
+        assert changed.status_code == 200
+        assert changed.headers.get("etag") != etag

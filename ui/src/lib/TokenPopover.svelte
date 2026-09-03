@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getApiToken, setApiToken } from './token'
+  import { focusTrap } from './focusTrap'
 
   let { open = $bindable(false) }: { open?: boolean } = $props()
 
@@ -28,7 +29,9 @@
     class="pop panel"
     role="dialog"
     aria-label="API token"
+    aria-modal="true"
     tabindex="-1"
+    use:focusTrap
     onclick={(e) => e.stopPropagation()}
   >
     <p class="muted">

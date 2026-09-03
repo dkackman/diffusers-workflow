@@ -73,7 +73,9 @@ describe('name encoding', () => {
     const calls = stubFetch({ ok: true, body: {} })
     await api.galleryMetadata('ltx/wf-gen.0-0.0 copy.png')
     await api.deleteOutput('ltx/wf-gen.0-0.0 copy.png')
-    expect(calls[0][0]).toBe('/api/gallery/ltx/wf-gen.0-0.0%20copy.png/metadata')
+    expect(calls[0][0]).toBe(
+      '/api/gallery/ltx/wf-gen.0-0.0%20copy.png/metadata',
+    )
     expect(calls[1][0]).toBe('/api/gallery/ltx/wf-gen.0-0.0%20copy.png')
   })
 })
@@ -113,6 +115,43 @@ describe('fetchOutputText', () => {
     stubFetch({ ok: false, status: 404 })
     await expect(fetchOutputText('/abs/outputs/gone.txt')).rejects.toThrow(
       'Could not read gone.txt',
+    )
+  })
+})
+
+describe('output URLs', () => {
+  it('keeps the subfolder of an output-dir-relative name', async () => {
+    const { outputUrl } = await import('./api')
+    expect(outputUrl('flux/FluxDev-gen.0.png', 'job1')).toBe(
+      '/outputs/flux/FluxDev-gen.0.png?v=job1',
+    )
+  })
+
+  it('falls back to the basename for a legacy absolute path', async () => {
+    const { outputUrl } = await import('./api')
+    expect(outputUrl('/abs/outputs/a.png', 'job1')).toBe(
+      '/outputs/a.png?v=job1',
+    )
+  })
+
+  it('reads a nested text output from its subfolder', async () => {
+    const calls = stubFetch({ ok: true, text: 'x' })
+    await fetchOutputText('enhance/enhance-0.0.txt')
+    expect(calls[0][0]).toBe('/outputs/enhance/enhance-0.0.txt')
+  })
+
+  it('attaches the API token to thumbnail URLs, which load via <img>', async () => {
+    const { setApiToken } = await import('./token')
+    setApiToken('s3cr3t')
+    try {
+      expect(api.galleryThumbnailUrl('a.png')).toBe(
+        '/api/gallery/a.png/thumbnail?token=s3cr3t',
+      )
+    } finally {
+      setApiToken('')
+    }
+    expect(api.galleryThumbnailUrl('a.png')).toBe(
+      '/api/gallery/a.png/thumbnail',
     )
   })
 })

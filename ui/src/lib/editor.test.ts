@@ -82,9 +82,7 @@ describe('mediaKindFor', () => {
     expect(
       mediaKindFor(param({ doc_type: '`PIL.Image.Image`, *optional*' }), 'x'),
     ).toBe('image')
-    expect(mediaKindFor(param({ annotation: 'VideoInput' }), 'x')).toBe(
-      'video',
-    )
+    expect(mediaKindFor(param({ annotation: 'VideoInput' }), 'x')).toBe('video')
     expect(mediaKindFor(param({ annotation: 'int' }), 'x')).toBeNull()
   })
 
@@ -124,7 +122,10 @@ describe('mediaLocation / withMediaLocation', () => {
     expect(withMediaLocation('old.png', 'new.png')).toBe('new.png')
     expect(withMediaLocation('', 'new.png')).toBe('new.png')
     expect(
-      withMediaLocation({ media_type: 'image', location: 'old.png' }, 'new.png'),
+      withMediaLocation(
+        { media_type: 'image', location: 'old.png' },
+        'new.png',
+      ),
     ).toEqual({ media_type: 'image', location: 'new.png' })
   })
 })

@@ -230,8 +230,9 @@ class Workflow:
             self.workflow_definition, load_schema("workflow")
         )
         if not status:
-            logger.error(f"Validation error: {message}")
-            raise Exception(f"Validation error: {message}")
+            # message already carries the 'Validation error at <path>:' prefix
+            logger.error(message)
+            raise Exception(message)
         logger.debug(f"Workflow {self.name} validated successfully")
 
     def run(

@@ -18,6 +18,7 @@ from urllib.parse import quote, urlparse
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -165,6 +166,11 @@ def workflow_details(workflow_dir, names):
     return details
 
 
+def _write_bytes(path, data):
+    with open(path, "wb") as f:
+        f.write(data)
+
+
 def resolve_workflow_name(workflow_dir, name, allow_create=False):
     """The on-disk path for a workflow name, confined to workflow_dir."""
     if not name.endswith(".json"):
@@ -198,6 +204,15 @@ def resolve_workflow_reference(workflow_dir, workflow_path):
     try:
         return resolve_workflow_name(workflow_dir, workflow_path)
     except HTTPException:
+        pass
+    # Not a stored name. A path relative to the server's cwd - the shape the
+    # Workflow page submits when --workflow-dir is itself relative, e.g.
+    # './workflows/x.json' against './workflows' - would double the directory
+    # if joined onto workflow_dir, so it is resolved from the cwd and then
+    # held to the same containment check.
+    try:
+        return validate_path(os.path.abspath(workflow_path), workflow_dir)
+    except SecurityError:
         raise HTTPException(
             status_code=400,
             detail=f"workflow_path must name a workflow under the workflow "
@@ -301,6 +316,12 @@ def _historical_log_note(stored):
 # of what --host is configured to - a loopback request always presents one
 # of these regardless of the server's own bind address.
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+# Bind addresses that mean "every interface" - a request never carries one
+# of these as its Host, so they define no allowlist
+WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
+# Routes a browser loads without being able to set headers (EventSource, an
+# <img> tag); these alone accept the bearer token as a ?token= query param
+QUERY_TOKEN_ROUTE_SUFFIXES = ("/events", "/thumbnail")
 
 
 def create_app(
@@ -362,6 +383,10 @@ def create_app(
     # by itself (the Origin check already does, since a browser's Origin
     # header reflects the real requesting origin regardless of DNS) - it
     # only closes the gap for non-browser clients that never send Origin.
+    # A wildcard bind is reached by whatever address the machine has - a LAN
+    # IP, a hostname - never by the bind string itself, so there is no
+    # allowlist to build; the Host check is skipped for it.
+    wildcard_bind = host in WILDCARD_HOSTS
     allowed_hosts = set(LOOPBACK_HOSTS)
     if host:
         allowed_hosts.add(host.lower())
@@ -369,7 +394,11 @@ def create_app(
     @app.middleware("http")
     async def reject_foreign_hosts(request, call_next):
         hostname = request.url.hostname
-        if hostname is not None and hostname.lower() not in allowed_hosts:
+        if (
+            not wildcard_bind
+            and hostname is not None
+            and hostname.lower() not in allowed_hosts
+        ):
             return JSONResponse(
                 status_code=400,
                 content={"detail": "Unrecognized Host header"},
@@ -383,9 +412,10 @@ def create_app(
         <img>/<script> tag cannot attach an Authorization header anyway)
         stay reachable so the page can load far enough to let a user enter
         the token in the first place. EventSource cannot set custom headers
-        either, so the SSE events route additionally accepts the token as a
-        `token` query parameter - a documented trade-off, not a header-auth
-        peer."""
+        either, and neither can the <img> tags the gallery grid loads its
+        thumbnails through, so those two routes additionally accept the
+        token as a `token` query parameter - a documented trade-off, not a
+        header-auth peer."""
         if not token:
             return await call_next(request)
         path = request.url.path
@@ -395,9 +425,12 @@ def create_app(
         auth = request.headers.get("authorization", "")
         if auth.lower().startswith("bearer "):
             provided = auth[len("bearer ") :].strip()
-        if provided is None and path.endswith("/events"):
+        if provided is None and path.endswith(QUERY_TOKEN_ROUTE_SUFFIXES):
             provided = request.query_params.get("token")
-        if provided is None or not secrets.compare_digest(provided, token):
+        # compared as bytes: compare_digest refuses non-ASCII str
+        if provided is None or not secrets.compare_digest(
+            provided.encode("utf-8"), token.encode("utf-8")
+        ):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Missing or invalid bearer token"},
@@ -930,7 +963,7 @@ def create_app(
         return {"name": name, "metadata": metadata, "job": job}
 
     @app.get("/api/gallery/{name:path}/thumbnail")
-    def gallery_thumbnail(name: str):
+    def gallery_thumbnail(name: str, request: Request):
         """A small JPEG rendition of an image output, for the grid - the
         full-resolution file is only fetched for the detail/lightbox view.
         Generated on demand rather than cached to disk, so it never grows
@@ -941,21 +974,36 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail="Thumbnails are only generated for images"
             )
+        # The file's mtime and size are the validator: the grid re-requests
+        # every visible thumbnail on each visit, and a 304 skips the
+        # decode/resize/encode; a rerun that overwrites the file changes it
+        stat = os.stat(path)
+        etag = f'"{stat.st_mtime_ns:x}-{stat.st_size:x}"'
+        cache_headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=cache_headers)
         try:
             from PIL import Image
 
             with Image.open(path) as image:
-                image = image.convert("RGB")
+                # shrink first (JPEGs decode at reduced size via draft), then
+                # convert - converting a full-resolution image only to
+                # discard most of it is the expensive order
+                image.draft(
+                    "RGB", (GALLERY_THUMBNAIL_MAX_DIM, GALLERY_THUMBNAIL_MAX_DIM)
+                )
                 image.thumbnail((GALLERY_THUMBNAIL_MAX_DIM, GALLERY_THUMBNAIL_MAX_DIM))
+                image = image.convert("RGB")
                 buffer = io.BytesIO()
                 image.save(buffer, format="JPEG", quality=80)
-        except HTTPException:
-            raise
-        except Exception as e:
+        except (OSError, ValueError) as e:
+            # what PIL raises for an unreadable or corrupt file
             raise HTTPException(
                 status_code=500, detail=f"Could not generate thumbnail: {e}"
             )
-        return Response(content=buffer.getvalue(), media_type="image/jpeg")
+        return Response(
+            content=buffer.getvalue(), media_type="image/jpeg", headers=cache_headers
+        )
 
     @app.delete("/api/gallery/{name:path}")
     def delete_output(name: str):
@@ -986,6 +1034,14 @@ def create_app(
                 status_code=400, detail=f"File extension not allowed: {extension}"
             )
 
+        # Refuse an oversized upload from its declared length, before
+        # reading a single byte of it
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Upload too large: {declared} > {MAX_UPLOAD_BYTES}",
+            )
         body = await request.body()
         if not body:
             raise HTTPException(status_code=400, detail="Empty upload")
@@ -1003,8 +1059,9 @@ def create_app(
         except SecurityError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        with open(dest, "wb") as f:
-            f.write(body)
+        # Off the event loop: a 200 MB write would otherwise stall every SSE
+        # stream and poll for its duration
+        await run_in_threadpool(_write_bytes, dest, body)
         logger.info(f"Saved upload {filename!r} -> {dest}")
         return {
             "path": dest,

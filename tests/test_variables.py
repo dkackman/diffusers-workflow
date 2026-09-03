@@ -167,3 +167,18 @@ def test_set_variables_unknown_name_raises():
     assert "promt" in message
     assert "prompt" in message
     assert "steps" in message
+
+
+def test_set_variables_string_override_of_a_dict_default_passes_through():
+    """Media variables are commonly declared as {'location': ...}; a user
+    overriding one with a plain path string (dw-run image=/tmp/cat.png)
+    must not be coerced with dict('/tmp/cat.png') and refused."""
+    variables = {"image": {"location": "https://example/x.png"}}
+    set_variables({"image": "/tmp/cat.png"}, variables)
+    assert variables["image"] == "/tmp/cat.png"
+
+
+def test_set_variables_string_override_of_a_null_default_passes_through():
+    variables = {"mask": None}
+    set_variables({"mask": "masks/a.png"}, variables)
+    assert variables["mask"] == "masks/a.png"

@@ -102,7 +102,9 @@ def main():
 
     logger = logging.getLogger("dw")
 
-    if args.host not in ("127.0.0.1", "localhost", "::1") and not token:
+    from .server.app import LOOPBACK_HOSTS
+
+    if args.host not in LOOPBACK_HOSTS and not token:
         logger.warning(
             "Binding to %s with no API token configured (--token or "
             "DW_API_TOKEN) - anything that can reach this address can "
@@ -117,7 +119,8 @@ def main():
     from .server.app import default_ui_dir
 
     app = create_app(
-        workflow_dir=args.workflow_dir,
+        # absolute, so the path the UI hands back on submit is unambiguous
+        workflow_dir=os.path.abspath(args.workflow_dir),
         output_dir=args.output_dir,
         log_level=args.log_level,
         prompt_dir=prompt_dir,

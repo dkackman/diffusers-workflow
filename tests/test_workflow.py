@@ -289,3 +289,30 @@ class TestGlobalRngIsolation:
         state = torch.get_rng_state()
         self.run_empty_workflow({"id": "w", "steps": []})
         assert torch.equal(state, torch.get_rng_state())
+
+
+def test_workflow_validation_error_names_the_json_path_once(tmp_path):
+    """Every entry point - the CLI, the server's /api/validate, a job load -
+    goes through Workflow.validate(); the message it raises must name where
+    in the document the failure is, and carry the prefix exactly once."""
+    from dw.workflow import Workflow
+
+    definition = {
+        "id": "bad",
+        "steps": [
+            {
+                "name": "gen",
+                "seed": "not-a-number",
+                "pipeline": {
+                    "configuration": {"component_type": "{Fake}"},
+                    "from_pretrained_arguments": {"model_name": "m"},
+                    "arguments": {},
+                },
+            }
+        ],
+    }
+    with pytest.raises(Exception) as exc_info:
+        Workflow(definition, str(tmp_path), "").validate()
+    message = str(exc_info.value)
+    assert "steps[0].seed" in message
+    assert message.count("Validation error") == 1

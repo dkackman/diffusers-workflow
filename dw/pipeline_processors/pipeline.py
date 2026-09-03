@@ -16,7 +16,10 @@ from .remote import remote_text_encoder
 from ..cache_blocks import register_cache_blocks
 from ..teacache import teacache_context
 from ..type_helpers import has_method
-from ..security import require_trusted_pre_load_modules
+from ..security import (
+    require_trusted_from_pretrained_arguments,
+    require_trusted_pre_load_modules,
+)
 from .. import empty_device_cache, get_device_type, resolve_device
 from diffusers import attention_backend
 
@@ -1515,6 +1518,10 @@ def load_component(
     component_type = configuration["component_type"]
     component = None
 
+    # Refused before anything reaches the Hub: an untrusted workflow must not
+    # be able to have diffusers fetch and run code on its behalf
+    require_trusted_from_pretrained_arguments(from_pretrained_arguments, component_name)
+
     # A standard pipeline takes a component as a constructor argument. A modular one
     # cannot: it is built from the component specs in its own index and given the
     # objects afterwards, which is also what keeps load_components() from pulling a
@@ -1606,15 +1613,16 @@ def load_component(
             component, component_name, configuration, device, components_manager
         )
 
-    except HfHubHTTPError as e:
+    except Exception as e:
         # 401/403 from the Hub means the account behind whatever token (or
         # lack of one) HfApi is using cannot read this repo - almost always
         # a gated model the user has not requested access to, or has not
-        # logged in for. Every other status (a real outage, a bad repo id
-        # diffusers itself reports differently) falls through unchanged
-        # below, so this narrows to exactly the actionable case
-        status_code = getattr(getattr(e, "response", None), "status_code", None)
-        if status_code in (401, 403):
+        # logged in for. A whole-pipeline load raises the HfHubHTTPError
+        # itself; a per-component load gets it wrapped in an EnvironmentError
+        # by diffusers' _get_model_file / transformers' cached_file, so the
+        # cause chain is searched. Every other error (a real outage, a bad
+        # repo id) is logged once with its traceback and re-raised unchanged
+        if _hub_auth_status(e) is not None:
             repo = model_name or component_name
             logger.error(
                 f"Hugging Face authentication required loading {component_name} "
@@ -1628,11 +1636,20 @@ def load_component(
             ) from e
         logger.error(f"{type(e).__name__} loading {component_name}: {e}", exc_info=True)
         raise
-    except Exception as e:
-        # One log line with the full traceback - every error class was logged
-        # and re-raised identically
-        logger.error(f"{type(e).__name__} loading {component_name}: {e}", exc_info=True)
-        raise
+
+
+def _hub_auth_status(error):
+    """The 401/403 status an exception (or anything in its cause/context
+    chain) carries from the Hub, else None."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, HfHubHTTPError):
+            status = getattr(getattr(error, "response", None), "status_code", None)
+            if status in (401, 403):
+                return status
+        error = error.__cause__ or error.__context__
+    return None
 
 
 def apply_sdnq_optimizations(pipeline, component_names):

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { Upload } from '@lucide/svelte'
   import { api } from '../api'
   import type { MediaKind } from '../editor'
@@ -38,6 +39,12 @@
     if (localPreview.startsWith('blob:')) URL.revokeObjectURL(localPreview)
     localPreview = url
   }
+
+  // A blob URL pins the picked file's bytes until it is revoked; a failed
+  // upload or navigating away mid-upload would otherwise leak it
+  onDestroy(() => {
+    if (localPreview.startsWith('blob:')) URL.revokeObjectURL(localPreview)
+  })
 
   async function pick(e: Event & { currentTarget: HTMLInputElement }) {
     const file = e.currentTarget.files?.[0]
@@ -89,7 +96,9 @@
   {#if uploading}
     <div class="muted status">uploading…</div>
   {:else if error}
-    <div class="warn status">{error} - path above can still be typed by hand</div>
+    <div class="warn status">
+      {error} - path above can still be typed by hand
+    </div>
   {/if}
   {#if previewSrc}
     <div class="preview">

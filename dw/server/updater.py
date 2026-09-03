@@ -19,7 +19,7 @@ import threading
 import time
 from pathlib import Path
 
-from ..security import sanitize_command_args, validate_commit_hash
+from ..security import sanitize_command_args
 
 logger = logging.getLogger("dw")
 

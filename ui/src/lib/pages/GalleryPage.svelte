@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { FolderOpen, ImageOff, Trash2, X } from '@lucide/svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
@@ -50,10 +51,13 @@
   }
 
   // Reload from the top whenever the folder filter changes; runs once more
-  // on mount for the initial load
+  // on mount for the initial load. load() reads and later writes
+  // `loading`/`offset`/`files`, and an effect that depended on those would
+  // re-run on every completed fetch - untrack keeps `folder` the only
+  // dependency
   $effect(() => {
     void folder
-    load(true)
+    untrack(() => load(true))
   })
 
   $effect(() => {
@@ -151,7 +155,11 @@
   <h1>Gallery</h1>
   <span class="muted">{files.length} of {total} loaded</span>
   {#if folders.length > 1}
-    <select class="folder" bind:value={folder} title="filter by source workflow folder">
+    <select
+      class="folder"
+      bind:value={folder}
+      title="filter by source workflow folder"
+    >
       <option value="">all folders</option>
       {#each folders as f (f)}
         <option value={f === '' ? '(root)' : f}
@@ -192,7 +200,9 @@
       {:else}
         <span class="audio">♪ {file.label}</span>
       {/if}
-      <span class="caption" title={file.folder ? `${file.folder}/${file.label}` : file.label}
+      <span
+        class="caption"
+        title={file.folder ? `${file.folder}/${file.label}` : file.label}
         >{file.folder ? `${file.folder}/` : ''}{file.label}</span
       >
     </button>

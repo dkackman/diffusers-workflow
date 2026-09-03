@@ -31,6 +31,7 @@ which is why the client needs a command it can actually find (see below).
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--url` | `$DW_MCP_URL`, else `http://127.0.0.1:8765` | Base URL of the running `dw.serve` |
+| `--token` | `$DW_API_TOKEN`, else none | Bearer token, when `dw.serve` was started with `--token` / `DW_API_TOKEN` - the same variable, so one export configures both ends |
 | `--timeout` | `30` | Seconds to wait on any one API request |
 
 The `DW_MCP_URL` environment variable sets the same default the `--url` flag

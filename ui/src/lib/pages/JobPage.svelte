@@ -1,6 +1,6 @@
 <script lang="ts">
   import { RotateCw, TriangleAlert, X } from '@lucide/svelte'
-  import { api, streamJobEvents } from '../api'
+  import { api, outputUrl, streamJobEvents } from '../api'
   import { go } from '../router.svelte'
   import { groupResultFiles } from '../results'
   import { stepProgress } from '../progress'
@@ -113,10 +113,7 @@
   // Two runs of a workflow write the same file names, so the job id rides
   // along - without it the browser shows this job the image it cached from
   // the previous one
-  function fileUrl(path: string) {
-    const name = encodeURIComponent(path.split('/').pop() ?? '')
-    return `/outputs/${name}?v=${encodeURIComponent(job?.id ?? '')}`
-  }
+  const fileUrl = (path: string) => outputUrl(path, job?.id ?? '')
   const isVideo = (path: string) => /\.(mp4|webm)$/i.test(path)
   const isImage = (path: string) => /\.(png|jpe?g|webp|gif)$/i.test(path)
 </script>

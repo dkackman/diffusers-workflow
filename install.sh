@@ -135,26 +135,33 @@ python -m pip install --upgrade pip
 # satisfied and leaves it alone. torchaudio is deliberately absent: nothing
 # in dw imports it.
 #
-# PyPI's wheels are CPU-only on Linux (no CUDA), but are the correct choice
-# on macOS (MPS support is built in there). So on Linux we probe for an
-# actual working NVIDIA driver via nvidia-smi and, if found, point pip at
-# the CUDA build index instead of letting it fall through to the CPU wheel.
+# On macOS PyPI's wheel is the right one (MPS support is built in). On
+# Linux, PyPI's wheel bundles a CUDA 12.x runtime; pytorch.org's cu130
+# index carries a CUDA 13 build that needs a newer driver (>= 580). So we
+# probe for a working NVIDIA driver via nvidia-smi and, if found, read the
+# CUDA version it supports: a CUDA 13-capable driver gets the cu130 build,
+# an older one stays on PyPI's CUDA 12 wheel rather than a build its driver
+# cannot load (which would silently fall back to the CPU).
 if $MACOS; then
   echo "macOS detected - installing torch with MPS support"
   pip install torch torchvision
 else
-  CUDA_AVAILABLE=false
+  DRIVER_CUDA=""
   # `command -v` alone only proves the binary exists; a stale/broken driver
   # can leave nvidia-smi installed but failing, so also require it to run.
   if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
-    CUDA_AVAILABLE=true
+    DRIVER_CUDA=$(nvidia-smi 2>/dev/null | grep -o 'CUDA Version: [0-9]*' | grep -o '[0-9]*$' || true)
+    DRIVER_CUDA=${DRIVER_CUDA:-12}
   fi
 
-  if $CUDA_AVAILABLE; then
-    echo "CUDA detected - installing GPU-enabled torch (cu130)"
+  if [ -z "$DRIVER_CUDA" ]; then
+    echo "No CUDA GPU detected - installing CPU-only torch"
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+  elif [ "$DRIVER_CUDA" -ge 13 ]; then
+    echo "CUDA $DRIVER_CUDA driver detected - installing GPU-enabled torch (cu130)"
     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
   else
-    echo "No CUDA GPU detected - installing CPU-only torch"
+    echo "CUDA $DRIVER_CUDA driver detected - installing PyPI torch (bundled CUDA 12 runtime)"
     pip install torch torchvision
   fi
 fi

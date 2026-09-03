@@ -54,6 +54,11 @@ def load_constant_from_name(name):
         ImportError: If no leading part of the name names a module
         AttributeError: If the module has no such attribute
     """
+    # A dotted constant imports the module it names before anything reads
+    # the attribute - the same code-execution surface as a dotted type
+    if "." in name:
+        require_trusted_dotted_name(name, "a constant: reference")
+
     parts = name.split(".")
 
     module, attributes = None, parts

@@ -21,6 +21,28 @@ import { getApiToken } from './token'
 const encodePath = (name: string) =>
   name.split('/').map(encodeURIComponent).join('/')
 
+/** Append the configured API token as a query parameter. Only for the
+ * routes a browser loads without being able to set headers - EventSource
+ * and <img> tags - which the server accepts it on; see docs/SERVER.md. */
+function withToken(url: string): string {
+  const token = getApiToken()
+  if (!token) return url
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}token=${encodeURIComponent(token)}`
+}
+
+/** The URL an output file is served from. Jobs report files by their name
+ * relative to the output directory - a workflow under a subfolder writes
+ * to '<sub>/<file>' - so the whole relative path is kept. A job recorded
+ * before that change carries an absolute path, for which the basename is
+ * the best available guess. `version` busts the browser cache: two runs of
+ * one workflow write the same file names. */
+export function outputUrl(path: string, version?: string): string {
+  const name = path.startsWith('/') ? (path.split('/').pop() ?? '') : path
+  const url = `/outputs/${encodePath(name)}`
+  return version === undefined ? url : `${url}?v=${encodeURIComponent(version)}`
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getApiToken()
   const headers = new Headers(init?.headers)
@@ -131,7 +153,8 @@ export const api = {
       metadata: Record<string, unknown> | null
       job: { id: string; status: string } | null
     }>(`/api/gallery/${encodePath(name)}/metadata`),
-  galleryThumbnailUrl: (name: string) => `/api/gallery/${encodePath(name)}/thumbnail`,
+  galleryThumbnailUrl: (name: string) =>
+    withToken(`/api/gallery/${encodePath(name)}/thumbnail`),
   deleteOutput: (name: string) =>
     request<{ name: string; deleted: boolean }>(
       `/api/gallery/${encodePath(name)}`,
@@ -216,7 +239,7 @@ export const api = {
  * comes back, since the manifest only names files. */
 export async function fetchOutputText(path: string): Promise<string> {
   const name = path.split('/').pop() ?? ''
-  const response = await fetch('/outputs/' + encodeURIComponent(name))
+  const response = await fetch(outputUrl(path))
   if (!response.ok) throw new Error(`Could not read ${name}`)
   return response.text()
 }
@@ -234,10 +257,8 @@ export function streamJobEvents(
 ): () => void {
   // EventSource cannot set custom headers, so a configured token rides
   // along as a query parameter for this one route - see docs/SERVER.md.
-  const token = getApiToken()
-  const tokenParam = token ? `&token=${encodeURIComponent(token)}` : ''
   const source = new EventSource(
-    `/api/jobs/${jobId}/events?after=${after}${tokenParam}`,
+    withToken(`/api/jobs/${jobId}/events?after=${after}`),
   )
   source.onmessage = (message) => {
     const event: JobEvent = JSON.parse(message.data)

@@ -32,7 +32,7 @@ python -m dw.repl
 # HTTP server + web UI (http://127.0.0.1:8765, API docs at /docs)
 python -m dw.serve
 
-# Run all tests (1,600+ tests)
+# Run all tests (2,000+ tests)
 pytest -v
 
 # Run a single test file or test
