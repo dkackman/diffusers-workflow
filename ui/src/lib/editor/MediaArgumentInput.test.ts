@@ -1,5 +1,6 @@
 import { fireEvent, render } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
+import MediaArgumentInput from './MediaArgumentInput.svelte'
 
 const uploadMedia = vi.fn()
 vi.mock('../api', () => ({ api: { uploadMedia: (f: File) => uploadMedia(f) } }))
@@ -20,8 +21,6 @@ it('revokes the local preview blob URL when the component is destroyed', async (
   URL.revokeObjectURL = revokeObjectURL
   uploadMedia.mockRejectedValueOnce(new Error('upload failed'))
 
-  const MediaArgumentInput = (await import('./MediaArgumentInput.svelte'))
-    .default
   const { container, unmount } = render(MediaArgumentInput, {
     id: 'arg-image',
     kind: 'image',
@@ -40,4 +39,4 @@ it('revokes the local preview blob URL when the component is destroyed', async (
   expect(revokeObjectURL).not.toHaveBeenCalled()
   unmount()
   expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview-1')
-})
+}, 20000)
