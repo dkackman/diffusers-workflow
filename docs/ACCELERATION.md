@@ -279,6 +279,26 @@ Both `storage_dtype` and `compute_dtype` are required. Applied via the component
 
 **Example:** [FluxDev.json](../workflows/flux/FluxDev.json) (`"offload": "model"`), [ZImage.json](../workflows/ZImage.json) (`"offload": "sequential"`), [MiniMaxH3.json](../workflows/minimax/MiniMaxH3.json) (`group_offload` per component), [MiniMaxH3Ref2VA.json](../workflows/minimax/MiniMaxH3Ref2VA.json) (`group_offload` for the transformer, `on_demand` for the VAEs)
 
+### Cross-step eviction priority
+
+Multiple `residency: on_demand` components across different steps of one
+workflow share a single process-wide memory manager. If a second on-demand
+component can't fit on the accelerator alongside a resident one, the
+manager evicts the lowest-priority, least-recently-used resident and
+retries - rather than failing the run. Set `residency_priority` (default
+`1`, higher survives longer) on a component's configuration to protect it:
+
+```json
+"components": {
+    "text_encoder": {
+        "configuration": { "residency": "on_demand", "residency_priority": 5 }
+    }
+}
+```
+
+This only applies to `residency: on_demand` - `offload: model`/`sequential`
+and `group_offload` install diffusers' own hooks and are unaffected.
+
 ## TF32 and cuDNN
 
 Device-level settings, read once at startup from `~/.diffusers_helper/settings.json`:
