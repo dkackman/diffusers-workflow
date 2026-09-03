@@ -36,20 +36,28 @@ from .security import (
 logger = logging.getLogger("dw")
 
 
-def workflow_from_file(file_spec, output_dir):
-    """Loads a workflow from a JSON file with security validation"""
+def workflow_from_file(file_spec, output_dir, workflow_dir=None):
+    """Loads a workflow from a JSON file with security validation.
+
+    workflow_dir, when given, confines file_spec (and, via the returned
+    Workflow, any sub-workflow steps it references) to that directory - the
+    server passes its configured workflow_dir so a caller cannot escape it
+    via an inline workflow's base_dir or a sub-workflow step's path. CLI/REPL
+    callers leave it None: a locally-run workflow file is not a trust
+    boundary.
+    """
     logger.debug(f"Loading workflow from file: {file_spec}")
 
     try:
         # Validate file path and size
-        validated_path = validate_workflow_path(file_spec)
+        validated_path = validate_workflow_path(file_spec, workflow_dir)
         validate_json_size(validated_path)
         validated_output = validate_output_path(output_dir, None)
 
         with open(validated_path, "r") as file:
             workflow_data = json.load(file)
 
-        return Workflow(workflow_data, validated_output, validated_path)
+        return Workflow(workflow_data, validated_output, validated_path, workflow_dir)
 
     except SecurityError as e:
         logger.error(f"Security validation failed for workflow {file_spec}: {e}")
@@ -59,25 +67,33 @@ def workflow_from_file(file_spec, output_dir):
         raise
 
 
-def workflow_from_definition(workflow_definition, output_dir, base_dir=None):
+def workflow_from_definition(
+    workflow_definition, output_dir, base_dir=None, workflow_dir=None
+):
     """A Workflow from an inline definition (no file on disk).
 
     The synthetic '__inline__.json' file_spec exists only to carry the
     directory that relative paths inside the definition resolve against.
     base_dir is caller-supplied (over HTTP, client-supplied) path-shaped
-    input, so it goes through the security validator like every other path.
+    input, so it goes through the security validator like every other path -
+    confined to workflow_dir when the caller gives one, same as file_spec in
+    workflow_from_file, so a client cannot point an inline workflow's assets
+    (or a sub-workflow step it defines) anywhere on disk.
     """
     validated_output = validate_output_path(output_dir, None)
     if base_dir:
-        validated_base = validate_path(base_dir, allow_create=False)
+        validated_base = validate_path(base_dir, workflow_dir, allow_create=False)
         if not os.path.isdir(validated_base):
             raise InvalidInputError(f"base_dir is not a directory: {base_dir}")
     else:
-        validated_base = os.getcwd()
+        # A confined run without a base_dir rests at the boundary itself, so
+        # the worker's re-validation of the stored base_dir agrees with this one
+        validated_base = os.path.abspath(workflow_dir) if workflow_dir else os.getcwd()
     return Workflow(
         workflow_definition,
         validated_output,
         os.path.join(validated_base, "__inline__.json"),
+        workflow_dir,
     )
 
 
@@ -180,10 +196,14 @@ class Workflow:
     Handles variable substitution, step execution, and result management
     """
 
-    def __init__(self, workflow_definition, output_dir, file_spec):
+    def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
         self.output_dir = output_dir
         self.file_spec = file_spec
+        # Confines sub-workflow step resolution (below) when set - the
+        # server passes its configured workflow_dir; CLI/REPL callers leave
+        # it None since a locally-run workflow is not a trust boundary
+        self.workflow_dir = workflow_dir
 
     @property
     def name(self):
@@ -569,6 +589,9 @@ class Workflow:
             path = workflow_reference["path"]
 
             try:
+                # Sub-workflow steps are confined to the same directory this
+                # workflow is (workflow_dir for a server-submitted run)
+                confine_to = self.workflow_dir
                 # Handle built-in workflows
                 if path.startswith("builtin:"):
                     builtin_name = path.replace("builtin:", "")
@@ -581,19 +604,25 @@ class Workflow:
                         raise InvalidInputError(
                             f"Invalid builtin workflow name: {builtin_name}"
                         )
-                    path = os.path.join(
-                        os.path.dirname(os.path.abspath(__file__)),
-                        "workflows",
-                        builtin_name,
+                    # Builtins ship inside the package, outside any
+                    # workflow_dir - confine them to their own directory
+                    # instead (the name check above already forbids escaping it)
+                    confine_to = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)), "workflows"
                     )
+                    path = os.path.join(confine_to, builtin_name)
                 # Handle relative paths
                 elif not os.path.isabs(path):
                     base_dir = os.path.dirname(self.file_spec)
                     path = os.path.join(base_dir, path)
 
-                # Validate the resolved path
-                validated_path = validate_workflow_path(path)
-                workflow = workflow_from_file(validated_path, self.output_dir)
+                # Validate the resolved path - confined when this workflow
+                # itself is (an inline/server-submitted run), so a
+                # sub-workflow step cannot escape that boundary
+                validated_path = validate_workflow_path(path, confine_to)
+                workflow = workflow_from_file(
+                    validated_path, self.output_dir, confine_to
+                )
 
             except SecurityError as e:
                 logger.error(f"Security validation failed for sub-workflow {path}: {e}")

@@ -106,7 +106,7 @@ def test_inline_workflow_definition_executes():
     worker = _make_worker()
     with patch(
         "dw.worker.workflow_from_definition",
-        lambda data, out, base_dir=None: StubWorkflow(),
+        lambda data, out, base_dir=None, workflow_dir=None: StubWorkflow(),
     ):
         worker._handle_execute(
             {

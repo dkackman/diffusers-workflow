@@ -1121,9 +1121,14 @@ def test_inline_base_dir_is_validated(server, tmp_path):
         # nothing reached the worker
         assert client.app.state.job_manager.worker_manager.commands == []
 
-        # a real directory is accepted
+        # a real directory under workflow_dir is accepted (tmp_path itself is
+        # its parent, outside the confinement)
         good = client.post(
-            "/api/jobs", json={"workflow": valid_workflow(), "base_dir": str(tmp_path)}
+            "/api/jobs",
+            json={
+                "workflow": valid_workflow(),
+                "base_dir": str(tmp_path / "workflows"),
+            },
         )
         assert good.status_code == 201
         wait_for_status(client, good.json()["id"], ["succeeded"])
@@ -2282,3 +2287,40 @@ def test_gallery_thumbnails_are_cacheable(server, tmp_path):
         )
         assert changed.status_code == 200
         assert changed.headers.get("etag") != etag
+
+
+class TestInlineJobConfinement:
+    """The worker re-validates an inline job's base_dir against workflow_dir,
+    so what submit accepts must be what the worker accepts."""
+
+    def test_inline_job_without_base_dir_is_accepted_by_the_worker(
+        self, server, tmp_path
+    ):
+        from dw.workflow import workflow_from_definition
+
+        with server(success_script) as client:
+            job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+            wait_for_status(client, job["id"], TERMINAL_STATES)
+            manager = client.app.state.job_manager
+            command = manager.worker_manager.commands[0]
+
+        assert command["workflow_dir"] == str(tmp_path / "workflows")
+        # The worker's own load must agree with submit-time validation
+        workflow_from_definition(
+            command["workflow"],
+            str(tmp_path / "outputs"),
+            command["base_dir"],
+            command["workflow_dir"],
+        )
+
+    def test_inline_job_base_dir_outside_workflow_dir_is_rejected(
+        self, server, tmp_path
+    ):
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        with server(success_script) as client:
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow(), "base_dir": str(elsewhere)},
+            )
+        assert response.status_code == 400

@@ -344,7 +344,19 @@ def create_app(
     its own requests). `token`, if given, is a static bearer token required
     on every /api/* request - see require_bearer_token below.
     """
-    manager = job_manager or JobManager(output_dir, log_level=log_level)
+    manager = job_manager or JobManager(
+        output_dir, log_level=log_level, workflow_dir=workflow_dir
+    )
+    # An injected manager must confine jobs to the same workflow_dir the
+    # routes do, or /api/validate and /api/jobs would enforce different
+    # boundaries
+    if manager.workflow_dir is None:
+        manager.workflow_dir = workflow_dir
+    elif manager.workflow_dir != workflow_dir:
+        raise ValueError(
+            "job_manager.workflow_dir must match the app's workflow_dir: "
+            f"{manager.workflow_dir!r} != {workflow_dir!r}"
+        )
 
     @asynccontextmanager
     async def lifespan(app):
@@ -653,6 +665,7 @@ def create_app(
                         app.state.workflow_dir, request.workflow_path
                     ),
                     manager.output_dir,
+                    app.state.workflow_dir,
                 )
                 definition = candidate.workflow_definition
             else:
@@ -661,6 +674,7 @@ def create_app(
                     copy.deepcopy(request.workflow),
                     manager.output_dir,
                     request.base_dir,
+                    app.state.workflow_dir,
                 )
         except HTTPException:
             raise
@@ -705,7 +719,12 @@ def create_app(
         if request.workflow is None:
             raise HTTPException(status_code=400, detail="Provide an inline workflow")
         path = resolve_workflow_name(app.state.workflow_dir, name, allow_create=True)
-        candidate = Workflow(copy.deepcopy(request.workflow), manager.output_dir, path)
+        candidate = Workflow(
+            copy.deepcopy(request.workflow),
+            manager.output_dir,
+            path,
+            app.state.workflow_dir,
+        )
         try:
             candidate.validate()
         except Exception as e:

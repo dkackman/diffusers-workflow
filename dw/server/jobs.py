@@ -173,7 +173,7 @@ class JobHistory:
         def parse(text, fallback):
             try:
                 return json.loads(text)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return fallback
 
         return {
@@ -265,9 +265,17 @@ class JobManager:
     """Serializes job execution onto the one GPU worker process."""
 
     def __init__(
-        self, output_dir, log_level="INFO", worker_manager=None, history_path=None
+        self,
+        output_dir,
+        log_level="INFO",
+        worker_manager=None,
+        history_path=None,
+        workflow_dir=None,
     ):
         self.output_dir = validate_output_path(output_dir, None)
+        # Confines workflow_path/base_dir/sub-workflow resolution for every
+        # job this manager submits - the server's configured workflow_dir
+        self.workflow_dir = workflow_dir
         os.makedirs(self.output_dir, exist_ok=True)
         self.log_level = log_level
         self.worker_manager = worker_manager or WorkerManager()
@@ -301,25 +309,36 @@ class JobManager:
         if workflow_path is not None:
             # Loads and schema-validates now - a bad path or file fails the
             # request, not the queue
-            loaded = workflow_from_file(workflow_path, self.output_dir)
+            loaded = workflow_from_file(
+                workflow_path, self.output_dir, self.workflow_dir
+            )
             loaded.validate()
             spec = {
                 "workflow_path": workflow_path,
                 "workflow_name": loaded.name,
                 "arguments": arguments,
+                "workflow_dir": self.workflow_dir,
             }
         else:
             # workflow_from_definition validates base_dir - it is HTTP-supplied
             # path input and goes through the security layer like every path
             loaded = workflow_from_definition(
-                copy.deepcopy(workflow), self.output_dir, base_dir
+                copy.deepcopy(workflow), self.output_dir, base_dir, self.workflow_dir
             )
             loaded.validate()
             spec = {
                 "workflow": workflow,
-                "base_dir": base_dir or os.getcwd(),
+                # Must match workflow_from_definition's fallback - the worker
+                # re-validates this against workflow_dir
+                "base_dir": base_dir
+                or (
+                    os.path.abspath(self.workflow_dir)
+                    if self.workflow_dir
+                    else os.getcwd()
+                ),
                 "workflow_name": loaded.name,
                 "arguments": arguments,
+                "workflow_dir": self.workflow_dir,
             }
 
         # Signature-level check of pipeline arguments - the typo that would
@@ -512,6 +531,7 @@ class JobManager:
                 else:
                     command["workflow"] = job.spec["workflow"]
                     command["base_dir"] = job.spec["base_dir"]
+                command["workflow_dir"] = job.spec.get("workflow_dir")
                 self.worker_manager.send_command(command)
                 outcome = self._consume_results(job)
             except Exception as e:
