@@ -1121,9 +1121,14 @@ def test_inline_base_dir_is_validated(server, tmp_path):
         # nothing reached the worker
         assert client.app.state.job_manager.worker_manager.commands == []
 
-        # a real directory is accepted
+        # a real directory under workflow_dir is accepted (tmp_path itself is
+        # its parent, outside the confinement)
         good = client.post(
-            "/api/jobs", json={"workflow": valid_workflow(), "base_dir": str(tmp_path)}
+            "/api/jobs",
+            json={
+                "workflow": valid_workflow(),
+                "base_dir": str(tmp_path / "workflows"),
+            },
         )
         assert good.status_code == 201
         wait_for_status(client, good.json()["id"], ["succeeded"])
@@ -2192,6 +2197,91 @@ def test_gallery_thumbnail_accepts_the_token_as_a_query_param(tmp_path):
         assert client.get("/api/health?token=s3cr3t").status_code == 401
 
 
+def test_download_routes_accept_the_token_as_a_query_param(tmp_path):
+    """Download buttons are plain `<a href download>` navigations, which
+    cannot carry an Authorization header - so like the thumbnail route, the
+    download routes take the token as a query parameter."""
+    from PIL import Image
+
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    Image.new("RGB", (64, 64), "red").save(outputs / "big.png")
+    manager = JobManager(
+        str(outputs),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(outputs),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        token="s3cr3t",
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/api/gallery/big.png/download").status_code == 401
+        assert (
+            client.get("/api/gallery/big.png/download?token=s3cr3t").status_code == 200
+        )
+        assert (
+            client.get("/api/gallery/big.png/download?token=wrong").status_code == 401
+        )
+
+
+def test_query_token_is_matched_per_route_not_by_path_suffix(tmp_path):
+    """A resource literally named 'download' must not borrow the query-token
+    allowance meant for the /download route - only the five routes marked
+    query_token_ok accept ?token=, matched by the actual route, not by
+    whether the path happens to end in a magic suffix."""
+    from PIL import Image
+
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    Image.new("RGB", (64, 64), "red").save(outputs / "big.png")
+    manager = JobManager(
+        str(outputs),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(outputs),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        token="s3cr3t",
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        # a prompt literally named "download" must not inherit the
+        # /api/prompts/{name}/download route's query-token allowance
+        prompt = {"text": "a red fox at dawn"}
+        put = client.put(
+            "/api/prompts/download",
+            json={"prompt": prompt},
+            headers={"Authorization": "Bearer s3cr3t"},
+        )
+        assert put.status_code == 200
+        assert client.get("/api/prompts/download?token=s3cr3t").status_code == 401
+
+        # the real thumbnail route still works with a query token
+        assert (
+            client.get("/api/gallery/big.png/thumbnail?token=s3cr3t").status_code == 200
+        )
+        # ...including on HEAD: FastAPI's APIRoute registers GET only (it
+        # does not add HEAD), so this 404s rather than reaching the
+        # middleware. The middleware's GET-or-HEAD branch is forward-looking
+        # for if that ever changes.
+        head = client.head("/api/gallery/big.png/thumbnail?token=s3cr3t")
+        assert head.status_code == 404
+
+        # a state-changing POST route never accepts the query form, even
+        # though its path ends in /download
+        assert client.post("/api/models/download?token=s3cr3t").status_code == 401
+
+
 def test_a_non_ascii_token_still_rejects_a_wrong_token_with_401(tmp_path):
     """secrets.compare_digest refuses non-ASCII str; the comparison must
     happen on bytes so an unusual token yields 401, not a 500."""
@@ -2282,3 +2372,40 @@ def test_gallery_thumbnails_are_cacheable(server, tmp_path):
         )
         assert changed.status_code == 200
         assert changed.headers.get("etag") != etag
+
+
+class TestInlineJobConfinement:
+    """The worker re-validates an inline job's base_dir against workflow_dir,
+    so what submit accepts must be what the worker accepts."""
+
+    def test_inline_job_without_base_dir_is_accepted_by_the_worker(
+        self, server, tmp_path
+    ):
+        from dw.workflow import workflow_from_definition
+
+        with server(success_script) as client:
+            job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+            wait_for_status(client, job["id"], TERMINAL_STATES)
+            manager = client.app.state.job_manager
+            command = manager.worker_manager.commands[0]
+
+        assert command["workflow_dir"] == str(tmp_path / "workflows")
+        # The worker's own load must agree with submit-time validation
+        workflow_from_definition(
+            command["workflow"],
+            str(tmp_path / "outputs"),
+            command["base_dir"],
+            command["workflow_dir"],
+        )
+
+    def test_inline_job_base_dir_outside_workflow_dir_is_rejected(
+        self, server, tmp_path
+    ):
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        with server(success_script) as client:
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow(), "base_dir": str(elsewhere)},
+            )
+        assert response.status_code == 400

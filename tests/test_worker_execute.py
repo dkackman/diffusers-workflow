@@ -106,7 +106,7 @@ def test_inline_workflow_definition_executes():
     worker = _make_worker()
     with patch(
         "dw.worker.workflow_from_definition",
-        lambda data, out, base_dir=None: StubWorkflow(),
+        lambda data, out, base_dir=None, workflow_dir=None: StubWorkflow(),
     ):
         worker._handle_execute(
             {
@@ -139,3 +139,27 @@ def test_shutdown_during_run_cancels_then_flags_shutdown():
     messages = _execute(worker, StubWorkflow("wait_for_cancel"))
     assert "cancelled" in [m["type"] for m in messages]
     assert worker.pending_shutdown is True
+
+
+class StubResult:
+    saved_files = []
+
+
+def test_full_cleanup_clears_step_cache():
+    """A full cleanup ('memory clear') must drop cached step results, or a
+    'clear' leaves results pinned in RAM."""
+    from dw.step_cache import step_cache
+
+    step_cache.put(
+        "probe_workflow", {"name": "cleanup_probe"}, 42, StubResult(), "/out", True
+    )
+
+    worker = _make_worker()
+    worker._cleanup_all()
+
+    assert (
+        step_cache.get(
+            "probe_workflow", {"name": "cleanup_probe"}, 42, set(), "/out", True
+        )
+        is None
+    )

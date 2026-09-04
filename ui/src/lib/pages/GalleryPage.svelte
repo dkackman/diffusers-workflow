@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ImageOff, FolderOpen, Trash2, X } from '@lucide/svelte'
+  import DownloadLink from '../DownloadLink.svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
@@ -174,6 +175,7 @@
         class="muted"
         title="open the file itself in a new tab">open file</a
       >
+      <DownloadLink href={api.outputDownloadUrl(selected.name)} />
       <button
         class="quiet icon danger"
         onclick={removeFile}

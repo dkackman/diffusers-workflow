@@ -17,9 +17,10 @@ A workflow JSON file is portable and easy to hand off — but that same flexibil
 
 - **Web UI** — browse and run workflows, edit them in introspection-driven forms, watch jobs stream live progress, manage generated output and the models on disk. `python -m dw.serve` and open a browser. See [Server & Web UI](docs/SERVER.md).
 - **MCP server** — a stdio server that lets an MCP client (Claude Code first) author, validate, save, run and diagnose workflows against a running `dw.serve`. `dw-mcp`. See [MCP Server](docs/MCP.md).
+- **Step-output caching** — a step whose resolved arguments and seed are unchanged since the last run in the same process reuses its cached result instead of re-executing. This applies to any `Workflow.run` — REPL iteration and a re-run of a server-submitted job alike, so re-running a fixed-seed workflow from the UI finishes instantly and writes no new output files. The cache holds the most recent 50 steps and is dropped by `memory clear`
 - **Declarative JSON workflows** with variable substitution and cross-step data flow
 - **Multi-step pipelines** — chain text-to-image, image-to-video, inpainting, ControlNet
-- **Reproducible by construction** — outputs embed their full workflow definition and seed; any image in the gallery reopens as the exact workflow that made it (see [Trust model](docs/SECURITY.md#trust-model) before reopening one someone else sent you)
+- **Reproducible by construction** — outputs embed their full workflow definition and seed; any image in the gallery reopens as the exact workflow that made it (see [Trust model](docs/SECURITY.md#trust-model) before reopening one someone else sent you). A rerun never overwrites a prior output — a name collision gets an incrementing suffix instead
 - **Long-video chaining** — run a video pipeline once per segment and stitch the segments into one clip, with audio-driven length and frame-to-frame continuity
 - **Quantization** — BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto
 - **Inference acceleration** — TeaCache, FirstBlockCache, FasterCache, MagCache, TaylorSeerCache

@@ -410,6 +410,17 @@ class TestSaveSegments:
 
         assert list(tmp_path.glob("*.mp4")) == []
 
+    def test_cleanup_marks_the_frames_cleaned(self, tmp_path):
+        # A cached Result pointing at these frames must not be served after
+        # this - see Result.retainable, which duck-types on this attribute
+        pipeline = self.make_pipeline(tmp_path)
+
+        result = run_chain(pipeline, self.chain(), {})
+        assert result.frames.cleaned is False
+        result.frames.cleanup()
+
+        assert result.frames.cleaned is True
+
     def test_keep_segments_survives_cleanup(self, tmp_path):
         pipeline = self.make_pipeline(tmp_path)
 
@@ -417,6 +428,9 @@ class TestSaveSegments:
         result.frames.cleanup()
 
         assert len(list(tmp_path.glob("*.mp4"))) == 3
+        # the files are still there, so this cleanup() never counts as
+        # cleaned - a cached Result stays retainable
+        assert result.frames.cleaned is False
 
     def test_generated_audio_is_muxed_into_the_segment_files(self, tmp_path):
         import av
@@ -467,6 +481,20 @@ class TestSaveSegments:
 
         assert len(list(tmp_path.glob("wf-step.0.segment-*.mp4"))) == 3
         assert len(list(tmp_path.glob("wf-step.1.segment-*.mp4"))) == 3
+
+    def test_a_rerun_does_not_clobber_a_previous_runs_segment_files(self, tmp_path):
+        # A crashed or completed chain leaves salvageable segment-000.mp4
+        # files behind; the per-wrapper iteration counter restarts at 0 in a
+        # fresh process, so a naive path would silently overwrite them
+        existing = tmp_path / "wf-step.0.segment-000.mp4"
+        existing.write_bytes(b"salvageable")
+        pipeline = self.make_pipeline(tmp_path)
+
+        run_chain(pipeline, self.chain(), {})
+
+        assert existing.read_bytes() == b"salvageable"
+        deduped = sorted(tmp_path.glob("wf-step.0.segment-000*.mp4"))
+        assert len(deduped) == 2
 
     def test_without_a_workflow_output_dir_raises(self):
         pipeline = FakePipeline(video_output)

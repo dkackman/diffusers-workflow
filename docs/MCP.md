@@ -155,7 +155,7 @@ Nothing in this sequence costs GPU time.
 
 ## Tool reference
 
-41 tools in six groups. Names and arguments below are transcribed from
+42 tools in six groups. Names and arguments below are transcribed from
 `dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
@@ -191,6 +191,7 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | --- | --- | --- |
 | `get_output_image(name, max_dimension=768)` | `name`, `max_dimension` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent |
 | `get_output_text(name, max_characters=20000)` | `name`, `max_characters` | Read a text output — a prompt enhancement, or any step whose result is `text/plain` or JSON. Reports the file's real length and whether it was truncated |
+| `download_output(name, destination=None, overwrite=False)` | `name`, `destination`, `overwrite` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context |
 | `delete_output(name)` | `name` | Permanently remove one generated file from the output directory |
 
 ### Authoring
@@ -297,7 +298,14 @@ API's posture exactly, described in full in [Security](SECURITY.md):
 localhost binding, no auth, `Origin` header checks, and path confinement in
 `dw/security.py` for every workflow, gallery and prompt path a tool touches.
 Nothing under `dw_mcp/` re-implements or loosens that confinement; it is
-purely a client of the same validated endpoints the web UI uses.
+purely a client of the same validated endpoints the web UI uses - except for
+`download_output`, the one tool that writes a local file for the MCP client
+rather than only reading through the API. It may write anywhere the
+client's own filesystem lets it (a full path, a directory, or the current
+working directory by default, `~` expanded), the way a shell redirect
+would for the same user; a `..` path segment in `destination` is refused,
+and an existing file is left alone unless the caller passes
+`overwrite=True`.
 
 Because it adds no authentication, `dw-mcp` must not be pointed at a
 `dw.serve` reachable beyond localhost. Treat `--url`/`DW_MCP_URL` the same

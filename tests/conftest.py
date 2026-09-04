@@ -36,6 +36,22 @@ def _clear_task_model_cache():
     clear_model_cache()
 
 
+@pytest.fixture(autouse=True)
+def _clear_step_cache_after_test():
+    """Ensure dw.step_cache.step_cache is empty after every test.
+
+    It is a process-global singleton keyed on (workflow id, step name), so a
+    populated entry would let any later test that runs a seeded workflow
+    twice - or runs one this suite already ran - be served a cached result
+    instead of executing its step.
+    """
+    from dw.step_cache import step_cache
+
+    step_cache.clear()
+    yield
+    step_cache.clear()
+
+
 @pytest.fixture
 def all_backends_available(monkeypatch):
     """Let a device named in a test reach the code under test unchanged.
