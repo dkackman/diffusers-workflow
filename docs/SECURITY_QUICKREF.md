@@ -4,8 +4,10 @@
 
 `dw_mcp/` adds no new file access and no authentication — it is an HTTP
 client of a running `dw.serve`, and every path a tool sends goes through the
-same validation the REST API already applies. Localhost only, same as the
-web UI. See [MCP Server](MCP.md#security).
+same validation the REST API already applies. A remote `dw.serve` is
+allowed only with a token, and `dw.serve --mcp` serves the same tool
+surface at `/mcp` behind that token. See [MCP Server](MCP.md#security)
+and [REMOTE.md](REMOTE.md).
 
 ## Imports
 
