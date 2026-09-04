@@ -444,9 +444,15 @@ def test_workflow_browsing_and_confinement(server):
 
 
 def test_health_and_memory(server):
+    import socket
+
     with server(success_script) as client:
         health = client.get("/api/health").json()
         assert health["status"] == "ok"
+        # a remote client uses these to confirm which machine answered
+        assert health["hostname"] == socket.gethostname()
+        assert health["device"] in {"cuda", "mps", "cpu", "xpu"}
+        assert health["mcp"] is False
 
         job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
         wait_for_status(client, job["id"], ["succeeded"])

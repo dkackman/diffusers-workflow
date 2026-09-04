@@ -409,6 +409,7 @@ def create_app(
     app.state.job_manager = manager
     app.state.workflow_dir = workflow_dir
     app.state.prompt_dir = prompt_dir
+    app.state.mcp_mounted = False
 
     wildcard_bind = host in WILDCARD_HOSTS
     allowed_hosts = set(LOOPBACK_HOSTS)
@@ -1305,7 +1306,9 @@ def create_app(
 
     @app.get("/api/health")
     def health():
-        from .. import __version__
+        import socket
+
+        from .. import __version__, get_device, get_device_type
 
         worker = manager.worker_manager
         return {
@@ -1318,6 +1321,11 @@ def create_app(
             ),
             "current_job": manager._current_job_id,
             "queued": sum(1 for j in manager.list() if j["status"] == "queued"),
+            # which machine answered - the thing a remote client cannot
+            # otherwise tell apart from a stale tunnel pointed at nothing
+            "hostname": socket.gethostname(),
+            "device": get_device_type(get_device()),
+            "mcp": bool(app.state.mcp_mounted),
         }
 
     # ---------------------------------------------------------------- outputs
