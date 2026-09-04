@@ -54,6 +54,13 @@ memory show             Show current GPU memory usage
 memory clear            Clear GPU memory, cached models, and cached step results
 ```
 
+Step caching keeps each step's last `Result` in RAM for the life of the
+worker process so a rerun with unchanged inputs can skip straight to it -
+this trades some memory for speed, and holding it works against the
+normal end-of-step release that frees a result once no later step needs
+it. `memory clear` is the escape hatch: it drops every cached step result
+along with the GPU/model caches.
+
 ### config — REPL settings
 
 ```text

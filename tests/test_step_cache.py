@@ -100,6 +100,30 @@ def test_step_cache_miss_on_first_run():
     assert cache.get(step_data, 42, hits_this_run=set()) is None
 
 
+def test_step_cache_hit_when_output_dir_unchanged():
+    cache = StepCache()
+    step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
+    result = FakeResult("first")
+    cache.put(step_data, 42, result, "/out/a")
+
+    hit = cache.get(step_data, 42, hits_this_run=set(), output_dir="/out/a")
+
+    assert hit is result
+
+
+def test_step_cache_miss_when_output_dir_changes():
+    """A hit reuses the entry's saved_files/manifest paths verbatim, so a
+    changed effective output dir must force a miss rather than silently
+    keep pointing at the old directory's files."""
+    cache = StepCache()
+    step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
+    cache.put(step_data, 42, FakeResult("first"), "/out/a")
+
+    hit = cache.get(step_data, 42, hits_this_run=set(), output_dir="/out/b")
+
+    assert hit is None
+
+
 def test_step_cache_clear():
     cache = StepCache()
     step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}

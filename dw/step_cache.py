@@ -16,6 +16,11 @@ A step is safe to skip only if:
      explicitly or two differently-seeded runs would wrongly look identical
   3. every previous_result: it reads was ITSELF served from cache this run
      - otherwise a change upstream leaves this step's cached output stale
+  4. the effective output directory matches last run's - like seed, this
+     is out-of-band (not part of step_data), and a cache hit reuses the
+     entry's saved_files/manifest paths verbatim, so a mismatch must force
+     a miss or a changed output dir would silently keep pointing at the
+     old directory's files
 """
 
 import logging
@@ -47,13 +52,15 @@ class StepCache:
     def clear(self):
         self._entries.clear()
 
-    def get(self, step_data, step_seed, hits_this_run):
+    def get(self, step_data, step_seed, hits_this_run, output_dir=None):
         """Return the cached Result for this step if it's still valid, else None."""
         name = step_data["name"]
         entry = self._entries.get(name)
         if entry is None:
             return None
         if entry["step_seed"] != step_seed:
+            return None
+        if entry["output_dir"] != output_dir:
             return None
         if not deep_equal(entry["step_data"], step_data):
             return None
@@ -64,11 +71,12 @@ class StepCache:
 
         return entry["result"]
 
-    def put(self, step_data, step_seed, result):
+    def put(self, step_data, step_seed, result, output_dir=None):
         self._entries[step_data["name"]] = {
             "step_data": step_data,
             "step_seed": step_seed,
             "result": result,
+            "output_dir": output_dir,
         }
 
     @staticmethod
