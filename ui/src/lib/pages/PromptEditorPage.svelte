@@ -499,6 +499,15 @@
     >
       <Copy size={14} />Duplicate
     </button>
+    <a
+      class="quiet icon"
+      href={api.promptDownloadUrl(name)}
+      download
+      aria-label="Download"
+      title="Download"
+    >
+      <Download size={16} />
+    </a>
     <button
       class="quiet withicon danger"
       onclick={remove}
