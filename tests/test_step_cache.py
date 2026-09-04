@@ -293,6 +293,32 @@ def test_unretained_entry_stores_a_result_with_an_empty_result_list():
     assert result.result_list == ["a decoded frame"]
 
 
+def test_retain_result_true_but_not_retainable_stores_without_result_list():
+    """A chain step's save_segments cleans up its segment files during
+    save(), before put() runs - Result.retainable turns False, and the entry
+    must be stored the same stripped way as retain_result=False, whatever the
+    caller passed."""
+
+    class UnretainableResult(FakeResult):
+        retainable = False
+
+    cache = StepCache()
+    step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
+    result = UnretainableResult("first")
+    result.result_list = ["a decoded frame"]
+
+    cache.put("w", step_data, 42, result, "/out", True)
+
+    # A downstream step that needs the result misses, exactly like an entry
+    # stored with retain_result=False
+    assert cache.get("w", step_data, 42, set(), "/out", True) is None
+
+    hit = cache.get("w", step_data, 42, set(), "/out", False)
+    assert hit is not None
+    assert hit.result_list == []
+    assert result.result_list == ["a decoded frame"]
+
+
 def test_miss_when_this_run_needs_a_result_the_entry_did_not_retain():
     cache = StepCache()
     step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}

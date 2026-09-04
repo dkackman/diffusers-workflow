@@ -35,8 +35,7 @@ import torch
 from diffusers.utils import encode_video, is_av_available
 
 from .. import empty_device_cache
-from ..result import AudioVideo, get_artifact_list
-from ..security import validate_output_path
+from ..result import AudioVideo, get_artifact_list, output_file_path
 from ..tasks.audio_utils import (
     as_channels_samples,
     equal_power_crossfade_join,
@@ -165,6 +164,11 @@ class SegmentedFrames:
         self.paths = list(paths)
         self.total_frames = total_frames
         self.keep_files = keep_files
+        # True once cleanup() has actually removed the files (not when
+        # keep_files skipped that) - a cached Result pointing at a cleaned-up
+        # SegmentedFrames must not be served to a later miss, since the files
+        # a replay would open are gone. See Result.retainable.
+        self.cleaned = False
 
     def __len__(self):
         """Chunk count - one per segment file."""
@@ -191,6 +195,7 @@ class SegmentedFrames:
                 os.remove(path)
             except FileNotFoundError:
                 pass
+        self.cleaned = True
 
 
 class SegmentSpill:
@@ -240,12 +245,14 @@ class SegmentSpill:
                 chain leaves fully playable segments
             sample_rate: Sample rate of that audio
         """
-        path = validate_output_path(
-            os.path.join(
-                self.output_dir,
-                f"{self.base_name}.segment-{len(self.paths):03d}.mp4",
-            ),
+        # A crashed or completed chain leaves segment files behind on disk,
+        # ready to salvage - and the per-wrapper iteration counter (base_name)
+        # restarts at 0 in a fresh process, so a rerun must dedupe through the
+        # same '-N' convention every other output goes through rather than
+        # silently overwriting them.
+        path = output_file_path(
             self.output_dir,
+            f"{self.base_name}.segment-{len(self.paths):03d}.mp4",
         )
 
         audio_track = None
