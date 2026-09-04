@@ -159,7 +159,10 @@ class DwClient:
                 written = self._call_httpx(write_chunks, path)
                 os.replace(temp_path, destination)
             except BaseException:
-                os.unlink(temp_path)
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
                 raise
             return content_type, written
         finally:

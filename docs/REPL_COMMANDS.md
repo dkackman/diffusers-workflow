@@ -72,7 +72,9 @@ again from cache. A workflow that names no `seed` draws a fresh one every
 run, so nothing it does can hit - the cache is skipped entirely for it. A
 reused step's manifest entry and its `step_end` event carry `"reused":
 true`, which is how the server keeps a file credited to the job that
-actually wrote it rather than to every later run that reused it.
+actually wrote it rather than to every later run that reused it. Cache
+entries are keyed by the workflow's `id`, so renaming or copying a
+workflow to a new `id` is a full cache miss.
 
 ### config — REPL settings
 

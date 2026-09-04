@@ -117,7 +117,8 @@ def deep_equal(a, b):
 
 
 class StepCache:
-    """Per-process cache of the last Result each step name produced.
+    """Per-process cache of the last Result produced for each
+    (workflow_id, step_name).
 
     Bounded: entries hold realized media, so an unbounded cache would work
     directly against release_unreferenced_results' OOM avoidance. The

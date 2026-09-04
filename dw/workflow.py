@@ -414,7 +414,7 @@ class Workflow:
                         step_seed,
                         hits_this_run,
                         self.effective_output_dir,
-                        result_needed,
+                        needs_result=result_needed,
                     )
                     if is_cacheable
                     else None
@@ -452,7 +452,7 @@ class Workflow:
                             step_seed,
                             result,
                             self.effective_output_dir,
-                            result_needed,
+                            retain_result=result_needed,
                         )
 
                 last_result = result

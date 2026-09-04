@@ -111,6 +111,9 @@ dw-serve = "dw.serve:main"
 dw-test = "dw.test:main"
 dw-mcp = "dw_mcp.__main__:main"
 
+[tool.black]
+target-version = ["py310"]
+
 [tool.setuptools.packages.find]
 # tasks/, pipeline_processors/ and community_pipelines/ are namespace
 # packages (no __init__.py) - a plain find would silently drop them
