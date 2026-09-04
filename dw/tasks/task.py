@@ -127,6 +127,17 @@ def _handle_slice_audio(task, arguments, previous_pipelines):
     return slice_audio(**arguments)
 
 
+@register_command(
+    "resample_audio", implementation="dw.tasks.audio_utils.resample_audio"
+)
+def _handle_resample_audio(task, arguments, previous_pipelines):
+    """Resample an audio track to a different sample rate"""
+    logger.debug("Resampling audio")
+    from .audio_utils import resample_audio
+
+    return resample_audio(**arguments)
+
+
 @register_command("video_frames", implementation="dw.tasks.video_utils.frames_as_array")
 def _handle_video_frames(task, arguments, previous_pipelines):
     """The frames of a generated video, as one array a later step can condition on"""

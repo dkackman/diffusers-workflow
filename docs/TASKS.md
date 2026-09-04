@@ -201,7 +201,42 @@ video generation" in the workflow guide):
 | `videos` | Yes | The videos to join, in order (from `gather_videos` or `previous_result`) |
 | `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
 | `crossfade_ms` | No | Equal-power crossfade at each audio seam (default: 75) |
+| `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
+| `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed (default: 3, just enough not to click) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming |
+
+`trim_frames` and `audio_bleed_ms` address opposite situations. A *chain* carries
+its keyframe forward, so the trimmed head is material that covers the same stretch
+of time as the outgoing tail and the two can be crossfaded. A *cut* generates each
+shot independently, so there is nothing to fade with - and generated shots tend to
+open on near-silence and end mid-sound, leaving a butt-join that drops a running
+laugh track or a ringing room into a hole. `audio_bleed_ms` fills it the way an
+audience carries across a picture cut: a decaying copy of the outgoing tail is laid
+over the incoming head, added to whatever is already there, shortening neither side.
+Reach for a few hundred milliseconds - the MiniMaxH3SitcomShort example uses 700:
+
+```json
+{
+    "task": {
+        "command": "concat_videos",
+        "arguments": {
+            "videos": ["previous_result:shot_1", "previous_result:shot_2"],
+            "trim_frames": 0,
+            "audio_bleed_ms": 700,
+            "fps": 24
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 24 }
+}
+```
+
+A bleed works because it copies ambience, which has no pitch and no attacks to
+give the copy away. It is the wrong tool for anything tonal - a copied musical
+phrase or half-spoken word reads as a stutter whichever direction it runs. When a
+shot ends on something tonal, either give the cut a continuous bed with
+`slice_audio` + `pair_audio`, which leaves no seam to treat at all, or fade the
+seam gracefully with `seam_fade_ms` (a hundred or so milliseconds) and accept the
+cut. `audio_bleed_ms` wins where both are set and there is material to bleed.
 
 ### video_frames
 

@@ -7,6 +7,7 @@ into that layout.
 
 import io
 import logging
+from fractions import Fraction
 
 import numpy
 import soundfile
@@ -75,7 +76,9 @@ def slice_samples(waveform, start, length):
     return piece
 
 
-def equal_power_crossfade_join(previous, head, following, sample_rate, crossfade_ms):
+def equal_power_crossfade_join(
+    previous, head, following, sample_rate, crossfade_ms, seam_fade_ms=None
+):
     """Join two segments' audio at a seam without changing the total duration.
 
     previous ends at the seam. head is the audio trimmed off the next segment's
@@ -84,8 +87,9 @@ def equal_power_crossfade_join(previous, head, following, sample_rate, crossfade
     min(crossfade_ms, len(head)) of that stretch. following is the next
     segment's on-timeline audio and is appended unchanged.
 
-    With no head material (nothing was trimmed), the seam gets a short declick
-    ramp instead - a few milliseconds of fade-out and fade-in in place.
+    With no head material (nothing was trimmed), the seam gets a fade-out and
+    fade-in in place instead, of seam_fade_ms - a few milliseconds by default,
+    just enough not to click.
     """
     previous, head, following = _matched_channels(previous, head, following)
 
@@ -96,11 +100,62 @@ def equal_power_crossfade_join(previous, head, following, sample_rate, crossfade
     )
 
     if window == 0:
-        return _declick_join(previous, following, sample_rate)
+        return _declick_join(previous, following, sample_rate, seam_fade_ms)
 
     fade_out, fade_in = _equal_power_ramps(window)
     blended = previous[:, -window:] * fade_out + head[:, -window:] * fade_in
     return numpy.concatenate([previous[:, :-window], blended, following], axis=1)
+
+
+def bleed_join(previous, following, sample_rate, bleed_ms, seam_fade_ms=None):
+    """Butt-join two waveforms, ringing the outgoing tail on across the seam.
+
+    Cut-based workflows generate every shot independently, so nothing overlaps at
+    a seam and there is no trimmed material to crossfade. Generated shots also
+    tend to open on near-silence and end mid-sound - a laugh track still rolling,
+    a room still ringing - so a plain butt-join drops a wall of sound into a hole.
+
+    This lays a decaying copy of the outgoing tail over the head of the incoming
+    waveform, the way an audience carries across a picture cut. The copy is
+    time-reversed so it starts on the outgoing waveform's own last sample and the
+    seam stays continuous without a declick fade; crowd noise and room tone are
+    direction-agnostic, so the reversal itself is not audible.
+
+    The tail is added to whatever the incoming waveform already carries, and
+    neither side is shortened, so frames and samples stay in step.
+
+    Args:
+        previous: Waveform ending at the seam
+        following: Waveform starting at the seam
+        sample_rate: Sample rate of both waveforms
+        bleed_ms: How long the tail rings on, clamped to the material available
+        seam_fade_ms: Fade applied on each side of the seam when there is no
+            material to bleed at all
+
+    Returns:
+        The two waveforms joined, of their full combined length
+    """
+    previous, following = _matched_channels(previous, following)
+
+    window = min(
+        int(bleed_ms / 1000.0 * sample_rate),
+        previous.shape[1],
+        following.shape[1],
+    )
+    if window <= 0:
+        return _declick_join(previous, following, sample_rate, seam_fade_ms)
+
+    decay, _ = _equal_power_ramps(window)  # cos: 1 down to ~0
+    following = following.copy()
+    following[:, :window] += previous[:, ::-1][:, :window] * decay
+
+    peak = numpy.abs(following[:, :window]).max()
+    if peak > 1.0:
+        logger.warning(
+            f"Audio bleed pushed the seam to {peak:.2f} - it is added to the "
+            f"incoming track, which was not silent enough to absorb it"
+        )
+    return numpy.concatenate([previous, following], axis=1)
 
 
 def crossfade_concat(waveforms, sample_rate, crossfade_ms):
@@ -215,6 +270,59 @@ def slice_audio(
     return slice_samples(waveform, start, length).T
 
 
+def resample_audio(audio, target_sample_rate, sample_rate=None):
+    """Task command: resample an audio track to a different sample rate.
+
+    MiniMax H3 conditions on audio at its audio VAE's own rate and resamples
+    anything else with torchaudio, which dw does not depend on. Resampling a
+    supplied recording once, up front, feeds the pipeline what it already wants
+    and keeps the dependency out - PyAV, which dw needs for video anyway, does
+    the conversion.
+
+    Args:
+        audio: Path or URL of an audio file, or a waveform (which needs
+            sample_rate alongside it)
+        target_sample_rate: Rate to convert to
+        sample_rate: Sample rate of a waveform passed directly; ignored for
+            files, which carry their own
+
+    Returns:
+        The resampled track as a (samples, channels) float32 array
+    """
+    if isinstance(audio, str):
+        waveform, sample_rate = load_audio(audio)
+    else:
+        if sample_rate is None:
+            raise ValueError("resample_audio needs 'sample_rate' with a raw waveform")
+        waveform = as_channels_samples(audio)
+
+    if sample_rate == target_sample_rate:
+        return waveform.T
+
+    import av
+    from av.audio.resampler import AudioResampler
+
+    channels = waveform.shape[0]
+    layout = {1: "mono", 2: "stereo"}.get(channels, f"{channels}c")
+    frame = av.AudioFrame.from_ndarray(
+        numpy.ascontiguousarray(waveform, dtype=numpy.float32),
+        format="fltp",
+        layout=layout,
+    )
+    frame.sample_rate = sample_rate
+    frame.pts = 0
+    frame.time_base = Fraction(1, sample_rate)
+
+    resampler = AudioResampler(format="fltp", layout=layout, rate=target_sample_rate)
+    converted = [f.to_ndarray() for f in resampler.resample(frame)]
+    converted += [f.to_ndarray() for f in resampler.resample(None)]
+    logger.debug(
+        f"Resampled {waveform.shape[1]} samples at {sample_rate}Hz "
+        f"to {target_sample_rate}Hz"
+    )
+    return numpy.concatenate(converted, axis=1).astype(numpy.float32).T
+
+
 def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
     """Task command: join audio tracks with an equal-power crossfade.
 
@@ -240,9 +348,14 @@ def _equal_power_ramps(window):
     return numpy.cos(theta, dtype=numpy.float32), numpy.sin(theta, dtype=numpy.float32)
 
 
-def _declick_join(previous, following, sample_rate):
-    """Butt-join two waveforms with a short fade on each side of the seam."""
-    ramp = int(DECLICK_MS / 1000.0 * sample_rate)
+def _declick_join(previous, following, sample_rate, fade_ms=None):
+    """Butt-join two waveforms with a fade on each side of the seam.
+
+    The default is the few milliseconds that keep a butt-join from clicking.
+    A longer fade is a deliberate edit - the graceful hard cut you want when
+    neither a crossfade nor a bleed applies.
+    """
+    ramp = int((DECLICK_MS if fade_ms is None else fade_ms) / 1000.0 * sample_rate)
     ramp = min(ramp, previous.shape[1], following.shape[1])
     if ramp > 0:
         fade_out, fade_in = _equal_power_ramps(ramp)

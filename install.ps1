@@ -74,10 +74,51 @@ python -m venv venv
 python.exe -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# Install PyTorch first - standard install (CUDA auto-detected on Windows).
-# The resolver below sees it satisfied and leaves it alone.
-# torchaudio is deliberately absent: nothing in dw imports it
-pip install torch torchvision
+# Install PyTorch first - GPU-aware, so the resolver below sees it satisfied
+# and leaves it alone. torchaudio comes with it, from the same index so its
+# build matches: dw does not import it, but diffusers' MiniMax H3 blocks use it
+# to resample an audio reference that is not already at the audio VAE's rate,
+# and without it those pipelines fail at the first setup block.
+#
+# PyPI's Windows wheel bundles a CUDA 12.x runtime; pytorch.org's cu130 index
+# carries a CUDA 13 build that needs a newer driver (>= 580). So we probe for a
+# working NVIDIA driver via nvidia-smi and, if found, read the CUDA version it
+# supports: a CUDA 13-capable driver gets the cu130 build, an older one stays on
+# PyPI's CUDA 12 wheel rather than a build its driver cannot load (which would
+# silently fall back to the CPU).
+$driverCuda = $null
+if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+    # Finding the binary only proves it exists; a stale or broken driver can
+    # leave nvidia-smi installed but failing, so require it to run too.
+    try {
+        $smiOutput = (& nvidia-smi 2>$null) -join "`n"
+        if ($LASTEXITCODE -eq 0) {
+            $cudaMatch = [regex]::Match($smiOutput, 'CUDA Version:\s*(\d+)')
+            if ($cudaMatch.Success) {
+                $driverCuda = [int]$cudaMatch.Groups[1].Value
+            }
+            else {
+                $driverCuda = 12
+            }
+        }
+    }
+    catch {
+        $driverCuda = $null
+    }
+}
+
+if ($null -eq $driverCuda) {
+    Write-Output "No CUDA GPU detected - installing CPU-only torch"
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+}
+elseif ($driverCuda -ge 13) {
+    Write-Output "CUDA $driverCuda driver detected - installing GPU-enabled torch (cu130)"
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
+}
+else {
+    Write-Output "CUDA $driverCuda driver detected - installing PyPI torch (bundled CUDA 12 runtime)"
+    pip install torch torchvision torchaudio
+}
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Everything else resolves from pyproject.toml - the single source of the
