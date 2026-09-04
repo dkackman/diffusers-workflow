@@ -5,7 +5,7 @@ Svelte 5 + Vite single-page app over the dw server's JSON API.
 ## Build (what `python -m dw.serve` serves at `/`)
 
 ```bash
-export PATH=$HOME/.local/node/bin:$PATH   # user-local Node 24 (no system install)
+export PATH=$HOME/.local/node/bin:$PATH   # user-local Node 24.20.0 LTS (no system install)
 cd ui
 npm install
 npm run build        # -> ui/dist, auto-detected by the server
