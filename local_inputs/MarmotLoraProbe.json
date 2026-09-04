@@ -1,0 +1,190 @@
+{
+    "id": "MarmotLoraProbe",
+    "description": "Single-shot probe: shot 3 (which contains a ~2s instrumental gap) generated with the ref2v turbo LoRA instead of the fl2v one, to test whether lip sync is being lost to a LoRA trained for first-last-frame video rather than reference+audio conditioning.",
+    "variables": {
+        "subject": "marmot.jpg",
+        "song": "local_inputs/chia.mp3",
+        "shot_1_establish": "subject_definitions:\n<Subject 1> is the cartoon marmot in <Picture 1>: standing upright on its hind legs at a chrome microphone on a boom stand, its fur banded brown and cream with dark mask-like patches around the eyes, a pale muzzle, long white whiskers and alert rounded ears.\n<Picture 1> is a subject and setting reference only. It establishes who <Subject 1> is - fur, face, build and the microphone it sings into - and the club around it, its stage dressing, haze, warm amber light and the guitar in soft focus. It carries no compositional detail: no framing, no shot size, no camera position, no camera height and no lens. The composition of this clip is the one described below and is not taken from <Picture 1>.\n<Audio 1> is the piece of the song covering this part of the video, a slow jazz number <Subject 1> sings into the microphone.\n\nsummary:\n[image reference + audio song reference] The target video is a wide establishing shot of the whole stage, <Subject 1> small in the frame at its microphone, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the fur banding, eye patches, muzzle, whiskers, ears and proportions of <Picture 1> are kept exactly, with the head, jaw and shoulders newly animated to sing.\n<Picture 1>: partially_copy - identity, wardrobe, set, palette and lighting are taken from it; framing, shot size, camera position, camera height and lens are NOT. This clip is a wide establishing shot taking in the whole stage, with <Subject 1> occupying roughly a third of the frame height, which is deliberately different from the framing of <Picture 1>.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack. <Subject 1>'s mouth is synchronised to the sung voice in it and to nothing else: the instrumental parts drive no mouth movement at all. Where the recording plays without a voice - an intro, a fill, a rest between phrases - <Subject 1> waits at the microphone with its mouth shut. Where a voice sings, the mouth, jaw and throat follow its timing and phrasing exactly.\n\ndetailed_description:\nThe target video is in the warmly lit, softly rendered cartoon style of <Picture 1>. [Shot 1] A wide shot takes in the whole small stage: the deep maroon curtain across the back, the acoustic guitar on its stand at frame right, the keyboard at frame left, amber light raking through haze. <Subject 1> stands centre frame at the microphone, full body visible from the feet up and occupying about a third of the frame height, with empty stage on either side of it. Its mouth is driven entirely by the vocal of <Audio 1>: it opens and moves only while a voice is actually singing, and stays completely closed - lips together, jaw still - through every instrumental passage, rest and gap between phrases, however long one runs. It never mimes, hums or chews when no voice is present, and it never holds still while a voice is singing. Between phrases it listens, the eyes staying open and blinking at a natural rate. The lighting, colour and contrast match <Picture 1> exactly and are steady from the first frame to the last, with smooth fur and no grain, speckle or hardened edges. The camera holds this framing statically throughout, with no reframing, no zoom and no cut.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot, the vocal close and warm at the microphone. Under it, a low crowd murmur well back in the room and the faint hum of the stage amplifiers.\n\nnon_diegetic_music:\nNone - the music is the diegetic performance of <Audio 1>.",
+        "shot_2_closeup": "subject_definitions:\n<Subject 1> is the cartoon marmot in <Picture 1>: standing upright on its hind legs at a chrome microphone on a boom stand, its fur banded brown and cream with dark mask-like patches around the eyes, a pale muzzle, long white whiskers and alert rounded ears.\n<Picture 1> is a subject and setting reference only. It establishes who <Subject 1> is - fur, face, build and the microphone it sings into - and the club around it, its stage dressing, haze, warm amber light and the guitar in soft focus. It carries no compositional detail: no framing, no shot size, no camera position, no camera height and no lens. The composition of this clip is the one described below and is not taken from <Picture 1>.\n<Audio 1> is the piece of the song covering this part of the video, a slow jazz number <Subject 1> sings into the microphone.\n\nsummary:\n[image reference + audio song reference] The target video is a tight close-up on <Subject 1>'s face as it sings, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the fur banding, eye patches, muzzle, whiskers, ears and proportions of <Picture 1> are kept exactly, with the head, jaw and shoulders newly animated to sing.\n<Picture 1>: partially_copy - identity, wardrobe, set, palette and lighting are taken from it; framing, shot size, camera position, camera height and lens are NOT. This clip is a tight close-up on the head alone, which is deliberately different from the framing of <Picture 1>.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack. <Subject 1>'s mouth is synchronised to the sung voice in it and to nothing else: the instrumental parts drive no mouth movement at all. Where the recording plays without a voice - an intro, a fill, a rest between phrases - <Subject 1> waits at the microphone with its mouth shut. Where a voice sings, the mouth, jaw and throat follow its timing and phrasing exactly.\n\ndetailed_description:\nThe target video is in the warmly lit, softly rendered cartoon style of <Picture 1>. [Shot 1] A tight close-up fills the frame with <Subject 1>'s head alone, cropped just below the chin and just above the ears, the microphone grille intruding at the bottom edge. The amber key light rakes across the muzzle and catches individual white whiskers; the club behind is thrown completely out of focus into warm darkness. Its mouth is driven entirely by the vocal of <Audio 1>: it opens and moves only while a voice is actually singing, and stays completely closed - lips together, jaw still - through every instrumental passage, rest and gap between phrases, however long one runs. It never mimes, hums or chews when no voice is present, and it never holds still while a voice is singing. Between phrases it listens, the eyes staying open and blinking at a natural rate. The lighting, colour and contrast match <Picture 1> exactly and are steady from the first frame to the last, with smooth fur and no grain, speckle or hardened edges. The camera holds this framing statically throughout, with no reframing, no zoom and no cut.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot, the vocal close and warm at the microphone. Under it, a low crowd murmur well back in the room and the faint creak of the microphone stand.\n\nnon_diegetic_music:\nNone - the music is the diegetic performance of <Audio 1>.",
+        "shot_3_profile": "subject_definitions:\n<Subject 1> is the cartoon marmot in <Picture 1>: standing upright on its hind legs at a chrome microphone on a boom stand, its fur banded brown and cream with dark mask-like patches around the eyes, a pale muzzle, long white whiskers and alert rounded ears.\n<Picture 1> is a subject and setting reference only. It establishes who <Subject 1> is - fur, face, build and the microphone it sings into - and the club around it, its stage dressing, haze, warm amber light and the guitar in soft focus. It carries no compositional detail: no framing, no shot size, no camera position, no camera height and no lens. The composition of this clip is the one described below and is not taken from <Picture 1>.\n<Audio 1> is the piece of the song covering this part of the video, a slow jazz number <Subject 1> sings into the microphone.\n\nsummary:\n[image reference + audio song reference] The target video is a side-on profile shot of <Subject 1> singing, taken from stage level, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the fur banding, eye patches, muzzle, whiskers, ears and proportions of <Picture 1> are kept exactly, with the head, jaw and shoulders newly animated to sing.\n<Picture 1>: partially_copy - identity, wardrobe, set, palette and lighting are taken from it; framing, shot size, camera position, camera height and lens are NOT. This clip is a side-on profile from stage level, which is deliberately different from the framing of <Picture 1>.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack. <Subject 1>'s mouth is synchronised to the sung voice in it and to nothing else: the instrumental parts drive no mouth movement at all. Where the recording plays without a voice - an intro, a fill, a rest between phrases - <Subject 1> waits at the microphone with its mouth shut. Where a voice sings, the mouth, jaw and throat follow its timing and phrasing exactly.\n\ndetailed_description:\nThe target video is in the warmly lit, softly rendered cartoon style of <Picture 1>. [Shot 1] A side-on profile frames <Subject 1> from the waist up, turned a full ninety degrees so it faces frame left across the shot and only the side of its head, muzzle and one ear are seen, the microphone in front of its mouth in silhouette. The camera sits low at stage level, the amber backlight rimming the fur along its back and the haze glowing behind it. Its mouth is driven entirely by the vocal of <Audio 1>: it opens and moves only while a voice is actually singing, and stays completely closed - lips together, jaw still - through every instrumental passage, rest and gap between phrases, however long one runs. It never mimes, hums or chews when no voice is present, and it never holds still while a voice is singing. Between phrases it listens, the eyes staying open and blinking at a natural rate. The lighting, colour and contrast match <Picture 1> exactly and are steady from the first frame to the last, with smooth fur and no grain, speckle or hardened edges. The camera holds this framing statically throughout, with no reframing, no zoom and no cut.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot, the vocal close and warm at the microphone. Under it, a low crowd murmur well back in the room and the faint hum of the stage amplifiers.\n\nnon_diegetic_music:\nNone - the music is the diegetic performance of <Audio 1>.",
+        "shot_4_finale": "subject_definitions:\n<Subject 1> is the cartoon marmot in <Picture 1>: standing upright on its hind legs at a chrome microphone on a boom stand, its fur banded brown and cream with dark mask-like patches around the eyes, a pale muzzle, long white whiskers and alert rounded ears.\n<Picture 1> is a subject and setting reference only. It establishes who <Subject 1> is - fur, face, build and the microphone it sings into - and the club around it, its stage dressing, haze, warm amber light and the guitar in soft focus. It carries no compositional detail: no framing, no shot size, no camera position, no camera height and no lens. The composition of this clip is the one described below and is not taken from <Picture 1>.\n<Audio 1> is the piece of the song covering this part of the video, a slow jazz number <Subject 1> sings into the microphone.\n\nsummary:\n[image reference + audio song reference] The target video is a high shot looking down on <Subject 1> from above and in front as it performs, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the fur banding, eye patches, muzzle, whiskers, ears and proportions of <Picture 1> are kept exactly, with the head, jaw and shoulders newly animated to sing.\n<Picture 1>: partially_copy - identity, wardrobe, set, palette and lighting are taken from it; framing, shot size, camera position, camera height and lens are NOT. This clip is a high angle looking down from above and in front, which is deliberately different from the framing of <Picture 1>.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack. <Subject 1>'s mouth is synchronised to the sung voice in it and to nothing else: the instrumental parts drive no mouth movement at all. Where the recording plays without a voice - an intro, a fill, a rest between phrases - <Subject 1> waits at the microphone with its mouth shut. Where a voice sings, the mouth, jaw and throat follow its timing and phrasing exactly.\n\ndetailed_description:\nThe target video is in the warmly lit, softly rendered cartoon style of <Picture 1>. [Shot 1] A high angle looks down on <Subject 1> from above and in front, the camera well above its head so the stage floor fills the background behind it rather than the curtain. <Subject 1> tilts its head up toward the lens as it leans toward the microphone, both paws raised beside the microphone, chest lifted and ears back. Its mouth is driven entirely by the vocal of <Audio 1>: it opens and moves only while a voice is actually singing, and stays completely closed - lips together, jaw still - through every instrumental passage, rest and gap between phrases, however long one runs. It never mimes, hums or chews when no voice is present, and it never holds still while a voice is singing. Between phrases it listens, the eyes staying open and blinking at a natural rate. The lighting, colour and contrast match <Picture 1> exactly and are steady from the first frame to the last, with smooth fur and no grain, speckle or hardened edges. The camera holds this framing statically throughout, with no reframing, no zoom and no cut.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot, the vocal close and warm at the microphone. Under it, a low crowd murmur well back in the room, rising very slightly toward the end of the shot.\n\nnon_diegetic_music:\nNone - the music is the diegetic performance of <Audio 1>.",
+        "audio_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+        "image_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+        "sample_rate": 44100,
+        "num_frames": 124,
+        "fps": 24,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 4,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_ref2v_turbo_4step_v0.1_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "conditioning_sample_rate": 32000
+    },
+    "seed": 42,
+    "steps": [
+        {
+            "name": "song_32k",
+            "task": {
+                "command": "resample_audio",
+                "arguments": {
+                    "audio": "variable:song",
+                    "target_sample_rate": "variable:conditioning_sample_rate"
+                }
+            }
+        },
+        {
+            "name": "slice_3",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "previous_result:song_32k",
+                    "sample_rate": "variable:conditioning_sample_rate",
+                    "start_frame": 248,
+                    "num_frames": 124,
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "shot_3_profile",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer_ref": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer_ref": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "ref2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:shot_3_profile",
+                    "references": [
+                        {
+                            "reference_type": "variable:image_reference_type",
+                            "from_file": "variable:subject"
+                        },
+                        {
+                            "reference_type": "variable:audio_reference_type",
+                            "from_previous_result": "slice_3",
+                            "sample_rate": "variable:conditioning_sample_rate"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

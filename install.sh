@@ -132,8 +132,10 @@ fi
 python -m pip install --upgrade pip
 
 # Install PyTorch first - platform/GPU-aware, so the resolver below sees it
-# satisfied and leaves it alone. torchaudio is deliberately absent: nothing
-# in dw imports it.
+# satisfied and leaves it alone. torchaudio comes with it, from the same index
+# so its build matches: dw does not import it, but diffusers' MiniMax H3 blocks
+# use it to resample an audio reference that is not already at the audio VAE's
+# rate, and without it those pipelines fail at the first setup block.
 #
 # On macOS PyPI's wheel is the right one (MPS support is built in). On
 # Linux, PyPI's wheel bundles a CUDA 12.x runtime; pytorch.org's cu130
@@ -144,7 +146,7 @@ python -m pip install --upgrade pip
 # cannot load (which would silently fall back to the CPU).
 if $MACOS; then
   echo "macOS detected - installing torch with MPS support"
-  pip install torch torchvision
+  pip install torch torchvision torchaudio
 else
   DRIVER_CUDA=""
   # `command -v` alone only proves the binary exists; a stale/broken driver
@@ -156,13 +158,13 @@ else
 
   if [ -z "$DRIVER_CUDA" ]; then
     echo "No CUDA GPU detected - installing CPU-only torch"
-    pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
   elif [ "$DRIVER_CUDA" -ge 13 ]; then
     echo "CUDA $DRIVER_CUDA driver detected - installing GPU-enabled torch (cu130)"
-    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
   else
     echo "CUDA $DRIVER_CUDA driver detected - installing PyPI torch (bundled CUDA 12 runtime)"
-    pip install torch torchvision
+    pip install torch torchvision torchaudio
   fi
 fi
 
