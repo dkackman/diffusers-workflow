@@ -9,10 +9,12 @@ import torch
 
 from dw.tasks.audio_utils import (
     as_channels_samples,
+    bleed_join,
     crossfade_concat,
     equal_power_crossfade_join,
     frames_to_samples,
     load_audio,
+    resample_audio,
     slice_samples,
 )
 
@@ -192,3 +194,107 @@ class TestLoadAudio:
 
         with pytest.raises(Exception):
             load_audio(str(path))
+
+
+class TestBleedJoin:
+    def test_the_tail_rings_on_over_a_silent_head(self):
+        previous = numpy.full((1, 100), 0.5, dtype=numpy.float32)
+        following = numpy.zeros((1, 100), dtype=numpy.float32)
+
+        joined = bleed_join(previous, following, 100, 500)  # 50 samples
+
+        assert joined.shape == (1, 200)
+        assert joined[0, 100] == pytest.approx(0.5, abs=1e-3)  # full at the seam
+        assert joined[0, 149] == pytest.approx(0.0, abs=0.05)  # faded by the end
+        assert (joined[0, 150:] == 0.0).all()  # nothing beyond the window
+
+    def test_the_seam_is_continuous(self):
+        rng = numpy.random.default_rng(0)
+        previous = rng.normal(0, 0.2, (1, 400)).astype(numpy.float32)
+        following = numpy.zeros((1, 400), dtype=numpy.float32)
+
+        joined = bleed_join(previous, following, 1000, 100)
+
+        # the reversed tail starts on previous' own last sample, so the step
+        # across the seam is no larger than the steps inside the material
+        seam_step = abs(joined[0, 400] - joined[0, 399])
+        assert seam_step <= numpy.abs(numpy.diff(previous[0])).max()
+
+    def test_it_adds_to_what_the_head_already_carries(self):
+        previous = numpy.full((1, 100), 0.5, dtype=numpy.float32)
+        following = numpy.full((1, 100), 0.1, dtype=numpy.float32)
+
+        joined = bleed_join(previous, following, 100, 500)
+
+        assert joined[0, 100] == pytest.approx(0.6, abs=1e-3)
+        assert joined[0, 199] == pytest.approx(0.1, abs=1e-6)
+
+    def test_neither_side_is_shortened(self):
+        previous = numpy.full((2, 300), 0.4, dtype=numpy.float32)
+        following = numpy.full((2, 700), 0.0, dtype=numpy.float32)
+
+        assert bleed_join(previous, following, 100, 250).shape == (2, 1000)
+
+    def test_the_window_is_clamped_to_the_material(self):
+        previous = numpy.full((1, 10), 0.5, dtype=numpy.float32)
+        following = numpy.zeros((1, 400), dtype=numpy.float32)
+
+        joined = bleed_join(previous, following, 100, 5000)  # asks for 500
+
+        assert joined.shape == (1, 410)
+        assert (joined[0, 20:] == 0.0).all()
+
+    def test_no_window_falls_back_to_a_declick_join(self):
+        previous = numpy.full((1, 100), 0.5, dtype=numpy.float32)
+        following = numpy.full((1, 100), 0.5, dtype=numpy.float32)
+
+        assert bleed_join(previous, following, 100, 0).shape == (1, 200)
+
+    def test_mono_is_tiled_up_to_match_stereo(self):
+        previous = numpy.full((1, 100), 0.5, dtype=numpy.float32)
+        following = numpy.zeros((2, 100), dtype=numpy.float32)
+
+        assert bleed_join(previous, following, 100, 500).shape == (2, 200)
+
+
+class TestResampleAudio:
+    def test_it_scales_the_length_to_the_new_rate(self):
+        waveform = numpy.zeros((2, 44100), dtype=numpy.float32)
+
+        result = resample_audio(waveform, 32000, sample_rate=44100)
+
+        assert result.shape == (32000, 2)
+
+    def test_it_returns_samples_by_channels(self):
+        waveform = numpy.zeros((1, 44100), dtype=numpy.float32)
+
+        assert resample_audio(waveform, 22050, sample_rate=44100).shape == (22050, 1)
+
+    def test_matching_rates_pass_through_untouched(self):
+        waveform = numpy.linspace(-1, 1, 1000, dtype=numpy.float32)[None, :]
+
+        result = resample_audio(waveform, 8000, sample_rate=8000)
+
+        assert result.shape == (1000, 1)
+        assert numpy.allclose(result[:, 0], waveform[0])
+
+    def test_a_tone_keeps_its_level_and_duration(self):
+        rate, seconds = 44100, 0.5
+        t = numpy.arange(int(rate * seconds)) / rate
+        tone = numpy.sin(2 * numpy.pi * 440 * t).astype(numpy.float32)[None, :]
+
+        result = resample_audio(tone, 32000, sample_rate=44100)
+
+        assert result.shape[0] == pytest.approx(32000 * seconds, rel=0.01)
+        level = float(numpy.sqrt((result[:, 0] ** 2).mean()))
+        assert level == pytest.approx(float(numpy.sqrt((tone[0] ** 2).mean())), rel=0.05)
+
+    def test_a_raw_waveform_needs_its_rate(self):
+        with pytest.raises(ValueError, match="sample_rate"):
+            resample_audio(numpy.zeros((1, 100), dtype=numpy.float32), 32000)
+
+    def test_it_accepts_a_torch_waveform(self):
+        waveform = torch.zeros(2, 44100)
+
+        assert resample_audio(waveform, 32000, sample_rate=44100).shape == (32000, 2)
+
