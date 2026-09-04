@@ -164,10 +164,14 @@ class JobHistory:
         escaped = (
             file_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         )
+        # Unbounded on purpose: every later fixed-seed rerun republishes the
+        # file with 'reused', so a LIMIT would let the writing job fall out of
+        # the window after that many reruns and leave the file unattributed.
+        # The LIKE filter already restricts the scan to manifests naming it.
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 "SELECT id, status, manifest FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
-                " ORDER BY finished_at DESC LIMIT 50",
+                " ORDER BY finished_at DESC",
                 (f"%{escaped}%",),
             ).fetchall()
         for row in rows:
