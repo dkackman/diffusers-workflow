@@ -2270,9 +2270,12 @@ def test_query_token_is_matched_per_route_not_by_path_suffix(tmp_path):
         assert (
             client.get("/api/gallery/big.png/thumbnail?token=s3cr3t").status_code == 200
         )
-        # ...including on HEAD, which Starlette adds to every @app.get route
+        # ...including on HEAD: FastAPI's APIRoute registers GET only (it
+        # does not add HEAD), so this 404s rather than reaching the
+        # middleware. The middleware's GET-or-HEAD branch is forward-looking
+        # for if that ever changes.
         head = client.head("/api/gallery/big.png/thumbnail?token=s3cr3t")
-        assert head.status_code != 401
+        assert head.status_code == 404
 
         # a state-changing POST route never accepts the query form, even
         # though its path ends in /download

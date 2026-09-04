@@ -167,7 +167,7 @@ class JobHistory:
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 "SELECT id, status, manifest FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
-                " ORDER BY finished_at DESC",
+                " ORDER BY finished_at DESC LIMIT 50",
                 (f"%{escaped}%",),
             ).fetchall()
         for row in rows:
