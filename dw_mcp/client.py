@@ -124,6 +124,26 @@ class DwClient:
         finally:
             response.close()
 
+    def stream_to_file(self, path, destination):
+        """Stream `path`'s body straight to `destination` on disk, in
+        chunks, rather than buffering it whole - for a body too large to
+        hold in memory (the videos `get_bytes` can't return). Returns
+        `(content_type, bytes_written)`."""
+        response = self._stream_request("GET", path)
+        try:
+            if response.status_code >= 400:
+                self._call_httpx(response.read, path)
+                self._raise_for_status(response, path)
+            content_type = response.headers.get("content-type", "")
+            written = 0
+            with open(destination, "wb") as file:
+                for chunk in response.iter_bytes():
+                    file.write(chunk)
+                    written += len(chunk)
+            return content_type, written
+        finally:
+            response.close()
+
     # ------------------------------------------------------------ internals
 
     def _request(self, method, path, **kwargs):
