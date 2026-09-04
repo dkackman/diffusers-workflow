@@ -372,6 +372,8 @@ def create_app(
     prompt_dir="./prompts",
     host="127.0.0.1",
     token=None,
+    mcp=False,
+    port=8765,
 ):
     """Build the application. A caller (tests) can inject a JobManager.
 
@@ -395,9 +397,22 @@ def create_app(
             f"{manager.workflow_dir!r} != {workflow_dir!r}"
         )
 
+    mcp_asgi = mcp_server = mcp_client = None
+    if mcp:
+        from .mcp_mount import build_mcp_app
+
+        mcp_asgi, mcp_server, mcp_client = build_mcp_app(port=port, token=token)
+
     @asynccontextmanager
     async def lifespan(app):
-        yield
+        if mcp_server is None:
+            yield
+        else:
+            # the SDK's session manager is the mounted app's own lifespan,
+            # which Starlette does not run for a sub-app
+            async with mcp_server.session_manager.run():
+                yield
+            mcp_client.close()
         manager.shutdown()
 
     app = FastAPI(
@@ -409,7 +424,7 @@ def create_app(
     app.state.job_manager = manager
     app.state.workflow_dir = workflow_dir
     app.state.prompt_dir = prompt_dir
-    app.state.mcp_mounted = False
+    app.state.mcp_mounted = mcp_asgi is not None
 
     wildcard_bind = host in WILDCARD_HOSTS
     allowed_hosts = set(LOOPBACK_HOSTS)
@@ -481,7 +496,7 @@ def create_app(
         if not token:
             return await call_next(request)
         path = request.url.path
-        if not path.startswith("/api/"):
+        if not (path.startswith("/api/") or path == "/mcp" or path.startswith("/mcp/")):
             return await call_next(request)
         provided = None
         auth = request.headers.get("authorization", "")
@@ -1329,6 +1344,23 @@ def create_app(
         }
 
     # ---------------------------------------------------------------- outputs
+
+    # ------------------------------------------------------------------ mcp
+
+    if mcp_asgi is not None:
+        # One route rather than app.mount("/mcp", ...): Starlette's Mount
+        # only matches paths *under* its prefix, so a bare POST /mcp - the
+        # URL clients are configured with - would fall through to the SPA
+        # catch-all below and come back 405. This matches /mcp and
+        # anything under it; build_mcp_app's wrapper normalizes the path
+        # for the SDK app's single route.
+        # Exactly the two spellings require_bearer_token gates - a single
+        # "/mcp{path:path}" route would also answer /mcpfoo, which the gate
+        # does not cover.
+        app.router.routes.append(Route("/mcp", endpoint=mcp_asgi, name="mcp"))
+        app.router.routes.append(
+            Route("/mcp/{sub_path:path}", endpoint=mcp_asgi, name="mcp_sub")
+        )
 
     app.mount("/outputs", StaticFiles(directory=manager.output_dir), name="outputs")
 
