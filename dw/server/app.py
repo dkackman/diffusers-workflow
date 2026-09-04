@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import StreamingResponse, JSONResponse, Response
+from fastapi.responses import StreamingResponse, JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -748,6 +748,14 @@ def create_app(
         logger.info(f"Deleted workflow {name} ({path})")
         return {"name": name, "deleted": True}
 
+    @app.get("/api/workflows/{name:path}/download")
+    def download_workflow(name: str):
+        """Serve a workflow definition as a forced download."""
+        path = resolve_workflow_name(app.state.workflow_dir, name)
+        return FileResponse(
+            path, filename=os.path.basename(path), media_type="application/json"
+        )
+
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str):
         path = resolve_workflow_name(app.state.workflow_dir, name)
@@ -814,6 +822,14 @@ def create_app(
         os.remove(path)
         logger.info(f"Deleted prompt {name} ({path})")
         return {"name": name, "deleted": True}
+
+    @app.get("/api/prompts/{name:path}/download")
+    def download_prompt(name: str):
+        """Serve a stored prompt as a forced download."""
+        path = resolve_prompt_name(app.state.prompt_dir, name)
+        return FileResponse(
+            path, filename=os.path.basename(path), media_type="application/json"
+        )
 
     @app.get("/api/prompts/{name:path}")
     def get_prompt(name: str):
@@ -1024,6 +1040,12 @@ def create_app(
         return Response(
             content=buffer.getvalue(), media_type="image/jpeg", headers=cache_headers
         )
+
+    @app.get("/api/gallery/{name:path}/download")
+    def download_output(name: str):
+        """Serve one output file as a forced download rather than an inline view."""
+        path = _output_file(name)
+        return FileResponse(path, filename=os.path.basename(name))
 
     @app.delete("/api/gallery/{name:path}")
     def delete_output(name: str):
