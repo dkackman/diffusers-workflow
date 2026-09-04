@@ -199,7 +199,15 @@ class StepCache:
         no result_list - so decoded frames and latent tensors are not pinned
         for the life of the cache, which is exactly what
         release_unreferenced_results drops them to avoid.
+
+        A Result whose result_list holds an artifact save() already spilled
+        and cleaned up (a chain step's save_segments - see Result.retainable)
+        is downgraded to the same stripped storage even when retain_result is
+        True: its files are gone already by the time put() runs (save()
+        happens before put() in the step loop), so keeping the result_list
+        would let a later cache hit fail opening files that no longer exist.
         """
+        retain_result = retain_result and getattr(result, "retainable", True)
         name = step_data["name"]
         key = (workflow_id, name)
         self._entries[key] = {

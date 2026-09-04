@@ -162,6 +162,25 @@ class Result:
             logger.debug("Adding single result to result list")
             self.result_list.append(result)
 
+    @property
+    def retainable(self):
+        """Whether the step cache may keep this Result's result_list.
+
+        A chain step's save_segments spills each segment to disk and
+        replays it lazily through a SegmentedFrames; save() removes those
+        files once the video is written (SegmentedFrames.cleanup(), called
+        from save_audio_video below). A Result cached after that point would
+        point a later cache hit at files that are already gone, so a
+        result_list holding such an artifact is not retainable - checked by
+        duck-typed attribute rather than isinstance, so this module need not
+        import pipeline_processors.chain.
+        """
+        for result in self.result_list:
+            frames = getattr(result, "frames", None)
+            if getattr(frames, "cleaned", False):
+                return False
+        return True
+
     def get_artifacts(self):
         """Retrieve all artifacts from stored results.
 
