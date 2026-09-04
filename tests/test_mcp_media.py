@@ -403,14 +403,18 @@ def test_download_output_writes_bytes_to_explicit_file_path(tmp_path):
 def test_download_output_into_a_directory_uses_the_output_basename(tmp_path):
     client = serving(png_bytes(10, 10), "image/png")
 
-    result = download_output(client, "sub/run-step.0-0.0.png", destination=str(tmp_path))
+    result = download_output(
+        client, "sub/run-step.0-0.0.png", destination=str(tmp_path)
+    )
 
     saved = tmp_path / "run-step.0-0.0.png"
     assert saved.read_bytes() == png_bytes(10, 10)
     assert result["saved_to"] == str(saved)
 
 
-def test_download_output_with_no_destination_saves_to_current_directory(tmp_path, monkeypatch):
+def test_download_output_with_no_destination_saves_to_current_directory(
+    tmp_path, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     client = serving(png_bytes(10, 10), "image/png")
 

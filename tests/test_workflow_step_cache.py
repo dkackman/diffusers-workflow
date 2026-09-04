@@ -3,6 +3,7 @@ re-executing a step whose resolved definition, seed, and upstream results
 are unchanged since the last run in this process.
 """
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from dw.step_cache import step_cache
 from dw.step import Step
 from dw.pipeline_processors.pipeline import Pipeline
+from dw import workflow as workflow_module
 from dw.workflow import Workflow
 
 
@@ -37,7 +39,13 @@ class FakeResult:
         self.saved_files = []
 
     def save(self, output_dir, base_name):
-        self.saved_files = [f"{base_name}.png"]
+        # Files are really written: a cache hit only counts when every file
+        # the cached entry names still exists on disk
+        os.makedirs(output_dir, exist_ok=True)
+        path = os.path.join(output_dir, f"{base_name}.png")
+        with open(path, "wb") as handle:
+            handle.write(b"")
+        self.saved_files = [path]
         return self.saved_files
 
 
@@ -109,6 +117,36 @@ def test_second_run_with_changed_variable_recomputes_that_step():
         workflow.run({"prompt": "a cat"})
         workflow.run({"prompt": "a dog"})
 
+        assert call_count() == 2
+    finally:
+        for p in workflow._test_patcher:
+            p.stop()
+
+
+def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing():
+    """A realized argument that copy.deepcopy chokes on makes the step
+    uncacheable - the run must continue normally, not abort."""
+
+    class NotCopyable:
+        def __deepcopy__(self, memo):
+            raise TypeError("this object cannot be copied")
+
+    original_realize_args = workflow_module.realize_args
+
+    def realize_and_poison(target, base_dir):
+        original_realize_args(target, base_dir)
+        if isinstance(target, list):  # the steps list, not the variables dict
+            target[0]["pipeline"]["arguments"]["image"] = NotCopyable()
+
+    step_cache.clear()
+    workflow, call_count = build_test_workflow_and_call_count_spy()
+
+    try:
+        with patch.object(workflow_module, "realize_args", realize_and_poison):
+            workflow.run({})
+            workflow.run({})
+
+        # Neither run raised, and neither was served from cache
         assert call_count() == 2
     finally:
         for p in workflow._test_patcher:

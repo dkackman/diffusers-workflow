@@ -428,9 +428,19 @@ class Workflow:
                     "workflow" not in step_data
                     and step_data["name"] not in pipeline_reference_targets
                 )
-                step_data_snapshot = (
-                    copy.deepcopy(step_data) if is_cacheable else None
-                )
+                step_data_snapshot = None
+                if is_cacheable:
+                    try:
+                        step_data_snapshot = copy.deepcopy(step_data)
+                    except Exception as ex:
+                        # A realized argument that cannot be deep-copied (an
+                        # open handle, a live model object) just means this
+                        # step is not cacheable - never a failed run
+                        logger.debug(
+                            f"Step '{step.name}' arguments are not copyable "
+                            f"({ex}) - skipping the step cache for it"
+                        )
+                        is_cacheable = False
                 cached_result = (
                     step_cache.get(
                         step_data_snapshot,
@@ -494,6 +504,14 @@ class Workflow:
                 # A released pipeline frees its memory for later steps - the
                 # alternative on a card that cannot hold two models is offloading
                 # everything, which taxes every run to survive one transition
+                # Known gap: on a cache-hit step this is a silent no-op -
+                # create_step_action never ran, so _pipeline_keys_by_step has
+                # no key for it and the pop finds nothing. Same root cause as
+                # the pipeline_reference case above (a hit skips the only code
+                # that records a step's pipeline key). A skipped step loads no
+                # pipeline this run, but one an earlier run left in the
+                # worker's pipelines dict stays resident instead of being
+                # released here.
                 if step_data.get("release_pipeline", False):
                     logger.info(f"Releasing pipeline for step: {step.name}")
                     pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)

@@ -17,6 +17,7 @@ the individual .to() calls those make, so there is nothing to intercept.
 
 import time
 import logging
+import weakref
 
 import torch
 
@@ -28,12 +29,33 @@ def _as_device(device):
 
 
 class MemoryManager:
+    """Process-wide registry of on_demand components.
+
+    Components are held by weak reference: the registry is a bookkeeping
+    aid, never an owner. A component whose pipeline was released (or whose
+    worker did a full cleanup) is freed by normal garbage collection and
+    its entry drops out here on the next lookup, so no release call site
+    has to remember to unregister - and a dead entry is never chosen as an
+    eviction victim, since evicting already-freed memory frees nothing.
+    """
+
     def __init__(self):
-        self._entries = {}  # id(component) -> {component, priority, last_used, device}
+        # id(component) -> {ref, priority, last_used, device}
+        self._entries = {}
 
     def register(self, component, priority=1):
+        try:
+            ref = weakref.ref(component)
+        except TypeError:
+            # Not every object supports weak references (__slots__ without
+            # __weakref__). Tracking is best-effort - an untracked component
+            # still loads, it just cannot participate in eviction.
+            logger.debug(
+                "Component does not support weak references - not tracked for eviction"
+            )
+            return
         self._entries[id(component)] = {
-            "component": component,
+            "ref": ref,
             "priority": priority,
             "last_used": time.time(),
             # Not every component exposes .device - a bare nn.Module does not.
@@ -45,9 +67,40 @@ class MemoryManager:
     def unregister(self, component):
         self._entries.pop(id(component), None)
 
+    def clear(self):
+        """Drop every registration - for an explicit full memory reset."""
+        self._entries.clear()
+
+    def live_entry_count(self):
+        """Number of registered components still alive (dead ones pruned)."""
+        self._prune()
+        return len(self._entries)
+
+    def _prune(self):
+        for comp_id in [
+            comp_id
+            for comp_id, entry in self._entries.items()
+            if entry["ref"]() is None
+        ]:
+            self._entries.pop(comp_id, None)
+
+    def _entry_for(self, component):
+        """The entry for `component`, or None.
+
+        id() is reused after an object is freed, so an entry only counts as
+        this component's if its weak reference still points at it.
+        """
+        entry = self._entries.get(id(component))
+        if entry is None:
+            return None
+        if entry["ref"]() is not component:
+            self._entries.pop(id(component), None)
+            return None
+        return entry
+
     def load(self, component, device, offload_device):
         """Move `component` onto `device`, evicting lower-priority residents on OOM."""
-        entry = self._entries.get(id(component))
+        entry = self._entry_for(component)
         if entry is not None:
             entry["last_used"] = time.time()
 
@@ -67,12 +120,15 @@ class MemoryManager:
 
     def mark_idle(self, component, offload_device):
         """Record that `component` has been moved back to `offload_device`."""
-        entry = self._entries.get(id(component))
+        entry = self._entry_for(component)
         if entry is not None:
             entry["device"] = _as_device(offload_device)
 
     def _pick_eviction_candidate(self, device, exclude_id):
         device = str(device)
+        # A dead reference is a component that has already been freed -
+        # evicting it would free nothing, so prune it out of the pool
+        self._prune()
         candidates = [
             (entry["priority"], entry["last_used"], comp_id)
             for comp_id, entry in self._entries.items()
@@ -87,10 +143,14 @@ class MemoryManager:
         entry = self._entries.get(comp_id)
         if entry is None:
             return
+        component = entry["ref"]()
+        if component is None:
+            self._entries.pop(comp_id, None)
+            return
         logger.debug(
             f"Evicting a lower-priority on-demand component to free {entry['device']}"
         )
-        entry["component"].to(offload_device)
+        component.to(offload_device)
         entry["device"] = _as_device(offload_device)
 
 

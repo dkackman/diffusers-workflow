@@ -231,11 +231,14 @@ When a token is configured, every `/api/*` request must carry
 `Authorization: Bearer <token>` or gets a 401. The UI's own static files and
 `/outputs` (generated media) stay reachable without it - the page has to
 load far enough for a user to enter the token, and an `<img>`/`<script>`
-tag cannot attach a header anyway. Two API routes additionally accept the
+tag cannot attach a header anyway. A few GET API routes additionally accept the
 token as a `?token=...` query parameter, because the browser loads them
 without being able to set headers: the SSE stream,
 `GET /api/jobs/{id}/events` (`EventSource`), and the gallery grid's
-`GET /api/gallery/{name}/thumbnail` (an `<img>` tag). That is a deliberate,
+`GET /api/gallery/{name}/thumbnail` (an `<img>` tag). The three `/download`
+routes (gallery output, workflow, prompt) accept `?token=...` the same way,
+since a download button is a plain `<a href download>` navigation that
+cannot set a header either. That is a deliberate,
 narrower trade-off (a token that can leak into logs or browser history for
 those URLs) rather than a general alternative to the header - every other
 route accepts the header only.

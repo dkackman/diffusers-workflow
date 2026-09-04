@@ -21,9 +21,18 @@ A step is safe to skip only if:
      entry's saved_files/manifest paths verbatim, so a mismatch must force
      a miss or a changed output dir would silently keep pointing at the
      old directory's files
+  5. every file the cached result names still exists - a hit republishes
+     those paths into the manifest and job history, so a file deleted
+     since (gallery delete button, or by hand) must force a re-run
+
+The cache is per-process and bounded (DEFAULT_MAX_ENTRIES, LRU): it holds
+realized media, so unbounded growth would work against the OOM avoidance
+release_unreferenced_results exists for.
 """
 
 import logging
+import os
+from collections import OrderedDict
 
 from .workflow import referenced_result_names
 
@@ -40,14 +49,35 @@ def deep_equal(a, b):
         return a.keys() == b.keys() and all(deep_equal(a[k], b[k]) for k in a)
     if isinstance(a, (list, tuple)):
         return len(a) == len(b) and all(deep_equal(x, y) for x, y in zip(a, b))
-    return a == b
+    try:
+        # realize_args runs before the step loop, so a resolved argument can
+        # hold a numpy array or a tensor, whose == yields an array rather
+        # than a bool (and an exotic object's == can raise outright). A value
+        # that cannot answer "are these equal" cleanly is treated as unequal:
+        # a cache miss just re-runs the step, where a raised exception would
+        # abort the whole run
+        return bool(a == b)
+    except (ValueError, TypeError, RuntimeError):
+        return False
 
 
 class StepCache:
-    """Per-process cache of the last Result each step name produced."""
+    """Per-process cache of the last Result each step name produced.
 
-    def __init__(self):
-        self._entries = {}  # step name -> {"step_data", "step_seed", "result"}
+    Bounded: entries hold realized media, so an unbounded cache would work
+    directly against release_unreferenced_results' OOM avoidance. The
+    least-recently-used entry is evicted once the cap is reached.
+    """
+
+    DEFAULT_MAX_ENTRIES = 50
+
+    def __init__(self, max_entries=None):
+        # step name -> {"step_data", "step_seed", "result", "output_dir"},
+        # ordered least- to most-recently-used
+        self._entries = OrderedDict()
+        self.max_entries = (
+            self.DEFAULT_MAX_ENTRIES if max_entries is None else max_entries
+        )
 
     def clear(self):
         self._entries.clear()
@@ -69,15 +99,38 @@ class StepCache:
         if not all(self._is_hit(ref, hits_this_run) for ref in upstream):
             return None
 
+        # A hit reports the entry's saved_files verbatim into the manifest
+        # and job history - if the user deleted one of them (gallery delete
+        # button, or by hand), the entry is stale and the step must re-run
+        if not self._saved_files_exist(entry["result"]):
+            logger.debug(
+                f"Cached result for step '{name}' names a file that no longer "
+                "exists - treating as a miss"
+            )
+            self._entries.pop(name, None)
+            return None
+
+        self._entries.move_to_end(name)
         return entry["result"]
 
     def put(self, step_data, step_seed, result, output_dir=None):
-        self._entries[step_data["name"]] = {
+        name = step_data["name"]
+        self._entries[name] = {
             "step_data": step_data,
             "step_seed": step_seed,
             "result": result,
             "output_dir": output_dir,
         }
+        self._entries.move_to_end(name)
+        while len(self._entries) > self.max_entries:
+            evicted, _ = self._entries.popitem(last=False)
+            logger.debug(f"Step cache full - evicting least recently used '{evicted}'")
+
+    @staticmethod
+    def _saved_files_exist(result):
+        return all(
+            os.path.exists(path) for path in getattr(result, "saved_files", None) or []
+        )
 
     @staticmethod
     def _is_hit(ref, hits_this_run):
