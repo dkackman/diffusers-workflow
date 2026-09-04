@@ -1,0 +1,116 @@
+{
+    "id": "MarmotCroonsStitch",
+    "description": "Joins the sixteen shots written by MarmotCroonsFullA and MarmotCroonsFullB into one edit and lays the song over it. Run the two parts with their output directed next to this file - 'python -m dw.run local_inputs/MarmotCroonsFullA.json -o local_inputs/shots', the same for B - then run this one. The shots have to sit under this workflow's own directory: a workflow resolves media against the file it is written in and '..' is refused as path traversal, so there is no way to reach the default outputs/ folder from here. Hard cuts, nothing trimmed and no seam treatment, because the generated per-shot audio is discarded: pair_audio puts the unbroken 44.1 kHz recording over the finished edit, so sync is sample-accurate by construction rather than maintained across fifteen seams. The shots are named one by one rather than gathered by glob - order is the whole meaning of a shot list, and an explicit media reference is the only form that guarantees it. The soundtrack slice runs 1.1 s past the end of the 81.5 s recording; slice_audio zero-pads it, so the song finishes and the last shot holds in silence. This runs on the CPU, but it holds all 1984 frames at once - about 3 GB - so do not start it while a generation still has the box.",
+    "variables": {
+        "sample_rate": 44100,
+        "fps": 24,
+        "soundtrack_song": "local_inputs/chia.mp3",
+        "total_frames": 1984
+    },
+    "steps": [
+        {
+            "name": "soundtrack",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "variable:soundtrack_song",
+                    "sample_rate": "variable:sample_rate",
+                    "start_frame": 0,
+                    "num_frames": "variable:total_frames",
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "edit",
+            "task": {
+                "command": "concat_videos",
+                "arguments": {
+                    "videos": [
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullA-shot_01_establish.9-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullA-shot_02_medium_front.10-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullA-shot_03_closeup.11-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullA-shot_04_profile_low.12-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullA-shot_05_three_quarter.13-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullA-shot_06_high_angle.14-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullA-shot_07_guitar_fg.15-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullA-shot_08_paws_detail.16-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullB-shot_09_head_shoulders.9-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullB-shot_10_profile_reverse.10-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullB-shot_11_back_of_room.11-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullB-shot_12_medium_chest.12-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullB-shot_13_closeup_held.13-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullB-shot_14_over_shoulder.14-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullB-shot_15_low_three_quarter.15-0.0.mp4"
+                        },
+                        {
+                            "media_type": "video",
+                            "location": "shots/MarmotCroonsFullB-shot_16_finale_wide.16-0.0.mp4"
+                        }
+                    ],
+                    "trim_frames": 0,
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "music_video",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:edit",
+                    "audio": "previous_result:soundtrack",
+                    "sample_rate": "variable:sample_rate"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}
