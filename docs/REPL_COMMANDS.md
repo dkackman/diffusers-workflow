@@ -58,8 +58,17 @@ Step caching keeps each step's last `Result` in RAM for the life of the
 worker process so a rerun with unchanged inputs can skip straight to it -
 this trades some memory for speed, and holding it works against the
 normal end-of-step release that frees a result once no later step needs
-it. `memory clear` is the escape hatch: it drops every cached step result
-along with the GPU/model caches.
+it. The cache is bounded to the 50 most recently used steps, and evicts
+the least recently used one beyond that; `memory clear` is the escape
+hatch: it drops every cached step result along with the GPU/model caches.
+
+Caching is not REPL-only - it applies to any `Workflow.run` in the
+process, including a job the server runs. Re-running a fixed-seed workflow
+whose inputs did not change therefore completes almost instantly and
+produces no new gallery entry, because the previous run's files are
+reused. A cache entry is discarded if any of the files it names has been
+deleted since, so a deleted output is regenerated rather than reported
+again from cache.
 
 ### config — REPL settings
 

@@ -2197,6 +2197,39 @@ def test_gallery_thumbnail_accepts_the_token_as_a_query_param(tmp_path):
         assert client.get("/api/health?token=s3cr3t").status_code == 401
 
 
+def test_download_routes_accept_the_token_as_a_query_param(tmp_path):
+    """Download buttons are plain `<a href download>` navigations, which
+    cannot carry an Authorization header - so like the thumbnail route, the
+    download routes take the token as a query parameter."""
+    from PIL import Image
+
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    Image.new("RGB", (64, 64), "red").save(outputs / "big.png")
+    manager = JobManager(
+        str(outputs),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(outputs),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        token="s3cr3t",
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/api/gallery/big.png/download").status_code == 401
+        assert (
+            client.get("/api/gallery/big.png/download?token=s3cr3t").status_code == 200
+        )
+        assert (
+            client.get("/api/gallery/big.png/download?token=wrong").status_code == 401
+        )
+
+
 def test_a_non_ascii_token_still_rejects_a_wrong_token_with_401(tmp_path):
     """secrets.compare_digest refuses non-ASCII str; the comparison must
     happen on bytes so an unusual token yields 401, not a 500."""

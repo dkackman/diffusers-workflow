@@ -285,7 +285,10 @@ Multiple `residency: on_demand` components across different steps of one
 workflow share a single process-wide memory manager. If a second on-demand
 component can't fit on the accelerator alongside a resident one, the
 manager evicts the lowest-priority, least-recently-used resident and
-retries - rather than failing the run. Set `residency_priority` (default
+retries - rather than failing the run. This is a CUDA behavior: the retry
+is triggered by `torch.OutOfMemoryError`, which MPS does not raise (it
+reports a plain `RuntimeError`), so on Apple Silicon the eviction pool
+tracks residency but never fires. Set `residency_priority` (default
 `1`, higher survives longer) on a component's configuration to protect it:
 
 ```json

@@ -22,8 +22,9 @@ const encodePath = (name: string) =>
   name.split('/').map(encodeURIComponent).join('/')
 
 /** Append the configured API token as a query parameter. Only for the
- * routes a browser loads without being able to set headers - EventSource
- * and <img> tags - which the server accepts it on; see docs/SERVER.md. */
+ * routes a browser loads without being able to set headers - EventSource,
+ * <img> tags and <a download> navigations - which the server accepts it
+ * on; see docs/SERVER.md. */
 function withToken(url: string): string {
   const token = getApiToken()
   if (!token) return url
@@ -153,7 +154,7 @@ export const api = {
       { method: 'DELETE' },
     ),
   outputDownloadUrl: (name: string) =>
-    `/api/gallery/${encodePath(name)}/download`,
+    withToken(`/api/gallery/${encodePath(name)}/download`),
   /** Save a browser-picked file server-side and get back the path a
    * workflow's image/video argument can reference. The body is the raw
    * file bytes - no multipart form needed for a single file. */
@@ -184,7 +185,7 @@ export const api = {
       { method: 'DELETE' },
     ),
   workflowDownloadUrl: (name: string) =>
-    `/api/workflows/${encodePath(name)}/download`,
+    withToken(`/api/workflows/${encodePath(name)}/download`),
   saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
     request<{ name: string; path: string; warnings: string[] }>(
       `/api/workflows/${encodePath(name)}`,
@@ -217,7 +218,7 @@ export const api = {
       { method: 'DELETE' },
     ),
   promptDownloadUrl: (name: string) =>
-    `/api/prompts/${encodePath(name)}/download`,
+    withToken(`/api/prompts/${encodePath(name)}/download`),
   getPromptSchema: () => request<Record<string, unknown>>('/api/prompt-schema'),
   listEnhancers: () => request<{ presets: EnhancerPreset[] }>('/api/enhancers'),
   enhance: (body: {

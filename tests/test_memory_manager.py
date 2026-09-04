@@ -1,3 +1,5 @@
+import gc
+
 import torch
 import pytest
 
@@ -95,3 +97,79 @@ def test_unregister_removes_component_from_eviction_pool():
 
     with pytest.raises(torch.OutOfMemoryError):
         mm.load(other, "cuda:0", "cpu")  # victim is gone, nothing left to evict
+
+
+def test_registry_does_not_keep_a_component_alive():
+    """Registration must not pin a component for the life of the process -
+    when its pipeline is released and nothing else references it, the entry
+    goes away on its own."""
+    mm = MemoryManager()
+    model = FakeModel("transient")
+    mm.register(model, priority=1)
+    assert len(mm._entries) == 1
+
+    del model
+    gc.collect()
+
+    assert mm.live_entry_count() == 0
+
+
+def test_eviction_skips_and_prunes_a_dead_reference():
+    """A component that has been garbage collected is no benefit to evict,
+    so it must not be chosen as the eviction candidate."""
+    mm = MemoryManager()
+    ghost = FakeModel("ghost")
+    mm.register(ghost, priority=1)
+    mm.load(ghost, "cuda:0", "cpu")
+    del ghost
+    gc.collect()
+
+    other = FakeModel("other")
+    mm.register(other, priority=1)
+    other.oom_on = "cuda:0"
+
+    # the only other entry is dead, so there is nothing real to evict
+    with pytest.raises(torch.OutOfMemoryError):
+        mm.load(other, "cuda:0", "cpu")
+
+    assert mm.live_entry_count() == 1
+
+
+def test_clear_empties_the_registry():
+    mm = MemoryManager()
+    kept = FakeModel("kept")
+    mm.register(kept, priority=1)
+    mm.load(kept, "cuda:0", "cpu")
+
+    mm.clear()
+
+    assert mm.live_entry_count() == 0
+
+    other = FakeModel("other")
+    mm.register(other, priority=1)
+    other.oom_on = "cuda:0"
+    with pytest.raises(torch.OutOfMemoryError):
+        mm.load(other, "cuda:0", "cpu")  # registry was cleared, nothing to evict
+
+
+def test_register_tolerates_a_component_that_cannot_be_weak_referenced():
+    """Registration is best-effort - a component that does not support weak
+    references simply is not tracked, rather than breaking its own load."""
+
+    class NoWeakRef:
+        __slots__ = ("device",)
+
+        def __init__(self):
+            self.device = torch.device("cpu")
+
+        def to(self, device):
+            self.device = torch.device(device)
+            return self
+
+    mm = MemoryManager()
+    model = NoWeakRef()
+    mm.register(model, priority=1)
+
+    mm.load(model, "cuda:0", "cpu")
+
+    assert str(model.device) == "cuda:0"

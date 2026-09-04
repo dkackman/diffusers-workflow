@@ -320,8 +320,9 @@ LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 # of these as its Host, so they define no allowlist
 WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 # Routes a browser loads without being able to set headers (EventSource, an
-# <img> tag); these alone accept the bearer token as a ?token= query param
-QUERY_TOKEN_ROUTE_SUFFIXES = ("/events", "/thumbnail")
+# <img> tag, an <a download> navigation); these alone accept the bearer
+# token as a ?token= query param
+QUERY_TOKEN_ROUTE_SUFFIXES = ("/events", "/thumbnail", "/download")
 
 
 def create_app(
@@ -425,9 +426,10 @@ def create_app(
         stay reachable so the page can load far enough to let a user enter
         the token in the first place. EventSource cannot set custom headers
         either, and neither can the <img> tags the gallery grid loads its
-        thumbnails through, so those two routes additionally accept the
-        token as a `token` query parameter - a documented trade-off, not a
-        header-auth peer."""
+        thumbnails through nor the <a download> navigations the download
+        buttons make, so those GET routes additionally accept the token as a
+        `token` query parameter - a documented trade-off, not a header-auth
+        peer."""
         if not token:
             return await call_next(request)
         path = request.url.path
@@ -437,7 +439,14 @@ def create_app(
         auth = request.headers.get("authorization", "")
         if auth.lower().startswith("bearer "):
             provided = auth[len("bearer ") :].strip()
-        if provided is None and path.endswith(QUERY_TOKEN_ROUTE_SUFFIXES):
+        # GET only: every header-less browser load is a GET, and this keeps
+        # the query form off state-changing routes that happen to share a
+        # suffix (POST /api/models/download)
+        if (
+            provided is None
+            and request.method == "GET"
+            and path.endswith(QUERY_TOKEN_ROUTE_SUFFIXES)
+        ):
             provided = request.query_params.get("token")
         # compared as bytes: compare_digest refuses non-ASCII str
         if provided is None or not secrets.compare_digest(
