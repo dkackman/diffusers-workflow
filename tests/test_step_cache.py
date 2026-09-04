@@ -1,6 +1,6 @@
 import pytest
 
-from dw.step_cache import StepCache, deep_equal
+from dw.step_cache import StepCache, deep_equal, reference_resolves_to
 
 
 class FakeResult:
@@ -27,9 +27,9 @@ def test_step_cache_hit_on_unchanged_step_data_and_seed():
     cache = StepCache()
     step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
     result = FakeResult("first")
-    cache.put(step_data, 42, result)
+    cache.put("w", step_data, 42, result, "/out", True)
 
-    hit = cache.get(step_data, 42, hits_this_run=set())
+    hit = cache.get("w", step_data, 42, set(), "/out", True)
 
     assert hit is result
 
@@ -37,10 +37,10 @@ def test_step_cache_hit_on_unchanged_step_data_and_seed():
 def test_step_cache_miss_when_step_data_changes():
     cache = StepCache()
     step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
-    cache.put(step_data, 42, FakeResult("first"))
+    cache.put("w", step_data, 42, FakeResult("first"), "/out", True)
 
     changed = {"name": "gen", "pipeline": {"arguments": {"prompt": "a dog"}}}
-    hit = cache.get(changed, 42, hits_this_run=set())
+    hit = cache.get("w", changed, 42, set(), "/out", True)
 
     assert hit is None
 
@@ -48,9 +48,9 @@ def test_step_cache_miss_when_step_data_changes():
 def test_step_cache_miss_when_seed_changes():
     cache = StepCache()
     step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
-    cache.put(step_data, 42, FakeResult("first"))
+    cache.put("w", step_data, 42, FakeResult("first"), "/out", True)
 
-    hit = cache.get(step_data, 99, hits_this_run=set())
+    hit = cache.get("w", step_data, 99, set(), "/out", True)
 
     assert hit is None
 
@@ -61,10 +61,10 @@ def test_step_cache_miss_when_referenced_step_did_not_hit_this_run():
         "name": "video",
         "pipeline": {"arguments": {"image": "previous_result:image_generation"}},
     }
-    cache.put(step_data, 7, FakeResult("first"))
+    cache.put("w", step_data, 7, FakeResult("first"), "/out", True)
 
     # image_generation was NOT in hits_this_run - it re-ran and may have changed
-    hit = cache.get(step_data, 7, hits_this_run=set())
+    hit = cache.get("w", step_data, 7, set(), "/out", True)
 
     assert hit is None
 
@@ -76,9 +76,9 @@ def test_step_cache_hit_when_referenced_step_did_hit_this_run():
         "pipeline": {"arguments": {"image": "previous_result:image_generation"}},
     }
     result = FakeResult("first")
-    cache.put(step_data, 7, result)
+    cache.put("w", step_data, 7, result, "/out", True)
 
-    hit = cache.get(step_data, 7, hits_this_run={"image_generation"})
+    hit = cache.get("w", step_data, 7, {"image_generation"}, "/out", True)
 
     assert hit is result
 
@@ -90,9 +90,9 @@ def test_step_cache_hit_when_referenced_step_hit_via_property_suffix():
         "pipeline": {"arguments": {"mask": "previous_result:segment.mask"}},
     }
     result = FakeResult("first")
-    cache.put(step_data, 7, result)
+    cache.put("w", step_data, 7, result, "/out", True)
 
-    hit = cache.get(step_data, 7, hits_this_run={"segment"})
+    hit = cache.get("w", step_data, 7, {"segment"}, "/out", True)
 
     assert hit is result
 
@@ -101,16 +101,16 @@ def test_step_cache_miss_on_first_run():
     cache = StepCache()
     step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
 
-    assert cache.get(step_data, 42, hits_this_run=set()) is None
+    assert cache.get("w", step_data, 42, set(), "/out", True) is None
 
 
 def test_step_cache_hit_when_output_dir_unchanged():
     cache = StepCache()
     step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
     result = FakeResult("first")
-    cache.put(step_data, 42, result, "/out/a")
+    cache.put("w", step_data, 42, result, "/out/a", True)
 
-    hit = cache.get(step_data, 42, hits_this_run=set(), output_dir="/out/a")
+    hit = cache.get("w", step_data, 42, set(), "/out/a", True)
 
     assert hit is result
 
@@ -121,9 +121,9 @@ def test_step_cache_miss_when_output_dir_changes():
     keep pointing at the old directory's files."""
     cache = StepCache()
     step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
-    cache.put(step_data, 42, FakeResult("first"), "/out/a")
+    cache.put("w", step_data, 42, FakeResult("first"), "/out/a", True)
 
-    hit = cache.get(step_data, 42, hits_this_run=set(), output_dir="/out/b")
+    hit = cache.get("w", step_data, 42, set(), "/out/b", True)
 
     assert hit is None
 
@@ -134,9 +134,9 @@ def test_step_cache_hit_when_saved_files_still_exist(tmp_path):
     kept = tmp_path / "kept.png"
     kept.write_bytes(b"x")
     result = FakeResult("first", [str(kept)])
-    cache.put(step_data, 42, result)
+    cache.put("w", step_data, 42, result, "/out", True)
 
-    assert cache.get(step_data, 42, hits_this_run=set()) is result
+    assert cache.get("w", step_data, 42, set(), "/out", True) is result
 
 
 def test_step_cache_miss_when_a_saved_file_was_deleted(tmp_path):
@@ -149,11 +149,13 @@ def test_step_cache_miss_when_a_saved_file_was_deleted(tmp_path):
     kept.write_bytes(b"x")
     gone = tmp_path / "gone.png"
     gone.write_bytes(b"x")
-    cache.put(step_data, 42, FakeResult("first", [str(kept), str(gone)]))
+    cache.put(
+        "w", step_data, 42, FakeResult("first", [str(kept), str(gone)]), "/out", True
+    )
 
     gone.unlink()
 
-    assert cache.get(step_data, 42, hits_this_run=set()) is None
+    assert cache.get("w", step_data, 42, set(), "/out", True) is None
 
 
 def test_deep_equal_is_false_rather_than_raising_on_array_values():
@@ -181,30 +183,35 @@ def test_step_cache_evicts_the_least_recently_used_entry_over_the_cap():
     the very OOM avoidance release_unreferenced_results exists for."""
     cache = StepCache(max_entries=3)
     for name in ("a", "b", "c"):
-        cache.put({"name": name}, 1, FakeResult(name))
+        cache.put("w", {"name": name}, 1, FakeResult(name), "/out", True)
 
     # touch 'a' so 'b' becomes the least recently used
-    assert cache.get({"name": "a"}, 1, hits_this_run=set()) is not None
+    assert cache.get("w", {"name": "a"}, 1, set(), "/out", True) is not None
 
-    cache.put({"name": "d"}, 1, FakeResult("d"))
+    cache.put("w", {"name": "d"}, 1, FakeResult("d"), "/out", True)
 
-    assert cache.get({"name": "b"}, 1, hits_this_run=set()) is None
+    assert cache.get("w", {"name": "b"}, 1, set(), "/out", True) is None
     for name in ("a", "c", "d"):
-        assert cache.get({"name": name}, 1, hits_this_run=set()) is not None
+        assert cache.get("w", {"name": name}, 1, set(), "/out", True) is not None
 
 
 def test_step_cache_has_a_default_entry_cap():
     cache = StepCache()
     assert cache.max_entries == StepCache.DEFAULT_MAX_ENTRIES
     for i in range(StepCache.DEFAULT_MAX_ENTRIES + 5):
-        cache.put({"name": f"step{i}"}, 1, FakeResult(str(i)))
+        cache.put("w", {"name": f"step{i}"}, 1, FakeResult(str(i)), "/out", True)
 
     assert len(cache._entries) == StepCache.DEFAULT_MAX_ENTRIES
-    assert cache.get({"name": "step0"}, 1, hits_this_run=set()) is None
-    assert cache.get({"name": "step4"}, 1, hits_this_run=set()) is None
+    assert cache.get("w", {"name": "step0"}, 1, set(), "/out", True) is None
+    assert cache.get("w", {"name": "step4"}, 1, set(), "/out", True) is None
     assert (
         cache.get(
-            {"name": f"step{StepCache.DEFAULT_MAX_ENTRIES}"}, 1, hits_this_run=set()
+            "w",
+            {"name": f"step{StepCache.DEFAULT_MAX_ENTRIES}"},
+            1,
+            set(),
+            "/out",
+            True,
         )
         is not None
     )
@@ -213,8 +220,104 @@ def test_step_cache_has_a_default_entry_cap():
 def test_step_cache_clear():
     cache = StepCache()
     step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
-    cache.put(step_data, 42, FakeResult("first"))
+    cache.put("w", step_data, 42, FakeResult("first"), "/out", True)
 
     cache.clear()
 
-    assert cache.get(step_data, 42, hits_this_run=set()) is None
+    assert cache.get("w", step_data, 42, set(), "/out", True) is None
+
+
+def test_entries_are_scoped_to_the_workflow_id():
+    """Saved files are named '{workflow_id}-{step}.{i}', so an entry keyed by
+    the bare step name lets a different workflow hit and republish the other
+    workflow's file paths while writing none of its own."""
+    cache = StepCache()
+    step_data = {"name": "main", "pipeline": {"arguments": {"prompt": "a cat"}}}
+    result = FakeResult("first")
+    cache.put("workflow_a", step_data, 42, result, "/out", True)
+
+    assert cache.get("workflow_b", step_data, 42, set(), "/out", True) is None
+    assert cache.get("workflow_a", step_data, 42, set(), "/out", True) is result
+
+
+def test_miss_when_the_upstream_entry_changed_since_this_entry_was_stored():
+    """An upstream that hit this run is not enough - the entry must have been
+    computed from the upstream generation now in the cache. A run cancelled
+    between A's put and B's leaves B stale against the new A."""
+    cache = StepCache()
+    a = {"name": "A", "pipeline": {"arguments": {"prompt": "one"}}}
+    b = {"name": "B", "pipeline": {"arguments": {"image": "previous_result:A"}}}
+    cache.put("w", a, 1, FakeResult("a1"), "/out", True)
+    cache.put("w", b, 1, FakeResult("b1"), "/out", True)
+
+    # A re-ran with changed inputs and was re-put; the run was cancelled
+    # before B's put, so B's entry still describes the old A
+    cache.put(
+        "w",
+        {**a, "pipeline": {"arguments": {"prompt": "two"}}},
+        1,
+        FakeResult("a2"),
+        "/out",
+        True,
+    )
+
+    assert cache.get("w", b, 1, {"A"}, "/out", True) is None
+
+
+def test_hit_when_the_upstream_generation_still_matches():
+    cache = StepCache()
+    a = {"name": "A", "pipeline": {"arguments": {"prompt": "one"}}}
+    b = {"name": "B", "pipeline": {"arguments": {"image": "previous_result:A"}}}
+    cache.put("w", a, 1, FakeResult("a1"), "/out", True)
+    result = FakeResult("b1")
+    cache.put("w", b, 1, result, "/out", True)
+
+    assert cache.get("w", b, 1, {"A"}, "/out", True) is result
+
+
+def test_unretained_entry_stores_a_result_with_an_empty_result_list():
+    """A result no later step reads is on disk already - keeping its decoded
+    frames or latent tensors alive for the life of the cache is what
+    release_unreferenced_results exists to avoid."""
+    cache = StepCache()
+    step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
+    result = FakeResult("first")
+    result.result_list = ["a decoded frame"]
+    cache.put("w", step_data, 42, result, "/out", False)
+
+    hit = cache.get("w", step_data, 42, set(), "/out", False)
+
+    assert hit is not result
+    assert hit.result_list == []
+    assert hit.saved_files == result.saved_files
+    assert result.result_list == ["a decoded frame"]
+
+
+def test_miss_when_this_run_needs_a_result_the_entry_did_not_retain():
+    cache = StepCache()
+    step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
+    cache.put("w", step_data, 42, FakeResult("first"), "/out", False)
+
+    assert cache.get("w", step_data, 42, set(), "/out", True) is None
+
+
+def test_result_without_saved_files_raises_rather_than_hitting():
+    """A result-like object with no saved_files must not silently pass the
+    'every named file still exists' check."""
+    cache = StepCache()
+    step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
+
+    class NoSavedFiles:
+        result_list = []
+
+    cache.put("w", step_data, 42, NoSavedFiles(), "/out", True)
+
+    with pytest.raises(AttributeError):
+        cache.get("w", step_data, 42, set(), "/out", True)
+
+
+def test_reference_resolves_to_matches_a_name_or_a_property_of_it():
+    assert reference_resolves_to("gen", "gen")
+    assert reference_resolves_to("gen.mask", "gen")
+    assert not reference_resolves_to("generate", "gen")
+    assert not reference_resolves_to("gen", "gen.mask")

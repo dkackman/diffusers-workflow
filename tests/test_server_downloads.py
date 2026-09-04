@@ -6,36 +6,10 @@ greedy {name:path} matching on the plain route swallows it."""
 
 import json
 
-import pytest
-from fastapi.testclient import TestClient
-
-from dw.server.jobs import JobManager
-from dw.server.app import create_app
-from tests.test_server import ScriptedWorkerManager, success_script, valid_workflow
-
-
-@pytest.fixture
-def server(tmp_path):
-    workflow_dir = tmp_path / "workflows"
-    workflow_dir.mkdir()
-    prompt_dir = tmp_path / "prompts"
-    prompt_dir.mkdir()
-
-    def make(script):
-        manager = JobManager(
-            str(tmp_path / "outputs"),
-            worker_manager=ScriptedWorkerManager(script),
-            history_path=str(tmp_path / "jobs.sqlite"),
-        )
-        app = create_app(
-            workflow_dir=str(workflow_dir),
-            output_dir=str(tmp_path / "outputs"),
-            job_manager=manager,
-            prompt_dir=str(prompt_dir),
-        )
-        return TestClient(app, base_url="http://localhost")
-
-    return make
+# `server` is imported for its fixture: these tests need exactly the one
+# tests/test_server.py already defines (its extra Basic.json seed file is
+# harmless here), and a second copy would drift from it
+from tests.test_server import server, success_script, valid_workflow  # noqa: F401
 
 
 def test_download_output_sets_content_disposition_attachment(server, tmp_path):

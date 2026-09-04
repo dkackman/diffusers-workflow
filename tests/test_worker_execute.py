@@ -150,9 +150,16 @@ def test_full_cleanup_clears_step_cache():
     'clear' leaves results pinned in RAM."""
     from dw.step_cache import step_cache
 
-    step_cache.put({"name": "cleanup_probe"}, 42, StubResult())
+    step_cache.put(
+        "probe_workflow", {"name": "cleanup_probe"}, 42, StubResult(), "/out", True
+    )
 
     worker = _make_worker()
     worker._cleanup_all()
 
-    assert step_cache.get({"name": "cleanup_probe"}, 42, hits_this_run=set()) is None
+    assert (
+        step_cache.get(
+            "probe_workflow", {"name": "cleanup_probe"}, 42, set(), "/out", True
+        )
+        is None
+    )
