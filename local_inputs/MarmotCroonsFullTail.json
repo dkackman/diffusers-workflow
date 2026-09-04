@@ -1,0 +1,281 @@
+{
+    "id": "MarmotCroonsFullTail",
+    "description": "The last three shots of MarmotCroonsFull, generated on their own. The full sixteen-shot run holds every finished shot in memory as a previous_result - about 460 MB a shot on top of a 51 GB resident pipeline - and was OOM-killed on shot fourteen with 3.3 GB left. The thirteen shots it had already written are reused as they are; this generates the remainder with identical settings, prompts and audio slices, and the stitch joins all sixteen.",
+    "variables": {
+        "subject": "marmot.jpg",
+        "song": "local_inputs/chia_vocal.wav",
+        "audio_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+        "image_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+        "sample_rate": 44100,
+        "num_frames": 124,
+        "fps": 24,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "conditioning_sample_rate": 32000,
+        "shot_14_over_shoulder": "subject_definitions:\n<Subject 1> is the cartoon marmot in <Picture 1>: standing upright on its hind legs at a chrome microphone on a boom stand, its fur banded brown and cream with dark mask-like patches around the eyes, a pale muzzle, long white whiskers and alert rounded ears.\n<Picture 1> is a subject and setting reference only. It establishes who <Subject 1> is - fur, face, build and the microphone it sings into - and the club around it, its stage dressing, haze, warm amber light and the guitar in soft focus. It carries no compositional detail: no framing, no shot size, no camera position, no camera height and no lens. The composition of this clip is the one described below and is not taken from <Picture 1>.\n<Audio 1> is the piece of the song covering this part of the video, a slow jazz number <Subject 1> sings into the microphone.\n\nsummary:\n[image reference + audio song reference] The target video is an over-the-shoulder shot from behind <Subject 1>, looking past it out into the room, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the fur banding, eye patches, muzzle, whiskers, ears and proportions of <Picture 1> are kept exactly, with the head, jaw and shoulders newly animated to sing.\n<Picture 1>: partially_copy - identity, wardrobe, set, palette and lighting are taken from it; framing, shot size, camera position, camera height and lens are NOT. This clip is an over-the-shoulder shot from behind, the face away from camera, which is deliberately different from the framing of <Picture 1>.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack. This stretch of the recording is largely instrumental and <Subject 1>'s mouth is not in frame, so no lip movement is depicted; the shot carries the music on its light, haze and the subject's posture instead.\n\ndetailed_description:\nThe target video is in the warmly lit, softly rendered cartoon style of <Picture 1>. [Shot 1] An over-the-shoulder shot sits behind and just above <Subject 1>, looking past the back of its head and one ear out across the microphone into the dark room beyond, the stage lights flaring toward the lens through the haze. Its face is turned away from the camera and is not seen. The banded fur across its back and shoulders is sharp in the near frame. <Subject 1>'s mouth is not visible in this framing and no attempt is made to show it. Its body keeps the easy time of the music - a small sway, a settling of the shoulders - and nothing in the shot depends on the lip movement. The lighting, colour and contrast match <Picture 1> exactly and are steady from the first frame to the last, with smooth fur and no grain, speckle or hardened edges. The camera holds this framing statically throughout, with no reframing, no zoom and no cut.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot, the vocal close and warm at the microphone. Under it, the instrumental carrying the room, a low crowd murmur ahead in the dark and the faint hum of the amplifiers.\n\nnon_diegetic_music:\nNone - the music is the diegetic performance of <Audio 1>.",
+        "shot_15_low_three_quarter": "subject_definitions:\n<Subject 1> is the cartoon marmot in <Picture 1>: standing upright on its hind legs at a chrome microphone on a boom stand, its fur banded brown and cream with dark mask-like patches around the eyes, a pale muzzle, long white whiskers and alert rounded ears.\n<Picture 1> is a subject and setting reference only. It establishes who <Subject 1> is - fur, face, build and the microphone it sings into - and the club around it, its stage dressing, haze, warm amber light and the guitar in soft focus. It carries no compositional detail: no framing, no shot size, no camera position, no camera height and no lens. The composition of this clip is the one described below and is not taken from <Picture 1>.\n<Audio 1> is the piece of the song covering this part of the video, a slow jazz number <Subject 1> sings into the microphone.\n\nsummary:\n[image reference + audio song reference] The target video is a low three-quarter shot looking up at <Subject 1> as the song comes round again, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the fur banding, eye patches, muzzle, whiskers, ears and proportions of <Picture 1> are kept exactly, with the head, jaw and shoulders newly animated to sing.\n<Picture 1>: partially_copy - identity, wardrobe, set, palette and lighting are taken from it; framing, shot size, camera position, camera height and lens are NOT. This clip is a low three-quarter angle looking up at the subject, which is deliberately different from the framing of <Picture 1>.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack. <Subject 1>'s mouth is synchronised to the sung voice in it and to nothing else: the instrumental parts drive no mouth movement at all. Where the recording plays without a voice - an intro, a fill, a rest between phrases - <Subject 1> waits at the microphone with its mouth shut. Where a voice sings, the mouth, jaw and throat follow its timing and phrasing exactly.\n\ndetailed_description:\nThe target video is in the warmly lit, softly rendered cartoon style of <Picture 1>. [Shot 1] A low three-quarter angle looks up at <Subject 1> from just below the height of the microphone, framing it from the chest up and turned partly away from the lens, the stage lights burning behind its head and the haze glowing around its ears. Its mouth is driven entirely by the vocal of <Audio 1>: it opens and moves only while a voice is actually singing, and stays completely closed - lips together, jaw still - through every instrumental passage, rest and gap between phrases, however long one runs. It never mimes, hums or chews when no voice is present, and it never holds still while a voice is singing. Between phrases it listens, the eyes staying open and blinking at a natural rate. The lighting, colour and contrast match <Picture 1> exactly and are steady from the first frame to the last, with smooth fur and no grain, speckle or hardened edges. The camera holds this framing statically throughout, with no reframing, no zoom and no cut.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot, the vocal close and warm at the microphone. Under it, a low crowd murmur well back in the room and the faint hum of the stage amplifiers.\n\nnon_diegetic_music:\nNone - the music is the diegetic performance of <Audio 1>.",
+        "shot_16_finale_wide": "subject_definitions:\n<Subject 1> is the cartoon marmot in <Picture 1>: standing upright on its hind legs at a chrome microphone on a boom stand, its fur banded brown and cream with dark mask-like patches around the eyes, a pale muzzle, long white whiskers and alert rounded ears.\n<Picture 1> is a subject and setting reference only. It establishes who <Subject 1> is - fur, face, build and the microphone it sings into - and the club around it, its stage dressing, haze, warm amber light and the guitar in soft focus. It carries no compositional detail: no framing, no shot size, no camera position, no camera height and no lens. The composition of this clip is the one described below and is not taken from <Picture 1>.\n<Audio 1> is the piece of the song covering this part of the video, a slow jazz number <Subject 1> sings into the microphone.\n\nsummary:\n[image reference + audio song reference] The target video is a wide finale shot as the song ends and <Subject 1> holds still at the microphone, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the fur banding, eye patches, muzzle, whiskers, ears and proportions of <Picture 1> are kept exactly, with the head, jaw and shoulders newly animated to sing.\n<Picture 1>: partially_copy - identity, wardrobe, set, palette and lighting are taken from it; framing, shot size, camera position, camera height and lens are NOT. This clip is a wide high shot taking in the whole stage as the piece ends, which is deliberately different from the framing of <Picture 1>.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack. <Subject 1>'s mouth is synchronised to the sung voice in it and to nothing else: the instrumental parts drive no mouth movement at all. Where the recording plays without a voice - an intro, a fill, a rest between phrases - <Subject 1> waits at the microphone with its mouth shut. Where a voice sings, the mouth, jaw and throat follow its timing and phrasing exactly.\n\ndetailed_description:\nThe target video is in the warmly lit, softly rendered cartoon style of <Picture 1>. [Shot 1] A wide shot from high at the back of the stage takes in the whole performance space, <Subject 1> small and centred at its microphone under a single amber pool of light, the haze thick and slow around it and the rest of the stage falling away into darkness. The song finishes partway through the shot; from that moment on there is no voice and no music at all, and <Subject 1> stands quite still at the microphone with its mouth closed, head lowering slightly, holding the pose in silence until the last frame. Its mouth is driven entirely by the vocal of <Audio 1>: it opens and moves only while a voice is actually singing, and stays completely closed - lips together, jaw still - through every instrumental passage, rest and gap between phrases, however long one runs. It never mimes, hums or chews when no voice is present, and it never holds still while a voice is singing. Between phrases it listens, the eyes staying open and blinking at a natural rate. The lighting, colour and contrast match <Picture 1> exactly and are steady from the first frame to the last, with smooth fur and no grain, speckle or hardened edges. The camera holds this framing statically throughout, with no reframing, no zoom and no cut.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot, the vocal close and warm at the microphone. Under it, the last phrase of the song, then silence but for a low crowd murmur well back in the room.\n\nnon_diegetic_music:\nNone - the music is the diegetic performance of <Audio 1>."
+    },
+    "seed": 42,
+    "steps": [
+        {
+            "name": "song_32k",
+            "task": {
+                "command": "resample_audio",
+                "arguments": {
+                    "audio": "variable:song",
+                    "target_sample_rate": "variable:conditioning_sample_rate"
+                }
+            }
+        },
+        {
+            "name": "slice_14",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "previous_result:song_32k",
+                    "sample_rate": "variable:conditioning_sample_rate",
+                    "start_frame": 1612,
+                    "num_frames": 124,
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "slice_15",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "previous_result:song_32k",
+                    "sample_rate": "variable:conditioning_sample_rate",
+                    "start_frame": 1736,
+                    "num_frames": 124,
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "slice_16",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "previous_result:song_32k",
+                    "sample_rate": "variable:conditioning_sample_rate",
+                    "start_frame": 1860,
+                    "num_frames": 124,
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "shot_14_over_shoulder",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer_ref": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer_ref": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "ref2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:shot_14_over_shoulder",
+                    "references": [
+                        {
+                            "reference_type": "variable:image_reference_type",
+                            "from_file": "variable:subject"
+                        },
+                        {
+                            "reference_type": "variable:audio_reference_type",
+                            "from_previous_result": "slice_14",
+                            "sample_rate": "variable:conditioning_sample_rate"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "shot_15_low_three_quarter",
+            "pipeline_reference": {
+                "reference_name": "shot_14_over_shoulder",
+                "arguments": {
+                    "prompt": "variable:shot_15_low_three_quarter",
+                    "references": [
+                        {
+                            "reference_type": "variable:image_reference_type",
+                            "from_file": "variable:subject"
+                        },
+                        {
+                            "reference_type": "variable:audio_reference_type",
+                            "from_previous_result": "slice_15",
+                            "sample_rate": "variable:conditioning_sample_rate"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        },
+        {
+            "name": "shot_16_finale_wide",
+            "pipeline_reference": {
+                "reference_name": "shot_14_over_shoulder",
+                "arguments": {
+                    "prompt": "variable:shot_16_finale_wide",
+                    "references": [
+                        {
+                            "reference_type": "variable:image_reference_type",
+                            "from_file": "variable:subject"
+                        },
+                        {
+                            "reference_type": "variable:audio_reference_type",
+                            "from_previous_result": "slice_16",
+                            "sample_rate": "variable:conditioning_sample_rate"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}
