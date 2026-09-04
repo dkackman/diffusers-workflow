@@ -11,6 +11,7 @@
     Trash2,
   } from '@lucide/svelte'
   import { api, fetchOutputText, streamJobEvents } from '../api'
+  import DownloadLink from '../DownloadLink.svelte'
   import { go } from '../router.svelte'
   import { phaseLabel } from '../progress'
   import { notify } from '../toast'
@@ -499,15 +500,7 @@
     >
       <Copy size={14} />Duplicate
     </button>
-    <a
-      class="quiet icon"
-      href={api.promptDownloadUrl(name)}
-      download
-      aria-label="Download"
-      title="Download"
-    >
-      <Download size={16} />
-    </a>
+    <DownloadLink href={api.promptDownloadUrl(name)} />
     <button
       class="quiet withicon danger"
       onclick={remove}
