@@ -17,6 +17,7 @@ from .events import (
     deactivate_context,
 )
 from .step import Step
+from .step_cache import step_cache, referenced_result_names
 from .schema import validate_data, load_schema
 from .variables import replace_variables, set_variables
 from .pipeline_processors.pipeline import Pipeline
@@ -34,36 +35,6 @@ from .security import (
 )
 
 logger = logging.getLogger("dw")
-
-
-def _pipeline_reference_targets(steps):
-    """Step names that some later step reaches via a pipeline_reference.
-
-    A step named here must actually execute every run - a cache hit would
-    skip create_step_action entirely, and create_step_action is the only
-    place that records a pipeline step's cache key under
-    _pipeline_keys_by_step (or, for a plain pipeline step, the only place
-    that (re)populates the pipelines dict a referencing step's lookup
-    needs). Two sites read a reference this way:
-      - a pipeline-level step: step_data["pipeline_reference"]["reference_name"]
-      - a task-level step: step_data["task"]["pipeline_reference"] (a bare
-        step name string, see dw/tasks/task.py's _handle_batch_decode)
-    """
-    targets = set()
-    for step_data in steps:
-        pipeline_reference = step_data.get("pipeline_reference")
-        if isinstance(pipeline_reference, dict):
-            reference_name = pipeline_reference.get("reference_name")
-            if reference_name:
-                targets.add(reference_name)
-
-        task_definition = step_data.get("task")
-        if isinstance(task_definition, dict):
-            task_reference = task_definition.get("pipeline_reference")
-            if isinstance(task_reference, str):
-                targets.add(task_reference)
-
-    return targets
 
 
 def workflow_from_file(file_spec, output_dir, workflow_dir=None):
@@ -172,35 +143,6 @@ def pipeline_cache_key(pipeline_definition):
     }
     serialized = json.dumps(load_definition, sort_keys=True, default=str)
     return hashlib.sha256(serialized.encode()).hexdigest()
-
-
-def referenced_result_names(steps):
-    """Every previous_result reference the given steps make, as full names.
-
-    Scans nested dicts and lists, so references inside pipeline arguments,
-    task arguments and sub-workflow argument maps are all found - including a
-    constructed object's 'from_previous_result', which names a step without
-    the 'previous_result:' prefix.
-    """
-    prefix = "previous_result:"
-    names = set()
-
-    def scan(value):
-        if isinstance(value, str) and value.startswith(prefix):
-            names.add(value[len(prefix) :])
-        elif isinstance(value, dict):
-            reference = value.get("from_previous_result")
-            if isinstance(reference, str):
-                names.add(reference)
-            for item in value.values():
-                scan(item)
-        elif isinstance(value, list):
-            for item in value:
-                scan(item)
-
-    for step in steps:
-        scan(step)
-    return names
 
 
 def release_unreferenced_results(results, remaining_refs):
@@ -345,6 +287,11 @@ class Workflow:
             # dict.get default, torch.seed() would run on every call and reseed
             # the global RNG even when the workflow names an explicit seed
             default_seed = workflow_def.get("seed")
+            # A workflow that names no seed gets a fresh one every run, so no
+            # step's cache entry can ever match again - skip the cache
+            # wholesale rather than deep-copying every step's realized images
+            # and pinning every Result for a hit that cannot happen
+            cache_enabled_this_run = default_seed is not None
             if default_seed is None:
                 # A fresh generator draws a random seed without touching the
                 # global RNG the process may have seeded for reproducibility
@@ -365,11 +312,6 @@ class Workflow:
                 logger.debug(f"Reusing pipeline cache with {len(pipelines)} pipelines")
 
             last_result = None  # Final result is the workflow return value
-
-            # Lazy import - dw.step_cache imports referenced_result_names
-            # from this module at its own top level, so importing step_cache
-            # at module scope here would create an import cycle
-            from .step_cache import step_cache
 
             # realize any arguments for the steps, i.e. load images etc
             # that are referenced directly in the step
@@ -393,11 +335,6 @@ class Workflow:
             # cache, so a step that reads another step's result can tell
             # whether its own inputs are still all cache-fresh
             hits_this_run = set()
-
-            # Steps a later step's pipeline_reference will need to look up -
-            # these must never be served from cache (see
-            # _pipeline_reference_targets's docstring)
-            pipeline_reference_targets = _pipeline_reference_targets(steps)
 
             # Execute each step in sequence
             for i, step_data in enumerate(steps):
@@ -424,10 +361,9 @@ class Workflow:
                 # would make every step's dict keys diverge from a freshly
                 # deep-copied future run's step_data, so get() would never
                 # match again after the first run.
-                is_cacheable = (
-                    "workflow" not in step_data
-                    and step_data["name"] not in pipeline_reference_targets
-                )
+                # A sub-workflow step is never cacheable: its files roll up
+                # from the child's own manifest, which a hit does not rebuild.
+                is_cacheable = "workflow" not in step_data and cache_enabled_this_run
                 step_data_snapshot = None
                 if is_cacheable:
                     try:
@@ -452,20 +388,27 @@ class Workflow:
                     else None
                 )
 
-                if cached_result is not None:
+                # A hit skips the step's work, never its bookkeeping:
+                # create_step_action is the only place that touches the
+                # step's pipeline (the worker evicts every pipeline a run did
+                # not touch), republishes a cached pipeline's
+                # shared_components for a later reusing step, and records the
+                # step's pipeline key for release_pipeline and
+                # pipeline_reference to address it by
+                step_action = self.create_step_action(
+                    step_data,
+                    shared_components,
+                    pipelines,
+                    step_seed,
+                    get_device(),
+                )
+                reused = cached_result is not None
+                if reused:
                     logger.info(f"Step '{step.name}' unchanged - reusing cached result")
                     result = cached_result
                     saved_files = result.saved_files
                     hits_this_run.add(step.name)
-                    step_action = None
                 else:
-                    step_action = self.create_step_action(
-                        step_data,
-                        shared_components,
-                        pipelines,
-                        step_seed,
-                        get_device(),
-                    )
                     result = step.run(results, pipelines, step_action)
                     saved_files = result.save(
                         self.effective_output_dir, f"{workflow_id}-{step.name}.{i}"
@@ -480,18 +423,27 @@ class Workflow:
 
                 last_result = result
                 results[step.name] = result
-                self.manifest.append({"step": step.name, "files": saved_files})
+                # 'reused' marks files an earlier run wrote and this one only
+                # republished, so nothing downstream (job_for_file, the
+                # gallery) credits this run with writing them
+                manifest_entry = {"step": step.name, "files": saved_files}
+                if reused:
+                    manifest_entry["reused"] = True
+                self.manifest.append(manifest_entry)
                 # A sub-workflow's saves land in the child's manifest - roll
                 # them up so job history and the gallery see every file
                 if isinstance(step_action, Workflow):
                     self.manifest.extend(getattr(step_action, "manifest", []))
+                step_end_data = {"files": saved_files}
+                if reused:
+                    step_end_data["reused"] = True
                 run_context.emit(
                     "step_end",
                     workflow=workflow_id,
                     step=step.name,
                     index=i,
                     total_steps=len(steps),
-                    files=saved_files,
+                    **step_end_data,
                 )
                 logger.debug(f"Step {step.name} completed with result: {result}")
 
@@ -504,14 +456,6 @@ class Workflow:
                 # A released pipeline frees its memory for later steps - the
                 # alternative on a card that cannot hold two models is offloading
                 # everything, which taxes every run to survive one transition
-                # Known gap: on a cache-hit step this is a silent no-op -
-                # create_step_action never ran, so _pipeline_keys_by_step has
-                # no key for it and the pop finds nothing. Same root cause as
-                # the pipeline_reference case above (a hit skips the only code
-                # that records a step's pipeline key). A skipped step loads no
-                # pipeline this run, but one an earlier run left in the
-                # worker's pipelines dict stays resident instead of being
-                # released here.
                 if step_data.get("release_pipeline", False):
                     logger.info(f"Releasing pipeline for step: {step.name}")
                     pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
