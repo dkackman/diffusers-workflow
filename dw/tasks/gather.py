@@ -29,7 +29,10 @@ def gather_images(glob=None, urls=None):
     # Load local images matching glob pattern
     if glob is not None:
         logger.debug(f"Searching for images matching pattern: {glob}")
-        image_paths = glob_lib.glob(glob)
+        # Sorted, because glob returns filesystem order: a numbered sequence
+        # of images gathered for concatenation has to come back in its own
+        # order, not in whatever order the directory happens to hold
+        image_paths = sorted(glob_lib.glob(glob))
         logger.info(f"Found {len(image_paths)} local images")
 
         for path in image_paths:
@@ -86,7 +89,10 @@ def gather_videos(glob=None, urls=None):
     # Load local videos matching glob pattern
     if glob is not None:
         logger.debug(f"Searching for videos matching pattern: {glob}")
-        video_paths = glob_lib.glob(glob)
+        # Sorted, because glob returns filesystem order: a numbered sequence
+        # of videos gathered for concatenation has to come back in its own
+        # order, not in whatever order the directory happens to hold
+        video_paths = sorted(glob_lib.glob(glob))
         logger.info(f"Found {len(video_paths)} local videos")
 
         for path in video_paths:

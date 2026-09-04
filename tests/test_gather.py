@@ -33,6 +33,32 @@ class TestGatherImages:
             assert len(images) == 2
             assert all(isinstance(img, Image.Image) for img in images)
 
+    def test_gather_images_sorted_not_filesystem_order(self, tmp_path):
+        """A numbered sequence comes back in its own order, not the directory's.
+
+        glob hands back filesystem order, which is arbitrary. For frames or
+        shots gathered to be concatenated that order is the whole meaning of
+        the result, so the gather sorts before loading.
+        """
+        colors = {"shot_01.png": "red", "shot_02.png": "lime", "shot_03.png": "blue"}
+        for name, color in colors.items():
+            Image.new("RGB", (8, 8), color=color).save(
+                os.path.join(str(tmp_path), name)
+            )
+
+        shuffled = [
+            os.path.join(str(tmp_path), name)
+            for name in ("shot_03.png", "shot_01.png", "shot_02.png")
+        ]
+        with patch("dw.tasks.gather.glob_lib.glob", return_value=shuffled):
+            images = gather_images(glob=os.path.join(str(tmp_path), "*.png"))
+
+        assert [img.getpixel((0, 0)) for img in images] == [
+            (255, 0, 0),
+            (0, 255, 0),
+            (0, 0, 255),
+        ]
+
     @patch("dw.tasks.gather.load_image")
     @patch("dw.tasks.gather.validate_url")
     def test_gather_images_from_urls(self, mock_validate_url, mock_load_image):
@@ -176,6 +202,28 @@ class TestGatherVideos:
                 gather_videos(glob=os.path.join(temp_dir, "*.mp4"))
 
             assert "No videos found" in str(exc_info.value)
+
+    def test_gather_videos_sorted_not_filesystem_order(self, tmp_path):
+        """Videos gathered for a concat come back in sorted order.
+
+        The same reason as the image case: a shot list read out of order
+        concatenates into the wrong edit, silently.
+        """
+        names = ["shot_01.mp4", "shot_02.mp4", "shot_03.mp4"]
+        for name in names:
+            open(os.path.join(str(tmp_path), name), "wb").close()
+
+        shuffled = [
+            os.path.join(str(tmp_path), name)
+            for name in ("shot_03.mp4", "shot_01.mp4", "shot_02.mp4")
+        ]
+        with (
+            patch("dw.tasks.gather.glob_lib.glob", return_value=shuffled),
+            patch("dw.tasks.gather.fetch_video", side_effect=lambda path: path),
+        ):
+            videos = gather_videos(glob=os.path.join(str(tmp_path), "*.mp4"))
+
+        assert videos == [os.path.join(str(tmp_path), name) for name in names]
 
     def test_gather_videos_invalid_url(self):
         """Test that invalid URLs are rejected"""
