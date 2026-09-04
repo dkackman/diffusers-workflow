@@ -15,7 +15,10 @@ A step is safe to skip only if:
      per run when the workflow sets none), so seed must be compared
      explicitly or two differently-seeded runs would wrongly look identical
   3. every previous_result: it reads was ITSELF served from cache this run
-     - otherwise a change upstream leaves this step's cached output stale
+     AND the upstream entry now in the cache is the same generation this
+     entry was computed from - "hit this run" alone is not enough, because
+     a run cancelled between an upstream's put and this step's leaves this
+     entry describing an upstream that has since been recomputed
   4. the effective output directory matches last run's - like seed, this
      is out-of-band (not part of step_data), and a cache hit reuses the
      entry's saved_files/manifest paths verbatim, so a mismatch must force
@@ -24,17 +27,42 @@ A step is safe to skip only if:
   5. every file the cached result names still exists - a hit republishes
      those paths into the manifest and job history, so a file deleted
      since (gallery delete button, or by hand) must force a re-run
+  6. the entry retained the step's Result if this run needs one - an entry
+     stored for a step nothing downstream read holds only its saved_files
+
+Entries are keyed by (workflow_id, step_name), not by step name alone:
+saved files are named "{workflow_id}-{step_name}.{index}", so a bare-name
+key would let a different workflow (or the same one after an id rename, or
+a sub-workflow sharing a name with its parent) hit and republish the other
+workflow's file paths while writing none of its own.
 
 The cache is per-process and bounded (DEFAULT_MAX_ENTRIES, LRU): it holds
 realized media, so unbounded growth would work against the OOM avoidance
 release_unreferenced_results exists for.
 """
 
+import copy
+import itertools
 import logging
 import os
 from collections import OrderedDict
 
 logger = logging.getLogger("dw")
+
+# Monotonic across the process: every put stamps its entry, and a downstream
+# entry records the stamp of each upstream it was computed from. Never reset
+# (clear() included) - a reused number would make a stale entry look fresh.
+_generations = itertools.count(1)
+
+
+def reference_resolves_to(reference, name):
+    """Whether a previous_result reference resolves to the result `name`.
+
+    A reference either names a result outright or extends it with a property
+    ('segment.mask'). The step cache, release_unreferenced_results and
+    get_previous_results all ask some form of this question.
+    """
+    return reference == name or reference.startswith(name + ".")
 
 
 def referenced_result_names(steps):
@@ -99,7 +127,8 @@ class StepCache:
     DEFAULT_MAX_ENTRIES = 50
 
     def __init__(self, max_entries=None):
-        # step name -> {"step_data", "step_seed", "result", "output_dir"},
+        # (workflow_id, step_name) -> {"step_data", "step_seed", "result",
+        # "output_dir", "generation", "upstream_generations", "retained"},
         # ordered least- to most-recently-used
         self._entries = OrderedDict()
         self.max_entries = (
@@ -107,17 +136,29 @@ class StepCache:
         )
 
     def clear(self):
+        # The generation counter deliberately survives: it only has to be
+        # monotonic, and restarting it could make a stale reference match
         self._entries.clear()
 
-    def get(self, step_data, step_seed, hits_this_run, output_dir=None):
-        """Return the cached Result for this step if it's still valid, else None."""
+    def get(
+        self, workflow_id, step_data, step_seed, hits_this_run, output_dir, needs_result
+    ):
+        """Return the cached Result for this step if it's still valid, else None.
+
+        `needs_result` says whether this run reads the step's Result (a later
+        step references it, or it is the workflow's return value); an entry
+        stored without one cannot serve such a run.
+        """
         name = step_data["name"]
-        entry = self._entries.get(name)
+        key = (workflow_id, name)
+        entry = self._entries.get(key)
         if entry is None:
             return None
         if entry["step_seed"] != step_seed:
             return None
         if entry["output_dir"] != output_dir:
+            return None
+        if needs_result and not entry["retained"]:
             return None
         if not deep_equal(entry["step_data"], step_data):
             return None
@@ -125,6 +166,16 @@ class StepCache:
         upstream = referenced_result_names([step_data])
         if not all(self._is_hit(ref, hits_this_run) for ref in upstream):
             return None
+        # Hitting this run is not the same as being the run this entry was
+        # computed from - compare the upstream generations too
+        for upstream_name, generation in entry["upstream_generations"].items():
+            current = self._entries.get((workflow_id, upstream_name))
+            if current is None or current["generation"] != generation:
+                logger.debug(
+                    f"Cached result for step '{name}' was computed from an "
+                    f"older '{upstream_name}' - treating as a miss"
+                )
+                return None
 
         # A hit reports the entry's saved_files verbatim into the manifest
         # and job history - if the user deleted one of them (gallery delete
@@ -134,37 +185,67 @@ class StepCache:
                 f"Cached result for step '{name}' names a file that no longer "
                 "exists - treating as a miss"
             )
-            self._entries.pop(name, None)
+            self._entries.pop(key, None)
             return None
 
-        self._entries.move_to_end(name)
+        self._entries.move_to_end(key)
         return entry["result"]
 
-    def put(self, step_data, step_seed, result, output_dir=None):
+    def put(self, workflow_id, step_data, step_seed, result, output_dir, retain_result):
+        """Record this step's outcome.
+
+        `retain_result` says whether anything reads the Result itself. When
+        False only a stripped copy is kept - saved_files and definition, but
+        no result_list - so decoded frames and latent tensors are not pinned
+        for the life of the cache, which is exactly what
+        release_unreferenced_results drops them to avoid.
+        """
         name = step_data["name"]
-        self._entries[name] = {
+        key = (workflow_id, name)
+        self._entries[key] = {
             "step_data": step_data,
             "step_seed": step_seed,
-            "result": result,
+            "result": result if retain_result else self._strip_result(result),
+            "retained": retain_result,
             "output_dir": output_dir,
+            "generation": next(_generations),
+            "upstream_generations": self._upstream_generations(workflow_id, step_data),
         }
-        self._entries.move_to_end(name)
+        self._entries.move_to_end(key)
         while len(self._entries) > self.max_entries:
-            evicted, _ = self._entries.popitem(last=False)
-            logger.debug(f"Step cache full - evicting least recently used '{evicted}'")
+            (evicted_workflow, evicted_step), _ = self._entries.popitem(last=False)
+            logger.debug(
+                "Step cache full - evicting least recently used "
+                f"'{evicted_workflow}/{evicted_step}'"
+            )
+
+    def _upstream_generations(self, workflow_id, step_data):
+        """The generation of every cached step this step's references read."""
+        generations = {}
+        for reference in referenced_result_names([step_data]):
+            for (entry_workflow, entry_step), entry in self._entries.items():
+                if entry_workflow == workflow_id and reference_resolves_to(
+                    reference, entry_step
+                ):
+                    generations[entry_step] = entry["generation"]
+        return generations
+
+    @staticmethod
+    def _strip_result(result):
+        """A shallow copy of the Result with its realized media dropped."""
+        stripped = copy.copy(result)
+        stripped.result_list = []
+        return stripped
 
     @staticmethod
     def _saved_files_exist(result):
-        return all(
-            os.path.exists(path) for path in getattr(result, "saved_files", None) or []
-        )
+        # Read straight through: a result-like object with no saved_files is
+        # a programming error, not an entry that quietly skips the file check
+        return all(os.path.exists(path) for path in result.saved_files)
 
     @staticmethod
     def _is_hit(ref, hits_this_run):
-        # A reference resolves to a result whose name it equals or extends
-        # with a property ('step.mask') - same rule Workflow.run's
-        # release_unreferenced_results uses for the inverse question.
-        return any(ref == n or ref.startswith(n + ".") for n in hits_this_run)
+        return any(reference_resolves_to(ref, n) for n in hits_this_run)
 
 
 step_cache = StepCache()

@@ -17,15 +17,6 @@ from dw import workflow as workflow_module
 from dw.workflow import Workflow
 
 
-@pytest.fixture(autouse=True)
-def _clear_step_cache_after_test():
-    """step_cache is a process-global singleton - leaving it populated
-    after a test would let it leak cached results into unrelated tests
-    that run later in the same process."""
-    yield
-    step_cache.clear()
-
-
 def _mock_pipeline_load(self, shared_components):
     self.pipeline = MagicMock()
 
@@ -494,3 +485,126 @@ def test_sub_workflow_of_a_seedless_parent_does_not_cache(tmp_path):
     finally:
         for p in patchers:
             p.stop()
+
+
+def _two_step_def(second_reads_first, workflow_id="test_step_cache_two"):
+    """A then B, where B either reads A's result or is independent of it."""
+    b_arguments = {"prompt": "b fixed"}
+    if second_reads_first:
+        b_arguments["image"] = "previous_result:A"
+    return {
+        "id": workflow_id,
+        "seed": 42,
+        "variables": {"a_prompt": "one"},
+        "steps": [
+            {
+                "name": "A",
+                "pipeline": {
+                    "configuration": {"component_type": "{MockPipeline}"},
+                    "from_pretrained_arguments": {"model_name": "model-a"},
+                    "arguments": {"prompt": "variable:a_prompt"},
+                },
+            },
+            {
+                "name": "B",
+                "pipeline": {
+                    "configuration": {"component_type": "{MockPipeline}"},
+                    "from_pretrained_arguments": {"model_name": "model-b"},
+                    "arguments": b_arguments,
+                },
+            },
+        ],
+    }
+
+
+def _run_with_per_step_counts(workflow, arguments, fail_on=None):
+    """Run `workflow`, counting Step.run per step name; optionally abort the
+    run by raising before the named step's body executes (a cancel landing
+    between two steps' puts)."""
+    counts = {}
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        if fail_on is not None and self.name == fail_on:
+            raise RuntimeError("cancelled")
+        counts[self.name] = counts.get(self.name, 0) + 1
+        result = FakeResult()
+        result.result_list = [f"{self.name} artifact"]
+        return result
+
+    patchers = [
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+    ]
+    for p in patchers:
+        p.start()
+    try:
+        try:
+            workflow.run(arguments)
+        except RuntimeError as ex:
+            if fail_on is None or "cancelled" not in str(ex):
+                raise
+    finally:
+        for p in patchers:
+            p.stop()
+    return counts
+
+
+def test_renaming_the_workflow_id_does_not_reuse_the_old_ids_entry():
+    """Saved files carry the workflow id, so an entry keyed by the bare step
+    name would republish the previous id's paths and write none of its own."""
+    step_cache.clear()
+    first = Workflow(_workflow_def(), "/tmp/test_output", "test.json")
+    assert _run_with_per_step_counts(first, {}) == {"generate": 1}
+
+    renamed_def = _workflow_def()
+    renamed_def["id"] = "test_step_cache_renamed"
+    renamed = Workflow(renamed_def, "/tmp/test_output", "test.json")
+
+    assert _run_with_per_step_counts(renamed, {}) == {"generate": 1}
+
+
+def test_step_whose_upstream_was_recomputed_by_a_cancelled_run_misses():
+    """A -> B, fixed seed. Change A, run, cancel after A's put but before
+    B's: the next unchanged run must not serve B computed from the old A."""
+    step_cache.clear()
+    workflow = Workflow(_two_step_def(True), "/tmp/test_output", "test.json")
+
+    assert _run_with_per_step_counts(workflow, {"a_prompt": "one"}) == {"A": 1, "B": 1}
+    # A changes and is re-put; the run dies before B's put
+    assert _run_with_per_step_counts(workflow, {"a_prompt": "two"}, fail_on="B") == {
+        "A": 1
+    }
+
+    # Same inputs as the cancelled run: A hits, but B's cached result was
+    # computed from the *old* A and must not be served
+    assert _run_with_per_step_counts(workflow, {"a_prompt": "two"}) == {"B": 1}
+
+
+def test_unreferenced_non_final_step_is_cached_without_its_result_list():
+    """B does not read A and A is not the workflow's return value, so A's
+    entry keeps its saved_files but drops the realized media."""
+    step_cache.clear()
+    workflow = Workflow(_two_step_def(False), "/tmp/test_output", "test.json")
+
+    _run_with_per_step_counts(workflow, {})
+
+    a_entry = step_cache._entries[("test_step_cache_two", "A")]
+    b_entry = step_cache._entries[("test_step_cache_two", "B")]
+    assert a_entry["result"].result_list == []
+    assert a_entry["result"].saved_files
+    # B is the last step - its result is the workflow's return value
+    assert b_entry["result"].result_list == ["B artifact"]
+
+
+def test_adding_a_downstream_reference_misses_on_a_result_that_was_not_retained():
+    """A ran unreferenced (so its entry holds no result); a later run whose
+    B reads A needs the real thing and must re-run A."""
+    step_cache.clear()
+    without = Workflow(_two_step_def(False), "/tmp/test_output", "test.json")
+    assert _run_with_per_step_counts(without, {}) == {"A": 1, "B": 1}
+
+    with_reference = Workflow(_two_step_def(True), "/tmp/test_output", "test.json")
+
+    counts = _run_with_per_step_counts(with_reference, {})
+
+    assert counts.get("A") == 1

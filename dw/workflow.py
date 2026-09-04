@@ -17,7 +17,11 @@ from .events import (
     deactivate_context,
 )
 from .step import Step
-from .step_cache import step_cache, referenced_result_names
+from .step_cache import (
+    step_cache,
+    referenced_result_names,
+    reference_resolves_to,
+)
 from .schema import validate_data, load_schema
 from .variables import replace_variables, set_variables
 from .pipeline_processors.pipeline import Pipeline
@@ -156,7 +160,7 @@ def release_unreferenced_results(results, remaining_refs):
     for name in [
         n
         for n in results
-        if not any(ref == n or ref.startswith(n + ".") for ref in remaining_refs)
+        if not any(reference_resolves_to(ref, n) for ref in remaining_refs)
     ]:
         logger.debug(f"Releasing result: {name}")
         del results[name]
@@ -368,6 +372,17 @@ class Workflow:
 
                 step = Step(step_data, step_seed, self.workflow_definition)
 
+                # What later steps still read, which decides both whether
+                # this step's result has to be kept alive after the step
+                # (below, and release_unreferenced_results at the bottom of
+                # the loop) and whether a cached entry that kept none can
+                # serve this run
+                remaining_refs = referenced_result_names(steps[i + 1 :])
+                result_needed = i == len(steps) - 1 or any(
+                    reference_resolves_to(ref, step_data["name"])
+                    for ref in remaining_refs
+                )
+
                 # create_step_action (and the pipeline load it triggers)
                 # mutates step_data in place - injecting a "generator" key -
                 # so the cache must key off a snapshot taken before that
@@ -394,10 +409,12 @@ class Workflow:
                         is_cacheable = False
                 cached_result = (
                     step_cache.get(
+                        workflow_id,
                         step_data_snapshot,
                         step_seed,
                         hits_this_run,
                         self.effective_output_dir,
+                        result_needed,
                     )
                     if is_cacheable
                     else None
@@ -430,10 +447,12 @@ class Workflow:
                     )
                     if is_cacheable:
                         step_cache.put(
+                            workflow_id,
                             step_data_snapshot,
                             step_seed,
                             result,
                             self.effective_output_dir,
+                            result_needed,
                         )
 
                 last_result = result
@@ -464,9 +483,7 @@ class Workflow:
 
                 # Release results no later step references - saved to disk
                 # already, and last_result keeps the workflow's return value
-                release_unreferenced_results(
-                    results, referenced_result_names(steps[i + 1 :])
-                )
+                release_unreferenced_results(results, remaining_refs)
 
                 # A released pipeline frees its memory for later steps - the
                 # alternative on a card that cannot hold two models is offloading
