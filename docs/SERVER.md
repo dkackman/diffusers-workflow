@@ -82,7 +82,7 @@ load entirely.
 | --- | --- |
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. |
 | `GET /api/jobs` | Queue + history summaries |
-| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error |
+| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true` |
 | `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless |
 | `GET /api/jobs/{id}/event-log?after=-1&limit=200` | The same events as the SSE stream, as one JSON page: `{id, status, events, last_seq, truncated, note}`. `after` is exclusive; page by passing back the previous `last_seq`. A job restored from history serves the bounded event tail persisted with it; a job that finished before events were retained returns an empty list and a `note` saying so. |
 | `POST /api/jobs/{id}/cancel` | Cooperative cancel (takes effect at the next step boundary or denoise step) |
@@ -102,7 +102,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | `log` | worker output lines | `message` |
 | `memory` | device memory after a run | `info` |
 | `workflow_start` | the run begins | `workflow`, `total_steps`, `steps`, `seed` |
-| `step_start` / `step_end` | each step | `step`, `index`, `total_steps`; `files` at the end |
+| `step_start` / `step_end` | each step | `step`, `index`, `total_steps`; `files` at the end. A step served from the step cache adds `reused: true` to `step_end`, and its `files` are the earlier run's files rather than newly written ones |
 | `iteration_start` | each argument combination in a step | `step`, `iteration`, `total_iterations` |
 | `pipeline_step` | each denoise step | `step`, `total_steps` |
 | `phase` | the step changes what it is doing | `phase`, `detail` |
