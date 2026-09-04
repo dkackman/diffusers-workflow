@@ -17,9 +17,11 @@ A workflow JSON file is portable and easy to hand off — but that same flexibil
 
 - **Web UI** — browse and run workflows, edit them in introspection-driven forms, watch jobs stream live progress, manage generated output and the models on disk. `python -m dw.serve` and open a browser. See [Server & Web UI](docs/SERVER.md).
 - **MCP server** — a stdio server that lets an MCP client (Claude Code first) author, validate, save, run and diagnose workflows against a running `dw.serve`. `dw-mcp`. See [MCP Server](docs/MCP.md).
+- **Cross-step memory management** — `residency: on_demand` components share a priority/LRU eviction pool across steps, so a memory-constrained run degrades gracefully instead of failing on OOM
+- **Step-output caching** — in the REPL, a step whose resolved arguments and seed are unchanged since the last run reuses its cached result instead of re-executing
 - **Declarative JSON workflows** with variable substitution and cross-step data flow
 - **Multi-step pipelines** — chain text-to-image, image-to-video, inpainting, ControlNet
-- **Reproducible by construction** — outputs embed their full workflow definition and seed; any image in the gallery reopens as the exact workflow that made it (see [Trust model](docs/SECURITY.md#trust-model) before reopening one someone else sent you)
+- **Reproducible by construction** — outputs embed their full workflow definition and seed; any image in the gallery reopens as the exact workflow that made it (see [Trust model](docs/SECURITY.md#trust-model) before reopening one someone else sent you). A rerun never overwrites a prior output — a name collision gets an incrementing suffix instead
 - **Long-video chaining** — run a video pipeline once per segment and stitch the segments into one clip, with audio-driven length and frame-to-frame continuity
 - **Quantization** — BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto
 - **Inference acceleration** — TeaCache, FirstBlockCache, FasterCache, MagCache, TaylorSeerCache

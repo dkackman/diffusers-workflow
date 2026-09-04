@@ -147,16 +147,19 @@ The editor's forms come from these; they are just as usable from scripts:
   payload on a listing the UI reloads. Cached by file mtime
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`)
+- `GET /api/workflows/{name:path}/download` — download a workflow file as JSON
 - `GET /api/prompts`, `GET/PUT/DELETE /api/prompts/{name}` — the prompt
   library (confined to `--prompt-dir`, names held to what a `prompt:`
   reference can load); saves are validated against the prompt schema,
   served at `GET /api/prompt-schema`
+- `GET /api/prompts/{name:path}/download` — download a prompt file as text
 - `GET /api/enhancers`, `POST /api/enhance` — prompt-enhancement presets,
   and `{"idea": ..., "preset": ..., "model_name": ..., "device": ...}` to
   queue an enhancement as an ordinary job whose saved text file is the
   result
 - `GET /api/gallery`, `GET /api/gallery/{name}/metadata`,
   `DELETE /api/gallery/{name}` — outputs and their embedded metadata
+- `GET /api/gallery/{name:path}/download` — download an output file
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,
