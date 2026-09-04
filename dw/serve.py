@@ -158,7 +158,10 @@ def main():
     mcp = " - MCP at /mcp" if args.mcp else ""
     print(
         f"diffusers-workflow server on http://{args.host}:{args.port}"
-        f"  (docs at /docs{ui}{mcp})"
+        f"  (docs at /docs{ui}{mcp})",
+        # stdout is a pipe under systemd or nohup, where block buffering
+        # would otherwise hold this line back until shutdown
+        flush=True,
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())
 
