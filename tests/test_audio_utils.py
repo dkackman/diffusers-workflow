@@ -287,7 +287,9 @@ class TestResampleAudio:
 
         assert result.shape[0] == pytest.approx(32000 * seconds, rel=0.01)
         level = float(numpy.sqrt((result[:, 0] ** 2).mean()))
-        assert level == pytest.approx(float(numpy.sqrt((tone[0] ** 2).mean())), rel=0.05)
+        assert level == pytest.approx(
+            float(numpy.sqrt((tone[0] ** 2).mean())), rel=0.05
+        )
 
     def test_a_raw_waveform_needs_its_rate(self):
         with pytest.raises(ValueError, match="sample_rate"):
@@ -297,4 +299,3 @@ class TestResampleAudio:
         waveform = torch.zeros(2, 44100)
 
         assert resample_audio(waveform, 32000, sample_rate=44100).shape == (32000, 2)
-

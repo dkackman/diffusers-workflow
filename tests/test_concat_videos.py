@@ -196,9 +196,7 @@ class TestAudioBleed:
         second = self.silent_head(8, 0.5)
         task = Task({"command": "concat_videos", "arguments": {}}, "cpu")
 
-        result = task.run(
-            {"videos": [first, second], "audio_bleed_ms": 500, "fps": 4}
-        )
+        result = task.run({"videos": [first, second], "audio_bleed_ms": 500, "fps": 4})
 
         seam = first.audio.shape[1]
         assert result.audio[0, seam + 10] > 0.0
@@ -269,4 +267,3 @@ class TestResampleAudioTask:
         )
 
         assert result.shape == (32000, 2)
-
