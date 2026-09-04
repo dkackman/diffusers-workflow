@@ -36,6 +36,36 @@ from .security import (
 logger = logging.getLogger("dw")
 
 
+def _pipeline_reference_targets(steps):
+    """Step names that some later step reaches via a pipeline_reference.
+
+    A step named here must actually execute every run - a cache hit would
+    skip create_step_action entirely, and create_step_action is the only
+    place that records a pipeline step's cache key under
+    _pipeline_keys_by_step (or, for a plain pipeline step, the only place
+    that (re)populates the pipelines dict a referencing step's lookup
+    needs). Two sites read a reference this way:
+      - a pipeline-level step: step_data["pipeline_reference"]["reference_name"]
+      - a task-level step: step_data["task"]["pipeline_reference"] (a bare
+        step name string, see dw/tasks/task.py's _handle_batch_decode)
+    """
+    targets = set()
+    for step_data in steps:
+        pipeline_reference = step_data.get("pipeline_reference")
+        if isinstance(pipeline_reference, dict):
+            reference_name = pipeline_reference.get("reference_name")
+            if reference_name:
+                targets.add(reference_name)
+
+        task_definition = step_data.get("task")
+        if isinstance(task_definition, dict):
+            task_reference = task_definition.get("pipeline_reference")
+            if isinstance(task_reference, str):
+                targets.add(task_reference)
+
+    return targets
+
+
 def workflow_from_file(file_spec, output_dir, workflow_dir=None):
     """Loads a workflow from a JSON file with security validation.
 
@@ -364,6 +394,11 @@ class Workflow:
             # whether its own inputs are still all cache-fresh
             hits_this_run = set()
 
+            # Steps a later step's pipeline_reference will need to look up -
+            # these must never be served from cache (see
+            # _pipeline_reference_targets's docstring)
+            pipeline_reference_targets = _pipeline_reference_targets(steps)
+
             # Execute each step in sequence
             for i, step_data in enumerate(steps):
                 run_context.check_cancelled()
@@ -389,12 +424,20 @@ class Workflow:
                 # would make every step's dict keys diverge from a freshly
                 # deep-copied future run's step_data, so get() would never
                 # match again after the first run.
-                is_cacheable = "workflow" not in step_data
+                is_cacheable = (
+                    "workflow" not in step_data
+                    and step_data["name"] not in pipeline_reference_targets
+                )
                 step_data_snapshot = (
                     copy.deepcopy(step_data) if is_cacheable else None
                 )
                 cached_result = (
-                    step_cache.get(step_data_snapshot, step_seed, hits_this_run)
+                    step_cache.get(
+                        step_data_snapshot,
+                        step_seed,
+                        hits_this_run,
+                        self.effective_output_dir,
+                    )
                     if is_cacheable
                     else None
                 )
@@ -418,7 +461,12 @@ class Workflow:
                         self.effective_output_dir, f"{workflow_id}-{step.name}.{i}"
                     )
                     if is_cacheable:
-                        step_cache.put(step_data_snapshot, step_seed, result)
+                        step_cache.put(
+                            step_data_snapshot,
+                            step_seed,
+                            result,
+                            self.effective_output_dir,
+                        )
 
                 last_result = result
                 results[step.name] = result
