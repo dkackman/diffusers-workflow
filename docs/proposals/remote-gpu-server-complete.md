@@ -1,10 +1,15 @@
 # Proposal: running dw entirely on a dedicated GPU server
 
-Status: **not committed** - scoping notes written against a real ask (running
-`dw.serve` on a separate machine with the GPU, connecting to it from a
-browser and from Claude Code's MCP client on a different machine day to
-day). Nothing here should be implemented without a fresh look at whether the
-manual workaround (SSH tunnel, documented below) is good enough in practice.
+Status: **accepted and implemented** - hence the `-complete` in this file's
+name. See the design in
+[docs/superpowers/specs/2026-09-04-remote-gpu-server-design.md](../superpowers/specs/2026-09-04-remote-gpu-server-design.md)
+and the user guide in [REMOTE.md](../REMOTE.md). The notes below are the
+original scoping and are kept for the reasoning; one claim in them turned
+out wrong: direct-LAN browser access did **not** already work, because the
+`Origin` check accepted loopback origins only. Decisions taken: MCP both as
+stdio and mounted in `dw.serve --mcp`; plain HTTP + token on the LAN with a
+reverse proxy or Tailscale beyond it; a shipped systemd unit; install still
+via clone + install.sh.
 
 ## What already works, unmodified
 

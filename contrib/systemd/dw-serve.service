@@ -1,0 +1,31 @@
+# diffusers-workflow server as a system service. See README.md alongside.
+#   sudo cp dw-serve.service /etc/systemd/system/
+#   sudo cp dw-serve.env.example /etc/dw-serve.env && sudo $EDITOR /etc/dw-serve.env
+#   sudo systemctl daemon-reload && sudo systemctl enable --now dw-serve
+[Unit]
+Description=diffusers-workflow server (dw-serve)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The user whose home holds the Hugging Face cache and the checkout
+User=dw
+Group=dw
+# The git checkout that install.sh set up
+WorkingDirectory=/home/dw/diffusers-workflow
+EnvironmentFile=/etc/dw-serve.env
+# --host 0.0.0.0 makes it reachable from the LAN; DW_API_TOKEN in the env
+# file is what gates it - and --mcp is refused on a non-loopback bind
+# without one. Drop --mcp if no agent will connect.
+ExecStart=/home/dw/diffusers-workflow/venv/bin/dw-serve --host 0.0.0.0 --port 8765 --mcp --workflow-dir workflows --output-dir outputs
+Restart=on-failure
+RestartSec=5
+# Model loads are slow to interrupt; give a job time to unwind
+TimeoutStopSec=60
+# journalctl -u dw-serve -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

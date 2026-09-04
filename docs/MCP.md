@@ -33,9 +33,17 @@ which is why the client needs a command it can actually find (see below).
 | `--url` | `$DW_MCP_URL`, else `http://127.0.0.1:8765` | Base URL of the running `dw.serve` |
 | `--token` | `$DW_API_TOKEN`, else none | Bearer token, when `dw.serve` was started with `--token` / `DW_API_TOKEN` - the same variable, so one export configures both ends |
 | `--timeout` | `30` | Seconds to wait on any one API request |
+| `--no-probe` | off | Skip the startup `GET /api/health` that confirms the server is reachable and the token is accepted |
 
 The `DW_MCP_URL` environment variable sets the same default the `--url` flag
 overrides.
+
+A non-loopback `--url` requires a token: `dw-mcp` exits 2 rather than start
+without one. At startup it makes one `GET /api/health`, so a wrong URL or
+token is reported once with a message instead of as a 401 on every tool
+call; that probe is fatal for a remote URL and only a warning for a
+loopback one (where it usually means `dw.serve` is not up yet).
+[REMOTE.md](REMOTE.md) covers the remote setup end to end.
 
 ### Use the absolute path to `dw-mcp`
 
@@ -62,6 +70,18 @@ echo "$(pwd)/venv/bin/dw-mcp"    # the value to register
 ```
 
 ## Client configuration
+
+### Remote server, no local install
+
+If `dw.serve` runs on another machine with `--mcp` (see
+[REMOTE.md](REMOTE.md)), Claude Code connects to it directly:
+
+    claude mcp add --transport http dw http://<box>:8765/mcp \
+      --header "Authorization: Bearer <token>"
+
+Nothing from this repository is installed on the client. The stdio setup
+below is for a machine that has its own `dw` install, and also works
+against a remote `--url` with `--token`.
 
 ### Claude Code
 
@@ -191,7 +211,7 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | --- | --- | --- |
 | `get_output_image(name, max_dimension=768)` | `name`, `max_dimension` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent |
 | `get_output_text(name, max_characters=20000)` | `name`, `max_characters` | Read a text output — a prompt enhancement, or any step whose result is `text/plain` or JSON. Reports the file's real length and whether it was truncated |
-| `download_output(name, destination=None, overwrite=False)` | `name`, `destination`, `overwrite` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context |
+| `download_output(name, destination=None, overwrite=False)` | `name`, `destination`, `overwrite` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context. Writes on the machine running the MCP server - over `dw.serve --mcp` that is the GPU box |
 | `delete_output(name)` | `name` | Permanently remove one generated file from the output directory |
 
 ### Authoring
@@ -307,9 +327,15 @@ would for the same user; a `..` path segment in `destination` is refused,
 and an existing file is left alone unless the caller passes
 `overwrite=True`.
 
-Because it adds no authentication, `dw-mcp` must not be pointed at a
-`dw.serve` reachable beyond localhost. Treat `--url`/`DW_MCP_URL` the same
-way you would treat opening the web UI to the network: don't.
+`dw-mcp` may be pointed at a `dw.serve` on another machine only when that
+server was started with a token, and the same token is passed here
+(`--token` / `DW_API_TOKEN`); it refuses to start otherwise. The token is
+the only authentication, and the connection is plaintext HTTP - use it on
+a network you control, or through Tailscale or a TLS proxy beyond that.
+[REMOTE.md](REMOTE.md) has the full setup. The same applies to
+`dw.serve --mcp`, which serves this tool surface itself at `/mcp` behind
+the same token; in that setup `download_output` writes on the server
+machine, not the client's.
 
 `save_workflow` and `run_workflow` together let an MCP client write and
 then execute a workflow it authored - and a workflow JSON file can execute

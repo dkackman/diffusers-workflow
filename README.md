@@ -268,6 +268,7 @@ See [workflows/](workflows/) for more workflow files.
 
 - [Server & Web UI](docs/SERVER.md) — The web UI, jobs API, and introspection service
 - [MCP Server](docs/MCP.md) — Tool surface for MCP clients (Claude Code, Claude Desktop)
+- [Remote GPU server](docs/REMOTE.md) — Using the server, UI and MCP from another machine
 - [Workflow Guide](docs/WORKFLOW_GUIDE.md) — JSON structure, variables, steps, data flow
 - [Quantization](docs/QUANTIZATION.md) — BitsAndBytes, TorchAO, GGUF, SDNQ
 - [Inference Acceleration](docs/ACCELERATION.md) — torch.compile, FirstBlockCache, MagCache, TaylorSeer, TeaCache

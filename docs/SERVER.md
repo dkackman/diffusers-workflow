@@ -178,7 +178,9 @@ The editor's forms come from these; they are just as usable from scripts:
   includes `before` (the version/commit that was installed when the update
   started) alongside the live `version`/`commit`, so a revert has a
   concrete before/after to compare
-- `GET /api/memory`, `GET /api/health` — worker VRAM/RAM stats and liveness
+- `GET /api/memory`, `GET /api/health` — worker VRAM/RAM stats and liveness;
+  health also reports `hostname`, `device` and whether `mcp` is mounted, so a
+  remote client can tell which machine answered
 
 ## Security model
 
@@ -189,8 +191,14 @@ network:
   non-loopback address) is possible; without a token configured (see
   Authentication, below) the server logs a startup warning, since anything
   that can reach that address can queue jobs and browse/delete files.
-- Requests carrying a non-local `Origin` header are rejected (403), which
-  blocks cross-site requests from web pages you happen to have open.
+- Requests carrying an `Origin` header are rejected (403) unless its
+  hostname is a loopback name, the configured `--host`, or the hostname
+  the request itself was addressed to (`Host`). The last clause lets a
+  browser on another machine use a `--host 0.0.0.0` server by LAN IP or
+  hostname; it still blocks cross-site pages and DNS rebinding, where the
+  attacker's page carries its own `Origin` while `Host` is whatever
+  resolved. Scheme and port are ignored, so a TLS-terminating proxy that
+  forwards `Host` unchanged needs no configuration.
 - Requests carrying a `Host` header that names neither a loopback address
   nor the configured `--host` are rejected (400). A wildcard bind
   (`--host 0.0.0.0` or `::`) skips this check - clients reach such a
@@ -214,6 +222,12 @@ network:
   default for every job it runs, inline or from a file, MCP-submitted or
   not; `--trust-workflows` lifts the refusal for the whole server and
   should only be passed when nothing untrusted can reach `POST /api/jobs`.
+- `--mcp` mounts the MCP tool surface at `/mcp` (Streamable HTTP) behind
+  the same token as `/api`, for an agent on another machine with no local
+  install. Both `/mcp` and `/mcp/` are answered, and the token is accepted
+  only as an `Authorization: Bearer` header there - never as `?token=`.
+  It is refused on a non-loopback bind without a token. See
+  [REMOTE.md](REMOTE.md).
 
 ### Authentication
 
@@ -257,3 +271,7 @@ notion of separate users or sessions. It raises the bar for exposing the
 server on a LAN or beyond; it is not a substitute for a real network
 boundary (a firewall, a VPN, or simply binding to `127.0.0.1`) for anything
 more exposed than that.
+
+Running on another machine: [REMOTE.md](REMOTE.md) is the end-to-end recipe
+- token, firewall, systemd unit, the browser, `--mcp`, and what to do beyond
+the LAN.

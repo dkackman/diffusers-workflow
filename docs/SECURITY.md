@@ -127,13 +127,15 @@ MCP-submitted or not - see the blanket-choice note just above.
 is an HTTP client of a running `dw.serve`: every path a tool touches (a
 workflow name, a gallery file, a job id) is sent to the REST API as-is and
 validated there, exactly as it would be for a browser request from the web
-UI. Localhost only — see [MCP Server](MCP.md#security).
+UI. A remote `dw.serve` is allowed only with a token — see
+[MCP Server](MCP.md#security) and [REMOTE.md](REMOTE.md).
 
 The one exception is `download_output`, which writes a local file for the
 MCP client rather than only reading through the API. It may write anywhere
-the client's own filesystem permissions allow — a full path, a directory, or
-the current working directory by default, `~` expanded — since it acts for
-the local user the same way a shell redirect would; a `..` path segment in
+the client's own filesystem permissions allow (the machine running the MCP
+server — the GPU box when served by `dw.serve --mcp`) — a full path, a
+directory, or the current working directory by default, `~` expanded — since
+it acts for the local user the same way a shell redirect would; a `..` path segment in
 `destination` is refused regardless, and an existing file at the resolved
 path is left alone unless the caller passes `overwrite=True`.
 
