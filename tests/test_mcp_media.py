@@ -502,11 +502,15 @@ def test_download_output_streams_the_body_in_chunks(tmp_path, monkeypatch):
     destination = tmp_path / "chunked.mp4"
 
     writes = []
-    real_open = open
+    real_fdopen = os.fdopen
 
-    def tracking_open(path, mode="r", *args, **kwargs):
-        file = real_open(path, mode, *args, **kwargs)
-        if str(path) == str(destination) and "b" in mode:
+    def tracking_fdopen(fd, mode="r", *args, **kwargs):
+        # Chunks land in a temp file next to `destination`, opened via
+        # os.fdopen on a descriptor from tempfile.mkstemp - not via
+        # builtins.open - so that is what has to be intercepted to observe
+        # each write.
+        file = real_fdopen(fd, mode, *args, **kwargs)
+        if "b" in mode:
             original_write = file.write
 
             def tracked_write(data):
@@ -516,7 +520,7 @@ def test_download_output_streams_the_body_in_chunks(tmp_path, monkeypatch):
             file.write = tracked_write
         return file
 
-    monkeypatch.setattr("builtins.open", tracking_open)
+    monkeypatch.setattr("dw_mcp.client.os.fdopen", tracking_fdopen)
 
     result = download_output(client, "big.bin", destination=str(destination))
 
@@ -524,3 +528,32 @@ def test_download_output_streams_the_body_in_chunks(tmp_path, monkeypatch):
     assert len(writes) >= 2
     assert result["bytes"] == len(b"".join(chunks))
     assert result["content_type"] == "video/mp4"
+
+
+def test_download_output_leaves_no_file_when_the_stream_breaks_mid_body(tmp_path):
+    """A connection drop after some chunks have already arrived (the normal
+    failure mode for a large video) must not leave a torn partial file -
+    that file would then "exist" for a later overwrite=False call and
+    silently mask the failure."""
+
+    class BreakingStream(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"a" * 1000
+            raise httpx.ReadError("connection dropped")
+
+        def close(self):
+            pass
+
+    def handler(request):
+        return httpx.Response(
+            200, headers={"content-type": "video/mp4"}, stream=BreakingStream()
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    destination = tmp_path / "broken.mp4"
+
+    with pytest.raises(DwApiError):
+        download_output(client, "big.bin", destination=str(destination))
+
+    assert not destination.exists()
+    assert list(tmp_path.iterdir()) == []
