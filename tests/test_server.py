@@ -2230,6 +2230,55 @@ def test_download_routes_accept_the_token_as_a_query_param(tmp_path):
         )
 
 
+def test_query_token_is_matched_per_route_not_by_path_suffix(tmp_path):
+    """A resource literally named 'download' must not borrow the query-token
+    allowance meant for the /download route - only the five routes marked
+    query_token_ok accept ?token=, matched by the actual route, not by
+    whether the path happens to end in a magic suffix."""
+    from PIL import Image
+
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    Image.new("RGB", (64, 64), "red").save(outputs / "big.png")
+    manager = JobManager(
+        str(outputs),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(outputs),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        token="s3cr3t",
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        # a prompt literally named "download" must not inherit the
+        # /api/prompts/{name}/download route's query-token allowance
+        prompt = {"text": "a red fox at dawn"}
+        put = client.put(
+            "/api/prompts/download",
+            json={"prompt": prompt},
+            headers={"Authorization": "Bearer s3cr3t"},
+        )
+        assert put.status_code == 200
+        assert client.get("/api/prompts/download?token=s3cr3t").status_code == 401
+
+        # the real thumbnail route still works with a query token
+        assert (
+            client.get("/api/gallery/big.png/thumbnail?token=s3cr3t").status_code == 200
+        )
+        # ...including on HEAD, which Starlette adds to every @app.get route
+        head = client.head("/api/gallery/big.png/thumbnail?token=s3cr3t")
+        assert head.status_code != 401
+
+        # a state-changing POST route never accepts the query form, even
+        # though its path ends in /download
+        assert client.post("/api/models/download?token=s3cr3t").status_code == 401
+
+
 def test_a_non_ascii_token_still_rejects_a_wrong_token_with_401(tmp_path):
     """secrets.compare_digest refuses non-ASCII str; the comparison must
     happen on bytes so an unusual token yields 401, not a 500."""
