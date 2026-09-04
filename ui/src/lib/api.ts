@@ -152,6 +152,8 @@ export const api = {
       `/api/gallery/${encodePath(name)}`,
       { method: 'DELETE' },
     ),
+  outputDownloadUrl: (name: string) =>
+    `/api/gallery/${encodePath(name)}/download`,
   /** Save a browser-picked file server-side and get back the path a
    * workflow's image/video argument can reference. The body is the raw
    * file bytes - no multipart form needed for a single file. */
@@ -181,6 +183,8 @@ export const api = {
       `/api/workflows/${encodePath(name)}`,
       { method: 'DELETE' },
     ),
+  workflowDownloadUrl: (name: string) =>
+    `/api/workflows/${encodePath(name)}/download`,
   saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
     request<{ name: string; path: string; warnings: string[] }>(
       `/api/workflows/${encodePath(name)}`,
@@ -212,6 +216,8 @@ export const api = {
       `/api/prompts/${encodePath(name)}`,
       { method: 'DELETE' },
     ),
+  promptDownloadUrl: (name: string) =>
+    `/api/prompts/${encodePath(name)}/download`,
   getPromptSchema: () => request<Record<string, unknown>>('/api/prompt-schema'),
   listEnhancers: () => request<{ presets: EnhancerPreset[] }>('/api/enhancers'),
   enhance: (body: {

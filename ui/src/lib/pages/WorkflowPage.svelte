@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Copy, Play, SquarePen, Trash2 } from '@lucide/svelte'
+  import { Copy, Download, Play, SquarePen, Trash2 } from '@lucide/svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
   import { api } from '../api'
@@ -99,6 +99,15 @@
     <Copy size={14} />New from
   </button>
   <span class="spacer"></span>
+  <a
+    class="quiet icon"
+    href={api.workflowDownloadUrl(name)}
+    download
+    aria-label="Download"
+    title="Download"
+  >
+    <Download size={16} />
+  </a>
   <button
     class="quiet icon danger"
     onclick={remove}
