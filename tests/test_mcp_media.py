@@ -440,3 +440,87 @@ def test_download_output_expands_user_home(tmp_path, monkeypatch):
     result = download_output(client, "spoons.png", destination="~/spoons.png")
 
     assert result["saved_to"] == str(tmp_path / "spoons.png")
+
+
+def test_download_output_refuses_to_overwrite_an_existing_file_by_default(tmp_path):
+    destination = tmp_path / "existing.png"
+    destination.write_bytes(b"already here")
+    client = serving(png_bytes(10, 10), "image/png")
+
+    with pytest.raises(DwApiError, match=str(destination)):
+        download_output(client, "new.png", destination=str(destination))
+
+    assert destination.read_bytes() == b"already here"
+
+
+def test_download_output_overwrite_true_replaces_an_existing_file(tmp_path):
+    destination = tmp_path / "existing.png"
+    destination.write_bytes(b"already here")
+    client = serving(png_bytes(10, 10), "image/png")
+
+    result = download_output(
+        client, "new.png", destination=str(destination), overwrite=True
+    )
+
+    assert destination.read_bytes() == png_bytes(10, 10)
+    assert result["saved_to"] == str(destination)
+
+
+def test_download_output_rejects_a_dot_dot_segment_in_destination(tmp_path):
+    client = serving(png_bytes(10, 10), "image/png")
+    escaping = str(tmp_path / ".." / "escaped.png")
+
+    with pytest.raises(DwApiError, match=r"\.\."):
+        download_output(client, "new.png", destination=escaping)
+
+    assert not os.path.exists(os.path.join(str(tmp_path), "..", "escaped.png"))
+
+
+def test_download_output_streams_the_body_in_chunks(tmp_path, monkeypatch):
+    """The tool exists for files get_output_image can't return - large
+    videos. Buffering the whole body defeats the point, so the write has to
+    go through iter_bytes in chunks rather than one `.content` blob."""
+
+    class ChunkedStream(httpx.SyncByteStream):
+        def __init__(self, chunks):
+            self.chunks = chunks
+
+        def __iter__(self):
+            yield from self.chunks
+
+        def close(self):
+            pass
+
+    chunks = [b"a" * 1000, b"b" * 1000, b"c" * 1000]
+
+    def handler(request):
+        return httpx.Response(
+            200, headers={"content-type": "video/mp4"}, stream=ChunkedStream(chunks)
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    destination = tmp_path / "chunked.mp4"
+
+    writes = []
+    real_open = open
+
+    def tracking_open(path, mode="r", *args, **kwargs):
+        file = real_open(path, mode, *args, **kwargs)
+        if str(path) == str(destination) and "b" in mode:
+            original_write = file.write
+
+            def tracked_write(data):
+                writes.append(len(data))
+                return original_write(data)
+
+            file.write = tracked_write
+        return file
+
+    monkeypatch.setattr("builtins.open", tracking_open)
+
+    result = download_output(client, "big.bin", destination=str(destination))
+
+    assert destination.read_bytes() == b"".join(chunks)
+    assert len(writes) >= 2
+    assert result["bytes"] == len(b"".join(chunks))
+    assert result["content_type"] == "video/mp4"

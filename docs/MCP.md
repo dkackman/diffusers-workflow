@@ -298,7 +298,14 @@ API's posture exactly, described in full in [Security](SECURITY.md):
 localhost binding, no auth, `Origin` header checks, and path confinement in
 `dw/security.py` for every workflow, gallery and prompt path a tool touches.
 Nothing under `dw_mcp/` re-implements or loosens that confinement; it is
-purely a client of the same validated endpoints the web UI uses.
+purely a client of the same validated endpoints the web UI uses - except for
+`download_output`, the one tool that writes a local file for the MCP client
+rather than only reading through the API. It may write anywhere the
+client's own filesystem lets it (a full path, a directory, or the current
+working directory by default, `~` expanded), the way a shell redirect
+would for the same user; a `..` path segment in `destination` is refused,
+and an existing file is left alone unless the caller passes
+`overwrite=True`.
 
 Because it adds no authentication, `dw-mcp` must not be pointed at a
 `dw.serve` reachable beyond localhost. Treat `--url`/`DW_MCP_URL` the same
