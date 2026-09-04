@@ -189,9 +189,12 @@ class JobHistory:
             return True
         if not isinstance(manifest, list):
             return True
-        # The caller names a file relative to the output directory, while a
-        # manifest holds absolute paths - match on the tail, the same
-        # relationship the LIKE substring match relied on
+        # A manifest entry names a file the way the run recorded it - a
+        # server-recorded manifest holds names relative to the output
+        # directory (_relative_output_names), a directly-run workflow's holds
+        # absolute paths. The caller names it relative to the output
+        # directory, so match on the tail either way - the same relationship
+        # the LIKE substring match relied on
         wanted = file_name.replace(os.sep, "/")
 
         def names_file(path):
@@ -210,7 +213,7 @@ class JobHistory:
         def parse(text, fallback):
             try:
                 return json.loads(text)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 return fallback
 
         return {

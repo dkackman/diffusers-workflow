@@ -168,6 +168,14 @@ class Workflow:
     Handles variable substitution, step execution, and result management
     """
 
+    # Whether the workflow that delegated to this one had the step cache
+    # enabled. A top-level run has no parent and decides for itself; a
+    # sub-workflow's parent overwrites this in create_step_action
+    _cache_enabled_by_parent = True
+    # What run() decided for the run in progress, read by create_step_action
+    # to hand down to a sub-workflow
+    _cache_enabled_this_run = True
+
     def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
         self.output_dir = output_dir
@@ -291,7 +299,14 @@ class Workflow:
             # step's cache entry can ever match again - skip the cache
             # wholesale rather than deep-copying every step's realized images
             # and pinning every Result for a hit that cannot happen
-            cache_enabled_this_run = default_seed is not None
+            cache_enabled_this_run = (
+                self._cache_enabled_by_parent and default_seed is not None
+            )
+            # create_step_action hands this down to a sub-workflow: it injects
+            # the parent's seed into a child that names none, so a child of a
+            # seedless parent would otherwise look seeded - and cacheable -
+            # while its seed still changes every run
+            self._cache_enabled_this_run = cache_enabled_this_run
             if default_seed is None:
                 # A fresh generator draws a random seed without touching the
                 # global RNG the process may have seeded for reproducibility
@@ -687,6 +702,10 @@ class Workflow:
             # keeps one seed reproducing the whole run; a child that names its
             # own still wins, the same way a step overrides its workflow
             workflow.workflow_definition.setdefault("seed", default_seed)
+            # A seedless parent injects a seed that is fresh every run, so no
+            # step of the child can ever hit - the child must not pay the
+            # cache's deepcopy and Result pinning for it
+            workflow._cache_enabled_by_parent = self._cache_enabled_this_run
             workflow.validate()
             return workflow
 

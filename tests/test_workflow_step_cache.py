@@ -317,7 +317,19 @@ def test_cache_hit_republishes_shared_components_for_a_later_cold_step():
         b_key = workflow._pipeline_keys_by_step["B"]
         pipelines.pop(b_key, None)
 
-        workflow.run({"prompt_b": "second"}, previous_pipelines=pipelines)
+        seen = []
+        original_resolve = Pipeline.resolve_reused_components
+
+        def recording_resolve(self, shared_components):
+            seen.append(sorted(shared_components))
+            return original_resolve(self, shared_components)
+
+        with patch.object(Pipeline, "resolve_reused_components", recording_resolve):
+            workflow.run({"prompt_b": "second"}, previous_pipelines=pipelines)
+
+        # Only B loaded on run three, and A's cache hit had republished the
+        # component B reuses before that load resolved it
+        assert seen == [["text_encoder"]]
     finally:
         for p in patchers:
             p.stop()
@@ -423,4 +435,62 @@ def test_cache_hit_marks_its_manifest_entry_and_event_reused():
         assert step_end[0]["reused"] is True
     finally:
         for p in workflow._test_patcher:
+            p.stop()
+
+
+def test_sub_workflow_of_a_seedless_parent_does_not_cache(tmp_path):
+    """A parent that names no seed injects its randomly drawn one into the
+    child, so the child would look seeded - and cacheable - while nothing it
+    does can ever hit."""
+    import json
+
+    child = {
+        "id": "child",
+        "seed": 7,
+        "variables": {"prompt": "a cat"},
+        "steps": [
+            {
+                "name": "gen",
+                "pipeline": {
+                    "configuration": {"component_type": "{MockPipeline}"},
+                    "from_pretrained_arguments": {"model_name": "model-child"},
+                    "arguments": {"prompt": "variable:prompt"},
+                },
+            }
+        ],
+    }
+    (tmp_path / "child.json").write_text(json.dumps(child))
+    parent = {
+        "id": "parent",
+        # No seed - drawn fresh every run
+        "steps": [
+            {
+                "name": "delegate",
+                "workflow": {"path": "child.json", "arguments": {"prompt": "a cat"}},
+            }
+        ],
+    }
+
+    step_cache.clear()
+    workflow = Workflow(parent, str(tmp_path), str(tmp_path / "parent.json"))
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        # Stand in for Step.run, but still delegate to a sub-workflow the way
+        # the real one does - the child's own step loop is what is under test
+        if isinstance(step_action, Workflow):
+            step_action.run(step_action.argument_template, previous_pipelines)
+        return FakeResult()
+
+    patchers = [
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+        patch.object(step_cache, "put"),
+    ]
+    started = [p.start() for p in patchers]
+    put_mock = started[2]
+    try:
+        workflow.run({})
+        put_mock.assert_not_called()
+    finally:
+        for p in patchers:
             p.stop()
