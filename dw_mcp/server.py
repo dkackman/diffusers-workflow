@@ -197,8 +197,17 @@ def build_server(client):
         directory."""
         return media.delete_output(client, name)
 
+    def download_output(name: str, destination: str | None = None) -> dict:
+        """Save one output file to local disk. Unlike get_output_image /
+        get_output_text, this works for any file type and returns no
+        content to the conversation - only where it was saved. `destination`
+        may be a full path, a directory, or omitted to save into the
+        current working directory under the output's own name."""
+        return media.download_output(client, name, destination=destination)
+
     tool(get_output_image, READ_ONLY)
     tool(get_output_text, READ_ONLY)
+    tool(download_output, OVERWRITES)
     tool(delete_output, DELETES)
 
     # ----------------------------------------------------------- authoring

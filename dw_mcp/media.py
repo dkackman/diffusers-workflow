@@ -11,6 +11,7 @@ to support.
 import base64
 import io
 import math
+import os
 
 from PIL import Image
 
@@ -131,3 +132,40 @@ def delete_output(client, name):
     """Remove one file from the output directory. The gallery is the output
     directory read back, so this is where a delete belongs."""
     return client.delete_json(api_path("api", "gallery", name))
+
+
+def download_output(client, name, destination=None):
+    """Fetch one output file and save it to local disk, for an agent that
+    wants the artifact itself rather than a description of it.
+
+    Unlike get_output_image/get_output_text, this accepts any content type
+    and returns nothing to the conversation but a manifest of where the
+    file landed - the point is a file on disk, not a payload in context.
+
+    `destination` may be a full file path, a directory (the output's own
+    basename is used inside it), or omitted (saved to the current working
+    directory under its own basename). '~' expands to the user's home
+    directory. Missing parent directories are created.
+    """
+    body, content_type = client.get_bytes(api_path("outputs", name))
+
+    if destination is None:
+        destination = os.path.basename(name)
+    destination = os.path.expanduser(destination)
+    if os.path.isdir(destination) or destination.endswith(os.sep):
+        destination = os.path.join(destination, os.path.basename(name))
+    destination = os.path.abspath(destination)
+
+    parent = os.path.dirname(destination)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    with open(destination, "wb") as file:
+        file.write(body)
+
+    return {
+        "name": name,
+        "saved_to": destination,
+        "content_type": content_type,
+        "bytes": len(body),
+    }
