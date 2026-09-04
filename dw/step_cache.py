@@ -34,9 +34,36 @@ import logging
 import os
 from collections import OrderedDict
 
-from .workflow import referenced_result_names
-
 logger = logging.getLogger("dw")
+
+
+def referenced_result_names(steps):
+    """Every previous_result reference the given steps make, as full names.
+
+    Scans nested dicts and lists, so references inside pipeline arguments,
+    task arguments and sub-workflow argument maps are all found - including a
+    constructed object's 'from_previous_result', which names a step without
+    the 'previous_result:' prefix.
+    """
+    prefix = "previous_result:"
+    names = set()
+
+    def scan(value):
+        if isinstance(value, str) and value.startswith(prefix):
+            names.add(value[len(prefix) :])
+        elif isinstance(value, dict):
+            reference = value.get("from_previous_result")
+            if isinstance(reference, str):
+                names.add(reference)
+            for item in value.values():
+                scan(item)
+        elif isinstance(value, list):
+            for item in value:
+                scan(item)
+
+    for step in steps:
+        scan(step)
+    return names
 
 
 def deep_equal(a, b):

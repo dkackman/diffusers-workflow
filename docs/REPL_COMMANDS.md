@@ -68,7 +68,11 @@ whose inputs did not change therefore completes almost instantly and
 produces no new gallery entry, because the previous run's files are
 reused. A cache entry is discarded if any of the files it names has been
 deleted since, so a deleted output is regenerated rather than reported
-again from cache.
+again from cache. A workflow that names no `seed` draws a fresh one every
+run, so nothing it does can hit - the cache is skipped entirely for it. A
+reused step's manifest entry and its `step_end` event carry `"reused":
+true`, which is how the server keeps a file credited to the job that
+actually wrote it rather than to every later run that reused it.
 
 ### config — REPL settings
 

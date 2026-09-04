@@ -151,22 +151,59 @@ class JobHistory:
             return []
 
     def job_for_file(self, file_name):
-        """The most recent job whose manifest names this output file.
+        """The most recent job that actually wrote this output file.
 
         LIKE metacharacters are escaped - generated names routinely contain
         '_', which would otherwise match any character and let a similarly
         named later job claim the file.
+
+        A manifest entry marked 'reused' is a step-cache hit republishing an
+        earlier run's files, so it is skipped: attribution belongs to the job
+        that wrote the file, not to every later run that reused it.
         """
         escaped = (
             file_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         )
         with self._lock, self._connect() as connection:
-            row = connection.execute(
-                "SELECT id, status FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
-                " ORDER BY finished_at DESC LIMIT 1",
+            rows = connection.execute(
+                "SELECT id, status, manifest FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
+                " ORDER BY finished_at DESC",
                 (f"%{escaped}%",),
-            ).fetchone()
-        return {"id": row[0], "status": row[1]} if row else None
+            ).fetchall()
+        for row in rows:
+            if self._manifest_wrote(row[2], file_name):
+                return {"id": row[0], "status": row[1]}
+        return None
+
+    @staticmethod
+    def _manifest_wrote(manifest_text, file_name):
+        """Whether this manifest names the file in an entry it wrote itself.
+
+        A manifest that will not parse falls back to the LIKE match that
+        found it - a row recorded before entries carried 'reused' cannot
+        have been a reuse anyway.
+        """
+        try:
+            manifest = json.loads(manifest_text)
+        except (TypeError, ValueError):
+            return True
+        if not isinstance(manifest, list):
+            return True
+        # The caller names a file relative to the output directory, while a
+        # manifest holds absolute paths - match on the tail, the same
+        # relationship the LIKE substring match relied on
+        wanted = file_name.replace(os.sep, "/")
+
+        def names_file(path):
+            normalized = path.replace(os.sep, "/")
+            return normalized == wanted or normalized.endswith("/" + wanted)
+
+        return any(
+            not entry.get("reused")
+            and any(names_file(path) for path in entry.get("files") or [])
+            for entry in manifest
+            if isinstance(entry, dict)
+        )
 
     @staticmethod
     def _to_detail(row):
