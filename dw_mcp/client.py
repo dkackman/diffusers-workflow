@@ -2,6 +2,7 @@
 becomes a message a non-developer can act on."""
 
 import os
+import tempfile
 from urllib.parse import quote
 
 import httpx
@@ -121,6 +122,49 @@ class DwClient:
             self._call_httpx(response.read, path)
             self._raise_for_status(response, path)
             return response.content, content_type
+        finally:
+            response.close()
+
+    def stream_to_file(self, path, destination):
+        """Stream `path`'s body straight to `destination` on disk, in
+        chunks, rather than buffering it whole - for a body too large to
+        hold in memory (the videos `get_bytes` can't return). Returns
+        `(content_type, bytes_written)`.
+
+        Written atomically: chunks land in a temp file next to
+        `destination` first, moved into place with `os.replace` only after
+        the whole body has arrived. A connection drop or server error
+        mid-stream removes the temp file and re-raises rather than leaving
+        a torn partial file at `destination` - which would otherwise
+        "exist" for a later `overwrite=False` caller and mask the failure.
+        """
+        response = self._stream_request("GET", path)
+        try:
+            if response.status_code >= 400:
+                self._call_httpx(response.read, path)
+                self._raise_for_status(response, path)
+            content_type = response.headers.get("content-type", "")
+            parent = os.path.dirname(destination) or "."
+            fd, temp_path = tempfile.mkstemp(dir=parent)
+
+            def write_chunks():
+                written = 0
+                with os.fdopen(fd, "wb") as file:
+                    for chunk in response.iter_bytes():
+                        file.write(chunk)
+                        written += len(chunk)
+                return written
+
+            try:
+                written = self._call_httpx(write_chunks, path)
+                os.replace(temp_path, destination)
+            except BaseException:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                raise
+            return content_type, written
         finally:
             response.close()
 

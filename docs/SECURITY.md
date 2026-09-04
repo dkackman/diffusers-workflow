@@ -129,6 +129,14 @@ workflow name, a gallery file, a job id) is sent to the REST API as-is and
 validated there, exactly as it would be for a browser request from the web
 UI. Localhost only — see [MCP Server](MCP.md#security).
 
+The one exception is `download_output`, which writes a local file for the
+MCP client rather than only reading through the API. It may write anywhere
+the client's own filesystem permissions allow — a full path, a directory, or
+the current working directory by default, `~` expanded — since it acts for
+the local user the same way a shell redirect would; a `..` path segment in
+`destination` is refused regardless, and an existing file at the resolved
+path is left alone unless the caller passes `overwrite=True`.
+
 ## Exception Hierarchy
 
 ```text

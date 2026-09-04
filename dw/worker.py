@@ -15,6 +15,7 @@ from typing import Dict, Any
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dw.workflow import workflow_from_file, workflow_from_definition
+from dw.step_cache import step_cache
 from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
 from dw.security import validate_output_path
@@ -256,14 +257,15 @@ class WorkflowWorker:
 
     def _load_workflow(self, command: Dict[str, Any], output_dir: str):
         """Build the Workflow a command names, and its cache identity."""
+        workflow_dir = command.get("workflow_dir")
         if "workflow_path" in command and command["workflow_path"] is not None:
             workflow_path = command["workflow_path"]
-            workflow = workflow_from_file(workflow_path, output_dir)
+            workflow = workflow_from_file(workflow_path, output_dir, workflow_dir)
             return workflow, ("path", workflow_path)
 
         workflow_data = command["workflow"]
         workflow = workflow_from_definition(
-            workflow_data, output_dir, command.get("base_dir")
+            workflow_data, output_dir, command.get("base_dir"), workflow_dir
         )
         return workflow, ("inline", workflow_data.get("id"))
 
@@ -383,6 +385,10 @@ class WorkflowWorker:
         self.loaded_pipelines.clear()
         self.shared_components.clear()
         clear_model_cache()
+        # Drop cached step results too - stale results would otherwise
+        # survive a memory clear and keep getting served for steps whose
+        # models/components were just evicted
+        step_cache.clear()
 
         # Reset state
         self.run_count = 0

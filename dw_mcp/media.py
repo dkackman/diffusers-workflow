@@ -11,6 +11,8 @@ to support.
 import base64
 import io
 import math
+import os
+import pathlib
 
 from PIL import Image
 
@@ -131,3 +133,54 @@ def delete_output(client, name):
     """Remove one file from the output directory. The gallery is the output
     directory read back, so this is where a delete belongs."""
     return client.delete_json(api_path("api", "gallery", name))
+
+
+def download_output(client, name, destination=None, overwrite=False):
+    """Fetch one output file and save it to local disk, for an agent that
+    wants the artifact itself rather than a description of it.
+
+    Unlike get_output_image/get_output_text, this accepts any content type
+    and returns nothing to the conversation but a manifest of where the
+    file landed - the point is a file on disk, not a payload in context.
+    It is also the one tool in this package that writes a local file, and
+    the body is streamed to disk in chunks rather than buffered whole, since
+    it exists for files (large videos) get_output_image can't return.
+
+    `destination` may be a full file path, a directory (the output's own
+    basename is used inside it), or omitted (saved to the current working
+    directory under its own basename). '~' expands to the user's home
+    directory. Missing parent directories are created. A `destination`
+    containing a '..' path segment is refused. An existing file at the
+    resolved path is left alone unless `overwrite=True`.
+    """
+    if destination is None:
+        destination = os.path.basename(name)
+    destination = os.path.expanduser(destination)
+    if ".." in pathlib.PurePath(destination).parts:
+        raise DwApiError(
+            f"destination {destination!r} contains a '..' path segment, "
+            "which is refused."
+        )
+    if os.path.isdir(destination) or destination.endswith(os.sep):
+        destination = os.path.join(destination, os.path.basename(name))
+    destination = os.path.abspath(destination)
+
+    if os.path.exists(destination) and not overwrite:
+        raise DwApiError(
+            f"{destination} already exists. Pass overwrite=True to replace it."
+        )
+
+    parent = os.path.dirname(destination)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    content_type, bytes_written = client.stream_to_file(
+        api_path("outputs", name), destination
+    )
+
+    return {
+        "name": name,
+        "saved_to": destination,
+        "content_type": content_type,
+        "bytes": bytes_written,
+    }

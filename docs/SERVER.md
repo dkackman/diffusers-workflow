@@ -82,7 +82,7 @@ load entirely.
 | --- | --- |
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. |
 | `GET /api/jobs` | Queue + history summaries |
-| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error |
+| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true` |
 | `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless |
 | `GET /api/jobs/{id}/event-log?after=-1&limit=200` | The same events as the SSE stream, as one JSON page: `{id, status, events, last_seq, truncated, note}`. `after` is exclusive; page by passing back the previous `last_seq`. A job restored from history serves the bounded event tail persisted with it; a job that finished before events were retained returns an empty list and a `note` saying so. |
 | `POST /api/jobs/{id}/cancel` | Cooperative cancel (takes effect at the next step boundary or denoise step) |
@@ -102,7 +102,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | `log` | worker output lines | `message` |
 | `memory` | device memory after a run | `info` |
 | `workflow_start` | the run begins | `workflow`, `total_steps`, `steps`, `seed` |
-| `step_start` / `step_end` | each step | `step`, `index`, `total_steps`; `files` at the end |
+| `step_start` / `step_end` | each step | `step`, `index`, `total_steps`; `files` at the end. A step served from the step cache adds `reused: true` to `step_end`, and its `files` are the earlier run's files rather than newly written ones |
 | `iteration_start` | each argument combination in a step | `step`, `iteration`, `total_iterations` |
 | `pipeline_step` | each denoise step | `step`, `total_steps` |
 | `phase` | the step changes what it is doing | `phase`, `detail` |
@@ -147,16 +147,19 @@ The editor's forms come from these; they are just as usable from scripts:
   payload on a listing the UI reloads. Cached by file mtime
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`)
+- `GET /api/workflows/{name:path}/download` — download a workflow file as JSON
 - `GET /api/prompts`, `GET/PUT/DELETE /api/prompts/{name}` — the prompt
   library (confined to `--prompt-dir`, names held to what a `prompt:`
   reference can load); saves are validated against the prompt schema,
   served at `GET /api/prompt-schema`
+- `GET /api/prompts/{name:path}/download` — download a prompt file as text
 - `GET /api/enhancers`, `POST /api/enhance` — prompt-enhancement presets,
   and `{"idea": ..., "preset": ..., "model_name": ..., "device": ...}` to
   queue an enhancement as an ordinary job whose saved text file is the
   result
 - `GET /api/gallery`, `GET /api/gallery/{name}/metadata`,
   `DELETE /api/gallery/{name}` — outputs and their embedded metadata
+- `GET /api/gallery/{name:path}/download` — download an output file
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,
@@ -228,11 +231,14 @@ When a token is configured, every `/api/*` request must carry
 `Authorization: Bearer <token>` or gets a 401. The UI's own static files and
 `/outputs` (generated media) stay reachable without it - the page has to
 load far enough for a user to enter the token, and an `<img>`/`<script>`
-tag cannot attach a header anyway. Two API routes additionally accept the
+tag cannot attach a header anyway. A few GET API routes additionally accept the
 token as a `?token=...` query parameter, because the browser loads them
 without being able to set headers: the SSE stream,
 `GET /api/jobs/{id}/events` (`EventSource`), and the gallery grid's
-`GET /api/gallery/{name}/thumbnail` (an `<img>` tag). That is a deliberate,
+`GET /api/gallery/{name}/thumbnail` (an `<img>` tag). The three `/download`
+routes (gallery output, workflow, prompt) accept `?token=...` the same way,
+since a download button is a plain `<a href download>` navigation that
+cannot set a header either. That is a deliberate,
 narrower trade-off (a token that can leak into logs or browser history for
 those URLs) rather than a general alternative to the header - every other
 route accepts the header only.

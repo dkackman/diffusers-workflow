@@ -919,6 +919,29 @@ class TestSegmentBackedSave:
         with av.open(str(tmp_path / "final-0.0.mp4")) as container:
             assert len(container.streams.audio) == 1
 
+    def test_retainable_before_save_and_not_after(self, tmp_path):
+        frames = self.make_segments(tmp_path)
+        result = Result({"content_type": "video/mp4", "fps": 4})
+        result.add_result(AudioVideo(frames, None, None))
+
+        assert result.retainable is True
+
+        result.save(str(tmp_path), "final")
+
+        assert result.retainable is False
+
+    def test_retainable_stays_true_when_segment_files_are_kept(self, tmp_path):
+        from dw.pipeline_processors.chain import SegmentedFrames
+
+        frames = self.make_segments(tmp_path)
+        kept = SegmentedFrames(frames.paths, keep_files=True)
+        result = Result({"content_type": "video/mp4", "fps": 4})
+        result.add_result(AudioVideo(kept, None, None))
+
+        result.save(str(tmp_path), "final")
+
+        assert result.retainable is True
+
     def test_a_non_mp4_content_type_raises(self, tmp_path):
         frames = self.make_segments(tmp_path)
         result = Result({"content_type": "video/gif", "fps": 4})

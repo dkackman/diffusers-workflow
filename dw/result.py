@@ -30,8 +30,28 @@ def output_file_path(output_dir, file_name):
     they are concatenated into a file name. Without this a name carrying a
     path separator would write outside the output directory, so the joined
     path goes through the same validator every other path in the engine does.
+
+    A rerun that would otherwise produce a name already on disk gets a
+    '-2', '-3', ... counter instead of silently overwriting it - the same
+    guarantee ComfyUI's SaveImage node makes by scanning its output
+    directory before every write.
     """
-    return validate_output_path(os.path.join(output_dir, file_name), output_dir)
+    candidate = validate_output_path(os.path.join(output_dir, file_name), output_dir)
+    return _dedupe_existing_path(candidate)
+
+
+def _dedupe_existing_path(path):
+    """Append an incrementing counter before the extension until `path` is free."""
+    if not os.path.exists(path):
+        return path
+
+    base, ext = os.path.splitext(path)
+    counter = 2
+    while True:
+        candidate = f"{base}-{counter}{ext}"
+        if not os.path.exists(candidate):
+            return candidate
+        counter += 1
 
 
 # Audio content types soundfile can write, mapped to their file extension and to any
@@ -141,6 +161,25 @@ class Result:
                 result = result.strip().strip('"').strip()
             logger.debug("Adding single result to result list")
             self.result_list.append(result)
+
+    @property
+    def retainable(self):
+        """Whether the step cache may keep this Result's result_list.
+
+        A chain step's save_segments spills each segment to disk and
+        replays it lazily through a SegmentedFrames; save() removes those
+        files once the video is written (SegmentedFrames.cleanup(), called
+        from save_audio_video below). A Result cached after that point would
+        point a later cache hit at files that are already gone, so a
+        result_list holding such an artifact is not retainable - checked by
+        duck-typed attribute rather than isinstance, so this module need not
+        import pipeline_processors.chain.
+        """
+        for result in self.result_list:
+            frames = getattr(result, "frames", None)
+            if getattr(frames, "cleaned", False):
+                return False
+        return True
 
     def get_artifacts(self):
         """Retrieve all artifacts from stored results.

@@ -51,8 +51,30 @@ arg clear [<name>]      Clear one variable, or all of them
 
 ```text
 memory show             Show current GPU memory usage
-memory clear            Clear GPU memory and cached models
+memory clear            Clear GPU memory, cached models, and cached step results
 ```
+
+Step caching keeps each step's last `Result` in RAM for the life of the
+worker process so a rerun with unchanged inputs can skip straight to it -
+this trades some memory for speed, and holding it works against the
+normal end-of-step release that frees a result once no later step needs
+it. The cache is bounded to the 50 most recently used steps, and evicts
+the least recently used one beyond that; `memory clear` is the escape
+hatch: it drops every cached step result along with the GPU/model caches.
+
+Caching is not REPL-only - it applies to any `Workflow.run` in the
+process, including a job the server runs. Re-running a fixed-seed workflow
+whose inputs did not change therefore completes almost instantly and
+produces no new gallery entry, because the previous run's files are
+reused. A cache entry is discarded if any of the files it names has been
+deleted since, so a deleted output is regenerated rather than reported
+again from cache. A workflow that names no `seed` draws a fresh one every
+run, so nothing it does can hit - the cache is skipped entirely for it. A
+reused step's manifest entry and its `step_end` event carry `"reused":
+true`, which is how the server keeps a file credited to the job that
+actually wrote it rather than to every later run that reused it. Cache
+entries are keyed by the workflow's `id`, so renaming or copying a
+workflow to a new `id` is a full cache miss.
 
 ### config — REPL settings
 

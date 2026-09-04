@@ -19,9 +19,10 @@ from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import StreamingResponse, JSONResponse, Response
+from fastapi.responses import StreamingResponse, JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.routing import Match, Route
 
 from ..security import (
     validate_path,
@@ -319,9 +320,45 @@ LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 # Bind addresses that mean "every interface" - a request never carries one
 # of these as its Host, so they define no allowlist
 WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
-# Routes a browser loads without being able to set headers (EventSource, an
-# <img> tag); these alone accept the bearer token as a ?token= query param
-QUERY_TOKEN_ROUTE_SUFFIXES = ("/events", "/thumbnail")
+
+
+def query_token_ok(fn):
+    """Mark a GET endpoint as one a browser loads without being able to set
+    headers (EventSource, an <img> tag, an <a download> navigation) - only
+    routes carrying this marker accept the bearer token as a ?token= query
+    param. Matched by the actual route at request time, not by a path
+    suffix, so a resource that merely happens to be named "download" or
+    "thumbnail" does not inherit the allowance."""
+    fn.query_token_ok = True
+    return fn
+
+
+def _matched_route(request: Request):
+    """Resolve the Route (if any) that will handle this request. Runs in
+    middleware, before routing has attached anything to request.scope, so
+    routes are matched by hand against request.app.router.routes. Skips
+    non-Route entries (the SPA static Mount) and routes with no endpoint.
+
+    A HEAD request path-matches a GET-only route as Match.PARTIAL (method
+    mismatch) rather than Match.FULL, since this route is declared with
+    methods=["GET"] and nothing here adds HEAD to it - but a HEAD request
+    is still the same header-less browser load a GET would be, so it is
+    treated the same for the query-token allowance."""
+    method = request.scope.get("method")
+    for route in request.app.router.routes:
+        if not isinstance(route, Route) or route.endpoint is None:
+            continue
+        match, _ = route.matches(request.scope)
+        if match == Match.FULL:
+            return route
+        if (
+            match == Match.PARTIAL
+            and method == "HEAD"
+            and route.methods
+            and "GET" in route.methods
+        ):
+            return route
+    return None
 
 
 def create_app(
@@ -344,7 +381,19 @@ def create_app(
     its own requests). `token`, if given, is a static bearer token required
     on every /api/* request - see require_bearer_token below.
     """
-    manager = job_manager or JobManager(output_dir, log_level=log_level)
+    manager = job_manager or JobManager(
+        output_dir, log_level=log_level, workflow_dir=workflow_dir
+    )
+    # An injected manager must confine jobs to the same workflow_dir the
+    # routes do, or /api/validate and /api/jobs would enforce different
+    # boundaries
+    if manager.workflow_dir is None:
+        manager.workflow_dir = workflow_dir
+    elif manager.workflow_dir != workflow_dir:
+        raise ValueError(
+            "job_manager.workflow_dir must match the app's workflow_dir: "
+            f"{manager.workflow_dir!r} != {workflow_dir!r}"
+        )
 
     @asynccontextmanager
     async def lifespan(app):
@@ -413,9 +462,10 @@ def create_app(
         stay reachable so the page can load far enough to let a user enter
         the token in the first place. EventSource cannot set custom headers
         either, and neither can the <img> tags the gallery grid loads its
-        thumbnails through, so those two routes additionally accept the
-        token as a `token` query parameter - a documented trade-off, not a
-        header-auth peer."""
+        thumbnails through nor the <a download> navigations the download
+        buttons make, so those GET routes additionally accept the token as a
+        `token` query parameter - a documented trade-off, not a header-auth
+        peer."""
         if not token:
             return await call_next(request)
         path = request.url.path
@@ -425,8 +475,15 @@ def create_app(
         auth = request.headers.get("authorization", "")
         if auth.lower().startswith("bearer "):
             provided = auth[len("bearer ") :].strip()
-        if provided is None and path.endswith(QUERY_TOKEN_ROUTE_SUFFIXES):
-            provided = request.query_params.get("token")
+        # GET/HEAD only, and only on a route explicitly marked
+        # query_token_ok - matched against the real route (see
+        # _matched_route), not by a path suffix, so a resource that
+        # happens to be named "download" or "thumbnail" does not inherit
+        # the allowance meant for the real routes.
+        if provided is None and request.method in ("GET", "HEAD"):
+            route = _matched_route(request)
+            if route is not None and getattr(route.endpoint, "query_token_ok", False):
+                provided = request.query_params.get("token")
         # compared as bytes: compare_digest refuses non-ASCII str
         if provided is None or not secrets.compare_digest(
             provided.encode("utf-8"), token.encode("utf-8")
@@ -508,6 +565,7 @@ def create_app(
         return {"id": job_id, "status": status}
 
     @app.get("/api/jobs/{job_id}/events")
+    @query_token_ok
     async def job_events(request: Request, job_id: str, after: int = -1):
         """Server-sent events: every progress event from `after` (exclusive)
         until the job reaches a terminal state. Reconnect with the last seen
@@ -653,6 +711,7 @@ def create_app(
                         app.state.workflow_dir, request.workflow_path
                     ),
                     manager.output_dir,
+                    app.state.workflow_dir,
                 )
                 definition = candidate.workflow_definition
             else:
@@ -661,6 +720,7 @@ def create_app(
                     copy.deepcopy(request.workflow),
                     manager.output_dir,
                     request.base_dir,
+                    app.state.workflow_dir,
                 )
         except HTTPException:
             raise
@@ -705,7 +765,12 @@ def create_app(
         if request.workflow is None:
             raise HTTPException(status_code=400, detail="Provide an inline workflow")
         path = resolve_workflow_name(app.state.workflow_dir, name, allow_create=True)
-        candidate = Workflow(copy.deepcopy(request.workflow), manager.output_dir, path)
+        candidate = Workflow(
+            copy.deepcopy(request.workflow),
+            manager.output_dir,
+            path,
+            app.state.workflow_dir,
+        )
         try:
             candidate.validate()
         except Exception as e:
@@ -728,6 +793,15 @@ def create_app(
         os.remove(path)
         logger.info(f"Deleted workflow {name} ({path})")
         return {"name": name, "deleted": True}
+
+    @app.get("/api/workflows/{name:path}/download")
+    @query_token_ok
+    def download_workflow(name: str):
+        """Serve a workflow definition as a forced download."""
+        path = resolve_workflow_name(app.state.workflow_dir, name)
+        return FileResponse(
+            path, filename=os.path.basename(path), media_type="application/json"
+        )
 
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str):
@@ -795,6 +869,15 @@ def create_app(
         os.remove(path)
         logger.info(f"Deleted prompt {name} ({path})")
         return {"name": name, "deleted": True}
+
+    @app.get("/api/prompts/{name:path}/download")
+    @query_token_ok
+    def download_prompt(name: str):
+        """Serve a stored prompt as a forced download."""
+        path = resolve_prompt_name(app.state.prompt_dir, name)
+        return FileResponse(
+            path, filename=os.path.basename(path), media_type="application/json"
+        )
 
     @app.get("/api/prompts/{name:path}")
     def get_prompt(name: str):
@@ -911,10 +994,11 @@ def create_app(
                     "folder": folder,
                     # Quoted (slashes kept literal): a name carrying '#', '?'
                     # or '%' would otherwise break the src the gallery
-                    # renders it into. The mtime rides along because a rerun
-                    # overwrites the same name - on an unchanging URL the
-                    # browser would keep showing the image it cached from
-                    # the previous run
+                    # renders it into. The mtime still rides along for cache
+                    # busting when a file's content changes without its name
+                    # changing (e.g. a manual overwrite outside the engine) -
+                    # normal reruns get a fresh name instead, see
+                    # dw/result.py's output_file_path
                     "url": f"/outputs/{quote(relative_name)}?v={int(stat.st_mtime)}",
                     "kind": kind,
                     "size": stat.st_size,
@@ -963,6 +1047,7 @@ def create_app(
         return {"name": name, "metadata": metadata, "job": job}
 
     @app.get("/api/gallery/{name:path}/thumbnail")
+    @query_token_ok
     def gallery_thumbnail(name: str, request: Request):
         """A small JPEG rendition of an image output, for the grid - the
         full-resolution file is only fetched for the detail/lightbox view.
@@ -1004,6 +1089,13 @@ def create_app(
         return Response(
             content=buffer.getvalue(), media_type="image/jpeg", headers=cache_headers
         )
+
+    @app.get("/api/gallery/{name:path}/download")
+    @query_token_ok
+    def download_output(name: str):
+        """Serve one output file as a forced download rather than an inline view."""
+        path = _output_file(name)
+        return FileResponse(path, filename=os.path.basename(name))
 
     @app.delete("/api/gallery/{name:path}")
     def delete_output(name: str):

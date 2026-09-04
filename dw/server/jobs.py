@@ -151,22 +151,66 @@ class JobHistory:
             return []
 
     def job_for_file(self, file_name):
-        """The most recent job whose manifest names this output file.
+        """The most recent job that actually wrote this output file.
 
         LIKE metacharacters are escaped - generated names routinely contain
         '_', which would otherwise match any character and let a similarly
         named later job claim the file.
+
+        A manifest entry marked 'reused' is a step-cache hit republishing an
+        earlier run's files, so it is skipped: attribution belongs to the job
+        that wrote the file, not to every later run that reused it.
         """
         escaped = (
             file_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         )
+        # Unbounded on purpose: every later fixed-seed rerun republishes the
+        # file with 'reused', so a LIMIT would let the writing job fall out of
+        # the window after that many reruns and leave the file unattributed.
+        # The LIKE filter already restricts the scan to manifests naming it.
         with self._lock, self._connect() as connection:
-            row = connection.execute(
-                "SELECT id, status FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
-                " ORDER BY finished_at DESC LIMIT 1",
+            rows = connection.execute(
+                "SELECT id, status, manifest FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
+                " ORDER BY finished_at DESC",
                 (f"%{escaped}%",),
-            ).fetchone()
-        return {"id": row[0], "status": row[1]} if row else None
+            ).fetchall()
+        for row in rows:
+            if self._manifest_wrote(row[2], file_name):
+                return {"id": row[0], "status": row[1]}
+        return None
+
+    @staticmethod
+    def _manifest_wrote(manifest_text, file_name):
+        """Whether this manifest names the file in an entry it wrote itself.
+
+        A manifest that will not parse falls back to the LIKE match that
+        found it - a row recorded before entries carried 'reused' cannot
+        have been a reuse anyway.
+        """
+        try:
+            manifest = json.loads(manifest_text)
+        except (TypeError, ValueError):
+            return True
+        if not isinstance(manifest, list):
+            return True
+        # A manifest entry names a file the way the run recorded it - a
+        # server-recorded manifest holds names relative to the output
+        # directory (_relative_output_names), a directly-run workflow's holds
+        # absolute paths. The caller names it relative to the output
+        # directory, so match on the tail either way - the same relationship
+        # the LIKE substring match relied on
+        wanted = file_name.replace(os.sep, "/")
+
+        def names_file(path):
+            normalized = path.replace(os.sep, "/")
+            return normalized == wanted or normalized.endswith("/" + wanted)
+
+        return any(
+            not entry.get("reused")
+            and any(names_file(path) for path in entry.get("files") or [])
+            for entry in manifest
+            if isinstance(entry, dict)
+        )
 
     @staticmethod
     def _to_detail(row):
@@ -265,9 +309,17 @@ class JobManager:
     """Serializes job execution onto the one GPU worker process."""
 
     def __init__(
-        self, output_dir, log_level="INFO", worker_manager=None, history_path=None
+        self,
+        output_dir,
+        log_level="INFO",
+        worker_manager=None,
+        history_path=None,
+        workflow_dir=None,
     ):
         self.output_dir = validate_output_path(output_dir, None)
+        # Confines workflow_path/base_dir/sub-workflow resolution for every
+        # job this manager submits - the server's configured workflow_dir
+        self.workflow_dir = workflow_dir
         os.makedirs(self.output_dir, exist_ok=True)
         self.log_level = log_level
         self.worker_manager = worker_manager or WorkerManager()
@@ -301,25 +353,36 @@ class JobManager:
         if workflow_path is not None:
             # Loads and schema-validates now - a bad path or file fails the
             # request, not the queue
-            loaded = workflow_from_file(workflow_path, self.output_dir)
+            loaded = workflow_from_file(
+                workflow_path, self.output_dir, self.workflow_dir
+            )
             loaded.validate()
             spec = {
                 "workflow_path": workflow_path,
                 "workflow_name": loaded.name,
                 "arguments": arguments,
+                "workflow_dir": self.workflow_dir,
             }
         else:
             # workflow_from_definition validates base_dir - it is HTTP-supplied
             # path input and goes through the security layer like every path
             loaded = workflow_from_definition(
-                copy.deepcopy(workflow), self.output_dir, base_dir
+                copy.deepcopy(workflow), self.output_dir, base_dir, self.workflow_dir
             )
             loaded.validate()
             spec = {
                 "workflow": workflow,
-                "base_dir": base_dir or os.getcwd(),
+                # Must match workflow_from_definition's fallback - the worker
+                # re-validates this against workflow_dir
+                "base_dir": base_dir
+                or (
+                    os.path.abspath(self.workflow_dir)
+                    if self.workflow_dir
+                    else os.getcwd()
+                ),
                 "workflow_name": loaded.name,
                 "arguments": arguments,
+                "workflow_dir": self.workflow_dir,
             }
 
         # Signature-level check of pipeline arguments - the typo that would
@@ -512,6 +575,7 @@ class JobManager:
                 else:
                     command["workflow"] = job.spec["workflow"]
                     command["base_dir"] = job.spec["base_dir"]
+                command["workflow_dir"] = job.spec.get("workflow_dir")
                 self.worker_manager.send_command(command)
                 outcome = self._consume_results(job)
             except Exception as e:

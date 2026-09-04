@@ -279,7 +279,10 @@ class MemoryCommands:
         if not arg or arg == "?":
             print("\nMemory commands:")
             print("  memory show  - Show the worker's GPU memory usage")
-            print("  memory clear - Release cached models and empty the device cache")
+            print(
+                "  memory clear - Release cached models, cached step results, "
+                "and empty the device cache"
+            )
             print()
             print("The worker process starts on the first 'workflow run', so there")
             print("is nothing to show before that. 'workflow restart' frees")

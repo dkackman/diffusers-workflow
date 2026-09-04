@@ -375,3 +375,185 @@ def test_delete_output_surfaces_a_missing_file():
 
     with pytest.raises(DwApiError, match="Unknown file"):
         media.delete_output(client, "ghost.png")
+
+
+# --------------------------------------------------------- output download
+
+
+import os
+
+from dw_mcp.media import download_output
+
+
+def test_download_output_writes_bytes_to_explicit_file_path(tmp_path):
+    client = serving(png_bytes(64, 48), "image/png")
+    destination = tmp_path / "saved.png"
+
+    result = download_output(client, "run-step.0-0.0.png", destination=str(destination))
+
+    assert destination.read_bytes() == png_bytes(64, 48)
+    assert result == {
+        "name": "run-step.0-0.0.png",
+        "saved_to": str(destination),
+        "content_type": "image/png",
+        "bytes": len(png_bytes(64, 48)),
+    }
+
+
+def test_download_output_into_a_directory_uses_the_output_basename(tmp_path):
+    client = serving(png_bytes(10, 10), "image/png")
+
+    result = download_output(
+        client, "sub/run-step.0-0.0.png", destination=str(tmp_path)
+    )
+
+    saved = tmp_path / "run-step.0-0.0.png"
+    assert saved.read_bytes() == png_bytes(10, 10)
+    assert result["saved_to"] == str(saved)
+
+
+def test_download_output_with_no_destination_saves_to_current_directory(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    client = serving(png_bytes(10, 10), "image/png")
+
+    result = download_output(client, "run-step.0-0.0.png")
+
+    assert (tmp_path / "run-step.0-0.0.png").read_bytes() == png_bytes(10, 10)
+    assert result["saved_to"] == str(tmp_path / "run-step.0-0.0.png")
+
+
+def test_download_output_creates_missing_parent_directories(tmp_path):
+    client = serving(png_bytes(10, 10), "image/png")
+    destination = tmp_path / "renders" / "today" / "spoons.png"
+
+    download_output(client, "spoons.png", destination=str(destination))
+
+    assert destination.read_bytes() == png_bytes(10, 10)
+
+
+def test_download_output_expands_user_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    client = serving(png_bytes(5, 5), "image/png")
+
+    result = download_output(client, "spoons.png", destination="~/spoons.png")
+
+    assert result["saved_to"] == str(tmp_path / "spoons.png")
+
+
+def test_download_output_refuses_to_overwrite_an_existing_file_by_default(tmp_path):
+    destination = tmp_path / "existing.png"
+    destination.write_bytes(b"already here")
+    client = serving(png_bytes(10, 10), "image/png")
+
+    with pytest.raises(DwApiError, match=str(destination)):
+        download_output(client, "new.png", destination=str(destination))
+
+    assert destination.read_bytes() == b"already here"
+
+
+def test_download_output_overwrite_true_replaces_an_existing_file(tmp_path):
+    destination = tmp_path / "existing.png"
+    destination.write_bytes(b"already here")
+    client = serving(png_bytes(10, 10), "image/png")
+
+    result = download_output(
+        client, "new.png", destination=str(destination), overwrite=True
+    )
+
+    assert destination.read_bytes() == png_bytes(10, 10)
+    assert result["saved_to"] == str(destination)
+
+
+def test_download_output_rejects_a_dot_dot_segment_in_destination(tmp_path):
+    client = serving(png_bytes(10, 10), "image/png")
+    escaping = str(tmp_path / ".." / "escaped.png")
+
+    with pytest.raises(DwApiError, match=r"\.\."):
+        download_output(client, "new.png", destination=escaping)
+
+    assert not os.path.exists(os.path.join(str(tmp_path), "..", "escaped.png"))
+
+
+def test_download_output_streams_the_body_in_chunks(tmp_path, monkeypatch):
+    """The tool exists for files get_output_image can't return - large
+    videos. Buffering the whole body defeats the point, so the write has to
+    go through iter_bytes in chunks rather than one `.content` blob."""
+
+    class ChunkedStream(httpx.SyncByteStream):
+        def __init__(self, chunks):
+            self.chunks = chunks
+
+        def __iter__(self):
+            yield from self.chunks
+
+        def close(self):
+            pass
+
+    chunks = [b"a" * 1000, b"b" * 1000, b"c" * 1000]
+
+    def handler(request):
+        return httpx.Response(
+            200, headers={"content-type": "video/mp4"}, stream=ChunkedStream(chunks)
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    destination = tmp_path / "chunked.mp4"
+
+    writes = []
+    real_fdopen = os.fdopen
+
+    def tracking_fdopen(fd, mode="r", *args, **kwargs):
+        # Chunks land in a temp file next to `destination`, opened via
+        # os.fdopen on a descriptor from tempfile.mkstemp - not via
+        # builtins.open - so that is what has to be intercepted to observe
+        # each write.
+        file = real_fdopen(fd, mode, *args, **kwargs)
+        if "b" in mode:
+            original_write = file.write
+
+            def tracked_write(data):
+                writes.append(len(data))
+                return original_write(data)
+
+            file.write = tracked_write
+        return file
+
+    monkeypatch.setattr("dw_mcp.client.os.fdopen", tracking_fdopen)
+
+    result = download_output(client, "big.bin", destination=str(destination))
+
+    assert destination.read_bytes() == b"".join(chunks)
+    assert len(writes) >= 2
+    assert result["bytes"] == len(b"".join(chunks))
+    assert result["content_type"] == "video/mp4"
+
+
+def test_download_output_leaves_no_file_when_the_stream_breaks_mid_body(tmp_path):
+    """A connection drop after some chunks have already arrived (the normal
+    failure mode for a large video) must not leave a torn partial file -
+    that file would then "exist" for a later overwrite=False call and
+    silently mask the failure."""
+
+    class BreakingStream(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"a" * 1000
+            raise httpx.ReadError("connection dropped")
+
+        def close(self):
+            pass
+
+    def handler(request):
+        return httpx.Response(
+            200, headers={"content-type": "video/mp4"}, stream=BreakingStream()
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    destination = tmp_path / "broken.mp4"
+
+    with pytest.raises(DwApiError):
+        download_output(client, "big.bin", destination=str(destination))
+
+    assert not destination.exists()
+    assert list(tmp_path.iterdir()) == []

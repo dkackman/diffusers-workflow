@@ -6,6 +6,7 @@ from .arguments import (
     PREVIOUS_RESULT_PREFIX,
     build_objects,
 )
+from .step_cache import reference_resolves_to
 
 logger = logging.getLogger("dw")
 
@@ -126,13 +127,14 @@ def get_previous_results(previous_results, previous_result_name):
             f"Previous result '{previous_result_name}' not found. Available results: {list(previous_results.keys())}"
         )
 
-    # Find the longest known step name that is a prefix of the reference
-    # followed by ".", and treat the remainder as the property name.
+    # Find the longest known step name the reference resolves to, and treat
+    # the remainder as the property name. The exact-match case returned
+    # above, so every name reaching here is a strict '<name>.' prefix.
     result_name = max(
         (
             name
             for name in previous_results
-            if previous_result_name.startswith(name + ".")
+            if reference_resolves_to(previous_result_name, name)
         ),
         key=len,
         default=None,

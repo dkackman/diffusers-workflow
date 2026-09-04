@@ -316,3 +316,25 @@ def test_workflow_validation_error_names_the_json_path_once(tmp_path):
     message = str(exc_info.value)
     assert "steps[0].seed" in message
     assert message.count("Validation error") == 1
+
+
+class TestSubWorkflowConfinement:
+    """A server-submitted workflow is confined to workflow_dir, but the
+    builtin: workflows ship inside the package, outside any workflow_dir -
+    a builtin step must still load there."""
+
+    def test_builtin_sub_workflow_loads_under_a_confined_workflow(self, tmp_path):
+        workflow_dir = tmp_path / "workflows"
+        workflow_dir.mkdir()
+        parent = Workflow(
+            {"id": "parent", "steps": []},
+            str(tmp_path / "outputs"),
+            str(workflow_dir / "__inline__.json"),
+            str(workflow_dir),
+        )
+        step = {"name": "child", "workflow": {"path": "builtin:test.json"}}
+
+        child = parent.create_step_action(step, {}, {}, 42, "cpu")
+
+        assert isinstance(child, Workflow)
+        assert child.name == "test_job"
