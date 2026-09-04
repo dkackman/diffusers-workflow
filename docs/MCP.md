@@ -191,6 +191,7 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | --- | --- | --- |
 | `get_output_image(name, max_dimension=768)` | `name`, `max_dimension` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent |
 | `get_output_text(name, max_characters=20000)` | `name`, `max_characters` | Read a text output — a prompt enhancement, or any step whose result is `text/plain` or JSON. Reports the file's real length and whether it was truncated |
+| `download_output(name, destination=None)` | `name`, `destination` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context |
 | `delete_output(name)` | `name` | Permanently remove one generated file from the output directory |
 
 ### Authoring

@@ -2,6 +2,8 @@
 
 import inspect
 import json
+import os
+import tempfile
 
 import httpx
 import pytest
@@ -53,6 +55,7 @@ EXPECTED_TOOLS = {
     "list_enhancers",
     "enhance_prompt",
     "get_output_text",
+    "download_output",
     "delete_output",
 }
 
@@ -70,6 +73,7 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "save_prompt",
     "delete_prompt",
     "enhance_prompt",
+    "download_output",
     "delete_output",
 }
 
@@ -79,6 +83,7 @@ DESTRUCTIVE_TOOLS = {
     "delete_model",
     "save_prompt",
     "delete_prompt",
+    "download_output",
     "delete_output",
 }
 
@@ -370,6 +375,15 @@ TOOL_WIRING = [
         "/api/enhance",
     ),
     ("get_output_text", {"name": "enhanced.txt"}, "GET", "/outputs/enhanced.txt"),
+    (
+        "download_output",
+        {
+            "name": "out.png",
+            "destination": os.path.join(tempfile.mkdtemp(), "out.png"),
+        },
+        "GET",
+        "/outputs/out.png",
+    ),
     ("delete_output", {"name": "out.png"}, "DELETE", "/api/gallery/out.png"),
 ]
 
@@ -635,6 +649,7 @@ WRAPPER_HANDLER_MAP = {
     "rerun_job": (diagnose, "rerun_job"),
     "get_output_text": (media, "get_output_text"),
     "enhance_prompt": (prompts, "enhance_prompt"),
+    "download_output": (media, "download_output"),
 }
 
 

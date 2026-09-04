@@ -375,3 +375,64 @@ def test_delete_output_surfaces_a_missing_file():
 
     with pytest.raises(DwApiError, match="Unknown file"):
         media.delete_output(client, "ghost.png")
+
+
+# --------------------------------------------------------- output download
+
+
+import os
+
+from dw_mcp.media import download_output
+
+
+def test_download_output_writes_bytes_to_explicit_file_path(tmp_path):
+    client = serving(png_bytes(64, 48), "image/png")
+    destination = tmp_path / "saved.png"
+
+    result = download_output(client, "run-step.0-0.0.png", destination=str(destination))
+
+    assert destination.read_bytes() == png_bytes(64, 48)
+    assert result == {
+        "name": "run-step.0-0.0.png",
+        "saved_to": str(destination),
+        "content_type": "image/png",
+        "bytes": len(png_bytes(64, 48)),
+    }
+
+
+def test_download_output_into_a_directory_uses_the_output_basename(tmp_path):
+    client = serving(png_bytes(10, 10), "image/png")
+
+    result = download_output(client, "sub/run-step.0-0.0.png", destination=str(tmp_path))
+
+    saved = tmp_path / "run-step.0-0.0.png"
+    assert saved.read_bytes() == png_bytes(10, 10)
+    assert result["saved_to"] == str(saved)
+
+
+def test_download_output_with_no_destination_saves_to_current_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client = serving(png_bytes(10, 10), "image/png")
+
+    result = download_output(client, "run-step.0-0.0.png")
+
+    assert (tmp_path / "run-step.0-0.0.png").read_bytes() == png_bytes(10, 10)
+    assert result["saved_to"] == str(tmp_path / "run-step.0-0.0.png")
+
+
+def test_download_output_creates_missing_parent_directories(tmp_path):
+    client = serving(png_bytes(10, 10), "image/png")
+    destination = tmp_path / "renders" / "today" / "spoons.png"
+
+    download_output(client, "spoons.png", destination=str(destination))
+
+    assert destination.read_bytes() == png_bytes(10, 10)
+
+
+def test_download_output_expands_user_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    client = serving(png_bytes(5, 5), "image/png")
+
+    result = download_output(client, "spoons.png", destination="~/spoons.png")
+
+    assert result["saved_to"] == str(tmp_path / "spoons.png")
