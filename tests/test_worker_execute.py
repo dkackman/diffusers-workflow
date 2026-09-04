@@ -145,29 +145,14 @@ class StubResult:
     saved_files = []
 
 
-def test_full_cleanup_clears_both_process_wide_registries():
-    """A full cleanup ('memory clear') must drop cached step results AND the
-    memory manager's on-demand registry - the two process-wide singletons
-    are cleared as a pair, or a 'clear' leaves components pinned in RAM."""
-    import torch
-
+def test_full_cleanup_clears_step_cache():
+    """A full cleanup ('memory clear') must drop cached step results, or a
+    'clear' leaves results pinned in RAM."""
     from dw.step_cache import step_cache
-    from dw.pipeline_processors.memory_manager import memory_manager
 
-    class Component:
-        def __init__(self):
-            self.device = torch.device("cpu")
-
-        def to(self, device):
-            self.device = torch.device(device)
-            return self
-
-    component = Component()
-    memory_manager.register(component, priority=1)
     step_cache.put({"name": "cleanup_probe"}, 42, StubResult())
 
     worker = _make_worker()
     worker._cleanup_all()
 
-    assert memory_manager.live_entry_count() == 0
     assert step_cache.get({"name": "cleanup_probe"}, 42, hits_this_run=set()) is None

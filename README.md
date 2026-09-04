@@ -17,7 +17,6 @@ A workflow JSON file is portable and easy to hand off — but that same flexibil
 
 - **Web UI** — browse and run workflows, edit them in introspection-driven forms, watch jobs stream live progress, manage generated output and the models on disk. `python -m dw.serve` and open a browser. See [Server & Web UI](docs/SERVER.md).
 - **MCP server** — a stdio server that lets an MCP client (Claude Code first) author, validate, save, run and diagnose workflows against a running `dw.serve`. `dw-mcp`. See [MCP Server](docs/MCP.md).
-- **Cross-step memory management** — `residency: on_demand` components share a priority/LRU eviction pool across steps, so a memory-constrained run degrades gracefully instead of failing on OOM
 - **Step-output caching** — a step whose resolved arguments and seed are unchanged since the last run in the same process reuses its cached result instead of re-executing. This applies to any `Workflow.run` — REPL iteration and a re-run of a server-submitted job alike, so re-running a fixed-seed workflow from the UI finishes instantly and writes no new output files. The cache holds the most recent 50 steps and is dropped by `memory clear`
 - **Declarative JSON workflows** with variable substitution and cross-step data flow
 - **Multi-step pipelines** — chain text-to-image, image-to-video, inpainting, ControlNet
