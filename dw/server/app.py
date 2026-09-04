@@ -410,15 +410,31 @@ def create_app(
     app.state.workflow_dir = workflow_dir
     app.state.prompt_dir = prompt_dir
 
+    wildcard_bind = host in WILDCARD_HOSTS
+    allowed_hosts = set(LOOPBACK_HOSTS)
+    if host and not wildcard_bind:
+        allowed_hosts.add(host.lower())
+
     @app.middleware("http")
     async def reject_foreign_origins(request, call_next):
         """Refuse browser cross-origin requests - a drive-by web page must
-        not be able to queue jobs on a localhost GPU server. Requests
-        without an Origin header (curl, scripts, same-origin GETs) pass."""
+        not be able to queue jobs on this server. Requests without an
+        Origin header (curl, scripts, same-origin GETs) pass.
+
+        An Origin is accepted when its hostname is a loopback name, the
+        configured bind host, or the hostname the request itself was
+        addressed to (same-origin). The last clause is what lets a browser
+        on another machine use a `--host 0.0.0.0` server by its LAN IP or
+        hostname - and it stays safe against DNS rebinding, where the
+        attacker's page carries its own Origin while Host is whatever
+        resolved: the two differ, so the request is refused. Scheme and
+        port are ignored, matching the Host check: a TLS-terminating proxy
+        forwards Host unchanged while the browser's Origin is https."""
         origin = request.headers.get("origin")
         if origin:
-            origin_host = urlparse(origin).hostname
-            if origin_host not in LOOPBACK_HOSTS:
+            origin_host = (urlparse(origin).hostname or "").lower()
+            request_host = (request.url.hostname or "").lower()
+            if origin_host not in allowed_hosts and origin_host != request_host:
                 return JSONResponse(
                     status_code=403,
                     content={"detail": "Cross-origin requests are not allowed"},
@@ -435,11 +451,6 @@ def create_app(
     # A wildcard bind is reached by whatever address the machine has - a LAN
     # IP, a hostname - never by the bind string itself, so there is no
     # allowlist to build; the Host check is skipped for it.
-    wildcard_bind = host in WILDCARD_HOSTS
-    allowed_hosts = set(LOOPBACK_HOSTS)
-    if host:
-        allowed_hosts.add(host.lower())
-
     @app.middleware("http")
     async def reject_foreign_hosts(request, call_next):
         hostname = request.url.hostname

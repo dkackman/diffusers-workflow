@@ -522,6 +522,86 @@ def test_foreign_origin_requests_are_rejected(server):
         assert client.get("/api/health").status_code == 200
 
 
+def _app_bound_to(tmp_path, host):
+    """A create_app bound to `host`, with a scripted worker - the shape the
+    Host/Origin tests share."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir(exist_ok=True)
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    return create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        host=host,
+    )
+
+
+def test_origin_matching_the_request_host_is_accepted_on_a_wildcard_bind(tmp_path):
+    """A browser on another machine reaches `--host 0.0.0.0` by LAN IP or
+    hostname and sends that as its Origin. Same-origin must pass, or the UI
+    cannot make a single POST off-loopback."""
+    app = _app_bound_to(tmp_path, "0.0.0.0")
+    for base in ("http://192.168.1.50:8765", "http://gpu-box.local:8765"):
+        with TestClient(app, base_url=base) as client:
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow()},
+                headers={"Origin": base},
+            )
+            assert response.status_code == 201, base
+
+
+def test_origin_that_differs_from_the_request_host_is_still_rejected(tmp_path):
+    """DNS rebinding: the attacker's page has its own Origin while Host is
+    whatever their DNS name resolved to. The two differ, so it is refused -
+    the same-origin allowance does not weaken the check."""
+    app = _app_bound_to(tmp_path, "0.0.0.0")
+    with TestClient(app, base_url="http://192.168.1.50:8765") as client:
+        response = client.post(
+            "/api/jobs",
+            json={"workflow": valid_workflow()},
+            headers={"Origin": "http://evil.example"},
+        )
+        assert response.status_code == 403
+
+
+def test_origin_comparison_ignores_scheme_and_port(tmp_path):
+    """A TLS-terminating proxy forwards Host as-is while the browser's Origin
+    is https and may carry a different port; only the hostname matters."""
+    app = _app_bound_to(tmp_path, "0.0.0.0")
+    with TestClient(app, base_url="http://gpu-box.local:8765") as client:
+        response = client.get(
+            "/api/health", headers={"Origin": "https://gpu-box.local"}
+        )
+        assert response.status_code == 200
+
+
+def test_origin_naming_the_configured_bind_host_is_accepted(tmp_path):
+    """`--host my-server.local` accepts that Origin regardless of Host, the
+    same allowance the Host check already makes for the bind address."""
+    app = _app_bound_to(tmp_path, "my-server.local")
+    with TestClient(app, base_url="http://my-server.local") as client:
+        response = client.get(
+            "/api/health", headers={"Origin": "http://my-server.local:9999"}
+        )
+        assert response.status_code == 200
+
+
+def test_loopback_origin_is_accepted_for_any_host(tmp_path):
+    """An SSH tunnel's browser sends a loopback Origin; that keeps working."""
+    app = _app_bound_to(tmp_path, "0.0.0.0")
+    with TestClient(app, base_url="http://192.168.1.50:8765") as client:
+        response = client.get(
+            "/api/health", headers={"Origin": "http://127.0.0.1:8765"}
+        )
+        assert response.status_code == 200
+
+
 def test_foreign_host_header_requests_are_rejected(tmp_path):
     """Defense-in-depth for clients that never send Origin (curl, scripts,
     the MCP client): a Host header naming an unrelated public domain is
