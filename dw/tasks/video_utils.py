@@ -95,6 +95,21 @@ def frames_as_array(video):
     )
 
 
+def is_video(value):
+    """Whether a value is a run of frames rather than one image.
+
+    An AudioVideo, a 4-dim frame array or tensor, or a list of frames. A
+    single PIL image, a 3-dim array (one frame) and anything else is not.
+    """
+    if isinstance(value, AudioVideo):
+        return True
+    if isinstance(value, list):
+        return len(value) > 0 and all(_is_frame(item) for item in value)
+    if isinstance(value, numpy.ndarray) or torch.is_tensor(value):
+        return value.ndim == 4 or (value.ndim == 5 and value.shape[0] == 1)
+    return False
+
+
 def _frames_of(video):
     """Unwrap containers until an indexable run of frames remains."""
     if isinstance(video, AudioVideo):

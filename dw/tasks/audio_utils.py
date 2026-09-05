@@ -231,21 +231,17 @@ def slice_audio(
     the end of the track are zero-padded.
 
     Args:
-        audio: Path or URL of an audio file, or a waveform (which needs
-            sample_rate alongside it)
-        sample_rate: Sample rate of a waveform passed directly; ignored for
-            files, which carry their own
+        audio: Path or URL of an audio file, a video generated with a
+            soundtrack (which brings its sample rate along), or a waveform
+            (which needs sample_rate alongside it)
+        sample_rate: Sample rate of a waveform passed directly; given for a
+            file or a video it overrides the rate they carry
 
     Returns:
         The slice as a (samples, channels) float32 array - the layout audio
         results are saved in
     """
-    if isinstance(audio, str):
-        waveform, sample_rate = load_audio(audio)
-    else:
-        if sample_rate is None:
-            raise ValueError("slice_audio needs 'sample_rate' with a raw waveform")
-        waveform = as_channels_samples(audio)
+    waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "slice_audio")
 
     if start_seconds is not None or duration_seconds is not None:
         if start_seconds is None or duration_seconds is None:
@@ -280,21 +276,17 @@ def resample_audio(audio, target_sample_rate, sample_rate=None):
     the conversion.
 
     Args:
-        audio: Path or URL of an audio file, or a waveform (which needs
-            sample_rate alongside it)
+        audio: Path or URL of an audio file, a video generated with a
+            soundtrack (which brings its sample rate along), or a waveform
+            (which needs sample_rate alongside it)
         target_sample_rate: Rate to convert to
-        sample_rate: Sample rate of a waveform passed directly; ignored for
-            files, which carry their own
+        sample_rate: Sample rate of a waveform passed directly; given for a
+            file or a video it overrides the rate they carry
 
     Returns:
         The resampled track as a (samples, channels) float32 array
     """
-    if isinstance(audio, str):
-        waveform, sample_rate = load_audio(audio)
-    else:
-        if sample_rate is None:
-            raise ValueError("resample_audio needs 'sample_rate' with a raw waveform")
-        waveform = as_channels_samples(audio)
+    waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "resample_audio")
 
     if sample_rate == target_sample_rate:
         return waveform.T
@@ -330,16 +322,34 @@ def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
     shorter than the plain sum by one window per seam.
 
     Args:
-        audios: The waveforms to join, in order
+        audios: The tracks to join, in order - waveforms, audio file paths, or
+            videos generated with a soundtrack
         crossfade_ms: Length of each crossfade
-        sample_rate: Sample rate of the waveforms
+        sample_rate: Sample rate of the waveforms. Required unless every track
+            brings its own; given here it wins
 
     Returns:
         The joined track as a (samples, channels) float32 array
     """
+    if not isinstance(audios, list) or not audios:
+        raise ValueError("crossfade_audio needs a non-empty list of audio tracks")
+    waveforms, rates, bare = [], set(), False
+    for audio in audios:
+        if isinstance(audio, str) or hasattr(audio, "audio"):
+            waveform, rate = _waveform_and_rate(audio, sample_rate, "crossfade_audio")
+            rates.add(rate)
+        else:
+            waveform, bare = as_channels_samples(audio), True
+        waveforms.append(waveform)
     if sample_rate is None:
-        raise ValueError("crossfade_audio needs 'sample_rate'")
-    return crossfade_concat(audios, sample_rate, crossfade_ms).T
+        if bare or not rates:
+            raise ValueError("crossfade_audio needs 'sample_rate' with a raw waveform")
+        if len(rates) > 1:
+            raise ValueError(
+                f"crossfade_audio needs one sample rate, got {sorted(rates)}"
+            )
+        sample_rate = rates.pop()
+    return crossfade_concat(waveforms, sample_rate, crossfade_ms).T
 
 
 def _equal_power_ramps(window):
@@ -388,8 +398,8 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
     not a volume knob.
 
     Args:
-        audio: Path or URL of an audio file, or a waveform (which needs
-            sample_rate alongside it)
+        audio: Path or URL of an audio file, a video generated with a
+            soundtrack, or a waveform (which needs sample_rate alongside it)
         fade_in_ms: Length of the fade in, from the head of the track
         fade_out_ms: Length of the fade out, to the tail of the track
         sample_rate: Sample rate of a waveform passed directly
@@ -421,8 +431,8 @@ def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
     nothing but the gain, so the dynamics survive.
 
     Args:
-        audio: Path or URL of an audio file, or a waveform (which needs
-            sample_rate alongside it)
+        audio: Path or URL of an audio file, a video generated with a
+            soundtrack, or a waveform (which needs sample_rate alongside it)
         peak_dbfs: The level the loudest sample is moved to, in dB below full
             scale. 0 is full scale; -1 leaves a little headroom
         sample_rate: Sample rate of a waveform passed directly
@@ -456,10 +466,25 @@ def _fade_curve(window):
 def _waveform_and_rate(audio, sample_rate, command):
     """A command's audio argument as a (channels, samples) array with its rate.
 
-    A path loads with the file's own rate; a waveform needs the rate given.
+    A path loads with the file's own rate; a video generated with a soundtrack
+    (an AudioVideo, or anything carrying `.audio`) contributes that track and
+    its rate; a bare waveform needs the rate given. A given rate always wins.
     """
     if isinstance(audio, str):
-        return load_audio(audio)
+        waveform, file_rate = load_audio(audio)
+        return waveform, sample_rate if sample_rate is not None else file_rate
+    if hasattr(audio, "audio"):
+        if audio.audio is None:
+            raise ValueError(
+                f"{command} needs an audio track - the video it was given carries none"
+            )
+        rate = sample_rate if sample_rate is not None else audio.sample_rate
+        if rate is None:
+            raise ValueError(
+                f"{command} needs 'sample_rate' - the video it was given does not "
+                "carry one of its own"
+            )
+        return as_channels_samples(audio.audio), rate
     if sample_rate is None:
         raise ValueError(f"{command} needs 'sample_rate' with a raw waveform")
     return as_channels_samples(audio), sample_rate

@@ -181,3 +181,59 @@ class TestTaskDevice:
             task.run({"image": "an image", "device": "cpu"})
 
         assert image_to_text.call_args.kwargs["device"] == "cpu"
+
+
+class TestImageTasksTakeAVideo:
+    """An image command bound to a video runs over its frames and hands the
+    soundtrack through, so a generated clip can be upscaled or processed
+    without losing what was generated alongside it."""
+
+    def video(self):
+        import numpy
+        from dw.result import AudioVideo
+
+        frames = [Image.new("RGB", (8, 8), (i * 40, 0, 0)) for i in range(3)]
+        return AudioVideo(frames, numpy.zeros((2, 50), dtype=numpy.float32), 100)
+
+    def test_an_image_processor_maps_over_the_frames(self):
+        from dw.result import AudioVideo
+
+        task = Task({"command": "resize_rescale", "arguments": {}}, "cpu")
+        result = task.run({"image": self.video(), "height": 4, "width": 4})
+
+        assert isinstance(result, AudioVideo)
+        assert [f.size for f in result.frames] == [(4, 4)] * 3
+        assert [f.getpixel((0, 0))[0] for f in result.frames] == [0, 40, 80]
+        assert result.audio.shape == (2, 50) and result.sample_rate == 100
+
+    def test_a_model_backed_command_maps_over_the_frames(self):
+        from dw.result import AudioVideo
+
+        with patch("dw.tasks.upscale.upscale_image") as upscale:
+            upscale.side_effect = lambda image, model_name, device, **kw: image.resize(
+                (16, 16)
+            )
+            task = Task({"command": "upscale", "arguments": {}}, "cpu")
+            result = task.run({"image": self.video(), "model_name": "x/y"})
+
+        assert isinstance(result, AudioVideo)
+        assert upscale.call_count == 3
+        assert all(f.size == (16, 16) for f in result.frames)
+        assert result.sample_rate == 100
+
+    def test_a_frame_array_becomes_one_video_artifact(self):
+        import numpy
+        from dw.result import AudioVideo
+
+        frames = numpy.zeros((3, 8, 8, 3), dtype=numpy.uint8)
+        task = Task({"command": "resize_rescale", "arguments": {}}, "cpu")
+        result = task.run({"image": frames, "height": 4, "width": 4})
+
+        assert isinstance(result, AudioVideo)
+        assert len(result.frames) == 3 and result.audio is None
+
+    def test_a_single_image_is_processed_as_itself(self):
+        task = Task({"command": "resize_rescale", "arguments": {}}, "cpu")
+        result = task.run({"image": Image.new("RGB", (8, 8)), "height": 4, "width": 4})
+
+        assert isinstance(result, Image.Image)

@@ -216,6 +216,25 @@ def _handle_get_dict_value(task, arguments, previous_pipelines):
     return get_dict_value(**arguments)
 
 
+def _per_frame(image, process):
+    """Run an image command over a video, frame by frame.
+
+    A video bound to an image argument - an AudioVideo from a generation,
+    concat or dissolve step, or a frame array from video_frames - is processed
+    one frame at a time and comes back as one video artifact, its soundtrack
+    carried through untouched. A single image is processed as itself.
+    """
+    from ..result import AudioVideo
+    from .video_utils import frames_as_pil_list, is_video
+
+    if not is_video(image):
+        return process(image)
+    frames = [process(frame) for frame in frames_as_pil_list(image)]
+    audio = getattr(image, "audio", None)
+    sample_rate = getattr(image, "sample_rate", None)
+    return AudioVideo(frames, audio, sample_rate)
+
+
 @register_command("upscale", implementation="dw.tasks.upscale.upscale_image")
 def _handle_upscale(task, arguments, previous_pipelines):
     """Upscale an image using a spandrel-compatible super-resolution model"""
@@ -224,8 +243,10 @@ def _handle_upscale(task, arguments, previous_pipelines):
     model_name = arguments.pop("model_name")
     from .upscale import upscale_image
 
-    return upscale_image(
-        image, model_name, device=task.device_for(arguments), **arguments
+    device = task.device_for(arguments)
+    return _per_frame(
+        image,
+        lambda frame: upscale_image(frame, model_name, device=device, **arguments),
     )
 
 
@@ -238,7 +259,10 @@ def _handle_diffusion_upscale(task, arguments, previous_pipelines):
     image = arguments.pop("image")
     from .diffusion_upscale import diffusion_upscale
 
-    return diffusion_upscale(image, device=task.device_for(arguments), **arguments)
+    device = task.device_for(arguments)
+    return _per_frame(
+        image, lambda frame: diffusion_upscale(frame, device=device, **arguments)
+    )
 
 
 @register_command(
@@ -251,8 +275,10 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
     model_name = arguments.pop("model_name")
     from .restore_faces import restore_faces
 
-    return restore_faces(
-        image, model_name, device=task.device_for(arguments), **arguments
+    device = task.device_for(arguments)
+    return _per_frame(
+        image,
+        lambda frame: restore_faces(frame, model_name, device=device, **arguments),
     )
 
 
@@ -264,7 +290,10 @@ def _handle_segment(task, arguments, previous_pipelines):
     prompt = arguments.pop("prompt")
     from .segment import segment_image
 
-    return segment_image(image, prompt, device=task.device_for(arguments), **arguments)
+    device = task.device_for(arguments)
+    return _per_frame(
+        image, lambda frame: segment_image(frame, prompt, device=device, **arguments)
+    )
 
 
 @register_command(
@@ -337,11 +366,9 @@ def _handle_image_processing(task, arguments, previous_pipelines):
     """Handle image processing commands"""
     logger.debug("Processing image")
     device = task.device_for(arguments)
-    return process_image(
+    return _per_frame(
         arguments.pop("image"),
-        task.command,
-        device,
-        arguments,
+        lambda frame: process_image(frame, task.command, device, arguments),
     )
 
 

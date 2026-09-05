@@ -37,8 +37,23 @@ class TestInterpolateFrames:
         result = interpolate_frames(frames, multiplier=2)
 
         # 4 frames with 2x: (4-1)*2 + 1 = 7
-        assert len(result) == 7
-        assert all(isinstance(f, Image.Image) for f in result)
+        assert len(result.frames) == 7
+        assert all(isinstance(f, Image.Image) for f in result.frames)
+
+    @patch("dw.tasks.interpolate_frames._load_rife_model")
+    def test_an_audio_video_unwraps_to_its_frames(self, mock_load):
+        """A concat or dissolve step's AudioVideo interpolates like a frame list."""
+        from dw.result import AudioVideo
+        from dw.tasks.interpolate_frames import interpolate_frames
+
+        mock_model = MagicMock(side_effect=lambda a, b: a)
+        mock_load.return_value = mock_model
+
+        video = AudioVideo(_make_test_frames(3), np.zeros((2, 100)), 100)
+        result = interpolate_frames(video, multiplier=2)
+
+        assert len(result.frames) == 5
+        assert all(isinstance(f, Image.Image) for f in result.frames)
 
     @patch("dw.tasks.interpolate_frames._load_rife_model")
     def test_4x_quadruples_frame_count(self, mock_load):
@@ -60,8 +75,8 @@ class TestInterpolateFrames:
         result = interpolate_frames(frames, multiplier=4)
 
         # Two passes of 2x: 4 -> 7 -> 13
-        assert len(result) == 13
-        assert all(isinstance(f, Image.Image) for f in result)
+        assert len(result.frames) == 13
+        assert all(isinstance(f, Image.Image) for f in result.frames)
 
     def test_invalid_multiplier_raises(self):
         """multiplier must be 2, 4, or 8."""

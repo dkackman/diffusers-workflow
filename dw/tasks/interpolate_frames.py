@@ -10,7 +10,9 @@ Model weights are downloaded from HuggingFace Hub on first use.
 import logging
 import torch
 
+from ..result import AudioVideo
 from .tensor_image import pil_to_float_tensor as _pil_to_tensor, float_tensor_to_pil
+from .video_utils import frames_as_pil_list
 
 logger = logging.getLogger("dw")
 
@@ -21,7 +23,9 @@ def interpolate_frames(video, device="cpu", **kwargs):
     """Interpolate between video frames using RIFE to increase frame rate.
 
     Args:
-        video: List of PIL Images (video frames)
+        video: The frames - a list of PIL images, a frame array or tensor, or
+            an AudioVideo (a concat or dissolve step's output, whose
+            soundtrack is dropped here and put back by pair_audio)
         device: Target device ("cuda", "mps", "cpu")
         **kwargs:
             multiplier: Frame count multiplier — 2, 4, or 8 (default: 2)
@@ -29,7 +33,9 @@ def interpolate_frames(video, device="cpu", **kwargs):
             filename: Weights filename within the repo (default: auto)
 
     Returns:
-        List of PIL Images with interpolated frames inserted.
+        One AudioVideo holding the interpolated frames and no audio - one
+        artifact, where a bare frame list would fan a later step out over
+        every frame. pair_audio puts a soundtrack under it.
     """
     multiplier = int(kwargs.get("multiplier", 2))
     model_name = kwargs.get("model_name", None)
@@ -40,6 +46,10 @@ def interpolate_frames(video, device="cpu", **kwargs):
             f"multiplier must be one of {sorted(_VALID_MULTIPLIERS)}, got {multiplier}"
         )
 
+    # An AudioVideo or a frame array unwraps to its frames; a PIL list passes
+    # through by identity. The soundtrack does not survive - the frame count
+    # changes, so pair_audio is how it comes back
+    video = frames_as_pil_list(video)
     if len(video) < 2:
         raise ValueError(f"Need at least 2 frames to interpolate, got {len(video)}")
 
@@ -59,7 +69,7 @@ def interpolate_frames(video, device="cpu", **kwargs):
         frames = _interpolate_2x(frames, model)
 
     logger.info(f"Interpolation complete: {len(video)} -> {len(frames)} frames")
-    return frames
+    return AudioVideo(frames, None, None)
 
 
 def _interpolate_2x(frames, model):

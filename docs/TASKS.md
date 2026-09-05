@@ -386,7 +386,7 @@ Slices reaching past the end of the track are zero-padded:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `audio` | Yes | Path or URL of an audio file, or a waveform from a previous step |
+| `audio` | Yes | Path or URL of an audio file, a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
 | `start_seconds` / `duration_seconds` | One pair | The slice in seconds |
 | `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
@@ -410,8 +410,6 @@ tracks by the fade window:
 }
 ```
 
-## Data Gathering
-
 ### fade_audio
 
 Fade a track in from silence and out to it. A slice cut out of the middle of a
@@ -434,7 +432,7 @@ ending. The curve is the equal-power cosine the seam joins use:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `audio` | Yes | Path or URL of an audio file, or a waveform from a previous step |
+| `audio` | Yes | Path or URL of an audio file, a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
 | `fade_in_ms` | No | Length of the fade in, from the head of the track (default: 0) |
 | `fade_out_ms` | No | Length of the fade out, to the tail of the track (default: 0) |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
@@ -461,13 +459,15 @@ changes, so the dynamics survive:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `audio` | Yes | Path or URL of an audio file, or a waveform from a previous step |
+| `audio` | Yes | Path or URL of an audio file, a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
 | `peak_dbfs` | No | The level the loudest sample is moved to, in dB below full scale (default: -1.0). 0 is full scale |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
 A silent track is returned unchanged.
 
 **Example:** [LumenFinish.json](../workflows/lumen/LumenFinish.json)
+
+## Data Gathering
 
 ### gather_images
 
@@ -502,6 +502,31 @@ handing it all of them at once.
 
 Pass through arguments directly. Useful for organizing data flow.
 
+## Videos in image tasks
+
+Every image command - the upscalers, face restoration, segmentation and the
+image processors - takes a video where it takes an image: an `AudioVideo` from
+a generation, `concat_videos` or `dissolve_videos` step, or a frame array from
+`video_frames`. The command runs over the frames one at a time and returns one
+video artifact, its soundtrack carried through untouched, so a generated clip
+can be upscaled without losing what was generated alongside it:
+
+```json
+{
+    "task": {
+        "command": "upscale",
+        "arguments": {
+            "image": "previous_result:generate_video",
+            "model_name": "Kim2091/UltraSharp"
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 24 }
+}
+```
+
+Captioning (`image_to_text`) is the exception - describe a frame, taken with
+`get_first_frame`, rather than a video.
+
 ## Image Upscaling
 
 Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR, HAT, DAT, and 40+ other architectures). Models are auto-detected from weight files.
@@ -521,7 +546,7 @@ Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `image` | Yes | PIL Image or `previous_result:` reference |
+| `image` | Yes | PIL Image or `previous_result:` reference - a video runs frame by frame, see [Videos in image tasks](#videos-in-image-tasks) |
 | `model_name` | Yes | HuggingFace repo ID or local file path |
 | `filename` | No | Specific weight file in a HF repo (auto-detected if only one) |
 | `tile_size` | No | Tile size for large images (default: 512) |
@@ -555,7 +580,7 @@ Two modes are available:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `image` | Yes | PIL Image or `previous_result:` reference |
+| `image` | Yes | PIL Image or `previous_result:` reference - a video runs frame by frame, see [Videos in image tasks](#videos-in-image-tasks) |
 | `prompt` | No | Text guidance for upscaling (default: "") |
 | `negative_prompt` | No | Negative text guidance (default: none) |
 | `mode` | No | `"x4"` or `"x2"` (default: `"x4"`) |
@@ -586,7 +611,7 @@ Restore and enhance faces in images using spandrel-compatible face restoration m
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `image` | Yes | PIL Image or `previous_result:` reference |
+| `image` | Yes | PIL Image or `previous_result:` reference - a video runs frame by frame, see [Videos in image tasks](#videos-in-image-tasks) |
 | `model_name` | Yes | HuggingFace repo ID or local file path |
 | `filename` | No | Specific weight file in a HF repo (auto-detected if only one) |
 | `upscale_factor` | No | Background upscale factor (default: 1, no upscaling) |
@@ -664,7 +689,7 @@ Detect and segment objects using text prompts via GroundingDINO + SAM2. Returns 
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `image` | Yes | PIL Image or `previous_result:` reference |
+| `image` | Yes | PIL Image or `previous_result:` reference - a video runs frame by frame, see [Videos in image tasks](#videos-in-image-tasks) |
 | `prompt` | Yes | Text description of object(s) to detect (e.g., "dog", "red car") |
 | `model_name` | No | GroundingDINO model ID (default: `IDEA-Research/grounding-dino-base`) |
 | `sam_model_name` | No | SAM2 model ID (default: `facebook/sam2-hiera-large`) |
@@ -829,7 +854,7 @@ It is merged after everything else, so it can override `repetition_penalty` and 
 
 ## Frame Interpolation
 
-Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a list of video frames and inserts intermediate frames between each pair.
+Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a video and inserts intermediate frames between each pair. The result is one video artifact without a soundtrack - the frame count changed, so `pair_audio` is how the original track comes back, as in [LumenFinish.json](../workflows/lumen/LumenFinish.json).
 
 ```json
 {
@@ -846,7 +871,7 @@ Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). T
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `video` | Yes | List of PIL Images (video frames) or `previous_result:` reference |
+| `video` | Yes | The frames - a frame list, a frame array, or an audio+video pair from a concat or dissolve step (its audio is dropped) - usually a `previous_result:` reference |
 | `multiplier` | No | Frame count multiplier: 2, 4, or 8 (default: 2) |
 | `model_name` | No | HuggingFace repo with RIFE v4.13 weights (default: `imaginairy/rife-interpolation`) |
 | `filename` | No | Weights filename within the repo (default: `rife-flownet-4.13.2.safetensors`) |

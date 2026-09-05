@@ -371,3 +371,72 @@ class TestNormalizeAudio:
 
         with pytest.raises(ValueError, match="full scale"):
             normalize_audio(numpy.ones((1, 10)), peak_dbfs=1.0, sample_rate=100)
+
+
+class TestAudioTasksTakeAnAudioVideo:
+    """Every audio task accepts the video an earlier step generated with its
+    soundtrack, and takes the sample rate that video carries."""
+
+    def video(self, level=1.0, rate=100, samples=400):
+        from dw.result import AudioVideo
+
+        return AudioVideo(
+            [], numpy.full((2, samples), level, dtype=numpy.float32), rate
+        )
+
+    def test_slice_audio_takes_the_rate_from_the_video(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        sliced = slice_audio(self.video(), start_seconds=1.0, duration_seconds=2.0)
+
+        assert sliced.shape == (200, 2)
+
+    def test_a_given_rate_overrides_the_video_rate(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        sliced = slice_audio(
+            self.video(), start_seconds=0.0, duration_seconds=1.0, sample_rate=50
+        )
+
+        assert sliced.shape == (50, 2)
+
+    def test_resample_audio_takes_the_rate_from_the_video(self):
+        from dw.tasks.audio_utils import resample_audio
+
+        assert resample_audio(self.video(), target_sample_rate=100).shape == (400, 2)
+
+    def test_fade_and_normalize_take_a_video(self):
+        from dw.tasks.audio_utils import fade_audio, normalize_audio
+
+        faded = fade_audio(self.video(), fade_out_ms=1000)
+        assert faded.shape == (400, 2) and faded[-1, 0] == pytest.approx(0.0, abs=1e-6)
+
+        scaled = normalize_audio(self.video(level=0.5), peak_dbfs=0.0)
+        assert numpy.abs(scaled).max() == pytest.approx(1.0)
+
+    def test_crossfade_audio_joins_videos_at_their_own_rate(self):
+        from dw.tasks.audio_utils import crossfade_audio
+
+        joined = crossfade_audio([self.video(), self.video()], crossfade_ms=1000)
+
+        # 4 s + 4 s - 1 s overlap = 7 s at 100 Hz
+        assert joined.shape == (700, 2)
+
+    def test_crossfade_audio_refuses_mixed_rates(self):
+        from dw.tasks.audio_utils import crossfade_audio
+
+        with pytest.raises(ValueError, match="one sample rate"):
+            crossfade_audio([self.video(rate=100), self.video(rate=200)])
+
+    def test_crossfade_audio_still_needs_a_rate_for_a_bare_waveform(self):
+        from dw.tasks.audio_utils import crossfade_audio
+
+        with pytest.raises(ValueError, match="sample_rate"):
+            crossfade_audio([self.video(), numpy.ones((2, 100))])
+
+    def test_a_silent_video_is_refused(self):
+        from dw.result import AudioVideo
+        from dw.tasks.audio_utils import fade_audio
+
+        with pytest.raises(ValueError, match="carries none"):
+            fade_audio(AudioVideo([], None, None), fade_in_ms=10)

@@ -343,3 +343,30 @@ class TestLoadAudioVideo:
 
         with pytest.raises(SecurityError):
             load_audio_video(str(payload))
+
+
+class TestIsVideo:
+    def test_the_shapes_that_are_videos(self):
+        import numpy
+        import torch
+        from PIL import Image
+
+        from dw.result import AudioVideo
+        from dw.tasks.video_utils import is_video
+
+        assert is_video(AudioVideo([Image.new("RGB", (2, 2))], None, None))
+        assert is_video([Image.new("RGB", (2, 2)), Image.new("RGB", (2, 2))])
+        assert is_video(numpy.zeros((3, 2, 2, 3)))
+        assert is_video(torch.zeros((1, 3, 2, 2, 3)))
+
+    def test_the_shapes_that_are_not(self):
+        import numpy
+        from PIL import Image
+
+        from dw.tasks.video_utils import is_video
+
+        assert not is_video(Image.new("RGB", (2, 2)))
+        assert not is_video(numpy.zeros((2, 2, 3)))
+        assert not is_video([])
+        assert not is_video(["a", "b"])
+        assert not is_video("clip.mp4")
