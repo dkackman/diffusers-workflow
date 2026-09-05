@@ -17,7 +17,7 @@ from .audio_utils import (
     equal_power_crossfade_join,
     frames_to_samples,
 )
-from .video_utils import frames_as_pil_list
+from .video_utils import frames_as_pil_list, load_audio_video
 
 logger = logging.getLogger("dw")
 
@@ -33,8 +33,12 @@ def concat_videos(
     """Concatenate a list of videos into a single AudioVideo.
 
     Args:
-        videos: The videos to join, in order - frame lists, frame arrays, or
-            AudioVideos (from gather_videos or previous_result references)
+        videos: The videos to join, in order - frame lists, frame arrays,
+            AudioVideos (from previous_result references), or the path or URL
+            of a video file, which is read with the audio muxed into it. Give
+            each video its own entry: one previous_result reference naming a
+            step that produced several videos fans this step out over them,
+            one concatenation per video, rather than joining them
         trim_frames: Frames dropped from the head of every video after the
             first - the trim used when each video was generated from the
             previous one's last frame
@@ -62,6 +66,10 @@ def concat_videos(
     sample_rate = None
 
     for index, video in enumerate(videos):
+        if isinstance(video, str):
+            # A shot an earlier run already wrote - loaded here rather than by
+            # gather_videos, which reads frames only and would join it silent
+            video = load_audio_video(video)
         head_trim = trim_frames if index > 0 else 0
         frames.extend(frames_as_pil_list(video)[head_trim:])
 

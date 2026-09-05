@@ -763,8 +763,8 @@ joined into a single file:
   regardless of chain length. The final video is streamed from the segment files
   at save time, and they are removed once it is written (`keep_segments: true`
   retains them). A crashed chain leaves the finished segments behind - stitch
-  them by hand with `gather_videos` + `concat_videos` (`trim_frames: 0`, the
-  trim was already applied). Requires PyAV and a frame rate. The trade-off is
+  them by hand by listing their paths in a `concat_videos` step (`trim_frames: 0`,
+  the trim was already applied). Requires PyAV and a frame rate. The trade-off is
   one extra encode/decode cycle through h264 for the segment files.
 
 The chain runs inside one iteration of the step, so it composes with

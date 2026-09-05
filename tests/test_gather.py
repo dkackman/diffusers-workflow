@@ -9,7 +9,25 @@ import tempfile
 from unittest.mock import patch, MagicMock
 from PIL import Image
 from dw.tasks.gather import gather_images, gather_videos, gather_inputs
+from dw.result import AudioVideo
 from dw.security import SecurityError
+
+
+def write_video(path, num_frames=8, fps=4, sample_rate=8000):
+    """A real mp4 with an audio track, for the video gathering tests."""
+    import torch
+    from diffusers.utils.export_utils import encode_video
+
+    encode_video(
+        [Image.new("RGB", (16, 16), (index, 0, 0)) for index in range(num_frames)],
+        fps=fps,
+        output_path=str(path),
+        audio=torch.full(
+            (2, int(num_frames / fps * sample_rate)), 0.25, dtype=torch.float32
+        ),
+        audio_sample_rate=sample_rate,
+    )
+    return str(path)
 
 
 class TestGatherImages:
@@ -171,20 +189,42 @@ class TestGatherImages:
 class TestGatherVideos:
     """Test video gathering functionality"""
 
-    @patch("dw.tasks.gather.load_video")
-    @patch("dw.tasks.gather.validate_url")
-    def test_gather_videos_from_urls(self, mock_validate_url, mock_load_video):
+    @patch("dw.tasks.gather.load_audio_video")
+    def test_gather_videos_from_urls(self, mock_load):
         """Test gathering videos from URLs"""
-        mock_validate_url.side_effect = lambda x: x
-        mock_frames = ["frame1", "frame2"]
-        mock_load_video.return_value = mock_frames
+        gathered = AudioVideo(["frame1", "frame2"], None, None)
+        mock_load.return_value = gathered
 
         urls = ["https://example.com/video.mp4"]
         videos = gather_videos(urls=urls)
 
+        assert videos == [gathered]
+        mock_load.assert_called_once_with(urls[0])
+
+    def test_a_gathered_video_is_one_artifact(self, tmp_path):
+        """Each video comes back whole. Gathered as a bare list of frames, a
+        step's artifacts would flatten into one artifact per frame and fan the
+        step that consumed them out over frames instead of videos."""
+        from dw.result import get_artifact_list
+
+        path = write_video(tmp_path / "shot.mp4")
+
+        videos = gather_videos(glob=os.path.join(str(tmp_path), "*.mp4"))
+
         assert len(videos) == 1
-        assert videos[0] == mock_frames
-        mock_validate_url.assert_called_once()
+        artifacts = get_artifact_list(videos[0])
+        assert artifacts == [videos[0]]
+
+    def test_a_gathered_video_keeps_its_audio(self, tmp_path):
+        """The audio muxed into the file is what an earlier run generated
+        alongside the picture - gathering it silent loses that run's work."""
+        path = write_video(tmp_path / "shot.mp4", sample_rate=8000)
+
+        video = gather_videos(glob=os.path.join(str(tmp_path), "*.mp4"))[0]
+
+        assert len(video.frames) == 8
+        assert video.sample_rate == 8000
+        assert video.audio.shape == (2, 8 / 4 * 8000)
 
     def test_gather_videos_no_results_raises_error(self):
         """Test that gathering no videos raises ValueError"""
@@ -219,7 +259,7 @@ class TestGatherVideos:
         ]
         with (
             patch("dw.tasks.gather.glob_lib.glob", return_value=shuffled),
-            patch("dw.tasks.gather.fetch_video", side_effect=lambda path: path),
+            patch("dw.tasks.gather.load_audio_video", side_effect=lambda path: path),
         ):
             videos = gather_videos(glob=os.path.join(str(tmp_path), "*.mp4"))
 

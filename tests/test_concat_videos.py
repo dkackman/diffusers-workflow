@@ -267,3 +267,43 @@ class TestResampleAudioTask:
         )
 
         assert result.shape == (32000, 2)
+
+
+class TestVideoFiles:
+    """A shot an earlier run already wrote, named by path rather than passed in."""
+
+    def write_shot(self, path, level, num_frames=4, fps=4, sample_rate=8000):
+        from diffusers.utils.export_utils import encode_video
+
+        encode_video(
+            frames(num_frames, color=(level, 0, 0)),
+            fps=fps,
+            output_path=str(path),
+            audio=torch.full(
+                (2, int(num_frames / fps * sample_rate)),
+                level / 255,
+                dtype=torch.float32,
+            ),
+            audio_sample_rate=sample_rate,
+        )
+        return str(path)
+
+    def test_a_path_is_loaded_with_its_audio(self, tmp_path):
+        first = self.write_shot(tmp_path / "shot_1.mp4", 40)
+        second = self.write_shot(tmp_path / "shot_2.mp4", 200)
+
+        result = concat_videos([first, second], fps=4)
+
+        assert len(result.frames) == 8
+        assert result.sample_rate == 8000
+        assert result.audio.shape == (2, 8 / 4 * 8000)
+
+    def test_a_path_joins_a_video_passed_in_directly(self, tmp_path):
+        path = self.write_shot(tmp_path / "shot.mp4", 40)
+
+        result = concat_videos(
+            [path, audio_video(4, 1, fps=4, sample_rate=8000)], fps=4
+        )
+
+        assert len(result.frames) == 8
+        assert result.audio.shape[1] == 8 / 4 * 8000

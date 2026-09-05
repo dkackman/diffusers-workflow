@@ -7,11 +7,19 @@ soundtrack. extract_frame gives tasks and the segment-chaining loop one way
 to pull a single frame out of any of them, always as a PIL image.
 """
 
+import logging
+import re
+
 import numpy
 import torch
 from PIL import Image
 
 from ..result import AudioVideo
+
+logger = logging.getLogger("dw")
+
+# A location that names a scheme is a URL, whatever the scheme
+_URL_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://")
 
 
 def process_video(video, processor, device, kwargs):
@@ -152,3 +160,117 @@ def _to_pil(frame):
         return Image.fromarray(frame)
 
     raise TypeError(f"Cannot convert a {type(frame).__name__} to an image")
+
+
+def load_audio_video(location, base_dir=None):
+    """Load a video file - frames and the audio muxed with them - as an AudioVideo.
+
+    `load_video` reads frames only, so a file written by an earlier run comes
+    back silent. Reading both streams here is what lets a step join videos that
+    are already on disk - the shots of an earlier run picked back up by name -
+    without dropping the audio those runs generated alongside them.
+
+    Args:
+        location: Local path, or an http(s) URL, of a video file
+        base_dir: Directory a relative path is resolved against
+
+    Returns:
+        An AudioVideo holding the frames as PIL images and, when the file
+        carries an audio stream, its waveform as a (channels, samples) float32
+        array with the stream's sample rate
+    """
+    from ..security import (
+        ALLOWED_VIDEO_EXTENSIONS,
+        validate_file_extension,
+        validate_path,
+        validate_url,
+    )
+
+    if _URL_SCHEME.match(location):
+        import io
+        import requests
+
+        # Any other scheme - ftp:, file:, data: - is refused here rather than
+        # falling through to be read as a relative path that happens to
+        # contain a colon
+        validated_url = validate_url(location)
+        logger.debug(f"Downloading video from {validated_url}")
+        response = requests.get(validated_url, timeout=300)
+        response.raise_for_status()
+        handle = io.BytesIO(response.content)
+    else:
+        validated_path = validate_path(location, base_dir=base_dir, allow_create=False)
+        validate_file_extension(validated_path, ALLOWED_VIDEO_EXTENSIONS)
+        logger.debug(f"Reading video from {validated_path}")
+        handle = validated_path
+
+    return _decode_audio_video(handle)
+
+
+def _decode_audio_video(handle):
+    """Decode a path or file object's video and audio streams in one pass."""
+    import av
+    from av.audio.resampler import AudioResampler
+
+    frames = []
+    chunks = []
+    sample_rate = None
+
+    with av.open(handle) as container:
+        video_stream = container.streams.video[0]
+        frame_rate = (
+            float(video_stream.average_rate) if video_stream.average_rate else None
+        )
+        streams = [video_stream]
+        if container.streams.audio:
+            audio_stream = container.streams.audio[0]
+            streams.append(audio_stream)
+            sample_rate = audio_stream.rate
+            # Planar float is the layout AudioVideo carries: (channels, samples)
+            resampler = AudioResampler(format="fltp")
+
+        for frame in container.decode(*streams):
+            if isinstance(frame, av.VideoFrame):
+                frames.append(Image.fromarray(frame.to_ndarray(format="rgb24")))
+            else:
+                chunks.extend(f.to_ndarray() for f in resampler.resample(frame))
+
+        if sample_rate is not None:
+            chunks.extend(f.to_ndarray() for f in resampler.resample(None))
+
+    audio = numpy.concatenate(chunks, axis=1).astype(numpy.float32) if chunks else None
+    if audio is not None and frame_rate:
+        audio = _fit_audio_to_frames(audio, len(frames), frame_rate, sample_rate)
+    logger.debug(
+        f"Decoded {len(frames)} frames and "
+        f"{audio.shape[1] if audio is not None else 0} audio samples"
+    )
+    return AudioVideo(frames, audio, sample_rate if audio is not None else None)
+
+
+# How far a decoded track may be off the frames' own duration and still be
+# treated as codec padding rather than a track of its own length. AAC codes
+# 1024 samples at a time, so a file's audio runs up to one such block long -
+# a hundredth of a second, which accumulates into visible lip-sync drift once
+# a dozen shots are joined end to end
+AUDIO_FIT_TOLERANCE_SECONDS = 0.25
+
+
+def _fit_audio_to_frames(audio, frame_count, frame_rate, sample_rate):
+    """Trim or pad a decoded track to exactly the frames' own duration.
+
+    Only when the difference is codec padding. A track that genuinely runs to
+    a different length than the picture - a song laid over a short clip - is
+    left alone.
+    """
+    expected = round(frame_count / frame_rate * sample_rate)
+    difference = audio.shape[1] - expected
+    if difference == 0 or abs(difference) > AUDIO_FIT_TOLERANCE_SECONDS * sample_rate:
+        return audio
+
+    logger.debug(
+        f"Fitting decoded audio to {frame_count} frames ({difference:+} samples)"
+    )
+    if difference > 0:
+        return audio[:, :expected]
+    return numpy.pad(audio, ((0, 0), (0, -difference)))

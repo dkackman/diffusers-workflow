@@ -274,3 +274,72 @@ class TestFramesAsArray:
         from dw.tasks.task import _COMMAND_REGISTRY
 
         assert "video_frames" in _COMMAND_REGISTRY
+
+
+class TestLoadAudioVideo:
+    """Reading a video file back with the audio muxed into it."""
+
+    def write_video(self, path, num_frames=8, fps=4, sample_rate=8000, level=0.25):
+        from diffusers.utils.export_utils import encode_video
+
+        video = [
+            Image.new("RGB", (16, 16), (index, 0, 0)) for index in range(num_frames)
+        ]
+        samples = int(num_frames / fps * sample_rate)
+        audio = torch.full((2, samples), level, dtype=torch.float32)
+        encode_video(
+            video,
+            fps=fps,
+            output_path=str(path),
+            audio=audio,
+            audio_sample_rate=sample_rate,
+        )
+        return str(path)
+
+    def test_frames_and_audio_come_back_together(self, tmp_path):
+        from dw.tasks.video_utils import load_audio_video
+
+        path = self.write_video(tmp_path / "shot.mp4")
+
+        video = load_audio_video(path)
+
+        assert len(video.frames) == 8
+        assert video.sample_rate == 8000
+        assert video.audio.shape[0] == 2
+
+    def test_audio_is_fitted_to_the_frames_own_duration(self, tmp_path):
+        """The codec pads the last block; joined shot after shot that padding
+        would walk the sound off the picture."""
+        from dw.tasks.video_utils import load_audio_video
+
+        path = self.write_video(tmp_path / "shot.mp4")
+
+        video = load_audio_video(path)
+
+        assert video.audio.shape[1] == 8 / 4 * 8000
+
+    def test_a_silent_video_comes_back_without_audio(self, tmp_path):
+        from diffusers.utils.export_utils import encode_video
+
+        from dw.tasks.video_utils import load_audio_video
+
+        path = str(tmp_path / "silent.mp4")
+        encode_video(
+            [Image.new("RGB", (16, 16)) for _ in range(4)], fps=4, output_path=path
+        )
+
+        video = load_audio_video(path)
+
+        assert len(video.frames) == 4
+        assert video.audio is None
+        assert video.sample_rate is None
+
+    def test_a_disallowed_extension_is_refused(self, tmp_path):
+        from dw.security import SecurityError
+        from dw.tasks.video_utils import load_audio_video
+
+        payload = tmp_path / "payload.txt"
+        payload.write_text("not a video")
+
+        with pytest.raises(SecurityError):
+            load_audio_video(str(payload))

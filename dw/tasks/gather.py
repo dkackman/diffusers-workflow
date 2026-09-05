@@ -1,8 +1,9 @@
 import glob as glob_lib
 import logging
-from diffusers.utils import load_image, load_video
-from ..arguments import fetch_image, fetch_video
+from diffusers.utils import load_image
+from ..arguments import fetch_image
 from ..security import validate_url, SecurityError
+from .video_utils import load_audio_video
 
 logger = logging.getLogger("dw")
 
@@ -73,14 +74,26 @@ def gather_images(glob=None, urls=None):
 
 def gather_videos(glob=None, urls=None):
     """
-    Gather videos from local files and/or URLs.
+    Gather videos from local files and/or URLs, audio included. To join
+    videos rather than iterate over them, give their paths to concat_videos
+    directly instead of gathering them first.
+
+    Each video comes back as one artifact holding its frames and whatever
+    audio was muxed alongside them, so a step that references this one
+    iterates over videos rather than over frames - and a step meant to
+    consume all of them at once, as concat_videos is, would be fanned out
+    over them one at a time.
 
     Args:
         glob: Pattern for matching local video files (e.g., "videos/*.mp4")
         urls: List of URLs to download videos from
 
     Returns:
-        List of loaded videos
+        List of AudioVideo artifacts, one per gathered video
+
+    Raises:
+        ValueError: If no videos are found
+        SecurityError: If validation fails
     """
     if urls is None:
         urls = []
@@ -98,7 +111,7 @@ def gather_videos(glob=None, urls=None):
         for path in video_paths:
             try:
                 logger.debug(f"Loading video from: {path}")
-                videos.append(fetch_video(path))
+                videos.append(load_audio_video(path))
             except SecurityError:
                 raise
             except Exception as e:
@@ -111,8 +124,7 @@ def gather_videos(glob=None, urls=None):
     for url in urls:
         try:
             logger.debug(f"Loading video from URL: {url}")
-            validated_url = validate_url(url)
-            videos.append(load_video(validated_url))
+            videos.append(load_audio_video(url))
         except SecurityError:
             raise
         except Exception as e:

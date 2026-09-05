@@ -186,7 +186,7 @@ video generation" in the workflow guide):
     "task": {
         "command": "concat_videos",
         "arguments": {
-            "videos": "previous_result:gather",
+            "videos": ["previous_result:shot_1", "previous_result:shot_2"],
             "trim_frames": 1,
             "crossfade_ms": 75,
             "fps": 24
@@ -198,12 +198,41 @@ video generation" in the workflow guide):
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `videos` | Yes | The videos to join, in order (from `gather_videos` or `previous_result`) |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it |
 | `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
 | `crossfade_ms` | No | Equal-power crossfade at each audio seam (default: 75) |
 | `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
 | `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed (default: 3, just enough not to click) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming |
+
+A video may also be named by path or URL, which is how shots an earlier run
+already wrote are joined without regenerating them - the file is read with the
+audio muxed into it, and its track is fitted to the frames' own duration so the
+codec's block padding does not walk the sound off the picture over a dozen
+seams:
+
+```json
+{
+    "task": {
+        "command": "concat_videos",
+        "arguments": {
+            "videos": [
+                "/path/to/outputs/shot_01.mp4",
+                "/path/to/outputs/shot_02.mp4",
+                "previous_result:shot_03_rerendered"
+            ],
+            "trim_frames": 0,
+            "fps": 24
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 24 }
+}
+```
+
+Give each video its own entry. One `previous_result` reference naming a step
+that produced several videos does not hand them all over at once - it fans the
+step out over them, one concatenation per video, which is what makes the list
+form above the way to join a run's shots.
 
 `trim_frames` and `audio_bleed_ms` address opposite situations. A *chain* carries
 its keyframe forward, so the trimmed head is material that covers the same stretch
@@ -363,7 +392,14 @@ Returns a list of images that can be referenced by later steps with `previous_re
 
 ### gather_videos
 
-Same as `gather_images` but for video files.
+Same as `gather_images` but for video files. Each video comes back as one
+artifact holding its frames and whatever audio was muxed alongside them, so a
+step referencing this one iterates over videos rather than over frames.
+
+To *join* videos that are already on disk, give their paths to `concat_videos`
+directly rather than gathering them first: a `previous_result` reference to a
+gather step fans the consuming step out over the gathered videos instead of
+handing it all of them at once.
 
 ### gather_inputs
 
