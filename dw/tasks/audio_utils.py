@@ -352,6 +352,66 @@ def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
     return crossfade_concat(waveforms, sample_rate, crossfade_ms).T
 
 
+def mix_audio(audios, gains=None, sample_rate=None):
+    """Task command: layer audio tracks on top of one another.
+
+    crossfade_audio puts tracks one after another; this puts them on top of
+    each other. It is what a score laid under a film's own sound needs: the
+    music runs unbroken while the world underneath it is replaced at every cut.
+
+    Tracks of different lengths are padded with silence to the longest, so a
+    score shorter than the picture leaves the tail dry rather than cutting the
+    picture down to fit.
+
+    Summing can push peaks past full scale. This returns the plain weighted sum
+    and does not rescale it, since quietening a mix is a decision about how it
+    should sound - follow it with normalize_audio to bring the peak back down.
+
+    Args:
+        audios: The tracks to layer - waveforms, audio file paths, or videos
+            generated with a soundtrack
+        gains: One plain multiplier per track, in the same order - not decibels.
+            Defaults to unity on every track
+        sample_rate: Sample rate of the waveforms. Required unless every track
+            brings its own; given here it wins
+
+    Returns:
+        The mixed track as a (samples, channels) float32 array
+    """
+    if not isinstance(audios, list) or not audios:
+        raise ValueError("mix_audio needs a non-empty list of audio tracks")
+    if gains is not None and len(gains) != len(audios):
+        raise ValueError(
+            f"mix_audio needs one gain per track - got {len(gains)} for "
+            f"{len(audios)} tracks"
+        )
+
+    waveforms, rates, bare = [], set(), False
+    for audio in audios:
+        if isinstance(audio, str) or hasattr(audio, "audio"):
+            waveform, rate = _waveform_and_rate(audio, sample_rate, "mix_audio")
+            rates.add(rate)
+        else:
+            waveform, bare = as_channels_samples(audio), True
+        waveforms.append(waveform)
+    if sample_rate is None:
+        if bare or not rates:
+            raise ValueError("mix_audio needs 'sample_rate' with a raw waveform")
+        if len(rates) > 1:
+            raise ValueError(f"mix_audio needs one sample rate, got {sorted(rates)}")
+        sample_rate = rates.pop()
+
+    waveforms = _matched_channels(*waveforms)
+    channels = waveforms[0].shape[0]
+    length = max(waveform.shape[1] for waveform in waveforms)
+
+    mixed = numpy.zeros((channels, length), dtype=numpy.float32)
+    for index, waveform in enumerate(waveforms):
+        gain = 1.0 if gains is None else float(gains[index])
+        mixed[:, : waveform.shape[1]] += waveform * gain
+    return mixed.T
+
+
 def _equal_power_ramps(window):
     """Cosine/sine fade curves that sum to constant power across the window."""
     theta = numpy.linspace(0.0, numpy.pi / 2.0, window, endpoint=False)

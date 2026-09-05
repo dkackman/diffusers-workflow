@@ -1,0 +1,219 @@
+{
+    "id": "Gyre",
+    "description": "Pass 1 of GYRE - 'one shape, nine worlds'. Z-Image Turbo paints the nine keyframes the film is built from, one per shot, and MiniMax-Music3 writes two candidate scores (a pure instrumental and one with a wordless choir; the film uses the choir, whose level rises monotonically to a peak in its final decile). Shots 2, 5 and 9 miss here and are re-shot by GyreStillsFix.json and GyreStillsFix2.json - the three workflows together reproduce the nine stills in assets/src_*.jpg exactly, which matters because GyreFrames.json's centres are measured on those exact images.",
+    "variables": {
+        "still_1_iris": "An extreme macro photograph of a single human iris, deep amber and hazel fibres radiating and curling outward from a perfectly round black pupil at the exact centre of the frame, fine crypts and folds catching a soft light, a thin wet rim of moisture at the outer edge, one small bright catchlight, the surrounding eyelids and skin lost in near-black shadow; perfectly centred square composition, shot square-on flat to the eye, the iris a clean circle occupying about two thirds of the frame with dark space all around it, ultra-sharp macro photograph, natural colours",
+        "still_2_fingerprint": "An extreme macro photograph looking straight down at a single fingertip pressed flat and hard against a sheet of wet black glass, seen from directly beneath the glass so the flattened oval pad fills the middle of the frame and the whorl of the fingerprint is viewed perfectly head-on, the ridge lines circling around the exact centre of the whorl, every ridge picked out by a low raking light, tiny beads of water caught in the valleys, no hand or finger visible beyond the pad, the glass glossy and near-black all around it; perfectly centred square composition, the whorl's centre at the exact centre of the frame, the print occupying about two thirds of the frame, ultra-sharp macro photograph, cool grey and warm amber",
+        "still_3_fiddlehead": "A macro photograph of a single fern fiddlehead, a tight bright green coil furled around its exact centre and held square-on to the camera, fine silver hairs standing along the stem, beads of dew on the coil catching low morning light, a very dark blurred forest floor far behind; perfectly centred square composition, the spiral occupying about two thirds of the frame with clear open space all around it, ultra-sharp photograph, deep greens and black",
+        "still_4_nautilus": "A cross-sectioned nautilus shell lying on wet black volcanic sand, its chambers opening out from the exact centre of the frame in a perfect logarithmic curve, mother-of-pearl interior glowing pale pink and cream, a thin film of seawater around it reflecting an overcast sky, wide black sand all around the shell; perfectly centred square composition, the spiral occupying about two thirds of the frame with clear open space all around it, ultra-sharp photograph, soft even light",
+        "still_5_web": "An orb spider's web strung with dew at first light, the spiral of silk winding out from its exact centre, every droplet a tiny bright bead threaded on the line, straight radial guy lines running away to the corners of the frame, a deep black out-of-focus hedgerow behind; perfectly centred square composition, the spiral occupying about two thirds of the frame with clear open space all around it, ultra-sharp photograph, silver and cold blue",
+        "still_6_whirlpool": "A whirlpool turning in dark peat-brown river water, long lines of white foam drawn into a tightening spiral around a black funnel at the exact centre of the frame, the surface glassy and stretched where it bends down into the vortex, a single yellow leaf caught in the outermost turn, calm dark water all around; perfectly centred square composition, the spiral occupying about two thirds of the frame with clear open space all around it, ultra-sharp photograph, amber-brown water and white foam",
+        "still_7_hurricane": "A hurricane photographed from orbit, its small clear round eye at the exact centre of the frame, immense white cloud bands spiralling around it, deep blue-black ocean showing beyond the outer arms; perfectly centred square composition, the spiral occupying about two thirds of the frame with clear open space all around it, ultra-sharp photograph, brilliant white and deep blue satellite photograph",
+        "still_8_galaxy": "A grand-design spiral galaxy seen exactly face-on, a blazing gold core at the exact centre of the frame, two great arms of blue-white star formation winding outward through lanes of dark dust, pink nebulae strung along the arms like beads, deep black space all around it; perfectly centred square composition, the spiral occupying about two thirds of the frame with clear open space all around it, ultra-sharp photograph, gold, blue-white and dark red deep-space photograph",
+        "still_9_return": "An extreme macro photograph of a single human eye, and mirrored across the wet glassy curve of the cornea the bright clear reflection of a great spiral galaxy - its gold core sitting exactly over the round black pupil at the centre of the frame and its blue-white spiral arms curving out across the amber iris - so that the galaxy and the iris are the same spiral seen at once, the surrounding eyelids and skin lost in near-black shadow; perfectly centred square composition, shot square-on flat to the eye, the iris a clean circle occupying about two thirds of the frame, ultra-sharp macro photograph, amber and blue",
+        "score_prompt": "Genre: ambient neoclassical, minimalist, cinematic. BPM: 60, in 3/4. Key: D minor opening out into D major. Emotional progression: begins as one quiet circling figure, almost still and very small; gathers slowly and without a break as more voices join the same turning motion; opens at the very end into a vast radiant major chord that hangs in the air and fades. Listening scenario: the score under a wordless film in which a single spiral turns through every scale of the universe. Production profile: enormous natural cathedral reverb, pristine and dynamic, no compression, no drums and no percussion beat of any kind. Arrangement: a solo cello plays a slow three-note circling figure over a low sustained drone; a second cello answers it a beat later, then violas, then violins, each entering on the same figure so the texture builds into a wheel of overlapping voices; a glass harmonica and high sustained strings shimmer above them; at the end the whole ensemble arrives together on one immense held major chord that decays into silence.",
+        "instrumental_lyrics": "[intro]\n[instrumental]\n[verse]\n[instrumental]\n[chorus]\n[instrumental]\n[outro]\n[instrumental]",
+        "choir_lyrics": "[intro]\n[instrumental]\n[verse]\nAh, ah, ah\n[chorus]\nAh, ah, ah, ah\nAh, ah\n[outro]\n[instrumental]",
+        "audio_duration": 50,
+        "width": 1024,
+        "height": 1024
+    },
+    "seed": 11,
+    "steps": [
+        {
+            "name": "still_1_iris",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": true
+                },
+                "arguments": {
+                    "prompt": "variable:still_1_iris",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "still_2_fingerprint",
+            "pipeline_reference": {
+                "reference_name": "still_1_iris",
+                "arguments": {
+                    "prompt": "variable:still_2_fingerprint",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "still_3_fiddlehead",
+            "pipeline_reference": {
+                "reference_name": "still_1_iris",
+                "arguments": {
+                    "prompt": "variable:still_3_fiddlehead",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "still_4_nautilus",
+            "pipeline_reference": {
+                "reference_name": "still_1_iris",
+                "arguments": {
+                    "prompt": "variable:still_4_nautilus",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "still_5_web",
+            "pipeline_reference": {
+                "reference_name": "still_1_iris",
+                "arguments": {
+                    "prompt": "variable:still_5_web",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "still_6_whirlpool",
+            "pipeline_reference": {
+                "reference_name": "still_1_iris",
+                "arguments": {
+                    "prompt": "variable:still_6_whirlpool",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "still_7_hurricane",
+            "pipeline_reference": {
+                "reference_name": "still_1_iris",
+                "arguments": {
+                    "prompt": "variable:still_7_hurricane",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "still_8_galaxy",
+            "pipeline_reference": {
+                "reference_name": "still_1_iris",
+                "arguments": {
+                    "prompt": "variable:still_8_galaxy",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "still_9_return",
+            "pipeline_reference": {
+                "reference_name": "still_1_iris",
+                "arguments": {
+                    "prompt": "variable:still_9_return",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "score_instrumental",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "load_components": {
+                        "dtype": "torch.bfloat16"
+                    },
+                    "components_manager": {
+                        "enable_auto_cpu_offload": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-Music3"
+                },
+                "arguments": {
+                    "prompt": "variable:score_prompt",
+                    "lyrics": "variable:instrumental_lyrics",
+                    "audio_duration": "variable:audio_duration",
+                    "output": "audios"
+                }
+            },
+            "result": {
+                "content_type": "audio/wav",
+                "sample_rate": 44100
+            }
+        },
+        {
+            "name": "score_choir",
+            "pipeline_reference": {
+                "reference_name": "score_instrumental",
+                "arguments": {
+                    "prompt": "variable:score_prompt",
+                    "lyrics": "variable:choir_lyrics",
+                    "audio_duration": "variable:audio_duration",
+                    "output": "audios"
+                }
+            },
+            "result": {
+                "content_type": "audio/wav",
+                "sample_rate": 44100
+            }
+        }
+    ]
+}

@@ -342,6 +342,70 @@ def resize_bucket(image, resolution=1024, ratios=None, alignment=64):
     return input_image.resize((out_w, out_h), resample=Image.LANCZOS)
 
 
+def recenter_crop(
+    image, center_x=0.5, center_y=0.5, crop=1.0, width=None, height=None, fill="edge"
+):
+    """Re-frame an image around a chosen point, at a chosen scale.
+
+    Takes a square window `crop` of the shorter side across, centred on
+    (center_x, center_y) in normalised 0-1 coordinates, and resizes it to
+    width x height. Giving a series of images the same crop size and the same
+    centre - each one measured on its own subject - registers them: whatever
+    each picture is of, the chosen feature lands on the same pixel at the same
+    size. That is what lets a hard cut between two unrelated images read as one
+    continuous subject rather than as two pictures.
+
+    The window is allowed to run off the edge of the source, since a feature
+    near a border is exactly the case that needs moving furthest. `fill` says
+    what lies outside: "edge" replicates the border pixels, "reflect" and
+    "symmetric" mirror them back inward, and anything else is read as a PIL
+    colour name or tuple. Replication leaves visible streaks against a texture
+    and mirroring does not, so a subject sitting on sand, water or sky wants
+    "symmetric"; a subject on flat black wants the colour.
+    """
+    if crop <= 0:
+        raise ValueError(f"crop must be greater than zero, got {crop}")
+
+    image = image.convert("RGB")
+    source_width, source_height = image.size
+    side = int(round(crop * min(source_width, source_height)))
+
+    left = int(round(center_x * source_width - side / 2))
+    top = int(round(center_y * source_height - side / 2))
+
+    pad_left = max(0, -left)
+    pad_top = max(0, -top)
+    pad_right = max(0, left + side - source_width)
+    pad_bottom = max(0, top + side - source_height)
+
+    if pad_left or pad_top or pad_right or pad_bottom:
+        if fill in ("edge", "reflect", "symmetric"):
+            padded = Image.fromarray(
+                np.pad(
+                    np.asarray(image),
+                    ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)),
+                    mode=fill,
+                )
+            )
+        else:
+            padded = Image.new(
+                "RGB",
+                (
+                    source_width + pad_left + pad_right,
+                    source_height + pad_top + pad_bottom,
+                ),
+                fill,
+            )
+            padded.paste(image, (pad_left, pad_top))
+        image = padded
+        left += pad_left
+        top += pad_top
+
+    window = image.crop((left, top, left + side, top + side))
+
+    return window.resize((width or side, height or side), Image.LANCZOS)
+
+
 def strip_exif(image):
     """Remove all EXIF and metadata from an image.
 
@@ -451,6 +515,7 @@ _PROCESSORS = {
     ),
     "resize_resample": lambda image, device, kwargs: resize_resample(image, **kwargs),
     "crop_square": lambda image, device, kwargs: crop_square(image, **kwargs),
+    "recenter_crop": lambda image, device, kwargs: recenter_crop(image, **kwargs),
     "resize_rescale": lambda image, device, kwargs: resize_rescale(image, **kwargs),
     "resize_bucket": lambda image, device, kwargs: resize_bucket(image, **kwargs),
     "strip_exif": lambda image, device, kwargs: strip_exif(image),

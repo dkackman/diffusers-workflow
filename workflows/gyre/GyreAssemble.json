@@ -1,0 +1,203 @@
+{
+    "id": "GyreAssemble",
+    "description": "The edit half of GyreFilm.json, run over the nine shots it already wrote. Every shot is stabilized, cut together, and laid under the score mixed over the nine worlds' own sound. Generation is the expensive part and it is already done, so the edit can be re-cut - a different mix balance, a different score - for the cost of the edit alone. Paths here are relative to the working directory, not to this file: the engine only re-roots an argument it loads itself, and these are loaded by the tasks.",
+    "variables": {
+        "score": "workflows/gyre/assets/Gyre-score_choir.10-0.0.wav",
+        "sample_rate": 44100,
+        "fps": 24,
+        "score_gain": 1.0,
+        "world_gain": 1.8,
+        "start_frame": 85,
+        "total_frames": 1116,
+        "shot_1_iris": "workflows/gyre/assets/shots/GyreFilm-shot_1_iris.0-0.0.mp4",
+        "shot_2_fingerprint": "workflows/gyre/assets/shots/GyreFilm-shot_2_fingerprint.1-0.0.mp4",
+        "shot_3_fiddlehead": "workflows/gyre/assets/shots/GyreFilm-shot_3_fiddlehead.2-0.0.mp4",
+        "shot_4_nautilus": "workflows/gyre/assets/shots/GyreFilm-shot_4_nautilus.3-0.0.mp4",
+        "shot_5_web": "workflows/gyre/assets/shots/GyreFilm-shot_5_web.4-0.0.mp4",
+        "shot_6_whirlpool": "workflows/gyre/assets/shots/GyreFilm-shot_6_whirlpool.5-0.0.mp4",
+        "shot_7_hurricane": "workflows/gyre/assets/shots/GyreFilm-shot_7_hurricane.6-0.0.mp4",
+        "shot_8_galaxy": "workflows/gyre/assets/shots/GyreFilm-shot_8_galaxy.7-0.0.mp4",
+        "shot_9_return": "workflows/gyre/assets/shots/GyreFilm-shot_9_return.8-0.0.mp4"
+    },
+    "seed": 11,
+    "steps": [
+        {
+            "name": "hold_1_iris",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_1_iris"
+                }
+            }
+        },
+        {
+            "name": "hold_2_fingerprint",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_2_fingerprint"
+                }
+            }
+        },
+        {
+            "name": "hold_3_fiddlehead",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_3_fiddlehead"
+                }
+            }
+        },
+        {
+            "name": "hold_4_nautilus",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_4_nautilus"
+                }
+            }
+        },
+        {
+            "name": "hold_5_web",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_5_web"
+                }
+            }
+        },
+        {
+            "name": "hold_6_whirlpool",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_6_whirlpool"
+                }
+            }
+        },
+        {
+            "name": "hold_7_hurricane",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_7_hurricane"
+                }
+            }
+        },
+        {
+            "name": "hold_8_galaxy",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_8_galaxy"
+                }
+            }
+        },
+        {
+            "name": "hold_9_return",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_9_return"
+                }
+            }
+        },
+        {
+            "name": "edit",
+            "task": {
+                "command": "concat_videos",
+                "arguments": {
+                    "videos": [
+                        "previous_result:hold_1_iris",
+                        "previous_result:hold_2_fingerprint",
+                        "previous_result:hold_3_fiddlehead",
+                        "previous_result:hold_4_nautilus",
+                        "previous_result:hold_5_web",
+                        "previous_result:hold_6_whirlpool",
+                        "previous_result:hold_7_hurricane",
+                        "previous_result:hold_8_galaxy",
+                        "previous_result:hold_9_return"
+                    ],
+                    "trim_frames": 0,
+                    "seam_fade_ms": 120,
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "world",
+            "task": {
+                "command": "resample_audio",
+                "arguments": {
+                    "audio": "previous_result:edit",
+                    "target_sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "soundtrack",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "variable:score",
+                    "start_frame": "variable:start_frame",
+                    "num_frames": "variable:total_frames",
+                    "fps": "variable:fps",
+                    "sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "mixed",
+            "task": {
+                "command": "mix_audio",
+                "arguments": {
+                    "audios": [
+                        "previous_result:soundtrack",
+                        "previous_result:world"
+                    ],
+                    "gains": [
+                        "variable:score_gain",
+                        "variable:world_gain"
+                    ],
+                    "sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "balanced",
+            "task": {
+                "command": "normalize_audio",
+                "arguments": {
+                    "audio": "previous_result:mixed",
+                    "peak_dbfs": -1.0,
+                    "sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "gyre",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:edit",
+                    "audio": "previous_result:balanced",
+                    "sample_rate": "variable:sample_rate"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

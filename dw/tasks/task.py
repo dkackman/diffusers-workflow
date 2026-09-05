@@ -199,6 +199,26 @@ def _handle_crossfade_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
+    "stabilize_video", implementation="dw.tasks.stabilize.stabilize_video"
+)
+def _handle_stabilize_video(task, arguments, previous_pipelines):
+    """Remove a generated clip's accumulated framing drift"""
+    logger.debug("Stabilizing video")
+    from .stabilize import stabilize_video
+
+    return stabilize_video(**arguments)
+
+
+@register_command("mix_audio", implementation="dw.tasks.audio_utils.mix_audio")
+def _handle_mix_audio(task, arguments, previous_pipelines):
+    """Layer audio tracks on top of one another, rather than end to end"""
+    logger.debug("Mixing audio")
+    from .audio_utils import mix_audio
+
+    return mix_audio(**arguments)
+
+
+@register_command(
     "format_chat_message", implementation="dw.tasks.format_messages.format_chat_message"
 )
 def _handle_format_chat_message(task, arguments, previous_pipelines):

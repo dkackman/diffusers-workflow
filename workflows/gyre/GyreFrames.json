@@ -1,0 +1,191 @@
+{
+    "id": "GyreFrames",
+    "description": "Pass 2 of GYRE - registration. Each source still is re-framed by recenter_crop around its own spiral's centre, at a crop chosen so every bounded subject lands at the same size in the 704x704 frame. Nothing here is generated; this pass only decides where each picture is looked at from. It is what makes the hard cuts in GyreFilm.json land in register, so that the shape appears to survive while the world under it is replaced.",
+    "variables": {
+        "width": 704,
+        "height": 704,
+        "src_1_iris": {
+            "location": "assets/src_1_iris.jpg"
+        },
+        "src_2_fingerprint": {
+            "location": "assets/src_2_fingerprint.jpg"
+        },
+        "src_3_fiddlehead": {
+            "location": "assets/src_3_fiddlehead.jpg"
+        },
+        "src_4_nautilus": {
+            "location": "assets/src_4_nautilus.jpg"
+        },
+        "src_5_web": {
+            "location": "assets/src_5_web.jpg"
+        },
+        "src_6_whirlpool": {
+            "location": "assets/src_6_whirlpool.jpg"
+        },
+        "src_7_hurricane": {
+            "location": "assets/src_7_hurricane.jpg"
+        },
+        "src_8_galaxy": {
+            "location": "assets/src_8_galaxy.jpg"
+        },
+        "src_9_return": {
+            "location": "assets/src_9_return.jpg"
+        }
+    },
+    "steps": [
+        {
+            "name": "frame_1_iris",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:src_1_iris",
+                    "center_x": 0.4892,
+                    "center_y": 0.4592,
+                    "crop": 0.83,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "frame_2_fingerprint",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:src_2_fingerprint",
+                    "center_x": 0.495,
+                    "center_y": 0.4825,
+                    "crop": 0.55,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "frame_3_fiddlehead",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:src_3_fiddlehead",
+                    "center_x": 0.5508,
+                    "center_y": 0.3652,
+                    "crop": 0.52,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "frame_4_nautilus",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:src_4_nautilus",
+                    "center_x": 0.5615,
+                    "center_y": 0.4887,
+                    "crop": 0.99,
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "fill": "symmetric"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "frame_5_web",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:src_5_web",
+                    "center_x": 0.5,
+                    "center_y": 0.4888,
+                    "crop": 0.76,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "frame_6_whirlpool",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:src_6_whirlpool",
+                    "center_x": 0.557,
+                    "center_y": 0.509,
+                    "crop": 0.8,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "frame_7_hurricane",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:src_7_hurricane",
+                    "center_x": 0.5,
+                    "center_y": 0.505,
+                    "crop": 0.95,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "frame_8_galaxy",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:src_8_galaxy",
+                    "center_x": 0.5095,
+                    "center_y": 0.563,
+                    "crop": 0.9,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "frame_9_return",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:src_9_return",
+                    "center_x": 0.505,
+                    "center_y": 0.4786,
+                    "crop": 0.64,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

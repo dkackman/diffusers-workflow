@@ -1,0 +1,50 @@
+{
+    "id": "GyreFix2",
+    "description": "Third attempt at GYRE's second shot. The fingerprint kept coming out a loop pattern rather than a whorl, which reads as arcs instead of a spiral - fatal for shot two, where the film's rule is still being established. Two harder-pushed fingerprint prompts and a sunflower seed head as the fallback subject at the same scale.",
+    "variables": {
+        "fingerprint_a": "An extreme macro photograph of a whorl-type fingerprint left in condensation on cold black glass, the ridges forming closed concentric rings around one single point at the exact centre of the frame like the growth rings of a tree, no arches and no loops, each ridge a chain of tiny bright water droplets against the black, soft raking light from one side, no hand or finger in the picture; perfectly centred square composition, the round print occupying about two thirds of the frame with black glass all around it, ultra-sharp macro photograph, silver and grey on black",
+        "fingerprint_b": "An extreme macro photograph of a single fingertip's whorl pattern, a continuous ridge line winding inward turn after turn to one point at the exact centre of the frame, a true spiral, the skin wet and lit from a low angle so each ridge catches a thin highlight and the valleys stay black, the print round rather than oval, surrounded by darkness; perfectly centred square composition, the whorl occupying about two thirds of the frame, ultra-sharp macro photograph, warm grey and amber on black",
+        "sunflower": "An extreme macro photograph of the centre of a sunflower head seen exactly face-on, the packed seeds spiralling out from the exact centre of the frame in interlocking curved ranks, the tight dark green and violet florets at the middle giving way to gold pollen further out, low raking light bringing up the texture of every seed, the outer petals cropped away so only the spiralling disc is in frame; perfectly centred square composition, the disc occupying about two thirds of the frame with darkness all around it, ultra-sharp macro photograph, gold, olive and deep brown on black"
+    },
+    "seed": 23,
+    "steps": [
+        {
+            "name": "fingerprint_a",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": true
+                },
+                "arguments": {
+                    "prompt": "variable:fingerprint_a",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": 1024,
+                    "height": 1024
+                }
+            },
+            "result": { "content_type": "image/jpeg" }
+        },
+        {
+            "name": "fingerprint_b",
+            "pipeline_reference": {
+                "reference_name": "fingerprint_a",
+                "arguments": { "prompt": "variable:fingerprint_b", "num_inference_steps": 9, "guidance_scale": 0.0, "width": 1024, "height": 1024 }
+            },
+            "result": { "content_type": "image/jpeg" }
+        },
+        {
+            "name": "sunflower",
+            "pipeline_reference": {
+                "reference_name": "fingerprint_a",
+                "arguments": { "prompt": "variable:sunflower", "num_inference_steps": 9, "guidance_scale": 0.0, "width": 1024, "height": 1024 }
+            },
+            "result": { "content_type": "image/jpeg" }
+        }
+    ]
+}

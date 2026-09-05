@@ -1,0 +1,190 @@
+{
+    "id": "GyreReshoot",
+    "description": "Re-shoots one GYRE shot on its own. Shot 4 asked H3 for too much change - a sheet of seawater flooding in over the sand - and it dissolved the black sand into a grey wash with blob artifacts by mid-shot. The rewritten prompt holds the scene still and moves only the light. Point it at any shot by editing which step is kept.",
+    "variables": {
+        "score": {
+            "location": "assets/Gyre-score_choir.10-0.0.wav"
+        },
+        "sample_rate": 44100,
+        "h3_sample_rate": 32000,
+        "num_frames": 124,
+        "fps": 24,
+        "width": 704,
+        "height": 704,
+        "num_inference_steps": 9,
+        "score_gain": 1.0,
+        "world_gain": 0.55,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "shot_1_iris": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action extreme macro photography. The shot opens exactly on <Picture 1>: a single human iris filling the centre of the frame, deep amber and hazel fibres radiating outward from a perfectly round black pupil at the exact centre, a small bright catchlight above the pupil, the wet lower lid and dark lashes across the bottom of frame. The pupil contracts smoothly and slowly, drawing the amber fibres inward with it, then eases open again; the fine crypts and folds of the iris shift as it moves, a film of moisture creeps across the wet surface and the catchlight trembles, and once the eye blinks, the lashes sweeping down and up quickly, leaving the surface wetter and brighter than before. The camera holds the centre of the spiral exactly at the centre of frame and rolls clockwise with small amplitude at slow speed throughout.\n\noverall_soundscape: Almost nothing: a very close, dry, intimate room tone, one soft wet blink, and the faint sound of a slow human breath near the microphone.\n\nnon_diegetic_music: None.",
+        "frame_1_iris": {
+            "location": "assets/frame_1_iris.jpg"
+        },
+        "shot_2_fingerprint": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action extreme macro photography. The shot opens exactly on <Picture 1>: the whorl of a human fingertip filling the frame, a single continuous ridge line winding inward turn after turn to one point at the exact centre, the skin wet and lit from a low angle so every ridge catches a thin bright highlight while the valleys stay black. The pad presses very slightly closer, so the ridges flatten and spread outward from the centre and then relax back, beads of moisture squeeze along the valleys and creep between the ridges, and a faint tremor runs through the skin as it holds the pressure. The camera holds the centre of the spiral exactly at the centre of frame and rolls clockwise with small amplitude at slow speed throughout.\n\noverall_soundscape: An extremely close, dry contact sound: the faint squeak and tack of wet skin pressing and shifting against glass, and a slow held breath somewhere behind it.\n\nnon_diegetic_music: None.",
+        "frame_2_fingerprint": {
+            "location": "assets/frame_2_fingerprint.jpg"
+        },
+        "shot_3_fiddlehead": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro nature photography. The shot opens exactly on <Picture 1>: a single fern fiddlehead, a tight bright green coil furled around its exact centre and held square-on to the camera, fine silver hairs standing along the stem, beads of dew caught on the coil, a very dark blurred forest behind. The coil unfurls slowly, its outermost turn loosening and lifting away from the centre while the small furled leaflets along its length open one after another, dew beads sliding down the hairs and falling away out of frame, and the whole frond swaying very slightly in a breath of moving air. The camera holds the centre of the spiral exactly at the centre of frame and rolls clockwise with small amplitude at slow speed throughout.\n\noverall_soundscape: A close, damp woodland: a soft breath of wind moving leaves, one dew drop falling onto a leaf below, and small birds calling far off among the trees.\n\nnon_diegetic_music: None.",
+        "frame_3_fiddlehead": {
+            "location": "assets/frame_3_fiddlehead.jpg"
+        },
+        "shot_4_nautilus": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action nature photography. The shot opens exactly on <Picture 1>: a cross-sectioned nautilus shell lying on black volcanic sand, its chambers opening out from the exact centre of the frame in a perfect logarithmic curve, the mother-of-pearl interior glowing pale pink and cream, the dark speckled sand lying evenly all around it. The shell rests completely still and the sand around it stays black, dry and undisturbed for the whole shot. The only thing that changes is the light on the nacre: the iridescence travels slowly around the spiral, bands of pink, green and gold sliding along the chambers from the outer whorl toward the tight centre, brightening as they follow the inner curve and fading as they pass, while the individual wet grains of black sand glitter one by one and go dark again as the light moves over them. The camera holds the centre of the spiral exactly at the centre of frame and rolls clockwise with small amplitude at slow speed throughout.\n\noverall_soundscape: A wide, quiet beach heard from far above the tideline: a low distant surf rising and falling, a thin dry wind moving over sand, and one gull calling a long way off.\n\nnon_diegetic_music: None.",
+        "frame_4_nautilus": {
+            "location": "assets/frame_4_nautilus.jpg"
+        },
+        "shot_5_web": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro nature photography. The shot opens exactly on <Picture 1>: an orb spider's web strung with dew against pure black, the spiral of silk winding out from its exact centre at the middle of the frame, every droplet a tiny bright bead threaded on the line, straight radial guy lines running away into the darkness. The whole web trembles and springs in a light breath of air, the spiral flexing and turning slightly as it moves, the droplets shivering on the threads and one or two breaking loose and falling away down the frame, the silk flaring bright where it catches the light and going dark again as it swings. The camera holds the centre of the spiral exactly at the centre of frame and rolls clockwise with small amplitude at slow speed throughout.\n\noverall_soundscape: A still, cold night in the open: a very faint breath of wind, the tiny tick of a droplet falling through leaves somewhere below, and far-off crickets.\n\nnon_diegetic_music: None.",
+        "frame_5_web": {
+            "location": "assets/frame_5_web.jpg"
+        },
+        "shot_6_whirlpool": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action nature photography. The shot opens exactly on <Picture 1>: a whirlpool turning in dark peat-brown river water, long lines of white foam drawn into a tightening spiral around a black funnel at the exact centre of the frame, the surface glassy and stretched where it bends down into the throat. The water turns steadily and continuously clockwise, the foam lines stretching and thinning as they are drawn inward and vanish down the funnel, the glassy throat of the vortex breathing wider and narrower, and a single yellow leaf in the outermost turn carried slowly around and inward. The camera holds the centre of the spiral exactly at the centre of frame and rolls clockwise with small amplitude at slow speed throughout.\n\noverall_soundscape: The full close sound of moving water: a deep steady pull and gurgle at the throat of the vortex, water sliding and slapping around it, and a river running on beyond.\n\nnon_diegetic_music: None.",
+        "frame_6_whirlpool": {
+            "location": "assets/frame_6_whirlpool.jpg"
+        },
+        "shot_7_hurricane": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action satellite photography from orbit. The shot opens exactly on <Picture 1>: a hurricane seen from directly above, its small clear round eye at the exact centre of the frame, immense white cloud bands spiralling around it, deep blue-black ocean showing beyond the outer arms. The whole storm rotates slowly and steadily clockwise, the cloud bands winding inward toward the eye, towers of cloud boiling upward along the arms and throwing moving shadows across the cloud deck below, the eye wall staying crisp and the eye itself holding open and clear the whole time. The camera holds the centre of the spiral exactly at the centre of frame and rolls clockwise with small amplitude at slow speed throughout.\n\noverall_soundscape: Silence, or as near to it as orbit gets: a vast low airless hum, a faint electrical hiss, and nothing else at all.\n\nnon_diegetic_music: None.",
+        "frame_7_hurricane": {
+            "location": "assets/frame_7_hurricane.jpg"
+        },
+        "shot_8_galaxy": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action deep-space photography. The shot opens exactly on <Picture 1>: a grand-design spiral galaxy seen exactly face-on, a blazing gold core at the exact centre of the frame, two great arms of blue-white star formation winding outward through lanes of dark dust, pink nebulae strung along the arms, deep black space all around. The galaxy turns very slowly clockwise, the arms trailing as they sweep, the gold core pulsing faintly brighter and dimmer, the dark dust lanes drifting slowly across the bright face behind them, and individual foreground stars twinkling sharply against the black. The camera holds the centre of the spiral exactly at the centre of frame and rolls clockwise with small amplitude at slow speed throughout.\n\noverall_soundscape: Deep space: a vast, almost subsonic hum with a faint high shimmer moving over it, and nothing else.\n\nnon_diegetic_music: None.",
+        "frame_8_galaxy": {
+            "location": "assets/frame_8_galaxy.jpg"
+        },
+        "shot_9_return": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action extreme macro photography. The shot opens exactly on <Picture 1>: a single human eye in near-total darkness, and mirrored across the wet glassy curve of it the bright reflection of a great spiral galaxy, its gold core sitting exactly over the round black pupil at the centre of the frame and its blue-white arms curving out across the amber fibres of the iris. The reflected galaxy turns slowly clockwise across the wet surface of the eye while the iris fibres beneath it shift and the pupil contracts a little, the moving light sliding over the curve of the cornea; at the very end the eye blinks once, slowly, and when the lashes lift the galaxy is still reflected there. The camera holds the centre of the spiral exactly at the centre of frame and rolls clockwise with small amplitude at slow speed throughout.\n\noverall_soundscape: Nearly silent and very close: one slow soft blink, a single quiet human breath, and behind them the faintest trace of the same deep hum.\n\nnon_diegetic_music: None.",
+        "frame_9_return": {
+            "location": "assets/frame_9_return.jpg"
+        }
+    },
+    "seed": 11,
+    "steps": [
+        {
+            "name": "shot_4_nautilus",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "fl2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:shot_4_nautilus",
+                    "image": "variable:frame_4_nautilus",
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

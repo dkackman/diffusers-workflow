@@ -31,19 +31,6 @@ python -m dw.repl
 
 # HTTP server + web UI (http://127.0.0.1:8765, API docs at /docs)
 python -m dw.serve
-
-# Run all tests (2,000+ tests)
-pytest -v
-
-# Run a single test file or test
-pytest tests/test_security.py -v
-pytest -k "test_variable_substitution" -v
-
-# Coverage
-pytest --cov=dw --cov-report=html
-
-# Format
-black dw/ tests/
 ```
 
 ## Architecture
@@ -69,30 +56,9 @@ without a token. `contrib/systemd/` has a unit file and docs/REMOTE.md the
 LAN/NAT setup. The `Origin` check accepts the request's own `Host` hostname,
 which is what makes a non-loopback bind usable from a browser.
 
-Packaging: `pyproject.toml` (console scripts dw-run/dw-validate/dw-repl/dw-serve/dw-test);
-`scripts/build_dist.sh` builds the SPA into the wheel.
-
 ### MCP Server
 
-`dw_mcp/` is a stdio MCP server (`dw-mcp`, `python -m dw_mcp`) that wraps the
-`dw.serve` REST API in a structured tool surface: workflow catalog and
-introspection, validate/save/delete, the stored prompt library and its
-enhancer, queue a run, poll its events, and view or read a generated file.
-It covers the REST surface except the SSE event stream (whose polling twin
-`/event-log` is what `get_job_events` uses) and the SPA's static mount. It is an HTTP client of a *running* `dw.serve` — it owns no
-job state and no GPU worker. Only `dw_mcp/server.py` imports the MCP SDK; the
-handlers in `catalog.py`, `authoring.py`, `prompts.py`, `diagnose.py`,
-`media.py` and `models.py` are plain `(client, **kwargs)` functions, which is what makes
-them testable without an MCP session. It is a top-level package rather than
-`dw.mcp` on purpose: importing any `dw.*` submodule runs `dw/__init__.py`
-and pulls in torch, which a pure HTTP client has no use for — a test guards
-that boundary. Six tools require `acknowledged_cost=True`
-(`run_workflow`, `rerun_job`, `enhance_prompt`, `download_model`,
-`delete_model`, `update_diffusers`); the three job-queuing tools return as
-soon as the job is queued, since a generation outlasts any client's tool-call
-timeout. Authoring has two halves: `get_schema` describes a workflow and
-`get_prompt_schema` a stored prompt, which a workflow reaches by
-`"prompt:name"`. See docs/MCP.md.
+The stdio MCP server lives in `dw_mcp/` — see `dw_mcp/CLAUDE.md` and docs/MCP.md.
 
 ### REPL Architecture
 
@@ -164,31 +130,8 @@ All entry points use `dw/security.py`. When adding features:
 
 ## JSON Workflow Structure
 
-The workflow schema is at `dw/workflow_schema.json`. Key structure:
-
-```json
-{
-  "id": "workflow_name",
-  "variables": { "prompt": "default value", "steps": 25 },
-  "steps": [
-    {
-      "name": "step_name",
-      "pipeline": {
-        "configuration": { "component_type": "ZImagePipeline", "offload": "model" },
-        "from_pretrained_arguments": { "model_name": "...", "torch_dtype": "torch.bfloat16" },
-        "transformer": { "configuration": {}, "quantization_config": {}, "from_pretrained_arguments": {} },
-        "loras": [{ "model_name": "...", "adapter_name": "...", "scale": 1.0 }],
-        "scheduler": { "configuration": { "scheduler_type": "..." }, "from_config_args": {} },
-        "arguments": { "prompt": "variable:prompt", "image": "previous_result:prev_step" }
-      },
-      "result": { "content_type": "image/jpeg" }
-    }
-  ]
-}
-```
+The workflow schema is at `dw/workflow_schema.json` — read it for the full structure.
 
 Steps can also have `"task"` (with `command` + `arguments`) or `"workflow"` (with `path` + `arguments`) instead of `"pipeline"`.
-
-Pipeline configuration options include: `pre_load_modules` (import modules before loading), `sdnq_optimize` (SDNQ quantized matmul), `enable_attention_slicing`, `disable_attention_slicing`, `attention_backend`, `group_offload`, `enable_layerwise_casting`.
 
 File paths in workflows are relative to the workflow file. Built-in workflows use `"builtin:filename.json"` (resolves to the packaged `dw/workflows/` — distinct from the top-level `workflows/` folder of runnable examples).

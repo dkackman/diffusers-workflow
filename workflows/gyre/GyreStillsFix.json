@@ -1,0 +1,82 @@
+{
+    "id": "GyreFix",
+    "description": "Re-shoots the two GYRE stills that missed - the fingerprint had lost its wet glass and the web had a bright sky that broke the film's dark surround - and tries two ways of making the closing image, in which the galaxy is reflected across the eye it started in: painted from scratch by Z-Image, and edited onto the opening iris by Krea 2.",
+    "variables": {
+        "still_2_fingerprint": "An extreme macro photograph of a fingerprint left in condensation on a sheet of cold black glass, the whorl a set of concentric ridge lines circling around one clear centre point at the exact middle of the frame, each ridge picked out as a chain of tiny bright water droplets against the black, a soft raking light from one side, more condensation beading and creeping across the glass around the print, no hand or finger in the picture; perfectly centred square composition, the print occupying about two thirds of the frame with black glass all around it, ultra-sharp macro photograph, silver, grey and faint amber on black",
+        "still_5_web": "An orb spider's web strung with dew photographed at night against pure black, lit by a single low lamp from one side so every droplet burns as a tiny bright bead threaded on the silk, the spiral of the web winding out from its exact centre at the middle of the frame, straight radial guy lines running away into the darkness, nothing behind the web but black; perfectly centred square composition, the web occupying about two thirds of the frame, no sky and no background, ultra-sharp macro photograph, silver and cold blue on black",
+        "still_9_painted": "An extreme macro photograph of a single human iris in near-total darkness, the surrounding eyelids and skin lost in black, and mirrored across the wet glassy curve of the eye the bright reflection of a great spiral galaxy - its gold core sitting exactly over the round black pupil at the centre of the frame and its blue-white spiral arms curving out across the amber fibres of the iris - so that the galaxy and the iris read as one single spiral; perfectly centred square composition, shot square-on flat to the eye, the iris a clean circle occupying about two thirds of the frame, ultra-sharp macro photograph, amber and blue on black",
+        "edit_instruction": "Mirror the bright reflection of a great blue and gold spiral galaxy across the wet curve of this eye, its glowing core sitting exactly over the black pupil and its spiral arms curving out across the iris, and sink the surrounding skin and eyelashes into near-black darkness",
+        "iris_image": { "location": "assets/Gyre-still_1_iris.0-0.0.jpg" },
+        "width": 1024,
+        "height": 1024
+    },
+    "seed": 11,
+    "steps": [
+        {
+            "name": "still_2_fingerprint",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": true
+                },
+                "arguments": {
+                    "prompt": "variable:still_2_fingerprint",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": { "content_type": "image/jpeg" }
+        },
+        {
+            "name": "still_5_web",
+            "pipeline_reference": {
+                "reference_name": "still_2_fingerprint",
+                "arguments": { "prompt": "variable:still_5_web", "num_inference_steps": 9, "guidance_scale": 0.0, "width": "variable:width", "height": "variable:height" }
+            },
+            "result": { "content_type": "image/jpeg" }
+        },
+        {
+            "name": "still_9_painted",
+            "pipeline_reference": {
+                "reference_name": "still_2_fingerprint",
+                "arguments": { "prompt": "variable:still_9_painted", "num_inference_steps": 9, "guidance_scale": 0.0, "width": "variable:width", "height": "variable:height" }
+            },
+            "result": { "content_type": "image/jpeg" }
+        },
+        {
+            "name": "still_9_edited",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "Krea2Pipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "krea/Krea-2-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "custom_pipeline": "ostris/Krea2OstrisEdit",
+                    "trust_remote_code": true
+                },
+                "loras": [
+                    {
+                        "model_name": "conradlocke/krea2-identity-edit",
+                        "weight_name": "krea2_identity_edit_v1_2.safetensors"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:edit_instruction",
+                    "image": "variable:iris_image",
+                    "num_inference_steps": 8,
+                    "guidance_scale": 0.0
+                }
+            },
+            "result": { "content_type": "image/jpeg" }
+        }
+    ]
+}
