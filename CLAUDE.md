@@ -37,24 +37,9 @@ python -m dw.serve
 
 ### Server & Web UI
 
-`dw/serve.py` runs a FastAPI app (`dw/server/app.py`) over the same persistent worker
-the REPL uses: `JobManager` (`dw/server/jobs.py`) queues jobs FIFO, streams progress
-over SSE, and persists history to `~/.diffusers_helper/jobs.sqlite`. The SPA lives in
-`ui/` (Svelte 5 + Vite; `npm run build` outputs `ui/dist`, which the server serves).
-Introspection endpoints (`dw/introspection.py`) describe pipeline/class signatures for
-the editor's forms. `dw/hub_cache.py` inventories and deletes from the HF hub cache
-(the UI's Models page). `dw/prompts.py` + `dw/server/enhancers.py` back the
-Prompts page: a stored-prompt library (CRUD under `--prompt-dir`) with an
-enhance-with-AI panel that queues an inline workflow as an ordinary job.
-Front-end checks from `ui/`: `npm run check`, `npm run lint`,
-`npm test`, `npx playwright test` (e2e, starts its own server). See docs/SERVER.md.
-
-`dw.serve --mcp` additionally serves the MCP tool surface at `/mcp`
-(`dw/server/mcp_mount.py`, Streamable HTTP, same bearer token) so an agent on
-another machine needs no local install; it is refused on a non-loopback bind
-without a token. `contrib/systemd/` has a unit file and docs/REMOTE.md the
-LAN/NAT setup. The `Origin` check accepts the request's own `Host` hostname,
-which is what makes a non-loopback bind usable from a browser.
+`dw/serve.py` runs a FastAPI app over the same persistent worker the REPL uses,
+queueing jobs FIFO and persisting history to `~/.diffusers_helper/jobs.sqlite`.
+See docs/SERVER.md, `dw/server/CLAUDE.md` and `ui/CLAUDE.md`.
 
 ### MCP Server
 
@@ -65,8 +50,6 @@ The stdio MCP server lives in `dw_mcp/` — see `dw_mcp/CLAUDE.md` and docs/MCP.
 The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`) to keep GPU models cached between runs. Communication is via `multiprocessing.Queue`. Worker management is in `dw/repl_worker.py`, command handlers in `dw/repl_commands.py`.
 
 **Critical**: Uses `multiprocessing.set_start_method("spawn")` for CUDA/MPS compatibility.
-
-**Hierarchical commands**: `workflow load/run/reload/status/restart`, `arg set/show/clear`, `memory show/clear`, `config set/show`.
 
 ### Type System
 
@@ -131,7 +114,5 @@ All entry points use `dw/security.py`. When adding features:
 ## JSON Workflow Structure
 
 The workflow schema is at `dw/workflow_schema.json` — read it for the full structure.
-
-Steps can also have `"task"` (with `command` + `arguments`) or `"workflow"` (with `path` + `arguments`) instead of `"pipeline"`.
 
 File paths in workflows are relative to the workflow file. Built-in workflows use `"builtin:filename.json"` (resolves to the packaged `dw/workflows/` — distinct from the top-level `workflows/` folder of runnable examples).
