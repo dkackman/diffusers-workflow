@@ -270,6 +270,7 @@ See [workflows/](workflows/) for more workflow files.
 - [MCP Server](docs/MCP.md) — Tool surface for MCP clients (Claude Code, Claude Desktop)
 - [Remote GPU server](docs/REMOTE.md) — Using the server, UI and MCP from another machine
 - [Workflow Guide](docs/WORKFLOW_GUIDE.md) — JSON structure, variables, steps, data flow
+- [Workspaces](docs/WORKSPACES.md) — Keeping your workflows, prompts and outputs outside the repo
 - [Quantization](docs/QUANTIZATION.md) — BitsAndBytes, TorchAO, GGUF, SDNQ
 - [Inference Acceleration](docs/ACCELERATION.md) — torch.compile, FirstBlockCache, MagCache, TaylorSeer, TeaCache
 - [Fast on 24GB](docs/RECIPES_24GB.md) — Recommended speed/memory configurations per model family

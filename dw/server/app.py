@@ -379,6 +379,7 @@ def create_app(
     download_manager=None,
     diffusers_updater=None,
     prompt_dir="./prompts",
+    workspace=None,
     host="127.0.0.1",
     token=None,
     mcp=False,
@@ -439,6 +440,11 @@ def create_app(
     app.state.job_manager = manager
     app.state.workflow_dir = workflow_dir
     app.state.prompt_dir = prompt_dir
+    # The workspace the three directories above default to folders of, for a
+    # client that wants to name the root rather than reason about the parts.
+    # None when the caller resolved no workspace (a test building an app
+    # around three explicit directories)
+    app.state.workspace = os.path.abspath(workspace) if workspace else None
     app.state.mcp_mounted = mcp_asgi is not None
 
     wildcard_bind = host in WILDCARD_HOSTS
@@ -1434,6 +1440,9 @@ def create_app(
             "mcp": {"mounted": bool(app.state.mcp_mounted), "path": MCP_PATH},
             "addresses": addresses,
             "directories": {
+                # The workspace the three below default to folders of; an
+                # individually overridden folder still reports its own path
+                "workspace": app.state.workspace,
                 "workflows": os.path.abspath(app.state.workflow_dir),
                 "outputs": os.path.abspath(manager.output_dir),
                 "prompts": (

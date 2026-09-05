@@ -42,12 +42,17 @@ class ConfigCommands:
             print("  config show               - Show all configuration settings")
             print("  config set <name>=<value> - Set a configuration value")
             print("\nAvailable settings:")
-            print("  output_dir   - Directory for output files (default: ./outputs)")
+            print("  workspace    - Directory holding your workflows, prompts,")
+            print("                 assets and outputs; setting it moves")
+            print("                 workflow_dir and output_dir with it")
+            print("  output_dir   - Directory for output files (default: the")
+            print("                 workspace's outputs/)")
             print(
                 "  log_level    - Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL"
             )
             print("  workflow_dir - Where 'workflow load <name>' and 'workflow list'")
-            print("                 look for workflows (default: ./workflows)")
+            print("                 look for workflows (default: the workspace's")
+            print("                 workflows/)")
             print()
             print("These apply to this REPL session. Standing settings (device,")
             print("log file, TF32) live in ~/.diffusers_helper/settings.json")
@@ -116,6 +121,25 @@ class ConfigCommands:
                 except SecurityError as e:
                     print(f"Error: Invalid workflow directory: {e}")
                     return
+
+            # Setting the workspace moves the two directories under it with
+            # it - setting either of those alone still overrides just that one
+            elif name == "workspace":
+                from .workspace import FLAG, Workspace, set_workspace
+
+                try:
+                    value = validate_path(value, allow_create=False)
+                    if not os.path.isdir(value):
+                        print(f"Warning: Directory '{value}' does not exist")
+                        return
+                except SecurityError as e:
+                    print(f"Error: Invalid workspace: {e}")
+                    return
+                workspace = set_workspace(Workspace(value, FLAG))
+                self.repl.globals["workflow_dir"] = workspace.workflows
+                self.repl.globals["output_dir"] = workspace.outputs
+                print(f"  workflow_dir={workspace.workflows}")
+                print(f"  output_dir={workspace.outputs}")
             else:
                 print(f"Warning: Unknown setting '{name}'")
 

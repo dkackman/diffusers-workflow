@@ -27,10 +27,25 @@ def main():
     )
     parser.add_argument("--port", type=int, default=8765, help="Port (default: 8765)")
     parser.add_argument(
-        "--workflow-dir", default="./workflows", help="Directory of workflow JSON files"
+        "--workspace",
+        default=None,
+        help="Directory holding the workflows, prompts, assets and outputs "
+        "this server serves (default: DW_WORKSPACE, else the 'workspace' "
+        "setting, else the working directory when it looks like a "
+        "workspace, else ~/diffusers-workspace). --workflow-dir, "
+        "--output-dir and --prompt-dir each override one of its folders",
     )
     parser.add_argument(
-        "--output-dir", default="./outputs", help="Directory results are written to"
+        "--workflow-dir",
+        default=None,
+        help="Directory of workflow JSON files (default: the workspace's "
+        "workflows/)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Directory results are written to (default: the workspace's "
+        "outputs/)",
     )
     parser.add_argument(
         "--prompt-dir",
@@ -77,6 +92,23 @@ def main():
     )
     args = parser.parse_args()
 
+    # Resolved and pinned before anything derives a directory from it - the
+    # spawned worker inherits the environment variable, the way it inherits
+    # the prompt directory and the trust flag below
+    from .workspace import resolve_workspace, set_workspace
+
+    workspace = set_workspace(resolve_workspace(args.workspace))
+    workflow_dir = args.workflow_dir or workspace.workflows
+    output_dir = args.output_dir or workspace.outputs
+
+    # A workspace's workflow folder is where the UI and MCP clients save, so
+    # it has to exist for a first run in a fresh workspace. Only the folder
+    # actually defaulted to is created - an explicit --workflow-dir that does
+    # not exist stays the operator's typo, not a new empty directory. The
+    # output folder is created by the job manager on the same reasoning
+    if not args.workflow_dir:
+        os.makedirs(workflow_dir, exist_ok=True)
+
     token = args.token or os.environ.get("DW_API_TOKEN") or None
 
     from .server.app import LOOPBACK_HOSTS
@@ -109,7 +141,7 @@ def main():
     from .prompts import get_prompt_dir
 
     prompt_dir = os.path.abspath(
-        args.prompt_dir or get_prompt_dir(base_dir=os.path.abspath(args.workflow_dir))
+        args.prompt_dir or get_prompt_dir(base_dir=os.path.abspath(workflow_dir))
     )
     os.environ["DW_PROMPT_DIR"] = prompt_dir
 
@@ -145,10 +177,11 @@ def main():
 
     app = create_app(
         # absolute, so the path the UI hands back on submit is unambiguous
-        workflow_dir=os.path.abspath(args.workflow_dir),
-        output_dir=args.output_dir,
+        workflow_dir=os.path.abspath(workflow_dir),
+        output_dir=output_dir,
         log_level=args.log_level,
         prompt_dir=prompt_dir,
+        workspace=workspace.root,
         host=args.host,
         token=token,
         mcp=args.mcp,

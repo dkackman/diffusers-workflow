@@ -51,6 +51,23 @@ The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`)
 
 **Critical**: Uses `multiprocessing.set_start_method("spawn")` for CUDA/MPS compatibility.
 
+### Workspaces
+
+`dw/workspace.py` resolves the one directory a run's content belongs to -
+`workflows/`, `prompts/`, `assets/`, `outputs/`. Order: `--workspace` >
+`DW_WORKSPACE` > the `workspace` setting > the working directory when it holds
+any of `workflows/`, `prompts/` or `outputs/` > `~/diffusers-workspace`. A
+checkout satisfies rule four, so every default lands where it did before
+workspaces existed. Resolution creates nothing; an entry point about to write
+calls `ensure()` (or creates the one folder it needs). `set_workspace` pins the
+root *and* how it was chosen into the environment, so a spawned worker does not
+read an inferred workspace back as one the user named - `get_prompt_dir` yields
+to its older discovery (`./prompts`, then the walk up from the workflow file)
+for an inferred workspace but not for an explicit one. `--workflow-dir`,
+`--output-dir` and `--prompt-dir` each still override one folder. See
+docs/WORKSPACES.md, and docs/proposals/workspaces.md for the later stages
+(workflow search path, run directories, `asset:`/`output:` references).
+
 ### Type System
 
 `arguments.py` + `type_helpers.py` handle dynamic type conversion during workflow loading:
