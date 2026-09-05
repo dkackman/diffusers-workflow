@@ -69,6 +69,21 @@ def resolve_token(explicit=None):
     return explicit or os.environ.get("DW_API_TOKEN") or ""
 
 
+# The workspace name every request is scoped to when the session has chosen
+# one. Not DW_WORKSPACE: that names a *directory* to the engine, where this
+# names one of a server's workspaces - two different things that would be a
+# confusing single variable
+WORKSPACE_ENV_VAR = "DW_MCP_WORKSPACE"
+
+DEFAULT_WORKSPACE = "default"
+
+
+def resolve_workspace(explicit=None):
+    """Which of the server's workspaces this session works in: the explicit
+    value, else DW_MCP_WORKSPACE, else the server's default."""
+    return explicit or os.environ.get(WORKSPACE_ENV_VAR) or DEFAULT_WORKSPACE
+
+
 def resolve_base_url(explicit=None):
     """Where dw.serve is: the explicit value, else DW_MCP_URL, else the
     default port."""
@@ -80,8 +95,19 @@ class DwClient:
     """One method per kind of REST call. Knows nothing about MCP - the tool
     handlers are plain functions over this."""
 
-    def __init__(self, base_url=None, timeout=30.0, transport=None, token=None):
+    def __init__(
+        self,
+        base_url=None,
+        timeout=30.0,
+        transport=None,
+        token=None,
+        workspace=None,
+    ):
         self.base_url = resolve_base_url(base_url)
+        # Mutable: use_workspace switches it for the rest of the session,
+        # which is what makes a switch one visible call rather than a
+        # parameter on every tool
+        self.workspace = resolve_workspace(workspace)
         self.timeout = timeout
         token = resolve_token(token)
         headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -193,13 +219,29 @@ class DwClient:
 
     def _request(self, method, path, **kwargs):
         return self._call_httpx(
-            lambda: self._http.request(method, path, **kwargs), path
+            lambda: self._http.request(method, path, **self._scoped(kwargs)), path
         )
 
+    def _scoped(self, kwargs):
+        """Add the session's workspace to a request's query string.
+
+        One place rather than a parameter on every handler: routes that are
+        not workspace-scoped (prompts, models, system) ignore an unknown
+        query parameter, and the server treats a missing selector as its
+        default - so the default workspace sends nothing and every request
+        looks exactly as it did before workspaces existed.
+        """
+        if self.workspace == DEFAULT_WORKSPACE:
+            return kwargs
+        params = dict(kwargs.get("params") or {})
+        params.setdefault("workspace", self.workspace)
+        return {**kwargs, "params": params}
+
     def _stream_request(self, method, path, **kwargs):
+        scoped = self._scoped(kwargs)
         return self._call_httpx(
             lambda: self._http.send(
-                self._http.build_request(method, path, **kwargs), stream=True
+                self._http.build_request(method, path, **scoped), stream=True
             ),
             path,
         )

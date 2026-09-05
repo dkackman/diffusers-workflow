@@ -665,9 +665,12 @@ def create_app(
     # ------------------------------------------------------------------ jobs
 
     @app.post("/api/jobs", status_code=201)
-    def submit_job(request: JobRequest):
+    def submit_job(request: JobRequest, workspace: Optional[str] = None):
+        """Queue a workflow. The workspace it runs in comes from the body or,
+        for a client that scopes every call the same way, the query string -
+        the body wins when both are given."""
         try:
-            workspace_name, directories = _selected(request.workspace)
+            workspace_name, directories = _selected(request.workspace or workspace)
             sources = _sources_for(directories)
             resolved = resolve_workflow_reference(
                 directories["workflows"],
@@ -878,11 +881,12 @@ def create_app(
         return JSONResponse(load_schema("workflow"))
 
     @app.post("/api/validate")
-    def validate_workflow(request: JobRequest):
+    def validate_workflow(request: JobRequest, workspace: Optional[str] = None):
         """Schema-validate a workflow and check its pipeline arguments
         against real signatures, without queuing anything. Give either an
         inline workflow or a workflow_path - a path on the server or a
-        stored workflow name from /api/workflows."""
+        stored workflow name from /api/workflows. The workspace it resolves
+        in comes from the body or the query string, body first."""
         if (request.workflow is None) == (request.workflow_path is None):
             raise HTTPException(
                 status_code=400,
@@ -892,7 +896,7 @@ def create_app(
             if request.workflow_path is not None:
                 # Built from the file so relative paths inside it resolve
                 # against its own directory, exactly as a run would
-                _workspace_name, directories = _selected(request.workspace)
+                _workspace_name, directories = _selected(request.workspace or workspace)
                 sources = _sources_for(directories)
                 resolved = resolve_workflow_reference(
                     directories["workflows"],
@@ -909,9 +913,10 @@ def create_app(
                 definition = candidate.workflow_definition
             else:
                 definition = request.workflow
+                _workspace_name, directories = _selected(request.workspace or workspace)
                 candidate = workflow_from_definition(
                     copy.deepcopy(request.workflow),
-                    manager.output_dir,
+                    directories["outputs"],
                     request.base_dir,
                     app.state.workflow_dir,
                 )

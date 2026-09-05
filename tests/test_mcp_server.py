@@ -60,6 +60,10 @@ EXPECTED_TOOLS = {
     "delete_output",
     "list_assets",
     "upload_asset",
+    "list_workspaces",
+    "use_workspace",
+    "create_workspace",
+    "delete_workspace",
 }
 
 READ_ONLY_TOOLS = EXPECTED_TOOLS - {
@@ -79,6 +83,9 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "download_output",
     "delete_output",
     "upload_asset",
+    "use_workspace",
+    "create_workspace",
+    "delete_workspace",
 }
 
 DESTRUCTIVE_TOOLS = {
@@ -400,6 +407,15 @@ TOOL_WIRING = [
     ),
     ("delete_output", {"name": "out.png"}, "DELETE", "/api/gallery/out.png"),
     ("list_assets", {}, "GET", "/api/assets"),
+    ("list_workspaces", {}, "GET", "/api/workspaces"),
+    ("use_workspace", {"name": "default"}, "GET", "/api/workspaces"),
+    ("create_workspace", {"name": "shots"}, "POST", "/api/workspaces"),
+    (
+        "delete_workspace",
+        {"name": "shots", "acknowledged_cost": True},
+        "DELETE",
+        "/api/workspaces/shots",
+    ),
     (
         "upload_asset",
         {"file_path": _a_file_to_upload()},

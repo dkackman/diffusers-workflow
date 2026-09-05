@@ -220,6 +220,10 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `validate_workflow(workflow=None, name=None)` | exactly one of `workflow` (inline definition) or `name` (a stored workflow, as `list_workflows` reports it) | Check a workflow against the schema and against real pipeline signatures. Free and instant. Validating by name uses the workflow file's own directory as the base directory, so it sees what a run would |
+| `list_workspaces()` | — | The server's workspaces and which one this session is using. Each has its own workflows, assets and outputs; the prompt library is shared by all of them |
+| `use_workspace(name)` | `name` | Work in that workspace for the rest of the session - every later call reads and writes there. This is how to keep your work out of another agent's namespace rather than sharing the default one. Checked against the server, so a typo fails here rather than scoping every later call to nothing |
+| `create_workspace(name)` | `name` | Create a workspace. Creating does not switch to it |
+| `delete_workspace(name, acknowledged_cost=False)` | `name`, `acknowledged_cost` | Permanently delete a workspace and everything in it. Refuses without the acknowledgement, reporting what it would remove |
 | `list_assets()` | — | The input media on the server, each with the `asset:` reference a workflow argument carries. Look here before asking for a file - what a workflow needs may already be there |
 | `upload_asset(file_path)` | `file_path` | Push a local image, video or audio file into the server's asset library and get back its `asset:` reference. The file is read from the machine the MCP server runs on, so this is how an input reaches a dw.serve running somewhere else |
 | `save_workflow(name, workflow)` | `name`, `workflow` | Save a workflow into the server's writable workflow directory, overwriting any existing workflow of that name there. A name that currently resolves to a read-only source (an examples directory) is not overwritten - the copy lands in the writable directory and shadows it |

@@ -11,7 +11,13 @@ It covers the REST surface except the SSE event stream (whose polling twin
 SPA's static mount. `POST /api/uploads` *is* covered, by `upload_asset`: an
 agent that can only name assets already on the box authors workflows it
 cannot supply inputs for, so the tool reads a file on this machine and pushes
-its bytes, returning the `asset:` reference rather than a path (`assets.py`). `get_server_info`
+its bytes, returning the `asset:` reference rather than a path (`assets.py`). A session works in one of the server's workspaces: `--workspace` /
+`DW_MCP_WORKSPACE` (a *name* on the server, not a directory - `DW_WORKSPACE`
+means something else to the engine), `use_workspace` to switch, and
+`DwClient._scoped` adds the selector to every request's query string so no
+handler carries a workspace parameter. The default sends nothing, so a
+session that never chooses looks exactly like one from before workspaces.
+`get_server_info`
 (`/api/server`) is the capability call: the device a run will use, the dw
 version, the workspace and the workflow/output/prompt/asset directories, which is what tells an
 agent authoring remotely whether a CUDA-only choice is even available. It is an HTTP client of a *running* `dw.serve` — it owns no

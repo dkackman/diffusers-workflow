@@ -11,7 +11,16 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, TextContent, ToolAnnotations
 
-from dw_mcp import assets, authoring, catalog, diagnose, media, models, prompts
+from dw_mcp import (
+    assets,
+    authoring,
+    catalog,
+    diagnose,
+    media,
+    models,
+    prompts,
+    workspaces,
+)
 from dw_mcp.client import DwApiError
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
@@ -60,6 +69,10 @@ def build_server(client):
             "workflow's description, output kinds and variable names - "
             "run what is already there rather than authoring a new "
             "workflow for a request an existing one covers. "
+            "The server can hold several workspaces - separate workflows, "
+            "assets and outputs, one shared prompt library: `list_workspaces` "
+            "shows them and `use_workspace` picks one for the session, which "
+            "is how to keep your work out of another agent's namespace. "
             "The engine that answers is one machine: `get_server_info` "
             "reports its accelerator and directories, and what a workflow "
             "can ask for follows from that. "
@@ -256,6 +269,39 @@ def build_server(client):
 
     tool(list_assets, READ_ONLY)
     tool(upload_asset, WRITES)
+
+    # ------------------------------------------------------------ workspaces
+
+    def list_workspaces() -> dict:
+        """List the server's workspaces and say which one this session is
+        working in. Each has its own workflows, assets and outputs; the
+        stored prompt library is shared by all of them."""
+        return workspaces.list_workspaces(client)
+
+    def use_workspace(name: str) -> dict:
+        """Work in a different workspace for the rest of this session - every
+        later call reads and writes there. Use this to keep your work out of
+        another agent's namespace, rather than sharing the default one."""
+        return workspaces.use_workspace(client, name)
+
+    def create_workspace(name: str) -> dict:
+        """Create a workspace on the server. It gets its own workflows,
+        assets and outputs and shares the one prompt library. Creating does
+        not switch: call use_workspace after."""
+        return workspaces.create_workspace(client, name)
+
+    def delete_workspace(name: str, acknowledged_cost: bool = False) -> dict:
+        """Permanently delete a workspace and every workflow, asset and
+        generated file in it. Refuses without acknowledged_cost=True, and
+        reports what it would remove instead."""
+        return workspaces.delete_workspace(
+            client, name, acknowledged_cost=acknowledged_cost
+        )
+
+    tool(list_workspaces, READ_ONLY)
+    tool(use_workspace, WRITES)
+    tool(create_workspace, WRITES)
+    tool(delete_workspace, DELETES)
 
     # ----------------------------------------------------------- authoring
 
