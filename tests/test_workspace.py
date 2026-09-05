@@ -143,6 +143,47 @@ class TestPinning:
         assert resolve_workspace().is_explicit
 
 
+class TestNamedWorkspaces:
+    """What counts as a named workspace under a root, and what may be
+    deleted as one."""
+
+    def test_a_folder_with_one_of_the_three_is_not_a_workspace(self, tmp_path):
+        # The checkout case: dw/workflows/ holds the packaged builtins, and
+        # listing 'dw' as a workspace would make the source package
+        # browsable and deletable through the API
+        from dw.workspace import create_workspace, workspace_names
+
+        root = Workspace(tmp_path / "checkout", FLAG).ensure()
+        workspace_tree(tmp_path / "checkout" / "dw", "workflows")
+        workspace_tree(tmp_path / "checkout" / "ui", "assets")
+        create_workspace(root, "shots")
+        assert workspace_names(root) == ["default", "shots"]
+
+    def test_a_workspace_holding_anything_else_is_not_deleted(self, tmp_path):
+        from dw.workspace import (
+            NotAWorkspaceError,
+            create_workspace,
+            delete_workspace,
+        )
+
+        root = Workspace(tmp_path / "studio", FLAG).ensure()
+        created = create_workspace(root, "shots")
+        (tmp_path / "studio" / "shots" / "__init__.py").write_text("")
+        with pytest.raises(NotAWorkspaceError) as raised:
+            delete_workspace(root, "shots")
+        assert raised.value.entries == ["__init__.py"]
+        assert os.path.isdir(created.root)
+
+    def test_a_clean_workspace_is_deleted(self, tmp_path):
+        from dw.workspace import create_workspace, delete_workspace
+
+        root = Workspace(tmp_path / "studio", FLAG).ensure()
+        created = create_workspace(root, "shots")
+        (tmp_path / "studio" / "shots" / "outputs" / "still.png").write_bytes(b"x")
+        delete_workspace(root, "shots")
+        assert not os.path.exists(created.root)
+
+
 class TestPromptLibraryPrecedence:
     """get_prompt_dir's older rules stay ahead of an inferred workspace and
     behind a named one."""

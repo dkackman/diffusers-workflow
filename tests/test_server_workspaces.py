@@ -114,6 +114,31 @@ class TestDeletion:
         assert response.status_code == 400
         assert os.path.isdir(workspace_root.prompts)
 
+    def test_a_directory_holding_more_than_a_workspace_is_refused(
+        self, server, workspace_root
+    ):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            stray = os.path.join(workspace_root.root, "shots", "notes.txt")
+            with open(stray, "w") as handle:
+                handle.write("mine")
+
+            refused = client.delete("/api/workspaces/shots?acknowledged=true")
+            assert refused.status_code == 409
+            assert refused.json()["detail"]["entries"] == ["notes.txt"]
+            assert os.path.isfile(stray)
+
+    def test_a_source_tree_beside_the_root_is_not_a_workspace(
+        self, server, workspace_root
+    ):
+        # A checkout as the root has dw/workflows/ - one folder must not make
+        # the package a workspace
+        os.makedirs(os.path.join(workspace_root.root, "dw", "workflows"))
+        with server() as client:
+            names = [w["name"] for w in client.get("/api/workspaces").json()["workspaces"]]
+            assert names == ["default"]
+            assert client.get("/api/workflows?workspace=dw").status_code == 404
+
     def test_an_unknown_workspace_is_a_404(self, server):
         with server() as client:
             assert (

@@ -58,6 +58,7 @@ from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..runs import strip_run_id
 from ..workspace import (
     DEFAULT_WORKSPACE_NAME,
+    NotAWorkspaceError,
     Workspace,
     create_workspace,
     delete_workspace,
@@ -1076,6 +1077,12 @@ def create_app(
             )
         try:
             delete_workspace(root, name)
+        except NotAWorkspaceError as e:
+            # The directory holds more than a workspace - refused outright,
+            # since what else it holds is not the caller's to acknowledge away
+            raise HTTPException(
+                status_code=409, detail={"message": str(e), "entries": e.entries}
+            )
         except (ValueError, FileNotFoundError) as e:
             raise HTTPException(status_code=400, detail=str(e))
         logger.info(f"Deleted workspace {name}")

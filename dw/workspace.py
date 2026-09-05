@@ -239,8 +239,22 @@ def set_workspace(workspace):
 
 def _holds_a_workspace(path):
     """Whether a directory is a named workspace rather than some other
-    folder someone left at the root."""
-    return any(os.path.isdir(os.path.join(path, name)) for name in NAMED_SUBDIRS)
+    folder someone left at the root.
+
+    All three folders, not any one: create_workspace makes all three, and a
+    looser test claims too much - a checkout used as the workspace root has
+    dw/workflows/ (the packaged builtins) right there, and one folder would
+    make the source package a workspace, listed, browsable and deletable.
+    """
+    return all(os.path.isdir(os.path.join(path, name)) for name in NAMED_SUBDIRS)
+
+
+def _foreign_entries(path):
+    """What a directory holds besides a workspace's own three folders."""
+    try:
+        return sorted(entry for entry in os.listdir(path) if entry not in NAMED_SUBDIRS)
+    except OSError:
+        return []
 
 
 def workspace_names(workspace):
@@ -329,6 +343,16 @@ def delete_workspace(workspace, name):
 
     The default workspace is the root itself and is never deletable - it
     holds the shared prompt library, and there has to be somewhere to work.
+
+    A directory that holds anything besides the three workspace folders is
+    refused too: rmtree is unrecoverable, and a .git, an __init__.py or a
+    stray file says this is something that merely contains a workspace, not
+    one that is only a workspace.
+
+    Raises:
+        ValueError: For the default workspace
+        FileNotFoundError: If no workspace has that name
+        NotAWorkspaceError: If the directory holds more than a workspace
     """
     import shutil
 
@@ -337,5 +361,21 @@ def delete_workspace(workspace, name):
     if name not in workspace_names(workspace):
         raise FileNotFoundError(f"No such workspace: {name}")
     target = named_workspace(workspace, name)
+    foreign = _foreign_entries(target.root)
+    if foreign:
+        raise NotAWorkspaceError(name, foreign)
     shutil.rmtree(target.root)
     return target
+
+
+class NotAWorkspaceError(ValueError):
+    """A directory named as a workspace holds more than a workspace does."""
+
+    def __init__(self, name, entries):
+        self.name = name
+        self.entries = entries
+        super().__init__(
+            f"'{name}' holds more than a workspace's own folders "
+            f"({', '.join(entries)}) and will not be deleted - remove those "
+            f"by hand if it really is a workspace"
+        )
