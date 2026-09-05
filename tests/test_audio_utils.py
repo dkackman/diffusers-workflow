@@ -391,6 +391,33 @@ class TestAudioTasksTakeAnAudioVideo:
 
         assert sliced.shape == (200, 2)
 
+    def test_no_duration_slices_to_the_end_of_the_track(self):
+        """A workflow that trims only when given a length still yields the
+        track - the missing half of the pair means 'to the end', not an error."""
+        from dw.tasks.audio_utils import slice_audio
+
+        assert slice_audio(self.video(), start_seconds=1.0).shape == (300, 2)
+        assert slice_audio(self.video(), start_seconds=0).shape == (400, 2)
+
+    def test_no_start_slices_from_the_head_of_the_track(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        assert slice_audio(self.video(), duration_seconds=2.0).shape == (200, 2)
+        assert slice_audio(self.video(), start_frame=12, fps=24).shape == (350, 2)
+        assert slice_audio(self.video(), num_frames=24, fps=24).shape == (100, 2)
+
+    def test_a_slice_in_frames_still_needs_the_frame_rate(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        with pytest.raises(ValueError, match="fps"):
+            slice_audio(self.video(), start_frame=12)
+
+    def test_addressing_nothing_at_all_is_still_an_error(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        with pytest.raises(ValueError, match="slice_audio needs either"):
+            slice_audio(self.video())
+
     def test_a_given_rate_overrides_the_video_rate(self):
         from dw.tasks.audio_utils import slice_audio
 

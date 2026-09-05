@@ -16,6 +16,13 @@ Read them in this order and each introduces one new idea on top of the last.
 | [MiniMaxMusic.json](MiniMaxMusic.json) | The minimal modular pipeline: a `components_manager` owns device placement, and the output is audio, not video |
 | [MiniMaxH3.json](MiniMaxH3.json) | The baseline text-to-video-audio run: per-component SDNQ quantization, mixed offload, the turbo LoRA, and muxing video + audio into one file |
 
+A note on `audio_duration`: Music3 reads it as a ceiling rather than a target.
+The piece ends where the music ends, so a value set to the length the song
+*should* be will guillotine the outro mid-decay. Ask for more time than the
+song needs and trim the tail afterwards -
+[tasks/TrimFadeAudio.json](../tasks/TrimFadeAudio.json) slices a generated track
+to length and fades the cut into an ending.
+
 A note on length: H3 accepts any `num_frames` of the form `17n + 5` between 124
 and 345 - at its fixed 24 fps, that is 5.17 to 14.4 seconds **in a single clip**.
 The examples default to 124 frames because that is the fast iteration loop;

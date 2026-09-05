@@ -1,0 +1,37 @@
+{
+  "id": "DiffusionUpscaleImage",
+  "description": "Upscales an input image with a Stable Diffusion upscale pipeline, guided by a prompt - no generation step, so any existing image can be upscaled.",
+  "variables": {
+    "input_image": {
+      "location": "https://example.com/image.jpg"
+    },
+    "prompt": "",
+    "negative_prompt": null,
+    "mode": "x2",
+    "num_inference_steps": 25,
+    "guidance_scale": 9,
+    "noise_level": 20,
+    "device": "cuda"
+  },
+  "steps": [
+    {
+      "name": "upscale",
+      "task": {
+        "command": "diffusion_upscale",
+        "arguments": {
+          "image": "variable:input_image",
+          "prompt": "variable:prompt",
+          "negative_prompt": "variable:negative_prompt",
+          "mode": "variable:mode",
+          "num_inference_steps": "variable:num_inference_steps",
+          "guidance_scale": "variable:guidance_scale",
+          "noise_level": "variable:noise_level",
+          "device": "variable:device"
+        }
+      },
+      "result": {
+        "content_type": "image/png"
+      }
+    }
+  ]
+}

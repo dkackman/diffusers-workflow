@@ -215,6 +215,18 @@ def load_audio(location, base_dir=None):
     return as_channels_samples(data), sample_rate
 
 
+def _as_number(value, kind, name):
+    """Coerce a numeric slice argument given as a string, leaving None alone."""
+    if not isinstance(value, str):
+        return value
+    try:
+        return kind(value)
+    except ValueError as e:
+        raise ValueError(
+            f"slice_audio needs a number for '{name}', got {value!r}"
+        ) from e
+
+
 def slice_audio(
     audio,
     start_seconds=None,
@@ -230,6 +242,11 @@ def slice_audio(
     or in video frames (start_frame + num_frames + fps). Slices reaching past
     the end of the track are zero-padded.
 
+    Either half of a pair may be left out: with no start the slice begins at the
+    head of the track, and with no duration it runs to the end of it. A workflow
+    that trims only when it is told a length therefore still produces the track
+    rather than failing.
+
     Args:
         audio: Path or URL of an audio file, a video generated with a
             soundtrack (which brings its sample rate along), or a waveform
@@ -241,22 +258,34 @@ def slice_audio(
         The slice as a (samples, channels) float32 array - the layout audio
         results are saved in
     """
+    # A variable a workflow declares null carries no type, so a value given for
+    # it on the command line arrives as a string - the same coercion the upscale
+    # and interpolation tasks do on their numeric arguments
+    start_seconds = _as_number(start_seconds, float, "start_seconds")
+    duration_seconds = _as_number(duration_seconds, float, "duration_seconds")
+    start_frame = _as_number(start_frame, int, "start_frame")
+    num_frames = _as_number(num_frames, int, "num_frames")
+    fps = _as_number(fps, Fraction, "fps")
+
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "slice_audio")
+    total = waveform.shape[1]
 
     if start_seconds is not None or duration_seconds is not None:
-        if start_seconds is None or duration_seconds is None:
-            raise ValueError(
-                "slice_audio needs both 'start_seconds' and 'duration_seconds'"
-            )
-        start = int(round(start_seconds * sample_rate))
-        length = int(round(duration_seconds * sample_rate))
+        start = int(round((start_seconds or 0) * sample_rate))
+        length = (
+            max(total - start, 0)
+            if duration_seconds is None
+            else int(round(duration_seconds * sample_rate))
+        )
     elif start_frame is not None or num_frames is not None:
-        if start_frame is None or num_frames is None or fps is None:
-            raise ValueError(
-                "slice_audio needs 'start_frame', 'num_frames' and 'fps' together"
-            )
-        start = frames_to_samples(start_frame, fps, sample_rate)
-        length = frames_to_samples(num_frames, fps, sample_rate)
+        if fps is None:
+            raise ValueError("slice_audio needs 'fps' to address a slice in frames")
+        start = frames_to_samples(start_frame or 0, fps, sample_rate)
+        length = (
+            max(total - start, 0)
+            if num_frames is None
+            else frames_to_samples(num_frames, fps, sample_rate)
+        )
     else:
         raise ValueError(
             "slice_audio needs either 'start_seconds'/'duration_seconds' or "

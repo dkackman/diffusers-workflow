@@ -1,0 +1,33 @@
+{
+  "id": "UpscaleImage",
+  "description": "Upscales an input image with a Spandrel super-resolution model - no generation step, so any existing image can be upscaled.",
+  "variables": {
+    "input_image": {
+      "location": "https://example.com/image.jpg"
+    },
+    "upscale_model": "Kim2091/UltraSharp",
+    "upscale_filename": "4x-UltraSharp.pth",
+    "device": "cuda",
+    "tile_size": 512,
+    "tile_overlap": 32
+  },
+  "steps": [
+    {
+      "name": "upscale",
+      "task": {
+        "command": "upscale",
+        "arguments": {
+          "image": "variable:input_image",
+          "model_name": "variable:upscale_model",
+          "filename": "variable:upscale_filename",
+          "device": "variable:device",
+          "tile_size": "variable:tile_size",
+          "tile_overlap": "variable:tile_overlap"
+        }
+      },
+      "result": {
+        "content_type": "image/png"
+      }
+    }
+  ]
+}

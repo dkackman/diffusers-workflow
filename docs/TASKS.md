@@ -367,7 +367,10 @@ returns frames without it, and this puts it back:
 ### slice_audio
 
 Cut a slice out of an audio track, addressed in seconds or in video frames.
-Slices reaching past the end of the track are zero-padded:
+Slices reaching past the end of the track are zero-padded. Either half of a pair
+may be left out - an omitted start begins at the head of the track, an omitted
+duration runs to the end of it - so a workflow that trims only when it is given
+a length still passes the whole track along:
 
 ```json
 {
@@ -387,8 +390,8 @@ Slices reaching past the end of the track are zero-padded:
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `audio` | Yes | Path or URL of an audio file, a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
-| `start_seconds` / `duration_seconds` | One pair | The slice in seconds |
-| `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames |
+| `start_seconds` / `duration_seconds` | One pair | The slice in seconds; either may be omitted |
+| `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames; `fps` is required, start and count may be omitted |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
 ### crossfade_audio
@@ -436,6 +439,8 @@ ending. The curve is the equal-power cosine the seam joins use:
 | `fade_in_ms` | No | Length of the fade in, from the head of the track (default: 0) |
 | `fade_out_ms` | No | Length of the fade out, to the tail of the track (default: 0) |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+**Example:** [TrimFadeAudio.json](../workflows/tasks/TrimFadeAudio.json) — slice a generated track to length, then fade the cut into an ending.
 
 ### normalize_audio
 
@@ -554,7 +559,9 @@ Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR
 
 Large images are automatically tiled to avoid GPU memory issues. Models can be loaded from HuggingFace Hub repos or local `.pth`/`.safetensors` files.
 
-**Example:** [SpandrelUpscale.json](../workflows/tasks/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
+**Examples:**
+- [SpandrelUpscale.json](../workflows/tasks/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
+- [UpscaleImage.json](../workflows/tasks/UpscaleImage.json) — Upscale an image you already have; there is no generation step, so the input is a path or URL.
 
 ## Diffusion Upscaling
 
@@ -591,6 +598,7 @@ Two modes are available:
 
 **Examples:**
 - [DiffusionUpscale.json](../workflows/tasks/DiffusionUpscale.json) — Generate at 512px, then upscale. `mode` selects which: `x4` (the default) reaches 2048px, `x2` reaches 1024px through the latent upscaler.
+- [DiffusionUpscaleImage.json](../workflows/tasks/DiffusionUpscaleImage.json) — Prompt-guided upscale of an image you already have, with no generation step.
 
 ## Face Restoration
 
@@ -1060,3 +1068,6 @@ Canny edge detection followed by ControlNet generation:
 - [MetadataEmbed.json](../workflows/tasks/MetadataEmbed.json) — Embed generation parameters in PNG
 - [ExpandPrompt.json](../workflows/tasks/ExpandPrompt.json) — LLM prompt expansion
 - [ExpandAndGenerate.json](../workflows/tasks/ExpandAndGenerate.json) — Expand prompt + generate image
+- [UpscaleImage.json](../workflows/tasks/UpscaleImage.json) — Spandrel upscale of an existing image
+- [DiffusionUpscaleImage.json](../workflows/tasks/DiffusionUpscaleImage.json) — Diffusion upscale of an existing image
+- [TrimFadeAudio.json](../workflows/tasks/TrimFadeAudio.json) — Trim a generated track and fade its tail

@@ -1,0 +1,46 @@
+{
+  "id": "TrimFadeAudio",
+  "description": "Trims an audio file to a duration and fades it in and out - a finishing pass for a generated track whose tail ends abruptly. Leaving 'duration_seconds' unset degrades to a fade-only pass over the whole track rather than failing.",
+  "variables": {
+    "input_audio": "https://example.com/audio.mp3",
+    "start_seconds": 0.0,
+    "duration_seconds": null,
+    "fade_in_ms": 0,
+    "fade_out_ms": 4000,
+    "sample_rate": 44100
+  },
+  "steps": [
+    {
+      "name": "trim",
+      "task": {
+        "command": "slice_audio",
+        "arguments": {
+          "audio": "variable:input_audio",
+          "start_seconds": "variable:start_seconds",
+          "duration_seconds": "variable:duration_seconds"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false,
+        "sample_rate": 44100
+      }
+    },
+    {
+      "name": "fade",
+      "task": {
+        "command": "fade_audio",
+        "arguments": {
+          "audio": "previous_result:trim",
+          "fade_in_ms": "variable:fade_in_ms",
+          "fade_out_ms": "variable:fade_out_ms",
+          "sample_rate": "variable:sample_rate"
+        }
+      },
+      "result": {
+        "content_type": "audio/mp3",
+        "sample_rate": 44100
+      }
+    }
+  ]
+}
