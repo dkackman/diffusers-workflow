@@ -181,6 +181,12 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/memory`, `GET /api/health` — worker VRAM/RAM stats and liveness;
   health also reports `hostname`, `device` and whether `mcp` is mounted, so a
   remote client can tell which machine answered
+- `GET /api/server` — connection details for the Server page: `hostname`,
+  `version`, `device`, the `bind_host`/`port`/`wildcard_bind` the server was
+  started with, `auth_required` (whether a token is configured - never the
+  token itself), `mcp` (`mounted` plus its `path`), the machine's
+  non-loopback `addresses`, and the `directories` in use; a client composes
+  its URLs from an address, the port and the MCP path
 
 ## Security model
 

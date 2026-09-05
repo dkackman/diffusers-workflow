@@ -50,6 +50,7 @@ from .enhancers import build_enhance_workflow, preset_descriptions
 from ..result import read_embedded_metadata
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from .jobs import JobManager, MAX_PERSISTED_EVENTS, TERMINAL_STATES
+from .netinfo import local_addresses
 from .updater import DiffusersUpdater
 
 logger = logging.getLogger("dw")
@@ -320,6 +321,10 @@ LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 # Bind addresses that mean "every interface" - a request never carries one
 # of these as its Host, so they define no allowlist
 WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
+# Where the MCP endpoint is mounted when --mcp is given (see the mcp block
+# at the bottom of create_app) - the Server page quotes it in the command
+# it tells you to run on the other machine
+MCP_PATH = "/mcp"
 
 
 def query_token_ok(fn):
@@ -1341,6 +1346,47 @@ def create_app(
             "hostname": socket.gethostname(),
             "device": get_device_type(get_device()),
             "mcp": bool(app.state.mcp_mounted),
+        }
+
+    @app.get("/api/server")
+    def server_info():
+        """How this server is reachable, for the UI's Server page: what it
+        is bound to, whether a token is needed, whether MCP is mounted, and
+        the addresses another machine could name it by.
+
+        No URL is composed here - the caller pairs an address with `port`
+        and `mcp.path` - and the token itself is never reported in any
+        form, only whether one is required. An interface enumeration
+        failure is not a server failure: `addresses` comes back empty.
+        """
+        import socket
+
+        from .. import __version__, get_device, get_device_type
+
+        try:
+            addresses = local_addresses()
+        except Exception:
+            logger.debug("Could not enumerate local addresses", exc_info=True)
+            addresses = []
+        return {
+            "hostname": socket.gethostname(),
+            "version": __version__,
+            "device": get_device_type(get_device()),
+            "bind_host": host,
+            "port": port,
+            "wildcard_bind": wildcard_bind,
+            "auth_required": bool(token),
+            "mcp": {"mounted": bool(app.state.mcp_mounted), "path": MCP_PATH},
+            "addresses": addresses,
+            "directories": {
+                "workflows": os.path.abspath(app.state.workflow_dir),
+                "outputs": os.path.abspath(manager.output_dir),
+                "prompts": (
+                    os.path.abspath(app.state.prompt_dir)
+                    if app.state.prompt_dir
+                    else None
+                ),
+            },
         }
 
     # ---------------------------------------------------------------- outputs
