@@ -1099,13 +1099,49 @@ def test_upload_media_lands_in_the_asset_library(asset_server, tmp_path):
         assert len(files) == 1
         assert files[0].read_bytes() == b"not-really-png-bytes"
         assert body["path"] == f"asset:uploads/{files[0].name}"
-        assert body["url"] == f"/assets/uploads/{files[0].name}"
+        assert body["url"] == f"/inputs/uploads/{files[0].name}"
         assert not (tmp_path / "outputs" / "uploads").exists()
 
         # served back for the editor's preview, through its own static mount
         fetched = client.get(body["url"])
         assert fetched.status_code == 200
         assert fetched.content == b"not-really-png-bytes"
+
+
+def test_the_asset_library_does_not_shadow_the_spa(tmp_path):
+    """The SPA's own bundles live under /assets/ - Vite's default. An asset
+    library mounted there would serve the library instead, and the page
+    would load and then render nothing, which is exactly what happened
+    before the library moved to /inputs."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    assets = tmp_path / "assets"
+    (assets / "uploads").mkdir(parents=True)
+    (assets / "uploads" / "decoy.js").write_text("the asset library")
+    ui = tmp_path / "ui"
+    (ui / "assets").mkdir(parents=True)
+    (ui / "index.html").write_text("<!doctype html><title>dw</title>")
+    (ui / "assets" / "index-abc123.js").write_text("the app bundle")
+
+    app = create_app(
+        workflow_dir=str(workflows),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+        ),
+        asset_dir=str(assets),
+        ui_dir=str(ui),
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        bundle = client.get("/assets/index-abc123.js")
+        assert bundle.status_code == 200
+        assert bundle.text == "the app bundle"
+        # and the library is still reachable, under its own prefix
+        served = client.get("/inputs/uploads/decoy.js")
+        assert served.status_code == 200
+        assert served.text == "the asset library"
 
 
 def test_the_asset_library_is_reported(asset_server, tmp_path):

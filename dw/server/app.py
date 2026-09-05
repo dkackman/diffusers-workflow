@@ -1394,7 +1394,7 @@ def create_app(
         if app.state.asset_dir:
             return {
                 "path": f"asset:{UPLOADS_SUBDIR}/{name}",
-                "url": f"/assets/{UPLOADS_SUBDIR}/{quote(name)}",
+                "url": f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}",
             }
         return {
             "path": dest,
@@ -1624,10 +1624,15 @@ def create_app(
     app.mount("/outputs", StaticFiles(directory=manager.output_dir), name="outputs")
     # Input media, served for the editor's preview of an uploaded or chosen
     # asset. Ungated like /outputs, and for the same reason: an <img> tag
-    # cannot attach an Authorization header
+    # cannot attach an Authorization header.
+    #
+    # '/inputs', not '/assets': Vite emits the SPA's own bundles under
+    # /assets/, and a mount there shadows them - the page loads and then
+    # renders nothing, because its script and stylesheet 404. The name is
+    # also the symmetric one, next to /outputs
     if app.state.asset_dir:
         os.makedirs(app.state.asset_dir, exist_ok=True)
-        app.mount("/assets", StaticFiles(directory=app.state.asset_dir), name="assets")
+        app.mount("/inputs", StaticFiles(directory=app.state.asset_dir), name="inputs")
 
     # ---------------------------------------------------------------- the UI
 

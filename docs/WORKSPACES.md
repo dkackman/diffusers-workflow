@@ -89,7 +89,8 @@ it lives beside. See [Prompt References](WORKFLOW_GUIDE.md#prompt-references).
 rooted at the library rather than at the workflow file — so a workflow and the
 media it reads no longer have to sit in the same folder. `--asset-dir` and
 `DW_ASSET_DIR` override the folder, and browser uploads land in
-`assets/uploads/`, coming back as `asset:uploads/<name>`. See
+`assets/uploads/`, coming back as `asset:uploads/<name>` (and served for
+preview under `/inputs/`, since the SPA's own bundles own `/assets/`). See
 [Asset References](WORKFLOW_GUIDE.md#asset-references).
 
 ## Where workflows are read from, and written to

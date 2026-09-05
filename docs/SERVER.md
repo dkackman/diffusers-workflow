@@ -186,7 +186,7 @@ The editor's forms come from these; they are just as usable from scripts:
   into the asset library's `uploads/` subfolder under a generated name.
   Answers 201 with `path` - `asset:uploads/<name>`, the reference a saved
   workflow can carry and still resolve on a later run - and `url`, the same
-  file under the `/assets` mount, for the editor's preview. A server started
+  file under the `/inputs` mount, for the editor's preview. A server started
   without an asset library falls back to the output directory's `uploads/`
   and an absolute path. This is how the UI's file pickers get a local file
   onto the machine that will run the workflow. The body is the file itself,
