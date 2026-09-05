@@ -26,14 +26,32 @@ Giving the server named workspaces removes both. The agent's work lands
 somewhere real, the UI can browse it, and a run is submitted by name like any
 other rather than as a rewritten copy.
 
+## The scale this is designed for
+
+One user, one server, several MCP clients. That is the shape of the
+deployment, and it deletes a category of complexity before it is written: no
+per-workspace permissions, no quotas, no per-workspace tokens. A workspace is
+a namespace for keeping work separate, not for keeping it private - the API
+token is all-or-nothing and everything behind it is reachable by anyone who
+holds it. Anything below that is justified only by multi-user use should be
+left out until there is a multi-user user.
+
 ## The ownership model
 
 One owner per class of artifact, not per workspace:
 
 | Artifact | Canonical | Flows |
 |---|---|---|
-| Workflows, prompts, assets | The client, when one is mirroring | client → server |
+| Workflows, assets | The client, when one is mirroring | client → server |
+| Stored prompts | The server - one library, shared by every workspace | pushed with `save_prompt`, as today |
 | Outputs, run manifests, job history | The server | server → client, on request |
+
+Prompts are shared on purpose. `dw/prompts.py` already describes the library
+as "shared by reference rather than copied into every workflow that uses it",
+and `prompt:scenic` resolving to different text in different workspaces would
+break exactly that. One library also means a mirroring client has nothing to
+mirror for prompts: it writes them with the existing `save_prompt`, which is
+already how a prompt reaches the server.
 
 Nothing is canonical in two places, so there is no merge to get wrong. A
 client workspace stays a plain directory under the user's control — in their
@@ -60,12 +78,35 @@ already carries the flag.
 ## Workspaces on the server
 
 ```
-<workspaces root>/
-  default/          server-owned, writable
-  studio-don/       server-owned
-  laptop-mirror/    mirrored from a client, read-only here
-    workflows/ prompts/ assets/ outputs/
+~/diffusers-workspace/           the root - what --workspace already names
+  prompts/                       the one shared prompt library
+  workflows/ assets/ outputs/    the default workspace
+  studio/                        a named workspace, server-owned
+    workflows/ assets/ outputs/
+  laptop-mirror/                 mirrored from a client, read-only here
+    workflows/ assets/ outputs/
 ```
+
+The existing workspace directory becomes the root, and its own
+`workflows/ assets/ outputs/` stay the default workspace, so **there is no
+migration**: an install that has one workspace today has a root with a default
+workspace in it tomorrow, and `--workspace ~/studio` keeps meaning what it
+means. Shared prompts fall out of the layout rather than needing a mechanism.
+
+The price is asymmetry - the default workspace's outputs are `<root>/outputs`
+where a named one's are `<root>/<name>/outputs` - and a rule: `workflows`,
+`prompts`, `assets` and `outputs` are reserved and cannot name a workspace.
+The listing endpoint reports each workspace's real directories, so a client
+never has to derive them.
+
+Two alternatives were weighed. Sibling directories under a new
+`~/diffusers-workspaces/` root are perfectly symmetric, but need a migration
+and put `workspace` and `workspaces` one letter apart in every flag, variable
+and document. A registry in `settings.json` pointing anywhere on disk needs no
+migration and would let a workspace live on another volume, at the cost of a
+state file that can disagree with the disk and a delete that means two things.
+The registry is the better answer if per-workspace volumes ever matter, and
+this layout does not block it: a workspace could later carry an explicit path.
 
 One server process, workspaces as a dimension of a request — not one process
 per workspace. A second server process would duplicate the model cache in host
@@ -80,8 +121,10 @@ jobs serialize on the one GPU anyway.
 - `DELETE /api/workspaces/{name}` — remove it. Deletes generated work, so it
   needs the gallery's bulk-delete care: a count and a confirmation, never a
   quiet success
-- Every existing route gains an optional workspace selector, defaulting to the
-  server's configured default, so nothing that works today changes shape
+- Every existing route that touches workflows, assets or outputs gains an
+  optional workspace selector, defaulting to the server's configured default,
+  so nothing that works today changes shape. The prompt routes do not: there
+  is one library
 
 ### The plumbing this needs
 
@@ -114,15 +157,16 @@ moment there are two.
 
 One way, client → server, for authored content only. Two triggers:
 
-- **On save.** `save_workflow` / `save_prompt` write locally and push. The
-  common case costs nothing extra and keeps the UI in step with the agent.
+- **On save.** `save_workflow` writes locally and pushes. The common case
+  costs nothing extra and keeps the UI in step with the agent. `save_prompt`
+  is unchanged: it writes the shared library directly, as it does today.
 - **`sync_workspace()` explicitly**, for reconciliation — first use, a
   workspace edited outside the agent, or after working offline.
 
 ### What crosses, and how change is detected
 
-Workflows and prompts are small JSON: push the ones whose content differs.
-Assets are not, so the mirror compares digests and pushes only what changed.
+Workflows are small JSON: push the ones whose content differs. Assets are
+not, so the mirror compares digests and pushes only what changed.
 
 **This supersedes the previous draft's content-addressed upload naming.** A
 mirror has to preserve names: `asset:gyre/frames/iris.png` must mean the same
@@ -162,21 +206,21 @@ nothing, and `output:` references resolve on whichever side is running.
 
 - It does not make `dw_mcp` run workflows. One engine, on the machine with the
   GPU.
-- It does not make a workspace a security boundary. The API token is
-  all-or-nothing: anyone who can reach the API can reach every workspace.
-  Workspaces are a namespace — for keeping one person's work separate from
-  another's, not for keeping it private from them. This must be stated plainly
-  in the docs, or someone will assume otherwise.
+- It does not make a workspace a security boundary - see the scale section
+  above. This must be stated plainly in the docs, or someone will assume
+  otherwise.
 - It does not change the trust model: a mirrored workflow is a stored workflow
   like any other, and `--trust-workflows` governs it the same way.
 
 ## Staging
 
-1. **Workspaces on the server, one at a time.** The registry, the CRUD routes,
-   the per-job prompt and asset roots, the workspace column in history. The
-   default workspace behaves exactly as the single workspace does today.
-2. **The UI catches up.** A workspace switcher; the gallery, workflows and
-   prompts pages scoped to the selection.
+1. **Workspaces on the server, one at a time.** The named subdirectories, the
+   CRUD routes, the per-job asset root, the workspace column in history. The
+   default workspace behaves exactly as the single workspace does today, and
+   nothing on disk moves.
+2. **The UI catches up.** A workspace switcher; the gallery and workflows
+   pages scoped to the selection. The Prompts page is not scoped - there is
+   one library, and that is the point.
 3. **MCP selects a workspace** — per call, defaulting to one per session. This
    alone covers the remote-agent case without any client workspace at all:
    an agent gets its own namespace on the box and the user can see it.
@@ -191,16 +235,6 @@ the speculative one.
 
 ## Open questions
 
-- **Does a mirror own the whole workspace, or a directory within it?** Whole
-  workspace is simpler to reason about and to mark read-only. Per-directory
-  would let an agent mirror workflows while using the server's shared prompt
-  library — appealing, and probably a later refinement rather than a first
-  cut.
-- **What is the default workspace called, and where does the root live?**
-  `~/diffusers-workspace` is one workspace today; the multi-workspace root
-  could be that directory's parent, or a `workspaces/` inside it. The upgrade
-  path for an existing single workspace has to be answered before the first
-  route is written.
 - **How does a client name its mirror?** Explicitly (`--mirror-as
   laptop-don`) is predictable; derived from the hostname is convenient and
   collides the first time someone has two checkouts.
