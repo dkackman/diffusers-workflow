@@ -305,7 +305,7 @@ the joined length, not the sum. When every input carries audio, the tracks are
 crossfaded over exactly the seam's span so they stay in step with the picture;
 when any input is silent the result is, and `pair_audio` puts a score under it.
 
-**Example:** [LumenFinish.json](../workflows/lumen/LumenFinish.json)
+**Example:** [GyreDissolve.json](../workflows/gyre/GyreDissolve.json)
 
 ### video_frames
 
@@ -470,7 +470,7 @@ changes, so the dynamics survive:
 
 A silent track is returned unchanged.
 
-**Example:** [LumenFinish.json](../workflows/lumen/LumenFinish.json)
+**Example:** [GyreDissolve.json](../workflows/gyre/GyreDissolve.json)
 
 ## Data Gathering
 
@@ -862,7 +862,7 @@ It is merged after everything else, so it can override `repetition_penalty` and 
 
 ## Frame Interpolation
 
-Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a video and inserts intermediate frames between each pair. The result is one video artifact without a soundtrack - the frame count changed, so `pair_audio` is how the original track comes back, as in [LumenFinish.json](../workflows/lumen/LumenFinish.json).
+Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a video and inserts intermediate frames between each pair. The result is one video artifact without a soundtrack - the frame count changed, so [`pair_audio`](#pair_audio) is how the original track comes back. [InterpolateFrames.json](../workflows/InterpolateFrames.json) shows the interpolation itself.
 
 ```json
 {
