@@ -456,6 +456,51 @@ def validate_prompt_reference(name: str) -> str:
     return name
 
 
+# A stored asset's name: a file name with its extension, optionally under
+# folders. Each segment starts with a word character, which precludes '..',
+# hidden files and absolute paths; the depth cap keeps a name a name. A prompt
+# is named without its extension and lives at most one folder deep - an asset
+# carries its extension, because which file it is depends on it, and media
+# libraries nest deeper than prompt libraries do
+ASSET_REFERENCE_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*){0,4}\Z"
+MAX_ASSET_REFERENCE_LENGTH = 400
+
+
+def validate_asset_reference(name: str) -> str:
+    """
+    Validate the name an 'asset:' reference points at.
+
+    The name is joined onto the asset directory to find the file, so it is
+    checked before anything touches the filesystem. Containment in the
+    library is checked separately, by the validate_path call that joins it.
+
+    Args:
+        name: Asset name to validate
+
+    Returns:
+        The validated name
+
+    Raises:
+        InvalidInputError: If name is invalid
+    """
+    if not name:
+        raise InvalidInputError("Asset name cannot be empty")
+
+    if not re.match(ASSET_REFERENCE_PATTERN, name):
+        raise InvalidInputError(
+            f"Invalid asset name: {name} - an asset is named by its file under "
+            f"the asset directory, with its extension and at most four folders "
+            f"deep, like 'iris.jpg' or 'gyre/frames/iris.jpg'"
+        )
+
+    if len(name) > MAX_ASSET_REFERENCE_LENGTH:
+        raise InvalidInputError(
+            f"Asset name too long: {len(name)} > {MAX_ASSET_REFERENCE_LENGTH}"
+        )
+
+    return name
+
+
 # A dotted python name: identifiers separated by dots, and nothing else
 CONSTANT_NAME_PATTERN = r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*\Z"
 

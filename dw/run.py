@@ -57,6 +57,15 @@ def main():
         "prompts/ above the workflow file)",
     )
     parser.add_argument(
+        "--asset-dir",
+        type=str,
+        default=None,
+        help="Directory 'asset:' references resolve against (default: "
+        "DW_ASSET_DIR, else the workspace's assets/ when a workspace was "
+        "named, else ./assets if it exists, else the nearest assets/ above "
+        "the workflow file)",
+    )
+    parser.add_argument(
         "--trust-workflows",
         action="store_true",
         default=False,
@@ -80,6 +89,9 @@ def main():
 
     if args.prompt_dir:
         os.environ["DW_PROMPT_DIR"] = os.path.abspath(args.prompt_dir)
+
+    if args.asset_dir:
+        os.environ["DW_ASSET_DIR"] = os.path.abspath(args.asset_dir)
 
     set_trust_workflows(args.trust_workflows)
 

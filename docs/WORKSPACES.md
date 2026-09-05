@@ -82,6 +82,16 @@ does not preempt the older discovery — `./prompts`, then the nearest `prompts/
 above the workflow file — so a repository workflow keeps reaching the library
 it lives beside. See [Prompt References](WORKFLOW_GUIDE.md#prompt-references).
 
+## Assets
+
+`assets/` is the input-media library. A workflow argument written as
+`asset:name.ext` (or `asset:folder/name.ext`) resolves to that file's path,
+rooted at the library rather than at the workflow file — so a workflow and the
+media it reads no longer have to sit in the same folder. `--asset-dir` and
+`DW_ASSET_DIR` override the folder, and browser uploads land in
+`assets/uploads/`, coming back as `asset:uploads/<name>`. See
+[Asset References](WORKFLOW_GUIDE.md#asset-references).
+
 ## Where this is going
 
 Workspaces are the first stage of the design in

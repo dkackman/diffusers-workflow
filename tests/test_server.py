@@ -1056,6 +1056,75 @@ def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):
         assert fetched.content == b"not-really-png-bytes"
 
 
+@pytest.fixture
+def asset_server(tmp_path):
+    """A server with an asset library configured, which is where uploads go."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    assets = tmp_path / "assets"
+    assets.mkdir()
+
+    def make(script):
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+        )
+        app = create_app(
+            workflow_dir=str(workflow_dir),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            asset_dir=str(assets),
+        )
+        return TestClient(app, base_url="http://localhost")
+
+    return make
+
+
+def test_upload_media_lands_in_the_asset_library(asset_server, tmp_path):
+    """An upload is input, so it belongs in the asset library rather than
+    among generated output - and comes back as the reference a saved workflow
+    can carry, not as a path that only means something on this machine."""
+    with asset_server(success_script) as client:
+        response = client.post(
+            "/api/uploads",
+            params={"filename": "source-image.png"},
+            content=b"not-really-png-bytes",
+        )
+        assert response.status_code == 201
+        body = response.json()
+
+        saved = tmp_path / "assets" / "uploads"
+        files = list(saved.iterdir())
+        assert len(files) == 1
+        assert files[0].read_bytes() == b"not-really-png-bytes"
+        assert body["path"] == f"asset:uploads/{files[0].name}"
+        assert body["url"] == f"/assets/uploads/{files[0].name}"
+        assert not (tmp_path / "outputs" / "uploads").exists()
+
+        # served back for the editor's preview, through its own static mount
+        fetched = client.get(body["url"])
+        assert fetched.status_code == 200
+        assert fetched.content == b"not-really-png-bytes"
+
+
+def test_the_asset_library_is_reported(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        directories = client.get("/api/server").json()["directories"]
+        assert directories["assets"] == str(tmp_path / "assets")
+
+
+def test_without_an_asset_library_uploads_keep_the_old_shape(server, tmp_path):
+    with server(success_script) as client:
+        body = client.post(
+            "/api/uploads",
+            params={"filename": "source-image.png"},
+            content=b"bytes",
+        ).json()
+        assert os.path.isabs(body["path"])
+        assert body["url"].startswith("/outputs/uploads/")
+
+
 def test_upload_media_rejects_disallowed_extension(server):
     with server(success_script) as client:
         response = client.post(

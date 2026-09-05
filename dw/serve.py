@@ -44,8 +44,7 @@ def main():
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Directory results are written to (default: the workspace's "
-        "outputs/)",
+        help="Directory results are written to (default: the workspace's " "outputs/)",
     )
     parser.add_argument(
         "--prompt-dir",
@@ -53,6 +52,13 @@ def main():
         help="Directory of stored prompt files (default: discovered the way "
         "a CLI run discovers it - DW_PROMPT_DIR, else ./prompts if it "
         "exists, else the nearest prompts/ above the workflow directory)",
+    )
+    parser.add_argument(
+        "--asset-dir",
+        default=None,
+        help="Directory of input media 'asset:' references resolve against, "
+        "and where browser uploads are saved (default: the workspace's "
+        "assets/)",
     )
     parser.add_argument(
         "-l",
@@ -100,6 +106,7 @@ def main():
     workspace = set_workspace(resolve_workspace(args.workspace))
     workflow_dir = args.workflow_dir or workspace.workflows
     output_dir = args.output_dir or workspace.outputs
+    asset_dir = os.path.abspath(args.asset_dir or workspace.assets)
 
     # A workspace's workflow folder is where the UI and MCP clients save, so
     # it has to exist for a first run in a fresh workspace. Only the folder
@@ -108,6 +115,14 @@ def main():
     # output folder is created by the job manager on the same reasoning
     if not args.workflow_dir:
         os.makedirs(workflow_dir, exist_ok=True)
+
+    # Created either way: it is the upload destination and a static mount,
+    # both of which need it to exist before the first request
+    os.makedirs(asset_dir, exist_ok=True)
+
+    # Pinned like the prompt directory, so 'asset:' resolves to the same
+    # library in the worker that the upload route writes into
+    os.environ["DW_ASSET_DIR"] = asset_dir
 
     token = args.token or os.environ.get("DW_API_TOKEN") or None
 
@@ -181,6 +196,7 @@ def main():
         output_dir=output_dir,
         log_level=args.log_level,
         prompt_dir=prompt_dir,
+        asset_dir=asset_dir,
         workspace=workspace.root,
         host=args.host,
         token=token,

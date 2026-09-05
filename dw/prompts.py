@@ -25,7 +25,13 @@ PROMPT_PREFIX = "prompt:"
 # The prefixes a stored prompt's text may not begin with. Resolved text is
 # substituted where the reference stood, so text that itself looks like a
 # reference would be resolved again - or worse, expand a step's iterations
-RESERVED_TEXT_PREFIXES = ("previous_result:", "variable:", "constant:", PROMPT_PREFIX)
+RESERVED_TEXT_PREFIXES = (
+    "previous_result:",
+    "variable:",
+    "constant:",
+    "asset:",
+    PROMPT_PREFIX,
+)
 
 
 def get_prompt_dir(base_dir=None):

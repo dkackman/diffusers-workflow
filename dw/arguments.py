@@ -4,6 +4,7 @@ import logging
 from inspect import Parameter, signature
 from .type_helpers import load_type_from_name, load_constant_from_name, has_method
 from .prompts import PROMPT_PREFIX, fetch_prompt
+from .assets import is_asset_reference, resolve_asset_values
 from diffusers.utils import load_image, load_video
 from .security import (
     validate_path,
@@ -89,6 +90,12 @@ def realize_args(arg, base_dir=None):
     if isinstance(arg, dict):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
         for k, v in arg.items():
+            # An asset reference resolves to the path of a file in the asset
+            # library, and does it first: what it stands for is a path, so
+            # everything below - the media conventions, an object's
+            # 'from_file' - then handles it as the path it always was
+            if is_asset_reference(v) or isinstance(v, list):
+                v = arg[k] = resolve_asset_values(v, base_dir)
             # A constant resolves under any argument name, and before the
             # conventions below - what it holds is the value, not a file to load
             if is_constant_reference(v):
@@ -143,6 +150,8 @@ def realize_args(arg, base_dir=None):
     elif isinstance(arg, list):
         logger.debug("Processing list arguments")
         for i, item in enumerate(arg):
+            if is_asset_reference(item):
+                item = arg[i] = resolve_asset_values(item, base_dir)
             if is_constant_reference(item):
                 arg[i] = fetch_constant(item)
                 continue

@@ -77,6 +77,13 @@ docs/WORKSPACES.md, and docs/proposals/workspaces.md for the later stages
 - Values prefixed with `constant:` read a value declared in python rather than copying it
   into JSON: `"constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES"`. Resolved
   in `realize_args`, validated by `validate_constant_name()`; anything callable is refused
+- Values prefixed with `asset:` resolve to the path of a file in the asset library:
+  `"asset:iris.png"` or `"asset:gyre/frames/web.mp4"`. Resolved in `realize_args` before
+  every other convention (`dw/assets.py`), rooted at the library rather than the workflow
+  file, confined to it, and then loaded by whatever would have loaded a path written
+  there. The library is `DW_ASSET_DIR` / `--asset-dir`, else the workspace's `assets/`
+  when a workspace was named, else `./assets` if it exists, else found by walking up
+  from the workflow file's directory
 - Values prefixed with `prompt:` load a stored prompt's `text` from the prompt library:
   `"prompt:name"` or `"prompt:folder/name"`. Resolved in `realize_args` (`dw/prompts.py`),
   rooted at the library rather than the workflow file. The library is `DW_PROMPT_DIR` /
@@ -124,7 +131,7 @@ All entry points use `dw/security.py`. When adding features:
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
 - **MPS differences from CUDA**: no autocast, no bitsandbytes, no flash_attn, no triton, no torch.compile. Model offloading has less benefit on unified memory, and `"offload": "sequential"` is downgraded to `"model"` with a warning there (`place_component`) — per-submodule streaming hands back no residency when the CPU and the accelerator share one pool. `exclude_from_cpu_offload` is sequential-only and does not survive the downgrade.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
-- **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
+- **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `asset:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)`; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it
 

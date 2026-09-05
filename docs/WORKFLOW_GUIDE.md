@@ -918,6 +918,40 @@ always resolves to exactly one string: it never multiplies a step's iterations t
 reference prefix such as `variable:` - the engine refuses it rather than resolving
 text as syntax.
 
+### Asset References
+
+A workflow's plain media paths resolve against the workflow file's own directory, which
+means a workflow that reads anything has to keep that thing beside it. An `asset:`
+reference is rooted at the asset library instead - the workspace's `assets/` folder -
+so a workflow and the media it reads do not have to live in the same place:
+
+```json
+"image": "asset:iris.png",
+"video": "asset:gyre/frames/web.mp4",
+"references": [
+    {
+        "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+        "from_file": "asset:subject.png"
+    }
+]
+```
+
+A reference names a file with its extension, at most four folders deep, and resolves to
+that file's path - so it works under any argument that accepts a path: `image`, `video`,
+a `from_file`, a list of any of them, or a task argument that names a file. What loads
+the path is unchanged; only where the path comes from is.
+
+The library's location is resolved in order: the `DW_ASSET_DIR` environment variable
+(which `--asset-dir` on both `dw.run` and `dw.serve` sets), then the workspace's
+`assets/` when a workspace was named explicitly, then `./assets` in the working
+directory when it exists, then the first `assets/` folder found walking up from the
+workflow file's own directory. See [Workspaces](WORKSPACES.md).
+
+A reference can only name a file inside the library: `..`, an absolute path, or a
+symlink pointing out of it are all refused. Browser uploads land in the library's
+`uploads/` folder and come back as `asset:uploads/<name>`, so a workflow saved after
+an upload still resolves on the next run.
+
 ### Objects Built From a File
 
 Some pipelines take arguments that are objects rather than plain media. An argument that

@@ -379,6 +379,7 @@ def create_app(
     download_manager=None,
     diffusers_updater=None,
     prompt_dir="./prompts",
+    asset_dir=None,
     workspace=None,
     host="127.0.0.1",
     token=None,
@@ -440,6 +441,10 @@ def create_app(
     app.state.job_manager = manager
     app.state.workflow_dir = workflow_dir
     app.state.prompt_dir = prompt_dir
+    # Where uploads land and 'asset:' references resolve. None when the
+    # caller configured no asset library: uploads then fall back to the
+    # output directory's uploads/ subfolder, as they did before there was one
+    app.state.asset_dir = os.path.abspath(asset_dir) if asset_dir else None
     # The workspace the three directories above default to folders of, for a
     # client that wants to name the root rather than reason about the parts.
     # None when the caller resolved no workspace (a test building an app
@@ -1206,12 +1211,17 @@ def create_app(
 
     @app.post("/api/uploads", status_code=201)
     async def upload_media(request: Request, filename: str):
-        """Save a browser-picked image or video into the output directory's
-        uploads/ subfolder and hand back its path - the same string shape a
-        workflow's 'image'/'video' arguments already accept (a plain path,
-        resolved absolute so it works regardless of the workflow file's own
-        directory). The body is the raw file bytes: no multipart parser
-        dependency needed for a single-file upload.
+        """Save a browser-picked image or video into the asset library's
+        uploads/ subfolder and hand back the reference a workflow argument
+        can carry.
+
+        An upload is input, so it belongs in the asset library rather than
+        among generated output, and the reference handed back is
+        'asset:uploads/<name>' - portable, and meaningful in a workflow that
+        is saved and rerun later. A server with no asset library configured
+        keeps the old behavior, writing to the output directory's uploads/
+        and returning an absolute path. The body is the raw file bytes: no
+        multipart parser dependency needed for a single-file upload.
         """
         extension = os.path.splitext(os.path.basename(filename))[1].lower()
         if extension not in ALLOWED_UPLOAD_EXTENSIONS:
@@ -1236,7 +1246,8 @@ def create_app(
                 detail=f"Upload too large: {len(body)} > {MAX_UPLOAD_BYTES}",
             )
 
-        uploads_dir = os.path.join(manager.output_dir, UPLOADS_SUBDIR)
+        library = app.state.asset_dir or manager.output_dir
+        uploads_dir = os.path.join(library, UPLOADS_SUBDIR)
         os.makedirs(uploads_dir, exist_ok=True)
         name = f"{uuid.uuid4().hex}{extension}"
         try:
@@ -1248,6 +1259,11 @@ def create_app(
         # stream and poll for its duration
         await run_in_threadpool(_write_bytes, dest, body)
         logger.info(f"Saved upload {filename!r} -> {dest}")
+        if app.state.asset_dir:
+            return {
+                "path": f"asset:{UPLOADS_SUBDIR}/{name}",
+                "url": f"/assets/{UPLOADS_SUBDIR}/{quote(name)}",
+            }
         return {
             "path": dest,
             "url": f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}",
@@ -1444,6 +1460,7 @@ def create_app(
                 # individually overridden folder still reports its own path
                 "workspace": app.state.workspace,
                 "workflows": os.path.abspath(app.state.workflow_dir),
+                "assets": app.state.asset_dir,
                 "outputs": os.path.abspath(manager.output_dir),
                 "prompts": (
                     os.path.abspath(app.state.prompt_dir)
@@ -1473,6 +1490,12 @@ def create_app(
         )
 
     app.mount("/outputs", StaticFiles(directory=manager.output_dir), name="outputs")
+    # Input media, served for the editor's preview of an uploaded or chosen
+    # asset. Ungated like /outputs, and for the same reason: an <img> tag
+    # cannot attach an Authorization header
+    if app.state.asset_dir:
+        os.makedirs(app.state.asset_dir, exist_ok=True)
+        app.mount("/assets", StaticFiles(directory=app.state.asset_dir), name="assets")
 
     # ---------------------------------------------------------------- the UI
 
