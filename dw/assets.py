@@ -17,7 +17,7 @@ import logging
 import os
 
 from .security import validate_asset_reference, validate_path
-from .workspace import resolve_workspace
+from .workspace import ASSETS_SUBDIR, discover_library
 
 logger = logging.getLogger("dw")
 
@@ -52,13 +52,10 @@ def get_asset_dir(base_dir=None):
 
     A library activated for this run wins outright - that is the server
     telling the worker which workspace's assets this job uses. Otherwise
-    discovery mirrors the prompt library's, for the same reasons:
-    DW_ASSET_DIR names it outright; then a workspace someone named, whose
-    assets/ is the library by definition; then assets/ in the working
-    directory when it exists; then the walk from the workflow file's
-    directory up toward the filesystem root, which is how a workflow in a
-    tree reaches the library that tree keeps; and finally the workspace's
-    assets/.
+    discovery mirrors the prompt library's - see workspace.discover_library
+    for the shared precedence (DW_ASSET_DIR, then a named workspace, then
+    ./assets, then a walk up from base_dir, then the workspace's assets/ as
+    the fallback).
 
     Args:
         base_dir: The workflow file's directory, when one anchors the search
@@ -67,28 +64,7 @@ def get_asset_dir(base_dir=None):
     if active:
         return active
 
-    explicit = os.environ.get(ASSET_DIR_ENV_VAR)
-    if explicit:
-        return explicit
-
-    workspace = resolve_workspace()
-    if workspace.is_explicit:
-        return workspace.assets
-
-    working_directory_library = os.path.abspath("./assets")
-    if os.path.isdir(working_directory_library):
-        return working_directory_library
-    if base_dir:
-        current = os.path.abspath(base_dir)
-        while True:
-            candidate = os.path.join(current, "assets")
-            if os.path.isdir(candidate):
-                return candidate
-            parent = os.path.dirname(current)
-            if parent == current:
-                break
-            current = parent
-    return workspace.assets
+    return discover_library(ASSETS_SUBDIR, ASSET_DIR_ENV_VAR, base_dir)
 
 
 def is_asset_reference(value):

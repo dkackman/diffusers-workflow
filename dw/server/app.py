@@ -1335,18 +1335,22 @@ def create_app(
         separator = "&" if "?" in url else "?"
         return f"{url}{separator}v={version}"
 
-    def _iter_gallery_files(root):
-        """Every media file under the output directory, recursing into the
-        per-workflow subfolders (dw/workflow.py's effective_output_dir writes
-        each run under '<workflow identity>/<run id>/', and mirrors a
-        workflow's position under a 'workflows' tree in the flat layout).
-        Yields (relative_name, folder, kind, path) - relative_name always
-        uses '/' so it round-trips through a URL the same way on every
-        platform.
+    def _iter_gallery_files(root, group_runs=True):
+        """Every media file under a directory tree. Yields (relative_name,
+        folder, kind, path) - relative_name always uses '/' so it
+        round-trips through a URL the same way on every platform.
 
-        The folder a file is grouped under drops the run id: a workflow run
-        fifty times is one folder in the filter, not fifty. Which run a file
-        came from is still in its name, and in the manifest beside it."""
+        With group_runs (the gallery's own use, over the output directory):
+        recurses into the per-workflow subfolders (dw/workflow.py's
+        effective_output_dir writes each run under '<workflow
+        identity>/<run id>/', and mirrors a workflow's position under a
+        'workflows' tree in the flat layout), and the folder a file is
+        grouped under drops the run id - a workflow run fifty times is one
+        folder in the filter, not fifty. Which run a file came from is still
+        in its name, and in the manifest beside it.
+
+        Without it (the asset library's use, which has no run ids to strip):
+        folder is just the plain relative directory."""
         for current, _dirs, names in os.walk(root):
             rel_root = os.path.relpath(current, root)
             directory = "" if rel_root == "." else rel_root.replace(os.sep, "/")
@@ -1356,7 +1360,7 @@ def create_app(
                 if kind is None:
                     continue
                 relative_name = name if not directory else f"{directory}/{name}"
-                folder = strip_run_id(relative_name)
+                folder = strip_run_id(relative_name) if group_runs else directory
                 yield relative_name, folder, kind, os.path.join(current, name)
 
     def _gallery_entries(root, ws):
@@ -1635,31 +1639,28 @@ def create_app(
             return {"asset_dir": library, "assets": [], "folders": []}
 
         assets = []
-        for root, _dirs, names in os.walk(library):
-            relative_root = os.path.relpath(root, library)
-            folder = "" if relative_root == "." else relative_root.replace(os.sep, "/")
-            for name in names:
-                kind = MEDIA_KINDS.get(os.path.splitext(name)[1].lower())
-                if kind is None:
-                    continue
-                relative = name if not folder else f"{folder}/{name}"
-                try:
-                    stat = os.stat(os.path.join(root, name))
-                except OSError:
-                    continue
-                assets.append(
-                    {
-                        "name": relative,
-                        "reference": f"asset:{relative}",
-                        "folder": folder,
-                        "kind": kind,
-                        "size": stat.st_size,
-                        "mtime": stat.st_mtime,
-                        # For the editor's own preview - fetchable the same
-                        # way an upload's URL is
-                        "url": _served_url(f"/inputs/{quote(relative)}", ws),
-                    }
-                )
+        try:
+            files = list(_iter_gallery_files(library, group_runs=False))
+        except OSError:
+            files = []
+        for relative, folder, kind, path in files:
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            assets.append(
+                {
+                    "name": relative,
+                    "reference": f"asset:{relative}",
+                    "folder": folder,
+                    "kind": kind,
+                    "size": stat.st_size,
+                    "mtime": stat.st_mtime,
+                    # For the editor's own preview - fetchable the same
+                    # way an upload's URL is
+                    "url": _served_url(f"/inputs/{quote(relative)}", ws),
+                }
+            )
         assets.sort(key=lambda entry: entry["mtime"], reverse=True)
         return {
             "asset_dir": library,

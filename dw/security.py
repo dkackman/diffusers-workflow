@@ -421,6 +421,37 @@ PROMPT_REFERENCE_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*)?\Z"
 MAX_PROMPT_REFERENCE_LENGTH = 200
 
 
+def _validate_name(
+    name: str, pattern: str, max_length: int, what: str, hint: str
+) -> str:
+    """Shared body of the reference/name validators below: an empty check, a
+    length check, then the pattern - length before pattern so a name that
+    fails both reports the shorter, cheaper-to-fix complaint first, matching
+    what each validator already reported on its own.
+
+    Args:
+        name: The value to validate
+        pattern: Regex the name must fully match
+        max_length: Longest allowed length
+        what: Short label for the messages ('Prompt name', 'Asset name', ...)
+        hint: The rest of the "invalid" message, describing what a valid one
+            looks like
+
+    Raises:
+        InvalidInputError: If name is invalid
+    """
+    if not name:
+        raise InvalidInputError(f"{what} cannot be empty")
+
+    if len(name) > max_length:
+        raise InvalidInputError(f"{what} too long: {len(name)} > {max_length}")
+
+    if not re.match(pattern, name):
+        raise InvalidInputError(f"Invalid {what.lower()}: {name} - {hint}")
+
+    return name
+
+
 def validate_prompt_reference(name: str) -> str:
     """
     Validate the name a 'prompt:' reference points at.
@@ -438,22 +469,14 @@ def validate_prompt_reference(name: str) -> str:
     Raises:
         InvalidInputError: If name is invalid
     """
-    if not name:
-        raise InvalidInputError("Prompt name cannot be empty")
-
-    if not re.match(PROMPT_REFERENCE_PATTERN, name):
-        raise InvalidInputError(
-            f"Invalid prompt name: {name} - a prompt is named by its file under "
-            f"the prompt directory, at most one folder deep, like "
-            f"'scenic_landscape' or 'minimax/fox_dawn'"
-        )
-
-    if len(name) > MAX_PROMPT_REFERENCE_LENGTH:
-        raise InvalidInputError(
-            f"Prompt name too long: {len(name)} > {MAX_PROMPT_REFERENCE_LENGTH}"
-        )
-
-    return name
+    return _validate_name(
+        name,
+        PROMPT_REFERENCE_PATTERN,
+        MAX_PROMPT_REFERENCE_LENGTH,
+        "Prompt name",
+        "a prompt is named by its file under the prompt directory, at most "
+        "one folder deep, like 'scenic_landscape' or 'minimax/fox_dawn'",
+    )
 
 
 # A stored asset's name: a file name with its extension, optionally under
@@ -483,22 +506,15 @@ def validate_asset_reference(name: str) -> str:
     Raises:
         InvalidInputError: If name is invalid
     """
-    if not name:
-        raise InvalidInputError("Asset name cannot be empty")
-
-    if not re.match(ASSET_REFERENCE_PATTERN, name):
-        raise InvalidInputError(
-            f"Invalid asset name: {name} - an asset is named by its file under "
-            f"the asset directory, with its extension and at most four folders "
-            f"deep, like 'iris.jpg' or 'gyre/frames/iris.jpg'"
-        )
-
-    if len(name) > MAX_ASSET_REFERENCE_LENGTH:
-        raise InvalidInputError(
-            f"Asset name too long: {len(name)} > {MAX_ASSET_REFERENCE_LENGTH}"
-        )
-
-    return name
+    return _validate_name(
+        name,
+        ASSET_REFERENCE_PATTERN,
+        MAX_ASSET_REFERENCE_LENGTH,
+        "Asset name",
+        "an asset is named by its file under the asset directory, with its "
+        "extension and at most four folders deep, like 'iris.jpg' or "
+        "'gyre/frames/iris.jpg'",
+    )
 
 
 # A generated output's name: the workflow's identity, the run, and the file -
@@ -526,22 +542,14 @@ def validate_output_reference(name: str) -> str:
     Raises:
         InvalidInputError: If name is invalid
     """
-    if not name:
-        raise InvalidInputError("Output name cannot be empty")
-
-    if not re.match(OUTPUT_REFERENCE_PATTERN, name):
-        raise InvalidInputError(
-            f"Invalid output name: {name} - an output is named by the workflow "
-            f"that made it, the run, and the file, like "
-            f"'ltx2/Gyre/latest/Gyre-still.0-0.0.png'"
-        )
-
-    if len(name) > MAX_OUTPUT_REFERENCE_LENGTH:
-        raise InvalidInputError(
-            f"Output name too long: {len(name)} > {MAX_OUTPUT_REFERENCE_LENGTH}"
-        )
-
-    return name
+    return _validate_name(
+        name,
+        OUTPUT_REFERENCE_PATTERN,
+        MAX_OUTPUT_REFERENCE_LENGTH,
+        "Output name",
+        "an output is named by the workflow that made it, the run, and the "
+        "file, like 'ltx2/Gyre/latest/Gyre-still.0-0.0.png'",
+    )
 
 
 # A workspace's name: one path segment, starting with a word character, so
@@ -566,25 +574,19 @@ def validate_workspace_name(name: str) -> str:
     """
     from .workspace import RESERVED_WORKSPACE_NAMES
 
-    if not name:
-        raise InvalidInputError("Workspace name cannot be empty")
-
-    if not re.match(WORKSPACE_NAME_PATTERN, name):
-        raise InvalidInputError(
-            f"Invalid workspace name: {name} - a workspace is one folder under "
-            f"the workspace root, named with letters, numbers, dot, dash or "
-            f"underscore"
-        )
+    _validate_name(
+        name,
+        WORKSPACE_NAME_PATTERN,
+        MAX_WORKSPACE_NAME_LENGTH,
+        "Workspace name",
+        "a workspace is one folder under the workspace root, named with "
+        "letters, numbers, dot, dash or underscore",
+    )
 
     if name in RESERVED_WORKSPACE_NAMES:
         raise InvalidInputError(
             f"'{name}' is one of the workspace root's own folders "
             f"({', '.join(RESERVED_WORKSPACE_NAMES)}) and cannot name a workspace"
-        )
-
-    if len(name) > MAX_WORKSPACE_NAME_LENGTH:
-        raise InvalidInputError(
-            f"Workspace name too long: {len(name)} > {MAX_WORKSPACE_NAME_LENGTH}"
         )
 
     return name

@@ -180,9 +180,18 @@ class Workspace:
         )
 
 
+def _has_subdirs(path, names, all_of):
+    """Whether a directory holds some (any_of) or all (all_of) of these
+    subfolder names - the shared test behind looks_like_workspace's "any
+    marker is enough" and _holds_a_workspace's stricter "all three, or it
+    isn't a workspace"."""
+    test = all if all_of else any
+    return test(os.path.isdir(os.path.join(path, name)) for name in names)
+
+
 def looks_like_workspace(path):
     """Whether a directory holds the subfolders that mark a workspace."""
-    return any(os.path.isdir(os.path.join(path, name)) for name in MARKER_SUBDIRS)
+    return _has_subdirs(path, MARKER_SUBDIRS, all_of=False)
 
 
 def resolve_workspace(explicit=None):
@@ -237,6 +246,50 @@ def set_workspace(workspace):
     return workspace
 
 
+def discover_library(subdir, env_var, base_dir=None):
+    """Where a shared library (prompts, assets) is rooted, by the precedence
+    get_prompt_dir and get_asset_dir both need: an environment variable names
+    it outright; then a workspace someone named (a --workspace flag,
+    DW_WORKSPACE, or the 'workspace' setting), whose <subdir>/ is the library
+    by definition; then <subdir>/ in the working directory when that exists;
+    then the walk from base_dir up toward the filesystem root, looking for
+    the <subdir>/ folder of whatever tree base_dir lives in; and finally the
+    workspace's <subdir>/ as the fallback.
+
+    The middle two steps predate workspaces and stay below the named-workspace
+    check on purpose - a workspace merely inferred from the working directory
+    or fallen back to must not preempt a library a workflow already reaches.
+
+    Args:
+        subdir: The library's folder name under a workspace ('prompts',
+            'assets')
+        env_var: The environment variable that names it explicitly
+        base_dir: The workflow file's directory, when one anchors the search
+    """
+    explicit = os.environ.get(env_var)
+    if explicit:
+        return explicit
+
+    workspace = resolve_workspace()
+    if workspace.is_explicit:
+        return getattr(workspace, subdir)
+
+    working_directory_library = os.path.abspath(f"./{subdir}")
+    if os.path.isdir(working_directory_library):
+        return working_directory_library
+    if base_dir:
+        current = os.path.abspath(base_dir)
+        while True:
+            candidate = os.path.join(current, subdir)
+            if os.path.isdir(candidate):
+                return candidate
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+    return getattr(workspace, subdir)
+
+
 def _holds_a_workspace(path):
     """Whether a directory is a named workspace rather than some other
     folder someone left at the root.
@@ -246,7 +299,7 @@ def _holds_a_workspace(path):
     dw/workflows/ (the packaged builtins) right there, and one folder would
     make the source package a workspace, listed, browsable and deletable.
     """
-    return all(os.path.isdir(os.path.join(path, name)) for name in NAMED_SUBDIRS)
+    return _has_subdirs(path, NAMED_SUBDIRS, all_of=True)
 
 
 def _foreign_entries(path):
@@ -294,13 +347,6 @@ def named_workspace(workspace, name):
         name=name,
         prompts_root=os.path.join(workspace.root, PROMPTS_SUBDIR),
     )
-
-
-def workspace_exists(workspace, name):
-    """Whether a name resolves to a workspace that is actually there."""
-    if name is None or name == DEFAULT_WORKSPACE_NAME:
-        return True
-    return name in workspace_names(workspace)
 
 
 def create_workspace(workspace, name):
