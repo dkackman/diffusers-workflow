@@ -278,6 +278,14 @@
   <div class="panel">
     <h2>Directories</h2>
     <dl>
+      <dt>Workspace</dt>
+      <dd>
+        {#if info.directories.workspace}
+          <code>{info.directories.workspace}</code>
+        {:else}
+          <span class="muted">none — directories set individually</span>
+        {/if}
+      </dd>
       <dt>Workflows</dt>
       <dd><code>{info.directories.workflows}</code></dd>
       <dt>Outputs</dt>
@@ -286,6 +294,14 @@
       <dd>
         {#if info.directories.prompts}
           <code>{info.directories.prompts}</code>
+        {:else}
+          <span class="muted">none configured</span>
+        {/if}
+      </dd>
+      <dt>Assets</dt>
+      <dd>
+        {#if info.directories.assets}
+          <code>{info.directories.assets}</code>
         {:else}
           <span class="muted">none configured</span>
         {/if}

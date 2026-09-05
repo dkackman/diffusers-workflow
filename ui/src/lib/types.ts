@@ -57,9 +57,14 @@ export interface ServerInfo {
   mcp: { mounted: boolean; path: string }
   addresses: ServerAddress[]
   directories: {
+    /** The workspace the folders below are folders of, when the server
+     * resolved one; an individually overridden folder still reports its
+     * own path. */
+    workspace: string | null
     workflows: string
     outputs: string
     prompts: string | null
+    assets: string | null
   }
 }
 

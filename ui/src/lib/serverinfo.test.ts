@@ -21,7 +21,13 @@ const info = (overrides: Partial<ServerInfo> = {}): ServerInfo => ({
   auth_required: true,
   mcp: { mounted: true, path: '/mcp' },
   addresses: [{ address: '192.168.1.50', family: 'IPv4', interface: 'enp6s0' }],
-  directories: { workflows: '/w', outputs: '/o', prompts: null },
+  directories: {
+    workspace: '/ws',
+    workflows: '/w',
+    outputs: '/o',
+    prompts: null,
+    assets: null,
+  },
   ...overrides,
 })
 
