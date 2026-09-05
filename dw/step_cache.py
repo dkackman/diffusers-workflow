@@ -157,6 +157,9 @@ class StepCache:
             return None
         if entry["step_seed"] != step_seed:
             return None
+        # The output *root* a run was told to write to. A run directory is
+        # new every execution and would defeat the cache; the root changing
+        # means the caller asked for output somewhere the cached files are not
         if entry["output_dir"] != output_dir:
             return None
         if needs_result and not entry["retained"]:

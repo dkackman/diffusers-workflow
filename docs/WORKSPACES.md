@@ -92,6 +92,42 @@ media it reads no longer have to sit in the same folder. `--asset-dir` and
 `assets/uploads/`, coming back as `asset:uploads/<name>`. See
 [Asset References](WORKFLOW_GUIDE.md#asset-references).
 
+## Runs
+
+Each execution writes its own directory under the output folder, named by the
+workflow and the run:
+
+```
+outputs/
+  ltx2/Gyre/
+    20260905-181530-a1b2c3d4/
+      Gyre-still.0-0.0.png
+      Gyre-video.1-0.0.mp4
+      manifest.json
+```
+
+The folder is the workflow's identity — its path under a `workflows/` tree
+when it has one, its file name otherwise, its `id` for an inline definition.
+The run id is a timestamp plus a short digest of what actually ran, so two
+runs of the same workflow sort by time and a rerun of an edited workflow is
+visibly different; a second run of the same spec in the same second takes a
+counter rather than sharing a directory.
+
+`manifest.json` records the run beside what it made — status, seed, arguments,
+device, dw version, and each step's files, named relative to the directory so
+it keeps describing itself if you move or copy it. It is written even when a
+run fails part way, since the files it did write are on disk either way. A
+sub-workflow is part of its parent's run: it writes into the same directory and
+rolls up into the same manifest.
+
+An unchanged rerun still reuses the step cache: it writes no new files and its
+manifest reports the earlier run's, marked `"reused": true`.
+
+To keep the previous layout — everything at the output root, with only a
+`workflows/`-mirroring subfolder — use `--output-layout flat`, `DW_OUTPUT_LAYOUT=flat`,
+or `"output_layout": "flat"` in settings. Scripts that glob the output directory
+are the reason to.
+
 ## Where this is going
 
 Workspaces are the first stage of the design in

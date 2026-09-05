@@ -53,6 +53,7 @@ from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
 from ..result import read_embedded_metadata
 from ..hub_cache import scan_models, delete_model, DownloadManager
+from ..runs import strip_run_id
 from .jobs import JobManager, MAX_PERSISTED_EVENTS, TERMINAL_STATES
 from .netinfo import local_addresses
 from .updater import DiffusersUpdater
@@ -1016,20 +1017,26 @@ def create_app(
 
     def _iter_gallery_files():
         """Every media file under the output directory, recursing into the
-        per-workflow subfolders (dw/workflow.py's effective_output_dir mirrors
-        a workflow's position under a 'workflows' tree into the output dir).
+        per-workflow subfolders (dw/workflow.py's effective_output_dir writes
+        each run under '<workflow identity>/<run id>/', and mirrors a
+        workflow's position under a 'workflows' tree in the flat layout).
         Yields (relative_name, folder, kind, path) - relative_name always
         uses '/' so it round-trips through a URL the same way on every
-        platform."""
+        platform.
+
+        The folder a file is grouped under drops the run id: a workflow run
+        fifty times is one folder in the filter, not fifty. Which run a file
+        came from is still in its name, and in the manifest beside it."""
         for root, _dirs, names in os.walk(manager.output_dir):
             rel_root = os.path.relpath(root, manager.output_dir)
-            folder = "" if rel_root == "." else rel_root.replace(os.sep, "/")
+            directory = "" if rel_root == "." else rel_root.replace(os.sep, "/")
             for name in names:
                 extension = os.path.splitext(name)[1].lower()
                 kind = MEDIA_KINDS.get(extension)
                 if kind is None:
                     continue
-                relative_name = name if not folder else f"{folder}/{name}"
+                relative_name = name if not directory else f"{directory}/{name}"
+                folder = strip_run_id(relative_name)
                 yield relative_name, folder, kind, os.path.join(root, name)
 
     def _gallery_entries():
@@ -1073,8 +1080,9 @@ def create_app(
         """A page of media files in the output directory, newest first.
         Stateless by design - the gallery survives server restarts because
         it reads the directory tree, not job history. 'folders' lists every
-        distinct workflow subfolder present (over the whole directory, not
-        just this page), for the UI's folder filter - '' stands for files
+        distinct workflow folder present (over the whole directory, not just
+        this page), for the UI's folder filter - a run id is not a folder of
+        its own, so a workflow's runs group together; '' stands for files
         saved directly at the output root, and is itself always a member so
         that folder-less outputs stay selectable once anything is nested."""
         entries = _gallery_entries()

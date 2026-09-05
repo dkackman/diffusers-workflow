@@ -133,7 +133,17 @@ All entry points use `dw/security.py`. When adding features:
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
 - **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `asset:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
-- **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)`; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it
+- **Run directories**: each execution writes `<output_dir>/<workflow identity>/<run id>/`
+  with a `manifest.json` beside its files (`dw/runs.py`, `Workflow.effective_output_dir`).
+  Identity is the workflow's path under a `workflows/` tree, else its file name, else its
+  `id`; the run id is `<UTC timestamp>-<8 hex of the spec>`, with a `-N` counter if taken.
+  A sub-workflow inherits the parent's run directory and writes no manifest of its own.
+  `--output-layout flat` / `DW_OUTPUT_LAYOUT` / the `output_layout` setting restores the
+  old layout. The gallery groups a workflow's runs under one folder by stripping the run
+  id (`strip_run_id`)
+- **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
+  *root*, never the per-run directory - a run directory is new every execution and would
+  defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it
 
 ## JSON Workflow Structure
 

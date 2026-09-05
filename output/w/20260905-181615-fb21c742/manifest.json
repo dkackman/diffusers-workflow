@@ -1,0 +1,16 @@
+{
+  "run_id": "20260905-181615-fb21c742",
+  "status": "failed",
+  "started_at": "2026-09-05T18:16:15.075168+00:00",
+  "finished_at": "2026-09-05T18:16:15.075304+00:00",
+  "dw_version": "0.4.0-beta.1",
+  "device": "cuda",
+  "workflow": {
+    "id": "w",
+    "file": "",
+    "identity": "w"
+  },
+  "seed": null,
+  "arguments": {},
+  "steps": []
+}

@@ -8,6 +8,9 @@ past generations in a gallery, and manage the models on disk.
 ```bash
 python -m dw.serve                       # http://127.0.0.1:8765
 python -m dw.serve --port 8000 --workflow-dir ./workflows --output-dir ./outputs --prompt-dir ./prompts
+
+# or point it at a workspace, which supplies all four directories
+python -m dw.serve --workspace ~/studio
 python -m dw.serve --host 0.0.0.0 --token "some-long-random-string"   # reachable off this machine
 python -m dw.serve --trust-workflows      # only if nothing untrusted can reach POST /api/jobs - see Security model
 ```
@@ -58,7 +61,11 @@ load entirely.
   literal `num_images_per_prompt` on both producers). It's a diagram of
   the JSON, not a second way to edit it; clicking a step jumps to it in
   the form view.
-- **Gallery** — everything in the output directory. Images generated with
+- **Gallery** — everything in the output directory, which the engine lays out
+  as `<workflow>/<run id>/`. The folder filter groups a workflow's runs
+  together rather than listing each run separately, and each run directory
+  also holds a `manifest.json` describing what produced it (see
+  [Workspaces](WORKSPACES.md#runs)). Images generated with
   `embed_metadata` carry their full workflow definition and seed; **open as
   workflow** loads that definition into the editor with the seed pinned, so
   any image can be reproduced or riffed on. Each tile carries a checkbox
@@ -173,12 +180,14 @@ The editor's forms come from these; they are just as usable from scripts:
 - `POST /api/uploads?filename=...` — the raw bytes of one image or video
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
   again on the body; extension held to the allowed image/video list), saved
-  into the output directory's `uploads/` subfolder under a generated name.
-  Answers 201 with `path` - the absolute path, which is the string shape a
-  workflow's `image`/`video` argument already takes - and `url`, the same
-  file under the `/outputs` mount. This is how the UI's file pickers get a
-  local file onto the machine that will run the workflow. The body is the
-  file itself, so no multipart parser is needed for a single-file upload
+  into the asset library's `uploads/` subfolder under a generated name.
+  Answers 201 with `path` - `asset:uploads/<name>`, the reference a saved
+  workflow can carry and still resolve on a later run - and `url`, the same
+  file under the `/assets` mount, for the editor's preview. A server started
+  without an asset library falls back to the output directory's `uploads/`
+  and an absolute path. This is how the UI's file pickers get a local file
+  onto the machine that will run the workflow. The body is the file itself,
+  so no multipart parser is needed for a single-file upload
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,

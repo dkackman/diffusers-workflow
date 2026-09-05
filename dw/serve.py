@@ -61,6 +61,14 @@ def main():
         "assets/)",
     )
     parser.add_argument(
+        "--output-layout",
+        choices=("run", "flat"),
+        default=None,
+        help="'run' (default) gives each job its own directory under "
+        "<output_dir>/<workflow>/, with a manifest.json beside its files; "
+        "'flat' writes the way it did before run directories",
+    )
+    parser.add_argument(
         "-l",
         "--log_level",
         default="INFO",
@@ -123,6 +131,11 @@ def main():
     # Pinned like the prompt directory, so 'asset:' resolves to the same
     # library in the worker that the upload route writes into
     os.environ["DW_ASSET_DIR"] = asset_dir
+
+    if args.output_layout:
+        from .runs import set_output_layout
+
+        set_output_layout(args.output_layout)
 
     token = args.token or os.environ.get("DW_API_TOKEN") or None
 

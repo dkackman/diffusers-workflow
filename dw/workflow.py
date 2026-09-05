@@ -6,6 +6,7 @@ import copy
 import gc
 import hashlib
 import logging
+from datetime import datetime, timezone
 from .arguments import realize_args, realize_constants
 from .events import (
     RunContext,
@@ -21,6 +22,15 @@ from .step_cache import (
     step_cache,
     referenced_result_names,
     reference_resolves_to,
+)
+from .runs import (
+    FLAT_LAYOUT,
+    workflow_identity,
+    manifest_relative_files,
+    new_run_id,
+    output_layout,
+    run_directory,
+    write_manifest,
 )
 from .schema import validate_data, load_schema
 from .variables import replace_variables, set_variables
@@ -180,6 +190,17 @@ class Workflow:
     # to hand down to a sub-workflow
     _cache_enabled_this_run = True
 
+    # The directory the run in progress writes into, set by run() and, for a
+    # sub-workflow, handed down by the parent - one execution is one
+    # directory, whichever workflow inside it did the writing. None in the
+    # flat layout, and before a run starts
+    _run_dir = None
+    # Whether that directory came from a parent workflow. A sub-workflow is
+    # part of the parent's execution: it writes into the same directory and
+    # leaves no manifest of its own, since its steps are already rolled up
+    # into the parent's
+    _run_dir_inherited = False
+
     def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
         self.output_dir = output_dir
@@ -209,19 +230,24 @@ class Workflow:
 
     @property
     def effective_output_dir(self):
-        """Where this workflow's own results are written: output_dir, plus a
-        subfolder mirroring the workflow file's position under a 'workflows'
-        directory, if it has one.
+        """Where this workflow's own results are written.
 
-        A workflow at 'workflows/ltx/Foo.json' writes under
+        In the default layout that is the run directory run() opened -
+        '<output_dir>/<identity>/<run id>/' - shared by every step of the
+        run, sub-workflows included, so one execution leaves one directory.
+
+        In the flat layout it is output_dir plus a subfolder mirroring the
+        workflow file's position under a 'workflows' directory, if it has
+        one: a workflow at 'workflows/ltx/Foo.json' writes under
         '<output_dir>/ltx/'; one directly inside a 'workflows' folder (or a
         builtin, which always resolves to dw/workflows/<name>.json) writes
         flat at '<output_dir>/', same as one outside any 'workflows' tree
-        entirely (an inline definition, say). self.output_dir itself always
-        stays the plain root - this is derived fresh from it every time, so
-        a sub-workflow computes its own subfolder from its own file, not the
-        parent's.
+        entirely. self.output_dir itself always stays the plain root - this
+        is derived fresh from it every time, so a flat-layout sub-workflow
+        computes its own subfolder from its own file, not the parent's.
         """
+        if self._run_dir:
+            return self._run_dir
         subfolder = workflow_output_subfolder(self.file_spec)
         return (
             os.path.join(self.output_dir, subfolder) if subfolder else self.output_dir
@@ -263,6 +289,11 @@ class Workflow:
         # BEFORE its replacement loads, or the transition holds both at once
         self._prior_step_keys = prior_step_keys or {}
         self.manifest = []
+        # Overwritten on the way out of the try below - a run that leaves
+        # this alone died on an exception the manifest should say so about
+        status = "failed"
+        run_id = None
+        started_at = datetime.now(timezone.utc).isoformat()
         try:
             # CRITICAL: Work on a copy to avoid mutating the original workflow definition
             # This allows the workflow to be run multiple times with different arguments
@@ -316,6 +347,24 @@ class Workflow:
                 # global RNG the process may have seeded for reproducibility
                 default_seed = torch.Generator().seed()
             workflow_def["seed"] = default_seed
+
+            # One execution, one directory - opened here, after variable
+            # substitution and the seed have settled, so the run's identity
+            # covers what actually ran rather than what was written down. A
+            # sub-workflow inherits the parent's and never opens its own
+            started_at = datetime.now(timezone.utc).isoformat()
+            run_id = None
+            if not self._run_dir_inherited:
+                if output_layout() == FLAT_LAYOUT:
+                    self._run_dir = None
+                else:
+                    run_id = new_run_id(
+                        {"workflow": workflow_def, "arguments": arguments}
+                    )
+                    self._run_dir = run_directory(
+                        self.output_dir, self.file_spec, workflow_id, run_id
+                    )
+                    logger.debug(f"Run directory: {self._run_dir}")
 
             # Initialize collections for sharing state between steps
             results = {}  # Stores results from each step
@@ -413,7 +462,13 @@ class Workflow:
                         step_data_snapshot,
                         step_seed,
                         hits_this_run,
-                        self.effective_output_dir,
+                        # The root, not this run's directory: a hit reports
+                        # the earlier run's files and writes nothing new, so
+                        # keying on a directory that is new every run would
+                        # mean the cache could never hit again. What the root
+                        # still guards is a run redirected somewhere else,
+                        # where the earlier files are not what the caller asked for
+                        self.output_dir,
                         needs_result=result_needed,
                     )
                     if is_cacheable
@@ -451,7 +506,7 @@ class Workflow:
                             step_data_snapshot,
                             step_seed,
                             result,
-                            self.effective_output_dir,
+                            self.output_dir,
                             retain_result=result_needed,
                         )
 
@@ -519,12 +574,14 @@ class Workflow:
                 "workflow_end", workflow=workflow_id, manifest=self.manifest
             )
             # Return only the last step's results for child workflows
+            status = "completed"
             return last_result.result_list if last_result is not None else []
 
         except WorkflowCancelled:
             # The user asked for this - report it without an error traceback
             workflow_id = self.workflow_definition.get("id", "unknown")
             logger.info(f"Workflow {workflow_id} cancelled")
+            status = "cancelled"
             raise
         except (SecurityError, PathTraversalError, InvalidInputError) as e:
             # Security validation failures - these should fail fast, without the
@@ -541,7 +598,50 @@ class Workflow:
             )
             raise
         finally:
+            # Recorded even for a run that failed part way: the files it did
+            # write are on disk either way, and what produced them is exactly
+            # what a failed run needs to explain itself
+            if self._run_dir and not self._run_dir_inherited:
+                self._write_run_manifest(run_id, status, started_at, arguments)
             deactivate_context(context_token)
+
+    def _write_run_manifest(self, run_id, status, started_at, arguments):
+        """Leave a record of the run beside the files it wrote.
+
+        A server run is in jobs.sqlite as well, but a CLI run has never been
+        recorded anywhere, and a database on one machine cannot describe a
+        directory copied to another. Paths are relative to the run directory
+        so the directory keeps describing itself wherever it goes.
+        """
+        from . import __version__
+
+        write_manifest(
+            self._run_dir,
+            {
+                "run_id": run_id,
+                "status": status,
+                "started_at": started_at,
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "dw_version": __version__,
+                "device": str(get_device()),
+                "workflow": {
+                    "id": self.name,
+                    "file": self.file_spec,
+                    "identity": workflow_identity(self.file_spec, self.name),
+                },
+                "seed": self.workflow_definition.get("seed"),
+                "arguments": arguments or {},
+                "steps": [
+                    {
+                        **entry,
+                        "files": manifest_relative_files(
+                            entry.get("files"), self._run_dir
+                        ),
+                    }
+                    for entry in self.manifest
+                ],
+            },
+        )
 
     def _step_pipeline_key(self, step_name, cache_key):
         """Record which cache key a step's pipeline lives under this run."""
@@ -723,6 +823,11 @@ class Workflow:
             # step of the child can ever hit - the child must not pay the
             # cache's deepcopy and Result pinning for it
             workflow._cache_enabled_by_parent = self._cache_enabled_this_run
+            # One execution, one directory: the child writes into the
+            # parent's run directory and leaves no manifest of its own - its
+            # steps roll up into the parent's manifest already
+            workflow._run_dir = self._run_dir
+            workflow._run_dir_inherited = self._run_dir is not None
             workflow.validate()
             return workflow
 

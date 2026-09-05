@@ -2,6 +2,8 @@
 
 import json
 import logging
+import os
+import pathlib
 import pytest
 from unittest.mock import patch
 
@@ -10,6 +12,7 @@ from PIL import Image
 from dw.events import RunContext, WorkflowCancelled, get_context, current_context
 from dw.log_setup import setup_logging
 from dw.result import Result
+from dw.runs import is_run_id
 from dw.workflow import Workflow, pipeline_cache_key
 from dw.pipeline_processors.pipeline import Pipeline
 
@@ -150,7 +153,18 @@ def test_manifest_and_save_paths(tmp_path):
     assert entry["step"] == "gen0"
     assert len(entry["files"]) == 1
     saved = entry["files"][0]
-    assert saved.endswith(".png") and (tmp_path / saved.split("/")[-1]).exists()
+    # The manifest names the file by the absolute path it was written to,
+    # which the default layout puts in this run's own directory under the
+    # workflow's identity - '<output>/test/<run id>/'
+    assert saved.endswith(".png") and os.path.exists(saved)
+    run_dir = os.path.dirname(saved)
+    assert os.path.dirname(run_dir) == str(tmp_path / "test")
+    assert is_run_id(os.path.basename(run_dir))
+    # and the run records itself beside what it made
+    manifest = json.loads((pathlib.Path(run_dir) / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert manifest["workflow"]["identity"] == "test"
+    assert manifest["steps"][0]["files"] == [os.path.basename(saved)]
 
 
 def test_result_save_returns_json_paths(tmp_path):

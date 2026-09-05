@@ -2,6 +2,7 @@ import argparse
 import os
 from . import startup
 from .workflow import workflow_from_file
+from .runs import set_output_layout
 from .workspace import resolve_workspace, set_workspace
 from .security import (
     validate_workflow_path,
@@ -66,6 +67,15 @@ def main():
         "the workflow file)",
     )
     parser.add_argument(
+        "--output-layout",
+        type=str,
+        choices=("run", "flat"),
+        default=None,
+        help="'run' (default) gives each run its own directory under "
+        "<output_dir>/<workflow>/, with a manifest.json beside its files; "
+        "'flat' writes the way it did before run directories",
+    )
+    parser.add_argument(
         "--trust-workflows",
         action="store_true",
         default=False,
@@ -92,6 +102,9 @@ def main():
 
     if args.asset_dir:
         os.environ["DW_ASSET_DIR"] = os.path.abspath(args.asset_dir)
+
+    if args.output_layout:
+        set_output_layout(args.output_layout)
 
     set_trust_workflows(args.trust_workflows)
 
