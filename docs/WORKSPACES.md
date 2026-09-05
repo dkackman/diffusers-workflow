@@ -80,7 +80,11 @@ named explicitly (rules 1–3 above, or `DW_PROMPT_DIR`, which still wins over
 everything). A workspace that was merely inferred from the working directory
 does not preempt the older discovery — `./prompts`, then the nearest `prompts/`
 above the workflow file — so a repository workflow keeps reaching the library
-it lives beside. See [Prompt References](WORKFLOW_GUIDE.md#prompt-references).
+it lives beside. When the workspace is explicit, its `prompts/` becomes the library
+even if it does not exist yet, so a checkout's `./prompts` is no longer found once
+a standing workspace setting (like `DW_WORKSPACE` or `"workspace"` in settings.json)
+is in place; `--prompt-dir` and `DW_PROMPT_DIR` still override it. This follows
+the "explicit wins" rule. See [Prompt References](WORKFLOW_GUIDE.md#prompt-references).
 
 ## Assets
 

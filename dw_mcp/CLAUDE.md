@@ -23,13 +23,13 @@ version, the workspace and the workflow/output/prompt/asset directories, which i
 agent authoring remotely whether a CUDA-only choice is even available. It is an HTTP client of a *running* `dw.serve` — it owns no
 job state and no GPU worker. Only `dw_mcp/server.py` imports the MCP SDK; the
 handlers in `catalog.py`, `authoring.py`, `prompts.py`, `diagnose.py`,
-`media.py`, `assets.py` and `models.py` are plain `(client, **kwargs)` functions, which is what makes
+`media.py`, `assets.py`, `models.py` and `workspaces.py` are plain `(client, **kwargs)` functions, which is what makes
 them testable without an MCP session. It is a top-level package rather than
 `dw.mcp` on purpose: importing any `dw.*` submodule runs `dw/__init__.py`
 and pulls in torch, which a pure HTTP client has no use for — a test guards
-that boundary. Six tools require `acknowledged_cost=True`
+that boundary. Seven tools require `acknowledged_cost=True`
 (`run_workflow`, `rerun_job`, `enhance_prompt`, `download_model`,
-`delete_model`, `update_diffusers`); the three job-queuing tools return as
+`delete_model`, `update_diffusers`, `delete_workspace`); the three job-queuing tools return as
 soon as the job is queued, since a generation outlasts any client's tool-call
 timeout. Authoring has two halves: `get_schema` describes a workflow and
 `get_prompt_schema` a stored prompt, which a workflow reaches by

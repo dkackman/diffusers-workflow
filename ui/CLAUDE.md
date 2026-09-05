@@ -10,8 +10,10 @@ and `npx playwright test` (e2e — it starts its own server, so do not have
 `dw.serve` running on the same port).
 
 Every request is scoped to the selected workspace in one place: `setApiWorkspace`
-in `lib/api.ts` appends `?workspace=` to requests and to the `/outputs`,
-`/inputs` and download URLs, so no page threads a workspace through its calls.
+in `lib/api.ts` handles request paths, `/outputs` URLs built by `outputUrl`, and
+download URLs centrally; a `url` the server returns (an upload's preview, an asset
+entry) is used verbatim and the server is responsible for scoping it, so no page
+threads a workspace through its calls.
 `lib/workspace.svelte.ts` holds the selection (restored from localStorage in
 `main.ts` before the first request); a page refetches on a switch by reading
 `workspace.current` inside its load effect.
