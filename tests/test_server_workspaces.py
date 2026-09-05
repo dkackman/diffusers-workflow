@@ -135,7 +135,9 @@ class TestDeletion:
         # the package a workspace
         os.makedirs(os.path.join(workspace_root.root, "dw", "workflows"))
         with server() as client:
-            names = [w["name"] for w in client.get("/api/workspaces").json()["workspaces"]]
+            names = [
+                w["name"] for w in client.get("/api/workspaces").json()["workspaces"]
+            ]
             assert names == ["default"]
             assert client.get("/api/workflows?workspace=dw").status_code == 404
 
@@ -340,6 +342,70 @@ class TestServingFiles:
             # and that URL is one the server actually serves
             assert client.get(url).content == b"x"
 
+    def test_an_output_answers_304_when_unmodified(self, server, workspace_root):
+        """The bare FileResponse this route used to return never answers
+        304 (no If-None-Match handling) - going through StaticFiles is what
+        restores it, and is what keeps the gallery from re-streaming every
+        file on every load."""
+        with open(os.path.join(workspace_root.outputs, "still.png"), "wb") as handle:
+            handle.write(b"bytes")
+        with server() as client:
+            first = client.get("/outputs/still.png")
+            assert first.status_code == 200
+            etag = first.headers["etag"]
+
+            second = client.get("/outputs/still.png", headers={"If-None-Match": etag})
+        assert second.status_code == 304
+
+    def test_an_uploaded_asset_is_reachable_at_its_scoped_url(
+        self, server, workspace_root
+    ):
+        """upload_media must scope the returned URL the same way the
+        gallery does, or the editor's preview of a just-uploaded file in a
+        named workspace 404s."""
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            uploaded = client.post(
+                "/api/uploads",
+                params={"filename": "iris.png", "workspace": "shots"},
+                content=b"iris-bytes",
+            )
+            assert uploaded.status_code == 201
+            url = uploaded.json()["url"]
+            assert "workspace=shots" in url
+
+            fetched = client.get(url)
+        assert fetched.status_code == 200
+        assert fetched.content == b"iris-bytes"
+
+    def test_asset_listing_entries_carry_a_fetchable_url(self, server, workspace_root):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            library = os.path.join(workspace_root.root, "shots", "assets")
+            with open(os.path.join(library, "iris.png"), "wb") as handle:
+                handle.write(b"iris")
+
+            body = client.get("/api/assets?workspace=shots").json()
+            assert len(body["assets"]) == 1
+            url = body["assets"][0]["url"]
+            assert "workspace=shots" in url
+
+            fetched = client.get(url)
+        assert fetched.status_code == 200
+        assert fetched.content == b"iris"
+
+    def test_get_workflow_reports_its_origin_and_writability(
+        self, server, workspace_root
+    ):
+        with server() as client:
+            client.put(
+                "/api/workflows/Basic", json={"workflow": valid_workflow("mine")}
+            )
+            response = client.get("/api/workflows/Basic")
+        assert response.status_code == 200
+        assert response.headers["x-workflow-origin"] == "workspace"
+        assert response.headers["x-workflow-writable"] == "true"
+
 
 class TestKeepingOutputs:
     """Generated files are named by the run that made them; keeping one puts
@@ -483,6 +549,127 @@ class TestRunning:
             )
 
         assert detail["status"] == "succeeded"
+
+    def test_an_inline_job_is_confined_to_its_own_workspace(
+        self, server, workspace_root
+    ):
+        """An inline (body-supplied) workflow in a named workspace used to
+        record the manager's process-wide workflow_dir as its confinement
+        while base_dir defaulted to the job's own workflow_dir - the worker
+        then re-validated base_dir against a workflow_dir it did not match,
+        and a 201 always failed. base_dir and workflow_dir must agree."""
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow("inline"), "workspace": "shots"},
+            )
+            assert response.status_code == 201
+            job_id = response.json()["id"]
+            detail = wait_for_status(client, job_id, {"succeeded", "failed"})
+            assert detail["status"] == "succeeded"
+
+            manager = client.app.state.job_manager
+            command = manager.worker_manager.commands[0]
+            shots_workflows = os.path.join(workspace_root.root, "shots", "workflows")
+            assert command["workflow_dir"] == shots_workflows
+            assert (
+                os.path.commonpath([command["base_dir"], shots_workflows])
+                == shots_workflows
+            )
+
+    def test_rerun_stays_in_the_workspace_it_ran_in(self, server, workspace_root):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            client.put(
+                "/api/workflows/Mine?workspace=shots",
+                json={"workflow": valid_workflow("mine")},
+            )
+            original = client.post(
+                "/api/jobs", json={"workflow_path": "Mine", "workspace": "shots"}
+            ).json()
+            wait_for_status(client, original["id"], {"succeeded", "failed"})
+
+            rerun = client.post(f"/api/jobs/{original['id']}/rerun")
+            assert rerun.status_code == 201
+            rerun_id = rerun.json()["id"]
+            wait_for_status(client, rerun_id, {"succeeded", "failed"})
+
+            summary = client.get(f"/api/jobs/{rerun_id}").json()
+            assert summary["status"] == "succeeded"
+
+            manager = client.app.state.job_manager
+            rerun_command = manager.worker_manager.commands[-1]
+            assert rerun_command["output_dir"] == os.path.join(
+                workspace_root.root, "shots", "outputs"
+            )
+
+            listed = {job["id"]: job for job in client.get("/api/jobs").json()["jobs"]}
+            assert listed[rerun_id]["workspace"] == "shots"
+
+    def test_jobs_list_filters_by_workspace(self, server, workspace_root):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            client.put(
+                "/api/workflows/Mine?workspace=shots",
+                json={"workflow": valid_workflow("mine")},
+            )
+            shots_job = client.post(
+                "/api/jobs", json={"workflow_path": "Mine", "workspace": "shots"}
+            ).json()
+            wait_for_status(client, shots_job["id"], {"succeeded", "failed"})
+
+            default_job = client.post(
+                "/api/jobs", json={"workflow": valid_workflow("default")}
+            ).json()
+            wait_for_status(client, default_job["id"], {"succeeded", "failed"})
+
+            scoped = client.get("/api/jobs?workspace=shots").json()["jobs"]
+            assert [job["id"] for job in scoped] == [shots_job["id"]]
+
+            everything = client.get("/api/jobs").json()["jobs"]
+            ids = {job["id"] for job in everything}
+            assert {shots_job["id"], default_job["id"]} <= ids
+
+    def test_gallery_metadata_is_scoped_to_its_workspace(self, server, workspace_root):
+        from PIL import Image
+
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            shots_outputs = os.path.join(workspace_root.root, "shots", "outputs")
+
+            Image.new("RGB", (4, 4)).save(
+                os.path.join(workspace_root.outputs, "same-name.png")
+            )
+            Image.new("RGB", (4, 4)).save(os.path.join(shots_outputs, "same-name.png"))
+
+            default_job = client.post(
+                "/api/jobs", json={"workflow": valid_workflow("default")}
+            ).json()
+            wait_for_status(client, default_job["id"], {"succeeded", "failed"})
+
+            client.put(
+                "/api/workflows/Mine?workspace=shots",
+                json={"workflow": valid_workflow("mine")},
+            )
+            shots_job = client.post(
+                "/api/jobs", json={"workflow_path": "Mine", "workspace": "shots"}
+            ).json()
+            wait_for_status(client, shots_job["id"], {"succeeded", "failed"})
+
+            # success_script's manifest names /out/a.png, not the fixture
+            # image above - both files just need to exist so the metadata
+            # route can serve them; only job_for_file's scoping is at stake.
+            # Reuse the real manifest name so job linkage actually happens.
+            Image.new("RGB", (4, 4)).save(os.path.join(workspace_root.outputs, "a.png"))
+            Image.new("RGB", (4, 4)).save(os.path.join(shots_outputs, "a.png"))
+
+            default_meta = client.get("/api/gallery/a.png/metadata").json()
+            shots_meta = client.get(
+                "/api/gallery/a.png/metadata?workspace=shots"
+            ).json()
+            assert default_meta["job"]["id"] == default_job["id"]
+            assert shots_meta["job"]["id"] == shots_job["id"]
 
 
 def test_a_server_without_a_workspace_root_has_one_workspace(tmp_path):

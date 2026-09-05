@@ -538,6 +538,14 @@ def create_app(
         root=app.state.workspace,
     )
     app.state.mcp_mounted = mcp_asgi is not None
+    # A StaticFiles instance per output/asset root, built lazily and reused -
+    # a mount is bound to one directory at startup, but a named workspace's
+    # root does not exist yet then. Keeping the instance around (rather than
+    # building one per request) is what makes /outputs and /inputs answer
+    # ETag/If-None-Match with 304 and Range with 206 the way a real mount
+    # does, instead of the plain FileResponse this replaced always resending
+    # the whole file
+    app.state.static_files_by_root = {}
 
     wildcard_bind = host in WILDCARD_HOSTS
     allowed_hosts = set(LOOPBACK_HOSTS)
@@ -724,8 +732,11 @@ def create_app(
         return manager.describe(job)
 
     @app.get("/api/jobs")
-    def list_jobs():
-        return {"jobs": manager.list()}
+    def list_jobs(workspace: Optional[str] = None):
+        """All jobs by default - a plain filter, not `selected_workspace`,
+        since the jobs list spans every workspace the server holds unless a
+        caller asks to narrow it."""
+        return {"jobs": manager.list(workspace=workspace)}
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str):
@@ -1140,12 +1151,22 @@ def create_app(
 
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str, ws: Workspace = Depends(selected_workspace)):
-        path, _source = resolve_readable_workflow(_sources_for(ws), name)
+        path, source = resolve_readable_workflow(_sources_for(ws), name)
         try:
             with open(path, "r") as file:
-                return JSONResponse(json.load(file))
+                definition = json.load(file)
         except (OSError, json.JSONDecodeError) as e:
             raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
+        # Which root it came from and whether a save would land here or
+        # copy elsewhere - the editor reads these to offer save-in-place
+        # only for a writable source, save-a-copy otherwise
+        return JSONResponse(
+            definition,
+            headers={
+                "X-Workflow-Origin": source.origin,
+                "X-Workflow-Writable": "true" if source.writable else "false",
+            },
+        )
 
     # --------------------------------------------------------------- prompts
 
@@ -1292,6 +1313,28 @@ def create_app(
             raise HTTPException(status_code=404, detail="Unknown file")
         return path
 
+    def _static_files_for(root):
+        """The StaticFiles instance bound to one root, built on first use and
+        cached on app.state - see the comment where the cache is created."""
+        cache = app.state.static_files_by_root
+        files = cache.get(root)
+        if files is None:
+            files = StaticFiles(directory=root)
+            cache[root] = files
+        return files
+
+    def _served_url(path, ws, version=None):
+        """The URL a served file is reachable at: the default workspace's
+        files keep the URL they have always had, a named one carries the
+        same selector its API calls do, so one route serves both. 'v=' is
+        cache-busting for a name reused by a rerun, not the workspace
+        selector, so it always comes last."""
+        url = path if ws.is_default else f"{path}?workspace={quote(ws.name)}"
+        if version is None:
+            return url
+        separator = "&" if "?" in url else "?"
+        return f"{url}{separator}v={version}"
+
     def _iter_gallery_files(root):
         """Every media file under the output directory, recursing into the
         per-workflow subfolders (dw/workflow.py's effective_output_dir writes
@@ -1316,7 +1359,7 @@ def create_app(
                 folder = strip_run_id(relative_name)
                 yield relative_name, folder, kind, os.path.join(current, name)
 
-    def _gallery_entries(root, workspace_name):
+    def _gallery_entries(root, ws):
         entries = []
         try:
             files = list(_iter_gallery_files(root))
@@ -1342,14 +1385,8 @@ def create_app(
                     # changing (e.g. a manual overwrite outside the engine) -
                     # normal reruns get a fresh name instead, see
                     # dw/result.py's output_file_path
-                    # The default workspace's files keep the URL they have
-                    # always had; a named one carries the same selector its
-                    # API calls do, so one route serves both
-                    "url": (
-                        f"/outputs/{quote(relative_name)}?v={int(stat.st_mtime)}"
-                        if workspace_name == DEFAULT_WORKSPACE_NAME
-                        else f"/outputs/{quote(relative_name)}"
-                        f"?workspace={quote(workspace_name)}&v={int(stat.st_mtime)}"
+                    "url": _served_url(
+                        f"/outputs/{quote(relative_name)}", ws, int(stat.st_mtime)
                     ),
                     "kind": kind,
                     "size": stat.st_size,
@@ -1375,7 +1412,7 @@ def create_app(
         its own, so a workflow's runs group together; '' stands for files
         saved directly at the output root, and is itself always a member so
         that folder-less outputs stay selectable once anything is nested."""
-        entries = _gallery_entries(ws.outputs, ws.name)
+        entries = _gallery_entries(ws.outputs, ws)
         folders = sorted({e["folder"] for e in entries} | {""})
         if folder is not None:
             entries = [e for e in entries if e["folder"] == folder]
@@ -1399,7 +1436,10 @@ def create_app(
         path = _output_file(name, ws.outputs)
         metadata = read_embedded_metadata(path)
         try:
-            job = manager.history.job_for_file(name)
+            # Scoped to this workspace: two workspaces can each write a file
+            # with the same relative name, and an unscoped lookup could
+            # attribute this one to the wrong workspace's job
+            job = manager.history.job_for_file(name, workspace=ws.name)
         except Exception:
             job = None
         return {"name": name, "metadata": metadata, "job": job}
@@ -1572,11 +1612,11 @@ def create_app(
         if ws.assets:
             return {
                 "path": f"asset:{UPLOADS_SUBDIR}/{name}",
-                "url": f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}",
+                "url": _served_url(f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
             }
         return {
             "path": dest,
-            "url": f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}",
+            "url": _served_url(f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
         }
 
     @app.get("/api/assets")
@@ -1615,6 +1655,9 @@ def create_app(
                         "kind": kind,
                         "size": stat.st_size,
                         "mtime": stat.st_mtime,
+                        # For the editor's own preview - fetchable the same
+                        # way an upload's URL is
+                        "url": _served_url(f"/inputs/{quote(relative)}", ws),
                     }
                 )
         assets.sort(key=lambda entry: entry["mtime"], reverse=True)
@@ -1920,8 +1963,13 @@ def create_app(
 
     # Generated files and input media, served as routes rather than static
     # mounts: a mount is bound to one directory at startup, and a workspace
-    # can be created afterwards. Starlette's FileResponse - what StaticFiles
-    # returns anyway - handles Range, so video still seeks.
+    # can be created afterwards. Each handler delegates to a StaticFiles
+    # instance for the workspace's own root (_static_files_for) rather than
+    # a bare FileResponse - a FileResponse never answers 304 (no
+    # If-None-Match handling), so every gallery load re-streamed the whole
+    # file; going through StaticFiles.get_response restores ETag/
+    # If-None-Match 304s, Range/206 and its own 404 handling, the way a real
+    # mount always has.
     #
     # Ungated, as the mounts were, and for the same reason: an <img> or
     # <video> tag cannot attach an Authorization header. The auth middleware
@@ -1932,18 +1980,24 @@ def create_app(
     # and then renders nothing, because its script and stylesheet 404. The
     # name is also the symmetric one, next to /outputs
     @app.get("/outputs/{name:path}")
-    def output_file(name: str, ws: Workspace = Depends(selected_workspace)):
+    async def output_file(
+        name: str, request: Request, ws: Workspace = Depends(selected_workspace)
+    ):
         """One generated file, from the workspace that made it."""
-        return FileResponse(_output_file(name, ws.outputs))
+        files = _static_files_for(ws.outputs)
+        return await files.get_response(name, request.scope)
 
     @app.get("/inputs/{name:path}")
-    def input_file(name: str, ws: Workspace = Depends(selected_workspace)):
+    async def input_file(
+        name: str, request: Request, ws: Workspace = Depends(selected_workspace)
+    ):
         """One file from a workspace's asset library, for the editor's
         preview of an uploaded or chosen asset."""
         library = ws.assets
         if not library:
             raise HTTPException(status_code=404, detail="No asset library")
-        return FileResponse(_output_file(name, library))
+        files = _static_files_for(library)
+        return await files.get_response(name, request.scope)
 
     # ---------------------------------------------------------------- the UI
 

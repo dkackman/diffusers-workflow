@@ -1301,6 +1301,20 @@ def test_examples_are_listed_read_only(examples_server):
         assert client.get("/api/workflows/ltx2/Gyre").status_code == 200
 
 
+def test_get_workflow_reports_origin_headers(examples_server, tmp_path):
+    """The editor reads these to offer save-in-place only for a writable
+    source, save-a-copy otherwise."""
+    with examples_server(success_script) as client:
+        example = client.get("/api/workflows/ltx2/Gyre")
+        assert example.headers["x-workflow-origin"] == "examples"
+        assert example.headers["x-workflow-writable"] == "false"
+
+        client.put("/api/workflows/Mine", json={"workflow": valid_workflow("mine")})
+        mine = client.get("/api/workflows/Mine")
+        assert mine.headers["x-workflow-origin"] == "workspace"
+        assert mine.headers["x-workflow-writable"] == "true"
+
+
 def test_saving_an_example_copies_it_into_the_writable_library(
     examples_server, tmp_path
 ):

@@ -28,6 +28,7 @@ if multiprocessing.get_start_method(allow_none=True) != "spawn":
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dw.worker import worker_main
+from dw.workflow import workflow_from_definition
 import torch
 
 # These two run a real SD 1.5 fp16 generation through the worker - fp16
@@ -305,3 +306,32 @@ def test_worker_cache_hit_applies_new_output_dir(worker_process, tmp_path):
         "second_output_dir exists but is empty - results kept going to the "
         "original output_dir"
     )
+
+
+def test_inline_definition_validates_against_its_own_workspace(tmp_path):
+    """The pair JobManager.submit now records for an inline job in a named
+    workspace - base_dir and workflow_dir both pointing at that workspace's
+    workflows/ - must be the pair the worker itself accepts when it
+    re-validates base_dir against workflow_dir
+    (workflow_from_definition -> validate_path(base_dir, workflow_dir)).
+    GPU-free: no worker subprocess involved, just the same validation call
+    the worker makes on receiving an 'execute' command.
+    """
+    workspace_workflows = tmp_path / "shots" / "workflows"
+    workspace_workflows.mkdir(parents=True)
+    output_dir = tmp_path / "shots" / "outputs"
+
+    definition = {
+        "id": "inline",
+        "variables": {},
+        "steps": [],
+    }
+
+    workflow = workflow_from_definition(
+        definition,
+        str(output_dir),
+        base_dir=str(workspace_workflows),
+        workflow_dir=str(workspace_workflows),
+    )
+
+    assert workflow.name == "inline"

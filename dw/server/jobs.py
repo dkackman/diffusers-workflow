@@ -124,15 +124,25 @@ class JobHistory:
                 ),
             )
 
-    def recent_summaries(self, limit=200):
+    def recent_summaries(self, limit=200, workspace=None):
         """Summary rows only - the jobs list is polled, and parsing four JSON
-        blobs per row just to show six scalars was pure waste."""
+        blobs per row just to show six scalars was pure waste.
+
+        `workspace` filters to one workspace's rows; omitted, history spans
+        all of them the way the list already did before workspaces existed.
+        """
+        query = (
+            "SELECT id, workflow, status, created_at, started_at, finished_at,"
+            " workspace FROM jobs"
+        )
+        params = []
+        if workspace:
+            query += " WHERE workspace = ?"
+            params.append(workspace)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
         with self._lock, self._connect() as connection:
-            rows = connection.execute(
-                "SELECT id, workflow, status, created_at, started_at, finished_at"
-                " FROM jobs ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            rows = connection.execute(query, params).fetchall()
         return [
             {
                 "id": row[0],
@@ -141,6 +151,7 @@ class JobHistory:
                 "created_at": row[3],
                 "started_at": row[4],
                 "finished_at": row[5],
+                "workspace": row[6] or DEFAULT_WORKSPACE_NAME,
                 "historical": True,
             }
             for row in rows
@@ -150,7 +161,8 @@ class JobHistory:
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
-                " arguments, spec, manifest, warnings, error FROM jobs WHERE id = ?",
+                " arguments, spec, manifest, warnings, error, workspace"
+                " FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
@@ -172,7 +184,7 @@ class JobHistory:
         except json.JSONDecodeError:
             return []
 
-    def job_for_file(self, file_name):
+    def job_for_file(self, file_name, workspace=None):
         """The most recent job that actually wrote this output file.
 
         LIKE metacharacters are escaped - generated names routinely contain
@@ -182,6 +194,10 @@ class JobHistory:
         A manifest entry marked 'reused' is a step-cache hit republishing an
         earlier run's files, so it is skipped: attribution belongs to the job
         that wrote the file, not to every later run that reused it.
+
+        `workspace` narrows the scan to one workspace - two workspaces can
+        each produce a file with the same relative name, and without this a
+        later job in another workspace could wrongly claim the match.
         """
         escaped = (
             file_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -190,12 +206,16 @@ class JobHistory:
         # file with 'reused', so a LIMIT would let the writing job fall out of
         # the window after that many reruns and leave the file unattributed.
         # The LIKE filter already restricts the scan to manifests naming it.
+        query = (
+            "SELECT id, status, manifest FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
+        )
+        params = [f"%{escaped}%"]
+        if workspace:
+            query += " AND workspace = ?"
+            params.append(workspace)
+        query += " ORDER BY finished_at DESC"
         with self._lock, self._connect() as connection:
-            rows = connection.execute(
-                "SELECT id, status, manifest FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
-                " ORDER BY finished_at DESC",
-                (f"%{escaped}%",),
-            ).fetchall()
+            rows = connection.execute(query, params).fetchall()
         for row in rows:
             if self._manifest_wrote(row[2], file_name):
                 return {"id": row[0], "status": row[1]}
@@ -254,6 +274,7 @@ class JobHistory:
             "manifest": parse(row[8], []),
             "warnings": parse(row[9], []),
             "error": row[10],
+            "workspace": row[11] or DEFAULT_WORKSPACE_NAME,
             "traceback": None,
             "event_count": 0,
             "historical": True,
@@ -313,6 +334,10 @@ class Job:
             "created_at": self.created_at,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            # Which workspace this job runs in - a live job's spec may not
+            # carry one yet (e.g. a caller that never named a workspace),
+            # so it defaults the same way history's column does
+            "workspace": self.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
         }
 
     def detail(self):
@@ -426,7 +451,12 @@ class JobManager:
                 or (os.path.abspath(confinement) if confinement else os.getcwd()),
                 "workflow_name": loaded.name,
                 "arguments": arguments,
-                "workflow_dir": self.workflow_dir,
+                # Must be the same root the worker re-validates base_dir
+                # against (workflow_from_definition -> validate_path) - this
+                # job's own confinement, not the manager's process-wide
+                # default, or a named workspace's inline job fails after a
+                # 201 the moment base_dir and workflow_dir disagree
+                "workflow_dir": confinement,
             }
 
         # Which workspace this job runs in, and the roots that follow from
@@ -460,14 +490,16 @@ class JobManager:
         return self.history.get(job_id)
 
     def rerun(self, job_id):
-        """Queue a fresh job from a previous job's spec."""
+        """Queue a fresh job from a previous job's spec.
+
+        Every root the original ran against (workflow_dir/output_dir/
+        asset_dir/workspace) rides along, not just the workflow identity -
+        otherwise a rerun of a job from a named workspace would fall back to
+        the manager's process-wide default and silently run somewhere else.
+        """
         job = self.jobs.get(job_id)
         if job is not None:
-            spec = {
-                key: job.spec[key]
-                for key in ("workflow_path", "workflow", "base_dir")
-                if key in job.spec
-            }
+            spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
             arguments = job.spec.get("arguments", {})
         else:
             historical = self.history.get(job_id)
@@ -479,11 +511,25 @@ class JobManager:
                 if key in historical["spec"]
             }
             arguments = historical["arguments"]
+
+        workspace = spec.get("workspace")
+        if (
+            workspace
+            and workspace != DEFAULT_WORKSPACE_NAME
+            and spec.get("output_dir")
+            and not os.path.isdir(spec["output_dir"])
+        ):
+            raise ValueError(f"Workspace '{workspace}' the job ran in no longer exists")
+
         return self.submit(
             workflow_path=spec.get("workflow_path"),
             workflow=spec.get("workflow"),
             arguments=arguments,
             base_dir=spec.get("base_dir"),
+            workflow_dir=spec.get("workflow_dir"),
+            output_dir=spec.get("output_dir"),
+            asset_dir=spec.get("asset_dir"),
+            workspace=workspace,
         )
 
     def queue_position(self, job_id):
@@ -501,7 +547,10 @@ class JobManager:
             detail["queue_position"] = position
         return detail
 
-    def list(self):
+    def list(self, workspace=None):
+        """All jobs, live and historical, sorted by creation. `workspace` filters to one workspace; omitted, the list
+        spans every workspace the server holds, unchanged from before
+        workspaces existed."""
         with self._lock:
             live = sorted(self.jobs.values(), key=lambda j: j.created_at)
             positions = {job_id: i for i, job_id in enumerate(self._pending)}
@@ -509,10 +558,12 @@ class JobManager:
         summaries = []
         for job in live:
             summary = job.summary()
+            if workspace and summary["workspace"] != workspace:
+                continue
             if job.id in positions:
                 summary["queue_position"] = positions[job.id]
             summaries.append(summary)
-        for historical in self.history.recent_summaries():
+        for historical in self.history.recent_summaries(workspace=workspace):
             if historical["id"] not in live_ids:
                 summaries.append(historical)
         summaries.sort(key=lambda summary: summary["created_at"] or 0)
