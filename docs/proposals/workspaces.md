@@ -236,10 +236,11 @@ Each stage is independently shippable and the first is behavior-neutral.
    writing into git.
 5. **`output:` references.** Closes the multi-stage loop.
 6. **MCP level 1** (done), **then level 2** - scoped separately in
-   [mcp-client-workspace.md](mcp-client-workspace.md), since level 1 changed
-   what level 2 has to solve: `asset:` references and `upload_asset` between
-   them remove the `base_dir` confinement problem this document called level
-   2's real design work.
+   [server-workspaces.md](server-workspaces.md), which reframes it: named
+   workspaces on the server, with a client workspace mirroring into one,
+   rather than a client-side system of record submitting inline. Level 1
+   had already removed the `base_dir` confinement problem this document
+   called level 2's real design work.
 
 ## Open questions
 
