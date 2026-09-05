@@ -235,7 +235,11 @@ Each stage is independently shippable and the first is behavior-neutral.
    through the API into the UI and MCP. This is the stage that stops agents
    writing into git.
 5. **`output:` references.** Closes the multi-stage loop.
-6. **MCP level 1, then level 2.**
+6. **MCP level 1** (done), **then level 2** - scoped separately in
+   [mcp-client-workspace.md](mcp-client-workspace.md), since level 1 changed
+   what level 2 has to solve: `asset:` references and `upload_asset` between
+   them remove the `base_dir` confinement problem this document called level
+   2's real design work.
 
 ## Open questions
 
