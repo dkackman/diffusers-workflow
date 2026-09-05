@@ -198,6 +198,22 @@ test('jobs and gallery pages render', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Gallery' })).toBeVisible()
 })
 
+test('downloads a multi-file gallery selection as one zip', async ({
+  page,
+}) => {
+  await page.goto('/#/gallery')
+  await expect(page.getByRole('heading', { name: 'Gallery' })).toBeVisible()
+
+  // the fixture seeds these two files into the output directory
+  await page.getByRole('checkbox', { name: 'select e2e-one.png' }).click()
+  await page.getByRole('checkbox', { name: 'select e2e-two.png' }).click()
+  await expect(page.getByText('2 selected')).toBeVisible()
+
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download .zip' }).click()
+  expect((await download).suggestedFilename()).toMatch(/^dw-outputs-.*\.zip$/)
+})
+
 test('validation flags a signature typo through the real server', async ({
   page,
 }) => {

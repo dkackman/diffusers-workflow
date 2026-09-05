@@ -59,3 +59,65 @@ def test_download_prompt_sets_content_disposition_attachment(server, tmp_path):
 
         plain = client.get("/api/prompts/greeting")
         assert plain.status_code == 200
+
+
+def test_archive_outputs_zips_every_requested_file(server, tmp_path):
+    """Bulk download hands back one zip so a multi-file gallery selection
+    is a single browser download rather than N blocked ones."""
+    import io
+    import zipfile
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        (outputs / "first.png").write_bytes(b"first-bytes")
+        nested = outputs / "demo"
+        nested.mkdir(exist_ok=True)
+        (nested / "second.png").write_bytes(b"second-bytes")
+
+        response = client.post(
+            "/api/gallery/archive", json={"names": ["first.png", "demo/second.png"]}
+        )
+
+        assert response.status_code == 200
+        assert "attachment" in response.headers["content-disposition"]
+        assert ".zip" in response.headers["content-disposition"]
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            # the gallery-relative name is the entry name, so the folders a
+            # workflow wrote into survive into the user's download
+            assert sorted(archive.namelist()) == ["demo/second.png", "first.png"]
+            assert archive.read("first.png") == b"first-bytes"
+            assert archive.read("demo/second.png") == b"second-bytes"
+
+
+def test_archive_outputs_rejects_a_name_outside_the_output_directory(server, tmp_path):
+    with server(success_script) as client:
+        (tmp_path / "secret.txt").write_bytes(b"not yours")
+
+        response = client.post(
+            "/api/gallery/archive", json={"names": ["../secret.txt"]}
+        )
+
+        assert response.status_code == 404
+
+
+def test_archive_outputs_rejects_an_unknown_name(server, tmp_path):
+    with server(success_script) as client:
+        response = client.post("/api/gallery/archive", json={"names": ["nope.png"]})
+
+        assert response.status_code == 404
+
+
+def test_archive_outputs_rejects_an_empty_selection(server, tmp_path):
+    with server(success_script) as client:
+        response = client.post("/api/gallery/archive", json={"names": []})
+
+        assert response.status_code == 422
+
+
+def test_archive_outputs_rejects_more_names_than_the_cap(server, tmp_path):
+    with server(success_script) as client:
+        response = client.post(
+            "/api/gallery/archive", json={"names": [f"f{i}.png" for i in range(1001)]}
+        )
+
+        assert response.status_code == 422

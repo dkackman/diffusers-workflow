@@ -13,6 +13,7 @@ itself with the server so Playwright's shutdown signal reaches it directly.
 """
 
 import os
+import base64
 import shutil
 import sys
 import tempfile
@@ -21,7 +22,19 @@ root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 scratch = tempfile.mkdtemp(prefix="dw-e2e-")
 for name in ("workflows", "prompts"):
     shutil.copytree(os.path.join(root, name), os.path.join(scratch, name))
-os.makedirs(os.path.join(scratch, "outputs"))
+outputs = os.path.join(scratch, "outputs")
+os.makedirs(outputs)
+
+# Two throwaway PNGs so the gallery specs have something to select. A 1x1
+# image written by hand rather than by PIL - the fixture runs before the
+# server and has no reason to import the imaging stack.
+ONE_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmM"
+    "IQAAAABJRU5ErkJggg=="
+)
+for name in ("e2e-one.png", "e2e-two.png"):
+    with open(os.path.join(outputs, name), "wb") as handle:
+        handle.write(ONE_PIXEL_PNG)
 
 os.chdir(root)
 os.execv(
@@ -33,7 +46,7 @@ os.execv(
         "--workflow-dir",
         os.path.join(scratch, "workflows"),
         "--output-dir",
-        os.path.join(scratch, "outputs"),
+        outputs,
         "--prompt-dir",
         os.path.join(scratch, "prompts"),
         *sys.argv[1:],

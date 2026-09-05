@@ -7,6 +7,8 @@ Interactive API docs are served at /docs (OpenAPI at /openapi.json).
 
 import os
 import io
+import zipfile
+import tempfile
 import copy
 import json
 import uuid
@@ -14,6 +16,7 @@ import asyncio
 import logging
 import secrets
 from contextlib import asynccontextmanager
+from datetime import datetime
 from urllib.parse import quote, urlparse
 from typing import Any, Dict, Optional
 
@@ -23,6 +26,7 @@ from fastapi.responses import StreamingResponse, JSONResponse, Response, FileRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.routing import Match, Route
+from starlette.background import BackgroundTask
 
 from ..security import (
     validate_path,
@@ -1140,6 +1144,45 @@ def create_app(
         """Serve one output file as a forced download rather than an inline view."""
         path = _output_file(name)
         return FileResponse(path, filename=os.path.basename(name))
+
+    # A generous ceiling rather than a real limit - it exists so a
+    # malformed client cannot ask the server to zip the whole directory
+    MAX_ARCHIVE_FILES = 1000
+
+    class ArchiveRequest(BaseModel):
+        names: list[str] = Field(min_length=1, max_length=MAX_ARCHIVE_FILES)
+
+    @app.post("/api/gallery/archive")
+    def archive_outputs(request: ArchiveRequest):
+        """Bundle a multi-file gallery selection into one zip. A browser
+        cannot zip on its own and throttles a burst of single downloads, so
+        the whole selection has to arrive as one file. Written to a temp
+        file rather than memory - a selection of videos does not fit in
+        RAM - and unlinked once the response has been sent."""
+        # Resolved before anything is written, so a bad name in the
+        # selection fails the request instead of yielding a partial zip
+        paths = [(name, _output_file(name)) for name in request.names]
+
+        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        try:
+            with handle:
+                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for name, path in paths:
+                        # the gallery-relative name keeps a workflow's output
+                        # subfolders intact inside the download
+                        archive.write(path, arcname=name)
+        except BaseException:
+            os.unlink(handle.name)
+            raise
+
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        logger.info(f"Archived {len(paths)} output files")
+        return FileResponse(
+            handle.name,
+            media_type="application/zip",
+            filename=f"dw-outputs-{stamp}.zip",
+            background=BackgroundTask(os.unlink, handle.name),
+        )
 
     @app.delete("/api/gallery/{name:path}")
     def delete_output(name: str):

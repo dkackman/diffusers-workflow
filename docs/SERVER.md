@@ -61,7 +61,11 @@ load entirely.
 - **Gallery** — everything in the output directory. Images generated with
   `embed_metadata` carry their full workflow definition and seed; **open as
   workflow** loads that definition into the editor with the seed pinned, so
-  any image can be reproduced or riffed on.
+  any image can be reproduced or riffed on. Each tile carries a checkbox
+  (shift-click extends a range, **Select all** takes whatever the filter
+  leaves showing); a selection can be downloaded as one zip or deleted in
+  bulk, which is how a directory that fills up over a few hundred runs gets
+  cleared out. Anything that fails to delete stays selected.
 - **Models** — the Hugging Face hub cache: every cached repo with sizes,
   revisions, and last-used dates, plus free disk space. Download a repo by
   id with live progress (cancellable; partial files resume on retry), and
@@ -160,6 +164,12 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/gallery`, `GET /api/gallery/{name}/metadata`,
   `DELETE /api/gallery/{name}` — outputs and their embedded metadata
 - `GET /api/gallery/{name:path}/download` — download an output file
+- `POST /api/gallery/archive` — `{"names": [...]}` (1-1000) bundles a
+  multi-file selection into one zip, named by each file's gallery-relative
+  path so output subfolders survive. A browser cannot zip on its own and
+  throttles a burst of single downloads, so the gallery's bulk download
+  goes through here; an unknown or out-of-directory name 404s the whole
+  request rather than yielding a partial archive
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,
