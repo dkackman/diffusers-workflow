@@ -32,9 +32,35 @@ export interface JobEvent {
 export interface HealthInfo {
   status: string
   version?: string
+  hostname?: string
+  device?: string
+  mcp?: boolean
   worker_alive: boolean
   current_job: string | null
   queued?: number
+}
+
+export interface ServerAddress {
+  address: string
+  family: string
+  interface: string | null
+}
+
+export interface ServerInfo {
+  hostname: string
+  version: string
+  device: string
+  bind_host: string
+  port: number
+  wildcard_bind: boolean
+  auth_required: boolean
+  mcp: { mounted: boolean; path: string }
+  addresses: ServerAddress[]
+  directories: {
+    workflows: string
+    outputs: string
+    prompts: string | null
+  }
 }
 
 export interface MemoryInfo {

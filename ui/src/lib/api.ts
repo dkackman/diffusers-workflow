@@ -12,6 +12,7 @@ import type {
   PipelineDescription,
   PromptDefinition,
   PromptDetail,
+  ServerInfo,
   ValidationResult,
   WorkflowDefinition,
 } from './types'
@@ -137,6 +138,7 @@ export const api = {
       method: 'POST',
     }),
   health: () => request<HealthInfo>('/api/health'),
+  server: () => request<ServerInfo>('/api/server'),
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
   // the limit just needs to exceed any real output directory's file count
   gallery: () => request<{ files: GalleryFile[] }>('/api/gallery?limit=100000'),

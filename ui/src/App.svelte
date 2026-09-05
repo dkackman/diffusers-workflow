@@ -10,6 +10,7 @@
     ListTree,
     MessageSquareText,
     Moon,
+    Server,
     MonitorCog,
     SquarePen,
     Sun,
@@ -31,6 +32,7 @@
   import GalleryPage from './lib/pages/GalleryPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
+  import ServerPage from './lib/pages/ServerPage.svelte'
 
   let memory = $state<MemoryInfo | null>(null)
   let health = $state<HealthInfo | null>(null)
@@ -164,6 +166,13 @@
       >
         <ListTree size={15} /><span class="navlabel">Schema</span>
       </a>
+      <a
+        href="#/server"
+        class:active={route.parts[0] === 'server'}
+        title="Server"
+      >
+        <Server size={15} /><span class="navlabel">Server</span>
+      </a>
     </nav>
     <button
       class="quiet icon themebtn"
@@ -256,6 +265,8 @@
 >
   {#if route.parts[0] === 'schema'}
     <SchemaPage />
+  {:else if route.parts[0] === 'server'}
+    <ServerPage />
   {:else if route.parts[0] === 'models'}
     <ModelsPage />
   {:else if route.parts[0] === 'gallery'}
@@ -418,7 +429,7 @@
       flex-basis: 100%;
     }
   }
-  /* Icons alone below the small breakpoint: seven labelled links do not fit
+  /* Icons alone below the small breakpoint: eight labelled links do not fit
      a phone, and each keeps its title for the tooltip */
   @media (max-width: 640px) {
     .navrow {

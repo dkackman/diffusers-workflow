@@ -9,6 +9,19 @@ import httpx
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8765"
 
+# Twin of dw.server.app.LOOPBACK_HOSTS. Duplicated rather than imported:
+# importing anything under dw/ runs dw/__init__.py and pulls in torch, which
+# this pure HTTP client must not do (tests/test_mcp_server.py guards that).
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def is_loopback_url(url):
+    """True when `url` names this machine's loopback interface - the case
+    where an unauthenticated dw.serve is only reachable by this user."""
+    from urllib.parse import urlparse
+
+    return (urlparse(url).hostname or "").lower() in LOOPBACK_HOSTS
+
 
 def path_segment(name):
     """Percent-encode a name for interpolation into a request path,

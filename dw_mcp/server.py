@@ -200,11 +200,15 @@ def build_server(client):
     def download_output(
         name: str, destination: str | None = None, overwrite: bool = False
     ) -> dict:
-        """Save one output file to local disk. Unlike get_output_image /
-        get_output_text, this works for any file type, streams the body
-        straight to disk rather than buffering it, and returns no content
-        to the conversation - only where it was saved. `destination` may be
-        a full path, a directory, or omitted to save into the current
+        """Save one output file to disk on the
+        machine running the MCP server - for the stdio `dw-mcp` that is your own machine; for a
+        `dw.serve --mcp` endpoint it is the GPU box, and this tool is not
+        the way to get a file to where you are (use get_output_image /
+        get_output_text for inline content, or the /outputs URL). Unlike
+        those two, this works for any file type, streams the body straight
+        to disk rather than buffering it, and returns no content to the
+        conversation - only where it was saved. `destination` may be a
+        full path, a directory, or omitted to save into the current
         working directory under the output's own name; a '..' path segment
         in it is refused. An existing file at the resolved path is left
         alone unless `overwrite=True`."""
