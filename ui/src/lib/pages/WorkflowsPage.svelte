@@ -30,7 +30,7 @@
 
   $effect(() => {
     // Read inside the effect so switching workspaces refetches the listing
-    workspace.current
+    void workspace.current
     api
       .listWorkflows()
       .then((result) => {

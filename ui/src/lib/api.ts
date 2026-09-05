@@ -15,47 +15,43 @@ import type {
   ServerInfo,
   ValidationResult,
   WorkflowDefinition,
+  WorkflowWithOrigin,
 } from './types'
 import { getApiToken } from './token'
+import { DEFAULT_WORKSPACE, workspace } from './workspace.svelte'
 
 /** Encode a workflow name for a URL, keeping its folder separators. */
 const encodePath = (name: string) =>
   name.split('/').map(encodeURIComponent).join('/')
 
+/** Append one query parameter to a URL, keeping whatever query it already
+ * has. Shared by every place that tacks a selector onto a path - the
+ * workspace scope, the download token - so there is one rule for `?` vs
+ * `&` instead of a hand-rolled check at each call site. */
+function appendQuery(url: string, key: string, value: string): string {
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}${key}=${encodeURIComponent(value)}`
+}
+
+/** Append the workspace selector to a path, keeping any query it has. The
+ * server defaults to this one when no selector is sent, so 'default' sends
+ * nothing and the request looks exactly as it did before workspaces
+ * existed. Routes that are not workspace-scoped (prompts, models, system)
+ * ignore an unknown query parameter, which is what lets this live in one
+ * place instead of being threaded through every call site. */
+function scoped(path: string): string {
+  if (workspace.current === DEFAULT_WORKSPACE) return path
+  return appendQuery(path, 'workspace', workspace.current)
+}
+
 /** Append the configured API token as a query parameter. Only for the
  * routes a browser loads without being able to set headers - EventSource,
  * <img> tags and <a download> navigations - which the server accepts it
  * on; see docs/SERVER.md. */
-/** The workspace every request is scoped to. The server defaults to this
- * one when no selector is sent, so 'default' sends nothing and the request
- * looks exactly as it did before workspaces existed. Routes that are not
- * workspace-scoped (prompts, models, system) ignore an unknown query
- * parameter, which is what lets this live in one place instead of being
- * threaded through every call site. */
-const DEFAULT_WORKSPACE = 'default'
-let currentWorkspace = DEFAULT_WORKSPACE
-
-export function setApiWorkspace(name: string): void {
-  currentWorkspace = name || DEFAULT_WORKSPACE
-}
-
-export function getApiWorkspace(): string {
-  return currentWorkspace
-}
-
-/** Append the workspace selector to a path, keeping any query it has. */
-function scoped(path: string): string {
-  if (currentWorkspace === DEFAULT_WORKSPACE) return path
-  const separator = path.includes('?') ? '&' : '?'
-  return `${path}${separator}workspace=${encodeURIComponent(currentWorkspace)}`
-}
-
 function withToken(url: string): string {
   const scopedUrl = scoped(url)
   const token = getApiToken()
-  if (!token) return scopedUrl
-  const separator = scopedUrl.includes('?') ? '&' : '?'
-  return `${scopedUrl}${separator}token=${encodeURIComponent(token)}`
+  return token ? appendQuery(scopedUrl, 'token', token) : scopedUrl
 }
 
 /** The URL an output file is served from. Jobs report files by their name
@@ -63,20 +59,38 @@ function withToken(url: string): string {
  * to '<sub>/<file>' - so the whole relative path is kept. A job recorded
  * before that change carries an absolute path, for which the basename is
  * the best available guess. `version` busts the browser cache: two runs of
- * one workflow write the same file names. */
-export function outputUrl(path: string, version?: string): string {
+ * one workflow write the same file names. `workspace`, when given, names
+ * the job's own workspace and wins over whatever is currently selected in
+ * the picker - a job page must load its files from where they were written,
+ * not from wherever the user has since navigated to. */
+export function outputUrl(
+  path: string,
+  version?: string,
+  workspace?: string,
+): string {
   const name = path.startsWith('/') ? (path.split('/').pop() ?? '') : path
   const url = `/outputs/${encodePath(name)}`
-  return scoped(
-    version === undefined ? url : `${url}?v=${encodeURIComponent(version)}`,
-  )
+  const versioned =
+    version === undefined ? url : appendQuery(url, 'v', version)
+  if (workspace === undefined) return scoped(versioned)
+  return workspace === DEFAULT_WORKSPACE
+    ? versioned
+    : appendQuery(versioned, 'workspace', workspace)
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** A JSON response together with its headers, for the rare endpoint whose
+ * result depends on both - `getWorkflow` reads its origin/writable from
+ * headers rather than the body. */
+async function fetchJson<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { scope?: boolean },
+): Promise<{ body: T; response: Response }> {
   const token = getApiToken()
   const headers = new Headers(init?.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(scoped(path), { ...init, headers })
+  const url = options?.scope === false ? path : scoped(path)
+  const response = await fetch(url, { ...init, headers })
   if (!response.ok) {
     let detail = response.statusText
     try {
@@ -86,7 +100,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(detail)
   }
-  return response.json()
+  return { body: await response.json(), response }
+}
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { scope?: boolean },
+): Promise<T> {
+  return (await fetchJson<T>(path, init, options)).body
 }
 
 /** Fetch a file-response endpoint and hand the body to the browser as a
@@ -147,9 +169,25 @@ export const api = {
         }
       >
     }>('/api/workflows'),
+  /** The workflow plus where it came from, read off the response headers
+   * rather than a separate `listWorkflows` lookup. */
   getWorkflow: (name: string) =>
-    request<WorkflowDefinition>(`/api/workflows/${encodePath(name)}`),
-  listJobs: () => request<{ jobs: JobSummary[] }>('/api/jobs'),
+    fetchJson<WorkflowDefinition>(`/api/workflows/${encodePath(name)}`).then(
+      ({ body, response }): WorkflowWithOrigin => ({
+        ...body,
+        origin: response.headers.get('X-Workflow-Origin') ?? '',
+        writable: response.headers.get('X-Workflow-Writable') !== 'false',
+      }),
+    ),
+  // Unscoped: the jobs list spans every workspace on purpose, with its own
+  // filter dropdown rather than following wherever the picker points.
+  // Omitting `workspace` returns jobs from all of them.
+  listJobs: (workspace?: string) =>
+    request<{ jobs: JobSummary[] }>(
+      workspace ? `/api/jobs?workspace=${encodeURIComponent(workspace)}` : '/api/jobs',
+      undefined,
+      { scope: false },
+    ),
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   rerunJob: (id: string) =>
     request<JobDetail>(`/api/jobs/${id}/rerun`, { method: 'POST' }),

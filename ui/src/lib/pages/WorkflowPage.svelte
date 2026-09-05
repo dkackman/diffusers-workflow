@@ -13,9 +13,10 @@
   let { name }: { name: string } = $props()
 
   let workflow = $state<WorkflowDefinition | null>(null)
-  let workflowDir = $state('')
   /** Where this workflow was read from, and whether it is the user's to
-   * change - an examples or builtin source is read-only. */
+   * change - an examples or builtin source is read-only. Both come back on
+   * `getWorkflow` itself, off the response headers, so there is no separate
+   * `listWorkflows` round trip just to learn them. */
   let origin = $state('')
   let writable = $state(true)
   let overrides = $state<Record<string, string>>({})
@@ -26,15 +27,16 @@
   $effect(() => {
     overrides = {}
     workflow = null
-    api.listWorkflows().then((r) => {
-      workflowDir = r.workflow_dir
-      origin = r.details[name]?.origin ?? ''
-      writable = r.details[name]?.writable ?? true
-    })
+    origin = ''
+    writable = true
     loadPromptLibrary()
     api
       .getWorkflow(name)
-      .then((definition) => (workflow = definition))
+      .then((definition) => {
+        workflow = definition
+        origin = definition.origin
+        writable = definition.writable
+      })
       .catch((e) => (error = e.message))
   })
 
@@ -113,7 +115,7 @@
   {#if !writable}
     <span
       class="readonly muted"
-      title={`read-only: this workflow comes from the ${origin} directory. Saving an edit writes a copy into ${workflowDir}`}
+      title={`read-only: this workflow comes from the ${origin} directory. Saving an edit writes a copy instead of overwriting it`}
     >
       read-only{origin ? ` (${origin})` : ''}
     </span>

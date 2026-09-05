@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api, fetchOutputText } from './api'
 
-type Stub = { ok: boolean; status?: number; body?: unknown; text?: string }
+type Stub = {
+  ok: boolean
+  status?: number
+  body?: unknown
+  text?: string
+  headers?: Record<string, string>
+}
 
 /** Install a fetch stub and record every URL and init it was called with. */
 function stubFetch(response: Stub) {
@@ -12,6 +18,7 @@ function stubFetch(response: Stub) {
       ok: response.ok,
       status: response.status ?? (response.ok ? 200 : 500),
       statusText: 'Internal Server Error',
+      headers: new Headers(response.headers),
       json: () =>
         response.body === undefined
           ? Promise.reject(new Error('not json'))

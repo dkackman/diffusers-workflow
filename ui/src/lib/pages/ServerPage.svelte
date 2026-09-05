@@ -20,6 +20,7 @@
   import { notify } from '../toast'
   import {
     DEFAULT_WORKSPACE,
+    invalidateWorkspaces,
     loadWorkspaces,
     selectWorkspace,
     workspace,
@@ -79,6 +80,7 @@
     try {
       await api.createWorkspace(name)
       newWorkspace = ''
+      invalidateWorkspaces()
       await loadWorkspaces()
       notify.success(`Created workspace ${name}`)
     } catch (e) {
@@ -98,6 +100,7 @@
       try {
         await api.deleteWorkspace(name, true)
         if (workspace.current === name) selectWorkspace(DEFAULT_WORKSPACE)
+        invalidateWorkspaces()
         await loadWorkspaces()
         notify.success(`Deleted workspace ${name}`)
       } catch (failure) {

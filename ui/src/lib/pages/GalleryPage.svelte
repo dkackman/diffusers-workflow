@@ -33,7 +33,7 @@
 
   $effect(() => {
     // Read inside the effect so switching workspaces refetches the gallery
-    workspace.current
+    void workspace.current
     api
       .gallery()
       .then((result) => {
