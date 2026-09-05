@@ -9,6 +9,7 @@ where it mattered.
 """
 
 from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, api_path
+from dw_mcp import catalog
 
 
 def list_workspaces(client):
@@ -80,3 +81,32 @@ def delete_workspace(client, name, acknowledged_cost=False):
     if client.workspace == name:
         client.workspace = DEFAULT_WORKSPACE
     return {**result, "current": client.workspace}
+
+
+def server_info(client):
+    """What this installation can do and where it keeps things: the
+    accelerator, version, directories, and which workspace this session works
+    in. When the session is in a named workspace, directories are scoped to
+    that workspace rather than the server's default.
+    """
+    info = catalog.get_server_info(client)
+
+    # /api/server describes the server's default workspace. A session in a
+    # named one is told where *its* folders are, so a path it is handed
+    # back is relative to the right place. The root's other keys (the
+    # workspace root itself) stay
+    if client.workspace != DEFAULT_WORKSPACE:
+        listing = client.get_json("/api/workspaces")
+        for workspace in listing.get("workspaces") or []:
+            if isinstance(workspace, dict) and workspace.get("name") == client.workspace:
+                info["directories"] = {
+                    **(info.get("directories") or {}),
+                    **{
+                        key: workspace.get(key)
+                        for key in ("workflows", "assets", "outputs", "prompts")
+                    },
+                }
+                break
+
+    info["workspace"] = client.workspace
+    return info

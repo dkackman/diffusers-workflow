@@ -186,6 +186,21 @@ def test_a_404_names_what_was_missing():
     assert "Unknown job" in str(caught.value)
 
 
+def test_a_deleted_workspace_404_suggests_recovery():
+    """When a workspace was deleted elsewhere, the error message should
+    point to list_workspaces and use_workspace."""
+    def handler(request):
+        return httpx.Response(404, json={"detail": "No such workspace: shots"})
+
+    with pytest.raises(DwApiError) as caught:
+        client_with(handler).get_json("/api/workflows")
+
+    message = str(caught.value)
+    assert "No such workspace: shots" in message
+    assert "list_workspaces shows what exists" in message
+    assert "use_workspace switches" in message
+
+
 def test_a_500_is_labelled_a_server_side_failure():
     def handler(request):
         return httpx.Response(500, text="boom")

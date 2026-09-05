@@ -140,6 +140,14 @@ class ConfigCommands:
                 self.repl.globals["output_dir"] = workspace.outputs
                 print(f"  workflow_dir={workspace.workflows}")
                 print(f"  output_dir={workspace.outputs}")
+                # Warn if a worker is already running - it keeps using the
+                # old prompt and asset libraries until restart
+                worker_manager = getattr(self.repl, "worker_manager", None)
+                if worker_manager and getattr(worker_manager, "worker_active", False):
+                    print(
+                        "Note: the running worker keeps the prompt and asset "
+                        "libraries it started with until 'workflow restart'."
+                    )
             else:
                 print(f"Warning: Unknown setting '{name}'")
 

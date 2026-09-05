@@ -154,8 +154,10 @@ def build_server(client):
         device before authoring: a CUDA-only choice - bitsandbytes
         quantization, torch.compile, flash attention - is not available on
         an mps or cpu server, and `directories` is what a path passed to
-        run_workflow or download_output is relative to."""
-        return catalog.get_server_info(client)
+        run_workflow or download_output is relative to. If this session
+        works in a named workspace, `directories` are scoped to that
+        workspace."""
+        return workspaces.server_info(client)
 
     def list_jobs() -> dict:
         """List queued, running and recent jobs."""

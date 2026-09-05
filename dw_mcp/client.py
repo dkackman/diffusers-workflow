@@ -317,4 +317,9 @@ class DwClient:
                 else:
                     messages.append(str(entry))
             return ". ".join(messages) if messages else str(detail)
-        return str(detail)
+        formatted = str(detail)
+        # When a workspace was deleted elsewhere, give the agent a path
+        # to recovery: list available workspaces and switch to one
+        if isinstance(detail, str) and detail.startswith("No such workspace"):
+            formatted += " - list_workspaces shows what exists; use_workspace switches."
+        return formatted

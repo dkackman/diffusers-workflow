@@ -10,6 +10,7 @@ from dw_mcp.workspaces import (
     delete_workspace,
     list_workspaces,
     use_workspace,
+    server_info,
 )
 
 
@@ -107,3 +108,96 @@ class TestLifecycle:
         assert "acknowledged=true" in str(seen[-1].url)
         assert client.workspace == DEFAULT_WORKSPACE
         assert result["current"] == DEFAULT_WORKSPACE
+
+
+class TestServerInfo:
+    def test_default_workspace_returns_server_directories_unchanged(self):
+        """When in the default workspace, directories come straight from
+        /api/server and the workspace field is added."""
+
+        def handler(request):
+            if request.url.path == "/api/server":
+                return httpx.Response(
+                    200,
+                    json={
+                        "device": "cuda",
+                        "version": "0.1.0",
+                        "directories": {
+                            "workflows": "/home/user/workflows",
+                            "assets": "/home/user/assets",
+                            "outputs": "/home/user/outputs",
+                            "prompts": "/home/user/prompts",
+                        },
+                    },
+                )
+            return httpx.Response(200, json={})
+
+        client = DwClient(transport=httpx.MockTransport(handler))
+        result = server_info(client)
+
+        assert result["workspace"] == DEFAULT_WORKSPACE
+        assert result["directories"]["workflows"] == "/home/user/workflows"
+        assert result["directories"]["assets"] == "/home/user/assets"
+        assert result["directories"]["outputs"] == "/home/user/outputs"
+        assert result["directories"]["prompts"] == "/home/user/prompts"
+        assert result["device"] == "cuda"
+        assert result["version"] == "0.1.0"
+
+    def test_named_workspace_swaps_directories(self):
+        """When in a named workspace, directories are replaced with the
+        workspace-specific ones from /api/workspaces."""
+
+        def handler(request):
+            if request.url.path == "/api/server":
+                return httpx.Response(
+                    200,
+                    json={
+                        "device": "cuda",
+                        "version": "0.1.0",
+                        "directories": {
+                            "workflows": "/home/user/workflows",
+                            "assets": "/home/user/assets",
+                            "outputs": "/home/user/outputs",
+                            "prompts": "/home/user/prompts",
+                        },
+                    },
+                )
+            elif request.url.path == "/api/workspaces":
+                return httpx.Response(
+                    200,
+                    json={
+                        "workspace_root": "/studio",
+                        "default": DEFAULT_WORKSPACE,
+                        "workspaces": [
+                            {
+                                "name": DEFAULT_WORKSPACE,
+                                "default": True,
+                                "workflows": "/home/user/workflows",
+                                "assets": "/home/user/assets",
+                                "outputs": "/home/user/outputs",
+                                "prompts": "/home/user/prompts",
+                            },
+                            {
+                                "name": "shots",
+                                "default": False,
+                                "workflows": "/studio/shots/workflows",
+                                "assets": "/studio/shots/assets",
+                                "outputs": "/studio/shots/outputs",
+                                "prompts": "/home/user/prompts",
+                            },
+                        ],
+                    },
+                )
+            return httpx.Response(200, json={})
+
+        client = DwClient(transport=httpx.MockTransport(handler))
+        client.workspace = "shots"
+        result = server_info(client)
+
+        assert result["workspace"] == "shots"
+        assert result["directories"]["workflows"] == "/studio/shots/workflows"
+        assert result["directories"]["assets"] == "/studio/shots/assets"
+        assert result["directories"]["outputs"] == "/studio/shots/outputs"
+        assert result["directories"]["prompts"] == "/home/user/prompts"
+        assert result["device"] == "cuda"
+        assert result["version"] == "0.1.0"
