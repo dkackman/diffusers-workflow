@@ -7,15 +7,17 @@ Guidance for the `dw_mcp/` stdio MCP server package.
 introspection, validate/save/delete, the stored prompt library and its
 enhancer, queue a run, poll its events, and view or read a generated file.
 It covers the REST surface except the SSE event stream (whose polling twin
-`/event-log` is what `get_job_events` uses), `POST /api/uploads` (a browser
-file picker's route onto the box - an MCP client has no bytes to push there),
-the gallery's bulk zip, and the SPA's static mount. `get_server_info`
+`/event-log` is what `get_job_events` uses), the gallery's bulk zip, and the
+SPA's static mount. `POST /api/uploads` *is* covered, by `upload_asset`: an
+agent that can only name assets already on the box authors workflows it
+cannot supply inputs for, so the tool reads a file on this machine and pushes
+its bytes, returning the `asset:` reference rather than a path (`assets.py`). `get_server_info`
 (`/api/server`) is the capability call: the device a run will use, the dw
-version and the workflow/output/prompt directories, which is what tells an
+version, the workspace and the workflow/output/prompt/asset directories, which is what tells an
 agent authoring remotely whether a CUDA-only choice is even available. It is an HTTP client of a *running* `dw.serve` — it owns no
 job state and no GPU worker. Only `dw_mcp/server.py` imports the MCP SDK; the
 handlers in `catalog.py`, `authoring.py`, `prompts.py`, `diagnose.py`,
-`media.py` and `models.py` are plain `(client, **kwargs)` functions, which is what makes
+`media.py`, `assets.py` and `models.py` are plain `(client, **kwargs)` functions, which is what makes
 them testable without an MCP session. It is a top-level package rather than
 `dw.mcp` on purpose: importing any `dw.*` submodule runs `dw/__init__.py`
 and pulls in torch, which a pure HTTP client has no use for — a test guards

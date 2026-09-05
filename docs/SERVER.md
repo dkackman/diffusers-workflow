@@ -180,7 +180,11 @@ The editor's forms come from these; they are just as usable from scripts:
   throttles a burst of single downloads, so the gallery's bulk download
   goes through here; an unknown or out-of-directory name 404s the whole
   request rather than yielding a partial archive
-- `POST /api/uploads?filename=...` — the raw bytes of one image or video
+- `GET /api/assets` — the asset library: input media, each with the
+  `asset:` reference a workflow carries rather than a path, since a path
+  only means something on the server's own machine. Empty rather than an
+  error when no library is configured
+- `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
   again on the body; extension held to the allowed image/video list), saved
   into the asset library's `uploads/` subfolder under a generated name.

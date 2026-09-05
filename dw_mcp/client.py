@@ -109,6 +109,14 @@ class DwClient:
     def delete_json(self, path, params=None):
         return self._json(self._request("DELETE", path, params=params), path)
 
+    def post_bytes(self, path, data, params=None):
+        """Send a file's bytes as the request body - the shape
+        POST /api/uploads takes, so a single file needs no multipart
+        parser at either end."""
+        return self._json(
+            self._request("POST", path, content=data, params=params), path
+        )
+
     def get_bytes(self, path):
         """Raw body plus content type - for the output media served from the
         /outputs static mount rather than an /api route."""

@@ -1144,6 +1144,45 @@ def test_the_asset_library_does_not_shadow_the_spa(tmp_path):
         assert served.text == "the asset library"
 
 
+def test_the_asset_library_lists_what_it_holds(asset_server, tmp_path):
+    """Listed by reference, not by path: 'asset:uploads/x.png' is what a
+    workflow argument carries, and a path means nothing to a client that is
+    not on this machine."""
+    library = tmp_path / "assets"
+    (library / "gyre").mkdir(parents=True)
+    (library / "iris.png").write_bytes(b"png")
+    (library / "gyre" / "voice.wav").write_bytes(b"riff")
+    (library / "notes.txt").write_text("not media")
+
+    with asset_server(success_script) as client:
+        body = client.get("/api/assets").json()
+
+    names = {entry["name"]: entry for entry in body["assets"]}
+    assert set(names) == {"iris.png", "gyre/voice.wav"}
+    assert names["iris.png"]["reference"] == "asset:iris.png"
+    assert names["gyre/voice.wav"]["kind"] == "audio"
+    assert body["folders"] == ["", "gyre"]
+
+
+def test_listing_assets_without_a_library_is_empty_not_an_error(server):
+    with server(success_script) as client:
+        body = client.get("/api/assets").json()
+    assert body["assets"] == []
+    assert body["asset_dir"] is None
+
+
+def test_an_audio_file_can_be_uploaded(asset_server, tmp_path):
+    """A workflow's audio reference is built from a .wav - refusing it would
+    leave one input kind with no way onto the machine."""
+    with asset_server(success_script) as client:
+        response = client.post(
+            "/api/uploads", params={"filename": "voice.wav"}, content=b"riff"
+        )
+    assert response.status_code == 201
+    assert response.json()["path"].startswith("asset:uploads/")
+    assert response.json()["path"].endswith(".wav")
+
+
 def test_the_asset_library_is_reported(asset_server, tmp_path):
     with asset_server(success_script) as client:
         directories = client.get("/api/server").json()["directories"]

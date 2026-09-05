@@ -111,7 +111,10 @@
   </button>
   <span class="spacer"></span>
   {#if !writable}
-    <span class="readonly muted" title={`read-only: this workflow comes from the ${origin} directory. Saving an edit writes a copy into ${workflowDir}`}>
+    <span
+      class="readonly muted"
+      title={`read-only: this workflow comes from the ${origin} directory. Saving an edit writes a copy into ${workflowDir}`}
+    >
       read-only{origin ? ` (${origin})` : ''}
     </span>
   {/if}

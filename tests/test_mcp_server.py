@@ -58,6 +58,8 @@ EXPECTED_TOOLS = {
     "get_output_text",
     "download_output",
     "delete_output",
+    "list_assets",
+    "upload_asset",
 }
 
 READ_ONLY_TOOLS = EXPECTED_TOOLS - {
@@ -76,6 +78,7 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "enhance_prompt",
     "download_output",
     "delete_output",
+    "upload_asset",
 }
 
 DESTRUCTIVE_TOOLS = {
@@ -265,6 +268,15 @@ async def test_an_image_comes_back_as_an_image_block():
 # Every tool, the arguments a client would send, and the one API call it is
 # expected to make. This is the wiring: a tool bound to the wrong handler or
 # handed its arguments in the wrong order shows up here and nowhere else.
+def _a_file_to_upload():
+    """A real file on disk: upload_asset reads it before it calls out, so
+    the wiring test needs one that exists."""
+    path = os.path.join(tempfile.mkdtemp(), "iris.png")
+    with open(path, "wb") as handle:
+        handle.write(b"png-bytes")
+    return path
+
+
 TOOL_WIRING = [
     ("list_workflows", {}, "GET", "/api/workflows"),
     ("get_workflow", {"name": "w"}, "GET", "/api/workflows/w"),
@@ -387,6 +399,13 @@ TOOL_WIRING = [
         "/outputs/out.png",
     ),
     ("delete_output", {"name": "out.png"}, "DELETE", "/api/gallery/out.png"),
+    ("list_assets", {}, "GET", "/api/assets"),
+    (
+        "upload_asset",
+        {"file_path": _a_file_to_upload()},
+        "POST",
+        "/api/uploads",
+    ),
 ]
 
 

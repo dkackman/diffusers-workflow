@@ -11,7 +11,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, TextContent, ToolAnnotations
 
-from dw_mcp import authoring, catalog, diagnose, media, models, prompts
+from dw_mcp import assets, authoring, catalog, diagnose, media, models, prompts
 from dw_mcp.client import DwApiError
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
@@ -236,6 +236,26 @@ def build_server(client):
     tool(get_output_text, READ_ONLY)
     tool(download_output, OVERWRITES)
     tool(delete_output, DELETES)
+
+    # ---------------------------------------------------------------- assets
+
+    def list_assets() -> dict:
+        """List the input media on the server, each with the "asset:"
+        reference a workflow argument carries. Look here before asking for
+        a file: what a workflow needs may already be there."""
+        return assets.list_assets(client)
+
+    def upload_asset(file_path: str) -> dict:
+        """Put a local image, video or audio file into the server's asset
+        library and get back the "asset:" reference to use in a workflow.
+        The file is read from this machine and pushed to the server, so it
+        is how an input gets to a server running somewhere else. Reference
+        the result rather than a path: a path on this machine means nothing
+        to the server."""
+        return assets.upload_asset(client, file_path)
+
+    tool(list_assets, READ_ONLY)
+    tool(upload_asset, WRITES)
 
     # ----------------------------------------------------------- authoring
 

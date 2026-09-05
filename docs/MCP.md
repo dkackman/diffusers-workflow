@@ -220,6 +220,8 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `validate_workflow(workflow=None, name=None)` | exactly one of `workflow` (inline definition) or `name` (a stored workflow, as `list_workflows` reports it) | Check a workflow against the schema and against real pipeline signatures. Free and instant. Validating by name uses the workflow file's own directory as the base directory, so it sees what a run would |
+| `list_assets()` | — | The input media on the server, each with the `asset:` reference a workflow argument carries. Look here before asking for a file - what a workflow needs may already be there |
+| `upload_asset(file_path)` | `file_path` | Push a local image, video or audio file into the server's asset library and get back its `asset:` reference. The file is read from the machine the MCP server runs on, so this is how an input reaches a dw.serve running somewhere else |
 | `save_workflow(name, workflow)` | `name`, `workflow` | Save a workflow into the server's writable workflow directory, overwriting any existing workflow of that name there. A name that currently resolves to a read-only source (an examples directory) is not overwritten - the copy lands in the writable directory and shadows it |
 | `delete_workflow(name)` | `name` | Permanently delete a stored workflow |
 

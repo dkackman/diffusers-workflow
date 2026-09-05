@@ -1338,12 +1338,17 @@ def create_app(
     # ---------------------------------------------------------------- uploads
 
     UPLOADS_SUBDIR = "uploads"
-    ALLOWED_UPLOAD_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS
+    # Audio included: the asset library holds it and workflows read it (an
+    # H3 audio reference is built from a .wav), so refusing it here would
+    # leave one input kind with no way onto the machine
+    ALLOWED_UPLOAD_EXTENSIONS = (
+        ALLOWED_IMAGE_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS | ALLOWED_AUDIO_EXTENSIONS
+    )
     MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200MB - covers a short video clip
 
     @app.post("/api/uploads", status_code=201)
     async def upload_media(request: Request, filename: str):
-        """Save a browser-picked image or video into the asset library's
+        """Save a browser-picked image, video or audio file into the asset library's
         uploads/ subfolder and hand back the reference a workflow argument
         can carry.
 
@@ -1399,6 +1404,51 @@ def create_app(
         return {
             "path": dest,
             "url": f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}",
+        }
+
+    @app.get("/api/assets")
+    def list_assets():
+        """The asset library: the input media an 'asset:' reference names.
+
+        Reported by reference rather than by path - 'asset:uploads/x.png' is
+        what a workflow argument carries, and a client that only ever sees
+        references cannot accidentally write a path that means something
+        else on another machine. Empty, not an error, on a server with no
+        library configured: nothing is wrong, there is just nowhere for an
+        asset to be.
+        """
+        library = app.state.asset_dir
+        if not library or not os.path.isdir(library):
+            return {"asset_dir": library, "assets": [], "folders": []}
+
+        assets = []
+        for root, _dirs, names in os.walk(library):
+            relative_root = os.path.relpath(root, library)
+            folder = "" if relative_root == "." else relative_root.replace(os.sep, "/")
+            for name in names:
+                kind = MEDIA_KINDS.get(os.path.splitext(name)[1].lower())
+                if kind is None:
+                    continue
+                relative = name if not folder else f"{folder}/{name}"
+                try:
+                    stat = os.stat(os.path.join(root, name))
+                except OSError:
+                    continue
+                assets.append(
+                    {
+                        "name": relative,
+                        "reference": f"asset:{relative}",
+                        "folder": folder,
+                        "kind": kind,
+                        "size": stat.st_size,
+                        "mtime": stat.st_mtime,
+                    }
+                )
+        assets.sort(key=lambda entry: entry["mtime"], reverse=True)
+        return {
+            "asset_dir": library,
+            "assets": assets,
+            "folders": sorted({entry["folder"] for entry in assets} | {""}),
         }
 
     # ----------------------------------------------------------------- models
