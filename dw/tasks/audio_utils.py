@@ -377,3 +377,89 @@ def _matched_channels(*waveforms):
         )
         for waveform in waveforms
     )
+
+
+def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
+    """Task command: fade a track in from silence and out to it.
+
+    A slice cut out of the middle of a piece ends on whatever was sounding at
+    the cut; a short fade turns that into an ending. The curve is the
+    equal-power cosine the seam joins use, so a fade sounds like a fade and
+    not a volume knob.
+
+    Args:
+        audio: Path or URL of an audio file, or a waveform (which needs
+            sample_rate alongside it)
+        fade_in_ms: Length of the fade in, from the head of the track
+        fade_out_ms: Length of the fade out, to the tail of the track
+        sample_rate: Sample rate of a waveform passed directly
+
+    Returns:
+        The faded track as a (samples, channels) float32 array
+    """
+    waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "fade_audio")
+    if fade_in_ms < 0 or fade_out_ms < 0:
+        raise ValueError("fade_audio fade lengths cannot be negative")
+    faded = waveform.copy()
+    length = faded.shape[1]
+
+    fade_in = min(int(round(fade_in_ms / 1000 * sample_rate)), length)
+    if fade_in:
+        faded[:, :fade_in] *= _fade_curve(fade_in)[::-1]
+    fade_out = min(int(round(fade_out_ms / 1000 * sample_rate)), length)
+    if fade_out:
+        faded[:, length - fade_out :] *= _fade_curve(fade_out)
+    return faded.T
+
+
+def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
+    """Task command: scale a track so its loudest sample sits at a level.
+
+    Generated music comes out at whatever level the model happened to land
+    on - quiet takes need lifting before they sit under a picture, and a
+    hot one needs headroom before the encoder. Peak normalization changes
+    nothing but the gain, so the dynamics survive.
+
+    Args:
+        audio: Path or URL of an audio file, or a waveform (which needs
+            sample_rate alongside it)
+        peak_dbfs: The level the loudest sample is moved to, in dB below full
+            scale. 0 is full scale; -1 leaves a little headroom
+        sample_rate: Sample rate of a waveform passed directly
+
+    Returns:
+        The scaled track as a (samples, channels) float32 array; a silent
+        track is returned unchanged
+    """
+    waveform, _ = _waveform_and_rate(audio, sample_rate, "normalize_audio")
+    if peak_dbfs > 0:
+        raise ValueError("normalize_audio 'peak_dbfs' cannot be above full scale (0)")
+    peak = float(numpy.abs(waveform).max()) if waveform.size else 0.0
+    if peak == 0.0:
+        logger.warning("normalize_audio: the track is silent - left unchanged")
+        return waveform.T
+    gain = 10 ** (peak_dbfs / 20) / peak
+    logger.debug(
+        f"normalize_audio: peak {peak:.3f}, gain {20 * numpy.log10(gain):+.1f} dB"
+    )
+    return (waveform * gain).astype(numpy.float32).T
+
+
+def _fade_curve(window):
+    """A cosine fall from full level to exact silence, both ends included -
+    unlike the seam ramps, which stop short of the endpoint so two of them
+    tile a crossfade without a doubled sample."""
+    theta = numpy.linspace(0.0, numpy.pi / 2.0, window, endpoint=True)
+    return numpy.cos(theta, dtype=numpy.float32)
+
+
+def _waveform_and_rate(audio, sample_rate, command):
+    """A command's audio argument as a (channels, samples) array with its rate.
+
+    A path loads with the file's own rate; a waveform needs the rate given.
+    """
+    if isinstance(audio, str):
+        return load_audio(audio)
+    if sample_rate is None:
+        raise ValueError(f"{command} needs 'sample_rate' with a raw waveform")
+    return as_channels_samples(audio), sample_rate

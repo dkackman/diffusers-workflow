@@ -48,6 +48,7 @@ and cuts when you need to go past 14 seconds.
 | [MiniMaxH3Ref2VA.json](MiniMaxH3Ref2VA.json) | The `references` list: an image fixes a subject's appearance, an audio clip fixes their voice |
 | [MiniMaxH3Ref2VAVideo.json](MiniMaxH3Ref2VAVideo.json) | A video reference contributes framing, lighting and camera rather than appearance |
 | [MiniMaxH3Ref2VAGeneratedSubject.json](MiniMaxH3Ref2VAGeneratedSubject.json) | Drawing the subject with Z-Image first and referencing it with `from_previous_result` |
+| [MiniMaxH3Storyboard.json](MiniMaxH3Storyboard.json) | Several images in one request: a first frame plus storyboard anchors for later shots, so one generation cuts between three boards under an unbroken score |
 
 ## Going long: chains
 

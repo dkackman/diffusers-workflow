@@ -118,6 +118,37 @@ def _handle_concat_videos(task, arguments, previous_pipelines):
     return concat_videos(**arguments)
 
 
+@register_command(
+    "dissolve_videos", implementation="dw.tasks.dissolve_videos.dissolve_videos"
+)
+def _handle_dissolve_videos(task, arguments, previous_pipelines):
+    """Join videos with cross-dissolves, fading the whole from and to a colour"""
+    logger.debug("Dissolving videos")
+    from .dissolve_videos import dissolve_videos
+
+    return dissolve_videos(**arguments)
+
+
+@register_command("fade_audio", implementation="dw.tasks.audio_utils.fade_audio")
+def _handle_fade_audio(task, arguments, previous_pipelines):
+    """Fade an audio track in from silence and out to it"""
+    logger.debug("Fading audio")
+    from .audio_utils import fade_audio
+
+    return fade_audio(**arguments)
+
+
+@register_command(
+    "normalize_audio", implementation="dw.tasks.audio_utils.normalize_audio"
+)
+def _handle_normalize_audio(task, arguments, previous_pipelines):
+    """Scale an audio track so its peak sits at a given level"""
+    logger.debug("Normalizing audio")
+    from .audio_utils import normalize_audio
+
+    return normalize_audio(**arguments)
+
+
 @register_command("slice_audio", implementation="dw.tasks.audio_utils.slice_audio")
 def _handle_slice_audio(task, arguments, previous_pipelines):
     """Cut a time- or frame-aligned slice out of an audio track"""

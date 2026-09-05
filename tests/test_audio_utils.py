@@ -299,3 +299,75 @@ class TestResampleAudio:
         waveform = torch.zeros(2, 44100)
 
         assert resample_audio(waveform, 32000, sample_rate=44100).shape == (32000, 2)
+
+
+class TestFadeAudio:
+    def test_fades_end_on_silence_and_leave_the_middle_alone(self):
+        from dw.tasks.audio_utils import fade_audio
+
+        track = numpy.ones((2, 1000), dtype=numpy.float32)
+
+        faded = fade_audio(track, fade_in_ms=100, fade_out_ms=200, sample_rate=1000)
+
+        assert faded.shape == (1000, 2)
+        assert faded[0, 0] == pytest.approx(0.0, abs=1e-6)
+        assert faded[-1, 0] == pytest.approx(0.0, abs=1e-6)
+        assert faded[99, 0] == pytest.approx(1.0)
+        assert faded[800, 0] == pytest.approx(1.0)
+        assert numpy.all(faded[100:800] == 1.0)
+        assert numpy.all(numpy.diff(faded[:100, 0]) > 0)
+        assert numpy.all(numpy.diff(faded[800:, 0]) < 0)
+
+    def test_the_input_is_not_modified(self):
+        from dw.tasks.audio_utils import fade_audio
+
+        track = numpy.ones((1, 100), dtype=numpy.float32)
+        fade_audio(track, fade_out_ms=50, sample_rate=1000)
+
+        assert numpy.all(track == 1.0)
+
+    def test_a_fade_longer_than_the_track_is_clamped(self):
+        from dw.tasks.audio_utils import fade_audio
+
+        faded = fade_audio(numpy.ones((1, 10)), fade_in_ms=5000, sample_rate=100)
+
+        assert faded.shape == (10, 1)
+
+    def test_a_waveform_needs_a_sample_rate(self):
+        from dw.tasks.audio_utils import fade_audio
+
+        with pytest.raises(ValueError, match="sample_rate"):
+            fade_audio(numpy.ones((1, 10)))
+
+    def test_negative_fades_are_refused(self):
+        from dw.tasks.audio_utils import fade_audio
+
+        with pytest.raises(ValueError, match="negative"):
+            fade_audio(numpy.ones((1, 10)), fade_in_ms=-1, sample_rate=100)
+
+
+class TestNormalizeAudio:
+    def test_the_peak_lands_on_the_target(self):
+        from dw.tasks.audio_utils import normalize_audio
+
+        track = numpy.array([[0.1, -0.25, 0.05]], dtype=numpy.float32)
+
+        scaled = normalize_audio(track, peak_dbfs=-6.0, sample_rate=100)
+
+        assert scaled.shape == (3, 1)
+        assert numpy.abs(scaled).max() == pytest.approx(10 ** (-6 / 20), abs=1e-6)
+        # Only the gain changed
+        assert scaled[:, 0] / track[0] == pytest.approx(
+            numpy.full(3, scaled[1, 0] / track[0, 1])
+        )
+
+    def test_silence_is_left_alone(self):
+        from dw.tasks.audio_utils import normalize_audio
+
+        assert numpy.all(normalize_audio(numpy.zeros((1, 10)), sample_rate=100) == 0)
+
+    def test_a_target_above_full_scale_is_refused(self):
+        from dw.tasks.audio_utils import normalize_audio
+
+        with pytest.raises(ValueError, match="full scale"):
+            normalize_audio(numpy.ones((1, 10)), peak_dbfs=1.0, sample_rate=100)

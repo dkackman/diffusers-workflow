@@ -1,0 +1,241 @@
+{
+    "id": "MiniMaxH3Storyboard",
+    "description": "One generation, three shots, from a storyboard of stills. H3 packs every reference into the same sequence it generates, so a request can hand it several images and say what each one is for: Z-Image draws three boards, and the 'ref2va' prompt makes <Picture 1> the first frame of [Shot 1] and <Picture 2> and <Picture 3> storyboard anchors for the cuts at 00:02.700 and 00:05.400. Because the cuts happen inside one in-context generation rather than between separate runs, the soundtrack - a piano score - runs unbroken across them, which no concat of separate shots can give. The boards are drawn by one Z-Image pipeline (identical configurations share a load) and 'release_pipeline' on the last frees it before H3 loads. 'reference_image_short_edge' is lowered from its 2048 default so three references fit alongside a 192-frame clip on a 24GB card.",
+    "variables": {
+        "board_1_launch": "close-up at puddle level on a rain-wet cobblestone street: a child's small hand in a yellow raincoat sleeve setting a folded white paper boat onto a wide rain puddle, raindrops ringing the water, blurred umbrellas and shopfront lights reflected in it, overcast soft daylight, photographic, sharp focus on the boat",
+        "board_2_gutter": "low angle photograph of a folded white paper boat racing along a rushing rain-swollen stone gutter between cobblestones, white water splashing around its bow, wet grey street and blurred passing legs beyond, rainy afternoon light, photographic, sharp focus on the boat",
+        "board_3_shore": "wide low-angle photograph of a folded white paper boat resting on wet sand at the edge of a calm sea at sunset, golden light along the water, small waves lapping toward it, a long empty beach and warm sky, photographic, sharp focus on the boat",
+        "prompt": "subject_definitions:\n<Subject 1> is the paper boat in <Picture 1>, <Picture 2> and <Picture 3>: a small boat folded from one sheet of plain white paper, with a peaked centre sail and edges softened and slightly translucent from the rain.\n<Picture 1> is the first frame of [Shot 1]: a child's hand in a yellow raincoat sleeve setting <Subject 1> onto a rain puddle on a cobblestone street.\n<Picture 2> is a storyboard reference for [Shot 2], defining its low viewpoint, the rushing stone gutter and the boat's placement in the white water.\n<Picture 3> is a storyboard reference for [Shot 3], defining its wide low viewpoint, the sunset shoreline and the boat's resting place on the wet sand.\n\nsummary:\n[keyframe completion + reference generation] The target video follows <Subject 1> on an eight-second voyage in three shots: launched by hand onto a puddle exactly as <Picture 1> shows, swept down a rain gutter staged as <Picture 2> plans it, and found at rest on a sunset shore staged as <Picture 3> plans it, under one continuous piano score.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1], [Shot 2], [Shot 3]): fully_preserved - the boat's folded white paper form, peaked sail and rain-softened edges are kept exactly in every shot, newly set in motion.\n<Picture 1> ([Shot 1] first frame): fully_preserved - the shot opens on its framing, hand, puddle, reflections and overcast light.\n<Picture 2> ([Shot 2] storyboard): partially_preserved - its low viewpoint, gutter setting, rainy light and the boat's position in the water are kept, with the water and boat newly in motion and the camera tracking.\n<Picture 3> ([Shot 3] storyboard): partially_preserved - its wide low viewpoint, sunset light, shoreline and the boat's resting place are kept, with the waves newly moving and the boat newly arriving.\n\ndetailed_description:\nThe target video is in a realistic photographic style, shot at ground level with a shallow depth of field, moving from cool overcast grey to warm sunset gold.\n[Shot 1] A close-up at puddle level opens exactly on <Picture 1>: a child's small hand in a yellow raincoat sleeve holds <Subject 1> just above a wide rain puddle on wet cobblestones, raindrops ringing the water and the blurred colours of umbrellas and shopfront lights lying in its reflection. The fingers open and set the boat down; it settles with a small bob, its sail trembling, and the hand withdraws upward out of frame. Rings spread from the hull, and a gust pushes the boat forward across the puddle toward the lens, its bow cutting a thin wake. The camera holds a static shot at water level, letting the boat drift a little closer through the final second.\n[Shot 2] At 00:02.700, the camera cuts to the low viewpoint of <Picture 2>: <Subject 1> rides a rushing rain-swollen stone gutter between cobblestones, white water piling around its bow and spray flicking off the paper as it bucks and turns, the grey street and blurred passing legs beyond. The boat pitches over a small step in the gutter, dips its bow, rights itself and spins a quarter turn before the current straightens it again. The camera holds a tracking shot at fast speed, low and level with the water, keeping the boat in the centre of frame as the cobbles blur past.\n[Shot 3] At 00:05.400, the camera cuts to the wide low view of <Picture 3>: a long empty beach at sunset, the sea calm and gold, small waves lapping up the wet sand. <Subject 1> lies at the water's edge exactly where <Picture 3> places it, its paper darkened and softened by its journey, its sail still peaked. A wave slides up, lifts the boat a few centimetres and sets it down a little further up the sand, then draws back leaving a bright film of water around it. The camera pushes in with small amplitude at slow speed toward the boat, the sun sinking a little lower behind it as the shot ends.\n\noverall_soundscape:\n[Shot 1] opens on steady rainfall on cobblestones and the plink of drops into the puddle, the soft rustle of a raincoat sleeve and a tiny wet tap as the boat touches the water. [Shot 2] is the rush and gurgle of fast gutter water with splashes against paper, rain continuing overhead and distant footsteps. [Shot 3] falls quiet: a slow wash of small waves on sand, a light onshore breeze and a gull far off.\n\nnon_diegetic_music:\nA gentle solo piano piece in a major key, unhurried and warm, carries continuously across all three shots without pause or change of tempo: a simple melody over soft sustained chords that lifts slightly as the boat enters the gutter and settles into a held, resolving chord as the shot at the shore ends.",
+        "image_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+        "reference_image_short_edge": 1024,
+        "num_frames": 192,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 9,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo"
+    },
+    "seed": 42,
+    "steps": [
+        {
+            "name": "board_1_launch",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": true
+                },
+                "arguments": {
+                    "prompt": "variable:board_1_launch",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": 960,
+                    "height": 544
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "board_2_gutter",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": true
+                },
+                "arguments": {
+                    "prompt": "variable:board_2_gutter",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": 960,
+                    "height": 544
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "board_3_shore",
+            "release_pipeline": true,
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImagePipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": true
+                },
+                "arguments": {
+                    "prompt": "variable:board_3_shore",
+                    "num_inference_steps": 9,
+                    "guidance_scale": 0.0,
+                    "width": 960,
+                    "height": 544
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "voyage",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer_ref": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer_ref": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    },
+                    "configs": {
+                        "reference_image_short_edge": "variable:reference_image_short_edge"
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "ref2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "references": [
+                        {
+                            "reference_type": "variable:image_reference_type",
+                            "from_previous_result": "board_1_launch"
+                        },
+                        {
+                            "reference_type": "variable:image_reference_type",
+                            "from_previous_result": "board_2_gutter"
+                        },
+                        {
+                            "reference_type": "variable:image_reference_type",
+                            "from_previous_result": "board_3_shore"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

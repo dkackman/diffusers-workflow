@@ -267,6 +267,46 @@ shot ends on something tonal, either give the cut a continuous bed with
 seam gracefully with `seam_fade_ms` (a hundred or so milliseconds) and accept the
 cut. `audio_bleed_ms` wins where both are set and there is material to bleed.
 
+### dissolve_videos
+
+Join videos with a cross-dissolve at every seam, and fade the whole piece in
+from and out to a colour. Where `concat_videos` cuts - right for shots that
+each carry their own sound - this melts one shot into the next, which is what a
+montage cut to a score wants:
+
+```json
+{
+    "task": {
+        "command": "dissolve_videos",
+        "arguments": {
+            "videos": ["previous_result:shot_1", "previous_result:shot_2"],
+            "dissolve_frames": 12,
+            "fade_in_frames": 12,
+            "fade_out_frames": 24,
+            "fps": 24
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 24 }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, one entry per video as with `concat_videos` |
+| `dissolve_frames` | No | Frames of overlap at each seam, blended linearly (default: 12). 0 is a hard cut |
+| `fade_in_frames` | No | Frames over which the first video rises out of `fade_color` (default: 0) |
+| `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
+| `fade_color` | No | The RGB colour the fades come from and go to (default: black) |
+| `fps` | No | Frame rate of the videos - required to crossfade audio at a dissolve |
+
+Every seam shortens the result by one overlap, so eight 124-frame shots joined
+with 12-frame dissolves run 908 frames, not 992 - size a soundtrack slice to
+the joined length, not the sum. When every input carries audio, the tracks are
+crossfaded over exactly the seam's span so they stay in step with the picture;
+when any input is silent the result is, and `pair_audio` puts a score under it.
+
+**Example:** [LumenFinish.json](../workflows/lumen/LumenFinish.json)
+
 ### video_frames
 
 The frames of a generated video, as one `(frames, height, width, channels)`
@@ -371,6 +411,63 @@ tracks by the fade window:
 ```
 
 ## Data Gathering
+
+### fade_audio
+
+Fade a track in from silence and out to it. A slice cut out of the middle of a
+piece ends on whatever was sounding at the cut; a fade turns that into an
+ending. The curve is the equal-power cosine the seam joins use:
+
+```json
+{
+    "task": {
+        "command": "fade_audio",
+        "arguments": {
+            "audio": "previous_result:soundtrack",
+            "fade_in_ms": 500,
+            "fade_out_ms": 2500,
+            "sample_rate": 44100
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file, or a waveform from a previous step |
+| `fade_in_ms` | No | Length of the fade in, from the head of the track (default: 0) |
+| `fade_out_ms` | No | Length of the fade out, to the tail of the track (default: 0) |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+### normalize_audio
+
+Scale a track so its loudest sample sits at a level. Generated music comes out
+wherever the model happened to land - a quiet take needs lifting before it sits
+under a picture, a hot one needs headroom before the encoder. Only the gain
+changes, so the dynamics survive:
+
+```json
+{
+    "task": {
+        "command": "normalize_audio",
+        "arguments": {
+            "audio": "previous_result:faded",
+            "peak_dbfs": -1.0,
+            "sample_rate": 44100
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file, or a waveform from a previous step |
+| `peak_dbfs` | No | The level the loudest sample is moved to, in dB below full scale (default: -1.0). 0 is full scale |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+A silent track is returned unchanged.
+
+**Example:** [LumenFinish.json](../workflows/lumen/LumenFinish.json)
 
 ### gather_images
 
