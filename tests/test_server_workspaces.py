@@ -189,6 +189,77 @@ class TestScopedRoutes:
         assert not os.path.exists(os.path.join(workspace_root.root, "ghost"))
 
 
+class TestConfinement:
+    """A named workspace's own workflows/ is the confinement root for that
+    workspace's requests, not the server's default workflow_dir - the bug
+    this class guards against would reject a base_dir or a relative
+    sub-workflow path that lives entirely inside the named workspace."""
+
+    def test_validate_accepts_a_base_dir_inside_the_named_workspace(
+        self, server, workspace_root
+    ):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            base_dir = os.path.join(workspace_root.root, "shots", "workflows")
+
+            response = client.post(
+                "/api/validate",
+                params={"workspace": "shots"},
+                json={"workflow": valid_workflow("mine"), "base_dir": base_dir},
+            )
+        assert response.status_code == 200
+        assert response.json()["valid"] is True
+
+    def test_saving_a_workflow_with_a_relative_sub_workflow_path(
+        self, server, workspace_root
+    ):
+        sub = {
+            "id": "sub",
+            "variables": {},
+            "steps": [
+                {
+                    "name": "gen",
+                    "pipeline": {
+                        "configuration": {
+                            "component_type": "{Fake}",
+                            "no_generator": True,
+                        },
+                        "from_pretrained_arguments": {"model_name": "m"},
+                        "arguments": {},
+                    },
+                }
+            ],
+        }
+        main = {
+            "id": "main",
+            "variables": {},
+            "steps": [
+                {
+                    "name": "sub",
+                    "workflow": {"path": "parts/Sub.json", "arguments": {}},
+                }
+            ],
+        }
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            client.put(
+                "/api/workflows/parts/Sub?workspace=shots", json={"workflow": sub}
+            )
+            response = client.put(
+                "/api/workflows/Main?workspace=shots", json={"workflow": main}
+            )
+        assert response.status_code == 200
+
+    def test_an_unknown_workspace_query_param_is_a_404(self, server):
+        with server() as client:
+            assert client.get("/api/workflows?workspace=nope").status_code == 404
+
+    def test_a_traversal_attempt_as_a_workspace_name_is_a_400(self, server):
+        with server() as client:
+            response = client.get("/api/workflows", params={"workspace": "../x"})
+        assert response.status_code == 400
+
+
 class TestServingFiles:
     def test_outputs_are_served_from_the_workspace_that_made_them(
         self, server, workspace_root

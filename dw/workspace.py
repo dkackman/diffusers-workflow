@@ -368,6 +368,65 @@ def delete_workspace(workspace, name):
     return target
 
 
+class ConfiguredWorkspace(Workspace):
+    """The default workspace on a server started with individual directory
+    overrides (`--workflow-dir`, `--output-dir`, etc.), rather than a single
+    `--workspace` root.
+
+    Those overrides mean the default workspace's four folders are not
+    reliably `<root>/workflows` and friends - each can point anywhere - so
+    they cannot be derived the way Workspace derives them from a root. This
+    subclass instead takes the four directories directly and answers the
+    same four properties from them, `root` carrying whatever the caller has
+    (a workspace root when there is one, otherwise whatever describes the
+    configuration - possibly None) for `describe()` and logging only; it
+    plays no part in resolving the four folders below.
+    """
+
+    def __init__(self, workflows, assets, outputs, prompts, root=None):
+        self.root = os.path.abspath(os.path.expanduser(str(root))) if root else None
+        self.source = DEFAULT
+        self.name = DEFAULT_WORKSPACE_NAME
+        self._workflows = os.path.abspath(os.path.expanduser(str(workflows)))
+        # assets is optional - a server configured with no asset library at
+        # all, same as Workspace's own callers see via app.state.asset_dir
+        self._assets = (
+            os.path.abspath(os.path.expanduser(str(assets))) if assets else None
+        )
+        self._outputs = os.path.abspath(os.path.expanduser(str(outputs)))
+        self._prompts = os.path.abspath(os.path.expanduser(str(prompts)))
+
+    @property
+    def is_default(self):
+        return True
+
+    @property
+    def workflows(self):
+        return self._workflows
+
+    @property
+    def assets(self):
+        return self._assets
+
+    @property
+    def outputs(self):
+        return self._outputs
+
+    @property
+    def prompts(self):
+        return self._prompts
+
+    def ensure(self):
+        """Not implemented here: a ConfiguredWorkspace's folders were each
+        already resolved by the entry point that configured them, and each
+        has its own idea of who creates it (the CLI's own ensure() calls,
+        JobManager, etc.) - there is no single 'the workspace' to create."""
+        raise NotImplementedError(
+            "ConfiguredWorkspace folders are created by whatever configured "
+            "them, not by the workspace itself"
+        )
+
+
 class NotAWorkspaceError(ValueError):
     """A directory named as a workspace holds more than a workspace does."""
 

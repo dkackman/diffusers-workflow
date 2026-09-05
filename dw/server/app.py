@@ -21,7 +21,7 @@ from datetime import datetime
 from urllib.parse import quote, urlparse
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse, JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -58,8 +58,10 @@ from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..runs import strip_run_id
 from ..workspace import (
     DEFAULT_WORKSPACE_NAME,
+    ConfiguredWorkspace,
     NotAWorkspaceError,
     Workspace,
+    _holds_a_workspace,
     create_workspace,
     delete_workspace,
     named_workspace,
@@ -218,30 +220,6 @@ def _write_bytes(path, data):
         f.write(data)
 
 
-def resolve_workflow_name(workflow_dir, name, allow_create=False):
-    """The on-disk path for a workflow name, confined to workflow_dir."""
-    if not name.endswith(".json"):
-        name = f"{name}.json"
-    try:
-        return validate_path(
-            os.path.join(workflow_dir, name), workflow_dir, allow_create=allow_create
-        )
-    except SecurityError as e:
-        raise HTTPException(status_code=404, detail=f"Unknown workflow: {e}")
-
-
-def _confinement_root(sources, path):
-    """The source root a resolved workflow path is confined to.
-
-    A workflow read from an examples directory is confined to that
-    directory - its sub-workflow steps and relative assets resolve there,
-    not in the writable root it will never be saved to. A path in no source
-    keeps the writable root's confinement, which is what refuses it.
-    """
-    source = source_for_path(sources, path) if path else None
-    return source.root if source else writable_source(sources).root
-
-
 def resolve_readable_workflow(sources, name):
     """The path a name has anywhere on the search path, and its source.
 
@@ -274,56 +252,41 @@ def resolve_writable_workflow(sources, name):
     return path, source
 
 
-def resolve_workflow_reference(workflow_dir, workflow_path, sources=None):
-    """A submitted workflow_path, resolved to a file on disk, confined to
-    workflow_dir - the same confinement the /api/workflows CRUD routes
-    already enforce via resolve_workflow_name.
+def resolve_workflow_reference(workflow_path, sources):
+    """A submitted workflow_path, resolved to a file on disk, and the source
+    it lives in - the same search path the /api/workflows CRUD routes read
+    from, spanning every root rather than confining to one, since a run of
+    an example is a read and reads are not confined to the writable root.
 
-    Tried as a stored workflow name - exactly what /api/workflows hands
-    out, with or without .json and nested names included - so an agent can
-    run what a listing gave it. A relative or absolute path that already
-    names a file under workflow_dir resolves the same way: os.path.join
-    discards workflow_dir in favor of an absolute second argument, so an
-    absolute path under workflow_dir reaches the same containment check.
-    Anything that does not resolve under workflow_dir - an unknown name, a
-    traversal attempt, or a real file elsewhere on disk - is rejected with
-    400, rather than silently opened: a workflow_path is not a general
+    Tried as a stored workflow name first - exactly what /api/workflows
+    hands out, with or without .json and nested names included - so an
+    agent can run what a listing gave it. A relative or absolute path that
+    already names a file under one of the sources resolves the same way:
+    os.path.abspath handles a path relative to the server's cwd, and
+    source_for_path holds it to that source's containment check.
+
+    Anything that resolves under no source - an unknown name, a traversal
+    attempt, or a real file elsewhere on disk - is rejected with 400,
+    rather than silently opened: a workflow_path is not a general
     filesystem path.
+
+    Returns (None, None) when workflow_path itself is None - an inline
+    workflow submission names no path to resolve.
     """
     if workflow_path is None:
-        return workflow_path
-    # Every root on the search path, when the caller has one: a run of an
-    # example is a read, and reads are not confined to the writable root
-    if sources is not None:
-        path, _source = find_workflow(sources, workflow_path)
-        if path is not None:
-            return path
-        for source in sources:
-            candidate = os.path.abspath(workflow_path)
-            if source.contains(candidate) and os.path.isfile(candidate):
-                return candidate
-        raise HTTPException(
-            status_code=400,
-            detail=f"workflow_path must name a workflow the server can reach: "
-            f"{workflow_path}",
-        )
-    try:
-        return resolve_workflow_name(workflow_dir, workflow_path)
-    except HTTPException:
-        pass
-    # Not a stored name. A path relative to the server's cwd - the shape the
-    # Workflow page submits when --workflow-dir is itself relative, e.g.
-    # './workflows/x.json' against './workflows' - would double the directory
-    # if joined onto workflow_dir, so it is resolved from the cwd and then
-    # held to the same containment check.
-    try:
-        return validate_path(os.path.abspath(workflow_path), workflow_dir)
-    except SecurityError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"workflow_path must name a workflow under the workflow "
-            f"directory: {workflow_path}",
-        )
+        return None, None
+    path, source = find_workflow(sources, workflow_path)
+    if path is not None:
+        return path, source
+    candidate = os.path.abspath(workflow_path)
+    source = source_for_path(sources, candidate) if os.path.isfile(candidate) else None
+    if source is not None:
+        return candidate, source
+    raise HTTPException(
+        status_code=400,
+        detail=f"workflow_path must name a workflow the server can reach: "
+        f"{workflow_path}",
+    )
 
 
 # What each prompt says about itself, for listing cards - cached by mtime
@@ -562,6 +525,18 @@ def create_app(
     app.state.workspace_root = (
         Workspace(app.state.workspace, "flag") if app.state.workspace else None
     )
+    # The default workspace itself, as a Workspace: its four folders are the
+    # configured directories above, not '<root>/workflows' and friends - a
+    # caller can override any one of them individually (--workflow-dir,
+    # etc), so they cannot be derived from a root the way a named
+    # workspace's folders are
+    app.state.default_workspace = ConfiguredWorkspace(
+        workflows=app.state.workflow_dir,
+        assets=app.state.asset_dir,
+        outputs=manager.output_dir,
+        prompts=app.state.prompt_dir,
+        root=app.state.workspace,
+    )
     app.state.mcp_mounted = mcp_asgi is not None
 
     wildcard_bind = host in WILDCARD_HOSTS
@@ -665,20 +640,64 @@ def create_app(
             )
         return await call_next(request)
 
+    # -------------------------------------------------------- workspace lookup
+
+    def _workspace_root():
+        root = app.state.workspace_root
+        if root is None:
+            raise HTTPException(
+                status_code=409,
+                detail="This server has no workspace root - it was started "
+                "with individual directory overrides, so it has one "
+                "workspace and cannot create others",
+            )
+        return root
+
+    def _workspace_for(name):
+        """The Workspace a request names.
+
+        No name, or the default name, is the server's own configuration -
+        the directories it was started with - so every call that predates
+        workspaces keeps working unchanged. A named one resolves under the
+        root, and must already exist: creating a workspace by mentioning it
+        would turn a typo into a directory. Checked by looking at the one
+        candidate directory rather than listing the whole root - this runs
+        on every gallery thumbnail request.
+        """
+        if not name or name == DEFAULT_WORKSPACE_NAME:
+            return app.state.default_workspace
+        root = _workspace_root()
+        try:
+            selected = named_workspace(root, name)
+        except SecurityError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if not _holds_a_workspace(selected.root):
+            raise HTTPException(status_code=404, detail=f"No such workspace: {name}")
+        return selected
+
+    def selected_workspace(workspace: Optional[str] = None) -> Workspace:
+        """FastAPI dependency form of _workspace_for, reading the name from
+        the `?workspace=` query parameter every scoped route already takes -
+        used as `ws: Workspace = Depends(selected_workspace)`."""
+        return _workspace_for(workspace)
+
+    def _sources_for(ws):
+        """The workflow search path of one workspace: its own workflows
+        first, then the same read-only roots every workspace shares."""
+        return workflow_sources(ws.workflows, examples_dirs)
+
     # ------------------------------------------------------------------ jobs
 
     @app.post("/api/jobs", status_code=201)
-    def submit_job(request: JobRequest, workspace: Optional[str] = None):
+    def submit_job(request: JobRequest, ws: Workspace = Depends(selected_workspace)):
         """Queue a workflow. The workspace it runs in comes from the body or,
         for a client that scopes every call the same way, the query string -
         the body wins when both are given."""
         try:
-            workspace_name, directories = _selected(request.workspace or workspace)
-            sources = _sources_for(directories)
-            resolved = resolve_workflow_reference(
-                directories["workflows"],
-                request.workflow_path,
-                sources,
+            workspace = _workspace_for(request.workspace or ws.name)
+            sources = _sources_for(workspace)
+            resolved, source = resolve_workflow_reference(
+                request.workflow_path, sources
             )
             job = manager.submit(
                 workflow_path=resolved,
@@ -687,17 +706,14 @@ def create_app(
                 base_dir=request.base_dir,
                 # The root this run is confined to: the source the workflow
                 # came from, so an example runs where it lives while an
-                # inline definition stays held to the writable root
-                workflow_dir=(
-                    _confinement_root(sources, resolved)
-                    if resolved
-                    else directories["workflows"]
-                ),
+                # inline definition stays held to this workspace's own
+                # workflows
+                workflow_dir=source.root if source else workspace.workflows,
                 # The roots this job runs against, so it stays in its
                 # workspace however many others the server serves meanwhile
-                output_dir=directories["outputs"],
-                asset_dir=directories["assets"],
-                workspace=workspace_name,
+                output_dir=workspace.outputs,
+                asset_dir=workspace.assets,
+                workspace=workspace.name,
             )
         except HTTPException:
             raise
@@ -884,7 +900,9 @@ def create_app(
         return JSONResponse(load_schema("workflow"))
 
     @app.post("/api/validate")
-    def validate_workflow(request: JobRequest, workspace: Optional[str] = None):
+    def validate_workflow(
+        request: JobRequest, ws: Workspace = Depends(selected_workspace)
+    ):
         """Schema-validate a workflow and check its pipeline arguments
         against real signatures, without queuing anything. Give either an
         inline workflow or a workflow_path - a path on the server or a
@@ -896,32 +914,29 @@ def create_app(
                 detail="Provide exactly one of workflow or workflow_path",
             )
         try:
+            workspace = _workspace_for(request.workspace or ws.name)
             if request.workflow_path is not None:
                 # Built from the file so relative paths inside it resolve
                 # against its own directory, exactly as a run would
-                _workspace_name, directories = _selected(request.workspace or workspace)
-                sources = _sources_for(directories)
-                resolved = resolve_workflow_reference(
-                    directories["workflows"],
-                    request.workflow_path,
-                    sources,
+                sources = _sources_for(workspace)
+                resolved, source = resolve_workflow_reference(
+                    request.workflow_path, sources
                 )
                 candidate = workflow_from_file(
                     resolved,
-                    directories["outputs"],
+                    workspace.outputs,
                     # Confined to the source it came from, not to the
                     # writable root - an example is read where it lives
-                    _confinement_root(sources, resolved),
+                    source.root if source else workspace.workflows,
                 )
                 definition = candidate.workflow_definition
             else:
                 definition = request.workflow
-                _workspace_name, directories = _selected(request.workspace or workspace)
                 candidate = workflow_from_definition(
                     copy.deepcopy(request.workflow),
-                    directories["outputs"],
+                    workspace.outputs,
                     request.base_dir,
-                    app.state.workflow_dir,
+                    workspace.workflows,
                 )
         except HTTPException:
             raise
@@ -952,52 +967,6 @@ def create_app(
     class WorkspaceRequest(BaseModel):
         name: str = Field(description="Name for the new workspace")
 
-    def _workspace_root():
-        root = app.state.workspace_root
-        if root is None:
-            raise HTTPException(
-                status_code=409,
-                detail="This server has no workspace root - it was started "
-                "with individual directory overrides, so it has one "
-                "workspace and cannot create others",
-            )
-        return root
-
-    def _selected(name):
-        """The workspace a request names, as (name, directories).
-
-        No name, or the default name, is the server's own configuration -
-        the directories it was started with - so every call that predates
-        workspaces keeps working unchanged. A named one resolves under the
-        root, and must already exist: creating a workspace by mentioning it
-        would turn a typo into a directory.
-        """
-        if not name or name == DEFAULT_WORKSPACE_NAME:
-            return DEFAULT_WORKSPACE_NAME, {
-                "workflows": app.state.workflow_dir,
-                "assets": app.state.asset_dir,
-                "outputs": manager.output_dir,
-                "prompts": app.state.prompt_dir,
-            }
-        root = _workspace_root()
-        if name not in workspace_names(root):
-            raise HTTPException(status_code=404, detail=f"No such workspace: {name}")
-        try:
-            selected = named_workspace(root, name)
-        except SecurityError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        return name, {
-            "workflows": selected.workflows,
-            "assets": selected.assets,
-            "outputs": selected.outputs,
-            "prompts": selected.prompts,
-        }
-
-    def _sources_for(directories):
-        """The workflow search path of one workspace: its own workflows
-        first, then the same read-only roots every workspace shares."""
-        return workflow_sources(directories["workflows"], examples_dirs)
-
     @app.get("/api/workspaces")
     def list_workspaces():
         """Every workspace on this server, the default first.
@@ -1007,13 +976,13 @@ def create_app(
         them.
         """
         root = app.state.workspace_root
-        names = workspace_names(root) if root else [DEFAULT_WORKSPACE_NAME]
-        described = []
+        # workspace_names lists the whole root once; everything after the
+        # first entry (always the default, see its docstring) is a named
+        # workspace to describe individually
+        names = workspace_names(root)[1:] if root else []
+        described = [app.state.default_workspace.describe()]
         for name in names:
-            _name, directories = _selected(name)
-            described.append(
-                {"name": name, "default": name == DEFAULT_WORKSPACE_NAME, **directories}
-            )
+            described.append(named_workspace(root, name).describe())
         return {
             "workspace_root": root.root if root else None,
             "default": DEFAULT_WORKSPACE_NAME,
@@ -1091,23 +1060,24 @@ def create_app(
     # ------------------------------------------------------------- workflows
 
     @app.get("/api/workflows")
-    def list_workflows(workspace: Optional[str] = None):
+    def list_workflows(ws: Workspace = Depends(selected_workspace)):
         """Every workflow the search path offers, each detail saying which
         source it came from and whether it can be written to. 'workflow_dir'
         stays the writable one - what a save targets."""
-        name, directories = _selected(workspace)
-        sources = _sources_for(directories)
+        sources = _sources_for(ws)
         found = listing(sources)
         return {
-            "workspace": name,
-            "workflow_dir": directories["workflows"],
+            "workspace": ws.name,
+            "workflow_dir": ws.workflows,
             "sources": [source.to_dict() for source in sources],
             "workflows": list(found),
             "details": workflow_details(found),
         }
 
     @app.put("/api/workflows/{name:path}")
-    def save_workflow(name: str, request: JobRequest, workspace: Optional[str] = None):
+    def save_workflow(
+        name: str, request: JobRequest, ws: Workspace = Depends(selected_workspace)
+    ):
         """Write a workflow into the writable workflow directory. The
         definition must be schema-valid - the editor validates before saving,
         and a save that silently wrote a broken file would betray both.
@@ -1118,13 +1088,12 @@ def create_app(
         """
         if request.workflow is None:
             raise HTTPException(status_code=400, detail="Provide an inline workflow")
-        _workspace_name, directories = _selected(workspace)
-        path, _source = resolve_writable_workflow(_sources_for(directories), name)
+        path, _source = resolve_writable_workflow(_sources_for(ws), name)
         candidate = Workflow(
             copy.deepcopy(request.workflow),
-            manager.output_dir,
+            ws.outputs,
             path,
-            app.state.workflow_dir,
+            ws.workflows,
         )
         try:
             candidate.validate()
@@ -1142,15 +1111,14 @@ def create_app(
         }
 
     @app.delete("/api/workflows/{name:path}")
-    def delete_workflow(name: str, workspace: Optional[str] = None):
+    def delete_workflow(name: str, ws: Workspace = Depends(selected_workspace)):
         """Remove a workflow file from the writable workflow directory.
 
         A read-only source is refused rather than silently ignored: an
         example or a builtin is not the caller's to delete, and saying so
         is more useful than a 404 that reads like the file is missing.
         """
-        _workspace_name, directories = _selected(workspace)
-        path, source = resolve_readable_workflow(_sources_for(directories), name)
+        path, source = resolve_readable_workflow(_sources_for(ws), name)
         if not source.writable:
             raise HTTPException(
                 status_code=403,
@@ -1163,18 +1131,16 @@ def create_app(
 
     @app.get("/api/workflows/{name:path}/download")
     @query_token_ok
-    def download_workflow(name: str, workspace: Optional[str] = None):
+    def download_workflow(name: str, ws: Workspace = Depends(selected_workspace)):
         """Serve a workflow definition as a forced download."""
-        _workspace_name, directories = _selected(workspace)
-        path, _source = resolve_readable_workflow(_sources_for(directories), name)
+        path, _source = resolve_readable_workflow(_sources_for(ws), name)
         return FileResponse(
             path, filename=os.path.basename(path), media_type="application/json"
         )
 
     @app.get("/api/workflows/{name:path}")
-    def get_workflow(name: str, workspace: Optional[str] = None):
-        _workspace_name, directories = _selected(workspace)
-        path, _source = resolve_readable_workflow(_sources_for(directories), name)
+    def get_workflow(name: str, ws: Workspace = Depends(selected_workspace)):
+        path, _source = resolve_readable_workflow(_sources_for(ws), name)
         try:
             with open(path, "r") as file:
                 return JSONResponse(json.load(file))
@@ -1399,7 +1365,7 @@ def create_app(
         limit: int = 200,
         offset: int = 0,
         folder: Optional[str] = None,
-        workspace: Optional[str] = None,
+        ws: Workspace = Depends(selected_workspace),
     ):
         """A page of media files in the output directory, newest first.
         Stateless by design - the gallery survives server restarts because
@@ -1409,8 +1375,7 @@ def create_app(
         its own, so a workflow's runs group together; '' stands for files
         saved directly at the output root, and is itself always a member so
         that folder-less outputs stay selectable once anything is nested."""
-        name, directories = _selected(workspace)
-        entries = _gallery_entries(directories["outputs"], name)
+        entries = _gallery_entries(ws.outputs, ws.name)
         folders = sorted({e["folder"] for e in entries} | {""})
         if folder is not None:
             entries = [e for e in entries if e["folder"] == folder]
@@ -1423,16 +1388,15 @@ def create_app(
             "offset": offset,
             "limit": limit,
             "folders": folders,
-            "workspace": name,
+            "workspace": ws.name,
         }
 
     @app.get("/api/gallery/{name:path}/metadata")
-    def gallery_metadata(name: str, workspace: Optional[str] = None):
+    def gallery_metadata(name: str, ws: Workspace = Depends(selected_workspace)):
         """Generation metadata embedded in a saved image ('workflow' inside
         it is the full definition the editor can reopen), plus the job that
         produced the file when history remembers one."""
-        _workspace_name, directories = _selected(workspace)
-        path = _output_file(name, directories["outputs"])
+        path = _output_file(name, ws.outputs)
         metadata = read_embedded_metadata(path)
         try:
             job = manager.history.job_for_file(name)
@@ -1442,13 +1406,14 @@ def create_app(
 
     @app.get("/api/gallery/{name:path}/thumbnail")
     @query_token_ok
-    def gallery_thumbnail(name: str, request: Request, workspace: Optional[str] = None):
+    def gallery_thumbnail(
+        name: str, request: Request, ws: Workspace = Depends(selected_workspace)
+    ):
         """A small JPEG rendition of an image output, for the grid - the
         full-resolution file is only fetched for the detail/lightbox view.
         Generated on demand rather than cached to disk, so it never grows
         the output directory the gallery itself scans."""
-        _workspace_name, directories = _selected(workspace)
-        path = _output_file(name, directories["outputs"])
+        path = _output_file(name, ws.outputs)
         extension = os.path.splitext(path)[1].lower()
         if MEDIA_KINDS.get(extension) != "image":
             raise HTTPException(
@@ -1487,10 +1452,9 @@ def create_app(
 
     @app.get("/api/gallery/{name:path}/download")
     @query_token_ok
-    def download_output(name: str, workspace: Optional[str] = None):
+    def download_output(name: str, ws: Workspace = Depends(selected_workspace)):
         """Serve one output file as a forced download rather than an inline view."""
-        _workspace_name, directories = _selected(workspace)
-        path = _output_file(name, directories["outputs"])
+        path = _output_file(name, ws.outputs)
         return FileResponse(path, filename=os.path.basename(name))
 
     # A generous ceiling rather than a real limit - it exists so a
@@ -1501,7 +1465,9 @@ def create_app(
         names: list[str] = Field(min_length=1, max_length=MAX_ARCHIVE_FILES)
 
     @app.post("/api/gallery/archive")
-    def archive_outputs(request: ArchiveRequest, workspace: Optional[str] = None):
+    def archive_outputs(
+        request: ArchiveRequest, ws: Workspace = Depends(selected_workspace)
+    ):
         """Bundle a multi-file gallery selection into one zip. A browser
         cannot zip on its own and throttles a burst of single downloads, so
         the whole selection has to arrive as one file. Written to a temp
@@ -1509,10 +1475,7 @@ def create_app(
         RAM - and unlinked once the response has been sent."""
         # Resolved before anything is written, so a bad name in the
         # selection fails the request instead of yielding a partial zip
-        _workspace_name, directories = _selected(workspace)
-        paths = [
-            (name, _output_file(name, directories["outputs"])) for name in request.names
-        ]
+        paths = [(name, _output_file(name, ws.outputs)) for name in request.names]
 
         handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
         try:
@@ -1536,10 +1499,9 @@ def create_app(
         )
 
     @app.delete("/api/gallery/{name:path}")
-    def delete_output(name: str, workspace: Optional[str] = None):
+    def delete_output(name: str, ws: Workspace = Depends(selected_workspace)):
         """Remove one file from the output directory."""
-        _workspace_name, directories = _selected(workspace)
-        path = _output_file(name, directories["outputs"])
+        path = _output_file(name, ws.outputs)
         os.remove(path)
         logger.info(f"Deleted output file {name}")
         return {"name": name, "deleted": True}
@@ -1557,7 +1519,7 @@ def create_app(
 
     @app.post("/api/uploads", status_code=201)
     async def upload_media(
-        request: Request, filename: str, workspace: Optional[str] = None
+        request: Request, filename: str, ws: Workspace = Depends(selected_workspace)
     ):
         """Save a browser-picked image, video or audio file into the asset library's
         uploads/ subfolder and hand back the reference a workflow argument
@@ -1594,8 +1556,7 @@ def create_app(
                 detail=f"Upload too large: {len(body)} > {MAX_UPLOAD_BYTES}",
             )
 
-        _workspace_name, directories = _selected(workspace)
-        library = directories["assets"] or directories["outputs"]
+        library = ws.assets or ws.outputs
         uploads_dir = os.path.join(library, UPLOADS_SUBDIR)
         os.makedirs(uploads_dir, exist_ok=True)
         name = f"{uuid.uuid4().hex}{extension}"
@@ -1608,7 +1569,7 @@ def create_app(
         # stream and poll for its duration
         await run_in_threadpool(_write_bytes, dest, body)
         logger.info(f"Saved upload {filename!r} -> {dest}")
-        if directories["assets"]:
+        if ws.assets:
             return {
                 "path": f"asset:{UPLOADS_SUBDIR}/{name}",
                 "url": f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}",
@@ -1619,7 +1580,7 @@ def create_app(
         }
 
     @app.get("/api/assets")
-    def list_assets(workspace: Optional[str] = None):
+    def list_assets(ws: Workspace = Depends(selected_workspace)):
         """The asset library: the input media an 'asset:' reference names.
 
         Reported by reference rather than by path - 'asset:uploads/x.png' is
@@ -1629,8 +1590,7 @@ def create_app(
         library configured: nothing is wrong, there is just nowhere for an
         asset to be.
         """
-        _workspace_name, directories = _selected(workspace)
-        library = directories["assets"]
+        library = ws.assets
         if not library or not os.path.isdir(library):
             return {"asset_dir": library, "assets": [], "folders": []}
 
@@ -1678,7 +1638,9 @@ def create_app(
         )
 
     @app.post("/api/assets/keep", status_code=201)
-    def keep_output_as_asset(request: KeepRequest, workspace: Optional[str] = None):
+    def keep_output_as_asset(
+        request: KeepRequest, ws: Workspace = Depends(selected_workspace)
+    ):
         """Keep a generated file as an input asset, under a stable name.
 
         A run's files live under '<workflow>/<run id>/', which is the right
@@ -1693,14 +1655,13 @@ def create_app(
         multi-gigabyte video to reuse one frame would be paying for the
         round trip twice.
         """
-        _workspace_name, directories = _selected(workspace)
-        library = directories["assets"]
+        library = ws.assets
         if not library:
             raise HTTPException(
                 status_code=409, detail="This workspace has no asset library"
             )
 
-        source = _output_file(request.name, directories["outputs"])
+        source = _output_file(request.name, ws.outputs)
         asset_name = request.asset_name or os.path.basename(request.name)
         try:
             validate_asset_reference(asset_name)
@@ -1971,17 +1932,15 @@ def create_app(
     # and then renders nothing, because its script and stylesheet 404. The
     # name is also the symmetric one, next to /outputs
     @app.get("/outputs/{name:path}")
-    def output_file(name: str, workspace: Optional[str] = None):
+    def output_file(name: str, ws: Workspace = Depends(selected_workspace)):
         """One generated file, from the workspace that made it."""
-        _workspace_name, directories = _selected(workspace)
-        return FileResponse(_output_file(name, directories["outputs"]))
+        return FileResponse(_output_file(name, ws.outputs))
 
     @app.get("/inputs/{name:path}")
-    def input_file(name: str, workspace: Optional[str] = None):
+    def input_file(name: str, ws: Workspace = Depends(selected_workspace)):
         """One file from a workspace's asset library, for the editor's
         preview of an uploaded or chosen asset."""
-        _workspace_name, directories = _selected(workspace)
-        library = directories["assets"]
+        library = ws.assets
         if not library:
             raise HTTPException(status_code=404, detail="No asset library")
         return FileResponse(_output_file(name, library))
