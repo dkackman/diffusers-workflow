@@ -149,3 +149,9 @@ test_outputs/
 # built SPA copied into the package by scripts/build_dist.sh
 dw/server/ui/
 venv
+
+# generated media - regenerable, archived outside the repo
+local_inputs/
+workflows/*/assets/
+/*.mp4
+/*.wav
