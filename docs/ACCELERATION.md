@@ -271,6 +271,25 @@ Store a component's weights in a narrow dtype and upcast only for compute, per c
 
 Both `storage_dtype` and `compute_dtype` are required. Applied via the component's own `enable_layerwise_casting()` right after it loads, so it composes with quantization and group offloading on the same component.
 
+## Memory Format and Attention Processors
+
+Three older per-component knobs, set in the pipeline `configuration` beside
+`vae` / `unet` / `transformer` and applied right after the components load:
+
+| Key | Where | Effect |
+| --- | ----- | ------ |
+| `channels_last` | `vae`, `unet` | `to(memory_format=torch.channels_last)`. Faster convolutions on CUDA for a convolutional UNet or VAE; nothing to gain on a transformer |
+| `enable_forward_chunking` | `unet` | Runs the UNet's feed-forward layers in chunks - less peak memory, slightly slower |
+| `attn_processor_type` | `unet`, `transformer` | Names an attention processor class to install with `set_attn_processor` (the name is resolved and constructed, so it goes through the `_type` conversion: `"AttnProcessor2_0"`). For a per-call backend instead, see [Attention Backends](#attention-backends) |
+
+```json
+"configuration": {
+    "component_type": "StableDiffusionPipeline",
+    "unet": { "channels_last": true, "enable_forward_chunking": true },
+    "vae": { "enable_slicing": true, "channels_last": true }
+}
+```
+
 ## Memory Offloading
 
 `offload` (`"model"` or `"sequential"`) and `group_offload` trade speed for VRAM by streaming weights between system memory and the accelerator instead of keeping everything resident. `"model"` moves whole submodules and costs the least speed; `"sequential"` moves individual layers and is the slowest but uses the least memory; block/leaf-level `group_offload` sits between the two and is what a modular pipeline's self-loaded components use, since they aren't reachable in time for `offload`. Full configuration syntax is in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#memory-offloading). Omit both for the fastest run, when VRAM allows it.

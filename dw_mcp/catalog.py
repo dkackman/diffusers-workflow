@@ -63,8 +63,16 @@ def get_memory(client):
 
 
 def get_health(client):
-    """Server liveness."""
+    """Server liveness, plus what answered: version, device, worker
+    liveness, the job running now and how many are queued."""
     return client.get_json("/api/health")
+
+
+def get_server_info(client):
+    """What this installation can do and where it keeps things: the
+    accelerator, the dw version, the workflow/output/prompt directories,
+    and how the server is reached."""
+    return client.get_json("/api/server")
 
 
 def list_jobs(client):

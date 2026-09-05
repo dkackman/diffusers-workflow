@@ -304,7 +304,11 @@ For components the pipeline loads itself — which is all of a modular pipeline'
 
 - `group_offload` — streams the component between system memory and the accelerator a
   block or a leaf module at a time, which is what fits a component larger than the
-  device. `onload_device` defaults to the pipeline's device.
+  device. `offload_type` is required (`"block_level"` or `"leaf_level"`);
+  `onload_device` defaults to the pipeline's device and `offload_device` to the CPU.
+  Anything else in the block is passed through to `apply_group_offloading`, so
+  `use_stream`, `num_blocks_per_group`, `low_cpu_mem_usage` and
+  `offload_to_disk_path` work as diffusers documents them.
 - `device` — moves a component that is small enough to stay resident.
 - `residency` — `"resident"` (the default) leaves the component on its device for the
   whole run; `"on_demand"` rests it in system memory and moves it to the device only

@@ -42,6 +42,7 @@ def recording_client(body=None, status=200):
         (lambda c: catalog.list_models(c), "/api/models"),
         (lambda c: catalog.get_memory(c), "/api/memory"),
         (lambda c: catalog.get_health(c), "/api/health"),
+        (lambda c: catalog.get_server_info(c), "/api/server"),
         (lambda c: catalog.list_jobs(c), "/api/jobs"),
         (lambda c: catalog.list_gallery(c), "/api/gallery"),
         (

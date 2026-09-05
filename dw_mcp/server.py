@@ -60,6 +60,9 @@ def build_server(client):
             "workflow's description, output kinds and variable names - "
             "run what is already there rather than authoring a new "
             "workflow for a request an existing one covers. "
+            "The engine that answers is one machine: `get_server_info` "
+            "reports its accelerator and directories, and what a workflow "
+            "can ask for follows from that. "
             "Validate a workflow before running it - "
             "validation is free, a run occupies the GPU for minutes. "
             "Authoring has two halves: `get_schema` describes a workflow "
@@ -126,8 +129,20 @@ def build_server(client):
         return catalog.get_memory(client)
 
     def get_health() -> dict:
-        """Check that the server is alive."""
+        """Check that the server is alive, and see what answered: its
+        version and accelerator, whether the worker process is up, the job
+        running now and how many are queued."""
         return catalog.get_health(client)
+
+    def get_server_info() -> dict:
+        """Get what this installation can do and where it keeps things: the
+        accelerator a run will use (`device` - cuda, mps or cpu), the dw
+        version, and the workflow, output and prompt directories. Check the
+        device before authoring: a CUDA-only choice - bitsandbytes
+        quantization, torch.compile, flash attention - is not available on
+        an mps or cpu server, and `directories` is what a path passed to
+        run_workflow or download_output is relative to."""
+        return catalog.get_server_info(client)
 
     def list_jobs() -> dict:
         """List queued, running and recent jobs."""
@@ -155,6 +170,7 @@ def build_server(client):
         list_models,
         get_memory,
         get_health,
+        get_server_info,
         list_jobs,
         list_gallery,
         get_gallery_metadata,

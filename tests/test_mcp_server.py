@@ -27,6 +27,7 @@ EXPECTED_TOOLS = {
     "list_models",
     "get_memory",
     "get_health",
+    "get_server_info",
     "list_jobs",
     "list_gallery",
     "get_gallery_metadata",
@@ -287,6 +288,7 @@ TOOL_WIRING = [
     ("list_models", {}, "GET", "/api/models"),
     ("get_memory", {}, "GET", "/api/memory"),
     ("get_health", {}, "GET", "/api/health"),
+    ("get_server_info", {}, "GET", "/api/server"),
     ("list_jobs", {}, "GET", "/api/jobs"),
     ("list_gallery", {"limit": 5}, "GET", "/api/gallery"),
     (

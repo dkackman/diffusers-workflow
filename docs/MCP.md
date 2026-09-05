@@ -175,7 +175,7 @@ Nothing in this sequence costs GPU time.
 
 ## Tool reference
 
-42 tools in six groups. Names and arguments below are transcribed from
+43 tools in six groups. Names and arguments below are transcribed from
 `dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
@@ -200,7 +200,8 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | `get_task(command)` | `command` | Get a task command's argument schema |
 | `list_models()` | — | List what the Hugging Face model cache holds, largest first |
 | `get_memory()` | — | Get the worker's VRAM and RAM statistics |
-| `get_health()` | — | Check that the server is alive |
+| `get_health()` | — | Check that the server is alive, and which machine answered: `version`, `device`, whether the worker process is up, the job running now and the queue depth |
+| `get_server_info()` | — | What this installation can do and where it keeps things: `device` (the accelerator a run will use), `version`, the workflow/output/prompt `directories`, the bind address and port, whether a token is required, and whether MCP is mounted. Check the device before authoring - a CUDA-only choice (bitsandbytes, `torch.compile`, flash attention) is not available on an `mps` or `cpu` server |
 | `list_jobs()` | — | List queued, running and recent jobs |
 | `list_gallery(limit=50)` | `limit` | List generated output files, newest first |
 | `get_gallery_metadata(name)` | `name` | Get the metadata embedded in a generated file: the exact workflow and arguments that produced it |
@@ -353,6 +354,12 @@ default) for any server an MCP client can reach.
 - **Images only.** `get_output_image` decodes and returns images; it refuses
   video and audio outputs. Use `get_gallery_metadata` to inspect other media
   kinds.
+- **No upload.** Files move outward only. There is no tool for `POST
+  /api/uploads` (the web UI's file picker route), so an input image or video
+  a workflow conditions on has to already be on the server machine, or be
+  reachable by URL - the arguments that take a path take a URL too. `download_output`
+  moves a *generated* file, and on a `dw.serve --mcp` endpoint it writes on
+  the GPU box, not the client's machine.
 
 ## Troubleshooting
 

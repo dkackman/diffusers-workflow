@@ -307,6 +307,36 @@ when any input is silent the result is, and `pair_audio` puts a score under it.
 
 **Example:** [GyreDissolve.json](../workflows/gyre/GyreDissolve.json)
 
+### stabilize_video
+
+Remove a generated clip's accumulated framing drift - the slow wander a video
+model adds over a shot that was meant to hold still:
+
+```json
+{
+    "task": {
+        "command": "stabilize_video",
+        "arguments": {
+            "clip": "variable:shot_1",
+            "smooth": 0
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `clip` | Yes | The video - a frame list, a frame array or tensor, an audio+video pair, or the path or URL of a video file, read with its audio, so a shot an earlier run wrote can be steadied without regenerating it |
+| `smooth` | No | `0` (the default) locks the framing to the first frame, which is what a shot generated from a pinned keyframe wants. A window in frames instead removes only the wander faster than that window, so a slow deliberate camera move survives and the drift around it does not |
+
+The argument is `clip`, not `video`, on purpose: the engine loads an argument
+named `video` itself, as bare frames, which would strip the soundtrack off
+before the task ever saw it. Frames are shifted back and the result is cropped
+to the region every frame covers, then resized to the original size; a
+soundtrack passes through untouched.
+
+**Example:** [GyreDissolve.json](../workflows/gyre/GyreDissolve.json)
+
 ### video_frames
 
 The frames of a generated video, as one `(frames, height, width, channels)`
@@ -471,6 +501,69 @@ changes, so the dynamics survive:
 A silent track is returned unchanged.
 
 **Example:** [GyreDissolve.json](../workflows/gyre/GyreDissolve.json)
+
+### mix_audio
+
+Layer tracks on top of one another. `crossfade_audio` puts tracks one after
+another; this puts them on top of each other - a score laid under a film's own
+sound, where the music runs unbroken while the world underneath it is replaced
+at every cut:
+
+```json
+{
+    "task": {
+        "command": "mix_audio",
+        "arguments": {
+            "audios": ["previous_result:soundtrack", "previous_result:world"],
+            "gains": [0.5, 1.0],
+            "sample_rate": 44100
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audios` | Yes | The tracks to layer - waveforms, audio file paths, or videos generated with a soundtrack |
+| `gains` | No | One plain multiplier per track, in the same order - not decibels. Defaults to unity on every track |
+| `sample_rate` | With a raw waveform | Sample rate of the waveforms. Required unless every track brings its own; given here it wins |
+
+Tracks of different lengths are padded with silence to the longest, so a score
+shorter than the picture leaves the tail dry rather than cutting the picture
+down to fit. Summing can push peaks past full scale and the sum is *not*
+rescaled - follow it with `normalize_audio` to bring the peak back down.
+
+**Example:** [GyreDissolve.json](../workflows/gyre/GyreDissolve.json) — a
+generated score mixed under the shots' own audio.
+
+### resample_audio
+
+Convert a track to a different sample rate. A pipeline that conditions on audio
+wants it at its own rate (MiniMax H3 at its audio VAE's), and resampling a
+supplied recording once, up front, feeds it what it already wants:
+
+```json
+{
+    "task": {
+        "command": "resample_audio",
+        "arguments": {
+            "audio": "previous_result:edit",
+            "target_sample_rate": 44100
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file, a video generated with a soundtrack (which brings its sample rate along), or a waveform |
+| `target_sample_rate` | Yes | The rate to convert to |
+| `sample_rate` | With a waveform | Sample rate of a waveform passed directly; given for a file or a video it overrides the rate they carry |
+
+A track already at the target rate is returned untouched. The conversion is
+PyAV's, which dw already needs for video - no torchaudio dependency.
+
+**Example:** [GyreAssemble.json](../workflows/gyre/GyreAssemble.json)
 
 ## Data Gathering
 
@@ -1071,3 +1164,4 @@ Canny edge detection followed by ControlNet generation:
 - [UpscaleImage.json](../workflows/tasks/UpscaleImage.json) — Spandrel upscale of an existing image
 - [DiffusionUpscaleImage.json](../workflows/tasks/DiffusionUpscaleImage.json) — Diffusion upscale of an existing image
 - [TrimFadeAudio.json](../workflows/tasks/TrimFadeAudio.json) — Trim a generated track and fade its tail
+- [GyreDissolve.json](../workflows/gyre/GyreDissolve.json) — Stabilize generated shots, dissolve between them, and mix a score under their own audio

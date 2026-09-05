@@ -7,7 +7,12 @@ Guidance for the `dw_mcp/` stdio MCP server package.
 introspection, validate/save/delete, the stored prompt library and its
 enhancer, queue a run, poll its events, and view or read a generated file.
 It covers the REST surface except the SSE event stream (whose polling twin
-`/event-log` is what `get_job_events` uses) and the SPA's static mount. It is an HTTP client of a *running* `dw.serve` — it owns no
+`/event-log` is what `get_job_events` uses), `POST /api/uploads` (a browser
+file picker's route onto the box - an MCP client has no bytes to push there),
+the gallery's bulk zip, and the SPA's static mount. `get_server_info`
+(`/api/server`) is the capability call: the device a run will use, the dw
+version and the workflow/output/prompt directories, which is what tells an
+agent authoring remotely whether a CUDA-only choice is even available. It is an HTTP client of a *running* `dw.serve` — it owns no
 job state and no GPU worker. Only `dw_mcp/server.py` imports the MCP SDK; the
 handlers in `catalog.py`, `authoring.py`, `prompts.py`, `diagnose.py`,
 `media.py` and `models.py` are plain `(client, **kwargs)` functions, which is what makes

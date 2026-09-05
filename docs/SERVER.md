@@ -170,6 +170,15 @@ The editor's forms come from these; they are just as usable from scripts:
   throttles a burst of single downloads, so the gallery's bulk download
   goes through here; an unknown or out-of-directory name 404s the whole
   request rather than yielding a partial archive
+- `POST /api/uploads?filename=...` — the raw bytes of one image or video
+  (200MB ceiling, checked from `Content-Length` before a byte is read, and
+  again on the body; extension held to the allowed image/video list), saved
+  into the output directory's `uploads/` subfolder under a generated name.
+  Answers 201 with `path` - the absolute path, which is the string shape a
+  workflow's `image`/`video` argument already takes - and `url`, the same
+  file under the `/outputs` mount. This is how the UI's file pickers get a
+  local file onto the machine that will run the workflow. The body is the
+  file itself, so no multipart parser is needed for a single-file upload
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,
