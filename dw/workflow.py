@@ -393,6 +393,7 @@ class Workflow:
 
             if not steps:
                 logger.warning(f"Workflow {workflow_id} has no steps defined")
+                status = "completed"
                 return []
 
             realize_args(steps, base_dir)

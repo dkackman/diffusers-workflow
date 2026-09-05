@@ -3,6 +3,7 @@ workflow's identity, and leaves a manifest describing itself."""
 
 import json
 import os
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
@@ -72,6 +73,26 @@ class TestRunIds:
     def test_a_path_with_no_run_id_keeps_its_folder(self):
         assert strip_run_id("ltx2/still.png") == "ltx2"
         assert strip_run_id("still.png") == ""
+
+    def test_a_run_id_with_tz_aware_utc_now_has_correct_stamp(self):
+        # Verify that a tz-aware UTC now produces the correct timestamp prefix
+        now = datetime(2026, 9, 5, 12, 34, 56, tzinfo=timezone.utc)
+        run_id = new_run_id({"test": "spec"}, now=now)
+        expected_stamp = now.strftime("%Y%m%d-%H%M%S")
+        assert run_id.startswith(expected_stamp)
+        assert is_run_id(run_id)
+
+    def test_a_run_id_without_now_uses_current_utc_time(self):
+        # Verify that without a 'now' parameter, the stamp matches the current UTC minute
+        # Allow for some clock skew by checking current minute or next minute
+        run_id = new_run_id({"test": "spec"})
+        stamp_str = run_id[:15]  # "YYYYMMDD-HHMMSS"
+        now_utc = datetime.now(timezone.utc)
+
+        # Parse the stamp and verify it is within 5 seconds of now
+        parsed_stamp = datetime.strptime(stamp_str, "%Y%m%d-%H%M%S")
+        time_diff = (now_utc - parsed_stamp.replace(tzinfo=timezone.utc)).total_seconds()
+        assert -5 <= time_diff <= 5, f"Stamp is off by {time_diff} seconds"
 
 
 class TestLayoutResolution:
@@ -258,3 +279,24 @@ class TestRunDirectories:
         # 'workflows' tree, and no run directory or manifest
         written = list((tmp_path / "ltx2").iterdir())
         assert [path.suffix for path in written] == [".png"]
+
+    def test_empty_steps_workflow_records_completed_status(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        # Workflow with no steps but with a seed
+        definition = {
+            "id": "empty_steps_test",
+            "seed": 42,
+            "steps": [],
+        }
+        workflow = Workflow(definition, str(tmp_path), "/w/workflows/empty.json")
+        result = workflow.run({})
+
+        # Should return empty list
+        assert result == []
+
+        # Run directory should have been created with completed status
+        run_dir = next((tmp_path / "empty").iterdir())
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        assert manifest["status"] == "completed"
+        assert manifest["workflow"]["id"] == "empty_steps_test"

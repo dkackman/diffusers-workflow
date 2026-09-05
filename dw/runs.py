@@ -26,7 +26,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger("dw")
 
@@ -250,7 +250,7 @@ def new_run_id(spec=None, now=None):
     everywhere is what lets anything reading the directory tree - the
     gallery, a future history rebuild - understand both.
     """
-    stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d-%H%M%S")
     try:
         material = json.dumps(spec, sort_keys=True, default=str)
     except (TypeError, ValueError):
