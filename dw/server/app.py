@@ -406,7 +406,9 @@ def create_app(
     if mcp:
         from .mcp_mount import build_mcp_app
 
-        mcp_asgi, mcp_server, mcp_client = build_mcp_app(port=port, token=token)
+        mcp_asgi, mcp_server, mcp_client = build_mcp_app(
+            host=host, port=port, token=token
+        )
 
     @asynccontextmanager
     async def lifespan(app):
@@ -415,9 +417,13 @@ def create_app(
         else:
             # the SDK's session manager is the mounted app's own lifespan,
             # which Starlette does not run for a sub-app
-            async with mcp_server.session_manager.run():
-                yield
-            mcp_client.close()
+            try:
+                async with mcp_server.session_manager.run():
+                    yield
+            finally:
+                # the client owns a connection pool; a session manager that
+                # fails to start must not leak it
+                mcp_client.close()
         manager.shutdown()
 
     app = FastAPI(
@@ -455,7 +461,13 @@ def create_app(
         if origin:
             origin_host = (urlparse(origin).hostname or "").lower()
             request_host = (request.url.hostname or "").lower()
-            if origin_host not in allowed_hosts and origin_host != request_host:
+            # origin_host must be non-empty for the same-origin clause:
+            # `Origin: null` (a sandboxed iframe, a file:// page) parses to
+            # no hostname and would otherwise match a request whose Host
+            # carries none either
+            if origin_host not in allowed_hosts and not (
+                origin_host and origin_host == request_host
+            ):
                 return JSONResponse(
                     status_code=403,
                     content={"detail": "Cross-origin requests are not allowed"},

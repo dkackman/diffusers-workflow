@@ -88,3 +88,9 @@ it('labels an address by interface', () => {
     addressLabel({ address: '10.0.0.4', family: 'IPv4', interface: 'wlan0' }),
   ).toBe('10.0.0.4 (wlan0)')
 })
+
+it('labels an address by itself when the interface is unknown', () => {
+  expect(
+    addressLabel({ address: '10.0.0.4', family: 'IPv4', interface: null }),
+  ).toBe('10.0.0.4')
+})

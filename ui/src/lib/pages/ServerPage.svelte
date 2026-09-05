@@ -229,7 +229,10 @@
       {#if addresses.length > 1}
         <label class="picker">
           Address
-          <select bind:value={selected}>
+          <select
+            value={address}
+            onchange={(e) => (selected = e.currentTarget.value)}
+          >
             {#each addresses as entry (entry.address)}
               <option value={entry.address}>{addressLabel(entry)}</option>
             {/each}

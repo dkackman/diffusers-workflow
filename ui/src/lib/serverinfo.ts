@@ -56,7 +56,10 @@ export function isUnauthenticatedPublicBind(info: ServerInfo): boolean {
   return !info.auth_required && !isLoopbackBind(info.bind_host)
 }
 
-/** Label for one interface address in the picker. */
+/** Label for one interface address in the picker. Falls back to the bare
+ * address when psutil isn't available server-side to name the interface. */
 export function addressLabel(entry: ServerAddress): string {
-  return `${entry.address} (${entry.interface})`
+  return entry.interface
+    ? `${entry.address} (${entry.interface})`
+    : entry.address
 }

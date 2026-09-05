@@ -43,7 +43,7 @@ export interface HealthInfo {
 export interface ServerAddress {
   address: string
   family: string
-  interface: string
+  interface: string | null
 }
 
 export interface ServerInfo {

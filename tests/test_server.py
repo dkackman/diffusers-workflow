@@ -1,6 +1,7 @@
 """Phase 1 server: job lifecycle over the API, SSE replay, cancellation,
 request validation, and workflow browsing confinement."""
 
+import asyncio
 import json
 import os
 import queue
@@ -596,6 +597,39 @@ def test_origin_naming_the_configured_bind_host_is_accepted(tmp_path):
             "/api/health", headers={"Origin": "http://my-server.local:9999"}
         )
         assert response.status_code == 200
+
+
+def test_opaque_origin_is_rejected(tmp_path):
+    """A sandboxed iframe or a file:// page sends `Origin: null`, which has
+    no hostname. It must not slip through the same-origin clause against a
+    request whose Host carries no hostname either."""
+    app = _app_bound_to(tmp_path, "0.0.0.0")
+    # driven at the ASGI level: an httpx/TestClient request always carries a
+    # Host header, and it is a request with no hostname at all that the
+    # same-origin clause used to let an opaque Origin match
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "path": "/api/health",
+        "raw_path": b"/api/health",
+        "root_path": "",
+        "query_string": b"",
+        "scheme": "http",
+        "server": None,
+        "client": ("192.168.1.50", 5000),
+        "headers": [(b"origin", b"null")],
+    }
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(app(scope, receive, send))
+    assert sent[0]["status"] == 403
 
 
 def test_loopback_origin_is_accepted_for_any_host(tmp_path):

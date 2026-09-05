@@ -47,6 +47,30 @@ def make_app(tmp_path, token=None, mcp=True):
     )
 
 
+@pytest.mark.parametrize(
+    "host,expected",
+    [
+        ("0.0.0.0", "http://127.0.0.1:8765"),
+        ("::", "http://127.0.0.1:8765"),
+        ("localhost", "http://127.0.0.1:8765"),
+        ("10.0.0.5", "http://10.0.0.5:8765"),
+        ("fd00::5", "http://[fd00::5]:8765"),
+        ("gpu-box.local", "http://gpu-box.local:8765"),
+    ],
+)
+def test_the_mounted_tools_reach_the_address_the_server_is_bound_to(host, expected):
+    """uvicorn on `--host 100.x.y.z` listens on that address alone, so a
+    loopback client would get connection refused there - only a wildcard or
+    loopback bind is reachable at 127.0.0.1. An IPv6 literal is bracketed."""
+    from dw.server.mcp_mount import build_mcp_app
+
+    _asgi, _server, client = build_mcp_app(host=host, port=8765, token=None)
+    try:
+        assert client.base_url == expected
+    finally:
+        client.close()
+
+
 def test_mcp_is_not_mounted_by_default(tmp_path):
     app = make_app(tmp_path, mcp=False)
     with TestClient(app, base_url="http://localhost") as client:
