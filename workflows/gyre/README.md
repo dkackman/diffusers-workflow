@@ -25,6 +25,12 @@ python -m dw.run workflows/gyre/GyreFrames.json  --output_dir ./outputs/gyre
 python -m dw.run workflows/gyre/GyreFilm.json    --output_dir ./outputs/gyre
 ```
 
+Those write into `./outputs/gyre`. Passes 2 and 3, and every workflow below,
+also *read* from `assets/` - the nine source stills, the nine registered frames,
+the nine generated shots and the score. **`assets/` is not in the repository.**
+It is about 30 MB of generated media kept outside the tree, so restore it from
+wherever you archived it before running anything but `GyreStills.json`.
+
 | Pass | What it does | Cost |
 | ---- | ------------ | ---- |
 | [`GyreStills.json`](GyreStills.json) | Z-Image Turbo paints the nine source stills at 1024x1024; MiniMax-Music3 writes two candidate scores | ~10 min |
@@ -42,9 +48,15 @@ them misses, leaving the other eight alone.
 
 [`GyreStillsFix.json`](GyreStillsFix.json) and [`GyreStillsFix2.json`](GyreStillsFix2.json)
 are the re-shoots of the three stills the first pass missed. They are kept
-because the three stills workflows together reproduce `assets/src_*.jpg`
+because the three stills workflows together reproduce the nine source stills
 *exactly*, and `GyreFrames.json`'s centres are hand-measured on those exact
 images — regenerate them differently and its numbers no longer mean anything.
+They do not rebuild `assets/` by themselves, though: which of their takes became
+which `src_*.jpg` was picked by eye and never written down, so the archived copy
+is the only authority. `GyreStillsFix.json` also reads one of pass 1's stills
+back out of `assets/` under its original run name, so it cannot run from a bare
+tree either.
+
 Run [`GyreReshoot.json`](GyreReshoot.json) as a single-shot probe before
 committing to the full film whenever a parameter changes — it is the cheapest way
 to find out that something is wrong.

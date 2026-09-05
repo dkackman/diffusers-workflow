@@ -182,7 +182,7 @@ pixel - different pictures, not drifted ones. A step's result still depends on
 its position in the run, not on its seed alone.
 
 That is why `GyreStills.json`, `GyreStillsFix.json` and `GyreStillsFix2.json`
-are all kept rather than merged. Together they reproduce `assets/src_*.jpg`
+are all kept rather than merged. Together they reproduce the nine source stills
 exactly, and they have to: `GyreFrames.json`'s crop centres are hand-measured on
 those exact images, so regenerating the stills differently would leave its
 numbers pointing at nothing while still validating and still running.
@@ -196,6 +196,16 @@ first copied into `assets/` - nine source stills, nine registered frames, nine
 generated shots, both scores - and `GyreAssemble.json` and `GyreDissolve.json`
 were re-run afterwards to confirm they still rebuild both films byte-identically
 from those assets alone.
+
+`assets/` was itself removed from the repository afterwards - 30 MB across the
+nine stills, the nine frames, the nine shots and both scores, none of which the
+engine needs to be in version control. The workflows still address those paths,
+so the directory has to be restored from the archived copy before passes 2 and
+3, `GyreAssemble.json`, `GyreDissolve.json` or `GyreReshoot.json` will run.
+Re-running the workflows gets close but does not get back: the re-shoot takes
+and the choice between the two scores were both hand-picked and neither
+selection was recorded. The rejected instrumental score is in the archive too,
+although no workflow reads it.
 
 `GyreTest.json`, the single-shot probe, was deleted as redundant:
 `GyreReshoot.json` does the same job and is needed anyway.
