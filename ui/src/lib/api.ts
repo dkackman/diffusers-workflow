@@ -270,6 +270,22 @@ export const api = {
       `/api/workspaces/${encodeURIComponent(name)}?acknowledged=${acknowledged}`,
       { method: 'DELETE' },
     ),
+  /** Keep a generated file as an input asset under a stable name. The copy
+   * happens on the server, inside the workspace - nothing is downloaded and
+   * re-uploaded to reuse a render. */
+  keepOutput: (name: string, assetName?: string, overwrite = false) =>
+    request<{ reference: string; name: string; linked: boolean }>(
+      '/api/assets/keep',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          asset_name: assetName ?? null,
+          overwrite,
+        }),
+      },
+    ),
   listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
   describePipeline: (name: string) =>
     request<PipelineDescription>(`/api/pipelines/${name}`),

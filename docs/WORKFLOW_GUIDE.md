@@ -978,6 +978,12 @@ absolute path, and a symlink pointing out are all refused.
 To name an *earlier step of the same run*, use `previous_result:` instead — that passes
 the value in memory rather than through the filesystem.
 
+A generated file worth reusing repeatedly is better *kept* than referenced by the run
+that made it: `POST /api/assets/keep` (the gallery's **Keep as asset**, or MCP's
+`keep_output`) copies it into the workspace's asset library under a name you choose, and
+from then on it is an `asset:` reference like any other — stable whatever happens to the
+run directory it came from.
+
 ### Objects Built From a File
 
 Some pipelines take arguments that are objects rather than plain media. An argument that

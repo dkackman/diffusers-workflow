@@ -192,6 +192,14 @@ The editor's forms come from these; they are just as usable from scripts:
   `asset:` reference a workflow carries rather than a path, since a path
   only means something on the server's own machine. Empty rather than an
   error when no library is configured
+- `POST /api/assets/keep` (`{"name": ..., "asset_name": ..., "overwrite": false}`)
+  — keep a generated file as an input asset under a stable name, returning
+  its `asset:` reference. A run's files are named by the run that made them,
+  which is the wrong thing for a later workflow to depend on: `latest` moves
+  and a pinned run id breaks when outputs are pruned. The copy happens inside
+  the workspace and is a hard link where the filesystem allows one, so
+  keeping one frame of a large render costs no second copy of it. Refuses an
+  existing name unless `overwrite`
 - `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
   again on the body; extension held to the allowed image/video list), saved

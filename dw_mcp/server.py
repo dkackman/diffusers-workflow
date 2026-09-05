@@ -267,8 +267,20 @@ def build_server(client):
         to the server."""
         return assets.upload_asset(client, file_path)
 
+    def keep_output(
+        name: str, asset_name: str | None = None, overwrite: bool = False
+    ) -> dict:
+        """Keep a generated file as an input asset under a stable "asset:"
+        name, so later workflows can rely on it - a run's own name moves
+        ("latest") or breaks when outputs are pruned. The copy happens on the
+        server: nothing is downloaded or re-uploaded."""
+        return assets.keep_output(
+            client, name, asset_name=asset_name, overwrite=overwrite
+        )
+
     tool(list_assets, READ_ONLY)
     tool(upload_asset, WRITES)
+    tool(keep_output, WRITES)
 
     # ------------------------------------------------------------ workspaces
 

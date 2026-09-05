@@ -245,6 +245,131 @@ class TestServingFiles:
             assert client.get(url).content == b"x"
 
 
+class TestKeepingOutputs:
+    """Generated files are named by the run that made them; keeping one puts
+    it in the asset library under a name later workflows can rely on."""
+
+    def written(self, root, name, content=b"png-bytes"):
+        path = os.path.join(root, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.write(content)
+        return path
+
+    def test_an_output_is_kept_under_a_stable_name(self, server, workspace_root):
+        self.written(workspace_root.outputs, "Gyre/20260905-101500-aaaaaaaa/still.png")
+        with server() as client:
+            response = client.post(
+                "/api/assets/keep",
+                json={
+                    "name": "Gyre/20260905-101500-aaaaaaaa/still.png",
+                    "asset_name": "gyre/hero.png",
+                },
+            )
+        assert response.status_code == 201
+        body = response.json()
+        assert body["reference"] == "asset:gyre/hero.png"
+        kept = os.path.join(workspace_root.assets, "gyre", "hero.png")
+        assert open(kept, "rb").read() == b"png-bytes"
+        # the run's own copy is untouched - keeping is not moving
+        assert os.path.exists(
+            os.path.join(
+                workspace_root.outputs, "Gyre/20260905-101500-aaaaaaaa/still.png"
+            )
+        )
+
+    def test_it_links_rather_than_copying_when_it_can(self, server, workspace_root):
+        """One frame of a multi-gigabyte render should not cost another copy
+        of it; both names refer to the same content."""
+        source = self.written(workspace_root.outputs, "Gyre/run/clip.mp4")
+        with server() as client:
+            body = client.post(
+                "/api/assets/keep", json={"name": "Gyre/run/clip.mp4"}
+            ).json()
+        assert body["reference"] == "asset:clip.mp4"
+        if body["linked"]:
+            assert os.stat(source).st_ino == os.stat(body["path"]).st_ino
+
+    def test_the_name_defaults_to_the_files_own(self, server, workspace_root):
+        self.written(workspace_root.outputs, "Gyre/run/still.png")
+        with server() as client:
+            body = client.post(
+                "/api/assets/keep", json={"name": "Gyre/run/still.png"}
+            ).json()
+        assert body["reference"] == "asset:still.png"
+
+    def test_an_existing_asset_is_not_replaced_silently(self, server, workspace_root):
+        self.written(workspace_root.outputs, "Gyre/run/still.png", b"new")
+        self.written(workspace_root.assets, "hero.png", b"old")
+        with server() as client:
+            refused = client.post(
+                "/api/assets/keep",
+                json={"name": "Gyre/run/still.png", "asset_name": "hero.png"},
+            )
+            assert refused.status_code == 409
+            assert (
+                open(os.path.join(workspace_root.assets, "hero.png"), "rb").read()
+                == b"old"
+            )
+
+            replaced = client.post(
+                "/api/assets/keep",
+                json={
+                    "name": "Gyre/run/still.png",
+                    "asset_name": "hero.png",
+                    "overwrite": True,
+                },
+            )
+            assert replaced.status_code == 201
+        assert (
+            open(os.path.join(workspace_root.assets, "hero.png"), "rb").read() == b"new"
+        )
+
+    @pytest.mark.parametrize("asset_name", ["../escape.png", "/etc/passwd.png"])
+    def test_a_destination_cannot_leave_the_library(
+        self, server, workspace_root, asset_name
+    ):
+        self.written(workspace_root.outputs, "Gyre/run/still.png")
+        with server() as client:
+            response = client.post(
+                "/api/assets/keep",
+                json={"name": "Gyre/run/still.png", "asset_name": asset_name},
+            )
+        assert response.status_code == 400
+
+    def test_keeping_stays_inside_the_workspace(self, server, workspace_root):
+        """The source is read from the named workspace's outputs and the copy
+        lands in its assets - neither reaches the default workspace."""
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            shots = os.path.join(workspace_root.root, "shots")
+            self.written(os.path.join(shots, "outputs"), "Gyre/run/still.png")
+
+            assert (
+                client.post(
+                    "/api/assets/keep", json={"name": "Gyre/run/still.png"}
+                ).status_code
+                == 404
+            )
+            kept = client.post(
+                "/api/assets/keep?workspace=shots",
+                json={"name": "Gyre/run/still.png"},
+            )
+        assert kept.status_code == 201
+        assert os.path.exists(os.path.join(shots, "assets", "still.png"))
+        assert not os.path.exists(os.path.join(workspace_root.assets, "still.png"))
+
+    def test_a_kept_asset_is_listed_and_referable(self, server, workspace_root):
+        self.written(workspace_root.outputs, "Gyre/run/still.png")
+        with server() as client:
+            client.post(
+                "/api/assets/keep",
+                json={"name": "Gyre/run/still.png", "asset_name": "gyre/hero.png"},
+            )
+            listed = client.get("/api/assets").json()["assets"]
+        assert [entry["reference"] for entry in listed] == ["asset:gyre/hero.png"]
+
+
 class TestRunning:
     def test_a_job_runs_in_the_workspace_it_named(self, server, workspace_root):
         with server() as client:

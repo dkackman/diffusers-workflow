@@ -225,6 +225,7 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | `create_workspace(name)` | `name` | Create a workspace. Creating does not switch to it |
 | `delete_workspace(name, acknowledged_cost=False)` | `name`, `acknowledged_cost` | Permanently delete a workspace and everything in it. Refuses without the acknowledgement, reporting what it would remove |
 | `list_assets()` | — | The input media on the server, each with the `asset:` reference a workflow argument carries. Look here before asking for a file - what a workflow needs may already be there |
+| `keep_output(name, asset_name=None, overwrite=False)` | `name`, optional `asset_name`, `overwrite` | Keep a generated file as an input asset under a stable `asset:` name, so a later workflow can rely on it. The copy happens on the server: nothing is downloaded or re-uploaded |
 | `upload_asset(file_path)` | `file_path` | Push a local image, video or audio file into the server's asset library and get back its `asset:` reference. The file is read from the machine the MCP server runs on, so this is how an input reaches a dw.serve running somewhere else |
 | `save_workflow(name, workflow)` | `name`, `workflow` | Save a workflow into the server's writable workflow directory, overwriting any existing workflow of that name there. A name that currently resolves to a read-only source (an examples directory) is not overwritten - the copy lands in the writable directory and shadows it |
 | `delete_workflow(name)` | `name` | Permanently delete a stored workflow |

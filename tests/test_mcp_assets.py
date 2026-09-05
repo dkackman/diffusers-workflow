@@ -4,10 +4,12 @@ An agent that can only name assets already on the box can author workflows
 it cannot supply inputs for - these are the two tools that close that.
 """
 
+import json
+
 import httpx
 import pytest
 
-from dw_mcp.assets import MAX_UPLOAD_BYTES, list_assets, upload_asset
+from dw_mcp.assets import MAX_UPLOAD_BYTES, keep_output, list_assets, upload_asset
 from dw_mcp.client import DwApiError, DwClient
 
 
@@ -127,3 +129,41 @@ class TestUpload:
 
         result = upload_asset(client_over(handler), str(source))
         assert result["reference"] == "/srv/outputs/uploads/x.png"
+
+
+class TestKeeping:
+    def test_keeping_sends_no_bytes(self):
+        """The whole point: the copy happens on the server, so a render is
+        not downloaded here only to be uploaded back."""
+        seen = {}
+
+        def handler(request):
+            seen["url"] = str(request.url)
+            seen["body"] = request.content
+            return httpx.Response(
+                201,
+                json={
+                    "reference": "asset:gyre/hero.png",
+                    "name": "gyre/hero.png",
+                    "linked": True,
+                },
+            )
+
+        result = keep_output(
+            client_over(handler),
+            "Gyre/20260905-101500-aaaaaaaa/still.png",
+            asset_name="gyre/hero.png",
+        )
+        assert result["reference"] == "asset:gyre/hero.png"
+        # only the two names travelled, not the file
+        body = json.loads(seen["body"])
+        assert body["name"] == "Gyre/20260905-101500-aaaaaaaa/still.png"
+        assert body["asset_name"] == "gyre/hero.png"
+        assert "/api/assets/keep" in seen["url"]
+
+    def test_a_refusal_reaches_the_caller(self):
+        def handler(request):
+            return httpx.Response(409, json={"detail": "asset:hero.png already exists"})
+
+        with pytest.raises(DwApiError, match="already exists"):
+            keep_output(client_over(handler), "Gyre/run/still.png")

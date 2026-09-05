@@ -47,6 +47,24 @@ def list_assets(client):
     return client.get_json("/api/assets")
 
 
+def keep_output(client, name, asset_name=None, overwrite=False):
+    """Keep a generated file as an input asset, under a stable name.
+
+    A run's files are named by the run that made them, which is the wrong
+    thing to build on: 'latest' moves and a pinned run id breaks when
+    outputs are pruned. Keeping one gives it an 'asset:' name that stays
+    put, so a later workflow can rely on it.
+
+    The copy happens on the server, inside the workspace - downloading a
+    render here only to upload it back would move the bytes twice for
+    nothing.
+    """
+    return client.post_json(
+        "/api/assets/keep",
+        {"name": name, "asset_name": asset_name, "overwrite": overwrite},
+    )
+
+
 def upload_asset(client, file_path):
     """Put a local image, video or audio file into the server's asset
     library and get back the reference a workflow can use.

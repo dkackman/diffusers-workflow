@@ -117,6 +117,10 @@ docs/WORKSPACES.md, and docs/proposals/workspaces.md for the later stages
   under the output root, and `latest` in the run-id position picks the newest run (run ids
   sort by their UTC timestamp). Resolved in `realize_args` beside `asset:` (`dw/runs.py`),
   against the output root `Workflow.run` activates, and confined to it
+- A generated file becomes a stable input with `POST /api/assets/keep` (gallery "Keep as
+  asset", MCP `keep_output`): it is hard-linked, else copied, from the workspace's outputs
+  into its assets under a chosen name, so later workflows reference `asset:name` rather
+  than a run id that pruning would break
 - Values prefixed with `prompt:` load a stored prompt's `text` from the prompt library:
   `"prompt:name"` or `"prompt:folder/name"`. Resolved in `realize_args` (`dw/prompts.py`),
   rooted at the library rather than the workflow file. The library is `DW_PROMPT_DIR` /

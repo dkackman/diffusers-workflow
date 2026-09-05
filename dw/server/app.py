@@ -6,6 +6,7 @@ Interactive API docs are served at /docs (OpenAPI at /openapi.json).
 """
 
 import os
+import shutil
 import io
 import zipfile
 import tempfile
@@ -29,6 +30,7 @@ from starlette.routing import Match, Route
 from starlette.background import BackgroundTask
 
 from ..security import (
+    validate_asset_reference,
     validate_path,
     validate_output_path,
     validate_prompt_reference,
@@ -1653,6 +1655,79 @@ def create_app(
             "asset_dir": library,
             "assets": assets,
             "folders": sorted({entry["folder"] for entry in assets} | {""}),
+        }
+
+    class KeepRequest(BaseModel):
+        name: str = Field(
+            description="The generated file to keep, as the gallery names it"
+        )
+        asset_name: Optional[str] = Field(
+            default=None,
+            description="Name to keep it under in the asset library; its own "
+            "file name when omitted",
+        )
+        overwrite: bool = Field(
+            default=False, description="Replace an asset already under that name"
+        )
+
+    @app.post("/api/assets/keep", status_code=201)
+    def keep_output_as_asset(request: KeepRequest, workspace: Optional[str] = None):
+        """Keep a generated file as an input asset, under a stable name.
+
+        A run's files live under '<workflow>/<run id>/', which is the right
+        place for them and the wrong name to build on: 'latest' moves, and a
+        pinned run id breaks the moment outputs are pruned. Keeping one
+        copies it into the workspace's asset library, where an 'asset:' name
+        stays put - which is what turns a generated still or score into an
+        input later workflows can rely on.
+
+        Within the workspace, so nothing crosses a namespace, and no bytes
+        cross the network: a client that had to download and re-upload a
+        multi-gigabyte video to reuse one frame would be paying for the
+        round trip twice.
+        """
+        _workspace_name, directories = _selected(workspace)
+        library = directories["assets"]
+        if not library:
+            raise HTTPException(
+                status_code=409, detail="This workspace has no asset library"
+            )
+
+        source = _output_file(request.name, directories["outputs"])
+        asset_name = request.asset_name or os.path.basename(request.name)
+        try:
+            validate_asset_reference(asset_name)
+            destination = validate_path(os.path.join(library, asset_name), library)
+        except SecurityError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        if os.path.exists(destination) and not request.overwrite:
+            raise HTTPException(
+                status_code=409,
+                detail=f"asset:{asset_name} already exists - pass overwrite=true "
+                f"to replace it",
+            )
+
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        if os.path.exists(destination):
+            os.remove(destination)
+        # A hard link first: keeping one frame of a multi-gigabyte render
+        # should not cost another copy of it, and both names refer to the
+        # same content anyway. Falls back to a copy when the link cannot be
+        # made - a different filesystem, or one that has no links
+        try:
+            os.link(source, destination)
+            linked = True
+        except OSError:
+            shutil.copy2(source, destination)
+            linked = False
+
+        logger.info(f"Kept output {request.name} as asset:{asset_name}")
+        return {
+            "reference": f"asset:{asset_name}",
+            "name": asset_name,
+            "path": destination,
+            "linked": linked,
         }
 
     # ----------------------------------------------------------------- models
