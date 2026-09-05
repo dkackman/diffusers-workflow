@@ -26,6 +26,11 @@ def serve(monkeypatch, tmp_path):
     monkeypatch.delenv("DW_API_TOKEN", raising=False)
     # main() pins DW_PROMPT_DIR in os.environ; monkeypatch restores it
     monkeypatch.setenv("DW_PROMPT_DIR", str(tmp_path / "prompts"))
+    # And a workspace of its own: without one main() resolves the working
+    # directory, which for the test suite is the checkout - and then creates
+    # the asset library inside it
+    monkeypatch.setenv("DW_WORKSPACE", str(tmp_path / "workspace"))
+    monkeypatch.setenv("DW_WORKSPACE_SOURCE", "flag")
     (tmp_path / "workflows").mkdir()
 
     def run(*argv):

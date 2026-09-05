@@ -153,5 +153,10 @@ venv
 # generated media - regenerable, archived outside the repo
 local_inputs/
 workflows/*/assets/
+# the workspace's asset library: input media, and where browser uploads land
+# when the checkout is the workspace (dw/workspace.py). Anchored at the root
+# so the SPA's own assets/ folders are not swept up. Generated output is
+# covered by the outputs/ rule above, run directories and manifests included
+/assets/
 /*.mp4
 /*.wav
