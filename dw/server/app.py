@@ -1296,12 +1296,14 @@ def create_app(
     # Longest side of an on-demand gallery thumbnail, in pixels
     GALLERY_THUMBNAIL_MAX_DIM = 320
 
-    def _output_file(name):
-        """A file inside the output directory, or a 404 - never outside it."""
+    def _output_file(name, root=None):
+        """A file inside a workspace's output directory, or a 404 - never
+        outside it."""
+        root = root or manager.output_dir
         try:
             path = validate_path(
-                os.path.join(manager.output_dir, name),
-                manager.output_dir,
+                os.path.join(root, name),
+                root,
                 allow_create=False,
             )
         except SecurityError as e:
@@ -1310,7 +1312,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="Unknown file")
         return path
 
-    def _iter_gallery_files():
+    def _iter_gallery_files(root):
         """Every media file under the output directory, recursing into the
         per-workflow subfolders (dw/workflow.py's effective_output_dir writes
         each run under '<workflow identity>/<run id>/', and mirrors a
@@ -1322,8 +1324,8 @@ def create_app(
         The folder a file is grouped under drops the run id: a workflow run
         fifty times is one folder in the filter, not fifty. Which run a file
         came from is still in its name, and in the manifest beside it."""
-        for root, _dirs, names in os.walk(manager.output_dir):
-            rel_root = os.path.relpath(root, manager.output_dir)
+        for current, _dirs, names in os.walk(root):
+            rel_root = os.path.relpath(current, root)
             directory = "" if rel_root == "." else rel_root.replace(os.sep, "/")
             for name in names:
                 extension = os.path.splitext(name)[1].lower()
@@ -1332,12 +1334,12 @@ def create_app(
                     continue
                 relative_name = name if not directory else f"{directory}/{name}"
                 folder = strip_run_id(relative_name)
-                yield relative_name, folder, kind, os.path.join(root, name)
+                yield relative_name, folder, kind, os.path.join(current, name)
 
-    def _gallery_entries():
+    def _gallery_entries(root, workspace_name):
         entries = []
         try:
-            files = list(_iter_gallery_files())
+            files = list(_iter_gallery_files(root))
         except OSError:
             files = []
         for relative_name, folder, kind, path in files:
@@ -1360,7 +1362,15 @@ def create_app(
                     # changing (e.g. a manual overwrite outside the engine) -
                     # normal reruns get a fresh name instead, see
                     # dw/result.py's output_file_path
-                    "url": f"/outputs/{quote(relative_name)}?v={int(stat.st_mtime)}",
+                    # The default workspace's files keep the URL they have
+                    # always had; a named one carries the same selector its
+                    # API calls do, so one route serves both
+                    "url": (
+                        f"/outputs/{quote(relative_name)}?v={int(stat.st_mtime)}"
+                        if workspace_name == DEFAULT_WORKSPACE_NAME
+                        else f"/outputs/{quote(relative_name)}"
+                        f"?workspace={quote(workspace_name)}&v={int(stat.st_mtime)}"
+                    ),
                     "kind": kind,
                     "size": stat.st_size,
                     "mtime": stat.st_mtime,
@@ -1371,7 +1381,12 @@ def create_app(
         return entries
 
     @app.get("/api/gallery")
-    def gallery(limit: int = 200, offset: int = 0, folder: Optional[str] = None):
+    def gallery(
+        limit: int = 200,
+        offset: int = 0,
+        folder: Optional[str] = None,
+        workspace: Optional[str] = None,
+    ):
         """A page of media files in the output directory, newest first.
         Stateless by design - the gallery survives server restarts because
         it reads the directory tree, not job history. 'folders' lists every
@@ -1380,7 +1395,8 @@ def create_app(
         its own, so a workflow's runs group together; '' stands for files
         saved directly at the output root, and is itself always a member so
         that folder-less outputs stay selectable once anything is nested."""
-        entries = _gallery_entries()
+        name, directories = _selected(workspace)
+        entries = _gallery_entries(directories["outputs"], name)
         folders = sorted({e["folder"] for e in entries} | {""})
         if folder is not None:
             entries = [e for e in entries if e["folder"] == folder]
@@ -1393,14 +1409,16 @@ def create_app(
             "offset": offset,
             "limit": limit,
             "folders": folders,
+            "workspace": name,
         }
 
     @app.get("/api/gallery/{name:path}/metadata")
-    def gallery_metadata(name: str):
+    def gallery_metadata(name: str, workspace: Optional[str] = None):
         """Generation metadata embedded in a saved image ('workflow' inside
         it is the full definition the editor can reopen), plus the job that
         produced the file when history remembers one."""
-        path = _output_file(name)
+        _workspace_name, directories = _selected(workspace)
+        path = _output_file(name, directories["outputs"])
         metadata = read_embedded_metadata(path)
         try:
             job = manager.history.job_for_file(name)
@@ -1410,12 +1428,13 @@ def create_app(
 
     @app.get("/api/gallery/{name:path}/thumbnail")
     @query_token_ok
-    def gallery_thumbnail(name: str, request: Request):
+    def gallery_thumbnail(name: str, request: Request, workspace: Optional[str] = None):
         """A small JPEG rendition of an image output, for the grid - the
         full-resolution file is only fetched for the detail/lightbox view.
         Generated on demand rather than cached to disk, so it never grows
         the output directory the gallery itself scans."""
-        path = _output_file(name)
+        _workspace_name, directories = _selected(workspace)
+        path = _output_file(name, directories["outputs"])
         extension = os.path.splitext(path)[1].lower()
         if MEDIA_KINDS.get(extension) != "image":
             raise HTTPException(
@@ -1454,9 +1473,10 @@ def create_app(
 
     @app.get("/api/gallery/{name:path}/download")
     @query_token_ok
-    def download_output(name: str):
+    def download_output(name: str, workspace: Optional[str] = None):
         """Serve one output file as a forced download rather than an inline view."""
-        path = _output_file(name)
+        _workspace_name, directories = _selected(workspace)
+        path = _output_file(name, directories["outputs"])
         return FileResponse(path, filename=os.path.basename(name))
 
     # A generous ceiling rather than a real limit - it exists so a
@@ -1467,7 +1487,7 @@ def create_app(
         names: list[str] = Field(min_length=1, max_length=MAX_ARCHIVE_FILES)
 
     @app.post("/api/gallery/archive")
-    def archive_outputs(request: ArchiveRequest):
+    def archive_outputs(request: ArchiveRequest, workspace: Optional[str] = None):
         """Bundle a multi-file gallery selection into one zip. A browser
         cannot zip on its own and throttles a burst of single downloads, so
         the whole selection has to arrive as one file. Written to a temp
@@ -1475,7 +1495,10 @@ def create_app(
         RAM - and unlinked once the response has been sent."""
         # Resolved before anything is written, so a bad name in the
         # selection fails the request instead of yielding a partial zip
-        paths = [(name, _output_file(name)) for name in request.names]
+        _workspace_name, directories = _selected(workspace)
+        paths = [
+            (name, _output_file(name, directories["outputs"])) for name in request.names
+        ]
 
         handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
         try:
@@ -1499,9 +1522,10 @@ def create_app(
         )
 
     @app.delete("/api/gallery/{name:path}")
-    def delete_output(name: str):
+    def delete_output(name: str, workspace: Optional[str] = None):
         """Remove one file from the output directory."""
-        path = _output_file(name)
+        _workspace_name, directories = _selected(workspace)
+        path = _output_file(name, directories["outputs"])
         os.remove(path)
         logger.info(f"Deleted output file {name}")
         return {"name": name, "deleted": True}
@@ -1846,18 +1870,34 @@ def create_app(
             Route("/mcp/{sub_path:path}", endpoint=mcp_asgi, name="mcp_sub")
         )
 
-    app.mount("/outputs", StaticFiles(directory=manager.output_dir), name="outputs")
-    # Input media, served for the editor's preview of an uploaded or chosen
-    # asset. Ungated like /outputs, and for the same reason: an <img> tag
-    # cannot attach an Authorization header.
+    # Generated files and input media, served as routes rather than static
+    # mounts: a mount is bound to one directory at startup, and a workspace
+    # can be created afterwards. Starlette's FileResponse - what StaticFiles
+    # returns anyway - handles Range, so video still seeks.
+    #
+    # Ungated, as the mounts were, and for the same reason: an <img> or
+    # <video> tag cannot attach an Authorization header. The auth middleware
+    # only gates /api/, so these stay reachable exactly as before.
     #
     # '/inputs', not '/assets': Vite emits the SPA's own bundles under
-    # /assets/, and a mount there shadows them - the page loads and then
-    # renders nothing, because its script and stylesheet 404. The name is
-    # also the symmetric one, next to /outputs
-    if app.state.asset_dir:
-        os.makedirs(app.state.asset_dir, exist_ok=True)
-        app.mount("/inputs", StaticFiles(directory=app.state.asset_dir), name="inputs")
+    # /assets/, and serving the library there shadows them - the page loads
+    # and then renders nothing, because its script and stylesheet 404. The
+    # name is also the symmetric one, next to /outputs
+    @app.get("/outputs/{name:path}")
+    def output_file(name: str, workspace: Optional[str] = None):
+        """One generated file, from the workspace that made it."""
+        _workspace_name, directories = _selected(workspace)
+        return FileResponse(_output_file(name, directories["outputs"]))
+
+    @app.get("/inputs/{name:path}")
+    def input_file(name: str, workspace: Optional[str] = None):
+        """One file from a workspace's asset library, for the editor's
+        preview of an uploaded or chosen asset."""
+        _workspace_name, directories = _selected(workspace)
+        library = directories["assets"]
+        if not library:
+            raise HTTPException(status_code=404, detail="No asset library")
+        return FileResponse(_output_file(name, library))
 
     # ---------------------------------------------------------------- the UI
 

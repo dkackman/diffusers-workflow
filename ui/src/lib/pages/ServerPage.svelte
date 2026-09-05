@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { Globe, Plug, ShieldCheck, TriangleAlert } from '@lucide/svelte'
+  import {
+    Globe,
+    Plug,
+    ShieldCheck,
+    Trash2,
+    TriangleAlert,
+  } from '@lucide/svelte'
   import { api } from '../api'
   import CopyButton from '../CopyButton.svelte'
   import {
@@ -11,6 +17,13 @@
     mcpUrl,
   } from '../serverinfo'
   import type { HealthInfo, ServerInfo } from '../types'
+  import { notify } from '../toast'
+  import {
+    DEFAULT_WORKSPACE,
+    loadWorkspaces,
+    selectWorkspace,
+    workspace,
+  } from '../workspace.svelte'
 
   let info = $state<ServerInfo | null>(null)
   let error = $state('')
@@ -24,6 +37,9 @@
         error = ''
       })
       .catch((e) => (error = e instanceof Error ? e.message : String(e)))
+    // The panel below manages workspaces, so it needs the listing even when
+    // no picker on another page has fetched one yet
+    loadWorkspaces()
   })
 
   // The live half of the page: the same endpoint App.svelte polls for the
@@ -51,6 +67,45 @@
   )
   const port = $derived(info?.port ?? 0)
   const mcpPath = $derived(info?.mcp.path ?? '/mcp')
+
+  // ---- workspaces: create and delete, next to the directories they are
+  let newWorkspace = $state('')
+  let workspaceError = $state('')
+
+  async function addWorkspace() {
+    const name = newWorkspace.trim()
+    if (!name) return
+    workspaceError = ''
+    try {
+      await api.createWorkspace(name)
+      newWorkspace = ''
+      await loadWorkspaces()
+      notify.success(`Created workspace ${name}`)
+    } catch (e) {
+      workspaceError = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  async function removeWorkspace(name: string) {
+    workspaceError = ''
+    try {
+      // Unacknowledged first: the server answers with what it would remove,
+      // which is what makes the confirmation an informed one
+      await api.deleteWorkspace(name)
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e)
+      if (!window.confirm(`${detail}\n\nDelete workspace "${name}"?`)) return
+      try {
+        await api.deleteWorkspace(name, true)
+        if (workspace.current === name) selectWorkspace(DEFAULT_WORKSPACE)
+        await loadWorkspaces()
+        notify.success(`Deleted workspace ${name}`)
+      } catch (failure) {
+        workspaceError =
+          failure instanceof Error ? failure.message : String(failure)
+      }
+    }
+  }
 </script>
 
 <div class="head">
@@ -308,11 +363,75 @@
       </dd>
     </dl>
   </div>
+
+  <div class="panel">
+    <h2>Workspaces</h2>
+    <p class="muted">
+      Each has its own workflows, assets and outputs; the prompt library is
+      shared by all of them. A workspace is a namespace, not a boundary —
+      anything that can reach this server can reach every workspace.
+    </p>
+    {#if workspace.names}
+      <ul class="workspaces">
+        {#each workspace.names as name (name)}
+          <li>
+            <code>{name}</code>
+            {#if name === DEFAULT_WORKSPACE}
+              <span class="muted">default</span>
+            {:else}
+              <button
+                class="quiet icon danger"
+                onclick={() => removeWorkspace(name)}
+                title="delete this workspace and everything in it"
+                aria-label="delete workspace {name}"
+              >
+                <Trash2 size={14} />
+              </button>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    {#if workspace.root}
+      <div class="newworkspace">
+        <input
+          placeholder="new workspace name"
+          bind:value={newWorkspace}
+          onkeydown={(event) => event.key === 'Enter' && addWorkspace()}
+        />
+        <button onclick={addWorkspace} disabled={!newWorkspace.trim()}>
+          Create
+        </button>
+      </div>
+    {:else}
+      <p class="muted">
+        This server was started with individual directory overrides, so it has
+        one workspace and cannot create others.
+      </p>
+    {/if}
+    {#if workspaceError}<p class="muted">{workspaceError}</p>{/if}
+  </div>
 {:else if !error}
   <p class="muted">loading server details…</p>
 {/if}
 
 <style>
+  .workspaces {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 0.8em;
+  }
+  .workspaces li {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    padding: 0.15em 0;
+  }
+  .newworkspace {
+    display: flex;
+    gap: 0.5em;
+  }
+
   .head {
     display: flex;
     flex-wrap: wrap;

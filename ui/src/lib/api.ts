@@ -26,11 +26,36 @@ const encodePath = (name: string) =>
  * routes a browser loads without being able to set headers - EventSource,
  * <img> tags and <a download> navigations - which the server accepts it
  * on; see docs/SERVER.md. */
+/** The workspace every request is scoped to. The server defaults to this
+ * one when no selector is sent, so 'default' sends nothing and the request
+ * looks exactly as it did before workspaces existed. Routes that are not
+ * workspace-scoped (prompts, models, system) ignore an unknown query
+ * parameter, which is what lets this live in one place instead of being
+ * threaded through every call site. */
+const DEFAULT_WORKSPACE = 'default'
+let currentWorkspace = DEFAULT_WORKSPACE
+
+export function setApiWorkspace(name: string): void {
+  currentWorkspace = name || DEFAULT_WORKSPACE
+}
+
+export function getApiWorkspace(): string {
+  return currentWorkspace
+}
+
+/** Append the workspace selector to a path, keeping any query it has. */
+function scoped(path: string): string {
+  if (currentWorkspace === DEFAULT_WORKSPACE) return path
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}workspace=${encodeURIComponent(currentWorkspace)}`
+}
+
 function withToken(url: string): string {
+  const scopedUrl = scoped(url)
   const token = getApiToken()
-  if (!token) return url
-  const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}token=${encodeURIComponent(token)}`
+  if (!token) return scopedUrl
+  const separator = scopedUrl.includes('?') ? '&' : '?'
+  return `${scopedUrl}${separator}token=${encodeURIComponent(token)}`
 }
 
 /** The URL an output file is served from. Jobs report files by their name
@@ -42,14 +67,16 @@ function withToken(url: string): string {
 export function outputUrl(path: string, version?: string): string {
   const name = path.startsWith('/') ? (path.split('/').pop() ?? '') : path
   const url = `/outputs/${encodePath(name)}`
-  return version === undefined ? url : `${url}?v=${encodeURIComponent(version)}`
+  return scoped(
+    version === undefined ? url : `${url}?v=${encodeURIComponent(version)}`,
+  )
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getApiToken()
   const headers = new Headers(init?.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(path, { ...init, headers })
+  const response = await fetch(scoped(path), { ...init, headers })
   if (!response.ok) {
     let detail = response.statusText
     try {
@@ -73,7 +100,7 @@ async function downloadResponse(
   const token = getApiToken()
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(path, { ...init, headers })
+  const response = await fetch(scoped(path), { ...init, headers })
   if (!response.ok) {
     let detail = response.statusText
     try {
@@ -215,6 +242,33 @@ export const api = {
     request<{ path: string; url: string }>(
       `/api/uploads?filename=${encodeURIComponent(file.name)}`,
       { method: 'POST', body: file },
+    ),
+  listWorkspaces: () =>
+    request<{
+      workspace_root: string | null
+      default: string
+      workspaces: {
+        name: string
+        default: boolean
+        workflows: string
+        assets: string | null
+        outputs: string
+        prompts: string | null
+      }[]
+    }>('/api/workspaces'),
+  createWorkspace: (name: string) =>
+    request<{ name: string }>('/api/workspaces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+  /** Delete a workspace and everything in it. The server refuses without
+   * `acknowledged`, answering with what it would remove - so the caller can
+   * show that before asking again. */
+  deleteWorkspace: (name: string, acknowledged = false) =>
+    request<{ name: string; deleted: boolean }>(
+      `/api/workspaces/${encodeURIComponent(name)}?acknowledged=${acknowledged}`,
+      { method: 'DELETE' },
     ),
   listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
   describePipeline: (name: string) =>

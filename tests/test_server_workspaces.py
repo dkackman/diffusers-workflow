@@ -164,6 +164,87 @@ class TestScopedRoutes:
         assert not os.path.exists(os.path.join(workspace_root.root, "ghost"))
 
 
+class TestServingFiles:
+    def test_outputs_are_served_from_the_workspace_that_made_them(
+        self, server, workspace_root
+    ):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            shots = os.path.join(workspace_root.root, "shots", "outputs")
+            with open(os.path.join(shots, "still.png"), "wb") as handle:
+                handle.write(b"shots-bytes")
+            with open(
+                os.path.join(workspace_root.outputs, "still.png"), "wb"
+            ) as handle:
+                handle.write(b"default-bytes")
+
+            assert client.get("/outputs/still.png").content == b"default-bytes"
+            scoped = client.get("/outputs/still.png?workspace=shots")
+            assert scoped.content == b"shots-bytes"
+
+    def test_a_file_only_in_a_named_workspace_is_not_served_by_default(
+        self, server, workspace_root
+    ):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            shots = os.path.join(workspace_root.root, "shots", "outputs")
+            with open(os.path.join(shots, "only.png"), "wb") as handle:
+                handle.write(b"x")
+
+            assert client.get("/outputs/only.png").status_code == 404
+            assert client.get("/outputs/only.png?workspace=shots").status_code == 200
+
+    def test_serving_still_answers_range_requests(self, server, workspace_root):
+        """Video scrubbing depends on it, and the static mount this route
+        replaced supported it."""
+        with open(os.path.join(workspace_root.outputs, "clip.mp4"), "wb") as handle:
+            handle.write(b"0123456789")
+        with server() as client:
+            response = client.get("/outputs/clip.mp4", headers={"Range": "bytes=2-5"})
+        assert response.status_code == 206
+        assert response.content == b"2345"
+        assert response.headers["content-range"] == "bytes 2-5/10"
+
+    def test_a_file_cannot_be_read_from_outside_the_workspace(
+        self, server, workspace_root
+    ):
+        with open(os.path.join(workspace_root.root, "secret.png"), "wb") as handle:
+            handle.write(b"not yours")
+        with server() as client:
+            assert client.get("/outputs/../secret.png").status_code in (404, 400)
+            assert client.get("/outputs/%2e%2e%2fsecret.png").status_code in (404, 400)
+
+    def test_assets_are_served_per_workspace(self, server, workspace_root):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            library = os.path.join(workspace_root.root, "shots", "assets")
+            with open(os.path.join(library, "iris.png"), "wb") as handle:
+                handle.write(b"iris")
+
+            assert client.get("/inputs/iris.png").status_code == 404
+            served = client.get("/inputs/iris.png?workspace=shots")
+            assert served.status_code == 200
+            assert served.content == b"iris"
+
+    def test_the_gallery_is_scoped_and_its_urls_carry_the_workspace(
+        self, server, workspace_root
+    ):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            shots = os.path.join(workspace_root.root, "shots", "outputs")
+            with open(os.path.join(shots, "still.png"), "wb") as handle:
+                handle.write(b"x")
+
+            assert client.get("/api/gallery").json()["files"] == []
+            body = client.get("/api/gallery?workspace=shots").json()
+            assert body["workspace"] == "shots"
+            assert len(body["files"]) == 1
+            url = body["files"][0]["url"]
+            assert "workspace=shots" in url
+            # and that URL is one the server actually serves
+            assert client.get(url).content == b"x"
+
+
 class TestRunning:
     def test_a_job_runs_in_the_workspace_it_named(self, server, workspace_root):
         with server() as client:

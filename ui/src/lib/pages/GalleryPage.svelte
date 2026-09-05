@@ -8,6 +8,8 @@
   import { SvelteSet } from 'svelte/reactivity'
   import { notify } from '../toast'
   import type { GalleryFile } from '../types'
+  import WorkspacePicker from '../WorkspacePicker.svelte'
+  import { workspace } from '../workspace.svelte'
 
   let files = $state<GalleryFile[]>([])
   let loaded = $state(false)
@@ -23,6 +25,8 @@
   let sourceJob = $state<{ id: string; status: string } | null>(null)
 
   $effect(() => {
+    // Read inside the effect so switching workspaces refetches the gallery
+    workspace.current
     api
       .gallery()
       .then((result) => {
@@ -211,6 +215,7 @@
 
 <div class="head">
   <h1>Gallery</h1>
+  <WorkspacePicker />
   <span class="muted">{files.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
 </div>
