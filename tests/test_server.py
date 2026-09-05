@@ -1,6 +1,7 @@
 """Phase 1 server: job lifecycle over the API, SSE replay, cancellation,
 request validation, and workflow browsing confinement."""
 
+import asyncio
 import json
 import os
 import queue
@@ -444,9 +445,15 @@ def test_workflow_browsing_and_confinement(server):
 
 
 def test_health_and_memory(server):
+    import socket
+
     with server(success_script) as client:
         health = client.get("/api/health").json()
         assert health["status"] == "ok"
+        # a remote client uses these to confirm which machine answered
+        assert health["hostname"] == socket.gethostname()
+        assert health["device"] in {"cuda", "mps", "cpu", "xpu"}
+        assert health["mcp"] is False
 
         job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
         wait_for_status(client, job["id"], ["succeeded"])
@@ -520,6 +527,119 @@ def test_foreign_origin_requests_are_rejected(server):
             == 200
         )
         assert client.get("/api/health").status_code == 200
+
+
+def _app_bound_to(tmp_path, host):
+    """A create_app bound to `host`, with a scripted worker - the shape the
+    Host/Origin tests share."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir(exist_ok=True)
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    return create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        host=host,
+    )
+
+
+def test_origin_matching_the_request_host_is_accepted_on_a_wildcard_bind(tmp_path):
+    """A browser on another machine reaches `--host 0.0.0.0` by LAN IP or
+    hostname and sends that as its Origin. Same-origin must pass, or the UI
+    cannot make a single POST off-loopback."""
+    app = _app_bound_to(tmp_path, "0.0.0.0")
+    for base in ("http://192.168.1.50:8765", "http://gpu-box.local:8765"):
+        with TestClient(app, base_url=base) as client:
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow()},
+                headers={"Origin": base},
+            )
+            assert response.status_code == 201, base
+
+
+def test_origin_that_differs_from_the_request_host_is_still_rejected(tmp_path):
+    """DNS rebinding: the attacker's page has its own Origin while Host is
+    whatever their DNS name resolved to. The two differ, so it is refused -
+    the same-origin allowance does not weaken the check."""
+    app = _app_bound_to(tmp_path, "0.0.0.0")
+    with TestClient(app, base_url="http://192.168.1.50:8765") as client:
+        response = client.post(
+            "/api/jobs",
+            json={"workflow": valid_workflow()},
+            headers={"Origin": "http://evil.example"},
+        )
+        assert response.status_code == 403
+
+
+def test_origin_comparison_ignores_scheme_and_port(tmp_path):
+    """A TLS-terminating proxy forwards Host as-is while the browser's Origin
+    is https and may carry a different port; only the hostname matters."""
+    app = _app_bound_to(tmp_path, "0.0.0.0")
+    with TestClient(app, base_url="http://gpu-box.local:8765") as client:
+        response = client.get(
+            "/api/health", headers={"Origin": "https://gpu-box.local"}
+        )
+        assert response.status_code == 200
+
+
+def test_origin_naming_the_configured_bind_host_is_accepted(tmp_path):
+    """`--host my-server.local` accepts that Origin regardless of Host, the
+    same allowance the Host check already makes for the bind address."""
+    app = _app_bound_to(tmp_path, "my-server.local")
+    with TestClient(app, base_url="http://my-server.local") as client:
+        response = client.get(
+            "/api/health", headers={"Origin": "http://my-server.local:9999"}
+        )
+        assert response.status_code == 200
+
+
+def test_opaque_origin_is_rejected(tmp_path):
+    """A sandboxed iframe or a file:// page sends `Origin: null`, which has
+    no hostname. It must not slip through the same-origin clause against a
+    request whose Host carries no hostname either."""
+    app = _app_bound_to(tmp_path, "0.0.0.0")
+    # driven at the ASGI level: an httpx/TestClient request always carries a
+    # Host header, and it is a request with no hostname at all that the
+    # same-origin clause used to let an opaque Origin match
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "path": "/api/health",
+        "raw_path": b"/api/health",
+        "root_path": "",
+        "query_string": b"",
+        "scheme": "http",
+        "server": None,
+        "client": ("192.168.1.50", 5000),
+        "headers": [(b"origin", b"null")],
+    }
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(app(scope, receive, send))
+    assert sent[0]["status"] == 403
+
+
+def test_loopback_origin_is_accepted_for_any_host(tmp_path):
+    """An SSH tunnel's browser sends a loopback Origin; that keeps working."""
+    app = _app_bound_to(tmp_path, "0.0.0.0")
+    with TestClient(app, base_url="http://192.168.1.50:8765") as client:
+        response = client.get(
+            "/api/health", headers={"Origin": "http://127.0.0.1:8765"}
+        )
+        assert response.status_code == 200
 
 
 def test_foreign_host_header_requests_are_rejected(tmp_path):
@@ -2271,11 +2391,13 @@ def test_query_token_is_matched_per_route_not_by_path_suffix(tmp_path):
             client.get("/api/gallery/big.png/thumbnail?token=s3cr3t").status_code == 200
         )
         # ...including on HEAD: FastAPI's APIRoute registers GET only (it
-        # does not add HEAD), so this 404s rather than reaching the
-        # middleware. The middleware's GET-or-HEAD branch is forward-looking
-        # for if that ever changes.
+        # does not add HEAD), so the request never reaches the handler -
+        # depending on the Starlette version that is a 404 (no route matched)
+        # or a 405 (path matched, method did not). Either way it is not a
+        # 200; the middleware's GET-or-HEAD branch is forward-looking for if
+        # that ever changes.
         head = client.head("/api/gallery/big.png/thumbnail?token=s3cr3t")
-        assert head.status_code == 404
+        assert head.status_code in (404, 405)
 
         # a state-changing POST route never accepts the query form, even
         # though its path ends in /download

@@ -12,6 +12,7 @@ import type {
   PipelineDescription,
   PromptDefinition,
   PromptDetail,
+  ServerInfo,
   ValidationResult,
   WorkflowDefinition,
 } from './types'
@@ -59,6 +60,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(detail)
   }
   return response.json()
+}
+
+/** Fetch a file-response endpoint and hand the body to the browser as a
+ * save, using the name the server put in Content-Disposition. Separate
+ * from `request` because the body is a file, not JSON, and separate from
+ * the `<a download>` URLs because the request needs a method and a body. */
+async function downloadResponse(
+  path: string,
+  init: RequestInit,
+): Promise<void> {
+  const token = getApiToken()
+  const headers = new Headers(init.headers)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const response = await fetch(path, { ...init, headers })
+  if (!response.ok) {
+    let detail = response.statusText
+    try {
+      detail = (await response.json()).detail ?? detail
+    } catch {
+      /* not json */
+    }
+    throw new Error(detail)
+  }
+  const disposition = response.headers.get('content-disposition') ?? ''
+  const filename = /filename="?([^"]+)"?/.exec(disposition)?.[1] ?? 'download'
+  const url = URL.createObjectURL(await response.blob())
+  try {
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    anchor.click()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
 }
 
 export const api = {
@@ -137,6 +172,7 @@ export const api = {
       method: 'POST',
     }),
   health: () => request<HealthInfo>('/api/health'),
+  server: () => request<ServerInfo>('/api/server'),
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
   // the limit just needs to exceed any real output directory's file count
   gallery: () => request<{ files: GalleryFile[] }>('/api/gallery?limit=100000'),
@@ -155,6 +191,15 @@ export const api = {
     ),
   outputDownloadUrl: (name: string) =>
     withToken(`/api/gallery/${encodePath(name)}/download`),
+  /** Download a multi-file gallery selection as one zip. The browser
+   * cannot zip on its own and throttles a burst of single downloads, so
+   * the server bundles the selection and this saves the response. */
+  archiveOutputs: (names: string[]) =>
+    downloadResponse('/api/gallery/archive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names }),
+    }),
   /** Save a browser-picked file server-side and get back the path a
    * workflow's image/video argument can reference. The body is the raw
    * file bytes - no multipart form needed for a single file. */

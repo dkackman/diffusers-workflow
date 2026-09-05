@@ -62,6 +62,13 @@ enhance-with-AI panel that queues an inline workflow as an ordinary job.
 Front-end checks from `ui/`: `npm run check`, `npm run lint`,
 `npm test`, `npx playwright test` (e2e, starts its own server). See docs/SERVER.md.
 
+`dw.serve --mcp` additionally serves the MCP tool surface at `/mcp`
+(`dw/server/mcp_mount.py`, Streamable HTTP, same bearer token) so an agent on
+another machine needs no local install; it is refused on a non-loopback bind
+without a token. `contrib/systemd/` has a unit file and docs/REMOTE.md the
+LAN/NAT setup. The `Origin` check accepts the request's own `Host` hostname,
+which is what makes a non-loopback bind usable from a browser.
+
 Packaging: `pyproject.toml` (console scripts dw-run/dw-validate/dw-repl/dw-serve/dw-test);
 `scripts/build_dist.sh` builds the SPA into the wheel.
 

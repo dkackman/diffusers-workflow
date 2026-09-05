@@ -7,6 +7,8 @@ Interactive API docs are served at /docs (OpenAPI at /openapi.json).
 
 import os
 import io
+import zipfile
+import tempfile
 import copy
 import json
 import uuid
@@ -14,6 +16,7 @@ import asyncio
 import logging
 import secrets
 from contextlib import asynccontextmanager
+from datetime import datetime
 from urllib.parse import quote, urlparse
 from typing import Any, Dict, Optional
 
@@ -23,6 +26,7 @@ from fastapi.responses import StreamingResponse, JSONResponse, Response, FileRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.routing import Match, Route
+from starlette.background import BackgroundTask
 
 from ..security import (
     validate_path,
@@ -50,6 +54,7 @@ from .enhancers import build_enhance_workflow, preset_descriptions
 from ..result import read_embedded_metadata
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from .jobs import JobManager, MAX_PERSISTED_EVENTS, TERMINAL_STATES
+from .netinfo import local_addresses
 from .updater import DiffusersUpdater
 
 logger = logging.getLogger("dw")
@@ -320,6 +325,10 @@ LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 # Bind addresses that mean "every interface" - a request never carries one
 # of these as its Host, so they define no allowlist
 WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
+# Where the MCP endpoint is mounted when --mcp is given (see the mcp block
+# at the bottom of create_app) - the Server page quotes it in the command
+# it tells you to run on the other machine
+MCP_PATH = "/mcp"
 
 
 def query_token_ok(fn):
@@ -372,6 +381,8 @@ def create_app(
     prompt_dir="./prompts",
     host="127.0.0.1",
     token=None,
+    mcp=False,
+    port=8765,
 ):
     """Build the application. A caller (tests) can inject a JobManager.
 
@@ -395,9 +406,28 @@ def create_app(
             f"{manager.workflow_dir!r} != {workflow_dir!r}"
         )
 
+    mcp_asgi = mcp_server = mcp_client = None
+    if mcp:
+        from .mcp_mount import build_mcp_app
+
+        mcp_asgi, mcp_server, mcp_client = build_mcp_app(
+            host=host, port=port, token=token
+        )
+
     @asynccontextmanager
     async def lifespan(app):
-        yield
+        if mcp_server is None:
+            yield
+        else:
+            # the SDK's session manager is the mounted app's own lifespan,
+            # which Starlette does not run for a sub-app
+            try:
+                async with mcp_server.session_manager.run():
+                    yield
+            finally:
+                # the client owns a connection pool; a session manager that
+                # fails to start must not leak it
+                mcp_client.close()
         manager.shutdown()
 
     app = FastAPI(
@@ -409,16 +439,39 @@ def create_app(
     app.state.job_manager = manager
     app.state.workflow_dir = workflow_dir
     app.state.prompt_dir = prompt_dir
+    app.state.mcp_mounted = mcp_asgi is not None
+
+    wildcard_bind = host in WILDCARD_HOSTS
+    allowed_hosts = set(LOOPBACK_HOSTS)
+    if host and not wildcard_bind:
+        allowed_hosts.add(host.lower())
 
     @app.middleware("http")
     async def reject_foreign_origins(request, call_next):
         """Refuse browser cross-origin requests - a drive-by web page must
-        not be able to queue jobs on a localhost GPU server. Requests
-        without an Origin header (curl, scripts, same-origin GETs) pass."""
+        not be able to queue jobs on this server. Requests without an
+        Origin header (curl, scripts, same-origin GETs) pass.
+
+        An Origin is accepted when its hostname is a loopback name, the
+        configured bind host, or the hostname the request itself was
+        addressed to (same-origin). The last clause is what lets a browser
+        on another machine use a `--host 0.0.0.0` server by its LAN IP or
+        hostname - and it stays safe against DNS rebinding, where the
+        attacker's page carries its own Origin while Host is whatever
+        resolved: the two differ, so the request is refused. Scheme and
+        port are ignored, matching the Host check: a TLS-terminating proxy
+        forwards Host unchanged while the browser's Origin is https."""
         origin = request.headers.get("origin")
         if origin:
-            origin_host = urlparse(origin).hostname
-            if origin_host not in LOOPBACK_HOSTS:
+            origin_host = (urlparse(origin).hostname or "").lower()
+            request_host = (request.url.hostname or "").lower()
+            # origin_host must be non-empty for the same-origin clause:
+            # `Origin: null` (a sandboxed iframe, a file:// page) parses to
+            # no hostname and would otherwise match a request whose Host
+            # carries none either
+            if origin_host not in allowed_hosts and not (
+                origin_host and origin_host == request_host
+            ):
                 return JSONResponse(
                     status_code=403,
                     content={"detail": "Cross-origin requests are not allowed"},
@@ -435,11 +488,6 @@ def create_app(
     # A wildcard bind is reached by whatever address the machine has - a LAN
     # IP, a hostname - never by the bind string itself, so there is no
     # allowlist to build; the Host check is skipped for it.
-    wildcard_bind = host in WILDCARD_HOSTS
-    allowed_hosts = set(LOOPBACK_HOSTS)
-    if host:
-        allowed_hosts.add(host.lower())
-
     @app.middleware("http")
     async def reject_foreign_hosts(request, call_next):
         hostname = request.url.hostname
@@ -469,7 +517,7 @@ def create_app(
         if not token:
             return await call_next(request)
         path = request.url.path
-        if not path.startswith("/api/"):
+        if not (path.startswith("/api/") or path == "/mcp" or path.startswith("/mcp/")):
             return await call_next(request)
         provided = None
         auth = request.headers.get("authorization", "")
@@ -1097,6 +1145,45 @@ def create_app(
         path = _output_file(name)
         return FileResponse(path, filename=os.path.basename(name))
 
+    # A generous ceiling rather than a real limit - it exists so a
+    # malformed client cannot ask the server to zip the whole directory
+    MAX_ARCHIVE_FILES = 1000
+
+    class ArchiveRequest(BaseModel):
+        names: list[str] = Field(min_length=1, max_length=MAX_ARCHIVE_FILES)
+
+    @app.post("/api/gallery/archive")
+    def archive_outputs(request: ArchiveRequest):
+        """Bundle a multi-file gallery selection into one zip. A browser
+        cannot zip on its own and throttles a burst of single downloads, so
+        the whole selection has to arrive as one file. Written to a temp
+        file rather than memory - a selection of videos does not fit in
+        RAM - and unlinked once the response has been sent."""
+        # Resolved before anything is written, so a bad name in the
+        # selection fails the request instead of yielding a partial zip
+        paths = [(name, _output_file(name)) for name in request.names]
+
+        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        try:
+            with handle:
+                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for name, path in paths:
+                        # the gallery-relative name keeps a workflow's output
+                        # subfolders intact inside the download
+                        archive.write(path, arcname=name)
+        except BaseException:
+            os.unlink(handle.name)
+            raise
+
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        logger.info(f"Archived {len(paths)} output files")
+        return FileResponse(
+            handle.name,
+            media_type="application/zip",
+            filename=f"dw-outputs-{stamp}.zip",
+            background=BackgroundTask(os.unlink, handle.name),
+        )
+
     @app.delete("/api/gallery/{name:path}")
     def delete_output(name: str):
         """Remove one file from the output directory."""
@@ -1294,7 +1381,9 @@ def create_app(
 
     @app.get("/api/health")
     def health():
-        from .. import __version__
+        import socket
+
+        from .. import __version__, get_device, get_device_type
 
         worker = manager.worker_manager
         return {
@@ -1307,9 +1396,72 @@ def create_app(
             ),
             "current_job": manager._current_job_id,
             "queued": sum(1 for j in manager.list() if j["status"] == "queued"),
+            # which machine answered - the thing a remote client cannot
+            # otherwise tell apart from a stale tunnel pointed at nothing
+            "hostname": socket.gethostname(),
+            "device": get_device_type(get_device()),
+            "mcp": bool(app.state.mcp_mounted),
+        }
+
+    @app.get("/api/server")
+    def server_info():
+        """How this server is reachable, for the UI's Server page: what it
+        is bound to, whether a token is needed, whether MCP is mounted, and
+        the addresses another machine could name it by.
+
+        No URL is composed here - the caller pairs an address with `port`
+        and `mcp.path` - and the token itself is never reported in any
+        form, only whether one is required. An interface enumeration
+        failure is not a server failure: `addresses` comes back empty.
+        """
+        import socket
+
+        from .. import __version__, get_device, get_device_type
+
+        try:
+            addresses = local_addresses()
+        except Exception:
+            logger.debug("Could not enumerate local addresses", exc_info=True)
+            addresses = []
+        return {
+            "hostname": socket.gethostname(),
+            "version": __version__,
+            "device": get_device_type(get_device()),
+            "bind_host": host,
+            "port": port,
+            "wildcard_bind": wildcard_bind,
+            "auth_required": bool(token),
+            "mcp": {"mounted": bool(app.state.mcp_mounted), "path": MCP_PATH},
+            "addresses": addresses,
+            "directories": {
+                "workflows": os.path.abspath(app.state.workflow_dir),
+                "outputs": os.path.abspath(manager.output_dir),
+                "prompts": (
+                    os.path.abspath(app.state.prompt_dir)
+                    if app.state.prompt_dir
+                    else None
+                ),
+            },
         }
 
     # ---------------------------------------------------------------- outputs
+
+    # ------------------------------------------------------------------ mcp
+
+    if mcp_asgi is not None:
+        # One route rather than app.mount("/mcp", ...): Starlette's Mount
+        # only matches paths *under* its prefix, so a bare POST /mcp - the
+        # URL clients are configured with - would fall through to the SPA
+        # catch-all below and come back 405. This matches /mcp and
+        # anything under it; build_mcp_app's wrapper normalizes the path
+        # for the SDK app's single route.
+        # Exactly the two spellings require_bearer_token gates - a single
+        # "/mcp{path:path}" route would also answer /mcpfoo, which the gate
+        # does not cover.
+        app.router.routes.append(Route("/mcp", endpoint=mcp_asgi, name="mcp"))
+        app.router.routes.append(
+            Route("/mcp/{sub_path:path}", endpoint=mcp_asgi, name="mcp_sub")
+        )
 
     app.mount("/outputs", StaticFiles(directory=manager.output_dir), name="outputs")
 

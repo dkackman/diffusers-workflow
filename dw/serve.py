@@ -10,6 +10,7 @@ not to the network. Interactive API docs at http://127.0.0.1:8765/docs
 import argparse
 import multiprocessing
 import os
+import sys
 
 # Spawn start method before anything touches multiprocessing (CUDA/MPS)
 if multiprocessing.get_start_method(allow_none=True) != "spawn":
@@ -64,9 +65,35 @@ def main():
         "anything can submit jobs to (including an MCP client) should "
         "stay untrusted.",
     )
+    parser.add_argument(
+        "--mcp",
+        action="store_true",
+        default=False,
+        help="Also serve the MCP tool surface at /mcp over Streamable HTTP, "
+        "behind the same token as /api, so an agent on another machine "
+        "needs no local install (`claude mcp add --transport http dw "
+        "http://<host>:<port>/mcp --header 'Authorization: Bearer <token>'`). "
+        "Refused on a non-loopback --host without a token.",
+    )
     args = parser.parse_args()
 
     token = args.token or os.environ.get("DW_API_TOKEN") or None
+
+    from .server.app import LOOPBACK_HOSTS
+
+    # A hard error, where the REST-only case below is a warning: an MCP
+    # endpoint can author and run workflows, and unlike the web UI there is
+    # no page to paste a token into. Raised before startup() and before the
+    # worker subprocess is ever spawned.
+    if args.mcp and args.host not in LOOPBACK_HOSTS and not token:
+        print(
+            f"dw-serve: --mcp on {args.host} needs a token. An MCP endpoint "
+            "can author and run workflows, and unlike the web UI there is "
+            "no page to type a token into - pass --token or set "
+            "DW_API_TOKEN, or bind to 127.0.0.1.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
 
     # Set before create_app / before the worker subprocess is ever spawned -
     # 'spawn' launches a fresh interpreter that inherits this environment
@@ -102,8 +129,6 @@ def main():
 
     logger = logging.getLogger("dw")
 
-    from .server.app import LOOPBACK_HOSTS
-
     if args.host not in LOOPBACK_HOSTS and not token:
         logger.warning(
             "Binding to %s with no API token configured (--token or "
@@ -126,10 +151,17 @@ def main():
         prompt_dir=prompt_dir,
         host=args.host,
         token=token,
+        mcp=args.mcp,
+        port=args.port,
     )
     ui = " - UI at /" if default_ui_dir() else ""
+    mcp = " - MCP at /mcp" if args.mcp else ""
     print(
-        f"diffusers-workflow server on http://{args.host}:{args.port}  (docs at /docs{ui})"
+        f"diffusers-workflow server on http://{args.host}:{args.port}"
+        f"  (docs at /docs{ui}{mcp})",
+        # stdout is a pipe under systemd or nohup, where block buffering
+        # would otherwise hold this line back until shutdown
+        flush=True,
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())
 
