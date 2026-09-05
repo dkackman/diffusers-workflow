@@ -99,7 +99,11 @@ async function downloadResponse(
 export const api = {
   listWorkflows: () =>
     request<{
+      /** The writable directory - where a save lands, whatever source a
+       * workflow was read from. */
       workflow_dir: string
+      /** The search path, writable root first. */
+      sources?: { root: string; origin: string; writable: boolean }[]
       workflows: string[]
       details: Record<
         string,
@@ -109,6 +113,10 @@ export const api = {
           variables: number
           description: string
           prompt_refs?: string[]
+          /** Which source it came from: 'workspace', 'examples', 'builtin'. */
+          origin?: string
+          /** False for a read-only source: offer save-a-copy, not delete. */
+          writable?: boolean
         }
       >
     }>('/api/workflows'),

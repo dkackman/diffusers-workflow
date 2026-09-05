@@ -54,6 +54,16 @@ def main():
         "exists, else the nearest prompts/ above the workflow directory)",
     )
     parser.add_argument(
+        "--examples-dir",
+        action="append",
+        default=None,
+        dest="examples_dirs",
+        metavar="DIR",
+        help="A read-only directory of workflows to offer alongside the "
+        "workspace's own - a checkout's workflows/ tree, say. Repeatable. "
+        "Saves never go here: they always land in --workflow-dir",
+    )
+    parser.add_argument(
         "--asset-dir",
         default=None,
         help="Directory of input media 'asset:' references resolve against, "
@@ -210,6 +220,7 @@ def main():
         log_level=args.log_level,
         prompt_dir=prompt_dir,
         asset_dir=asset_dir,
+        examples_dirs=args.examples_dirs,
         workspace=workspace.root,
         host=args.host,
         token=token,

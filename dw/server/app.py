@@ -54,6 +54,15 @@ from .enhancers import build_enhance_workflow, preset_descriptions
 from ..result import read_embedded_metadata
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..runs import strip_run_id
+from ..workflow_sources import (
+    find_workflow,
+    listing,
+    resolve_in_source,
+    source_for_path,
+    workflow_names,
+    workflow_sources,
+    writable_source,
+)
 from .jobs import JobManager, MAX_PERSISTED_EVENTS, TERMINAL_STATES
 from .netinfo import local_addresses
 from .updater import DiffusersUpdater
@@ -80,27 +89,23 @@ class JobRequest(BaseModel):
     )
 
 
-def workflow_names(workflow_dir):
-    """Workflow names under workflow_dir, as relative paths without .json."""
-    names = []
-    if not os.path.isdir(workflow_dir):
-        return names
-    for root, _dirs, files in os.walk(workflow_dir):
-        for file_name in files:
-            if file_name.endswith(".json"):
-                relative = os.path.relpath(os.path.join(root, file_name), workflow_dir)
-                names.append(relative[: -len(".json")])
-    return sorted(names)
-
-
 # What each workflow produces and takes, for listing cards - cached by mtime
 _workflow_detail_cache = {}
 
 
 def _prune_detail_cache(cache, directory, names):
     """Forget files a listing no longer names - a long-lived server that
-    creates and deletes scratch files would otherwise grow the cache forever."""
-    live = {os.path.join(directory, f"{name}.json") for name in names}
+    creates and deletes scratch files would otherwise grow the cache forever.
+
+    `names` are relative names under `directory`, or - when `directory` is
+    None, as it is for a listing spanning several roots - the absolute paths
+    themselves.
+    """
+    live = (
+        set(names)
+        if directory is None
+        else {os.path.join(directory, f"{name}.json") for name in names}
+    )
     for stale in [path for path in cache if path not in live]:
         del cache[stale]
 
@@ -121,15 +126,21 @@ def collect_prompt_references(value):
     return references
 
 
-def workflow_details(workflow_dir, names):
+def workflow_details(sources_by_name):
     """Per-workflow card metadata: output kinds, step and variable counts,
     and the variable names themselves - enough for an agent to pick a
     workflow and know what to pass it without fetching each candidate. The
     names but not their defaults: across the workflows on disk the defaults
-    are an order of magnitude more payload, on a listing the UI reloads."""
+    are an order of magnitude more payload, on a listing the UI reloads.
+
+    Takes the name -> source mapping the search path produced, so each
+    entry also says where it came from and whether it can be written to -
+    what a client needs to decide between offering save and offering
+    save-a-copy.
+    """
     details = {}
-    for name in names:
-        path = os.path.join(workflow_dir, f"{name}.json")
+    for name, source in sources_by_name.items():
+        path = os.path.join(source.root, f"{name}.json")
         try:
             mtime = os.path.getmtime(path)
         except OSError:
@@ -168,8 +179,21 @@ def workflow_details(workflow_dir, names):
                 "prompt_refs": [],
             }
         _workflow_detail_cache[path] = (mtime, detail)
-        details[name] = detail
-    _prune_detail_cache(_workflow_detail_cache, workflow_dir, names)
+        # Cached by content, not by placement: the same file listed from a
+        # different source keeps its parsed detail and gets fresh origins
+        details[name] = {
+            **detail,
+            "origin": source.origin,
+            "writable": source.writable,
+        }
+    _prune_detail_cache(
+        _workflow_detail_cache,
+        None,
+        {
+            os.path.join(source.root, f"{name}.json")
+            for name, source in sources_by_name.items()
+        },
+    )
     return details
 
 
@@ -190,7 +214,51 @@ def resolve_workflow_name(workflow_dir, name, allow_create=False):
         raise HTTPException(status_code=404, detail=f"Unknown workflow: {e}")
 
 
-def resolve_workflow_reference(workflow_dir, workflow_path):
+def _confinement_root(sources, path):
+    """The source root a resolved workflow path is confined to.
+
+    A workflow read from an examples directory is confined to that
+    directory - its sub-workflow steps and relative assets resolve there,
+    not in the writable root it will never be saved to. A path in no source
+    keeps the writable root's confinement, which is what refuses it.
+    """
+    source = source_for_path(sources, path) if path else None
+    return source.root if source else writable_source(sources).root
+
+
+def resolve_readable_workflow(sources, name):
+    """The path a name has anywhere on the search path, and its source.
+
+    Reads span every root - the workspace's own workflows, any examples
+    directory, and the packaged builtins - front to back, so a workspace
+    copy shadows the example it came from.
+    """
+    path, source = find_workflow(sources, name)
+    if path is None:
+        raise HTTPException(status_code=404, detail=f"Unknown workflow: {name}")
+    return path, source
+
+
+def resolve_writable_workflow(sources, name):
+    """Where a save goes: always the writable source, whatever the name
+    currently resolves to.
+
+    Saving a workflow opened from an example is not an overwrite of that
+    example - it is a copy into the user's own library, which is what makes
+    the read-only roots safe to browse and edit from.
+    """
+    source = writable_source(sources)
+    if source is None:
+        raise HTTPException(
+            status_code=409, detail="This server has no writable workflow directory"
+        )
+    path = resolve_in_source(source, name, allow_create=True)
+    if path is None:
+        raise HTTPException(status_code=404, detail=f"Unknown workflow: {name}")
+    return path, source
+
+
+def resolve_workflow_reference(workflow_dir, workflow_path, sources=None):
     """A submitted workflow_path, resolved to a file on disk, confined to
     workflow_dir - the same confinement the /api/workflows CRUD routes
     already enforce via resolve_workflow_name.
@@ -208,6 +276,21 @@ def resolve_workflow_reference(workflow_dir, workflow_path):
     """
     if workflow_path is None:
         return workflow_path
+    # Every root on the search path, when the caller has one: a run of an
+    # example is a read, and reads are not confined to the writable root
+    if sources is not None:
+        path, _source = find_workflow(sources, workflow_path)
+        if path is not None:
+            return path
+        for source in sources:
+            candidate = os.path.abspath(workflow_path)
+            if source.contains(candidate) and os.path.isfile(candidate):
+                return candidate
+        raise HTTPException(
+            status_code=400,
+            detail=f"workflow_path must name a workflow the server can reach: "
+            f"{workflow_path}",
+        )
     try:
         return resolve_workflow_name(workflow_dir, workflow_path)
     except HTTPException:
@@ -381,6 +464,7 @@ def create_app(
     diffusers_updater=None,
     prompt_dir="./prompts",
     asset_dir=None,
+    examples_dirs=None,
     workspace=None,
     host="127.0.0.1",
     token=None,
@@ -441,6 +525,10 @@ def create_app(
     )
     app.state.job_manager = manager
     app.state.workflow_dir = workflow_dir
+    # The search path: the writable directory first, then read-only roots -
+    # any --examples-dir, then the packaged builtins. Reads span all of it,
+    # saves only ever reach the front
+    app.state.workflow_sources = workflow_sources(workflow_dir, examples_dirs)
     app.state.prompt_dir = prompt_dir
     # Where uploads land and 'asset:' references resolve. None when the
     # caller configured no asset library: uploads then fall back to the
@@ -559,13 +647,24 @@ def create_app(
     @app.post("/api/jobs", status_code=201)
     def submit_job(request: JobRequest):
         try:
+            resolved = resolve_workflow_reference(
+                app.state.workflow_dir,
+                request.workflow_path,
+                app.state.workflow_sources,
+            )
             job = manager.submit(
-                workflow_path=resolve_workflow_reference(
-                    app.state.workflow_dir, request.workflow_path
-                ),
+                workflow_path=resolved,
                 workflow=request.workflow,
                 arguments=request.arguments,
                 base_dir=request.base_dir,
+                # The root this run is confined to: the source the workflow
+                # came from, so an example runs where it lives while an
+                # inline definition stays held to the writable root
+                workflow_dir=(
+                    _confinement_root(app.state.workflow_sources, resolved)
+                    if resolved
+                    else None
+                ),
             )
         except HTTPException:
             raise
@@ -766,12 +865,17 @@ def create_app(
             if request.workflow_path is not None:
                 # Built from the file so relative paths inside it resolve
                 # against its own directory, exactly as a run would
-                candidate = workflow_from_file(
-                    resolve_workflow_reference(
-                        app.state.workflow_dir, request.workflow_path
-                    ),
-                    manager.output_dir,
+                resolved = resolve_workflow_reference(
                     app.state.workflow_dir,
+                    request.workflow_path,
+                    app.state.workflow_sources,
+                )
+                candidate = workflow_from_file(
+                    resolved,
+                    manager.output_dir,
+                    # Confined to the source it came from, not to the
+                    # writable root - an example is read where it lives
+                    _confinement_root(app.state.workflow_sources, resolved),
                 )
                 definition = candidate.workflow_definition
             else:
@@ -810,21 +914,30 @@ def create_app(
 
     @app.get("/api/workflows")
     def list_workflows():
-        names = workflow_names(app.state.workflow_dir)
+        """Every workflow the search path offers, each detail saying which
+        source it came from and whether it can be written to. 'workflow_dir'
+        stays the writable one - what a save targets."""
+        found = listing(app.state.workflow_sources)
         return {
             "workflow_dir": app.state.workflow_dir,
-            "workflows": names,
-            "details": workflow_details(app.state.workflow_dir, names),
+            "sources": [source.to_dict() for source in app.state.workflow_sources],
+            "workflows": list(found),
+            "details": workflow_details(found),
         }
 
     @app.put("/api/workflows/{name:path}")
     def save_workflow(name: str, request: JobRequest):
-        """Write a workflow into the workflow directory. The definition must
-        be schema-valid - the editor validates before saving, and a save that
-        silently wrote a broken file would betray both."""
+        """Write a workflow into the writable workflow directory. The
+        definition must be schema-valid - the editor validates before saving,
+        and a save that silently wrote a broken file would betray both.
+
+        A name that currently resolves to a read-only source (an example, a
+        builtin) is not overwritten: the copy lands in the writable source
+        and shadows it from then on.
+        """
         if request.workflow is None:
             raise HTTPException(status_code=400, detail="Provide an inline workflow")
-        path = resolve_workflow_name(app.state.workflow_dir, name, allow_create=True)
+        path, _source = resolve_writable_workflow(app.state.workflow_sources, name)
         candidate = Workflow(
             copy.deepcopy(request.workflow),
             manager.output_dir,
@@ -848,8 +961,19 @@ def create_app(
 
     @app.delete("/api/workflows/{name:path}")
     def delete_workflow(name: str):
-        """Remove a workflow file from the workflow directory."""
-        path = resolve_workflow_name(app.state.workflow_dir, name)
+        """Remove a workflow file from the writable workflow directory.
+
+        A read-only source is refused rather than silently ignored: an
+        example or a builtin is not the caller's to delete, and saying so
+        is more useful than a 404 that reads like the file is missing.
+        """
+        path, source = resolve_readable_workflow(app.state.workflow_sources, name)
+        if not source.writable:
+            raise HTTPException(
+                status_code=403,
+                detail=f"'{name}' comes from the read-only {source.origin} "
+                f"directory {source.root} and cannot be deleted",
+            )
         os.remove(path)
         logger.info(f"Deleted workflow {name} ({path})")
         return {"name": name, "deleted": True}
@@ -858,14 +982,14 @@ def create_app(
     @query_token_ok
     def download_workflow(name: str):
         """Serve a workflow definition as a forced download."""
-        path = resolve_workflow_name(app.state.workflow_dir, name)
+        path, _source = resolve_readable_workflow(app.state.workflow_sources, name)
         return FileResponse(
             path, filename=os.path.basename(path), media_type="application/json"
         )
 
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str):
-        path = resolve_workflow_name(app.state.workflow_dir, name)
+        path, _source = resolve_readable_workflow(app.state.workflow_sources, name)
         try:
             with open(path, "r") as file:
                 return JSONResponse(json.load(file))

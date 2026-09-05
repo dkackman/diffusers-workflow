@@ -1176,8 +1176,116 @@ def test_workflow_listing_carries_details(server):
             "variable_names": ["prompt"],
             "description": "Renders a small test image.",
             "prompt_refs": [],
+            # where it came from, and whether a client should offer save and
+            # delete for it or only save-a-copy
+            "origin": "workspace",
+            "writable": True,
         }
         assert listing["details"]["Basic"]["kinds"] == []
+
+
+@pytest.fixture
+def examples_server(tmp_path):
+    """A server whose workspace library is empty and whose examples come
+    from a second, read-only directory."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    examples = tmp_path / "examples"
+    (examples / "ltx2").mkdir(parents=True)
+    (examples / "ltx2" / "Gyre.json").write_text(json.dumps(valid_workflow("gyre")))
+
+    def make(script):
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+            workflow_dir=str(workflows),
+        )
+        app = create_app(
+            workflow_dir=str(workflows),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            examples_dirs=[str(examples)],
+        )
+        return TestClient(app, base_url="http://localhost")
+
+    return make
+
+
+def test_examples_are_listed_read_only(examples_server):
+    with examples_server(success_script) as client:
+        listing = client.get("/api/workflows").json()
+        assert listing["workflows"] == ["ltx2/Gyre"]
+        assert listing["details"]["ltx2/Gyre"]["origin"] == "examples"
+        assert listing["details"]["ltx2/Gyre"]["writable"] is False
+        # the writable root is still what a save targets, and is named first
+        assert listing["sources"][0]["writable"] is True
+        assert listing["sources"][1]["origin"] == "examples"
+
+        # and it reads like any other workflow
+        assert client.get("/api/workflows/ltx2/Gyre").status_code == 200
+
+
+def test_saving_an_example_copies_it_into_the_writable_library(
+    examples_server, tmp_path
+):
+    """Open an example, change it, save: the copy lands in the user's own
+    library and shadows the example from then on - the example itself is
+    untouched."""
+    with examples_server(success_script) as client:
+        original = json.loads(
+            (tmp_path / "examples" / "ltx2" / "Gyre.json").read_text()
+        )
+        edited = json.loads(json.dumps(original))
+        edited["description"] = "my version"
+
+        response = client.put("/api/workflows/ltx2/Gyre", json={"workflow": edited})
+        assert response.status_code == 200
+        assert response.json()["path"] == str(
+            tmp_path / "workflows" / "ltx2" / "Gyre.json"
+        )
+        # the example on disk did not move or change
+        assert (
+            json.loads((tmp_path / "examples" / "ltx2" / "Gyre.json").read_text())
+            == original
+        )
+
+        listing = client.get("/api/workflows").json()
+        assert listing["details"]["ltx2/Gyre"]["origin"] == "workspace"
+        assert client.get("/api/workflows/ltx2/Gyre").json()["description"] == (
+            "my version"
+        )
+
+
+def test_an_example_cannot_be_deleted(examples_server, tmp_path):
+    with examples_server(success_script) as client:
+        response = client.delete("/api/workflows/ltx2/Gyre")
+        assert response.status_code == 403
+        assert "read-only" in response.json()["detail"]
+        assert (tmp_path / "examples" / "ltx2" / "Gyre.json").exists()
+
+
+def test_an_example_can_be_validated_and_run(examples_server):
+    with examples_server(success_script) as client:
+        assert client.post("/api/validate", json={"workflow_path": "ltx2/Gyre"}).json()[
+            "valid"
+        ]
+
+        response = client.post("/api/jobs", json={"workflow_path": "ltx2/Gyre"})
+        assert response.status_code == 201
+        detail = wait_for_status(client, response.json()["id"], {"succeeded", "failed"})
+        assert detail["status"] == "succeeded"
+
+
+def test_a_workflow_outside_every_source_is_refused(examples_server, tmp_path):
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps(valid_workflow("outside")))
+    with examples_server(success_script) as client:
+        assert (
+            client.post("/api/jobs", json={"workflow_path": str(outside)}).status_code
+            == 400
+        )
+        assert client.get("/api/workflows/outside").status_code == 404
 
 
 def test_workflow_details_name_their_prompt_references(server):

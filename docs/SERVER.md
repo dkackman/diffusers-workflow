@@ -11,6 +11,9 @@ python -m dw.serve --port 8000 --workflow-dir ./workflows --output-dir ./outputs
 
 # or point it at a workspace, which supplies all four directories
 python -m dw.serve --workspace ~/studio
+
+# your own workflows, with a checkout's examples alongside them read-only
+python -m dw.serve --workspace ~/studio --examples-dir ~/src/diffusers-workflow/workflows
 python -m dw.serve --host 0.0.0.0 --token "some-long-random-string"   # reachable off this machine
 python -m dw.serve --trust-workflows      # only if nothing untrusted can reach POST /api/jobs - see Security model
 ```

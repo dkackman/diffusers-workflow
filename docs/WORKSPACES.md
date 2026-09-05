@@ -92,6 +92,40 @@ media it reads no longer have to sit in the same folder. `--asset-dir` and
 `assets/uploads/`, coming back as `asset:uploads/<name>`. See
 [Asset References](WORKFLOW_GUIDE.md#asset-references).
 
+## Where workflows are read from, and written to
+
+The server reads workflows from a search path and writes them to exactly one
+place — the front:
+
+```
+<workspace>/workflows/    yours, writable — every save lands here
+<--examples-dir>          read-only, repeatable
+```
+
+A name found in an earlier root shadows the same name in a later one, so a
+workspace copy of an example is the one that runs. Reads — listing, opening,
+downloading, validating, running — span the whole path. Saves and deletes do
+not: `PUT` always writes into the writable root, and deleting something from a
+read-only root is refused with a 403 that says where it came from.
+
+That makes "open an example, change it, save" do the obvious thing: the copy
+lands in your library and shadows the example from then on, and the example
+itself is never touched. It is also what stops an agent's saves landing in a
+checkout — point `--workflow-dir` (or `--workspace`) at your own directory and
+the repository's workflows at `--examples-dir`:
+
+```bash
+python -m dw.serve --workspace ~/studio --examples-dir ~/src/diffusers-workflow/workflows
+```
+
+`GET /api/workflows` reports the path as `sources` and tags every entry with
+its `origin` and `writable`, which is how the UI knows to hide delete and how
+an MCP client can tell what it may change.
+
+The packaged workflows in `dw/workflows/` are deliberately *not* on the path.
+They are the pieces a `builtin:` sub-workflow step names, resolved by the
+engine where that step is read — not workflows to browse or run on their own.
+
 ## Runs
 
 Each execution writes its own directory under the output folder, named by the

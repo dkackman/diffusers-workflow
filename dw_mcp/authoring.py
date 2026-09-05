@@ -27,8 +27,11 @@ def validate_workflow(client, workflow=None, name=None):
 
 
 def save_workflow(client, name, workflow):
-    """Write a workflow into the server's workflow directory, overwriting any
-    file already under that name. The server validates before writing."""
+    """Write a workflow into the server's writable workflow directory,
+    overwriting any file already under that name there. A name that resolves
+    to one of the server's read-only sources (an examples directory) is not
+    overwritten: the copy lands in the writable directory and shadows it from
+    then on. The server validates before writing."""
     return client.put_json(api_path("api", "workflows", name), {"workflow": workflow})
 
 

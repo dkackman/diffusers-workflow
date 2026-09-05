@@ -189,7 +189,7 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `list_workflows()` | — | List stored workflows, each with its description, output kinds, step count, variable names and the stored prompts it references. The first call to make for a request an existing workflow might cover |
+| `list_workflows()` | — | List stored workflows, each with its description, output kinds, step count, variable names, the stored prompts it references, and its `origin`/`writable` - a workflow from a read-only examples directory can be read and run but not saved over or deleted. The first call to make for a request an existing workflow might cover |
 | `get_workflow(name)` | `name` | Get one stored workflow's full JSON definition |
 | `get_schema()` | — | Get the JSON schema every workflow definition must satisfy |
 | `list_pipelines()` | — | List every diffusers pipeline class this installation provides |
@@ -220,7 +220,7 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `validate_workflow(workflow=None, name=None)` | exactly one of `workflow` (inline definition) or `name` (a stored workflow, as `list_workflows` reports it) | Check a workflow against the schema and against real pipeline signatures. Free and instant. Validating by name uses the workflow file's own directory as the base directory, so it sees what a run would |
-| `save_workflow(name, workflow)` | `name`, `workflow` | Save a workflow to the server, overwriting any existing workflow of that name |
+| `save_workflow(name, workflow)` | `name`, `workflow` | Save a workflow into the server's writable workflow directory, overwriting any existing workflow of that name there. A name that currently resolves to a read-only source (an examples directory) is not overwritten - the copy lands in the writable directory and shadows it |
 | `delete_workflow(name)` | `name` | Permanently delete a stored workflow |
 
 ### Prompts

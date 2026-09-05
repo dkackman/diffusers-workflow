@@ -14,6 +14,10 @@
         steps?: number
         variables: number
         description: string
+        /** Which source the workflow was read from. */
+        origin?: string
+        /** False for a read-only source - an examples directory. */
+        writable?: boolean
       }
     >
   >({})
@@ -84,6 +88,10 @@
           >{group ? name.split('/').slice(1).join('/') : name}</span
         >
         <span class="cardmeta muted">
+          {#if detail?.writable === false}<span
+              title="read-only: from the {detail.origin} directory"
+              >{detail.origin}</span
+            >{/if}
           {#if detail?.kinds.includes('image')}<Image size={13} />{/if}
           {#if detail?.kinds.includes('video')}<Film size={13} />{/if}
           {#if detail?.kinds.includes('audio')}<Music size={13} />{/if}

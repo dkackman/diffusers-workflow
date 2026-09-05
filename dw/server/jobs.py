@@ -343,25 +343,39 @@ class JobManager:
 
     # ------------------------------------------------------------- submission
 
-    def submit(self, workflow_path=None, workflow=None, arguments=None, base_dir=None):
+    def submit(
+        self,
+        workflow_path=None,
+        workflow=None,
+        arguments=None,
+        base_dir=None,
+        workflow_dir=None,
+    ):
         """Validate a job request and queue it. Raises ValueError on a bad
-        request so the HTTP layer can answer 400 before anything runs."""
+        request so the HTTP layer can answer 400 before anything runs.
+
+        `workflow_dir` overrides this job's confinement root for a workflow
+        that lives outside the writable directory - an example or a builtin,
+        which the caller has already resolved against the search path. The
+        worker re-validates against whatever this job records, so the
+        override travels with the job rather than widening the manager.
+        """
         arguments = arguments or {}
         if (workflow_path is None) == (workflow is None):
             raise ValueError("Provide exactly one of workflow_path or workflow")
 
+        confinement = workflow_dir or self.workflow_dir
+
         if workflow_path is not None:
             # Loads and schema-validates now - a bad path or file fails the
             # request, not the queue
-            loaded = workflow_from_file(
-                workflow_path, self.output_dir, self.workflow_dir
-            )
+            loaded = workflow_from_file(workflow_path, self.output_dir, confinement)
             loaded.validate()
             spec = {
                 "workflow_path": workflow_path,
                 "workflow_name": loaded.name,
                 "arguments": arguments,
-                "workflow_dir": self.workflow_dir,
+                "workflow_dir": confinement,
             }
         else:
             # workflow_from_definition validates base_dir - it is HTTP-supplied

@@ -51,6 +51,19 @@ The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`)
 
 **Critical**: Uses `multiprocessing.set_start_method("spawn")` for CUDA/MPS compatibility.
 
+### Workflow sources
+
+`dw/workflow_sources.py` is the server's workflow search path: the writable
+directory first (the workspace's `workflows/`), then any `--examples-dir`, each
+read-only. Reads (`listing`, `find_workflow`) span every root front-to-back so an
+earlier name shadows a later one; `PUT /api/workflows` always resolves through
+`writable_source`, so saving something opened from a read-only root writes a copy
+rather than overwriting it, and `DELETE` on a read-only root answers 403. A job
+carries the root it is confined to (`JobManager.submit(workflow_dir=...)`), so an
+examples workflow runs confined to the examples directory rather than to the
+writable one. Packaged `dw/workflows/` is off the path - it is what `builtin:`
+sub-workflow steps name, resolved in `dw/workflow.py`.
+
 ### Workspaces
 
 `dw/workspace.py` resolves the one directory a run's content belongs to -
