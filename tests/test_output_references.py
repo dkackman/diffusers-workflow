@@ -55,6 +55,34 @@ class TestReferences:
             outputs / "Krea" / "20260905-090000-cccccccc" / "frame.png"
         )
 
+    def test_latest_skips_a_run_that_does_not_hold_the_file(self, outputs):
+        # A failed run, or one whose every step was a cache hit, leaves a
+        # directory with only its manifest - the stage before still produced
+        # the file, in the run before that
+        newest = outputs / "ltx2" / "Gyre" / "20260905-121500-dddddddd"
+        newest.mkdir()
+        (newest / "manifest.json").write_text('{"status": "failed"}')
+        assert resolve_output_reference("output:ltx2/Gyre/latest/still.png") == str(
+            outputs / "ltx2" / "Gyre" / "20260905-111500-bbbbbbbb" / "still.png"
+        )
+
+    def test_when_no_run_holds_the_file_the_error_says_so(self, outputs):
+        with pytest.raises(ValueError, match="no run of that workflow holds"):
+            resolve_output_reference("output:ltx2/Gyre/latest/nothing.png")
+
+    def test_a_workflow_named_latest_is_still_a_name(self, outputs):
+        # 'latest' selects a run only where run directories are; elsewhere it
+        # is a folder or file like any other
+        run = outputs / "latest" / "20260905-130000-eeeeeeee"
+        run.mkdir(parents=True)
+        Image.new("RGB", (2, 2), "white").save(run / "x.png")
+        assert resolve_output_reference("output:latest/latest/x.png") == str(
+            run / "x.png"
+        )
+        assert resolve_output_reference(
+            "output:latest/20260905-130000-eeeeeeee/x.png"
+        ) == str(run / "x.png")
+
     def test_a_workflow_with_no_runs_says_so(self, outputs):
         (outputs / "Never").mkdir()
         with pytest.raises(ValueError, match="No runs yet"):
@@ -62,7 +90,9 @@ class TestReferences:
 
     def test_a_missing_file_says_so(self, outputs):
         with pytest.raises(ValueError, match="not found"):
-            resolve_output_reference("output:ltx2/Gyre/latest/nothing.png")
+            resolve_output_reference(
+                "output:ltx2/Gyre/20260905-111500-bbbbbbbb/nothing.png"
+            )
 
     def test_a_directory_is_not_a_file(self, outputs):
         with pytest.raises(ValueError):

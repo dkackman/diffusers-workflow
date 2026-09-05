@@ -45,8 +45,10 @@ MANIFEST_FILE_NAME = "manifest.json"
 # like any other, and multi-stage work is what a workflow engine is for
 OUTPUT_PREFIX = "output:"
 
-# The segment that means "the newest run of this workflow", so a workflow can
-# name the stage before it without being edited after every run
+# The segment that means "the newest run of this workflow that has the
+# file", so a workflow can name the stage before it without being edited
+# after every run - see _resolve_segments for why it is not simply the
+# newest run directory
 LATEST = "latest"
 
 # What a run id looks like: a UTC timestamp and a short digest of the spec.
@@ -96,22 +98,64 @@ def is_output_reference(value):
     return isinstance(value, str) and value.startswith(OUTPUT_PREFIX)
 
 
-def _newest_run(directory):
-    """The most recent run directory inside a workflow's output folder.
+def _runs_newest_first(directory):
+    """The run directories inside a workflow's output folder, newest first.
 
-    Run ids start with a UTC timestamp, so the newest is the last in sort
-    order - no stat calls, and no dependence on mtimes that a copy would
-    have rewritten anyway.
+    Run ids start with a UTC timestamp, so sort order is age order - no stat
+    calls, and no dependence on mtimes that a copy would have rewritten
+    anyway. Empty when the directory holds no runs, or is not there.
     """
     try:
-        runs = sorted(
-            name
-            for name in os.listdir(directory)
-            if is_run_id(name) and os.path.isdir(os.path.join(directory, name))
+        return sorted(
+            (
+                name
+                for name in os.listdir(directory)
+                if is_run_id(name) and os.path.isdir(os.path.join(directory, name))
+            ),
+            reverse=True,
         )
     except OSError:
-        return None
-    return runs[-1] if runs else None
+        return []
+
+
+def _resolve_segments(directory, parts, reference, root):
+    """Build the path a name stands for, expanding 'latest' where it names
+    a run.
+
+    'latest' means the newest run *that has the file*, not the newest run
+    directory: a run that failed part way, or one whose every step was a
+    cache hit, leaves a directory holding only its manifest, and a
+    second-stage workflow pointed at that would find nothing where the
+    stage before it plainly produced something. So the runs are tried
+    newest first and the first one holding the rest of the name wins.
+
+    Only a segment standing where run directories are is a run selector. A
+    'latest' segment in a directory that holds no runs is a name like any
+    other, so a workflow or a file called 'latest' stays reachable.
+
+    Returns the path, or None when runs were found and none of them holds
+    the file.
+    """
+    if not parts:
+        return directory
+    part, rest = parts[0], parts[1:]
+    if part == LATEST:
+        runs = _runs_newest_first(directory)
+        if runs:
+            for run in runs:
+                candidate = _resolve_segments(
+                    os.path.join(directory, run), rest, reference, root
+                )
+                if candidate and os.path.isfile(candidate):
+                    return candidate
+            return None
+        if not os.path.exists(os.path.join(directory, part)):
+            raise ValueError(
+                f"No runs yet under {os.path.relpath(directory, root)} - "
+                f"'{reference}' names the newest run of a workflow that "
+                f"has not produced one"
+            )
+    return _resolve_segments(os.path.join(directory, part), rest, reference, root)
 
 
 def resolve_output_reference(reference, root=None):
@@ -119,9 +163,10 @@ def resolve_output_reference(reference, root=None):
 
     The name is a path under the output directory - '<workflow>/<run
     id>/<file>' - and the run id may be written as 'latest', which resolves
-    to the newest run of that workflow. That is what lets a second-stage
-    workflow name the first stage's product without being edited after
-    every run.
+    to the newest run of that workflow that holds the file. That is what
+    lets a second-stage workflow name the first stage's product without
+    being edited after every run, and without breaking when the newest run
+    failed or reused cached files and so wrote none of its own.
 
     Args:
         reference: The 'output:...' string
@@ -141,24 +186,17 @@ def resolve_output_reference(reference, root=None):
     name = validate_output_reference(reference.removeprefix(OUTPUT_PREFIX).strip())
     root = root or output_root()
 
-    parts = name.split("/")
-    resolved = root
-    for index, part in enumerate(parts):
-        if part == LATEST:
-            newest = _newest_run(resolved)
-            if newest is None:
-                raise ValueError(
-                    f"No runs yet under {os.path.relpath(resolved, root)} - "
-                    f"'{reference}' names the newest run of a workflow that "
-                    f"has not produced one"
-                )
-            part = newest
-        resolved = os.path.join(resolved, part)
-        # Containment is checked once, at the end, on the whole path - each
-        # step here only builds it. 'latest' is expanded before that check,
-        # so what is validated is the real directory it named
-        if index == len(parts) - 1:
-            resolved = validate_path(resolved, root)
+    resolved = _resolve_segments(root, name.split("/"), reference, root)
+    if resolved is None:
+        raise ValueError(
+            f"Output '{name}' not found under {root} - no run of that workflow "
+            f"holds the file. A run that failed, or reused every step from the "
+            f"cache, leaves only its manifest behind"
+        )
+    # Containment is checked once, on the whole path, after 'latest' has
+    # been expanded - so what is validated is the real directory it named.
+    # The segments themselves were pattern-checked, so this guards symlinks
+    resolved = validate_path(resolved, root)
 
     if not os.path.isfile(resolved):
         raise ValueError(

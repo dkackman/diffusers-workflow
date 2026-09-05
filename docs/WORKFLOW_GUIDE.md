@@ -965,10 +965,13 @@ workflow. An `output:` reference names what an earlier run wrote, directly:
 
 The name is a path under the output directory — the workflow's identity, the run, and
 the file (see [Runs](WORKSPACES.md#runs)). Writing `latest` where the run id goes
-resolves to the newest run of that workflow, which is what lets a second-stage workflow
-name the first stage's product without being edited after every run. Runs sort by their
-id, which starts with a UTC timestamp, so "newest" needs no file timestamps and survives
-a directory being copied.
+resolves to the newest run of that workflow *that holds the file*, which is what lets a
+second-stage workflow name the first stage's product without being edited after every
+run - and keeps working when the newest run failed part way, or reused every step from
+the cache and so wrote nothing of its own but a manifest. Runs sort by their id, which
+starts with a UTC timestamp, so "newest" needs no file timestamps and survives a
+directory being copied. `latest` only selects a run where run directories are; a
+workflow or file that happens to be called `latest` is still named as itself.
 
 Like `asset:`, a reference resolves to a path and then whatever loads paths loads it, so
 it works under `image`, `video`, a `from_file`, or a list of them. It resolves against

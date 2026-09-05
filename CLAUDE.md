@@ -114,8 +114,9 @@ docs/WORKSPACES.md, and docs/proposals/workspaces.md for the later stages
   from the workflow file's directory
 - Values prefixed with `output:` resolve to the path of a file an earlier run wrote:
   `"output:ltx2/Gyre/latest/still.png"`. The name is `<workflow identity>/<run id>/<file>`
-  under the output root, and `latest` in the run-id position picks the newest run (run ids
-  sort by their UTC timestamp). Resolved in `realize_args` beside `asset:` (`dw/runs.py`),
+  under the output root, and `latest` in the run-id position picks the newest run that
+  holds the file (run ids sort by their UTC timestamp; a failed or fully-cached run holds
+  only a manifest and is skipped). Resolved in `realize_args` beside `asset:` (`dw/runs.py`),
   against the output root `Workflow.run` activates, and confined to it
 - A generated file becomes a stable input with `POST /api/assets/keep` (gallery "Keep as
   asset", MCP `keep_output`): it is hard-linked, else copied, from the workspace's outputs
