@@ -36,6 +36,24 @@ token is all-or-nothing and everything behind it is reachable by anyone who
 holds it. Anything below that is justified only by multi-user use should be
 left out until there is a multi-user user.
 
+## What workspaces are for
+
+Two things, and it is worth being exact because it decides what is worth
+building next:
+
+1. **Namespace separation** - the repository's example workflows and prompts
+   are one thing, day-to-day creative work is another, and several MCP
+   clients working against one server should not share a namespace.
+2. **Reuse on the server** - a stored prompt, or an input asset, used by more
+   than one project should exist once and be referable from all of them.
+
+Source control of creative work is *not* on this list. It is handled on the
+client, by the user, with the tools they already use. That matters because it
+is what makes stages four and five - a client workspace mirroring into a
+server one, and pulling runs back - unnecessary rather than merely
+speculative: see "Mirroring", below, which is kept as a record of a design
+that was scoped and then deliberately not built.
+
 ## The ownership model
 
 One owner per class of artifact, not per workspace:
@@ -153,6 +171,21 @@ moment there are two.
 
 ## Mirroring
 
+**Status: designed, not planned.** Kept because the reasoning is worth
+having on record, not because it is queued.
+
+Mirroring is a distribution mechanism, not a version-control one. Where the
+working copy and the server share a filesystem - one box, shell access - git
+in the workspace directory already gives history, diffs and durability with
+no new code, and `git push`/`git pull` is a better mirror than this design
+would be: real three-way merges rather than "the client wins and the server
+is read-only". Its only genuine niche is an agent that can reach the API but
+cannot run commands on the box, which is a hosted or shared GPU, not the
+deployment this targets. The cost it avoids is real: named upload
+destinations, digest change detection, prune semantics, refusing workflow
+shapes that cannot be synced, and a standing "which side is right" question
+every time someone edits in the UI.
+
 ### Direction and trigger
 
 One way, client → server, for authored content only. Two triggers:
@@ -213,6 +246,9 @@ nothing, and `output:` references resolve on whichever side is running.
   like any other, and `--trust-workflows` governs it the same way.
 
 ## Staging
+
+Stages one through three are implemented. Four and five are not planned -
+see the note above.
 
 1. **Workspaces on the server, one at a time.** The named subdirectories, the
    CRUD routes, the per-job asset root, the workspace column in history. The
