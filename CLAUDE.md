@@ -51,6 +51,21 @@ The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`)
 
 **Critical**: Uses `multiprocessing.set_start_method("spawn")` for CUDA/MPS compatibility.
 
+### Workspaces on the server
+
+`dw.serve` can hold several workspaces under one root: the root's own
+`workflows/assets/outputs` are the `default` workspace, a named one is a
+subdirectory beside them (`named_workspace`, `create_workspace` in
+`dw/workspace.py`), and `prompts/` at the root is shared by all of them - there
+is one prompt library, because `prompt:` is shared by reference. Routes take an
+optional `workspace`; omitting it means the default, so pre-workspace calls are
+unchanged. A job carries its own `output_dir`, `asset_dir` and `workflow_dir`
+(`JobManager.submit`), so it stays in its workspace whatever the manager serves
+next; the worker activates the asset root per job (`activate_asset_dir`), which
+is the one root that could not stay process-wide. `jobs.sqlite` has a
+`workspace` column, backfilled to `default`. Reserved names: `workflows`,
+`prompts`, `assets`, `outputs`.
+
 ### Workflow sources
 
 `dw/workflow_sources.py` is the server's workflow search path: the writable

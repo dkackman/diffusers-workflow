@@ -544,6 +544,52 @@ def validate_output_reference(name: str) -> str:
     return name
 
 
+# A workspace's name: one path segment, starting with a word character, so
+# '..', hidden names and anything with a separator in it are all excluded
+# before the name is joined onto the workspace root
+WORKSPACE_NAME_PATTERN = r"^[\w][\w.-]*\Z"
+MAX_WORKSPACE_NAME_LENGTH = 100
+
+
+def validate_workspace_name(name: str) -> str:
+    """
+    Validate a workspace name.
+
+    Args:
+        name: Workspace name to validate
+
+    Returns:
+        The validated name
+
+    Raises:
+        InvalidInputError: If the name is not one a workspace can take
+    """
+    from .workspace import RESERVED_WORKSPACE_NAMES
+
+    if not name:
+        raise InvalidInputError("Workspace name cannot be empty")
+
+    if not re.match(WORKSPACE_NAME_PATTERN, name):
+        raise InvalidInputError(
+            f"Invalid workspace name: {name} - a workspace is one folder under "
+            f"the workspace root, named with letters, numbers, dot, dash or "
+            f"underscore"
+        )
+
+    if name in RESERVED_WORKSPACE_NAMES:
+        raise InvalidInputError(
+            f"'{name}' is one of the workspace root's own folders "
+            f"({', '.join(RESERVED_WORKSPACE_NAMES)}) and cannot name a workspace"
+        )
+
+    if len(name) > MAX_WORKSPACE_NAME_LENGTH:
+        raise InvalidInputError(
+            f"Workspace name too long: {len(name)} > {MAX_WORKSPACE_NAME_LENGTH}"
+        )
+
+    return name
+
+
 # A dotted python name: identifiers separated by dots, and nothing else
 CONSTANT_NAME_PATTERN = r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*\Z"
 

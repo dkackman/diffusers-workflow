@@ -12,6 +12,7 @@ becomes the absolute path of that file, and whatever would have loaded a path
 written there loads it unchanged.
 """
 
+import contextvars
 import logging
 import os
 
@@ -28,10 +29,30 @@ ASSET_PREFIX = "asset:"
 ASSET_DIR_ENV_VAR = "DW_ASSET_DIR"
 
 
+# The asset library of the run in progress. A server holds several
+# workspaces and each has its own assets, so this cannot be a process-wide
+# environment variable there the way the prompt library can - there is one
+# prompt library, shared, but assets belong to a workspace. Set per job by
+# the worker; unset for the CLI and REPL, which have one workspace per
+# process and read the environment below
+_active_asset_dir = contextvars.ContextVar("dw_asset_dir", default=None)
+
+
+def activate_asset_dir(directory):
+    """Make an asset library the active one; returns a token for deactivate."""
+    return _active_asset_dir.set(directory)
+
+
+def deactivate_asset_dir(token):
+    _active_asset_dir.reset(token)
+
+
 def get_asset_dir(base_dir=None):
     """The directory 'asset:' references are rooted at.
 
-    Discovery mirrors the prompt library's, for the same reasons:
+    A library activated for this run wins outright - that is the server
+    telling the worker which workspace's assets this job uses. Otherwise
+    discovery mirrors the prompt library's, for the same reasons:
     DW_ASSET_DIR names it outright; then a workspace someone named, whose
     assets/ is the library by definition; then assets/ in the working
     directory when it exists; then the walk from the workflow file's
@@ -42,6 +63,10 @@ def get_asset_dir(base_dir=None):
     Args:
         base_dir: The workflow file's directory, when one anchors the search
     """
+    active = _active_asset_dir.get()
+    if active:
+        return active
+
     explicit = os.environ.get(ASSET_DIR_ENV_VAR)
     if explicit:
         return explicit

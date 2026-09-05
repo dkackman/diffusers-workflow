@@ -180,6 +180,14 @@ The editor's forms come from these; they are just as usable from scripts:
   throttles a burst of single downloads, so the gallery's bulk download
   goes through here; an unknown or out-of-directory name 404s the whole
   request rather than yielding a partial archive
+- `GET /api/workspaces`, `POST /api/workspaces` (`{"name": ...}`),
+  `DELETE /api/workspaces/{name}?acknowledged=true` — the workspaces on this
+  server. The workspace root's own `workflows/assets/outputs` are the
+  `default` workspace and a named one is a subdirectory beside them, sharing
+  the root's one prompt library. Delete answers with what it would remove and
+  refuses until acknowledged, refuses the default, and refuses a workspace
+  with jobs still queued. A workspace is a namespace, **not** a security
+  boundary: the API token is all-or-nothing
 - `GET /api/assets` — the asset library: input media, each with the
   `asset:` reference a workflow carries rather than a path, since a path
   only means something on the server's own machine. Empty rather than an
