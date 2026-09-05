@@ -30,6 +30,7 @@ RESERVED_TEXT_PREFIXES = (
     "variable:",
     "constant:",
     "asset:",
+    "output:",
     PROMPT_PREFIX,
 )
 

@@ -108,23 +108,3 @@ def resolve_asset_reference(reference, asset_dir=None, base_dir=None):
 def fetch_asset(reference, asset_dir=None, base_dir=None):
     """The path an 'asset:' reference names, for whatever loads paths."""
     return resolve_asset_reference(reference, asset_dir, base_dir)
-
-
-def resolve_asset_values(value, base_dir=None):
-    """Replace any 'asset:' reference in a value with the path it names.
-
-    A list is walked, because an 'image' argument may be a list of them and
-    the key conventions hand the whole list to the loader at once - by then
-    it is too late for a reference to be recognized. Dictionaries are left
-    alone: realize_args recurses into those itself, and each of their values
-    reaches this on the way through.
-    """
-    if is_asset_reference(value):
-        return fetch_asset(value, base_dir=base_dir)
-    if isinstance(value, list):
-        # In place: a list argument keeps its identity, the way every other
-        # value realize_args touches does
-        for index, item in enumerate(value):
-            value[index] = resolve_asset_values(item, base_dir)
-        return value
-    return value

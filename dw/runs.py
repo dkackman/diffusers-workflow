@@ -20,6 +20,7 @@ The old flat-ish layout stays available: DW_OUTPUT_LAYOUT=flat, an
 dw.serve, for a caller whose scripts glob the output directory.
 """
 
+import contextvars
 import hashlib
 import json
 import logging
@@ -39,6 +40,15 @@ OUTPUT_LAYOUT_ENV_VAR = "DW_OUTPUT_LAYOUT"
 
 MANIFEST_FILE_NAME = "manifest.json"
 
+# The prefix marking a value as a reference to a file an earlier run wrote.
+# Like 'asset:', it stands for a path - what a previous run made is an input
+# like any other, and multi-stage work is what a workflow engine is for
+OUTPUT_PREFIX = "output:"
+
+# The segment that means "the newest run of this workflow", so a workflow can
+# name the stage before it without being edited after every run
+LATEST = "latest"
+
 # What a run id looks like: a UTC timestamp and a short digest of the spec.
 # The pattern is not only documentation - the gallery reads it to group a
 # workflow's runs under one folder rather than listing every run separately
@@ -52,6 +62,117 @@ _UNSAFE_SEGMENT_CHARACTERS = re.compile(r"[^A-Za-z0-9_.-]+")
 # The synthetic file name workflow_from_definition gives an inline workflow -
 # it carries a directory, not an identity
 INLINE_FILE_NAME = "__inline__"
+
+
+# The output root of the run in progress, so an 'output:' reference resolves
+# against the directory this run was told to write to rather than guessing
+# one. Set by Workflow.run; a reference realized outside any run falls back
+# to the workspace's outputs
+_active_output_root = contextvars.ContextVar("dw_output_root", default=None)
+
+
+def activate_output_root(root):
+    """Make an output root the active one; returns a token for deactivate."""
+    return _active_output_root.set(root)
+
+
+def deactivate_output_root(token):
+    _active_output_root.reset(token)
+
+
+def output_root():
+    """The output directory 'output:' references resolve against."""
+    active = _active_output_root.get()
+    if active:
+        return active
+
+    from .workspace import resolve_workspace
+
+    return resolve_workspace().outputs
+
+
+def is_output_reference(value):
+    """Whether a value references a file an earlier run wrote."""
+    return isinstance(value, str) and value.startswith(OUTPUT_PREFIX)
+
+
+def _newest_run(directory):
+    """The most recent run directory inside a workflow's output folder.
+
+    Run ids start with a UTC timestamp, so the newest is the last in sort
+    order - no stat calls, and no dependence on mtimes that a copy would
+    have rewritten anyway.
+    """
+    try:
+        runs = sorted(
+            name
+            for name in os.listdir(directory)
+            if is_run_id(name) and os.path.isdir(os.path.join(directory, name))
+        )
+    except OSError:
+        return None
+    return runs[-1] if runs else None
+
+
+def resolve_output_reference(reference, root=None):
+    """Resolve an 'output:' reference to the file it names.
+
+    The name is a path under the output directory - '<workflow>/<run
+    id>/<file>' - and the run id may be written as 'latest', which resolves
+    to the newest run of that workflow. That is what lets a second-stage
+    workflow name the first stage's product without being edited after
+    every run.
+
+    Args:
+        reference: The 'output:...' string
+        root: The output directory to resolve against; defaults to the run
+            in progress, else the workspace's outputs
+
+    Returns:
+        The validated absolute path of the file
+
+    Raises:
+        InvalidInputError: If the name is not a valid output name
+        PathTraversalError: If the name escapes the output directory
+        ValueError: If no such run or file exists
+    """
+    from .security import validate_output_reference, validate_path
+
+    name = validate_output_reference(reference.removeprefix(OUTPUT_PREFIX).strip())
+    root = root or output_root()
+
+    parts = name.split("/")
+    resolved = root
+    for index, part in enumerate(parts):
+        if part == LATEST:
+            newest = _newest_run(resolved)
+            if newest is None:
+                raise ValueError(
+                    f"No runs yet under {os.path.relpath(resolved, root)} - "
+                    f"'{reference}' names the newest run of a workflow that "
+                    f"has not produced one"
+                )
+            part = newest
+        resolved = os.path.join(resolved, part)
+        # Containment is checked once, at the end, on the whole path - each
+        # step here only builds it. 'latest' is expanded before that check,
+        # so what is validated is the real directory it named
+        if index == len(parts) - 1:
+            resolved = validate_path(resolved, root)
+
+    if not os.path.isfile(resolved):
+        raise ValueError(
+            f"Output '{name}' not found under {root} - an 'output:' reference "
+            f"names a file an earlier run wrote, like "
+            f"'output:ltx2/Gyre/latest/Gyre-still.0-0.0.png'"
+        )
+    logger.debug(f"Resolved {reference} to {resolved}")
+    return resolved
+
+
+def fetch_output(reference, root=None):
+    """The path an 'output:' reference names, for whatever loads paths."""
+    return resolve_output_reference(reference, root)
 
 
 def output_layout():

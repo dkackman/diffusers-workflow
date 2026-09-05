@@ -97,6 +97,11 @@ docs/WORKSPACES.md, and docs/proposals/workspaces.md for the later stages
   there. The library is `DW_ASSET_DIR` / `--asset-dir`, else the workspace's `assets/`
   when a workspace was named, else `./assets` if it exists, else found by walking up
   from the workflow file's directory
+- Values prefixed with `output:` resolve to the path of a file an earlier run wrote:
+  `"output:ltx2/Gyre/latest/still.png"`. The name is `<workflow identity>/<run id>/<file>`
+  under the output root, and `latest` in the run-id position picks the newest run (run ids
+  sort by their UTC timestamp). Resolved in `realize_args` beside `asset:` (`dw/runs.py`),
+  against the output root `Workflow.run` activates, and confined to it
 - Values prefixed with `prompt:` load a stored prompt's `text` from the prompt library:
   `"prompt:name"` or `"prompt:folder/name"`. Resolved in `realize_args` (`dw/prompts.py`),
   rooted at the library rather than the workflow file. The library is `DW_PROMPT_DIR` /
@@ -144,7 +149,7 @@ All entry points use `dw/security.py`. When adding features:
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
 - **MPS differences from CUDA**: no autocast, no bitsandbytes, no flash_attn, no triton, no torch.compile. Model offloading has less benefit on unified memory, and `"offload": "sequential"` is downgraded to `"model"` with a warning there (`place_component`) — per-submodule streaming hands back no residency when the CPU and the accelerator share one pool. `exclude_from_cpu_offload` is sequential-only and does not survive the downgrade.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
-- **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `asset:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
+- **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `asset:`, `output:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
 - **Run directories**: each execution writes `<output_dir>/<workflow identity>/<run id>/`
   with a `manifest.json` beside its files (`dw/runs.py`, `Workflow.effective_output_dir`).

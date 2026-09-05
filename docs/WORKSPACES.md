@@ -158,6 +158,11 @@ rolls up into the same manifest.
 An unchanged rerun still reuses the step cache: it writes no new files and its
 manifest reports the earlier run's, marked `"reused": true`.
 
+A later workflow names what an earlier run made with an `output:` reference —
+`output:ltx2/Gyre/latest/Gyre-still.0-0.0.png` — so a multi-stage pipeline no
+longer needs files copied back by hand. See
+[Output References](WORKFLOW_GUIDE.md#output-references).
+
 To keep the previous layout — everything at the output root, with only a
 `workflows/`-mirroring subfolder — use `--output-layout flat`, `DW_OUTPUT_LAYOUT=flat`,
 or `"output_layout": "flat"` in settings. Scripts that glob the output directory

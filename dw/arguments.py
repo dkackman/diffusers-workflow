@@ -4,7 +4,8 @@ import logging
 from inspect import Parameter, signature
 from .type_helpers import load_type_from_name, load_constant_from_name, has_method
 from .prompts import PROMPT_PREFIX, fetch_prompt
-from .assets import is_asset_reference, resolve_asset_values
+from .assets import fetch_asset, is_asset_reference
+from .runs import fetch_output, is_output_reference
 from diffusers.utils import load_image, load_video
 from .security import (
     validate_path,
@@ -94,8 +95,8 @@ def realize_args(arg, base_dir=None):
             # library, and does it first: what it stands for is a path, so
             # everything below - the media conventions, an object's
             # 'from_file' - then handles it as the path it always was
-            if is_asset_reference(v) or isinstance(v, list):
-                v = arg[k] = resolve_asset_values(v, base_dir)
+            if is_path_reference(v) or isinstance(v, list):
+                v = arg[k] = resolve_path_references(v, base_dir)
             # A constant resolves under any argument name, and before the
             # conventions below - what it holds is the value, not a file to load
             if is_constant_reference(v):
@@ -150,8 +151,8 @@ def realize_args(arg, base_dir=None):
     elif isinstance(arg, list):
         logger.debug("Processing list arguments")
         for i, item in enumerate(arg):
-            if is_asset_reference(item):
-                item = arg[i] = resolve_asset_values(item, base_dir)
+            if is_path_reference(item):
+                item = arg[i] = resolve_path_references(item, base_dir)
             if is_constant_reference(item):
                 arg[i] = fetch_constant(item)
                 continue
@@ -163,6 +164,31 @@ def realize_args(arg, base_dir=None):
                 continue
             realize_args(item, base_dir)
             arg[i] = realize_object(item, base_dir)
+
+
+def is_path_reference(value):
+    """Whether a value is a reference that stands for a file's path - a
+    stored asset, or something an earlier run wrote."""
+    return is_asset_reference(value) or is_output_reference(value)
+
+
+def resolve_path_references(value, base_dir=None):
+    """Replace any reference that stands for a path with the path itself.
+
+    A list is walked in place, because an 'image' argument may be a list of
+    references and the key conventions hand the whole list to the loader at
+    once - by then it is too late for a reference to be recognized.
+    Dictionaries are left alone: realize_args recurses into those itself,
+    and each of their values reaches this on the way through.
+    """
+    if is_asset_reference(value):
+        return fetch_asset(value, base_dir=base_dir)
+    if is_output_reference(value):
+        return fetch_output(value)
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            value[index] = resolve_path_references(item, base_dir)
+    return value
 
 
 def is_constant_reference(value):

@@ -952,6 +952,32 @@ symlink pointing out of it are all refused. Browser uploads land in the library'
 `uploads/` folder and come back as `asset:uploads/<name>`, so a workflow saved after
 an upload still resolves on the next run.
 
+### Output References
+
+Multi-stage work — generate stills, then animate them; generate a score, then mux it —
+used to mean copying files out of the output directory and back in beside the next
+workflow. An `output:` reference names what an earlier run wrote, directly:
+
+```json
+"image": "output:ltx2/Gyre/latest/Gyre-still.0-0.0.png",
+"audio": "output:ltx2/GyreScore/20260905-181530-a1b2c3d4/Gyre-score.10-0.0.wav"
+```
+
+The name is a path under the output directory — the workflow's identity, the run, and
+the file (see [Runs](WORKSPACES.md#runs)). Writing `latest` where the run id goes
+resolves to the newest run of that workflow, which is what lets a second-stage workflow
+name the first stage's product without being edited after every run. Runs sort by their
+id, which starts with a UTC timestamp, so "newest" needs no file timestamps and survives
+a directory being copied.
+
+Like `asset:`, a reference resolves to a path and then whatever loads paths loads it, so
+it works under `image`, `video`, a `from_file`, or a list of them. It resolves against
+the output directory the run was told to write to, and cannot leave it: `..`, an
+absolute path, and a symlink pointing out are all refused.
+
+To name an *earlier step of the same run*, use `previous_result:` instead — that passes
+the value in memory rather than through the filesystem.
+
 ### Objects Built From a File
 
 Some pipelines take arguments that are objects rather than plain media. An argument that

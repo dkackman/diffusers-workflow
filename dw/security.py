@@ -501,6 +501,49 @@ def validate_asset_reference(name: str) -> str:
     return name
 
 
+# A generated output's name: the workflow's identity, the run, and the file -
+# deeper than an asset name because the identity itself can nest, and the run
+# id is a segment of its own
+OUTPUT_REFERENCE_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*){1,6}\Z"
+MAX_OUTPUT_REFERENCE_LENGTH = 500
+
+
+def validate_output_reference(name: str) -> str:
+    """
+    Validate the name an 'output:' reference points at.
+
+    The name is joined onto the output directory to find the file, so it is
+    checked before anything touches the filesystem. Containment is checked
+    separately, by the validate_path call that joins it - after any 'latest'
+    segment has been expanded, so what is checked is the real path.
+
+    Args:
+        name: Output name to validate
+
+    Returns:
+        The validated name
+
+    Raises:
+        InvalidInputError: If name is invalid
+    """
+    if not name:
+        raise InvalidInputError("Output name cannot be empty")
+
+    if not re.match(OUTPUT_REFERENCE_PATTERN, name):
+        raise InvalidInputError(
+            f"Invalid output name: {name} - an output is named by the workflow "
+            f"that made it, the run, and the file, like "
+            f"'ltx2/Gyre/latest/Gyre-still.0-0.0.png'"
+        )
+
+    if len(name) > MAX_OUTPUT_REFERENCE_LENGTH:
+        raise InvalidInputError(
+            f"Output name too long: {len(name)} > {MAX_OUTPUT_REFERENCE_LENGTH}"
+        )
+
+    return name
+
+
 # A dotted python name: identifiers separated by dots, and nothing else
 CONSTANT_NAME_PATTERN = r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*\Z"
 

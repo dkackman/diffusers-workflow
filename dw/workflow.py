@@ -25,6 +25,8 @@ from .step_cache import (
 )
 from .runs import (
     FLAT_LAYOUT,
+    activate_output_root,
+    deactivate_output_root,
     workflow_identity,
     manifest_relative_files,
     new_run_id,
@@ -282,6 +284,10 @@ class Workflow:
         """
         run_context = context or current_context() or RunContext()
         context_token = activate_context(run_context)
+        # 'output:' references resolve against the directory this run was
+        # told to write to - the root, not this run's own subdirectory, since
+        # what they name is what an earlier run left there
+        output_root_token = activate_output_root(self.output_dir)
         # Step name -> cache key for this run, so release_pipeline and
         # pipeline_reference still address pipelines by the step that made them
         self._pipeline_keys_by_step = {}
@@ -603,6 +609,7 @@ class Workflow:
             # what a failed run needs to explain itself
             if self._run_dir and not self._run_dir_inherited:
                 self._write_run_manifest(run_id, status, started_at, arguments)
+            deactivate_output_root(output_root_token)
             deactivate_context(context_token)
 
     def _write_run_manifest(self, run_id, status, started_at, arguments):
