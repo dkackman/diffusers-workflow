@@ -158,5 +158,7 @@ workflows/*/assets/
 # so the SPA's own assets/ folders are not swept up. Generated output is
 # covered by the outputs/ rule above, run directories and manifests included
 /assets/
+# a run directory a test or a bare `dw.run -o output` leaves at the root
+/output/
 /*.mp4
 /*.wav

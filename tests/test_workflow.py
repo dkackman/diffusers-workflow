@@ -1,6 +1,7 @@
 import json
 import pytest
 import torch
+import tempfile
 from unittest.mock import MagicMock
 from dw.workflow import (
     Workflow,
@@ -14,47 +15,47 @@ from dw.pipeline_processors.pipeline import Pipeline
 import os
 
 
-def test_workflow_validation_valid(valid_workflow_json):
-    workflow = Workflow(valid_workflow_json, "./output", "")
+def test_workflow_validation_valid(valid_workflow_json, tmp_path):
+    workflow = Workflow(valid_workflow_json, str(tmp_path), "")
     workflow.validate()  # Should not raise exception
 
 
-def test_workflow_validation_invalid(invalid_workflow_json):
-    workflow = Workflow(invalid_workflow_json, "./output", "")
+def test_workflow_validation_invalid(invalid_workflow_json, tmp_path):
+    workflow = Workflow(invalid_workflow_json, str(tmp_path), "")
     with pytest.raises(Exception) as exc_info:
         workflow.validate()
     assert "Validation error" in str(exc_info.value)
 
 
-def test_workflow_name(valid_workflow_json):
-    workflow = Workflow(valid_workflow_json, "./output", "")
+def test_workflow_name(valid_workflow_json, tmp_path):
+    workflow = Workflow(valid_workflow_json, str(tmp_path), "")
     assert workflow.name == "test_workflow"
 
 
-def test_workflow_from_file(test_data_dir):
+def test_workflow_from_file(test_data_dir, tmp_path):
     workflow_path = os.path.join(test_data_dir, "workflows", "valid_workflow.json")
-    workflow = workflow_from_file(workflow_path, "./output")
+    workflow = workflow_from_file(workflow_path, str(tmp_path))
     assert isinstance(workflow, Workflow)
 
 
-def test_workflow_variables_property(valid_workflow_json):
-    workflow = Workflow(valid_workflow_json, "./output", "")
+def test_workflow_variables_property(valid_workflow_json, tmp_path):
+    workflow = Workflow(valid_workflow_json, str(tmp_path), "")
     assert "prompt" in workflow.variables
     assert workflow.variables["prompt"] == "test prompt"
 
 
-def test_workflow_argument_template(valid_workflow_json):
-    workflow = Workflow(valid_workflow_json, "./output", "")
+def test_workflow_argument_template(valid_workflow_json, tmp_path):
+    workflow = Workflow(valid_workflow_json, str(tmp_path), "")
     # Should return empty dict if no argument_template
     assert workflow.argument_template == {}
 
 
-def test_workflow_security_validation():
+def test_workflow_security_validation(tmp_path):
     from dw.security import SecurityError
 
     # Test path traversal protection
     with pytest.raises(SecurityError):
-        workflow_from_file("../../../etc/passwd", "./output")
+        workflow_from_file("../../../etc/passwd", str(tmp_path))
 
 
 class TestWorkflowOutputSubfolder:
@@ -191,13 +192,14 @@ class TestSeedResolution:
 
     def cached_step_action(self, step_definition, seed, device="cpu"):
         """Run create_step_action down the cached-pipeline path"""
-        workflow = Workflow({"id": "seeds", "steps": []}, "./output", "")
-        cached = Pipeline(step_definition["pipeline"], seed, device, MagicMock())
-        # The cache is keyed by pipeline identity, not step name
-        cache_key = pipeline_cache_key(step_definition["pipeline"])
-        return workflow.create_step_action(
-            step_definition, {}, {cache_key: cached}, seed, device
-        )
+        with tempfile.TemporaryDirectory() as temp_output:
+            workflow = Workflow({"id": "seeds", "steps": []}, temp_output, "")
+            cached = Pipeline(step_definition["pipeline"], seed, device, MagicMock())
+            # The cache is keyed by pipeline identity, not step name
+            cache_key = pipeline_cache_key(step_definition["pipeline"])
+            return workflow.create_step_action(
+                step_definition, {}, {cache_key: cached}, seed, device
+            )
 
     def test_generator_is_seeded_with_the_step_seed(self):
         action = self.cached_step_action(self.step_definition(), seed=222)
@@ -276,7 +278,8 @@ class TestGlobalRngIsolation:
     """Workflow.run must not reseed the RNG the process may rely on"""
 
     def run_empty_workflow(self, definition):
-        Workflow(definition, "./output", "").run({})
+        with tempfile.TemporaryDirectory() as temp_output:
+            Workflow(definition, temp_output, "").run({})
 
     def test_run_with_an_explicit_seed_leaves_global_rng_alone(self):
         torch.manual_seed(1234)
