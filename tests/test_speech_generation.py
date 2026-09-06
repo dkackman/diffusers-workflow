@@ -130,3 +130,32 @@ class TestGenerateSpeech(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "sample rate"):
             generate_speech("hello", device="cpu")
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_a_preset_the_model_cannot_take_is_an_error(self, mock_pipeline):
+        # facebook/mms-tts-eng has no processor: transformers would log the
+        # preset as an unrecognised kwarg and speak in its one voice
+        mock_pipeline.return_value.processor = None
+
+        with self.assertRaises(ValueError) as raised:
+            generate_speech("hi", model_name="facebook/mms-tts-eng", voice_preset="v2/en_speaker_6")
+
+        self.assertIn("voice_preset", str(raised.exception))
+        self.assertIn("facebook/mms-tts-eng", str(raised.exception))
+
+
+class TestHandleSpeechGeneration(unittest.TestCase):
+    """Covers the task.py dispatch handler directly, since
+    test_task_discovery.py only introspects the command registry rather than
+    running handlers."""
+
+    def test_generate_speech_without_text_names_the_argument(self):
+        from dw.tasks.task import _COMMAND_REGISTRY
+
+        class FakeTask:
+            def device_for(self, arguments):
+                return "cpu"
+
+        handler = _COMMAND_REGISTRY["generate_speech"]
+        with self.assertRaisesRegex(ValueError, "generate_speech needs 'text'"):
+            handler(FakeTask(), {"voice_preset": "v2/en_speaker_6"}, {})

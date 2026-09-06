@@ -3,7 +3,8 @@ Speech generation via HuggingFace transformers.
 
 Takes a line of text and speaks it with a local text-to-speech model, returning
 the waveform and the rate it was generated at so the rest of the audio plumbing -
-slice_audio, fade_audio, pair_audio, concat_videos - composes with it directly.
+slice_audio, fade_audio and pair_audio - composes with it directly (concat_videos
+and dissolve_videos join videos; pair the track onto a video first).
 
 The role this is built for is voice *timbre reference*, not the track a mouth
 follows. MiniMax H3 lip-syncs well when it generates the speech itself and poorly
@@ -19,17 +20,18 @@ import logging
 
 from transformers import pipeline as hf_pipeline
 
-from .. import get_device_type, preferred_task_dtype
+from .. import preferred_task_dtype
 from ..result import AudioTrack
 from .audio_utils import as_channels_samples
-from .model_cache import cached_model
+from .model_cache import cached_model, hf_pipeline_placement
 
 logger = logging.getLogger("dw")
 
 # Small, loads without a separate speaker-embedding dataset, and its voice presets
 # give distinct speakers - which is the point when two characters have to sound
-# like two people. A single-voice model like facebook/mms-tts-eng is a quarter the
-# size and a reasonable override where only one voice is needed
+# like two people. A single-voice model like facebook/mms-tts-eng (which takes no
+# voice_preset) is a quarter the size and a reasonable override where only one
+# voice is needed
 _DEFAULT_MODEL = "suno/bark-small"
 
 
@@ -63,15 +65,7 @@ def generate_speech(text, device="cpu", **kwargs):
 
     def load_pipe():
         logger.info(f"Generating speech with {model_name} on {device}")
-        # The same MPS accommodation text_generation makes: a device_map has the
-        # loading threads cast their shards straight onto the device, which races
-        # inside torch's Metal shader cache. Passing `device` leaves the load on
-        # the CPU and moves the finished model in one call on this thread
-        placement = (
-            {"device": device}
-            if get_device_type(device) == "mps"
-            else {"device_map": device}
-        )
+        placement = hf_pipeline_placement(device)
         return hf_pipeline(
             "text-to-speech",
             model=model_name,
@@ -83,6 +77,14 @@ def generate_speech(text, device="cpu", **kwargs):
         ("speech_generation", model_name, str(device), str(dtype)),
         load_pipe,
     )
+
+    if voice_preset and getattr(pipe, "processor", None) is None:
+        # A single-voice model has no processor to hand the preset to;
+        # transformers logs the kwarg as unrecognised and speaks anyway
+        raise ValueError(
+            f"{model_name} takes no 'voice_preset' - it has one voice. Drop the "
+            "preset, or use a model with speaker presets such as suno/bark-small"
+        )
 
     logger.info(f"Speaking: {text[:100]}{'...' if len(text) > 100 else ''}")
     output = pipe(

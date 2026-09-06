@@ -360,6 +360,8 @@ def _handle_text_generation(task, arguments, previous_pipelines):
 def _handle_speech_generation(task, arguments, previous_pipelines):
     """Speak a line of text with a local text-to-speech model"""
     logger.debug("Generating speech")
+    if "text" not in arguments:
+        raise ValueError("generate_speech needs 'text' - the line to speak")
     text = arguments.pop("text")
     from .speech_generation import generate_speech
 
