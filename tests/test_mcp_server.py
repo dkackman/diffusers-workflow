@@ -15,6 +15,8 @@ from dw_mcp.client import DwClient  # noqa: E402
 from dw_mcp.server import build_server  # noqa: E402
 
 EXPECTED_TOOLS = {
+    "list_guides",
+    "get_guide",
     "list_workflows",
     "get_workflow",
     "get_schema",
@@ -433,8 +435,35 @@ TOOL_WIRING = [
 ]
 
 
+# The guides are documentation packaged with dw rather than server state, so
+# these two answer without a request. Everything else is a proxy and belongs in
+# the wiring table above; the test below holds them to making no request at all,
+# so this stays a statement about them rather than a hole in the coverage.
+LOCAL_TOOLS = {"list_guides", "get_guide"}
+
+
 def test_the_wiring_table_covers_every_registered_tool():
-    assert {name for name, _, _, _ in TOOL_WIRING} == EXPECTED_TOOLS
+    assert {name for name, _, _, _ in TOOL_WIRING} == EXPECTED_TOOLS - LOCAL_TOOLS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name,arguments",
+    [("list_guides", {}), ("get_guide", {"name": "tasks", "section": "Speech Generation"})],
+)
+async def test_the_guide_tools_reach_no_server(name, arguments):
+    """They have to work against an engine that is not answering - and against a
+    remote one, whose disk is not where the packaged guides are."""
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.path)
+        return httpx.Response(500, json={"detail": "the engine is down"})
+
+    result = await server_over(handler).call_tool(name, arguments)
+
+    assert seen == []
+    assert result.content
 
 
 @pytest.mark.asyncio

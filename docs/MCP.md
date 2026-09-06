@@ -176,7 +176,7 @@ Nothing in this sequence costs GPU time.
 
 ## Tool reference
 
-50 tools in six groups. Names and arguments below are transcribed from
+52 tools in six groups. Names and arguments below are transcribed from
 `dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
@@ -188,8 +188,18 @@ pass it, without fetching every candidate's definition. Reusing a stored
 workflow is a preference, not a rule; `run_workflow` still takes an
 `inline_workflow` for a request nothing on disk covers.
 
+A request usually names a *subject* ("a lego movie trailer set in the marvel
+universe") while the catalog is written in *shapes* - a single image, an image
+set, one shot, a multi-shot cut sequence, video with speech. Nothing in a
+catalog entry will match the subject, so the shape is what has to be decided
+first and matched against. `list_guides` indexes the shipped documentation by
+section for exactly that, and `list_tasks` is what a shape gets composed from
+when no single workflow covers it.
+
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
+| `list_guides()` | — | List the documentation shipped with the engine: each guide's name, what it covers, and its section headings. The index is the routing table - match a request's shape against a heading rather than guessing |
+| `get_guide(name, section=None)` | `name`, `section` | Get one guide whole, or one section of it. Prefer a section: a guide runs to thousands of lines. Section names match loosely, so a heading copied approximately still resolves |
 | `list_workflows()` | — | List stored workflows, each with its description, output kinds, step count, variable names, the stored prompts it references, and its `origin`/`writable` - a workflow from a read-only examples directory can be read and run but not saved over or deleted. The first call to make for a request an existing workflow might cover |
 | `get_workflow(name)` | `name` | Get one stored workflow's full JSON definition |
 | `get_schema()` | — | Get the JSON schema every workflow definition must satisfy |
