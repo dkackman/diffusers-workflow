@@ -741,8 +741,11 @@ class WorkflowCommands:
                     break
                 except Exception as e:
                     end_inline()
+                    # A worker killed by a signal sends nothing and leaves no
+                    # traceback, so its exit code is the only diagnosis there is
+                    detail = self.repl.worker_manager.crash_details()
                     print("\n" + "=" * 80)
-                    print(f"ERROR receiving results: {e}")
+                    print(f"ERROR receiving results: {detail or e}")
                     print("=" * 80)
                     print("Worker communication failed. Shutting down worker.\n")
                     self.repl.worker_manager.shutdown_worker()

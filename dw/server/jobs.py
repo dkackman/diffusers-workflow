@@ -9,6 +9,7 @@ from where it left off.
 import os
 import copy
 import json
+import queue
 import sqlite3
 import time
 import uuid
@@ -724,7 +725,22 @@ class JobManager:
         (status, error, traceback) for _run_job to apply once the manager
         no longer counts the job as current."""
         while True:
-            message = self.worker_manager.get_result()
+            try:
+                message = self.worker_manager.get_result()
+            except RuntimeError as e:
+                # The worker died without managing to send anything - a
+                # signal, not an exception, so worker_main's handler never
+                # ran and there is no traceback to be had. The exit code is
+                # the only diagnosis available, and marking the crash here
+                # matters beyond this job: the manager would otherwise go on
+                # believing a dead process is active, and every later call
+                # that talks to it (memory_status above all) would fail
+                # against a queue nobody is reading
+                detail = self.worker_manager.crash_details()
+                self.worker_manager.mark_crashed()
+                reason = f"Worker process died: {detail or e}"
+                logger.error(f"Job {job.id}: {reason}")
+                return (FAILED, reason, None)
             message_type = message.get("type")
 
             if message_type == "progress":
@@ -812,6 +828,19 @@ class JobManager:
         try:
             self.worker_manager.send_command({"type": "memory_status"})
             result = self.worker_manager.get_result(timeout=timeout)
+        except (RuntimeError, queue.Empty) as e:
+            # A dead worker is exactly when the last reading taken before it
+            # died is worth the most, so report that rather than failing the
+            # request. Without this the caller gets a 503 at the one moment
+            # it most wants a number
+            detail = self.worker_manager.crash_details()
+            logger.warning(f"Worker unavailable for memory status: {detail or e}")
+            if detail is not None:
+                # crash_details only answers for a process the OS has reaped,
+                # so a worker that is merely slow to reply keeps its state -
+                # a timeout is not evidence of death
+                self.worker_manager.mark_crashed()
+            return {"live": False, "info": self.last_memory}
         finally:
             self._worker_lock.release()
         if result.get("type") == "memory_status":

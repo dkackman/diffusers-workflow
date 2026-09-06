@@ -70,6 +70,24 @@ class ScriptedWorkerManager:
         self.crashed = True
 
 
+class DyingWorkerManager(ScriptedWorkerManager):
+    """A worker killed by a signal: it sends nothing, and get_result raises
+    the way the real WorkerManager's liveness poll does."""
+
+    def __init__(
+        self, detail="killed by SIGKILL (typically the " "out-of-memory killer)"
+    ):
+        super().__init__(script=lambda command: [])
+        self.detail = detail
+        self.crashed = False
+
+    def get_result(self, timeout=None):
+        raise RuntimeError("Worker process died while waiting for results")
+
+    def crash_details(self):
+        return self.detail
+
+
 def success_script(command):
     yield {
         "type": "progress",
@@ -442,6 +460,74 @@ def test_workflow_browsing_and_confinement(server):
 
         assert client.get("/api/workflows/../secret").status_code == 404
         assert client.get("/api/workflows/nope").status_code == 404
+
+
+def test_a_silently_killed_worker_reports_its_exit_and_frees_the_manager(tmp_path):
+    """The OOM killer leaves no traceback, so the exit code is the whole
+    diagnosis - and the manager must stop believing the dead process is
+    alive, or every later call that talks to it fails against a queue
+    nobody reads."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=DyingWorkerManager(),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        # the last reading taken while the worker was still alive
+        manager.last_memory = {"gpu_available": True, "used": 42}
+
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, job["id"], TERMINAL_STATES)
+        assert detail["status"] == "failed"
+        assert "SIGKILL" in detail["error"]
+        assert "out-of-memory" in detail["error"]
+        assert detail["traceback"] is None
+
+        assert manager.worker_manager.crashed is True
+        assert client.get("/api/health").json()["current_job"] is None
+
+        # the one moment the last reading is worth the most is the one that
+        # used to answer 503
+        response = client.get("/api/memory")
+        assert response.status_code == 200
+        assert response.json() == {
+            "live": False,
+            "info": {"gpu_available": True, "used": 42},
+        }
+
+
+def test_a_slow_worker_is_not_declared_dead(tmp_path):
+    """A memory poll that times out against a live worker must fall back to
+    the cached reading without marking the process crashed."""
+
+    class SilentWorkerManager(ScriptedWorkerManager):
+        def get_result(self, timeout=None):
+            raise queue.Empty()
+
+        def crash_details(self):
+            return None  # the process is alive, just slow
+
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=SilentWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    manager.worker_manager.worker_active = True
+    manager.last_memory = {"gpu_available": True}
+
+    assert manager.memory_status(timeout=0.01) == {
+        "live": False,
+        "info": {"gpu_available": True},
+    }
+    assert manager.worker_manager.worker_active is True
+    assert getattr(manager.worker_manager, "crashed", False) is False
 
 
 def test_health_and_memory(server):

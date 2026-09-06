@@ -12,8 +12,9 @@ from dw.repl_worker import WorkerManager
 
 
 class FakeProcess:
-    def __init__(self, alive=True):
+    def __init__(self, alive=True, exitcode=None):
         self.alive = alive
+        self.exitcode = exitcode
 
     def is_alive(self):
         return self.alive
@@ -55,6 +56,40 @@ class TestGetResult:
     def test_an_explicit_timeout_raises_empty_not_runtime_error(self, manager):
         with pytest.raises(queue.Empty):
             manager.get_result(timeout=0.01)
+
+
+class TestCrashDetails:
+    """A worker killed by a signal never reaches worker_main's handler, so
+    no traceback exists and the exit code is the whole diagnosis."""
+
+    def test_a_live_worker_has_nothing_to_report(self, manager):
+        assert manager.crash_details() is None
+
+    def test_a_worker_not_yet_reaped_has_nothing_to_report(self, manager):
+        manager.worker_process.alive = False
+        assert manager.crash_details() is None
+
+    def test_sigkill_names_the_out_of_memory_killer(self, manager):
+        manager.worker_process.alive = False
+        manager.worker_process.exitcode = -9
+        detail = manager.crash_details()
+        assert "SIGKILL" in detail
+        assert "out-of-memory" in detail
+
+    def test_another_signal_is_named_without_the_oom_guess(self, manager):
+        manager.worker_process.alive = False
+        manager.worker_process.exitcode = -11
+        detail = manager.crash_details()
+        assert "SIGSEGV" in detail
+        assert "out-of-memory" not in detail
+
+    def test_a_nonzero_exit_reports_its_code(self, manager):
+        manager.worker_process.alive = False
+        manager.worker_process.exitcode = 1
+        assert manager.crash_details() == "exited with code 1"
+
+    def test_it_answers_for_a_manager_that_never_started_one(self):
+        assert WorkerManager().crash_details() is None
 
 
 class TestInactiveWorker:
