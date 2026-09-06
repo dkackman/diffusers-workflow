@@ -550,6 +550,22 @@ class TestRunning:
 
         assert detail["status"] == "succeeded"
 
+    def test_enhance_runs_in_the_selected_workspace(self, server):
+        """The enhance job used to be submitted unscoped, so its text landed
+        in the default workspace's outputs while the editor read it back
+        from the selected one and got a 404."""
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
+            response = client.post(
+                "/api/enhance?workspace=shots",
+                json={"idea": "a cat in the rain", "preset": "h3"},
+            )
+            assert response.status_code == 201
+            detail = wait_for_status(
+                client, response.json()["id"], {"succeeded", "failed"}
+            )
+        assert detail["workspace"] == "shots"
+
     def test_an_inline_job_is_confined_to_its_own_workspace(
         self, server, workspace_root
     ):

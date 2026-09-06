@@ -78,6 +78,61 @@ export function outputUrl(
     : appendQuery(versioned, 'workspace', workspace)
 }
 
+const BYTES_PER_MB = 1024 * 1024
+
+/** The per-folder file counts a workspace delete answers with, as one line.
+ * Folders holding nothing are left out - the point of the count is what
+ * would actually be lost. */
+function describeContents(contents: unknown): string {
+  if (!contents || typeof contents !== 'object') return ''
+  const parts: string[] = []
+  for (const [folder, value] of Object.entries(
+    contents as Record<string, { files?: number; bytes?: number }>,
+  )) {
+    const files = Number(value?.files ?? 0)
+    if (!files) continue
+    const bytes = Number(value?.bytes ?? 0)
+    const size =
+      bytes >= BYTES_PER_MB ? ` (${(bytes / BYTES_PER_MB).toFixed(1)} MB)` : ''
+    parts.push(`${folder}: ${files} file${files === 1 ? '' : 's'}${size}`)
+  }
+  return parts.length ? parts.join(', ') : 'nothing'
+}
+
+/** The message inside an error response's `detail`. Most routes answer with
+ * a plain string, but the ones that have to say what they would do send an
+ * object instead - the workspace delete's `{message, contents}`, the
+ * not-a-workspace refusal's `{message, entries}` - and handing that straight
+ * to `new Error` shows the user '[object Object]' rather than the very
+ * numbers the confirmation exists to present. FastAPI's 422 list of
+ * validation errors gets the same treatment. */
+export function errorDetail(payload: unknown, fallback: string): string {
+  const detail = (payload as { detail?: unknown } | null)?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((entry) =>
+        entry && typeof entry === 'object'
+          ? String((entry as { msg?: unknown }).msg ?? JSON.stringify(entry))
+          : String(entry),
+      )
+      .filter(Boolean)
+    return messages.length ? messages.join('. ') : fallback
+  }
+  if (detail && typeof detail === 'object') {
+    const record = detail as Record<string, unknown>
+    const message =
+      typeof record.message === 'string' ? record.message : fallback
+    const contents = describeContents(record.contents)
+    if (contents) return `${message}\n\n${contents}`
+    if (Array.isArray(record.entries) && record.entries.length) {
+      return `${message}\n\n${record.entries.join(', ')}`
+    }
+    return message
+  }
+  return fallback
+}
+
 /** A JSON response together with its headers, for the rare endpoint whose
  * result depends on both - `getWorkflow` reads its origin/writable from
  * headers rather than the body. */
@@ -94,7 +149,7 @@ async function fetchJson<T>(
   if (!response.ok) {
     let detail = response.statusText
     try {
-      detail = (await response.json()).detail ?? detail
+      detail = errorDetail(await response.json(), detail)
     } catch {
       /* not json */
     }
@@ -126,7 +181,7 @@ async function downloadResponse(
   if (!response.ok) {
     let detail = response.statusText
     try {
-      detail = (await response.json()).detail ?? detail
+      detail = errorDetail(await response.json(), detail)
     } catch {
       /* not json */
     }
@@ -396,10 +451,16 @@ export const api = {
 }
 
 /** Fetch the text of a saved output file - how an enhancement's result
- * comes back, since the manifest only names files. */
-export async function fetchOutputText(path: string): Promise<string> {
+ * comes back, since the manifest only names files. `workspace` names the
+ * job's own workspace, for the same reason `outputUrl` takes one: the file
+ * has to be read from where the job wrote it, not from whatever the picker
+ * says now. */
+export async function fetchOutputText(
+  path: string,
+  workspace?: string,
+): Promise<string> {
   const name = path.split('/').pop() ?? ''
-  const response = await fetch(outputUrl(path))
+  const response = await fetch(outputUrl(path, undefined, workspace))
   if (!response.ok) throw new Error(`Could not read ${name}`)
   return response.text()
 }

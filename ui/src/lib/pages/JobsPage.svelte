@@ -57,7 +57,9 @@
     event.preventDefault()
     try {
       await api.moveJob(id, direction)
-      jobs = (await api.listJobs()).jobs.reverse()
+      // Same filter the poll uses - refreshing without it would flash every
+      // workspace's jobs into a view the user had narrowed to one
+      jobs = (await api.listJobs(workspaceFilter || undefined)).jobs.reverse()
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       notify.error(msg)

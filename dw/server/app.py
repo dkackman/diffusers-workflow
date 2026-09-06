@@ -115,16 +115,23 @@ def _prune_detail_cache(cache, directory, names):
     """Forget files a listing no longer names - a long-lived server that
     creates and deletes scratch files would otherwise grow the cache forever.
 
-    `names` are relative names under `directory`, or - when `directory` is
-    None, as it is for a listing spanning several roots - the absolute paths
-    themselves.
+    `names` are relative names under `directory`.
     """
-    live = (
-        set(names)
-        if directory is None
-        else {os.path.join(directory, f"{name}.json") for name in names}
-    )
+    live = {os.path.join(directory, f"{name}.json") for name in names}
     for stale in [path for path in cache if path not in live]:
+        del cache[stale]
+
+
+def _prune_missing(cache):
+    """Forget cached files that are gone from disk.
+
+    Pruning by what one listing named would be wrong here: the workflow
+    cache is shared by every workspace, and a listing only ever sees one
+    workspace's search path, so anything cached for another workspace would
+    be thrown away and re-parsed on the next switch. Existence is the test
+    that holds for all of them at once.
+    """
+    for stale in [path for path in cache if not os.path.exists(path)]:
         del cache[stale]
 
 
@@ -204,14 +211,7 @@ def workflow_details(sources_by_name):
             "origin": source.origin,
             "writable": source.writable,
         }
-    _prune_detail_cache(
-        _workflow_detail_cache,
-        None,
-        {
-            os.path.join(source.root, f"{name}.json")
-            for name, source in sources_by_name.items()
-        },
-    )
+    _prune_missing(_workflow_detail_cache)
     return details
 
 
@@ -1263,9 +1263,14 @@ def create_app(
         return {"presets": preset_descriptions()}
 
     @app.post("/api/enhance", status_code=201)
-    def enhance(request: EnhanceRequest):
+    def enhance(
+        request: EnhanceRequest, ws: Workspace = Depends(selected_workspace)
+    ):
         """Queue a prompt enhancement as an ordinary job. The enhanced text
-        is the job's single manifest file once it succeeds."""
+        is the job's single manifest file once it succeeds.
+
+        Scoped like any other job: the caller reads the result back from the
+        workspace it asked in, so this has to write there too."""
         try:
             definition = build_enhance_workflow(
                 request.preset,
@@ -1273,7 +1278,14 @@ def create_app(
                 model_name=request.model_name,
                 device=request.device,
             )
-            job = manager.submit(workflow=definition, arguments={})
+            job = manager.submit(
+                workflow=definition,
+                arguments={},
+                workflow_dir=ws.workflows,
+                output_dir=ws.outputs,
+                asset_dir=ws.assets,
+                workspace=ws.name,
+            )
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
         return manager.describe(job)

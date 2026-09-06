@@ -37,6 +37,37 @@ describe('request error handling', () => {
     await expect(api.listJobs()).rejects.toThrow('Unknown variable')
   })
 
+  it('reads the message and counts out of an object-shaped detail', async () => {
+    stubFetch({
+      ok: false,
+      status: 409,
+      body: {
+        detail: {
+          message: 'Deleting workspace shots removes these files permanently.',
+          contents: {
+            workflows: { files: 2, bytes: 400 },
+            outputs: { files: 3, bytes: 4 * 1024 * 1024 },
+            assets: { files: 0, bytes: 0 },
+          },
+        },
+      },
+    })
+    await expect(api.deleteWorkspace('shots')).rejects.toThrow(
+      /Deleting workspace shots[\s\S]*workflows: 2 files, outputs: 3 files \(4\.0 MB\)/,
+    )
+  })
+
+  it('reads the message and entries out of a not-a-workspace refusal', async () => {
+    stubFetch({
+      ok: false,
+      status: 409,
+      body: { detail: { message: "'shots' holds more", entries: ['notes'] } },
+    })
+    await expect(api.deleteWorkspace('shots', true)).rejects.toThrow(
+      /holds more[\s\S]*notes/,
+    )
+  })
+
   it('falls back to the status text when the body is not JSON', async () => {
     stubFetch({ ok: false, status: 500 })
     await expect(api.listJobs()).rejects.toThrow('Internal Server Error')
@@ -108,6 +139,12 @@ describe('fetchOutputText', () => {
       'an enhanced prompt',
     )
     expect(calls[0][0]).toBe('/outputs/enhance-0.0.txt')
+  })
+
+  it("reads from the job's own workspace, not the selected one", async () => {
+    const calls = stubFetch({ ok: true, text: 'an enhanced prompt' })
+    await fetchOutputText('enhance-0.0.txt', 'shots')
+    expect(calls[0][0]).toBe('/outputs/enhance-0.0.txt?workspace=shots')
   })
 
   it('rejects with the file name when the read fails', async () => {

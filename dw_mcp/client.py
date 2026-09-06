@@ -300,7 +300,25 @@ class DwClient:
     def _format_detail(self, detail):
         """Format a detail from an API error response into a human-readable
         message. FastAPI validation errors (422) have detail as a list of dicts
-        with 'loc' and 'msg' keys; string details are returned verbatim."""
+        with 'loc' and 'msg' keys; a route that has to say what it would do
+        sends a dict ('message' plus 'contents' or 'entries'), which str()
+        would hand back as a Python repr; string details are returned
+        verbatim."""
+        if isinstance(detail, dict) and "message" in detail:
+            formatted = str(detail["message"])
+            contents = detail.get("contents")
+            if isinstance(contents, dict):
+                held = [
+                    f"{folder}: {value.get('files', 0)} file(s), "
+                    f"{value.get('bytes', 0)} bytes"
+                    for folder, value in contents.items()
+                    if isinstance(value, dict) and value.get("files")
+                ]
+                formatted += f" Holds {'; '.join(held) if held else 'nothing'}."
+            entries = detail.get("entries")
+            if isinstance(entries, list) and entries:
+                formatted += f" Also holds: {', '.join(str(e) for e in entries)}."
+            return formatted
         if isinstance(detail, list):
             messages = []
             for entry in detail:
