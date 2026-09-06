@@ -138,6 +138,26 @@ def workflow_output_subfolder(file_spec):
     return os.path.join(*parts[index + 1 :]) if index + 1 < len(parts) else ""
 
 
+def catalog_root_dir(file_spec):
+    """The nearest ancestor directory literally named 'workflows' of
+    file_spec, else file_spec's own directory.
+
+    Used to confine a relative sub-workflow reference when a run carries no
+    workflow_dir of its own (an unconfined CLI run) - the same "last
+    'workflows' segment" rule workflow_output_subfolder uses for output
+    naming, but returning the directory itself rather than what sits under
+    it.
+    """
+    directory = os.path.dirname(os.path.abspath(file_spec))
+    parts = os.path.normpath(directory).split(os.sep)
+    try:
+        index = len(parts) - 1 - parts[::-1].index("workflows")
+    except ValueError:
+        return directory
+
+    return os.sep.join(parts[: index + 1]) or os.sep
+
+
 def pipeline_cache_key(pipeline_definition):
     """Stable identity for a loaded pipeline.
 
@@ -831,6 +851,16 @@ class Workflow:
                 elif not os.path.isabs(path):
                     base_dir = os.path.dirname(self.file_spec)
                     path = os.path.normpath(os.path.join(base_dir, path))
+                    # An unconfined run (no workflow_dir - a bare CLI
+                    # invocation) used to rely on the '..' regex alone to
+                    # stop a relative reference from leaving the file's own
+                    # directory; normalising the path removes that guard, so
+                    # here confine it to the catalog root instead - the
+                    # referencing file's nearest ancestor literally named
+                    # 'workflows', which still lets it climb to a sibling
+                    # folder like models/ but not out of the catalog
+                    if confine_to is None:
+                        confine_to = catalog_root_dir(self.file_spec)
 
                 # Validate the resolved path - confined when this workflow
                 # itself is (an inline/server-submitted run), so a

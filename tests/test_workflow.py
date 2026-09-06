@@ -423,3 +423,106 @@ class TestSubWorkflowPathsAcrossTheCatalog:
                 default_seed=None,
                 device="cpu",
             )
+
+    def test_an_unconfined_run_still_refuses_climbing_out_of_the_catalog(self, tmp_path):
+        """No workflow_dir (a bare CLI run) still confines a relative
+        sub-workflow reference - to the catalog root now, rather than
+        relying on the '..' regex normpath removes."""
+        import json
+
+        from dw.security import SecurityError
+        from dw.workflow import workflow_from_file
+
+        (tmp_path / "workflows" / "templates").mkdir(parents=True)
+        outside = tmp_path / "outside.json"
+        outside.write_text(json.dumps({"id": "x", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "sub", "workflow": {"path": "../../outside.json", "arguments": {}}}
+            ],
+        }
+        parent_path = tmp_path / "workflows" / "templates" / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+        workflow = workflow_from_file(str(parent_path), str(tmp_path))
+
+        with pytest.raises(SecurityError):
+            workflow.create_step_action(
+                workflow.workflow_definition["steps"][0],
+                shared_components={},
+                previous_pipelines={},
+                default_seed=42,
+                device="cpu",
+            )
+
+    def test_an_unconfined_run_may_climb_to_a_sibling_catalog_folder(self, tmp_path):
+        """No workflow_dir, but the reference still stays under the nearest
+        ancestor literally named 'workflows' - the catalog root - so it is
+        still allowed to climb from templates/ to models/."""
+        import json
+
+        from dw.workflow import workflow_from_file
+
+        (tmp_path / "workflows" / "templates").mkdir(parents=True)
+        (tmp_path / "workflows" / "models").mkdir(parents=True)
+        child = {
+            "id": "child",
+            "steps": [
+                {
+                    "name": "noop",
+                    "task": {"command": "get_dict_value", "arguments": {"dict": {"k": 1}, "key": "k"}},
+                }
+            ],
+        }
+        (tmp_path / "workflows" / "models" / "child.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "sub", "workflow": {"path": "../models/child.json", "arguments": {}}}
+            ],
+        }
+        parent_path = tmp_path / "workflows" / "templates" / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+        workflow = workflow_from_file(str(parent_path), str(tmp_path))
+
+        action = workflow.create_step_action(
+            workflow.workflow_definition["steps"][0],
+            shared_components={},
+            previous_pipelines={},
+            default_seed=42,
+            device="cpu",
+        )
+
+        assert action is not None
+
+    def test_a_file_outside_any_catalog_is_confined_to_its_own_directory(self, tmp_path):
+        """No 'workflows' ancestor at all - the referencing file's own
+        directory is the confinement, so a sibling of a sibling is still
+        refused even though the target file genuinely exists."""
+        import json
+
+        from dw.security import SecurityError
+        from dw.workflow import workflow_from_file
+
+        (tmp_path / "a").mkdir()
+        (tmp_path / "b").mkdir()
+        child = {"id": "child", "steps": []}
+        (tmp_path / "b" / "child.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "sub", "workflow": {"path": "../b/child.json", "arguments": {}}}
+            ],
+        }
+        parent_path = tmp_path / "a" / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+        workflow = workflow_from_file(str(parent_path), str(tmp_path))
+
+        with pytest.raises(SecurityError):
+            workflow.create_step_action(
+                workflow.workflow_definition["steps"][0],
+                shared_components={},
+                previous_pipelines={},
+                default_seed=42,
+                device="cpu",
+            )
