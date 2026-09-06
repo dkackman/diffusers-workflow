@@ -638,6 +638,36 @@ class TestSaveAudio:
             _, sample_rate = soundfile.read(os.path.join(temp_dir, "song-0.0.wav"))
             assert sample_rate == 44100
 
+    def test_a_track_saves_at_the_rate_it_carries(self):
+        # A generated track knows its own rate - generate_speech produces one at
+        # whatever its model runs at - so the workflow does not have to declare it
+        from dw.result import AudioTrack
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav"})
+            result.add_result(
+                AudioTrack(numpy.zeros((1, 4410), dtype=numpy.float32), 24000)
+            )
+
+            result.save(temp_dir, "line")
+
+            _, sample_rate = soundfile.read(os.path.join(temp_dir, "line-0.0.wav"))
+            assert sample_rate == 24000
+
+    def test_a_declared_rate_wins_over_the_one_the_track_carries(self):
+        from dw.result import AudioTrack
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav", "sample_rate": 44100})
+            result.add_result(
+                AudioTrack(numpy.zeros((1, 4410), dtype=numpy.float32), 24000)
+            )
+
+            result.save(temp_dir, "line")
+
+            _, sample_rate = soundfile.read(os.path.join(temp_dir, "line-0.0.wav"))
+            assert sample_rate == 44100
+
     def test_numpy_audios_output_saves_without_attribute_error(self):
         # Regression test: AudioPipelineOutput.audios is a numpy ndarray under the
         # default output_type='np', which has no .float()/.cpu() - saving used to raise

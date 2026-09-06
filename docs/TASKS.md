@@ -953,6 +953,57 @@ It is merged after everything else, so it can override `repetition_penalty` and 
 - [ExpandPrompt.json](../workflows/tasks/ExpandPrompt.json) — Expand a short prompt and save as `.txt`
 - [ExpandAndGenerate.json](../workflows/tasks/ExpandAndGenerate.json) — Expand prompt, then generate with Flux
 
+## Speech Generation
+
+Speak a line of text with a local text-to-speech model. The result is a waveform carrying the rate its model generated at, so it composes with [`slice_audio`](#slice_audio), [`fade_audio`](#fade_audio), [`pair_audio`](#pair_audio) and [`concat_videos`](#concat_videos) directly.
+
+```json
+{
+    "task": {
+        "command": "generate_speech",
+        "arguments": {
+            "text": "The way ahead is longer still.",
+            "voice_preset": "v2/en_speaker_6"
+        }
+    },
+    "result": { "content_type": "audio/wav" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `text` | Yes | The line to speak |
+| `model_name` | No | HuggingFace model ID (default: `suno/bark-small`) |
+| `voice_preset` | No | The speaker, for a model with presets — `v2/en_speaker_0` through `v2/en_speaker_9` for Bark |
+| `forward_params` | No | Passed to the model's forward/generate call |
+| `generate_kwargs` | No | Ad-hoc generation settings for a generative model — `temperature`, `do_sample` |
+
+The default is Bark because its voice presets give distinct speakers, which is what two characters in a scene need; `facebook/mms-tts-eng` is a quarter the size and a good override where one voice will do. `voice_preset` is a preprocessing argument — it selects the speaker before generation rather than parameterizing it — so naming it here is what makes it reach the processor. Passed through `forward_params` it would be dropped and every character would sound the same.
+
+The result needs no `sample_rate`. A generated track carries the rate its model produced it at, and that beats the 44100 default; declaring one still wins over both, for a track whose rate was reported wrong. Every TTS model runs at a different rate, so a declared rate that does not match plays the speech at the wrong speed and pitch without ever failing.
+
+### Generating a voice to condition on
+
+The role this earns its place in is voice *timbre reference*, not the track a mouth follows. MiniMax H3 lip-syncs well when it generates the speech itself and poorly when it must follow supplied audio, so its `MiniMaxH3AudioReference` takes a few seconds of a voice to fix timbre, pitch and delivery while H3 still generates the line. Build the reference with `from_previous_result` and the clip's own sample rate comes across with it:
+
+```json
+"references": [
+    {
+        "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+        "from_previous_result": "voice"
+    }
+]
+```
+
+Referencing the same preset in every shot of a scene makes a character's voice a conditioning signal rather than a prose description that has to land identically a dozen times. The other honest uses are a voice that must be matched — a specific delivery H3 will not produce from description alone — and narration over shots where nothing has to lip-sync to it, muxed with [`pair_audio`](#pair_audio).
+
+A speech model is worth releasing before a video model loads — set `release_models` on the step, as in the example below.
+
+**Examples:**
+
+- [GenerateSpeech.json](../workflows/tasks/GenerateSpeech.json) — Speak a line and save it as a `.wav`
+- [MiniMaxH3GeneratedVoice.json](../workflows/minimax/MiniMaxH3GeneratedVoice.json) — Generate a voice, then condition H3's `<Audio 1>` on it
+
 ## Frame Interpolation
 
 Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a video and inserts intermediate frames between each pair. The result is one video artifact without a soundtrack - the frame count changed, so [`pair_audio`](#pair_audio) is how the original track comes back. [InterpolateFrames.json](../workflows/InterpolateFrames.json) shows the interpolation itself.
@@ -1164,4 +1215,6 @@ Canny edge detection followed by ControlNet generation:
 - [UpscaleImage.json](../workflows/tasks/UpscaleImage.json) — Spandrel upscale of an existing image
 - [DiffusionUpscaleImage.json](../workflows/tasks/DiffusionUpscaleImage.json) — Diffusion upscale of an existing image
 - [TrimFadeAudio.json](../workflows/tasks/TrimFadeAudio.json) — Trim a generated track and fade its tail
+- [GenerateSpeech.json](../workflows/tasks/GenerateSpeech.json) — Speak a line with a local text-to-speech model
+- [MiniMaxH3GeneratedVoice.json](../workflows/minimax/MiniMaxH3GeneratedVoice.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [GyreDissolve.json](../workflows/gyre/GyreDissolve.json) — Stabilize generated shots, dissolve between them, and mix a score under their own audio

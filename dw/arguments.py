@@ -717,7 +717,6 @@ def media_arguments(object_type, artifact):
     import torch
     from PIL import Image
 
-    from .result import AudioVideo
     from .tasks.audio_utils import as_channels_samples
     from .tasks.video_utils import frames_as_pil_list
 
@@ -732,12 +731,15 @@ def media_arguments(object_type, artifact):
             )
         return {"image": artifact}
 
-    # A generated soundtrack arrives paired with the frames it was generated with;
-    # anything else the step produced carries none
+    # A generated soundtrack arrives paired with the frames it was generated with
+    # (an AudioVideo) or by itself with the rate it was generated at (an
+    # AudioTrack); anything else the step produced carries none. Read off the
+    # attributes rather than the types, which is how every other audio consumer
+    # here accepts both
     audio, sample_rate = None, None
-    if isinstance(artifact, AudioVideo) and artifact.audio is not None:
+    if getattr(artifact, "audio", None) is not None:
         audio = torch.as_tensor(as_channels_samples(artifact.audio))
-        sample_rate = artifact.sample_rate
+        sample_rate = getattr(artifact, "sample_rate", None)
 
     if kind == "video":
         frames = frames_as_pil_list(artifact)

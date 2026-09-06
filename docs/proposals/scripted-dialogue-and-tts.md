@@ -107,3 +107,33 @@ reference won.
 
 Prototype either (a) the `generate_speech` task in its timbre-reference role, or
 (b) the script → Context-IR shot-list step. (b) is the higher-value one.
+
+## What was built (2026-09-06)
+
+(a) is implemented: the `generate_speech` task
+([`dw/tasks/speech_generation.py`](../../dw/tasks/speech_generation.py),
+documented in [TASKS.md](../TASKS.md#speech-generation)), with
+[`GenerateSpeech.json`](../../workflows/tasks/GenerateSpeech.json) and
+[`MiniMaxH3GeneratedVoice.json`](../../workflows/minimax/MiniMaxH3GeneratedVoice.json)
+showing the timbre-reference role.
+
+It returns an `AudioTrack` - a waveform carrying the rate it was generated at -
+rather than the bare waveform the other audio tasks return. Those rates are a
+property of the workflow; a TTS model's rate is a property of the model, and every
+one of them differs, so a declared 44100 against a 24 kHz model plays the speech
+fast and low without ever failing. `normalize_audio` and `media_arguments` read
+`.audio`/`.sample_rate` off whatever they are handed, the way the rest of the audio
+plumbing already did, so a declared rate still wins where a workflow names one.
+
+(b) was **not** built as a task, and the reasoning is worth keeping. Turning a
+script into shots is authoring, not runtime. Putting it in the engine hides the
+prompts until after the GPU has spent the time on them, and it needs shot *i*'s
+prompt paired with speaker *i*'s portrait - a zip, where
+[`previous_results.py`](../../dw/previous_results.py) deliberately does a cartesian
+product. A generator that emits an ordinary workflow keeps the artifact
+inspectable and needs no engine change; the missing piece is then the *format
+knowledge* (the Context-IR fields, verbatim voice descriptions, the `<Picture N>`
+clause stripping compositional authority, `17n + 5`, ~13 shots a run), which is
+documentation and a template workflow rather than code. Revisit a `dw.script`
+generator or an MCP tool once that shape has been used enough by hand to be sure
+of it.

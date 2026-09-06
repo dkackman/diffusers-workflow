@@ -354,6 +354,19 @@ def _handle_text_generation(task, arguments, previous_pipelines):
 
 
 @register_command(
+    "generate_speech",
+    implementation="dw.tasks.speech_generation.generate_speech",
+)
+def _handle_speech_generation(task, arguments, previous_pipelines):
+    """Speak a line of text with a local text-to-speech model"""
+    logger.debug("Generating speech")
+    text = arguments.pop("text")
+    from .speech_generation import generate_speech
+
+    return generate_speech(text, device=task.device_for(arguments), **arguments)
+
+
+@register_command(
     "extract_sections", implementation="dw.tasks.text_sections.extract_sections"
 )
 def _handle_extract_sections(task, arguments, previous_pipelines):
