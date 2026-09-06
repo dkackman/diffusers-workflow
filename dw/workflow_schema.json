@@ -14,8 +14,12 @@
             "$ref": "#/$defs/arguments"
         },
         "seed": {
-            "description": "Default seed for the entire workflow",
-            "type": "integer",
+            "description": "Default seed for the entire workflow. Accepts a 'variable:' reference.",
+            "type": [
+                "integer",
+                "string"
+            ],
+            "pattern": "^variable:",
             "format": "int64"
         },
         "steps": {
@@ -63,8 +67,12 @@
                     "type": "string"
                 },
                 "seed": {
-                    "description": "Default seed for the entire step",
-                    "type": "integer",
+                    "description": "Default seed for the entire step. Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string"
+                    ],
+                    "pattern": "^variable:",
                     "format": "int64"
                 },
                 "release_pipeline": {
@@ -369,8 +377,12 @@
                     ]
                 },
                 "seed": {
-                    "description": "The seed for this pipeline",
-                    "type": "integer",
+                    "description": "The seed for this pipeline. Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string"
+                    ],
+                    "pattern": "^variable:",
                     "format": "int64"
                 },
                 "chain": {

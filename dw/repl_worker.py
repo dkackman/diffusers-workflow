@@ -8,6 +8,7 @@ that keeps models loaded in GPU memory.
 import multiprocessing
 import queue as queue_module
 import logging
+import signal
 from typing import Optional
 from .worker import worker_main
 
@@ -121,6 +122,35 @@ class WorkerManager:
     def cancel(self):
         """Ask the worker to cancel the workflow it is running."""
         self.send_command({"type": "cancel"})
+
+    def crash_details(self):
+        """Why the worker process is gone, as far as the OS will say.
+
+        A worker killed by a signal - the OOM killer's SIGKILL above all -
+        never reaches worker_main's except clause, so there is no traceback
+        to report and the exit code is the whole diagnosis. Returns None
+        while the process is alive or was never started.
+        """
+        process = self.worker_process
+        if process is None or process.is_alive():
+            return None
+        exitcode = process.exitcode
+        if exitcode is None:
+            return None
+        if exitcode < 0:
+            signal_number = -exitcode
+            try:
+                name = signal.Signals(signal_number).name
+            except ValueError:
+                name = f"signal {signal_number}"
+            detail = f"killed by {name}"
+            if signal_number == signal.SIGKILL:
+                # By far the likeliest cause on a box that loads models
+                # measured in tens of gigabytes, and the one thing the user
+                # can act on - no Python-level error will have been logged
+                detail += " (typically the out-of-memory killer)"
+            return detail
+        return f"exited with code {exitcode}"
 
     def mark_crashed(self):
         """Record that the worker process died on its own - no shutdown

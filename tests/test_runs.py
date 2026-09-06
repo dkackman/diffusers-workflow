@@ -253,6 +253,42 @@ class TestRunDirectories:
             assert not os.path.isabs(name)
             assert (run_dir / name).exists()
 
+    def test_the_manifest_records_the_seed_a_seedless_run_drew(
+        self, tmp_path, fake_pipeline
+    ):
+        """A workflow naming no seed gets a random one, and the manifest is
+        the only place it is ever written down - reporting null there loses
+        the one value needed to reproduce the files sitting beside it."""
+        from dw.workflow import Workflow
+
+        definition = _workflow_definition()
+        del definition["seed"]
+        workflow = Workflow(definition, str(tmp_path), "/w/workflows/ltx2/Gyre.json")
+        workflow.run({"prompt": "a cat"})
+
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        assert isinstance(manifest["seed"], int)
+        # and the definition it was built from is untouched, so the next run
+        # draws its own seed rather than inheriting this one
+        assert "seed" not in definition
+
+    def test_a_seed_can_come_from_a_variable(self, tmp_path, fake_pipeline):
+        """'seed' accepts a 'variable:' reference, so a caller can re-run a
+        workflow at the seed a previous run's manifest reported."""
+        from dw.workflow import Workflow
+
+        definition = _workflow_definition()
+        definition["variables"] = {"seed": 7}
+        definition["seed"] = "variable:seed"
+        workflow = Workflow(definition, str(tmp_path), "/w/workflows/ltx2/Gyre.json")
+        workflow.validate()
+        workflow.run({"seed": "1234"})  # as it arrives from the command line
+
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        assert manifest["seed"] == 1234
+
     def test_a_failed_run_still_records_what_it_wrote(self, tmp_path, fake_pipeline):
         from dw.workflow import Workflow
 

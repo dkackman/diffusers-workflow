@@ -299,6 +299,12 @@ class Workflow:
         # this alone died on an exception the manifest should say so about
         status = "failed"
         run_id = None
+        # The seed this run actually used, which is not self.workflow_definition's:
+        # run() works on a deep copy, and a workflow naming no seed draws a random
+        # one into that copy. Recording the original would write null into the
+        # manifest of every seedless run and lose the only record of what produced
+        # its files - the seed is what makes a run repeatable
+        resolved_seed = None
         started_at = datetime.now(timezone.utc).isoformat()
         try:
             # CRITICAL: Work on a copy to avoid mutating the original workflow definition
@@ -336,6 +342,20 @@ class Workflow:
             # dict.get default, torch.seed() would run on every call and reseed
             # the global RNG even when the workflow names an explicit seed
             default_seed = workflow_def.get("seed")
+            # The schema lets 'seed' be a string so it can hold a 'variable:'
+            # reference, which the substitution above has already resolved -
+            # but a variable overridden from the command line arrives as a
+            # string whenever the workflow declared no integer default to
+            # coerce against, and manual_seed would fail deep inside the run
+            if isinstance(default_seed, str):
+                try:
+                    default_seed = int(default_seed)
+                except ValueError:
+                    raise ValueError(
+                        f"Workflow {workflow_id} seed must be an integer, "
+                        f"got {default_seed!r}"
+                    )
+                workflow_def["seed"] = default_seed
             # A workflow that names no seed gets a fresh one every run, so no
             # step's cache entry can ever match again - skip the cache
             # wholesale rather than deep-copying every step's realized images
@@ -353,6 +373,7 @@ class Workflow:
                 # global RNG the process may have seeded for reproducibility
                 default_seed = torch.Generator().seed()
             workflow_def["seed"] = default_seed
+            resolved_seed = default_seed
 
             # One execution, one directory - opened here, after variable
             # substitution and the seed have settled, so the run's identity
@@ -609,11 +630,13 @@ class Workflow:
             # write are on disk either way, and what produced them is exactly
             # what a failed run needs to explain itself
             if self._run_dir and not self._run_dir_inherited:
-                self._write_run_manifest(run_id, status, started_at, arguments)
+                self._write_run_manifest(
+                    run_id, status, started_at, arguments, resolved_seed
+                )
             deactivate_output_root(output_root_token)
             deactivate_context(context_token)
 
-    def _write_run_manifest(self, run_id, status, started_at, arguments):
+    def _write_run_manifest(self, run_id, status, started_at, arguments, seed):
         """Leave a record of the run beside the files it wrote.
 
         A server run is in jobs.sqlite as well, but a CLI run has never been
@@ -637,7 +660,7 @@ class Workflow:
                     "file": self.file_spec,
                     "identity": workflow_identity(self.file_spec, self.name),
                 },
-                "seed": self.workflow_definition.get("seed"),
+                "seed": seed,
                 "arguments": arguments or {},
                 "steps": [
                     {
