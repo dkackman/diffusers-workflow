@@ -12,6 +12,7 @@
     "seed": "variable:seed",
     "id": "ZImage",
     "description": "Text-to-image with Z-Image Turbo - photorealistic output in nine steps.",
+    "configures": "templates/text-to-image",
     "steps": [
         {
             "name": "txt2img",

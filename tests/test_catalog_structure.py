@@ -41,3 +41,26 @@ def test_every_template_describes_itself(path):
     assert definition.get("description", "").strip(), (
         f"{os.path.relpath(path, REPO_ROOT)} has no description"
     )
+
+
+MODELS_DIR = os.path.join(REPO_ROOT, "workflows", "models")
+
+
+def test_there_are_model_configs():
+    assert files_under(MODELS_DIR)
+
+
+@pytest.mark.parametrize("path", files_under(MODELS_DIR))
+def test_every_model_config_names_the_template_it_configures(path):
+    """A model config is a tuned instance of a pattern. Without the pointer it
+    is just another entry in the list, which is the problem this restructure
+    exists to fix."""
+    definition = json.load(open(path, encoding="utf-8"))
+    configures = definition.get("configures", "")
+
+    assert configures, f"{os.path.relpath(path, REPO_ROOT)} has no 'configures'"
+    target = os.path.join(REPO_ROOT, "workflows", f"{configures}.json")
+    assert os.path.isfile(target), (
+        f"{os.path.relpath(path, REPO_ROOT)} configures '{configures}', "
+        f"which is not a workflow ({target})"
+    )

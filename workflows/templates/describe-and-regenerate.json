@@ -43,7 +43,7 @@
         {
             "name": "flux",
             "workflow": {
-                "path": "../flux/FluxDev.json",
+                "path": "../models/flux-dev.json",
                 "arguments": {
                     "prompt": "previous_result:augment_prompt",
                     "num_images_per_prompt": 1

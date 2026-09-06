@@ -1,24 +1,31 @@
 {
     "variables": {
-        "prompt": "prompt:flux/biomechanical_daffodil",
+        "prompt": "prompt:zimage/hanfu_portrait",
         "num_images_per_prompt": 1,
-        "num_inference_steps": 25,
-        "guidance_scale": 3.5,
-        "width": 768,
-        "height": 768
+        "num_inference_steps": 9,
+        "guidance_scale": 0.0,
+        "width": 1024,
+        "height": 1024
     },
-    "id": "FluxDev",
-    "description": "Text-to-image with FLUX.1 dev - the reference FLUX workflow.",
+    "id": "ZImageSDNQ",
+    "description": "Z-Image Turbo pre-quantized to SDNQ uint4 - the same nine-step generation in a fraction of the VRAM.",
+    "configures": "templates/text-to-image",
     "steps": [
         {
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "component_type": "FluxPipeline",
-                    "offload": "model"
+                    "component_type": "ZImagePipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "sdnq_optimize": [
+                        "transformer",
+                        "text_encoder"
+                    ]
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "model_name": "Disty0/Z-Image-Turbo-SDNQ-uint4-svd-r32",
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
@@ -27,8 +34,7 @@
                     "num_images_per_prompt": "variable:num_images_per_prompt",
                     "width": "variable:width",
                     "height": "variable:height",
-                    "guidance_scale": "variable:guidance_scale",
-                    "max_sequence_length": 512
+                    "guidance_scale": "variable:guidance_scale"
                 }
             },
             "result": {

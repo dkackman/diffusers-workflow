@@ -4,6 +4,7 @@
     },
     "id": "Krea2",
     "description": "Text-to-image with Krea 2 Turbo - fast, few-step photorealistic generation.",
+    "configures": "templates/text-to-image",
     "steps": [
         {
             "name": "txt2img",

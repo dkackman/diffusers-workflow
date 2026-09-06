@@ -1,30 +1,25 @@
 {
     "variables": {
-        "prompt": "prompt:zimage/hanfu_portrait",
-        "num_images_per_prompt": 1,
-        "num_inference_steps": 9,
-        "guidance_scale": 0.0,
-        "width": 1024,
-        "height": 1024
+        "prompt": "A photo of an angry marmot holding a sign that says 'On-chain rage baiting only 23 mojos!!'",
+        "num_images_per_prompt": 4,
+        "num_inference_steps": 25,
+        "guidance_scale": 4.5,
+        "width": 768,
+        "height": 768
     },
-    "id": "ZImageSDNQ",
-    "description": "Z-Image Turbo pre-quantized to SDNQ uint4 - the same nine-step generation in a fraction of the VRAM.",
+    "id": "FluxDevKrea",
+    "description": "Text-to-image with FLUX.1 Krea dev, tuned for photographic aesthetics.",
+    "configures": "templates/text-to-image",
     "steps": [
         {
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
-                    "component_type": "ZImagePipeline",
-                    "pre_load_modules": [
-                        "sdnq"
-                    ],
-                    "sdnq_optimize": [
-                        "transformer",
-                        "text_encoder"
-                    ]
+                    "component_type": "FluxPipeline",
+                    "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "Disty0/Z-Image-Turbo-SDNQ-uint4-svd-r32",
+                    "model_name": "black-forest-labs/FLUX.1-Krea-dev",
                     "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
@@ -33,7 +28,8 @@
                     "num_images_per_prompt": "variable:num_images_per_prompt",
                     "width": "variable:width",
                     "height": "variable:height",
-                    "guidance_scale": "variable:guidance_scale"
+                    "guidance_scale": "variable:guidance_scale",
+                    "max_sequence_length": 512
                 }
             },
             "result": {

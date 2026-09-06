@@ -5,6 +5,7 @@
     },
     "id": "FluxGGUF",
     "description": "FLUX.1 dev loaded from a GGUF-quantized transformer checkpoint.",
+    "configures": "templates/text-to-image",
     "steps": [
         {
             "name": "main",

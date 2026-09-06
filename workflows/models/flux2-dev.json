@@ -7,6 +7,7 @@
     },
     "id": "Flux2Dev",
     "description": "Text-to-image with FLUX.2 dev, pre-quantized to 4-bit BitsAndBytes.",
+    "configures": "templates/text-to-image",
     "steps": [
         {
             "name": "txt2img",
