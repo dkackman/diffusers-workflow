@@ -196,14 +196,14 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | `list_pipelines()` | — | List every diffusers pipeline class this installation provides |
 | `get_pipeline_signature(name)` | `name` | Get a pipeline's real call arguments |
 | `list_classes(kind)` | `kind` | List class names of one kind: pipelines, models, schedulers, or quantization |
-| `get_class(name, target="init")` | `name`, `target` (`init`\|`call`\|`load`) | Get a class's argument schema |
+| `get_class(name, target="init")` | `name`, `target` (`init`\|`call`\|`load`) | Get a class's argument schema from the entry point a workflow reaches it by: `init` the constructor (quantization configs, schedulers), `call` a pipeline's `__call__`, `load` `from_pretrained` plus the curated loading knobs |
 | `list_tasks()` | — | List every task command a workflow's task step can name |
 | `get_task(command)` | `command` | Get a task command's argument schema |
 | `list_models()` | — | List what the Hugging Face model cache holds, largest first |
 | `get_memory()` | — | Get the worker's VRAM and RAM statistics |
 | `get_health()` | — | Check that the server is alive, and which machine answered: `version`, `device`, whether the worker process is up, the job running now and the queue depth |
 | `get_server_info()` | — | What this installation can do and where it keeps things: `device` (the accelerator a run will use), `version`, the `workspace` this session is working in and the workflow/asset/output/prompt `directories` of *that* workspace, the bind address and port, whether a token is required, and whether MCP is mounted. Check the device before authoring - a CUDA-only choice (bitsandbytes, `torch.compile`, flash attention) is not available on an `mps` or `cpu` server |
-| `list_jobs()` | — | List queued, running and recent jobs |
+| `list_jobs()` | — | List queued, running and recent jobs. In a named workspace, that workspace's jobs; in the default one, every job the server holds |
 | `list_gallery(limit=50)` | `limit` | List generated output files, newest first. A name is `<workflow>/<run id>/<file>`; each entry also carries a ready-made `url`, already scoped to the workspace that made it - a hand-built `/outputs/<name>` URL 404s for anything but the default workspace |
 | `get_gallery_metadata(name)` | `name` | Get the metadata embedded in a generated file: the exact workflow and arguments that produced it |
 
@@ -216,7 +216,7 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | `download_output(name, destination=None, overwrite=False)` | `name`, `destination`, `overwrite` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context. Writes on the machine running the MCP server - over `dw.serve --mcp` that is the GPU box |
 | `delete_output(name)` | `name` | Permanently remove one generated file from the output directory |
 
-### Authoring
+### Authoring, assets and workspaces
 
 Authoring happens inside one workspace. A server can hold several - each with
 its own `workflows/`, `assets/` and `outputs/`, all sharing one prompt library
@@ -250,7 +250,7 @@ references written in the same session.
 | `list_prompts()` | — | List the stored prompts with their text and descriptions |
 | `get_prompt(name)` | `name` | Get one stored prompt's full definition |
 | `get_prompt_schema()` | — | Get the JSON schema every stored prompt must satisfy. Its own route rather than a name under `/api/prompts`, so a prompt called `schema` cannot shadow it |
-| `save_prompt(name, prompt)` | `name`, `prompt` | Save a prompt, overwriting any prompt of that name. The server validates first, and refuses a `text` that itself begins with `variable:`, `previous_result:`, `constant:` or `prompt:` |
+| `save_prompt(name, prompt)` | `name`, `prompt` | Save a prompt, overwriting any prompt of that name. The server validates first, and refuses a `text` that itself begins with a reference prefix (`variable:`, `previous_result:`, `constant:`, `asset:`, `output:`, `prompt:`) |
 | `delete_prompt(name)` | `name` | Permanently delete a stored prompt. A workflow still referencing it will fail to load |
 | `list_enhancers()` | — | List the enhancer presets `enhance_prompt` accepts |
 | `enhance_prompt(idea, preset="h3", model_name=None, device=None, acknowledged_cost=False)` | `idea`, `preset`, optional `model_name` and `device`, `acknowledged_cost` | Expand a short idea into a full prompt with a language model. Queued as an ordinary job, so it passes the gate; the enhanced text is the text file in the finished manifest, readable with `get_output_text` |
@@ -308,9 +308,10 @@ job id from `list_jobs` would buy a way around it. `cancel_job` and
 `cancel_download` are deliberately *not* gated: they end a cost rather than
 starting one, and gating them would make the safe direction the harder one.
 
-Passing the flag does not make a tool wait. Each returns as soon as the work
-is queued or started, the same way queuing a job from the web UI does not
-block the browser tab.
+Passing the flag does not make a tool wait. The five that start work return
+as soon as it is queued or started, the same way queuing a job from the web UI
+does not block the browser tab; `delete_model` and `delete_workspace` are
+deletions rather than queued work and complete before they answer.
 
 The intended loop:
 

@@ -175,9 +175,12 @@ def build_server(client):
         return catalog.list_classes(client, kind)
 
     def get_class(name: str, target: Literal["init", "call", "load"] = "init") -> dict:
-        """Get a class's argument schema, for the way a workflow uses it:
-        `init` for a `configuration` block, `call` for `arguments`, `load`
-        for `from_pretrained_arguments`."""
+        """Get a class's argument schema, from whichever entry point a
+        workflow reaches it by: `init` reads the constructor (quantization
+        configs, schedulers, models built from named arguments), `call`
+        reads __call__ (a pipeline's `arguments`), `load` reads
+        from_pretrained plus the curated loading knobs, which is what a
+        component's `from_pretrained_arguments` can carry."""
         return catalog.get_class(client, name, target=target)
 
     def list_tasks() -> dict:
@@ -225,8 +228,9 @@ def build_server(client):
         position. The ids here are what `get_job`, `wait_for_job`,
         `get_job_events`, `cancel_job`, `rerun_job` and `move_job` take -
         including jobs from before this session, so a run someone started in
-        the browser can be picked up here. Scoped to this session's
-        workspace."""
+        the browser can be picked up here. In a named workspace this lists
+        that workspace's jobs; in the default workspace it lists every job
+        the server holds, whichever workspace ran it."""
         return catalog.list_jobs(client)
 
     def list_gallery(limit: int = 50) -> dict:
@@ -466,8 +470,9 @@ def build_server(client):
     def save_prompt(name: str, prompt: dict) -> dict:
         """Save a prompt to the library, overwriting any prompt of that
         name. Its `text` may not itself begin with a reference prefix
-        (variable:, previous_result:, constant:, prompt:) - the engine
-        refuses that to prevent a reference resolving twice."""
+        (variable:, previous_result:, constant:, asset:, output:, prompt:)
+        - the server refuses that to prevent a reference resolving twice.
+        The library is shared by every workspace on this server."""
         return prompts.save_prompt(client, name, prompt)
 
     def delete_prompt(name: str) -> dict:
