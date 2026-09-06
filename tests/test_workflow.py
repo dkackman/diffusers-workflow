@@ -341,3 +341,85 @@ class TestSubWorkflowConfinement:
 
         assert isinstance(child, Workflow)
         assert child.name == "test_job"
+
+
+class TestSubWorkflowPathsAcrossTheCatalog:
+    """A template under templates/ names a model config under models/ as
+    '../models/x.json'. The path is relative to the referencing file, so it has
+    to climb one directory - and it stays inside the workflows root, which is
+    the confinement that matters."""
+
+    def _catalog(self, tmp_path):
+        import json
+
+        (tmp_path / "templates").mkdir()
+        (tmp_path / "models").mkdir()
+        child = {
+            "id": "child",
+            "steps": [
+                {
+                    "name": "noop",
+                    "task": {"command": "get_dict_value", "arguments": {"dict": {"k": 1}, "key": "k"}},
+                }
+            ],
+        }
+        (tmp_path / "models" / "child.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {
+                    "name": "sub",
+                    "workflow": {"path": "../models/child.json", "arguments": {}},
+                }
+            ],
+        }
+        parent_path = tmp_path / "templates" / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+        return parent_path
+
+    def test_a_parent_directory_step_inside_the_root_is_allowed(self, tmp_path):
+        from dw.workflow import workflow_from_file
+
+        parent_path = self._catalog(tmp_path)
+        workflow = workflow_from_file(str(parent_path), str(tmp_path), str(tmp_path))
+
+        # create_step_action is what resolves the path; run() is what calls it.
+        # default_seed flows into the child's own "seed" (setdefault), whose
+        # schema wants an int or string - None is only safe where a
+        # SecurityError fires first, so this branch needs a real seed
+        action = workflow.create_step_action(
+            workflow.workflow_definition["steps"][0],
+            shared_components={},
+            previous_pipelines={},
+            default_seed=42,
+            device="cpu",
+        )
+
+        assert action is not None
+
+    def test_a_parent_directory_step_escaping_the_root_is_refused(self, tmp_path):
+        import json
+
+        from dw.security import SecurityError
+        from dw.workflow import workflow_from_file
+
+        root = tmp_path / "root"
+        root.mkdir()
+        outside = tmp_path / "outside.json"
+        outside.write_text(json.dumps({"id": "x", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [{"name": "sub", "workflow": {"path": "../outside.json", "arguments": {}}}],
+        }
+        parent_path = root / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+        workflow = workflow_from_file(str(parent_path), str(root), str(root))
+
+        with pytest.raises(SecurityError):
+            workflow.create_step_action(
+                workflow.workflow_definition["steps"][0],
+                shared_components={},
+                previous_pipelines={},
+                default_seed=None,
+                device="cpu",
+            )

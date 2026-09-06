@@ -823,10 +823,14 @@ class Workflow:
                         os.path.dirname(os.path.abspath(__file__)), "workflows"
                     )
                     path = os.path.join(confine_to, builtin_name)
-                # Handle relative paths
+                # Handle relative paths. A template under templates/ names a
+                # model config as '../models/x.json'; collapsing the '..' here
+                # is what lets the validator judge where the path actually
+                # lands rather than refusing the spelling - containment is
+                # still checked on the resolved path below
                 elif not os.path.isabs(path):
                     base_dir = os.path.dirname(self.file_spec)
-                    path = os.path.join(base_dir, path)
+                    path = os.path.normpath(os.path.join(base_dir, path))
 
                 # Validate the resolved path - confined when this workflow
                 # itself is (an inline/server-submitted run), so a
