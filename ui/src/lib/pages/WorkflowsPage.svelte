@@ -4,6 +4,8 @@
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import HintBar from '../HintBar.svelte'
+  import WorkspacePicker from '../WorkspacePicker.svelte'
+  import { workspace } from '../workspace.svelte'
 
   let workflows = $state<string[]>([])
   let details = $state<
@@ -14,6 +16,10 @@
         steps?: number
         variables: number
         description: string
+        /** Which source the workflow was read from. */
+        origin?: string
+        /** False for a read-only source - an examples directory. */
+        writable?: boolean
       }
     >
   >({})
@@ -23,6 +29,8 @@
   let loaded = $state(false)
 
   $effect(() => {
+    // Read inside the effect so switching workspaces refetches the listing
+    void workspace.current
     api
       .listWorkflows()
       .then((result) => {
@@ -50,6 +58,7 @@
 
 <div class="head">
   <h1>Workflows</h1>
+  <WorkspacePicker />
   <span class="muted">{workflowDir}</span>
   <input placeholder="filter…" bind:value={filter} class="filter" />
   <a class="newlink" href="#/edit" title="new workflow"><Plus size={15} /></a>
@@ -84,6 +93,10 @@
           >{group ? name.split('/').slice(1).join('/') : name}</span
         >
         <span class="cardmeta muted">
+          {#if detail?.writable === false}<span
+              title="read-only: from the {detail.origin} directory"
+              >{detail.origin}</span
+            >{/if}
           {#if detail?.kinds.includes('image')}<Image size={13} />{/if}
           {#if detail?.kinds.includes('video')}<Film size={13} />{/if}
           {#if detail?.kinds.includes('audio')}<Music size={13} />{/if}

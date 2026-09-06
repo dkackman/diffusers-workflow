@@ -20,6 +20,7 @@ from ..workflow import workflow_from_file, workflow_from_definition
 from ..introspection import workflow_argument_warnings
 from ..security import validate_output_path
 from ..settings import resolve_path
+from ..workspace import DEFAULT_WORKSPACE_NAME
 
 logger = logging.getLogger("dw")
 
@@ -31,7 +32,17 @@ CANCELLED = "cancelled"
 TERMINAL_STATES = (SUCCEEDED, FAILED, CANCELLED)
 
 # The spec fields a rerun needs - shared by persistence and live rerun
-RERUN_SPEC_KEYS = ("workflow_path", "workflow", "base_dir")
+RERUN_SPEC_KEYS = (
+    "workflow_path",
+    "workflow",
+    "base_dir",
+    # A rerun belongs in the workspace the original ran in, so the roots
+    # that decided that are part of what history keeps
+    "workspace",
+    "output_dir",
+    "asset_dir",
+    "workflow_dir",
+)
 
 # Finished jobs kept in memory for SSE replay grace; older ones live in
 # history only, so a long-running server's memory stays bounded
@@ -74,6 +85,16 @@ class JobHistory:
             columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
             if "events" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN events TEXT")
+            # Every row predating workspaces belongs to the default one -
+            # history that cannot say which workspace a job ran in stops
+            # making sense the moment there are two
+            if "workspace" not in columns:
+                connection.execute(
+                    "ALTER TABLE jobs ADD COLUMN workspace TEXT DEFAULT 'default'"
+                )
+                connection.execute(
+                    "UPDATE jobs SET workspace = 'default' WHERE workspace IS NULL"
+                )
 
     def _connect(self):
         return sqlite3.connect(self.db_path, timeout=5)
@@ -85,7 +106,7 @@ class JobHistory:
             connection.execute(
                 "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
                 " started_at, finished_at, arguments, spec, manifest, warnings,"
-                " error, events) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                " error, events, workspace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -99,18 +120,29 @@ class JobHistory:
                     json.dumps(job.warnings, default=str),
                     job.error,
                     json.dumps(job.events[-MAX_PERSISTED_EVENTS:], default=str),
+                    job.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
                 ),
             )
 
-    def recent_summaries(self, limit=200):
+    def recent_summaries(self, limit=200, workspace=None):
         """Summary rows only - the jobs list is polled, and parsing four JSON
-        blobs per row just to show six scalars was pure waste."""
+        blobs per row just to show six scalars was pure waste.
+
+        `workspace` filters to one workspace's rows; omitted, history spans
+        all of them the way the list already did before workspaces existed.
+        """
+        query = (
+            "SELECT id, workflow, status, created_at, started_at, finished_at,"
+            " workspace FROM jobs"
+        )
+        params = []
+        if workspace:
+            query += " WHERE workspace = ?"
+            params.append(workspace)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
         with self._lock, self._connect() as connection:
-            rows = connection.execute(
-                "SELECT id, workflow, status, created_at, started_at, finished_at"
-                " FROM jobs ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            rows = connection.execute(query, params).fetchall()
         return [
             {
                 "id": row[0],
@@ -119,6 +151,7 @@ class JobHistory:
                 "created_at": row[3],
                 "started_at": row[4],
                 "finished_at": row[5],
+                "workspace": row[6] or DEFAULT_WORKSPACE_NAME,
                 "historical": True,
             }
             for row in rows
@@ -128,7 +161,8 @@ class JobHistory:
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
-                " arguments, spec, manifest, warnings, error FROM jobs WHERE id = ?",
+                " arguments, spec, manifest, warnings, error, workspace"
+                " FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
@@ -150,7 +184,7 @@ class JobHistory:
         except json.JSONDecodeError:
             return []
 
-    def job_for_file(self, file_name):
+    def job_for_file(self, file_name, workspace=None):
         """The most recent job that actually wrote this output file.
 
         LIKE metacharacters are escaped - generated names routinely contain
@@ -160,6 +194,10 @@ class JobHistory:
         A manifest entry marked 'reused' is a step-cache hit republishing an
         earlier run's files, so it is skipped: attribution belongs to the job
         that wrote the file, not to every later run that reused it.
+
+        `workspace` narrows the scan to one workspace - two workspaces can
+        each produce a file with the same relative name, and without this a
+        later job in another workspace could wrongly claim the match.
         """
         escaped = (
             file_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -168,12 +206,16 @@ class JobHistory:
         # file with 'reused', so a LIMIT would let the writing job fall out of
         # the window after that many reruns and leave the file unattributed.
         # The LIKE filter already restricts the scan to manifests naming it.
+        query = (
+            "SELECT id, status, manifest FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
+        )
+        params = [f"%{escaped}%"]
+        if workspace:
+            query += " AND workspace = ?"
+            params.append(workspace)
+        query += " ORDER BY finished_at DESC"
         with self._lock, self._connect() as connection:
-            rows = connection.execute(
-                "SELECT id, status, manifest FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
-                " ORDER BY finished_at DESC",
-                (f"%{escaped}%",),
-            ).fetchall()
+            rows = connection.execute(query, params).fetchall()
         for row in rows:
             if self._manifest_wrote(row[2], file_name):
                 return {"id": row[0], "status": row[1]}
@@ -232,6 +274,7 @@ class JobHistory:
             "manifest": parse(row[8], []),
             "warnings": parse(row[9], []),
             "error": row[10],
+            "workspace": row[11] or DEFAULT_WORKSPACE_NAME,
             "traceback": None,
             "event_count": 0,
             "historical": True,
@@ -291,6 +334,10 @@ class Job:
             "created_at": self.created_at,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            # Which workspace this job runs in - a live job's spec may not
+            # carry one yet (e.g. a caller that never named a workspace),
+            # so it defaults the same way history's column does
+            "workspace": self.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
         }
 
     def detail(self):
@@ -343,31 +390,57 @@ class JobManager:
 
     # ------------------------------------------------------------- submission
 
-    def submit(self, workflow_path=None, workflow=None, arguments=None, base_dir=None):
+    def submit(
+        self,
+        workflow_path=None,
+        workflow=None,
+        arguments=None,
+        base_dir=None,
+        workflow_dir=None,
+        output_dir=None,
+        asset_dir=None,
+        workspace=None,
+    ):
         """Validate a job request and queue it. Raises ValueError on a bad
-        request so the HTTP layer can answer 400 before anything runs."""
+        request so the HTTP layer can answer 400 before anything runs.
+
+        `workflow_dir` overrides this job's confinement root for a workflow
+        that lives outside the writable directory - an example or a builtin,
+        which the caller has already resolved against the search path. The
+        worker re-validates against whatever this job records, so the
+        override travels with the job rather than widening the manager.
+
+        `output_dir`, `asset_dir` and `workspace` name which workspace this
+        job runs in. They travel with the job for the same reason: one
+        server holds several workspaces, and the process-wide roots would
+        make every job belong to whichever one was configured at startup.
+        """
         arguments = arguments or {}
         if (workflow_path is None) == (workflow is None):
             raise ValueError("Provide exactly one of workflow_path or workflow")
 
+        confinement = workflow_dir or self.workflow_dir
+        job_output_dir = (
+            validate_output_path(output_dir, None) if output_dir else self.output_dir
+        )
+        os.makedirs(job_output_dir, exist_ok=True)
+
         if workflow_path is not None:
             # Loads and schema-validates now - a bad path or file fails the
             # request, not the queue
-            loaded = workflow_from_file(
-                workflow_path, self.output_dir, self.workflow_dir
-            )
+            loaded = workflow_from_file(workflow_path, job_output_dir, confinement)
             loaded.validate()
             spec = {
                 "workflow_path": workflow_path,
                 "workflow_name": loaded.name,
                 "arguments": arguments,
-                "workflow_dir": self.workflow_dir,
+                "workflow_dir": confinement,
             }
         else:
             # workflow_from_definition validates base_dir - it is HTTP-supplied
             # path input and goes through the security layer like every path
             loaded = workflow_from_definition(
-                copy.deepcopy(workflow), self.output_dir, base_dir, self.workflow_dir
+                copy.deepcopy(workflow), job_output_dir, base_dir, confinement
             )
             loaded.validate()
             spec = {
@@ -375,15 +448,24 @@ class JobManager:
                 # Must match workflow_from_definition's fallback - the worker
                 # re-validates this against workflow_dir
                 "base_dir": base_dir
-                or (
-                    os.path.abspath(self.workflow_dir)
-                    if self.workflow_dir
-                    else os.getcwd()
-                ),
+                or (os.path.abspath(confinement) if confinement else os.getcwd()),
                 "workflow_name": loaded.name,
                 "arguments": arguments,
-                "workflow_dir": self.workflow_dir,
+                # Must be the same root the worker re-validates base_dir
+                # against (workflow_from_definition -> validate_path) - this
+                # job's own confinement, not the manager's process-wide
+                # default, or a named workspace's inline job fails after a
+                # 201 the moment base_dir and workflow_dir disagree
+                "workflow_dir": confinement,
             }
+
+        # Which workspace this job runs in, and the roots that follow from
+        # it - recorded on the job so history, the worker command and a
+        # rerun all agree without re-deriving them
+        spec["workspace"] = workspace
+        spec["output_dir"] = job_output_dir
+        if asset_dir:
+            spec["asset_dir"] = asset_dir
 
         # Signature-level check of pipeline arguments - the typo that would
         # otherwise be a TypeError after the model loads becomes a warning
@@ -408,14 +490,16 @@ class JobManager:
         return self.history.get(job_id)
 
     def rerun(self, job_id):
-        """Queue a fresh job from a previous job's spec."""
+        """Queue a fresh job from a previous job's spec.
+
+        Every root the original ran against (workflow_dir/output_dir/
+        asset_dir/workspace) rides along, not just the workflow identity -
+        otherwise a rerun of a job from a named workspace would fall back to
+        the manager's process-wide default and silently run somewhere else.
+        """
         job = self.jobs.get(job_id)
         if job is not None:
-            spec = {
-                key: job.spec[key]
-                for key in ("workflow_path", "workflow", "base_dir")
-                if key in job.spec
-            }
+            spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
             arguments = job.spec.get("arguments", {})
         else:
             historical = self.history.get(job_id)
@@ -427,11 +511,25 @@ class JobManager:
                 if key in historical["spec"]
             }
             arguments = historical["arguments"]
+
+        workspace = spec.get("workspace")
+        if (
+            workspace
+            and workspace != DEFAULT_WORKSPACE_NAME
+            and spec.get("output_dir")
+            and not os.path.isdir(spec["output_dir"])
+        ):
+            raise ValueError(f"Workspace '{workspace}' the job ran in no longer exists")
+
         return self.submit(
             workflow_path=spec.get("workflow_path"),
             workflow=spec.get("workflow"),
             arguments=arguments,
             base_dir=spec.get("base_dir"),
+            workflow_dir=spec.get("workflow_dir"),
+            output_dir=spec.get("output_dir"),
+            asset_dir=spec.get("asset_dir"),
+            workspace=workspace,
         )
 
     def queue_position(self, job_id):
@@ -449,7 +547,10 @@ class JobManager:
             detail["queue_position"] = position
         return detail
 
-    def list(self):
+    def list(self, workspace=None):
+        """All jobs, live and historical, sorted by creation. `workspace` filters to one workspace; omitted, the list
+        spans every workspace the server holds, unchanged from before
+        workspaces existed."""
         with self._lock:
             live = sorted(self.jobs.values(), key=lambda j: j.created_at)
             positions = {job_id: i for i, job_id in enumerate(self._pending)}
@@ -457,10 +558,12 @@ class JobManager:
         summaries = []
         for job in live:
             summary = job.summary()
+            if workspace and summary["workspace"] != workspace:
+                continue
             if job.id in positions:
                 summary["queue_position"] = positions[job.id]
             summaries.append(summary)
-        for historical in self.history.recent_summaries():
+        for historical in self.history.recent_summaries(workspace=workspace):
             if historical["id"] not in live_ids:
                 summaries.append(historical)
         summaries.sort(key=lambda summary: summary["created_at"] or 0)
@@ -567,9 +670,13 @@ class JobManager:
                 command = {
                     "type": "execute",
                     "arguments": job.spec["arguments"],
-                    "output_dir": self.output_dir,
+                    # The job's own roots, so a job queued for one workspace
+                    # still runs in it after the manager has served another
+                    "output_dir": job.spec.get("output_dir") or self.output_dir,
                     "log_level": self.log_level,
                 }
+                if job.spec.get("asset_dir"):
+                    command["asset_dir"] = job.spec["asset_dir"]
                 if "workflow_path" in job.spec:
                     command["workflow_path"] = job.spec["workflow_path"]
                 else:
@@ -590,16 +697,22 @@ class JobManager:
                 status, error, traceback_text = outcome
                 self._finish(job, status, error=error, traceback_text=traceback_text)
 
-    def _relative_output_names(self, paths):
+    def _relative_output_names(self, paths, output_dir=None):
         """The worker reports absolute paths; clients build '/outputs/<name>'
-        URLs, and a workflow under a subfolder writes under
-        '<output_dir>/<sub>/' (dw/workflow.py's effective_output_dir) - so
-        every file is reported by its name relative to output_dir, with
-        forward slashes. A path outside output_dir (a task step writing
-        elsewhere) is left as it came."""
+        URLs, and a run writes under '<output_dir>/<identity>/<run id>/'
+        (dw/workflow.py's effective_output_dir) - so every file is reported
+        by its name relative to the output directory of the job that wrote
+        it, with forward slashes. A path outside it (a task step writing
+        elsewhere) is left as it came.
+
+        The job's own directory, not the manager's: a job in a named
+        workspace writes under that workspace, and naming it relative to the
+        default workspace would produce '../<name>/outputs/...' - a path, not
+        a name."""
+        root = output_dir or self.output_dir
         names = []
         for path in paths:
-            relative = os.path.relpath(path, self.output_dir)
+            relative = os.path.relpath(path, root)
             if relative.startswith(".."):
                 names.append(path)
             else:
@@ -617,7 +730,9 @@ class JobManager:
             if message_type == "progress":
                 event = {k: v for k, v in message.items() if k != "type"}
                 if "files" in event:
-                    event["files"] = self._relative_output_names(event["files"])
+                    event["files"] = self._relative_output_names(
+                        event["files"], job.spec.get("output_dir")
+                    )
                 job.add_event(event)
             elif message_type in ("output", "workflow_loaded"):
                 text = message.get("message") or message.get("workflow_name", "")
@@ -628,7 +743,12 @@ class JobManager:
             elif message_type == "success":
                 job.manifest = [
                     (
-                        {**entry, "files": self._relative_output_names(entry["files"])}
+                        {
+                            **entry,
+                            "files": self._relative_output_names(
+                                entry["files"], job.spec.get("output_dir")
+                            ),
+                        }
                         if "files" in entry
                         else entry
                     )

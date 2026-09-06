@@ -11,6 +11,11 @@ try {
   /* storage unavailable - system theme applies */
 }
 import App from './App.svelte'
+import { restoreWorkspace } from './lib/workspace.svelte'
+
+// Before the first request: every call is scoped to the selected workspace,
+// and a page that loaded against the default first would flash the wrong one
+restoreWorkspace()
 
 const app = mount(App, { target: document.getElementById('app')! })
 

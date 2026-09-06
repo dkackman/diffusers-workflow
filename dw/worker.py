@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dw.workflow import workflow_from_file, workflow_from_definition
 from dw.step_cache import step_cache
+from dw.assets import activate_asset_dir, deactivate_asset_dir
 from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
 from dw.security import validate_output_path
@@ -166,7 +167,8 @@ class WorkflowWorker:
 
         Args:
             command: Dictionary with workflow_path or workflow (+ base_dir),
-                arguments, output_dir, log_level
+                arguments, output_dir, log_level, and optionally asset_dir -
+                the workspace library 'asset:' resolves against
         """
         arguments = command["arguments"]
         output_dir = command["output_dir"]
@@ -210,10 +212,21 @@ class WorkflowWorker:
                 )
             )
             watcher = self._watch_commands(context)
+            # Which workspace's assets this job's 'asset:' references resolve
+            # against. A server holds several workspaces and each has its own
+            # library, so the root travels with the job rather than being
+            # pinned in the environment the way the shared prompt library is
+            asset_token = (
+                activate_asset_dir(command["asset_dir"])
+                if command.get("asset_dir")
+                else None
+            )
             try:
                 workflow.run(arguments, self.loaded_pipelines, context=context)
             finally:
                 watcher.stop()
+                if asset_token is not None:
+                    deactivate_asset_dir(asset_token)
 
             # Drop cached pipelines this run no longer touched - an edited
             # workflow that removed or redefined a step leaves those behind

@@ -6,12 +6,22 @@ this file stays a description of the surface rather than logic.
 """
 
 import functools
+from typing import Literal
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, TextContent, ToolAnnotations
 
-from dw_mcp import authoring, catalog, diagnose, media, models, prompts
+from dw_mcp import (
+    assets,
+    authoring,
+    catalog,
+    diagnose,
+    media,
+    models,
+    prompts,
+    workspaces,
+)
 from dw_mcp.client import DwApiError
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
@@ -54,21 +64,61 @@ def build_server(client):
     server = MCPServer(
         "diffusers-workflow",
         instructions=(
-            "Author, run and diagnose diffusers-workflow jobs against a "
-            "running dw.serve. Start from `list_workflows`: the server "
-            "keeps a large catalog, and its listing carries each "
-            "workflow's description, output kinds and variable names - "
-            "run what is already there rather than authoring a new "
-            "workflow for a request an existing one covers. "
+            "Generate images and video on a real GPU: author, run and "
+            "diagnose diffusers-workflow jobs against a running dw.serve. "
+            "A workflow is a JSON document of named steps, each a "
+            "diffusers pipeline or a utility task; the engine runs one job "
+            "at a time.\n"
+            "\n"
+            "Start from `list_workflows`: the server keeps a large "
+            "catalog, and its listing carries each workflow's description, "
+            "output kinds and variable names - run what is already there, "
+            "with `arguments` overriding its variables, rather than "
+            "authoring a new workflow for a request an existing one "
+            "covers.\n"
+            "\n"
             "The engine that answers is one machine: `get_server_info` "
-            "reports its accelerator and directories, and what a workflow "
-            "can ask for follows from that. "
-            "Validate a workflow before running it - "
-            "validation is free, a run occupies the GPU for minutes. "
-            "Authoring has two halves: `get_schema` describes a workflow "
-            "and `get_prompt_schema` a stored prompt, and a workflow "
-            'argument written as "prompt:name" (or "prompt:folder/name") '
-            "resolves against the prompt library at load time."
+            "reports its accelerator, its directories and which workspace "
+            "this session works in, and what a workflow can ask for "
+            "follows from that - a CUDA-only choice is not available on an "
+            "mps or cpu server.\n"
+            "\n"
+            "The loop for anything that generates: `validate_workflow` "
+            "(free, catches schema errors and arguments the pipeline does "
+            "not accept) -> `run_workflow` -> `wait_for_job` rather than a "
+            "polling loop -> `get_job` for the manifest -> "
+            "`get_output_image` to actually look at what was made and say "
+            "whether it answers the request. Tools that cost GPU minutes, "
+            "disk or unrecoverable deletion refuse until "
+            "`acknowledged_cost=true`: tell the user what it will cost, "
+            "get their go-ahead, then call again.\n"
+            "\n"
+            "Workflow arguments carry references rather than literals, "
+            "which is what makes multi-stage work composable: "
+            '"variable:name" (an override), '
+            '"previous_result:step" (an earlier step in the same run), '
+            '"prompt:name" or "prompt:folder/name" (the stored prompt '
+            "library - `list_prompts`, `get_prompt_schema`), "
+            '"asset:name.ext" (input media on the server - `list_assets`, '
+            "`upload_asset` to push a local file, `keep_output` to promote "
+            "a generated file into a stable input), and "
+            '"output:workflow/run-id/file.png" (a file an earlier run '
+            'wrote, with "latest" in the run-id position picking the '
+            "newest run holding it). Prefer an asset: or output: reference "
+            "over a filesystem path: a path on this machine usually means "
+            "nothing to the server.\n"
+            "\n"
+            "Each run writes its own directory, "
+            "<workflow>/<run id>/, with a manifest beside its files; "
+            "`list_gallery` and a job's manifest name files the way "
+            "`get_output_image`, `download_output` and `keep_output` "
+            "expect them.\n"
+            "\n"
+            "The server can hold several workspaces - separate workflows, "
+            "assets and outputs, one shared prompt library: "
+            "`list_workspaces` shows them and `use_workspace` picks one "
+            "for the rest of the session, which is how to keep your work "
+            "out of another agent's namespace."
         ),
     )
 
@@ -78,22 +128,36 @@ def build_server(client):
     # ------------------------------------------------------------- catalog
 
     def list_workflows() -> dict:
-        """List the workflows stored on the server, with their descriptions,
-        output kinds and variable names. Look here before authoring a new
-        workflow - the catalog is large and usually already covers the
-        request."""
+        """List the workflows stored on the server. Each entry carries its
+        description, output kinds, step count, variable names and the
+        stored prompts it references - enough to pick one and know what to
+        pass it without fetching every definition. Look here before
+        authoring a new workflow: the catalog is large and usually already
+        covers the request. An entry also reports `origin` and `writable`:
+        a workflow from a read-only examples directory runs like any other
+        but cannot be saved over or deleted."""
         return catalog.list_workflows(client)
 
     def get_workflow(name: str) -> dict:
-        """Get one stored workflow's full JSON definition."""
+        """Get one stored workflow's full JSON definition, by a name from
+        `list_workflows`. Read one before editing it, and to learn the
+        idioms this installation actually uses."""
         return catalog.get_workflow(client, name)
 
     def get_schema() -> dict:
-        """Get the JSON schema every workflow definition must satisfy."""
+        """Get the JSON schema every workflow definition must satisfy - the
+        authority on a workflow's structure: steps, pipelines, tasks,
+        results, variables. Read it before authoring one from scratch, and
+        note that schema validation runs before variable substitution, so a
+        variable's default has to be the type its use expects (25, not
+        "25")."""
         return catalog.get_schema(client)
 
     def list_pipelines() -> dict:
-        """List every diffusers pipeline class this installation provides."""
+        """List every diffusers pipeline class this installation provides.
+        These are the names a step's `component_type` can take - and the
+        list is this installation's, so a pipeline from a newer diffusers
+        will not be here until it is updated."""
         return catalog.list_pipelines(client)
 
     def get_pipeline_signature(name: str) -> dict:
@@ -102,21 +166,34 @@ def build_server(client):
         does not accept is the most common workflow bug."""
         return catalog.get_pipeline_signature(client, name)
 
-    def list_classes(kind: str) -> dict:
+    def list_classes(
+        kind: Literal["pipelines", "models", "schedulers", "quantization"],
+    ) -> dict:
         """List class names of one kind: pipelines, models, schedulers, or
-        quantization."""
+        quantization. These are the names a workflow's `component_type`,
+        `scheduler_type` or `config_type` can take."""
         return catalog.list_classes(client, kind)
 
-    def get_class(name: str, target: str = "init") -> dict:
-        """Get a class's argument schema. target: init, call, or load."""
+    def get_class(name: str, target: Literal["init", "call", "load"] = "init") -> dict:
+        """Get a class's argument schema, from whichever entry point a
+        workflow reaches it by: `init` reads the constructor (quantization
+        configs, schedulers, models built from named arguments), `call`
+        reads __call__ (a pipeline's `arguments`), `load` reads
+        from_pretrained plus the curated loading knobs, which is what a
+        component's `from_pretrained_arguments` can carry."""
         return catalog.get_class(client, name, target=target)
 
     def list_tasks() -> dict:
-        """List every task command a workflow's task step can name."""
+        """List every task command a workflow's task step can name - the
+        non-pipeline work: upscaling, face restoration, ControlNet
+        preprocessors, captioning, frame interpolation, video and audio
+        handling. Check here before assuming something needs a pipeline."""
         return catalog.list_tasks(client)
 
     def get_task(command: str) -> dict:
-        """Get a task command's argument schema."""
+        """Get a task command's argument schema, read from its real
+        implementation signature. The counterpart of
+        `get_pipeline_signature` for a task step."""
         return catalog.get_task(client, command)
 
     def list_models() -> dict:
@@ -141,20 +218,38 @@ def build_server(client):
         device before authoring: a CUDA-only choice - bitsandbytes
         quantization, torch.compile, flash attention - is not available on
         an mps or cpu server, and `directories` is what a path passed to
-        run_workflow or download_output is relative to."""
-        return catalog.get_server_info(client)
+        run_workflow or download_output is relative to. If this session
+        works in a named workspace, `directories` are scoped to that
+        workspace."""
+        return workspaces.server_info(client)
 
     def list_jobs() -> dict:
-        """List queued, running and recent jobs."""
+        """List queued, running and recent jobs, with their status and queue
+        position. The ids here are what `get_job`, `wait_for_job`,
+        `get_job_events`, `cancel_job`, `rerun_job` and `move_job` take -
+        including jobs from before this session, so a run someone started in
+        the browser can be picked up here. In a named workspace this lists
+        that workspace's jobs; in the default workspace it lists every job
+        the server holds, whichever workspace ran it."""
         return catalog.list_jobs(client)
 
     def list_gallery(limit: int = 50) -> dict:
-        """List generated output files, newest first."""
+        """List generated output files, newest first. A name is
+        <workflow>/<run id>/<file> - the form `get_output_image`,
+        `get_output_text`, `download_output`, `keep_output` and
+        `delete_output` all take, and the form an "output:" reference in a
+        later workflow is built from. Each entry also carries a ready-made
+        `url` for viewing the file over HTTP, already scoped to the right
+        workspace; use it as given rather than composing one from the
+        name."""
         return catalog.list_gallery(client, limit=limit)
 
     def get_gallery_metadata(name: str) -> dict:
-        """Get the metadata embedded in a generated file: the exact workflow
-        and arguments that produced it. Use this to reproduce a bad result."""
+        """Get the metadata embedded in a generated file: the exact
+        workflow, arguments and seed that produced it. Use this to
+        reproduce a result, or to see what a run that went wrong actually
+        ran - it is the definition, not a summary, so it can be edited and
+        re-run."""
         return catalog.get_gallery_metadata(client, name)
 
     for fn in (
@@ -182,11 +277,15 @@ def build_server(client):
     def get_output_image(
         name: str, max_dimension: int = 768
     ) -> list[ImageContent | TextContent]:
-        """Look at a generated image. Use this to judge output quality - it
-        is the only way to see what a workflow actually produced. The image
-        is downscaled to `max_dimension` on its longest side; the second
-        part of the result reports the size it went in and came out at, so
-        a downscale is never silent."""
+        """Look at a generated image, named as `list_gallery` or a job's
+        manifest reports it. Use this to judge output quality - it is the
+        only way to see what a workflow actually produced, and a run that
+        succeeded can still have made the wrong picture. Images only: a
+        video or audio output is refused, so inspect those with
+        `get_gallery_metadata` or hand the user the file. The image is
+        downscaled to `max_dimension` on its longest side; the second part
+        of the result reports the size it went in and came out at, so a
+        downscale is never silent."""
         result = media.get_output_image(client, name, max_dimension=max_dimension)
         image = ImageContent(
             type="image", data=result["data"], mime_type=result["mime_type"]
@@ -209,21 +308,30 @@ def build_server(client):
         return media.get_output_text(client, name, max_characters=max_characters)
 
     def delete_output(name: str) -> dict:
-        """Permanently remove one generated file from the output
-        directory."""
+        """Permanently remove one generated file from the output directory.
+        Not recoverable: rerunning the job that made it is the only way
+        back, and any "output:" reference pointing at it stops resolving.
+        Prefer `keep_output` first if it is worth keeping."""
         return media.delete_output(client, name)
 
     def download_output(
         name: str, destination: str | None = None, overwrite: bool = False
     ) -> dict:
         """Save one output file to disk on the
-        machine running the MCP server - for the stdio `dw-mcp` that is your own machine; for a
+        machine running the MCP server - for the stdio `dw-mcp` that is
+        your own machine; for a
         `dw.serve --mcp` endpoint it is the GPU box, and this tool is not
         the way to get a file to where you are (use get_output_image /
-        get_output_text for inline content, or the /outputs URL). Unlike
-        those two, this works for any file type, streams the body straight
-        to disk rather than buffering it, and returns no content to the
-        conversation - only where it was saved. `destination` may be a
+        get_output_text for inline content, or the `url` that
+        `list_gallery` reports for each entry, which already carries the
+        workspace selector - do not build an /outputs URL by hand). This is
+        also NOT how a generated file becomes an input for a later
+        workflow: use `keep_output`, which links it inside the workspace
+        under an "asset:" name, rather than writing into the server's asset
+        directory behind the API's back. Unlike the inline tools, this works
+        for any file type, streams the body straight to disk rather than
+        buffering it, and returns no content to the conversation - only
+        where it was saved. `destination` may be a
         full path, a directory, or omitted to save into the current
         working directory under the output's own name; a '..' path segment
         in it is refused. An existing file at the resolved path is left
@@ -237,6 +345,77 @@ def build_server(client):
     tool(download_output, OVERWRITES)
     tool(delete_output, DELETES)
 
+    # ---------------------------------------------------------------- assets
+
+    def list_assets() -> dict:
+        """List the input media on the server, each with the "asset:"
+        reference a workflow argument carries. Look here before asking for
+        a file: what a workflow needs may already be there."""
+        return assets.list_assets(client)
+
+    def upload_asset(file_path: str) -> dict:
+        """Put a local image, video or audio file into the server's asset
+        library and get back the "asset:" reference to use in a workflow.
+        The file is read from the machine this MCP server runs on and
+        pushed to the engine, so it is how an input reaches a dw.serve
+        running somewhere else. Accepts the usual image, video and audio
+        extensions, up to 200MB. Reference the result rather than a path: a
+        path on this machine means nothing to the server."""
+        return assets.upload_asset(client, file_path)
+
+    def keep_output(
+        name: str, asset_name: str | None = None, overwrite: bool = False
+    ) -> dict:
+        """Keep a generated file as an input asset under a stable "asset:"
+        name, so later workflows can rely on it - a run's own name moves
+        ("latest") or breaks when outputs are pruned. This is the step
+        between a render you liked and the next stage that conditions on
+        it. `name` is a gallery name; `asset_name` defaults to the file's
+        own. The copy happens on the server, inside the workspace: nothing
+        is downloaded or re-uploaded."""
+        return assets.keep_output(
+            client, name, asset_name=asset_name, overwrite=overwrite
+        )
+
+    tool(list_assets, READ_ONLY)
+    tool(upload_asset, WRITES)
+    tool(keep_output, WRITES)
+
+    # ------------------------------------------------------------ workspaces
+
+    def list_workspaces() -> dict:
+        """List the server's workspaces and say which one this session is
+        working in. Each has its own workflows, assets and outputs; the
+        stored prompt library is shared by all of them."""
+        return workspaces.list_workspaces(client)
+
+    def use_workspace(name: str) -> dict:
+        """Work in a different workspace for the rest of this session - every
+        later call reads and writes there. Use this to keep your work out of
+        another agent's namespace, rather than sharing the default one."""
+        return workspaces.use_workspace(client, name)
+
+    def create_workspace(name: str) -> dict:
+        """Create a workspace on the server. It gets its own workflows,
+        assets and outputs and shares the one prompt library. The name is a
+        single path segment and cannot be one of the reserved folder names
+        (workflows, prompts, assets, outputs). Creating does not switch to
+        it: call use_workspace after."""
+        return workspaces.create_workspace(client, name)
+
+    def delete_workspace(name: str, acknowledged_cost: bool = False) -> dict:
+        """Permanently delete a workspace and every workflow, asset and
+        generated file in it. Refuses without acknowledged_cost=True, and
+        reports what it would remove instead."""
+        return workspaces.delete_workspace(
+            client, name, acknowledged_cost=acknowledged_cost
+        )
+
+    tool(list_workspaces, READ_ONLY)
+    tool(use_workspace, WRITES)
+    tool(create_workspace, WRITES)
+    tool(delete_workspace, DELETES)
+
     # ----------------------------------------------------------- authoring
 
     def validate_workflow(
@@ -249,12 +428,20 @@ def build_server(client):
         return authoring.validate_workflow(client, workflow=workflow, name=name)
 
     def save_workflow(name: str, workflow: dict) -> dict:
-        """Save a workflow to the server, overwriting any existing workflow
-        of that name. Validate it first."""
+        """Save a workflow to the server's writable workflow directory,
+        overwriting any existing workflow of that name there. Validate it
+        first. A name that currently resolves to a read-only source (an
+        examples directory) is not overwritten - the copy lands in the
+        writable directory and shadows it from then on, which is how an
+        example gets adapted without being damaged. `name` may include
+        folders."""
         return authoring.save_workflow(client, name, workflow)
 
     def delete_workflow(name: str) -> dict:
-        """Permanently delete a stored workflow."""
+        """Permanently delete a stored workflow from this workspace. A
+        workflow from a read-only examples directory is refused rather than
+        deleted - `list_workflows` reports which those are as
+        `writable: false`."""
         return authoring.delete_workflow(client, name)
 
     tool(validate_workflow, READ_ONLY)
@@ -270,7 +457,9 @@ def build_server(client):
         return prompts.list_prompts(client)
 
     def get_prompt(name: str) -> dict:
-        """Get one stored prompt's full definition."""
+        """Get one stored prompt's full definition - its text, description,
+        intended model and tags - by a name from `list_prompts`. The prompt
+        library is shared by every workspace on the server."""
         return prompts.get_prompt(client, name)
 
     def get_prompt_schema() -> dict:
@@ -281,8 +470,9 @@ def build_server(client):
     def save_prompt(name: str, prompt: dict) -> dict:
         """Save a prompt to the library, overwriting any prompt of that
         name. Its `text` may not itself begin with a reference prefix
-        (variable:, previous_result:, constant:, prompt:) - the engine
-        refuses that to prevent a reference resolving twice."""
+        (variable:, previous_result:, constant:, asset:, output:, prompt:)
+        - the server refuses that to prevent a reference resolving twice.
+        The library is shared by every workspace on this server."""
         return prompts.save_prompt(client, name, prompt)
 
     def delete_prompt(name: str) -> dict:
@@ -291,7 +481,9 @@ def build_server(client):
         return prompts.delete_prompt(client, name)
 
     def list_enhancers() -> dict:
-        """List the enhancer presets `enhance_prompt` accepts."""
+        """List the enhancer presets `enhance_prompt` accepts - one per
+        target model family. Call this before enhance_prompt rather than
+        guessing a preset name."""
         return prompts.list_enhancers(client)
 
     def enhance_prompt(
@@ -333,10 +525,14 @@ def build_server(client):
         """Queue a workflow for generation. THIS COSTS GPU TIME: a run
         occupies the machine for minutes and the engine runs one job at a
         time. Tell the user what will run and get their go-ahead, then pass
-        acknowledged_cost=true. Returns as soon as the job is queued; poll
-        get_job_events for progress. Give exactly one of `workflow_path` -
-        a catalog name from `list_workflows` or a path on the server - or
-        `inline_workflow`."""
+        acknowledged_cost=true. Returns as soon as the job is queued - a
+        generation outlasts any tool-call timeout - so follow it with
+        `wait_for_job`, then `get_job` for the manifest. Give exactly one of
+        `workflow_path` - a catalog name from `list_workflows`, with or
+        without .json, or a path on the server - or `inline_workflow`, a
+        full definition for a request nothing stored covers. `arguments`
+        overrides the workflow's variables by name, which is how one stored
+        workflow serves many requests without being edited or copied."""
         return diagnose.run_workflow(
             client,
             workflow_path=workflow_path,
@@ -346,8 +542,12 @@ def build_server(client):
         )
 
     def get_job(job_id: str) -> dict:
-        """Get a job's status, warnings, output manifest, error and
-        traceback."""
+        """Get a job's status, argument warnings, output manifest, error and
+        traceback. The manifest names each step's files the way
+        `get_output_image`, `download_output` and `keep_output` take them; a
+        step served from the step cache is marked `reused` and reports the
+        earlier run's files. When a job failed, the error and traceback here
+        are what to read before changing anything."""
         return diagnose.get_job(client, job_id)
 
     def get_job_events(job_id: str, after: int = -1, limit: int = 200) -> dict:
@@ -367,7 +567,9 @@ def build_server(client):
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     def cancel_job(job_id: str) -> dict:
-        """Ask a queued or running job to stop."""
+        """Ask a queued or running job to stop. Cooperative: a running job
+        stops at the next step or denoise-step boundary, not instantly.
+        Deliberately not gated - it ends a cost rather than starting one."""
         return diagnose.cancel_job(client, job_id)
 
     def rerun_job(job_id: str, acknowledged_cost: bool = False) -> dict:
@@ -377,8 +579,11 @@ def build_server(client):
         will run and get their go-ahead, then pass acknowledged_cost=true."""
         return diagnose.rerun_job(client, job_id, acknowledged_cost=acknowledged_cost)
 
-    def move_job(job_id: str, direction: str) -> dict:
-        """Reorder a queued job: up, down, front, or back."""
+    def move_job(
+        job_id: str, direction: Literal["up", "down", "front", "back"]
+    ) -> dict:
+        """Reorder a queued job. Only a job still waiting can move; the one
+        already running cannot."""
         return diagnose.move_job(client, job_id, direction)
 
     tool(get_job, READ_ONLY)

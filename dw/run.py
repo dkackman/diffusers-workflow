@@ -2,6 +2,8 @@ import argparse
 import os
 from . import startup
 from .workflow import workflow_from_file
+from .runs import set_output_layout
+from .workspace import resolve_workspace, set_workspace
 from .security import (
     validate_workflow_path,
     validate_output_path,
@@ -22,8 +24,18 @@ def main():
         "-o",
         "--output_dir",
         type=str,
-        default="./outputs",
-        help="The folder to write the outputs to",
+        default=None,
+        help="The folder to write the outputs to (default: the workspace's "
+        "outputs/ - ./outputs when run from a workspace, as a checkout is)",
+    )
+    parser.add_argument(
+        "--workspace",
+        type=str,
+        default=None,
+        help="Directory holding your workflows, prompts, assets and outputs "
+        "(default: DW_WORKSPACE, else the 'workspace' setting, else the "
+        "working directory when it looks like a workspace, else "
+        "~/diffusers-workspace)",
     )
     parser.add_argument(
         "variables",
@@ -46,6 +58,24 @@ def main():
         "prompts/ above the workflow file)",
     )
     parser.add_argument(
+        "--asset-dir",
+        type=str,
+        default=None,
+        help="Directory 'asset:' references resolve against (default: "
+        "DW_ASSET_DIR, else the workspace's assets/ when a workspace was "
+        "named, else ./assets if it exists, else the nearest assets/ above "
+        "the workflow file)",
+    )
+    parser.add_argument(
+        "--output-layout",
+        type=str,
+        choices=("run", "flat"),
+        default=None,
+        help="'run' (default) gives each run its own directory under "
+        "<output_dir>/<workflow>/, with a manifest.json beside its files; "
+        "'flat' writes the way it did before run directories",
+    )
+    parser.add_argument(
         "--trust-workflows",
         action="store_true",
         default=False,
@@ -62,8 +92,19 @@ def main():
     # and the name=value pairs - fails as unrecognized arguments
     args = parser.parse_intermixed_args()
 
+    # Pinned before anything resolves a directory from it, and exported so a
+    # subprocess sees the same answer
+    workspace = set_workspace(resolve_workspace(args.workspace))
+    output_dir = args.output_dir or workspace.outputs
+
     if args.prompt_dir:
         os.environ["DW_PROMPT_DIR"] = os.path.abspath(args.prompt_dir)
+
+    if args.asset_dir:
+        os.environ["DW_ASSET_DIR"] = os.path.abspath(args.asset_dir)
+
+    if args.output_layout:
+        set_output_layout(args.output_layout)
 
     set_trust_workflows(args.trust_workflows)
 
@@ -87,7 +128,7 @@ def main():
 
     # Validate and secure file paths
     try:
-        validated_output_dir = validate_output_path(args.output_dir, None)
+        validated_output_dir = validate_output_path(output_dir, None)
         if not os.path.exists(validated_output_dir):
             # Create output directory if it doesn't exist
             os.makedirs(validated_output_dir, exist_ok=True)

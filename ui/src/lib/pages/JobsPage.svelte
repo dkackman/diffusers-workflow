@@ -1,14 +1,24 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import { notify } from '../toast'
   import type { JobSummary } from '../types'
+  import { loadWorkspaces, workspace } from '../workspace.svelte'
 
   let jobs = $state<JobSummary[]>([])
   let error = $state('')
   let statusFilter = $state('')
   let nameFilter = $state('')
+  // Server-side, unlike the two filters above: it changes which jobs are
+  // fetched at all, not just which of the fetched ones are shown. Empty
+  // means every workspace - this list spans them on purpose.
+  let workspaceFilter = $state('')
+
+  // Only worth a picker once there is a choice - a single-workspace server
+  // has nothing to filter by
+  onMount(loadWorkspaces)
 
   const visible = $derived(
     jobs.filter(
@@ -19,9 +29,12 @@
   )
 
   $effect(() => {
+    // Read synchronously so the effect reruns (and restarts the poll) when
+    // the filter changes, rather than the interval quietly polling stale
+    const filter = workspaceFilter
     const poll = async () => {
       try {
-        jobs = (await api.listJobs()).jobs.reverse()
+        jobs = (await api.listJobs(filter || undefined)).jobs.reverse()
         error = ''
       } catch (e) {
         error = e instanceof Error ? e.message : String(e)
@@ -44,7 +57,9 @@
     event.preventDefault()
     try {
       await api.moveJob(id, direction)
-      jobs = (await api.listJobs()).jobs.reverse()
+      // Same filter the poll uses - refreshing without it would flash every
+      // workspace's jobs into a view the user had narrowed to one
+      jobs = (await api.listJobs(workspaceFilter || undefined)).jobs.reverse()
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       notify.error(msg)
@@ -70,6 +85,14 @@
     <option value="failed">failed</option>
     <option value="cancelled">cancelled</option>
   </select>
+  {#if (workspace.names?.length ?? 0) > 1}
+    <select bind:value={workspaceFilter} title="filter by workspace">
+      <option value="">all workspaces</option>
+      {#each workspace.names ?? [] as name (name)}
+        <option value={name}>{name}</option>
+      {/each}
+    </select>
+  {/if}
   <input
     class="filter"
     placeholder="filter by workflow…"
@@ -100,6 +123,9 @@
         <span class="chip {job.status}">{job.status}</span>
         <span class="name">
           {job.workflow}
+          {#if (workspace.names?.length ?? 0) > 1}
+            <span class="wschip muted" title="workspace">{job.workspace}</span>
+          {/if}
           {#if job.queue_position !== undefined}
             <span class="qpos" title="position in the waiting queue"
               >#{job.queue_position + 1}</span
@@ -219,6 +245,12 @@
     border-radius: 4px;
     padding: 0 0.3rem;
     font-variant-numeric: tabular-nums;
+  }
+  .wschip {
+    font-size: 0.72rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0 0.3rem;
   }
   .qmove {
     display: inline-flex;

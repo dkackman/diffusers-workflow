@@ -13,6 +13,16 @@ class Settings:
     # environment variable overrides this for a single run.
     device: str = None
 
+    # Directory holding this user's workflows, prompts, assets and outputs.
+    # None resolves it - see dw/workspace.py for the order, which ends at the
+    # working directory when it looks like a workspace, then ~/diffusers-workspace
+    workspace: str = None
+
+    # How generated files are laid out under the output directory: "run"
+    # gives each execution its own directory, "flat" keeps the pre-workspace
+    # layout. See dw/runs.py
+    output_layout: str = "run"
+
     # PyTorch optimization settings
     enable_tf32: bool = True  # TensorFloat-32 for faster matmul on Ampere+ GPUs
     cudnn_benchmark: bool = True  # cuDNN autotuner (faster for fixed sizes)
@@ -35,6 +45,8 @@ def load_settings():
     settings.log_to_console = settings_dict.get("log_to_console", False)
 
     settings.device = settings_dict.get("device", None)
+    settings.workspace = settings_dict.get("workspace", None)
+    settings.output_layout = settings_dict.get("output_layout", "run")
 
     # PyTorch optimization settings
     settings.enable_tf32 = settings_dict.get("enable_tf32", True)

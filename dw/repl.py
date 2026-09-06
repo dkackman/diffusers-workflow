@@ -14,6 +14,7 @@ import os
 import multiprocessing
 from . import startup
 from .repl_worker import WorkerManager
+from .workspace import resolve_workspace, set_workspace
 from .repl_commands import (
     ConfigCommands,
     ArgCommands,
@@ -46,11 +47,15 @@ class DiffusersWorkflowREPL(cmd.Cmd):
     def __init__(self):
         # Initialize cmd.Cmd first, before setting up our globals
         cmd.Cmd.__init__(self)
-        # Initialize globals dictionary with default values
+        # Initialize globals dictionary from the workspace - in a checkout,
+        # whose root is a workspace, these are the ./outputs and ./workflows
+        # they have always been
+        workspace = set_workspace(resolve_workspace())
         self.globals = {
-            "output_dir": "./outputs",  # Default output directory
+            "workspace": workspace.root,  # Where the two directories below live
+            "output_dir": workspace.outputs,  # Default output directory
             "log_level": "INFO",  # Default log level
-            "workflow_dir": "./workflows",  # Default workflow directory
+            "workflow_dir": workspace.workflows,  # Default workflow directory
         }
         self.current_workflow = None
         self.workflow_args = {}  # Store workflow arguments
@@ -182,7 +187,7 @@ class DiffusersWorkflowREPL(cmd.Cmd):
     ARG_SUBCOMMANDS = ("show", "set", "clear")
     MEMORY_SUBCOMMANDS = ("show", "clear")
     CONFIG_SUBCOMMANDS = ("show", "set")
-    CONFIG_KEYS = ("output_dir", "log_level", "workflow_dir")
+    CONFIG_KEYS = ("workspace", "output_dir", "log_level", "workflow_dir")
 
     @staticmethod
     def _matches(candidates, text):

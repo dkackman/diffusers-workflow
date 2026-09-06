@@ -39,6 +39,13 @@ def main(argv=None, transport=None):
         "(default: $DW_API_TOKEN). Required when --url is not loopback.",
     )
     parser.add_argument(
+        "--workspace",
+        default=None,
+        help="Which of the server's workspaces to work in (default: "
+        "$DW_MCP_WORKSPACE, else the server's default). A name on the "
+        "server, not a directory here - list_workspaces shows them",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=30.0,
@@ -68,7 +75,11 @@ def main(argv=None, transport=None):
         )
 
     client = DwClient(
-        base_url=base_url, timeout=args.timeout, token=token, transport=transport
+        base_url=base_url,
+        timeout=args.timeout,
+        token=token,
+        transport=transport,
+        workspace=args.workspace,
     )
     try:
         if not args.no_probe:

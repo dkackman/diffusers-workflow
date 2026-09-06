@@ -421,6 +421,37 @@ PROMPT_REFERENCE_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*)?\Z"
 MAX_PROMPT_REFERENCE_LENGTH = 200
 
 
+def _validate_name(
+    name: str, pattern: str, max_length: int, what: str, hint: str
+) -> str:
+    """Shared body of the reference/name validators below: an empty check, a
+    length check, then the pattern - length before pattern so a name that
+    fails both reports the shorter, cheaper-to-fix complaint first, matching
+    what each validator already reported on its own.
+
+    Args:
+        name: The value to validate
+        pattern: Regex the name must fully match
+        max_length: Longest allowed length
+        what: Short label for the messages ('Prompt name', 'Asset name', ...)
+        hint: The rest of the "invalid" message, describing what a valid one
+            looks like
+
+    Raises:
+        InvalidInputError: If name is invalid
+    """
+    if not name:
+        raise InvalidInputError(f"{what} cannot be empty")
+
+    if len(name) > max_length:
+        raise InvalidInputError(f"{what} too long: {len(name)} > {max_length}")
+
+    if not re.match(pattern, name):
+        raise InvalidInputError(f"Invalid {what.lower()}: {name} - {hint}")
+
+    return name
+
+
 def validate_prompt_reference(name: str) -> str:
     """
     Validate the name a 'prompt:' reference points at.
@@ -438,19 +469,124 @@ def validate_prompt_reference(name: str) -> str:
     Raises:
         InvalidInputError: If name is invalid
     """
-    if not name:
-        raise InvalidInputError("Prompt name cannot be empty")
+    return _validate_name(
+        name,
+        PROMPT_REFERENCE_PATTERN,
+        MAX_PROMPT_REFERENCE_LENGTH,
+        "Prompt name",
+        "a prompt is named by its file under the prompt directory, at most "
+        "one folder deep, like 'scenic_landscape' or 'minimax/fox_dawn'",
+    )
 
-    if not re.match(PROMPT_REFERENCE_PATTERN, name):
-        raise InvalidInputError(
-            f"Invalid prompt name: {name} - a prompt is named by its file under "
-            f"the prompt directory, at most one folder deep, like "
-            f"'scenic_landscape' or 'minimax/fox_dawn'"
-        )
 
-    if len(name) > MAX_PROMPT_REFERENCE_LENGTH:
+# A stored asset's name: a file name with its extension, optionally under
+# folders. Each segment starts with a word character, which precludes '..',
+# hidden files and absolute paths; the depth cap keeps a name a name. A prompt
+# is named without its extension and lives at most one folder deep - an asset
+# carries its extension, because which file it is depends on it, and media
+# libraries nest deeper than prompt libraries do
+ASSET_REFERENCE_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*){0,4}\Z"
+MAX_ASSET_REFERENCE_LENGTH = 400
+
+
+def validate_asset_reference(name: str) -> str:
+    """
+    Validate the name an 'asset:' reference points at.
+
+    The name is joined onto the asset directory to find the file, so it is
+    checked before anything touches the filesystem. Containment in the
+    library is checked separately, by the validate_path call that joins it.
+
+    Args:
+        name: Asset name to validate
+
+    Returns:
+        The validated name
+
+    Raises:
+        InvalidInputError: If name is invalid
+    """
+    return _validate_name(
+        name,
+        ASSET_REFERENCE_PATTERN,
+        MAX_ASSET_REFERENCE_LENGTH,
+        "Asset name",
+        "an asset is named by its file under the asset directory, with its "
+        "extension and at most four folders deep, like 'iris.jpg' or "
+        "'gyre/frames/iris.jpg'",
+    )
+
+
+# A generated output's name: the workflow's identity, the run, and the file -
+# deeper than an asset name because the identity itself can nest, and the run
+# id is a segment of its own
+OUTPUT_REFERENCE_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*){1,6}\Z"
+MAX_OUTPUT_REFERENCE_LENGTH = 500
+
+
+def validate_output_reference(name: str) -> str:
+    """
+    Validate the name an 'output:' reference points at.
+
+    The name is joined onto the output directory to find the file, so it is
+    checked before anything touches the filesystem. Containment is checked
+    separately, by the validate_path call that joins it - after any 'latest'
+    segment has been expanded, so what is checked is the real path.
+
+    Args:
+        name: Output name to validate
+
+    Returns:
+        The validated name
+
+    Raises:
+        InvalidInputError: If name is invalid
+    """
+    return _validate_name(
+        name,
+        OUTPUT_REFERENCE_PATTERN,
+        MAX_OUTPUT_REFERENCE_LENGTH,
+        "Output name",
+        "an output is named by the workflow that made it, the run, and the "
+        "file, like 'ltx2/Gyre/latest/Gyre-still.0-0.0.png'",
+    )
+
+
+# A workspace's name: one path segment, starting with a word character, so
+# '..', hidden names and anything with a separator in it are all excluded
+# before the name is joined onto the workspace root
+WORKSPACE_NAME_PATTERN = r"^[\w][\w.-]*\Z"
+MAX_WORKSPACE_NAME_LENGTH = 100
+
+
+def validate_workspace_name(name: str) -> str:
+    """
+    Validate a workspace name.
+
+    Args:
+        name: Workspace name to validate
+
+    Returns:
+        The validated name
+
+    Raises:
+        InvalidInputError: If the name is not one a workspace can take
+    """
+    from .workspace import RESERVED_WORKSPACE_NAMES
+
+    _validate_name(
+        name,
+        WORKSPACE_NAME_PATTERN,
+        MAX_WORKSPACE_NAME_LENGTH,
+        "Workspace name",
+        "a workspace is one folder under the workspace root, named with "
+        "letters, numbers, dot, dash or underscore",
+    )
+
+    if name in RESERVED_WORKSPACE_NAMES:
         raise InvalidInputError(
-            f"Prompt name too long: {len(name)} > {MAX_PROMPT_REFERENCE_LENGTH}"
+            f"'{name}' is one of the workspace root's own folders "
+            f"({', '.join(RESERVED_WORKSPACE_NAMES)}) and cannot name a workspace"
         )
 
     return name

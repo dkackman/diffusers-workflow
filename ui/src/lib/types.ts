@@ -7,6 +7,8 @@ export interface JobSummary {
   finished_at: number | null
   historical?: boolean
   queue_position?: number
+  /** The workspace this job ran in - 'default' for the default one. */
+  workspace: string
 }
 
 export interface ManifestEntry {
@@ -57,9 +59,14 @@ export interface ServerInfo {
   mcp: { mounted: boolean; path: string }
   addresses: ServerAddress[]
   directories: {
+    /** The workspace the folders below are folders of, when the server
+     * resolved one; an individually overridden folder still reports its
+     * own path. */
+    workspace: string | null
     workflows: string
     outputs: string
     prompts: string | null
+    assets: string | null
   }
 }
 
@@ -79,6 +86,14 @@ export interface WorkflowDefinition {
   variables?: Record<string, unknown>
   steps?: Array<Record<string, unknown>>
   [key: string]: unknown
+}
+
+/** A workflow plus where it came from - `getWorkflow` reads these off the
+ * `X-Workflow-Origin` / `X-Workflow-Writable` response headers. */
+export interface WorkflowWithOrigin extends WorkflowDefinition {
+  /** 'workspace' | 'examples' | 'builtin'. */
+  origin: string
+  writable: boolean
 }
 
 export interface PromptDefinition {

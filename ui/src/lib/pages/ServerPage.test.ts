@@ -18,9 +18,11 @@ const base: ServerInfo = {
   mcp: { mounted: true, path: '/mcp' },
   addresses: [{ address: '192.168.1.50', family: 'IPv4', interface: 'enp6s0' }],
   directories: {
+    workspace: '/home/don/studio',
     workflows: '/home/don/workflows',
     outputs: '/home/don/outputs',
     prompts: null,
+    assets: '/home/don/studio/assets',
   },
 }
 

@@ -13,6 +13,7 @@ import os
 
 from .schema import load_schema, validate_data
 from .security import validate_prompt_path, validate_prompt_reference
+from .workspace import PROMPTS_SUBDIR, discover_library
 
 logger = logging.getLogger("dw")
 
@@ -24,40 +25,32 @@ PROMPT_PREFIX = "prompt:"
 # The prefixes a stored prompt's text may not begin with. Resolved text is
 # substituted where the reference stood, so text that itself looks like a
 # reference would be resolved again - or worse, expand a step's iterations
-RESERVED_TEXT_PREFIXES = ("previous_result:", "variable:", "constant:", PROMPT_PREFIX)
+RESERVED_TEXT_PREFIXES = (
+    "previous_result:",
+    "variable:",
+    "constant:",
+    "asset:",
+    "output:",
+    PROMPT_PREFIX,
+)
 
 
 def get_prompt_dir(base_dir=None):
     """The directory stored prompts are rooted at.
 
     DW_PROMPT_DIR names it explicitly - the server sets it from --prompt-dir,
-    and the spawned worker inherits it. Without one it is ./prompts in the
-    working directory when that exists; otherwise the walk from the workflow
-    file's directory up toward the filesystem root finds the prompts/ folder
-    of the tree the workflow lives in - which is how a repo workflow run from
-    any working directory still reaches the library beside it. Read at call
-    time, not import time, so a test or worker sees the current value.
+    and the spawned worker inherits it. Below that, see
+    workspace.discover_library for the shared precedence (a named workspace,
+    then ./prompts, then a walk up from base_dir, then the workspace's
+    prompts/ as the fallback).
+
+    Read at call time, not import time, so a test or worker sees the current
+    value.
 
     Args:
         base_dir: The workflow file's directory, when one anchors the search
     """
-    explicit = os.environ.get("DW_PROMPT_DIR")
-    if explicit:
-        return explicit
-    default = os.path.abspath("./prompts")
-    if os.path.isdir(default):
-        return default
-    if base_dir:
-        current = os.path.abspath(base_dir)
-        while True:
-            candidate = os.path.join(current, "prompts")
-            if os.path.isdir(candidate):
-                return candidate
-            parent = os.path.dirname(current)
-            if parent == current:
-                break
-            current = parent
-    return default
+    return discover_library(PROMPTS_SUBDIR, "DW_PROMPT_DIR", base_dir)
 
 
 def resolve_prompt_reference(reference, prompt_dir=None, base_dir=None):

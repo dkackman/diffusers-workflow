@@ -27,10 +27,24 @@ def main():
     )
     parser.add_argument("--port", type=int, default=8765, help="Port (default: 8765)")
     parser.add_argument(
-        "--workflow-dir", default="./workflows", help="Directory of workflow JSON files"
+        "--workspace",
+        default=None,
+        help="Directory holding the workflows, prompts, assets and outputs "
+        "this server serves (default: DW_WORKSPACE, else the 'workspace' "
+        "setting, else the working directory when it looks like a "
+        "workspace, else ~/diffusers-workspace). --workflow-dir, "
+        "--output-dir and --prompt-dir each override one of its folders",
     )
     parser.add_argument(
-        "--output-dir", default="./outputs", help="Directory results are written to"
+        "--workflow-dir",
+        default=None,
+        help="Directory of workflow JSON files (default: the workspace's "
+        "workflows/)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Directory results are written to (default: the workspace's " "outputs/)",
     )
     parser.add_argument(
         "--prompt-dir",
@@ -38,6 +52,31 @@ def main():
         help="Directory of stored prompt files (default: discovered the way "
         "a CLI run discovers it - DW_PROMPT_DIR, else ./prompts if it "
         "exists, else the nearest prompts/ above the workflow directory)",
+    )
+    parser.add_argument(
+        "--examples-dir",
+        action="append",
+        default=None,
+        dest="examples_dirs",
+        metavar="DIR",
+        help="A read-only directory of workflows to offer alongside the "
+        "workspace's own - a checkout's workflows/ tree, say. Repeatable. "
+        "Saves never go here: they always land in --workflow-dir",
+    )
+    parser.add_argument(
+        "--asset-dir",
+        default=None,
+        help="Directory of input media 'asset:' references resolve against, "
+        "and where browser uploads are saved (default: the workspace's "
+        "assets/)",
+    )
+    parser.add_argument(
+        "--output-layout",
+        choices=("run", "flat"),
+        default=None,
+        help="'run' (default) gives each job its own directory under "
+        "<output_dir>/<workflow>/, with a manifest.json beside its files; "
+        "'flat' writes the way it did before run directories",
     )
     parser.add_argument(
         "-l",
@@ -77,6 +116,37 @@ def main():
     )
     args = parser.parse_args()
 
+    # Resolved and pinned before anything derives a directory from it - the
+    # spawned worker inherits the environment variable, the way it inherits
+    # the prompt directory and the trust flag below
+    from .workspace import resolve_workspace, set_workspace
+
+    workspace = set_workspace(resolve_workspace(args.workspace))
+    workflow_dir = args.workflow_dir or workspace.workflows
+    output_dir = args.output_dir or workspace.outputs
+    asset_dir = os.path.abspath(args.asset_dir or workspace.assets)
+
+    # A workspace's workflow folder is where the UI and MCP clients save, so
+    # it has to exist for a first run in a fresh workspace. Only the folder
+    # actually defaulted to is created - an explicit --workflow-dir that does
+    # not exist stays the operator's typo, not a new empty directory. The
+    # output folder is created by the job manager on the same reasoning
+    if not args.workflow_dir:
+        os.makedirs(workflow_dir, exist_ok=True)
+
+    # Created either way: it is the upload destination and a static mount,
+    # both of which need it to exist before the first request
+    os.makedirs(asset_dir, exist_ok=True)
+
+    # Pinned like the prompt directory, so 'asset:' resolves to the same
+    # library in the worker that the upload route writes into
+    os.environ["DW_ASSET_DIR"] = asset_dir
+
+    if args.output_layout:
+        from .runs import set_output_layout
+
+        set_output_layout(args.output_layout)
+
     token = args.token or os.environ.get("DW_API_TOKEN") or None
 
     from .server.app import LOOPBACK_HOSTS
@@ -109,7 +179,7 @@ def main():
     from .prompts import get_prompt_dir
 
     prompt_dir = os.path.abspath(
-        args.prompt_dir or get_prompt_dir(base_dir=os.path.abspath(args.workflow_dir))
+        args.prompt_dir or get_prompt_dir(base_dir=os.path.abspath(workflow_dir))
     )
     os.environ["DW_PROMPT_DIR"] = prompt_dir
 
@@ -145,10 +215,13 @@ def main():
 
     app = create_app(
         # absolute, so the path the UI hands back on submit is unambiguous
-        workflow_dir=os.path.abspath(args.workflow_dir),
-        output_dir=args.output_dir,
+        workflow_dir=os.path.abspath(workflow_dir),
+        output_dir=output_dir,
         log_level=args.log_level,
         prompt_dir=prompt_dir,
+        asset_dir=asset_dir,
+        examples_dirs=args.examples_dirs,
+        workspace=workspace.root,
         host=args.host,
         token=token,
         mcp=args.mcp,

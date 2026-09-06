@@ -13,7 +13,12 @@
   let { name }: { name: string } = $props()
 
   let workflow = $state<WorkflowDefinition | null>(null)
-  let workflowDir = $state('')
+  /** Where this workflow was read from, and whether it is the user's to
+   * change - an examples or builtin source is read-only. Both come back on
+   * `getWorkflow` itself, off the response headers, so there is no separate
+   * `listWorkflows` round trip just to learn them. */
+  let origin = $state('')
+  let writable = $state(true)
   let overrides = $state<Record<string, string>>({})
   let error = $state('')
   let submitting = $state(false)
@@ -22,11 +27,16 @@
   $effect(() => {
     overrides = {}
     workflow = null
-    api.listWorkflows().then((r) => (workflowDir = r.workflow_dir))
+    origin = ''
+    writable = true
     loadPromptLibrary()
     api
       .getWorkflow(name)
-      .then((definition) => (workflow = definition))
+      .then((definition) => {
+        workflow = definition
+        origin = definition.origin
+        writable = definition.writable
+      })
       .catch((e) => (error = e.message))
   })
 
@@ -59,7 +69,9 @@
         if (value !== '') args[key] = value
       }
       const job = await api.submitJob({
-        workflow_path: `${workflowDir}/${name}.json`,
+        // By name, not by composed path: the server resolves a name across
+        // every source it can read, so an example runs where it lives
+        workflow_path: name,
         arguments: args,
       })
       go('jobs', job.id)
@@ -100,19 +112,29 @@
     <Copy size={14} />New from
   </button>
   <span class="spacer"></span>
+  {#if !writable}
+    <span
+      class="readonly muted"
+      title={`read-only: this workflow comes from the ${origin} directory. Saving an edit writes a copy instead of overwriting it`}
+    >
+      read-only{origin ? ` (${origin})` : ''}
+    </span>
+  {/if}
   <DownloadLink href={api.workflowDownloadUrl(name)} />
-  <button
-    class="quiet icon danger"
-    onclick={remove}
-    title="delete this workflow file from disk"
-    aria-label="delete this workflow file from disk"
-  >
-    <Trash2 size={14} />
-  </button>
+  {#if writable}
+    <button
+      class="quiet icon danger"
+      onclick={remove}
+      title="delete this workflow file from disk"
+      aria-label="delete this workflow file from disk"
+    >
+      <Trash2 size={14} />
+    </button>
+  {/if}
   <button
     class="withicon"
     onclick={run}
-    disabled={submitting || !workflow || !workflowDir}
+    disabled={submitting || !workflow}
     title="queue this workflow with the variables below"
   >
     <Play size={14} />{submitting ? 'Submitting…' : 'Run'}
@@ -162,6 +184,11 @@
 {/if}
 
 <style>
+  .readonly {
+    font-size: 0.85em;
+    align-self: center;
+  }
+
   .head {
     display: flex;
     flex-wrap: wrap;

@@ -51,6 +51,51 @@ The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`)
 
 **Critical**: Uses `multiprocessing.set_start_method("spawn")` for CUDA/MPS compatibility.
 
+### Workspaces on the server
+
+`dw.serve` can hold several workspaces under one root: the root's own
+`workflows/assets/outputs` are the `default` workspace, a named one is a
+subdirectory beside them (`named_workspace`, `create_workspace` in
+`dw/workspace.py`), and `prompts/` at the root is shared by all of them - there
+is one prompt library, because `prompt:` is shared by reference. Routes take an
+optional `workspace`; omitting it means the default, so pre-workspace calls are
+unchanged. A job carries its own `output_dir`, `asset_dir` and `workflow_dir`
+(`JobManager.submit`), so it stays in its workspace whatever the manager serves
+next; the worker activates the asset root per job (`activate_asset_dir`), which
+is the one root that could not stay process-wide. `jobs.sqlite` has a
+`workspace` column, backfilled to `default`. Reserved names: `workflows`,
+`prompts`, `assets`, `outputs`.
+
+### Workflow sources
+
+`dw/workflow_sources.py` is the server's workflow search path: the writable
+directory first (the workspace's `workflows/`), then any `--examples-dir`, each
+read-only. Reads (`listing`, `find_workflow`) span every root front-to-back so an
+earlier name shadows a later one; `PUT /api/workflows` always resolves through
+`writable_source`, so saving something opened from a read-only root writes a copy
+rather than overwriting it, and `DELETE` on a read-only root answers 403. A job
+carries the root it is confined to (`JobManager.submit(workflow_dir=...)`), so an
+examples workflow runs confined to the examples directory rather than to the
+writable one. Packaged `dw/workflows/` is off the path - it is what `builtin:`
+sub-workflow steps name, resolved in `dw/workflow.py`.
+
+### Workspaces
+
+`dw/workspace.py` resolves the one directory a run's content belongs to -
+`workflows/`, `prompts/`, `assets/`, `outputs/`. Order: `--workspace` >
+`DW_WORKSPACE` > the `workspace` setting > the working directory when it holds
+any of `workflows/`, `prompts/` or `outputs/` > `~/diffusers-workspace`. A
+checkout satisfies rule four, so every default lands where it did before
+workspaces existed. Resolution creates nothing; an entry point about to write
+calls `ensure()` (or creates the one folder it needs). `set_workspace` pins the
+root *and* how it was chosen into the environment, so a spawned worker does not
+read an inferred workspace back as one the user named - `get_prompt_dir` yields
+to its older discovery (`./prompts`, then the walk up from the workflow file)
+for an inferred workspace but not for an explicit one. `--workflow-dir`,
+`--output-dir` and `--prompt-dir` each still override one folder. See
+docs/WORKSPACES.md, and docs/proposals/workspaces.md for the later stages
+(workflow search path, run directories, `asset:`/`output:` references).
+
 ### Type System
 
 `arguments.py` + `type_helpers.py` handle dynamic type conversion during workflow loading:
@@ -60,6 +105,23 @@ The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`)
 - Values prefixed with `constant:` read a value declared in python rather than copying it
   into JSON: `"constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES"`. Resolved
   in `realize_args`, validated by `validate_constant_name()`; anything callable is refused
+- Values prefixed with `asset:` resolve to the path of a file in the asset library:
+  `"asset:iris.png"` or `"asset:gyre/frames/web.mp4"`. Resolved in `realize_args` before
+  every other convention (`dw/assets.py`), rooted at the library rather than the workflow
+  file, confined to it, and then loaded by whatever would have loaded a path written
+  there. The library is `DW_ASSET_DIR` / `--asset-dir`, else the workspace's `assets/`
+  when a workspace was named, else `./assets` if it exists, else found by walking up
+  from the workflow file's directory
+- Values prefixed with `output:` resolve to the path of a file an earlier run wrote:
+  `"output:ltx2/Gyre/latest/still.png"`. The name is `<workflow identity>/<run id>/<file>`
+  under the output root, and `latest` in the run-id position picks the newest run that
+  holds the file (run ids sort by their UTC timestamp; a failed or fully-cached run holds
+  only a manifest and is skipped). Resolved in `realize_args` beside `asset:` (`dw/runs.py`),
+  against the output root `Workflow.run` activates, and confined to it
+- A generated file becomes a stable input with `POST /api/assets/keep` (gallery "Keep as
+  asset", MCP `keep_output`): it is hard-linked, else copied, from the workspace's outputs
+  into its assets under a chosen name, so later workflows reference `asset:name` rather
+  than a run id that pruning would break
 - Values prefixed with `prompt:` load a stored prompt's `text` from the prompt library:
   `"prompt:name"` or `"prompt:folder/name"`. Resolved in `realize_args` (`dw/prompts.py`),
   rooted at the library rather than the workflow file. The library is `DW_PROMPT_DIR` /
@@ -107,9 +169,19 @@ All entry points use `dw/security.py`. When adding features:
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
 - **MPS differences from CUDA**: no autocast, no bitsandbytes, no flash_attn, no triton, no torch.compile. Model offloading has less benefit on unified memory, and `"offload": "sequential"` is downgraded to `"model"` with a warning there (`place_component`) — per-submodule streaming hands back no residency when the CPU and the accelerator share one pool. `exclude_from_cpu_offload` is sequential-only and does not survive the downgrade.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
-- **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
+- **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `asset:`, `output:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
-- **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)`; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it
+- **Run directories**: each execution writes `<output_dir>/<workflow identity>/<run id>/`
+  with a `manifest.json` beside its files (`dw/runs.py`, `Workflow.effective_output_dir`).
+  Identity is the workflow's path under a `workflows/` tree, else its file name, else its
+  `id`; the run id is `<UTC timestamp>-<8 hex of the spec>`, with a `-N` counter if taken.
+  A sub-workflow inherits the parent's run directory and writes no manifest of its own.
+  `--output-layout flat` / `DW_OUTPUT_LAYOUT` / the `output_layout` setting restores the
+  old layout. The gallery groups a workflow's runs under one folder by stripping the run
+  id (`strip_run_id`)
+- **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
+  *root*, never the per-run directory - a run directory is new every execution and would
+  defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it
 
 ## JSON Workflow Structure
 

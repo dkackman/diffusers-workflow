@@ -216,7 +216,7 @@
         enhanceError = 'The enhancement produced no text'
         return
       }
-      enhanceResult = (await fetchOutputText(file)).trim()
+      enhanceResult = (await fetchOutputText(file, detail.workspace)).trim()
     } catch (e) {
       enhanceError = e instanceof Error ? e.message : String(e)
     } finally {

@@ -15,22 +15,43 @@ import type {
   ServerInfo,
   ValidationResult,
   WorkflowDefinition,
+  WorkflowWithOrigin,
 } from './types'
 import { getApiToken } from './token'
+import { DEFAULT_WORKSPACE, workspace } from './workspace.svelte'
 
 /** Encode a workflow name for a URL, keeping its folder separators. */
 const encodePath = (name: string) =>
   name.split('/').map(encodeURIComponent).join('/')
+
+/** Append one query parameter to a URL, keeping whatever query it already
+ * has. Shared by every place that tacks a selector onto a path - the
+ * workspace scope, the download token - so there is one rule for `?` vs
+ * `&` instead of a hand-rolled check at each call site. */
+function appendQuery(url: string, key: string, value: string): string {
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}${key}=${encodeURIComponent(value)}`
+}
+
+/** Append the workspace selector to a path, keeping any query it has. The
+ * server defaults to this one when no selector is sent, so 'default' sends
+ * nothing and the request looks exactly as it did before workspaces
+ * existed. Routes that are not workspace-scoped (prompts, models, system)
+ * ignore an unknown query parameter, which is what lets this live in one
+ * place instead of being threaded through every call site. */
+function scoped(path: string): string {
+  if (workspace.current === DEFAULT_WORKSPACE) return path
+  return appendQuery(path, 'workspace', workspace.current)
+}
 
 /** Append the configured API token as a query parameter. Only for the
  * routes a browser loads without being able to set headers - EventSource,
  * <img> tags and <a download> navigations - which the server accepts it
  * on; see docs/SERVER.md. */
 function withToken(url: string): string {
+  const scopedUrl = scoped(url)
   const token = getApiToken()
-  if (!token) return url
-  const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}token=${encodeURIComponent(token)}`
+  return token ? appendQuery(scopedUrl, 'token', token) : scopedUrl
 }
 
 /** The URL an output file is served from. Jobs report files by their name
@@ -38,28 +59,110 @@ function withToken(url: string): string {
  * to '<sub>/<file>' - so the whole relative path is kept. A job recorded
  * before that change carries an absolute path, for which the basename is
  * the best available guess. `version` busts the browser cache: two runs of
- * one workflow write the same file names. */
-export function outputUrl(path: string, version?: string): string {
+ * one workflow write the same file names. `workspace`, when given, names
+ * the job's own workspace and wins over whatever is currently selected in
+ * the picker - a job page must load its files from where they were written,
+ * not from wherever the user has since navigated to. */
+export function outputUrl(
+  path: string,
+  version?: string,
+  workspace?: string,
+): string {
   const name = path.startsWith('/') ? (path.split('/').pop() ?? '') : path
   const url = `/outputs/${encodePath(name)}`
-  return version === undefined ? url : `${url}?v=${encodeURIComponent(version)}`
+  const versioned = version === undefined ? url : appendQuery(url, 'v', version)
+  if (workspace === undefined) return scoped(versioned)
+  return workspace === DEFAULT_WORKSPACE
+    ? versioned
+    : appendQuery(versioned, 'workspace', workspace)
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+const BYTES_PER_MB = 1024 * 1024
+
+/** The per-folder file counts a workspace delete answers with, as one line.
+ * Folders holding nothing are left out - the point of the count is what
+ * would actually be lost. */
+function describeContents(contents: unknown): string {
+  if (!contents || typeof contents !== 'object') return ''
+  const parts: string[] = []
+  for (const [folder, value] of Object.entries(
+    contents as Record<string, { files?: number; bytes?: number }>,
+  )) {
+    const files = Number(value?.files ?? 0)
+    if (!files) continue
+    const bytes = Number(value?.bytes ?? 0)
+    const size =
+      bytes >= BYTES_PER_MB ? ` (${(bytes / BYTES_PER_MB).toFixed(1)} MB)` : ''
+    parts.push(`${folder}: ${files} file${files === 1 ? '' : 's'}${size}`)
+  }
+  return parts.length ? parts.join(', ') : 'nothing'
+}
+
+/** The message inside an error response's `detail`. Most routes answer with
+ * a plain string, but the ones that have to say what they would do send an
+ * object instead - the workspace delete's `{message, contents}`, the
+ * not-a-workspace refusal's `{message, entries}` - and handing that straight
+ * to `new Error` shows the user '[object Object]' rather than the very
+ * numbers the confirmation exists to present. FastAPI's 422 list of
+ * validation errors gets the same treatment. */
+export function errorDetail(payload: unknown, fallback: string): string {
+  const detail = (payload as { detail?: unknown } | null)?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((entry) =>
+        entry && typeof entry === 'object'
+          ? String((entry as { msg?: unknown }).msg ?? JSON.stringify(entry))
+          : String(entry),
+      )
+      .filter(Boolean)
+    return messages.length ? messages.join('. ') : fallback
+  }
+  if (detail && typeof detail === 'object') {
+    const record = detail as Record<string, unknown>
+    const message =
+      typeof record.message === 'string' ? record.message : fallback
+    const contents = describeContents(record.contents)
+    if (contents) return `${message}\n\n${contents}`
+    if (Array.isArray(record.entries) && record.entries.length) {
+      return `${message}\n\n${record.entries.join(', ')}`
+    }
+    return message
+  }
+  return fallback
+}
+
+/** A JSON response together with its headers, for the rare endpoint whose
+ * result depends on both - `getWorkflow` reads its origin/writable from
+ * headers rather than the body. */
+async function fetchJson<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { scope?: boolean },
+): Promise<{ body: T; response: Response }> {
   const token = getApiToken()
   const headers = new Headers(init?.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(path, { ...init, headers })
+  const url = options?.scope === false ? path : scoped(path)
+  const response = await fetch(url, { ...init, headers })
   if (!response.ok) {
     let detail = response.statusText
     try {
-      detail = (await response.json()).detail ?? detail
+      detail = errorDetail(await response.json(), detail)
     } catch {
       /* not json */
     }
     throw new Error(detail)
   }
-  return response.json()
+  return { body: await response.json(), response }
+}
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { scope?: boolean },
+): Promise<T> {
+  return (await fetchJson<T>(path, init, options)).body
 }
 
 /** Fetch a file-response endpoint and hand the body to the browser as a
@@ -73,11 +176,11 @@ async function downloadResponse(
   const token = getApiToken()
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(path, { ...init, headers })
+  const response = await fetch(scoped(path), { ...init, headers })
   if (!response.ok) {
     let detail = response.statusText
     try {
-      detail = (await response.json()).detail ?? detail
+      detail = errorDetail(await response.json(), detail)
     } catch {
       /* not json */
     }
@@ -99,7 +202,11 @@ async function downloadResponse(
 export const api = {
   listWorkflows: () =>
     request<{
+      /** The writable directory - where a save lands, whatever source a
+       * workflow was read from. */
       workflow_dir: string
+      /** The search path, writable root first. */
+      sources?: { root: string; origin: string; writable: boolean }[]
       workflows: string[]
       details: Record<
         string,
@@ -109,12 +216,34 @@ export const api = {
           variables: number
           description: string
           prompt_refs?: string[]
+          /** Which source it came from: 'workspace', 'examples', 'builtin'. */
+          origin?: string
+          /** False for a read-only source: offer save-a-copy, not delete. */
+          writable?: boolean
         }
       >
     }>('/api/workflows'),
+  /** The workflow plus where it came from, read off the response headers
+   * rather than a separate `listWorkflows` lookup. */
   getWorkflow: (name: string) =>
-    request<WorkflowDefinition>(`/api/workflows/${encodePath(name)}`),
-  listJobs: () => request<{ jobs: JobSummary[] }>('/api/jobs'),
+    fetchJson<WorkflowDefinition>(`/api/workflows/${encodePath(name)}`).then(
+      ({ body, response }): WorkflowWithOrigin => ({
+        ...body,
+        origin: response.headers.get('X-Workflow-Origin') ?? '',
+        writable: response.headers.get('X-Workflow-Writable') !== 'false',
+      }),
+    ),
+  // Unscoped: the jobs list spans every workspace on purpose, with its own
+  // filter dropdown rather than following wherever the picker points.
+  // Omitting `workspace` returns jobs from all of them.
+  listJobs: (workspace?: string) =>
+    request<{ jobs: JobSummary[] }>(
+      workspace
+        ? `/api/jobs?workspace=${encodeURIComponent(workspace)}`
+        : '/api/jobs',
+      undefined,
+      { scope: false },
+    ),
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   rerunJob: (id: string) =>
     request<JobDetail>(`/api/jobs/${id}/rerun`, { method: 'POST' }),
@@ -208,6 +337,49 @@ export const api = {
       `/api/uploads?filename=${encodeURIComponent(file.name)}`,
       { method: 'POST', body: file },
     ),
+  listWorkspaces: () =>
+    request<{
+      workspace_root: string | null
+      default: string
+      workspaces: {
+        name: string
+        default: boolean
+        workflows: string
+        assets: string | null
+        outputs: string
+        prompts: string | null
+      }[]
+    }>('/api/workspaces'),
+  createWorkspace: (name: string) =>
+    request<{ name: string }>('/api/workspaces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+  /** Delete a workspace and everything in it. The server refuses without
+   * `acknowledged`, answering with what it would remove - so the caller can
+   * show that before asking again. */
+  deleteWorkspace: (name: string, acknowledged = false) =>
+    request<{ name: string; deleted: boolean }>(
+      `/api/workspaces/${encodeURIComponent(name)}?acknowledged=${acknowledged}`,
+      { method: 'DELETE' },
+    ),
+  /** Keep a generated file as an input asset under a stable name. The copy
+   * happens on the server, inside the workspace - nothing is downloaded and
+   * re-uploaded to reuse a render. */
+  keepOutput: (name: string, assetName?: string, overwrite = false) =>
+    request<{ reference: string; name: string; linked: boolean }>(
+      '/api/assets/keep',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          asset_name: assetName ?? null,
+          overwrite,
+        }),
+      },
+    ),
   listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
   describePipeline: (name: string) =>
     request<PipelineDescription>(`/api/pipelines/${name}`),
@@ -280,10 +452,16 @@ export const api = {
 }
 
 /** Fetch the text of a saved output file - how an enhancement's result
- * comes back, since the manifest only names files. */
-export async function fetchOutputText(path: string): Promise<string> {
+ * comes back, since the manifest only names files. `workspace` names the
+ * job's own workspace, for the same reason `outputUrl` takes one: the file
+ * has to be read from where the job wrote it, not from whatever the picker
+ * says now. */
+export async function fetchOutputText(
+  path: string,
+  workspace?: string,
+): Promise<string> {
   const name = path.split('/').pop() ?? ''
-  const response = await fetch(outputUrl(path))
+  const response = await fetch(outputUrl(path, undefined, workspace))
   if (!response.ok) throw new Error(`Could not read ${name}`)
   return response.text()
 }

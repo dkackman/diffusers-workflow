@@ -69,6 +69,21 @@ def resolve_token(explicit=None):
     return explicit or os.environ.get("DW_API_TOKEN") or ""
 
 
+# The workspace name every request is scoped to when the session has chosen
+# one. Not DW_WORKSPACE: that names a *directory* to the engine, where this
+# names one of a server's workspaces - two different things that would be a
+# confusing single variable
+WORKSPACE_ENV_VAR = "DW_MCP_WORKSPACE"
+
+DEFAULT_WORKSPACE = "default"
+
+
+def resolve_workspace(explicit=None):
+    """Which of the server's workspaces this session works in: the explicit
+    value, else DW_MCP_WORKSPACE, else the server's default."""
+    return explicit or os.environ.get(WORKSPACE_ENV_VAR) or DEFAULT_WORKSPACE
+
+
 def resolve_base_url(explicit=None):
     """Where dw.serve is: the explicit value, else DW_MCP_URL, else the
     default port."""
@@ -80,8 +95,19 @@ class DwClient:
     """One method per kind of REST call. Knows nothing about MCP - the tool
     handlers are plain functions over this."""
 
-    def __init__(self, base_url=None, timeout=30.0, transport=None, token=None):
+    def __init__(
+        self,
+        base_url=None,
+        timeout=30.0,
+        transport=None,
+        token=None,
+        workspace=None,
+    ):
         self.base_url = resolve_base_url(base_url)
+        # Mutable: use_workspace switches it for the rest of the session,
+        # which is what makes a switch one visible call rather than a
+        # parameter on every tool
+        self.workspace = resolve_workspace(workspace)
         self.timeout = timeout
         token = resolve_token(token)
         headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -108,6 +134,14 @@ class DwClient:
 
     def delete_json(self, path, params=None):
         return self._json(self._request("DELETE", path, params=params), path)
+
+    def post_bytes(self, path, data, params=None):
+        """Send a file's bytes as the request body - the shape
+        POST /api/uploads takes, so a single file needs no multipart
+        parser at either end."""
+        return self._json(
+            self._request("POST", path, content=data, params=params), path
+        )
 
     def get_bytes(self, path):
         """Raw body plus content type - for the output media served from the
@@ -185,13 +219,29 @@ class DwClient:
 
     def _request(self, method, path, **kwargs):
         return self._call_httpx(
-            lambda: self._http.request(method, path, **kwargs), path
+            lambda: self._http.request(method, path, **self._scoped(kwargs)), path
         )
 
+    def _scoped(self, kwargs):
+        """Add the session's workspace to a request's query string.
+
+        One place rather than a parameter on every handler: routes that are
+        not workspace-scoped (prompts, models, system) ignore an unknown
+        query parameter, and the server treats a missing selector as its
+        default - so the default workspace sends nothing and every request
+        looks exactly as it did before workspaces existed.
+        """
+        if self.workspace == DEFAULT_WORKSPACE:
+            return kwargs
+        params = dict(kwargs.get("params") or {})
+        params.setdefault("workspace", self.workspace)
+        return {**kwargs, "params": params}
+
     def _stream_request(self, method, path, **kwargs):
+        scoped = self._scoped(kwargs)
         return self._call_httpx(
             lambda: self._http.send(
-                self._http.build_request(method, path, **kwargs), stream=True
+                self._http.build_request(method, path, **scoped), stream=True
             ),
             path,
         )
@@ -250,7 +300,25 @@ class DwClient:
     def _format_detail(self, detail):
         """Format a detail from an API error response into a human-readable
         message. FastAPI validation errors (422) have detail as a list of dicts
-        with 'loc' and 'msg' keys; string details are returned verbatim."""
+        with 'loc' and 'msg' keys; a route that has to say what it would do
+        sends a dict ('message' plus 'contents' or 'entries'), which str()
+        would hand back as a Python repr; string details are returned
+        verbatim."""
+        if isinstance(detail, dict) and "message" in detail:
+            formatted = str(detail["message"])
+            contents = detail.get("contents")
+            if isinstance(contents, dict):
+                held = [
+                    f"{folder}: {value.get('files', 0)} file(s), "
+                    f"{value.get('bytes', 0)} bytes"
+                    for folder, value in contents.items()
+                    if isinstance(value, dict) and value.get("files")
+                ]
+                formatted += f" Holds {'; '.join(held) if held else 'nothing'}."
+            entries = detail.get("entries")
+            if isinstance(entries, list) and entries:
+                formatted += f" Also holds: {', '.join(str(e) for e in entries)}."
+            return formatted
         if isinstance(detail, list):
             messages = []
             for entry in detail:
@@ -267,4 +335,9 @@ class DwClient:
                 else:
                     messages.append(str(entry))
             return ". ".join(messages) if messages else str(detail)
-        return str(detail)
+        formatted = str(detail)
+        # When a workspace was deleted elsewhere, give the agent a path
+        # to recovery: list available workspaces and switch to one
+        if isinstance(detail, str) and detail.startswith("No such workspace"):
+            formatted += " - list_workspaces shows what exists; use_workspace switches."
+        return formatted

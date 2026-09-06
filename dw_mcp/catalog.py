@@ -7,8 +7,10 @@ from dw_mcp.client import api_path
 
 
 def list_workflows(client):
-    """Workflow names in the server's workflow directory, with details -
-    description, output kinds and variable names per workflow."""
+    """Workflow names the server can reach, with details - description,
+    output kinds and variable names per workflow, plus which source each came
+    from and whether it can be written to (a read-only examples directory
+    can be read and run, but not saved over or deleted)."""
     return client.get_json("/api/workflows")
 
 

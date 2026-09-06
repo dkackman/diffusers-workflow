@@ -8,7 +8,14 @@ past generations in a gallery, and manage the models on disk.
 ```bash
 python -m dw.serve                       # http://127.0.0.1:8765
 python -m dw.serve --port 8000 --workflow-dir ./workflows --output-dir ./outputs --prompt-dir ./prompts
+
+# or point it at a workspace, which supplies all four directories
+python -m dw.serve --workspace ~/studio
+
+# your own workflows, with a checkout's examples alongside them read-only
+python -m dw.serve --workspace ~/studio --examples-dir ~/src/diffusers-workflow/workflows
 python -m dw.serve --host 0.0.0.0 --token "some-long-random-string"   # reachable off this machine
+python -m dw.serve --host 0.0.0.0 --token "..." --mcp   # ...and drivable by an agent on another machine
 python -m dw.serve --trust-workflows      # only if nothing untrusted can reach POST /api/jobs - see Security model
 ```
 
@@ -21,10 +28,13 @@ load entirely.
 
 ## The pages
 
-- **Workflows** — every JSON file under `--workflow-dir`, as cards with
-  descriptions, output kinds, and variable counts. Folders one level deep
-  become sections. Click through to a run form generated from the workflow's
-  variables, with the raw JSON alongside.
+- **Workflows** — every workflow on the search path (the workspace's own
+  `--workflow-dir` first, then any `--examples-dir`, read-only), as cards
+  with descriptions, output kinds, and variable counts. Folders one level
+  deep become sections. Click through to a run form generated from the
+  workflow's variables, with the raw JSON alongside. When the server holds
+  more than one workspace, a picker here chooses which one's workflows are
+  listed and where a save lands.
 - **Prompts** — the prompt library under `--prompt-dir` (default: discovered
   the way a CLI run discovers it, then pinned for every job, so the page and
   `prompt:` resolution always agree): stored prompts as
@@ -36,7 +46,9 @@ load entirely.
   argument written as `prompt:name` loads the stored text at run time,
   and deleting a prompt warns which workflows reference it.
 - **Jobs** — the queue and full run history (persisted in
-  `~/.diffusers_helper/jobs.sqlite`). A running job streams step-by-step
+  `~/.diffusers_helper/jobs.sqlite`), spanning every workspace with a filter
+  to narrow to one; each job says which workspace it ran in, and keeps it
+  through a rerun. A running job streams step-by-step
   progress, per-step denoising ticks, what each step is doing when it is not
   denoising (loading a model, decoding, saving), and its result files as
   they land.
@@ -58,14 +70,21 @@ load entirely.
   literal `num_images_per_prompt` on both producers). It's a diagram of
   the JSON, not a second way to edit it; clicking a step jumps to it in
   the form view.
-- **Gallery** — everything in the output directory. Images generated with
+- **Gallery** — everything in the selected workspace's output directory,
+  which the engine lays out as `<workflow>/<run id>/`. The folder filter groups a workflow's runs
+  together rather than listing each run separately, and each run directory
+  also holds a `manifest.json` describing what produced it (see
+  [Workspaces](WORKSPACES.md#runs)). Images generated with
   `embed_metadata` carry their full workflow definition and seed; **open as
   workflow** loads that definition into the editor with the seed pinned, so
   any image can be reproduced or riffed on. Each tile carries a checkbox
   (shift-click extends a range, **Select all** takes whatever the filter
   leaves showing); a selection can be downloaded as one zip or deleted in
   bulk, which is how a directory that fills up over a few hundred runs gets
-  cleared out. Anything that fails to delete stays selected.
+  cleared out. Anything that fails to delete stays selected. **Keep as
+  asset** promotes one generated file into the workspace's asset library
+  under a stable name, so a later workflow can reference it as
+  `asset:<name>` instead of a run id that pruning would break.
 - **Models** — the Hugging Face hub cache: every cached repo with sizes,
   revisions, and last-used dates, plus free disk space. Download a repo by
   id with live progress (cancellable; partial files resume on retry), and
@@ -75,10 +94,37 @@ load entirely.
   upgrade it to GitHub HEAD - new model pipelines usually land there
   before a PyPI release. The idle worker restarts on success so the next
   job imports the new version; the upgrade is refused while a job runs.
+- **Server** — what this server is and how to reach it: device, version,
+  bind address and LAN addresses, whether a token is required, whether
+  `/mcp` is mounted (with the `claude mcp add` line to connect to it), the
+  directories in use, and the workspaces on this server — created and
+  deleted from here.
 - **Schema** — the workflow JSON schema the running server validates
   against, as a browsable tree: the document root plus every definition,
   with types, required markers, defaults, enums, and descriptions.
   `$ref` labels jump to their definition; a filter narrows the list.
+
+## Workspaces
+
+One server can hold several workspaces — each with its own `workflows/`,
+`assets/` and `outputs/`, all sharing the root's one prompt library. The
+root's own folders are the workspace named `default`.
+
+Every scoped route takes an optional `?workspace=<name>`; omitting it means
+`default`, so nothing written against a single-workspace server changes
+meaning. `POST /api/jobs` also accepts `"workspace"` in the body, and a job
+holds onto the directories it was submitted with — through the run, a rerun,
+and when history serves its files back. `GET /api/jobs` spans every workspace
+unless one is named.
+
+A workspace is a namespace, not a security boundary: the API token is
+all-or-nothing. See [Workspaces](WORKSPACES.md#several-workspaces-on-one-server).
+
+The Server page lists them, creates them, and deletes them - beside the
+directories it resolved and the `claude mcp add` line for connecting an agent
+from another machine:
+
+![The Server page: address picker, generated claude mcp add line, resolved directories, and the workspace list](img/ui-server-dark.png)
 
 ## Jobs API
 
@@ -170,15 +216,37 @@ The editor's forms come from these; they are just as usable from scripts:
   throttles a burst of single downloads, so the gallery's bulk download
   goes through here; an unknown or out-of-directory name 404s the whole
   request rather than yielding a partial archive
-- `POST /api/uploads?filename=...` — the raw bytes of one image or video
+- `GET /api/workspaces`, `POST /api/workspaces` (`{"name": ...}`),
+  `DELETE /api/workspaces/{name}?acknowledged=true` — the workspaces on this
+  server. The workspace root's own `workflows/assets/outputs` are the
+  `default` workspace and a named one is a subdirectory beside them, sharing
+  the root's one prompt library. Delete answers with what it would remove and
+  refuses until acknowledged, refuses the default, and refuses a workspace
+  with jobs still queued. A workspace is a namespace, **not** a security
+  boundary: the API token is all-or-nothing
+- `GET /api/assets` — the asset library: input media, each with the
+  `asset:` reference a workflow carries rather than a path, since a path
+  only means something on the server's own machine. Empty rather than an
+  error when no library is configured
+- `POST /api/assets/keep` (`{"name": ..., "asset_name": ..., "overwrite": false}`)
+  — keep a generated file as an input asset under a stable name, returning
+  its `asset:` reference. A run's files are named by the run that made them,
+  which is the wrong thing for a later workflow to depend on: `latest` moves
+  and a pinned run id breaks when outputs are pruned. The copy happens inside
+  the workspace and is a hard link where the filesystem allows one, so
+  keeping one frame of a large render costs no second copy of it. Refuses an
+  existing name unless `overwrite`
+- `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
   again on the body; extension held to the allowed image/video list), saved
-  into the output directory's `uploads/` subfolder under a generated name.
-  Answers 201 with `path` - the absolute path, which is the string shape a
-  workflow's `image`/`video` argument already takes - and `url`, the same
-  file under the `/outputs` mount. This is how the UI's file pickers get a
-  local file onto the machine that will run the workflow. The body is the
-  file itself, so no multipart parser is needed for a single-file upload
+  into the asset library's `uploads/` subfolder under a generated name.
+  Answers 201 with `path` - `asset:uploads/<name>`, the reference a saved
+  workflow can carry and still resolve on a later run - and `url`, the same
+  file under the `/inputs` mount, for the editor's preview. A server started
+  without an asset library falls back to the output directory's `uploads/`
+  and an absolute path. This is how the UI's file pickers get a local file
+  onto the machine that will run the workflow. The body is the file itself,
+  so no multipart parser is needed for a single-file upload
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,

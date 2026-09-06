@@ -6,7 +6,9 @@ real workflows/ and prompts/ folders meant a failed run could leave scratch
 files in the repo - or, on a locator mismatch, delete a real one. The copy
 keeps every example the specs look for while confining what they write.
 The prompt directory is passed explicitly: the server would otherwise
-discover ./prompts in the working directory - the real library.
+discover ./prompts in the working directory - the real library. The scratch
+directory is also the workspace, so the asset library the server creates and
+uploads into lands there rather than in the checkout.
 
 Extra arguments (--port ...) pass through to dw.serve. The process replaces
 itself with the server so Playwright's shutdown signal reaches it directly.
@@ -24,6 +26,7 @@ for name in ("workflows", "prompts"):
     shutil.copytree(os.path.join(root, name), os.path.join(scratch, name))
 outputs = os.path.join(scratch, "outputs")
 os.makedirs(outputs)
+os.makedirs(os.path.join(scratch, "assets"))
 
 # Two throwaway PNGs so the gallery specs have something to select. A 1x1
 # image written by hand rather than by PIL - the fixture runs before the
@@ -43,6 +46,8 @@ os.execv(
         sys.executable,
         "-m",
         "dw.serve",
+        "--workspace",
+        scratch,
         "--workflow-dir",
         os.path.join(scratch, "workflows"),
         "--output-dir",

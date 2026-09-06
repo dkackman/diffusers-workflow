@@ -1056,6 +1056,150 @@ def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):
         assert fetched.content == b"not-really-png-bytes"
 
 
+@pytest.fixture
+def asset_server(tmp_path):
+    """A server with an asset library configured, which is where uploads go."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    assets = tmp_path / "assets"
+    assets.mkdir()
+
+    def make(script):
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+        )
+        app = create_app(
+            workflow_dir=str(workflow_dir),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            asset_dir=str(assets),
+        )
+        return TestClient(app, base_url="http://localhost")
+
+    return make
+
+
+def test_upload_media_lands_in_the_asset_library(asset_server, tmp_path):
+    """An upload is input, so it belongs in the asset library rather than
+    among generated output - and comes back as the reference a saved workflow
+    can carry, not as a path that only means something on this machine."""
+    with asset_server(success_script) as client:
+        response = client.post(
+            "/api/uploads",
+            params={"filename": "source-image.png"},
+            content=b"not-really-png-bytes",
+        )
+        assert response.status_code == 201
+        body = response.json()
+
+        saved = tmp_path / "assets" / "uploads"
+        files = list(saved.iterdir())
+        assert len(files) == 1
+        assert files[0].read_bytes() == b"not-really-png-bytes"
+        assert body["path"] == f"asset:uploads/{files[0].name}"
+        assert body["url"] == f"/inputs/uploads/{files[0].name}"
+        assert not (tmp_path / "outputs" / "uploads").exists()
+
+        # served back for the editor's preview, through its own static mount
+        fetched = client.get(body["url"])
+        assert fetched.status_code == 200
+        assert fetched.content == b"not-really-png-bytes"
+
+
+def test_the_asset_library_does_not_shadow_the_spa(tmp_path):
+    """The SPA's own bundles live under /assets/ - Vite's default. An asset
+    library mounted there would serve the library instead, and the page
+    would load and then render nothing, which is exactly what happened
+    before the library moved to /inputs."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    assets = tmp_path / "assets"
+    (assets / "uploads").mkdir(parents=True)
+    (assets / "uploads" / "decoy.js").write_text("the asset library")
+    ui = tmp_path / "ui"
+    (ui / "assets").mkdir(parents=True)
+    (ui / "index.html").write_text("<!doctype html><title>dw</title>")
+    (ui / "assets" / "index-abc123.js").write_text("the app bundle")
+
+    app = create_app(
+        workflow_dir=str(workflows),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+        ),
+        asset_dir=str(assets),
+        ui_dir=str(ui),
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        bundle = client.get("/assets/index-abc123.js")
+        assert bundle.status_code == 200
+        assert bundle.text == "the app bundle"
+        # and the library is still reachable, under its own prefix
+        served = client.get("/inputs/uploads/decoy.js")
+        assert served.status_code == 200
+        assert served.text == "the asset library"
+
+
+def test_the_asset_library_lists_what_it_holds(asset_server, tmp_path):
+    """Listed by reference, not by path: 'asset:uploads/x.png' is what a
+    workflow argument carries, and a path means nothing to a client that is
+    not on this machine."""
+    library = tmp_path / "assets"
+    (library / "gyre").mkdir(parents=True)
+    (library / "iris.png").write_bytes(b"png")
+    (library / "gyre" / "voice.wav").write_bytes(b"riff")
+    (library / "notes.txt").write_text("not media")
+
+    with asset_server(success_script) as client:
+        body = client.get("/api/assets").json()
+
+    names = {entry["name"]: entry for entry in body["assets"]}
+    assert set(names) == {"iris.png", "gyre/voice.wav"}
+    assert names["iris.png"]["reference"] == "asset:iris.png"
+    assert names["gyre/voice.wav"]["kind"] == "audio"
+    assert body["folders"] == ["", "gyre"]
+
+
+def test_listing_assets_without_a_library_is_empty_not_an_error(server):
+    with server(success_script) as client:
+        body = client.get("/api/assets").json()
+    assert body["assets"] == []
+    assert body["asset_dir"] is None
+
+
+def test_an_audio_file_can_be_uploaded(asset_server, tmp_path):
+    """A workflow's audio reference is built from a .wav - refusing it would
+    leave one input kind with no way onto the machine."""
+    with asset_server(success_script) as client:
+        response = client.post(
+            "/api/uploads", params={"filename": "voice.wav"}, content=b"riff"
+        )
+    assert response.status_code == 201
+    assert response.json()["path"].startswith("asset:uploads/")
+    assert response.json()["path"].endswith(".wav")
+
+
+def test_the_asset_library_is_reported(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        directories = client.get("/api/server").json()["directories"]
+        assert directories["assets"] == str(tmp_path / "assets")
+
+
+def test_without_an_asset_library_uploads_keep_the_old_shape(server, tmp_path):
+    with server(success_script) as client:
+        body = client.post(
+            "/api/uploads",
+            params={"filename": "source-image.png"},
+            content=b"bytes",
+        ).json()
+        assert os.path.isabs(body["path"])
+        assert body["url"].startswith("/outputs/uploads/")
+
+
 def test_upload_media_rejects_disallowed_extension(server):
     with server(success_script) as client:
         response = client.post(
@@ -1107,8 +1251,130 @@ def test_workflow_listing_carries_details(server):
             "variable_names": ["prompt"],
             "description": "Renders a small test image.",
             "prompt_refs": [],
+            # where it came from, and whether a client should offer save and
+            # delete for it or only save-a-copy
+            "origin": "workspace",
+            "writable": True,
         }
         assert listing["details"]["Basic"]["kinds"] == []
+
+
+@pytest.fixture
+def examples_server(tmp_path):
+    """A server whose workspace library is empty and whose examples come
+    from a second, read-only directory."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    examples = tmp_path / "examples"
+    (examples / "ltx2").mkdir(parents=True)
+    (examples / "ltx2" / "Gyre.json").write_text(json.dumps(valid_workflow("gyre")))
+
+    def make(script):
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+            workflow_dir=str(workflows),
+        )
+        app = create_app(
+            workflow_dir=str(workflows),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            examples_dirs=[str(examples)],
+        )
+        return TestClient(app, base_url="http://localhost")
+
+    return make
+
+
+def test_examples_are_listed_read_only(examples_server):
+    with examples_server(success_script) as client:
+        listing = client.get("/api/workflows").json()
+        assert listing["workflows"] == ["ltx2/Gyre"]
+        assert listing["details"]["ltx2/Gyre"]["origin"] == "examples"
+        assert listing["details"]["ltx2/Gyre"]["writable"] is False
+        # the writable root is still what a save targets, and is named first
+        assert listing["sources"][0]["writable"] is True
+        assert listing["sources"][1]["origin"] == "examples"
+
+        # and it reads like any other workflow
+        assert client.get("/api/workflows/ltx2/Gyre").status_code == 200
+
+
+def test_get_workflow_reports_origin_headers(examples_server, tmp_path):
+    """The editor reads these to offer save-in-place only for a writable
+    source, save-a-copy otherwise."""
+    with examples_server(success_script) as client:
+        example = client.get("/api/workflows/ltx2/Gyre")
+        assert example.headers["x-workflow-origin"] == "examples"
+        assert example.headers["x-workflow-writable"] == "false"
+
+        client.put("/api/workflows/Mine", json={"workflow": valid_workflow("mine")})
+        mine = client.get("/api/workflows/Mine")
+        assert mine.headers["x-workflow-origin"] == "workspace"
+        assert mine.headers["x-workflow-writable"] == "true"
+
+
+def test_saving_an_example_copies_it_into_the_writable_library(
+    examples_server, tmp_path
+):
+    """Open an example, change it, save: the copy lands in the user's own
+    library and shadows the example from then on - the example itself is
+    untouched."""
+    with examples_server(success_script) as client:
+        original = json.loads(
+            (tmp_path / "examples" / "ltx2" / "Gyre.json").read_text()
+        )
+        edited = json.loads(json.dumps(original))
+        edited["description"] = "my version"
+
+        response = client.put("/api/workflows/ltx2/Gyre", json={"workflow": edited})
+        assert response.status_code == 200
+        assert response.json()["path"] == str(
+            tmp_path / "workflows" / "ltx2" / "Gyre.json"
+        )
+        # the example on disk did not move or change
+        assert (
+            json.loads((tmp_path / "examples" / "ltx2" / "Gyre.json").read_text())
+            == original
+        )
+
+        listing = client.get("/api/workflows").json()
+        assert listing["details"]["ltx2/Gyre"]["origin"] == "workspace"
+        assert client.get("/api/workflows/ltx2/Gyre").json()["description"] == (
+            "my version"
+        )
+
+
+def test_an_example_cannot_be_deleted(examples_server, tmp_path):
+    with examples_server(success_script) as client:
+        response = client.delete("/api/workflows/ltx2/Gyre")
+        assert response.status_code == 403
+        assert "read-only" in response.json()["detail"]
+        assert (tmp_path / "examples" / "ltx2" / "Gyre.json").exists()
+
+
+def test_an_example_can_be_validated_and_run(examples_server):
+    with examples_server(success_script) as client:
+        assert client.post("/api/validate", json={"workflow_path": "ltx2/Gyre"}).json()[
+            "valid"
+        ]
+
+        response = client.post("/api/jobs", json={"workflow_path": "ltx2/Gyre"})
+        assert response.status_code == 201
+        detail = wait_for_status(client, response.json()["id"], {"succeeded", "failed"})
+        assert detail["status"] == "succeeded"
+
+
+def test_a_workflow_outside_every_source_is_refused(examples_server, tmp_path):
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps(valid_workflow("outside")))
+    with examples_server(success_script) as client:
+        assert (
+            client.post("/api/jobs", json={"workflow_path": str(outside)}).status_code
+            == 400
+        )
+        assert client.get("/api/workflows/outside").status_code == 404
 
 
 def test_workflow_details_name_their_prompt_references(server):

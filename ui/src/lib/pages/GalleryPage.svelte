@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { ImageOff, FolderOpen, Trash2, X, Download } from '@lucide/svelte'
+  import {
+    Bookmark,
+    ImageOff,
+    FolderOpen,
+    Trash2,
+    X,
+    Download,
+  } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
@@ -8,6 +15,8 @@
   import { SvelteSet } from 'svelte/reactivity'
   import { notify } from '../toast'
   import type { GalleryFile } from '../types'
+  import WorkspacePicker from '../WorkspacePicker.svelte'
+  import { workspace } from '../workspace.svelte'
 
   let files = $state<GalleryFile[]>([])
   let loaded = $state(false)
@@ -23,6 +32,8 @@
   let sourceJob = $state<{ id: string; status: string } | null>(null)
 
   $effect(() => {
+    // Read inside the effect so switching workspaces refetches the gallery
+    void workspace.current
     api
       .gallery()
       .then((result) => {
@@ -33,6 +44,41 @@
       .catch((e) => (error = e.message))
       .finally(() => (loaded = true))
   })
+
+  /** Keep this file as an input asset, so a later workflow can name it
+   * without depending on the run that made it. */
+  async function keepAsAsset() {
+    if (!selected) return
+    const suggestion = selected.name.split('/').pop() ?? selected.name
+    const assetName = window.prompt(
+      'Keep as asset — name in the asset library:',
+      suggestion,
+    )
+    if (!assetName) return
+    try {
+      const result = await api.keepOutput(selected.name, assetName)
+      notify.success(`Kept as ${result.reference}`)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      // The server refuses an existing name rather than replacing it; the
+      // choice to replace belongs to the person, not the button
+      if (
+        message.includes('already exists') &&
+        window.confirm(`${message}\n\nReplace it?`)
+      ) {
+        try {
+          const result = await api.keepOutput(selected.name, assetName, true)
+          notify.success(`Kept as ${result.reference}`)
+        } catch (failure) {
+          notify.error(
+            failure instanceof Error ? failure.message : String(failure),
+          )
+        }
+      } else {
+        notify.error(message)
+      }
+    }
+  }
 
   const visible = $derived(
     files.filter((f) => f.name.toLowerCase().includes(filter.toLowerCase())),
@@ -211,6 +257,7 @@
 
 <div class="head">
   <h1>Gallery</h1>
+  <WorkspacePicker />
   <span class="muted">{files.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
 </div>
@@ -306,6 +353,13 @@
           <FolderOpen size={14} />Open as workflow
         </button>
       {/if}
+      <button
+        class="withicon"
+        onclick={keepAsAsset}
+        title="keep this file as an input asset, under a name later workflows can use"
+      >
+        <Bookmark size={14} />Keep as asset
+      </button>
       <a
         href={selected.url}
         target="_blank"

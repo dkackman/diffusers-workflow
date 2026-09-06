@@ -1,0 +1,371 @@
+"""A run: the directory one execution of a workflow writes into, and the
+manifest it leaves behind.
+
+Output used to be laid out by where the workflow file sits - the subfolder
+mirrored its position under the nearest directory literally named 'workflows',
+so the *shape of a checkout* was the grouping key, and a workflow moved out of
+that tree silently flattened. A run directory replaces that with the
+workflow's own identity plus one directory per execution:
+
+    <output_dir>/<identity>/<run id>/
+        <the files the run wrote>
+        manifest.json
+
+Everything one execution produced - intermediates, finals, and the record of
+what made them - lands in one place, prunable and addressable as a unit, and
+a rerun can no longer interleave its files with an earlier one's.
+
+The old flat-ish layout stays available: DW_OUTPUT_LAYOUT=flat, an
+'output_layout' setting of "flat", or --output-layout flat on dw.run and
+dw.serve, for a caller whose scripts glob the output directory.
+"""
+
+import contextvars
+import hashlib
+import json
+import logging
+import os
+import re
+from datetime import datetime, timezone
+
+logger = logging.getLogger("dw")
+
+RUN_LAYOUT = "run"
+FLAT_LAYOUT = "flat"
+LAYOUTS = (RUN_LAYOUT, FLAT_LAYOUT)
+
+# Set by an entry point, and inherited by a spawned worker the way
+# DW_PROMPT_DIR and DW_ASSET_DIR are
+OUTPUT_LAYOUT_ENV_VAR = "DW_OUTPUT_LAYOUT"
+
+MANIFEST_FILE_NAME = "manifest.json"
+
+# The prefix marking a value as a reference to a file an earlier run wrote.
+# Like 'asset:', it stands for a path - what a previous run made is an input
+# like any other, and multi-stage work is what a workflow engine is for
+OUTPUT_PREFIX = "output:"
+
+# The segment that means "the newest run of this workflow that has the
+# file", so a workflow can name the stage before it without being edited
+# after every run - see _resolve_segments for why it is not simply the
+# newest run directory
+LATEST = "latest"
+
+# What a run id looks like: a UTC timestamp and a short digest of the spec.
+# The pattern is not only documentation - the gallery reads it to group a
+# workflow's runs under one folder rather than listing every run separately
+# The trailing counter appears only when two runs of the same spec start in
+# the same second - see run_directory
+RUN_ID_PATTERN = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{8}(-\d+)?$")
+
+# Characters allowed in a path segment derived from a workflow's name or file
+_UNSAFE_SEGMENT_CHARACTERS = re.compile(r"[^A-Za-z0-9_.-]+")
+
+# The synthetic file name workflow_from_definition gives an inline workflow -
+# it carries a directory, not an identity
+INLINE_FILE_NAME = "__inline__"
+
+
+# The output root of the run in progress, so an 'output:' reference resolves
+# against the directory this run was told to write to rather than guessing
+# one. Set by Workflow.run; a reference realized outside any run falls back
+# to the workspace's outputs
+_active_output_root = contextvars.ContextVar("dw_output_root", default=None)
+
+
+def activate_output_root(root):
+    """Make an output root the active one; returns a token for deactivate."""
+    return _active_output_root.set(root)
+
+
+def deactivate_output_root(token):
+    _active_output_root.reset(token)
+
+
+def output_root():
+    """The output directory 'output:' references resolve against."""
+    active = _active_output_root.get()
+    if active:
+        return active
+
+    from .workspace import resolve_workspace
+
+    return resolve_workspace().outputs
+
+
+def is_output_reference(value):
+    """Whether a value references a file an earlier run wrote."""
+    return isinstance(value, str) and value.startswith(OUTPUT_PREFIX)
+
+
+def _runs_newest_first(directory):
+    """The run directories inside a workflow's output folder, newest first.
+
+    Run ids start with a UTC timestamp, so sort order is age order - no stat
+    calls, and no dependence on mtimes that a copy would have rewritten
+    anyway. Empty when the directory holds no runs, or is not there.
+    """
+    try:
+        return sorted(
+            (
+                name
+                for name in os.listdir(directory)
+                if is_run_id(name) and os.path.isdir(os.path.join(directory, name))
+            ),
+            reverse=True,
+        )
+    except OSError:
+        return []
+
+
+def _resolve_segments(directory, parts, reference, root):
+    """Build the path a name stands for, expanding 'latest' where it names
+    a run.
+
+    'latest' means the newest run *that has the file*, not the newest run
+    directory: a run that failed part way, or one whose every step was a
+    cache hit, leaves a directory holding only its manifest, and a
+    second-stage workflow pointed at that would find nothing where the
+    stage before it plainly produced something. So the runs are tried
+    newest first and the first one holding the rest of the name wins.
+
+    Only a segment standing where run directories are is a run selector. A
+    'latest' segment in a directory that holds no runs is a name like any
+    other, so a workflow or a file called 'latest' stays reachable.
+
+    Returns the path, or None when runs were found and none of them holds
+    the file.
+    """
+    if not parts:
+        return directory
+    part, rest = parts[0], parts[1:]
+    if part == LATEST:
+        runs = _runs_newest_first(directory)
+        if runs:
+            for run in runs:
+                candidate = _resolve_segments(
+                    os.path.join(directory, run), rest, reference, root
+                )
+                if candidate and os.path.isfile(candidate):
+                    return candidate
+            return None
+        if not os.path.exists(os.path.join(directory, part)):
+            raise ValueError(
+                f"No runs yet under {os.path.relpath(directory, root)} - "
+                f"'{reference}' names the newest run of a workflow that "
+                f"has not produced one"
+            )
+    return _resolve_segments(os.path.join(directory, part), rest, reference, root)
+
+
+def resolve_output_reference(reference, root=None):
+    """Resolve an 'output:' reference to the file it names.
+
+    The name is a path under the output directory - '<workflow>/<run
+    id>/<file>' - and the run id may be written as 'latest', which resolves
+    to the newest run of that workflow that holds the file. That is what
+    lets a second-stage workflow name the first stage's product without
+    being edited after every run, and without breaking when the newest run
+    failed or reused cached files and so wrote none of its own.
+
+    Args:
+        reference: The 'output:...' string
+        root: The output directory to resolve against; defaults to the run
+            in progress, else the workspace's outputs
+
+    Returns:
+        The validated absolute path of the file
+
+    Raises:
+        InvalidInputError: If the name is not a valid output name
+        PathTraversalError: If the name escapes the output directory
+        ValueError: If no such run or file exists
+    """
+    from .security import validate_output_reference, validate_path
+
+    name = validate_output_reference(reference.removeprefix(OUTPUT_PREFIX).strip())
+    root = root or output_root()
+
+    resolved = _resolve_segments(root, name.split("/"), reference, root)
+    if resolved is None:
+        raise ValueError(
+            f"Output '{name}' not found under {root} - no run of that workflow "
+            f"holds the file. A run that failed, or reused every step from the "
+            f"cache, leaves only its manifest behind"
+        )
+    # Containment is checked once, on the whole path, after 'latest' has
+    # been expanded - so what is validated is the real directory it named.
+    # The segments themselves were pattern-checked, so this guards symlinks
+    resolved = validate_path(resolved, root)
+
+    if not os.path.isfile(resolved):
+        raise ValueError(
+            f"Output '{name}' not found under {root} - an 'output:' reference "
+            f"names a file an earlier run wrote, like "
+            f"'output:ltx2/Gyre/latest/Gyre-still.0-0.0.png'"
+        )
+    logger.debug(f"Resolved {reference} to {resolved}")
+    return resolved
+
+
+def fetch_output(reference, root=None):
+    """The path an 'output:' reference names, for whatever loads paths."""
+    return resolve_output_reference(reference, root)
+
+
+def output_layout():
+    """Whether runs get their own directory ('run') or write into the output
+    directory the way they did before ('flat').
+
+    Read at call time so a worker subprocess and a test see the current
+    value, the same as every other directory question.
+    """
+    from_environment = os.environ.get(OUTPUT_LAYOUT_ENV_VAR)
+    if from_environment in LAYOUTS:
+        return from_environment
+
+    from .settings import load_settings
+
+    from_settings = load_settings().output_layout
+    return from_settings if from_settings in LAYOUTS else RUN_LAYOUT
+
+
+def set_output_layout(layout):
+    """Pin the layout for this process and anything it spawns."""
+    if layout not in LAYOUTS:
+        raise ValueError(f"Unknown output layout: {layout}")
+    os.environ[OUTPUT_LAYOUT_ENV_VAR] = layout
+    return layout
+
+
+def _safe_segment(text):
+    cleaned = _UNSAFE_SEGMENT_CHARACTERS.sub("_", str(text)).strip("._")
+    return cleaned or "workflow"
+
+
+def workflow_identity(file_spec, workflow_id=None):
+    """What names this workflow's outputs, as a relative path.
+
+    A workflow's position under a 'workflows' tree still reads as its
+    identity when it has one - 'workflows/ltx2/Gyre.json' is 'ltx2/Gyre' -
+    because that is the organization a user already chose. Outside such a
+    tree the file's own name is the identity, and an inline definition,
+    which has no file, is named by its workflow id.
+
+    The result is always a relative path of safe segments: it is joined onto
+    the output directory, and nothing about it is allowed to leave.
+    """
+    name = None
+    subfolder = ""
+    if file_spec:
+        base = os.path.basename(file_spec)
+        stem = os.path.splitext(base)[0]
+        if stem and stem != INLINE_FILE_NAME:
+            name = stem
+        directory = os.path.dirname(os.path.abspath(file_spec))
+        parts = os.path.normpath(directory).split(os.sep)
+        try:
+            # The last 'workflows' segment wins, matching the packaged
+            # dw/workflows tree when a checkout has a top-level one too
+            index = len(parts) - 1 - parts[::-1].index("workflows")
+        except ValueError:
+            index = None
+        if index is not None and index + 1 < len(parts):
+            subfolder = os.path.join(*(_safe_segment(p) for p in parts[index + 1 :]))
+
+    name = _safe_segment(name or workflow_id or "workflow")
+    return os.path.join(subfolder, name) if subfolder else name
+
+
+def new_run_id(spec=None, now=None):
+    """An identifier for one execution: a UTC timestamp, then eight hex
+    digits of the spec that produced it.
+
+    The timestamp is what sorts and what a person reads; the digest is what
+    tells two runs of the same second apart and makes a rerun of an edited
+    workflow visibly different from a rerun of the same one. A server job
+    could have used its job id, but a CLI run has none, and one scheme
+    everywhere is what lets anything reading the directory tree - the
+    gallery, a future history rebuild - understand both.
+    """
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d-%H%M%S")
+    try:
+        material = json.dumps(spec, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        material = repr(spec)
+    digest = hashlib.sha256(material.encode("utf-8", "replace")).hexdigest()[:8]
+    return f"{stamp}-{digest}"
+
+
+def is_run_id(segment):
+    """Whether a path segment is a run id this module generated."""
+    return bool(RUN_ID_PATTERN.match(segment or ""))
+
+
+def strip_run_id(relative_path):
+    """The workflow identity a run-relative path belongs to.
+
+    'ltx2/Gyre/20260905-181530-a1b2c3d4/still-0.png' -> 'ltx2/Gyre'. A path
+    with no run id in it comes back with its own directory unchanged, which
+    is what a flat-layout output does.
+    """
+    parts = [part for part in (relative_path or "").split("/") if part]
+    directory = parts[:-1]
+    if directory and is_run_id(directory[-1]):
+        directory = directory[:-1]
+    return "/".join(directory)
+
+
+def run_directory(output_dir, file_spec, workflow_id, run_id):
+    """Where one execution writes: <output_dir>/<identity>/<run id>.
+
+    One execution gets one directory, so a run id already taken - two runs
+    of the same spec started in the same second, which is what a quick
+    rerun is - takes a counter rather than writing into the earlier run's
+    directory and burying its manifest.
+    """
+    base = os.path.join(output_dir, workflow_identity(file_spec, workflow_id), run_id)
+    candidate = base
+    counter = 1
+    while os.path.exists(candidate):
+        counter += 1
+        candidate = f"{base}-{counter}"
+    return candidate
+
+
+def write_manifest(run_dir, manifest):
+    """Record what a run did, beside what it made.
+
+    A server run is already in jobs.sqlite, but a CLI run has never been
+    recorded anywhere, and history that lives only in a database cannot
+    survive the directory being moved to another machine. Never fatal: a
+    run that produced its files has succeeded whether or not this lands.
+    """
+    path = os.path.join(run_dir, MANIFEST_FILE_NAME)
+    try:
+        os.makedirs(run_dir, exist_ok=True)
+        with open(path, "w") as file:
+            json.dump(manifest, file, indent=2, default=str)
+    except OSError as e:
+        logger.warning(f"Could not write {path}: {e}")
+        return None
+    return path
+
+
+def manifest_relative_files(files, run_dir):
+    """A run's file paths as the manifest records them: relative to the run
+    directory, so the directory can be moved or copied and still describe
+    itself. A file from an earlier run - what a step cache hit republishes -
+    is outside this directory and stays absolute.
+    """
+    recorded = []
+    for path in files or []:
+        try:
+            relative = os.path.relpath(path, run_dir)
+        except ValueError:  # different drive on Windows
+            recorded.append(path)
+            continue
+        recorded.append(
+            path if relative.startswith(os.pardir) else relative.replace(os.sep, "/")
+        )
+    return recorded

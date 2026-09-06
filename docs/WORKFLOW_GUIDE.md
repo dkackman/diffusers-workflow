@@ -918,6 +918,75 @@ always resolves to exactly one string: it never multiplies a step's iterations t
 reference prefix such as `variable:` - the engine refuses it rather than resolving
 text as syntax.
 
+### Asset References
+
+A workflow's plain media paths resolve against the workflow file's own directory, which
+means a workflow that reads anything has to keep that thing beside it. An `asset:`
+reference is rooted at the asset library instead - the workspace's `assets/` folder -
+so a workflow and the media it reads do not have to live in the same place:
+
+```json
+"image": "asset:iris.png",
+"video": "asset:gyre/frames/web.mp4",
+"references": [
+    {
+        "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+        "from_file": "asset:subject.png"
+    }
+]
+```
+
+A reference names a file with its extension, at most four folders deep, and resolves to
+that file's path - so it works under any argument that accepts a path: `image`, `video`,
+a `from_file`, a list of any of them, or a task argument that names a file. What loads
+the path is unchanged; only where the path comes from is.
+
+The library's location is resolved in order: the `DW_ASSET_DIR` environment variable
+(which `--asset-dir` on both `dw.run` and `dw.serve` sets), then the workspace's
+`assets/` when a workspace was named explicitly, then `./assets` in the working
+directory when it exists, then the first `assets/` folder found walking up from the
+workflow file's own directory. See [Workspaces](WORKSPACES.md).
+
+A reference can only name a file inside the library: `..`, an absolute path, or a
+symlink pointing out of it are all refused. Browser uploads land in the library's
+`uploads/` folder and come back as `asset:uploads/<name>`, so a workflow saved after
+an upload still resolves on the next run.
+
+### Output References
+
+Multi-stage work — generate stills, then animate them; generate a score, then mux it —
+used to mean copying files out of the output directory and back in beside the next
+workflow. An `output:` reference names what an earlier run wrote, directly:
+
+```json
+"image": "output:ltx2/Gyre/latest/Gyre-still.0-0.0.png",
+"audio": "output:ltx2/GyreScore/20260905-181530-a1b2c3d4/Gyre-score.10-0.0.wav"
+```
+
+The name is a path under the output directory — the workflow's identity, the run, and
+the file (see [Runs](WORKSPACES.md#runs)). Writing `latest` where the run id goes
+resolves to the newest run of that workflow *that holds the file*, which is what lets a
+second-stage workflow name the first stage's product without being edited after every
+run - and keeps working when the newest run failed part way, or reused every step from
+the cache and so wrote nothing of its own but a manifest. Runs sort by their id, which
+starts with a UTC timestamp, so "newest" needs no file timestamps and survives a
+directory being copied. `latest` only selects a run where run directories are; a
+workflow or file that happens to be called `latest` is still named as itself.
+
+Like `asset:`, a reference resolves to a path and then whatever loads paths loads it, so
+it works under `image`, `video`, a `from_file`, or a list of them. It resolves against
+the output directory the run was told to write to, and cannot leave it: `..`, an
+absolute path, and a symlink pointing out are all refused.
+
+To name an *earlier step of the same run*, use `previous_result:` instead — that passes
+the value in memory rather than through the filesystem.
+
+A generated file worth reusing repeatedly is better *kept* than referenced by the run
+that made it: `POST /api/assets/keep` (the gallery's **Keep as asset**, or MCP's
+`keep_output`) copies it into the workspace's asset library under a name you choose, and
+from then on it is an `asset:` reference like any other — stable whatever happens to the
+run directory it came from.
+
 ### Objects Built From a File
 
 Some pipelines take arguments that are objects rather than plain media. An argument that
