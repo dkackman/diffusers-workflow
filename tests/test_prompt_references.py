@@ -13,21 +13,15 @@ import os
 import pytest
 
 from dw.prompts import PROMPT_PREFIX, resolve_prompt_reference
+from dw.server.app import collect_prompt_references
 from tests.test_examples import REPO_ROOT, get_example_files
 
 PROMPT_DIR = os.path.join(REPO_ROOT, "prompts")
 
 
 def prompt_references(definition):
-    """Every "prompt:..." string anywhere in a workflow definition."""
-    if isinstance(definition, dict):
-        for value in definition.values():
-            yield from prompt_references(value)
-    elif isinstance(definition, list):
-        for value in definition:
-            yield from prompt_references(value)
-    elif isinstance(definition, str) and definition.startswith(PROMPT_PREFIX):
-        yield definition
+    """Every 'prompt:' reference a workflow makes, as written."""
+    return [f"{PROMPT_PREFIX}{name}" for name in sorted(collect_prompt_references(definition))]
 
 
 @pytest.mark.parametrize("example_file", get_example_files())

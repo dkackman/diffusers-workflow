@@ -7,9 +7,10 @@ test('workflow browser lists, describes and filters', async ({ page }) => {
   await expect(
     page.getByText('Text-to-image with Z-Image Turbo').first(),
   ).toBeVisible()
-  // the filter searches descriptions, not just names
-  await page.getByPlaceholder('filter…').fill('inpaint')
-  await expect(page.getByRole('link', { name: /^inpaint / })).toBeVisible()
+  // the filter searches descriptions, not just names: 'fill dev' appears in
+  // outpaint's description and in no workflow's name
+  await page.getByPlaceholder('filter…').fill('fill dev')
+  await expect(page.getByRole('link', { name: /^outpaint / })).toBeVisible()
   await expect(page.getByRole('link', { name: /^z-image / })).toHaveCount(0)
 })
 
