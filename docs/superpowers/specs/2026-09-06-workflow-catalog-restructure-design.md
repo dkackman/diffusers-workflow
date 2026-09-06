@@ -32,27 +32,48 @@ one flat list, and to let the catalog say which is which.
 
 ## What is wrong today
 
-Measured across the 84 non-archive workflows on 2026-09-06:
+Revised 2026-09-06 after reading all 121 workflows. The first version of this
+section argued from a crude feature signature and overstated the problem; what
+follows is what reading found.
 
-1. **54 of 84 share a feature signature with at least one other file** - there
-   are 43 distinct signatures. The redundancy is not incidental; it is most of
-   the catalog.
-2. The clusters are checkpoint iterations, not feature variations: 5 MiniMax H3
-   `ref2va` files differing only in chaining and output kind, 4 LTX-2 files
-   differing only in conditioning, 5 one-step text-to-image files differing only
-   in the checkpoint (`FluxDev`, `Krea2`, `ZImage`, `ZImageSDNQ`,
-   `FluxSchnellWeighted`), and `FluxGGUF`/`FluxTorchAO` differing only in
-   quantization backend.
-3. `archive/` (37 files) is almost purely a model gallery - 4 CogVideoX
-   variants, 6 Wan variants, 3 Kandinsky - and still costs listing space.
-4. Nothing in a catalog entry distinguishes "this teaches a pattern" from "this
+1. **`archive/` (37 files) is a model gallery and nothing else.** Almost every
+   entry is one line - "Text-to-video with Allegro", "Text-to-image with
+   Kolors", "Text-to-video with CogVideoX 5B". Four CogVideoX, six Wan, three
+   Kandinsky, three Hunyuan. This is where the redundancy actually is.
+2. **The `minimax/` (18) and `ltx2/` (8) families are not redundant at all.**
+   They are a curriculum: each file demonstrates a conditioning mode or
+   mechanism nothing else does - first-frame, last-frame and both-ends
+   conditioning; `match_audio` sizing a chain from a supplied track;
+   `last_segment` handing over a video tail rather than one frame; composable
+   reference types. Under this spec's own criteria they are all templates, and
+   they stay (user's decision, 2026-09-06: these are current models and of
+   interest to people).
+3. The genuine non-archive redundancy is narrower and specific: `flux/`
+   acceleration variants (`FluxDevTeaCache`, `FluxDevFirstBlockCache`,
+   `FluxDevFast` - three ways to speed up one model), `FluxGGUF`/`FluxTorchAO`
+   (two quantization backends), and the one-step text-to-image set spread across
+   `FluxDev`, `Krea2`, `ZImage`, `Flux2Dev` and `sd15`.
+4. **`gyre/` (8) is a test project's production history, not examples.**
+   `GyreStillsFix2` is described as "Third attempt at GYRE's second shot". The
+   mechanisms in it that generalize - cross-dissolves, an edit-only assembly
+   pass, `recenter_crop` registration - are worth templates; the project-specific
+   passes and one-off repairs are not (user's decision, 2026-09-06).
+5. Nothing in a catalog entry distinguishes "this teaches a pattern" from "this
    records a hardware fact", so an agent cannot weight them differently and a
-   person browsing the repo cannot either.
+   person browsing the repo cannot either. This is the problem the restructure
+   is actually for, and it is unaffected by the correction above.
 
-A caveat on point 1, recorded so nobody over-trusts it: the signature used to
-measure it was crude, and missed ControlNet - it put `FluxCanny` and `Segment`
-in one bucket when they demonstrate different features. The clusters are
-indicative. The inventory (below) is the authority, and it is done by reading.
+**Two ids are used twice**, which collides in the step cache (keyed on
+`(workflow id, step name)`): `sd35` for both `archive/bnb_quant.json` and
+`archive/sd35.json`, and `test_job` for both `archive/sd15.json` and
+`workflows/sd15.json`. Emptying `archive/` resolves both - the restructure fixes
+this rather than causing it.
+
+### Expected scale
+
+Roughly 45-50 deletions, most of them in `archive/`, leaving around 70-75
+workflows. Not the halving the first draft of this spec implied. The change is
+worth making for the structure it creates, not for the volume it removes.
 
 ## The distinction the structure encodes
 
