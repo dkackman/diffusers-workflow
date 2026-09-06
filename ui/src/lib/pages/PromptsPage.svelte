@@ -81,9 +81,7 @@
         title={detail?.description || detail?.text || undefined}
       ></a>
       <span class="cardtop">
-        <span class="cardname"
-          >{leafOf(name)}</span
-        >
+        <span class="cardname">{leafOf(name)}</span>
         {#if detail?.intended_model}
           <button
             class="chip modelchip"

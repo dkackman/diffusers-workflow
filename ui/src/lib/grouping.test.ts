@@ -13,7 +13,9 @@ describe('groupOf', () => {
   it('keeps every folder level, not just the first', () => {
     // The regression this exists to prevent: taking only the first segment put
     // all 64 templates in one group and hid the ltx2 and minimax families
-    expect(groupOf('templates/minimax/dialogue-short')).toBe('templates/minimax')
+    expect(groupOf('templates/minimax/dialogue-short')).toBe(
+      'templates/minimax',
+    )
   })
 
   it('groups a gallery entry by the workflow that wrote it', () => {

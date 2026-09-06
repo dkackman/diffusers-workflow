@@ -78,10 +78,10 @@ test('long prose arguments collapse to a line and expand on demand', async ({
 })
 
 test('the run page shares the same field treatment', async ({ page }) => {
-  // FluxDev's prompt default is a stored-prompt reference - short - but
-  // guidance-style workflows aside, ZImage's prompt default is prose; use
+  // flux-dev's prompt default is a stored-prompt reference - short - but
+  // guidance-style workflows aside, z-image's prompt default is prose; use
   // the editor-saved definition instead to stay deterministic
-  await page.goto('/#/workflows/ZImage')
+  await page.goto('/#/workflows/models/z-image')
   await expect(page.getByLabel('num_inference_steps')).toBeVisible()
   // overrides render through the shared form: same grid, same input ids
   await expect(page.locator('input#var-prompt')).toBeVisible()

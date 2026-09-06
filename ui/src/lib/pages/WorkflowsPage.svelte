@@ -91,9 +91,7 @@
       title={detail?.description || undefined}
     >
       <span class="cardtop">
-        <span class="cardname"
-          >{leafOf(name)}</span
-        >
+        <span class="cardname">{leafOf(name)}</span>
         <span class="cardmeta muted">
           {#if detail?.configures}<span
               class="configures"

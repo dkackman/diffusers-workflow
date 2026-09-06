@@ -99,14 +99,14 @@ test('tab order walks the nav row in reading order', async ({ page }) => {
 
 test('saving surfaces a toast, not a pinned banner', async ({ page }) => {
   test.setTimeout(60_000)
-  await page.goto('/#/edit/ZImage')
+  await page.goto('/#/edit/models/z-image')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   // success text arrives as a toast...
-  await expect(page.getByText(/Saved to .*ZImage\.json/)).toBeVisible({
+  await expect(page.getByText(/Saved to .*z-image\.json/)).toBeVisible({
     timeout: 30_000,
   })
   // ...and auto-dismisses instead of pinning the page down
-  await expect(page.getByText(/Saved to .*ZImage\.json/)).toHaveCount(0, {
+  await expect(page.getByText(/Saved to .*z-image\.json/)).toHaveCount(0, {
     timeout: 10_000,
   })
 })
