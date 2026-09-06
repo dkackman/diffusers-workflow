@@ -61,6 +61,11 @@ gallery, the model cache:
 
 ![Claude Code driving the dw MCP server: creating a workspace, authoring a script, and generating from it](docs/img/claude-authoring.png)
 
+Generation is the long pass, and the agent stays with it — queuing each shot,
+waiting it out, and reporting what came back:
+
+![The same session hours later: shots rendering one at a time, roughly 30 minutes each, with the agent reporting progress between them](docs/img/claude-generating.png)
+
 > **What can this box actually run, and what workflows do I already have?**
 >
 > Claude calls `get_server_info` (device, version, workspace), `list_workflows`
