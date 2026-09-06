@@ -8,7 +8,7 @@
         {
             "name": "logo",
             "workflow": {
-                "path": "./FluxLora.json",
+                "path": "./lora.json",
                 "arguments": {
                     "prompt": "variable:prompt",
                     "lora": "Shakker-Labs/FLUX.1-dev-LoRA-Logo-Design"

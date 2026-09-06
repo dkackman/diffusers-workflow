@@ -3,7 +3,7 @@
         "prompt": "an apple",
         "num_images_per_prompt": 1
     },
-    "id": "test_job",
+    "id": "text-to-image",
     "description": "Baseline text-to-image with Stable Diffusion 1.5 - the smallest, fastest starting point.",
     "steps": [
         {

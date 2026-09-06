@@ -38,5 +38,6 @@
                 "embed_metadata": true
             }
         }
-    ]
+    ],
+    "description": "Instruction-driven image editing: the input picture is edited toward a written instruction rather than regenerated from scratch, with an identity-preserving LoRA holding the subject's likeness steady across the edit. Krea 2 Turbo through the ostris/Krea2OstrisEdit custom pipeline, which needs trust_remote_code."
 }

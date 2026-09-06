@@ -1,0 +1,23 @@
+{
+    "id": "ExpandPrompt",
+    "description": "Expands a short prompt into a detailed one with a language model - text out, no image. To generate from the expanded text rather than saving it, add a pipeline step whose prompt is 'previous_result:expand' and set this step's result to \"save\": false.",
+    "variables": {
+        "prompt": "a cat sitting on a windowsill",
+        "system_prompt": "prompt:prompt_enhancement/text_to_image"
+    },
+    "steps": [
+        {
+            "name": "expand",
+            "task": {
+                "command": "text_generation",
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "system_prompt": "variable:system_prompt"
+                }
+            },
+            "result": {
+                "content_type": "text/plain"
+            }
+        }
+    ]
+}

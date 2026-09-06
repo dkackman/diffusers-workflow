@@ -4,16 +4,17 @@
         "num_inference_steps": 28,
         "guidance_scale": 3.5
     },
-    "id": "FluxDevTeaCache",
-    "description": "FLUX.1 dev accelerated with TeaCache.",
+    "id": "FluxDevFirstBlockCache",
+    "description": "FLUX.1 dev accelerated with first-block caching, skipping redundant transformer work across denoise steps. Two cache implementations, one shape. This uses first-block caching, a 'cache' block of {\"type\": \"first_block\", \"threshold\": 0.05}. For TeaCache instead, replace it with a sibling 'teacache' block of {\"rel_l1_thresh\": 0.4}. Both trade a little fidelity for skipped transformer work; raise the threshold to skip more.",
     "steps": [
         {
             "name": "txt2img",
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "teacache": {
-                        "rel_l1_thresh": 0.4
+                    "cache": {
+                        "type": "first_block",
+                        "threshold": 0.05
                     }
                 },
                 "from_pretrained_arguments": {

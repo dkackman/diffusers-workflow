@@ -7,7 +7,7 @@
         "guidance_scale": 3.5
     },
     "id": "FluxLora",
-    "description": "FLUX.1 dev with a LoRA adapter.",
+    "description": "FLUX.1 dev with a LoRA adapter. The same 'loras' list works on any pipeline that supports adapters - on StableDiffusion3Pipeline with 'stabilityai/stable-diffusion-3.5-large' and the 'linoyts/yart_art_sd3-5_lora' adapter, for instance.",
     "steps": [
         {
             "name": "txt2img",

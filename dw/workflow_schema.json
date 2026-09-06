@@ -10,6 +10,10 @@
         "description": {
             "type": "string"
         },
+        "configures": {
+            "type": "string",
+            "description": "For a workflow under models/: the templates/ workflow this is a tuned per-checkpoint configuration of, as a catalog name such as 'templates/text-to-image'."
+        },
         "variables": {
             "$ref": "#/$defs/arguments"
         },
