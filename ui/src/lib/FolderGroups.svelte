@@ -2,7 +2,7 @@
   import type { Snippet } from 'svelte'
   import { ChevronDown, ChevronRight, Plus } from '@lucide/svelte'
   import { storageGet, storageSet } from './storage'
-  import { groupOf } from './grouping'
+  import { groupNames, groupOf as defaultGroupOf } from './grouping'
 
   let {
     names,
@@ -11,6 +11,7 @@
     newHref = undefined,
     onnewingroup = undefined,
     minColumn = '210px',
+    groupOf = defaultGroupOf,
     card,
   }: {
     names: string[]
@@ -19,6 +20,9 @@
     newHref?: string
     onnewingroup?: (group: string) => void
     minColumn?: string
+    /** Which folder a name belongs to. The gallery passes its own: its
+     * names carry a run id that the server has already folded into `folder`. */
+    groupOf?: (name: string) => string
     card: Snippet<[string]>
   } = $props()
 
@@ -30,11 +34,9 @@
     storageSet(collapseKey, $state.snapshot(collapsed))
   }
 
-  const groups = $derived(
-    [...new Set(names.map(groupOf))].sort((a, b) => a.localeCompare(b)),
-  )
-  const inGroup = (group: string) =>
-    names.filter((name) => groupOf(name) === group)
+  const grouped = $derived(groupNames(names, groupOf))
+  const groups = $derived([...grouped.keys()])
+  const inGroup = (group: string) => grouped.get(group) ?? []
   // While filtering, everything stays visible - a collapsed folder hiding
   // matches would make the filter look broken
   const isOpen = (group: string) => filterActive || !collapsed[group]

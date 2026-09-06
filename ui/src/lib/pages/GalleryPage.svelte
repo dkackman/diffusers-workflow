@@ -84,6 +84,9 @@
     files.filter((f) => f.name.toLowerCase().includes(filter.toLowerCase())),
   )
   const byName = $derived(new Map(visible.map((f) => [f.name, f])))
+  // The server folds each run id into `folder`; group by that, since the
+  // name alone reads the run directory as one more folder
+  const folderByName = $derived(new Map(visible.map((f) => [f.name, f.folder])))
 
   const pickedCount = $derived(picked.size)
   /** The selection in the order the grid shows them, which is the order
@@ -295,6 +298,7 @@
 
 <FolderGroups
   names={visible.map((f) => f.name)}
+  groupOf={(name) => folderByName.get(name) ?? ''}
   collapseKey="collapsed-gallery-folders"
   filterActive={filter !== ''}
   minColumn="150px"

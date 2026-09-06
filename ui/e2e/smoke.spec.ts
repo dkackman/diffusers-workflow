@@ -202,6 +202,23 @@ test('jobs and gallery pages render', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Gallery' })).toBeVisible()
 })
 
+test('gallery groups every run of a workflow under one folder', async ({
+  page,
+}) => {
+  await page.goto('/#/gallery')
+  // The fixture seeds two runs of the same workflow; a heading per run would
+  // show a timestamped folder name. Scoped to the folder headings
+  // (`.group`) rather than every button - a cell's image `alt` is the full
+  // file name and would otherwise also match the run id pattern.
+  const folderHeadings = page.locator('.group')
+  await expect(
+    folderHeadings.filter({ hasText: /\d{8}-\d{6}-[0-9a-f]{8}/ }),
+  ).toHaveCount(0)
+  await expect(
+    folderHeadings.filter({ hasText: 'e2e-run-group/' }),
+  ).toBeVisible()
+})
+
 test('downloads a multi-file gallery selection as one zip', async ({
   page,
 }) => {
