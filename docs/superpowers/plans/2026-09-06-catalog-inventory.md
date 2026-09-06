@@ -4,7 +4,7 @@ Verdicts for every workflow under `workflows/`. Produced by Task 2 of the
 [restructure plan](2026-09-06-workflow-catalog-restructure.md); the file lists
 in Tasks 3-5 are this table, filtered by verdict.
 
-Status: AWAITING APPROVAL
+Status: approved 2026-09-06
 
 Counts: COLLAPSE INTO 6, DELETE 42, MODEL 9, TEMPLATE 64 (total 121)
 
@@ -111,7 +111,7 @@ Counts: COLLAPSE INTO 6, DELETE 42, MODEL 9, TEMPLATE 64 (total 121)
 | workflows/minimax/MiniMaxH3SitcomShort.json | TEMPLATE | templates/minimax/dialogue-short.json | MiniMaxH3SitcomShort | Multi-shot cut sequence with per-shot references |
 | workflows/minimax/MiniMaxH3Storyboard.json | TEMPLATE | templates/minimax/storyboard.json | MiniMaxH3Storyboard | Several stills in one generation, each with a stated role |
 | workflows/minimax/MiniMaxMusic.json | TEMPLATE | templates/minimax/music.json | MiniMaxMusic | Audio-only output from a pipeline |
-| workflows/sd15.json | TEMPLATE | templates/text-to-image.json | test_job | Ungated baseline - the no-login quickstart CLAUDE.md points at |
+| workflows/sd15.json | TEMPLATE | templates/text-to-image.json | text-to-image | Ungated baseline - the no-login quickstart CLAUDE.md points at |
 | workflows/tasks/CaptionToImage.json | DELETE | — | — | img2txt2img is the richer caption-then-generate demo |
 | workflows/tasks/DiffusionUpscale.json | DELETE | — | — | Generate-then-upscale is previous_result chaining, shown everywhere |
 | workflows/tasks/DiffusionUpscaleImage.json | TEMPLATE | templates/upscale-diffusion.json | DiffusionUpscaleImage | Upscales any existing image, no generation step |
@@ -134,10 +134,12 @@ Counts: COLLAPSE INTO 6, DELETE 42, MODEL 9, TEMPLATE 64 (total 121)
 
 ## Judgement calls worth a second look
 
-- **`templates/text-to-image.json` inherits the id `test_job`** from
-  `workflows/sd15.json`. The plan forbids changing an id, so it carries a poor
-  name into a prominent file. Overriding that constraint for this one file is
-  reasonable if you would rather it read `text-to-image`.
+- **`templates/text-to-image.json` takes the id `text-to-image`**, not the
+  `test_job` it inherits from `workflows/sd15.json`. This is a deliberate,
+  approved exception to the keep-ids-verbatim constraint (2026-09-06): the cost
+  is one workflow's step-cache entries, and the alternative was carrying a
+  meaningless id onto the most prominent file in the catalog. It is the ONLY id
+  that changes.
 - **The one-step text-to-image models become `models/` entries** - `flux-dev`,
   `krea2`, `z-image`, `flux2-dev`, `flux-krea`. The collapse rule stops at a
   pipeline class boundary and these are four different classes, so they cannot
