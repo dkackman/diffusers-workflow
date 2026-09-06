@@ -32,6 +32,7 @@ which is why the client needs a command it can actually find (see below).
 | --- | --- | --- |
 | `--url` | `$DW_MCP_URL`, else `http://127.0.0.1:8765` | Base URL of the running `dw.serve` |
 | `--token` | `$DW_API_TOKEN`, else none | Bearer token, when `dw.serve` was started with `--token` / `DW_API_TOKEN` - the same variable, so one export configures both ends |
+| `--workspace` | `$DW_MCP_WORKSPACE`, else the server's default | Which of the server's workspaces the session works in. A *name* on the server, not a directory here - `DW_WORKSPACE` means something else to the engine. `use_workspace` switches it mid-session |
 | `--timeout` | `30` | Seconds to wait on any one API request |
 | `--no-probe` | off | Skip the startup `GET /api/health` that confirms the server is reachable and the token is accepted |
 
@@ -203,7 +204,7 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | `get_health()` | — | Check that the server is alive, and which machine answered: `version`, `device`, whether the worker process is up, the job running now and the queue depth |
 | `get_server_info()` | — | What this installation can do and where it keeps things: `device` (the accelerator a run will use), `version`, the `workspace` this session is working in and the workflow/asset/output/prompt `directories` of *that* workspace, the bind address and port, whether a token is required, and whether MCP is mounted. Check the device before authoring - a CUDA-only choice (bitsandbytes, `torch.compile`, flash attention) is not available on an `mps` or `cpu` server |
 | `list_jobs()` | — | List queued, running and recent jobs |
-| `list_gallery(limit=50)` | `limit` | List generated output files, newest first |
+| `list_gallery(limit=50)` | `limit` | List generated output files, newest first. A name is `<workflow>/<run id>/<file>`; each entry also carries a ready-made `url`, already scoped to the workspace that made it - a hand-built `/outputs/<name>` URL 404s for anything but the default workspace |
 | `get_gallery_metadata(name)` | `name` | Get the metadata embedded in a generated file: the exact workflow and arguments that produced it |
 
 ### Media
