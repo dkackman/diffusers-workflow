@@ -40,20 +40,29 @@ class TestListing:
 
 
 class TestWhereTheyComeFrom:
-    def test_the_packaged_copy_is_preferred_over_the_repo(self, tmp_path, monkeypatch):
-        """An install has no docs/ beside the package - only the dw/docs/ copy
-        the build makes. A checkout has no copy and reads docs/ directly, so the
-        preference is what makes the same code work in both."""
-        root = tmp_path / "site-packages"
+    def test_a_checkout_is_preferred_over_a_stale_packaged_copy(self, tmp_path, monkeypatch):
+        """build_dist.sh leaves dw/docs/ behind (gitignored). If that copy won,
+        every later edit to docs/ would be invisible to the MCP and to these
+        tests - so the repo's docs/ wins whenever it is there, and the packaged
+        copy is only for an install, which has no docs/ beside the package."""
+        root = tmp_path / "checkout"
         (root / "dw" / "docs").mkdir(parents=True)
         (root / "docs").mkdir()
         (root / "dw" / "docs" / "TASKS.md").write_text("## Packaged\n")
         (root / "docs" / "TASKS.md").write_text("## Checkout\n")
         monkeypatch.setattr(guides, "__file__", str(root / "dw_mcp" / "guides.py"))
 
+        assert guides.read_guide("tasks") == "## Checkout\n"
+
+    def test_an_install_reads_the_packaged_copy(self, tmp_path, monkeypatch):
+        root = tmp_path / "site-packages"
+        (root / "dw" / "docs").mkdir(parents=True)
+        (root / "dw" / "docs" / "TASKS.md").write_text("## Packaged\n")
+        monkeypatch.setattr(guides, "__file__", str(root / "dw_mcp" / "guides.py"))
+
         assert guides.read_guide("tasks") == "## Packaged\n"
 
-    def test_a_checkout_falls_back_to_the_repo_docs(self, tmp_path, monkeypatch):
+    def test_a_checkout_with_no_packaged_copy_reads_the_repo_docs(self, tmp_path, monkeypatch):
         root = tmp_path / "repo"
         (root / "docs").mkdir(parents=True)
         (root / "docs" / "TASKS.md").write_text("## Checkout\n")

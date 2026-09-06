@@ -13,19 +13,12 @@ cp -r ui/dist dw/server/ui
 
 # The guides dw_mcp serves. A checkout reads the repo's docs/ directly, so this
 # copy only matters to an install - but without it an installed dw-mcp has no
-# guides at all
+# guides at all. Every doc goes in: read_guide only ever opens the names in
+# dw_mcp.guides.GUIDES, so the extras are inert, and this needs no import of
+# dw_mcp (whose client pulls in httpx, which the wheel job does not install)
 rm -rf dw/docs
 mkdir -p dw/docs
-python - <<'GUIDES'
-import shutil
-from pathlib import Path
-
-from dw_mcp.guides import GUIDES
-
-for file_name in sorted({f for f, _ in GUIDES.values()}):
-    shutil.copy(Path("docs") / file_name, Path("dw/docs") / file_name)
-    print(f"docs/{file_name} -> dw/docs/{file_name}")
-GUIDES
+cp docs/*.md dw/docs/
 
 python -m pip show build >/dev/null 2>&1 || python -m pip install build
 python -m build

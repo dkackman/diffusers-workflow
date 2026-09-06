@@ -82,16 +82,17 @@ SECTION_PATTERN = re.compile(r"^## (.+)$", re.M)
 
 
 def _guide_file(file_name):
-    """Where a guide's markdown actually is.
+    """Where a guide lives: the repo's docs/ in a checkout, else the copy
+    build_dist.sh puts under dw/docs/ for an install.
 
-    Packaged into dw/docs/ at build time, the way the SPA is copied into
-    dw/server/ui - so an install carries them. A checkout has no such copy
-    until something builds one, and reads the repo's own docs/ instead.
+    The checkout wins because the build leaves dw/docs/ behind; if that copy
+    took precedence, editing docs/ would change nothing an agent reads.
     """
-    packaged = Path(__file__).resolve().parent.parent / "dw" / "docs" / file_name
-    if packaged.is_file():
-        return packaged
-    return Path(__file__).resolve().parent.parent / "docs" / file_name
+    root = Path(__file__).resolve().parent.parent
+    checkout = root / "docs" / file_name
+    if checkout.is_file():
+        return checkout
+    return root / "dw" / "docs" / file_name
 
 
 def read_guide(name):
