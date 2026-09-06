@@ -215,6 +215,9 @@ export const api = {
           steps?: number
           variables: number
           description: string
+          /** For a model config: the template it is a tuned instance of.
+           * Absent from an older server, and from every template. */
+          configures?: string
           prompt_refs?: string[]
           /** Which source it came from: 'workspace', 'examples', 'builtin'. */
           origin?: string

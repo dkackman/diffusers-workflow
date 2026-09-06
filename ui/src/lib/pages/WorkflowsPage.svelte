@@ -17,7 +17,8 @@
         steps?: number
         variables: number
         description: string
-        configures: string
+        /** For a model config: the template it configures. */
+        configures?: string
         /** Which source the workflow was read from. */
         origin?: string
         /** False for a read-only source - an examples directory. */
