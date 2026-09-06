@@ -192,6 +192,9 @@ def workflow_details(sources_by_name):
                 "variables": len(variables),
                 "variable_names": sorted(variables),
                 "description": str(definition.get("description", "") or ""),
+                # Empty for a template; a catalog name for a model config, which
+                # is what lets a client show the two as different kinds of thing
+                "configures": str(definition.get("configures", "") or ""),
                 "prompt_refs": sorted(collect_prompt_references(definition)),
             }
         except Exception:

@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte'
   import { ChevronDown, ChevronRight, Plus } from '@lucide/svelte'
   import { storageGet, storageSet } from './storage'
+  import { groupOf } from './grouping'
 
   let {
     names,
@@ -29,8 +30,6 @@
     storageSet(collapseKey, $state.snapshot(collapsed))
   }
 
-  const groupOf = (name: string) =>
-    name.includes('/') ? name.split('/')[0] : ''
   const groups = $derived(
     [...new Set(names.map(groupOf))].sort((a, b) => a.localeCompare(b)),
   )

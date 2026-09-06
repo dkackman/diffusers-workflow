@@ -1336,6 +1336,7 @@ def test_workflow_listing_carries_details(server):
             "variables": 1,
             "variable_names": ["prompt"],
             "description": "Renders a small test image.",
+            "configures": "",
             "prompt_refs": [],
             # where it came from, and whether a client should offer save and
             # delete for it or only save-a-copy
@@ -1343,6 +1344,29 @@ def test_workflow_listing_carries_details(server):
             "writable": True,
         }
         assert listing["details"]["Basic"]["kinds"] == []
+
+
+def test_workflow_details_name_the_template_a_model_config_configures(server):
+    """A model config is a tuned instance of a template, and a client that
+    cannot see which is which shows it as just another catalog entry - the
+    thing the two-tree layout exists to stop."""
+    with server(success_script) as client:
+        workflow = valid_workflow("tuned")
+        workflow["configures"] = "templates/text-to-image"
+        client.put("/api/workflows/models/Tuned", json={"workflow": workflow})
+
+        listing = client.get("/api/workflows").json()
+
+        assert listing["details"]["models/Tuned"]["configures"] == (
+            "templates/text-to-image"
+        )
+
+
+def test_a_workflow_that_configures_nothing_says_so(server):
+    with server(success_script) as client:
+        listing = client.get("/api/workflows").json()
+
+        assert listing["details"]["Basic"]["configures"] == ""
 
 
 @pytest.fixture
