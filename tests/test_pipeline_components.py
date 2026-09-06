@@ -481,3 +481,58 @@ class TestSafetyCheckerWarning:
             warn_if_safety_checker_blanked(output)
 
         assert caplog.text == ""
+
+
+class TestAudiosSampleRate:
+    """Audio-only pipelines put the waveform on `.audios` and the rate on a
+    component config - AudioLDM2's vocoder, StableAudio's VAE. The workflow
+    should not have to know which."""
+
+    def _pipeline(self, **components):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(**components)
+
+    def _output(self):
+        from types import SimpleNamespace
+
+        import numpy
+
+        return SimpleNamespace(audios=numpy.zeros((1, 2, 100), dtype="float32"))
+
+    def test_a_vocoder_rate_is_recorded_for_audios(self):
+        from types import SimpleNamespace
+
+        from dw.pipeline_processors.pipeline import attach_audio_sample_rate
+
+        pipeline = self._pipeline(
+            vocoder=SimpleNamespace(config=SimpleNamespace(sampling_rate=16000))
+        )
+        output = self._output()
+
+        attach_audio_sample_rate(pipeline, output)
+
+        assert output.audio_sample_rate == 16000
+
+    def test_a_vae_rate_is_recorded_for_audios(self):
+        from types import SimpleNamespace
+
+        from dw.pipeline_processors.pipeline import attach_audio_sample_rate
+
+        pipeline = self._pipeline(
+            vae=SimpleNamespace(config=SimpleNamespace(sampling_rate=44100))
+        )
+        output = self._output()
+
+        attach_audio_sample_rate(pipeline, output)
+
+        assert output.audio_sample_rate == 44100
+
+    def test_no_rate_anywhere_records_nothing(self):
+        from dw.pipeline_processors.pipeline import attach_audio_sample_rate
+
+        output = self._output()
+
+        attach_audio_sample_rate(self._pipeline(), output)
+
+        assert not hasattr(output, "audio_sample_rate")

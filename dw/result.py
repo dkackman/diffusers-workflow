@@ -421,7 +421,12 @@ class Result:
                         saved_files.extend(
                             self.save_artifact(
                                 output_dir,
-                                waveform,
+                                # Keep the rate the track carries across the
+                                # recursion - a bare waveform would fall back
+                                # to the default
+                                AudioTrack(waveform.T, sample_rate)
+                                if isinstance(artifact, AudioTrack)
+                                else waveform,
                                 f"{file_base_name}-{k}",
                                 content_type,
                                 extension,
@@ -645,7 +650,20 @@ def _frames_from_attributes(result):
 
 
 def _audios_from_attribute(result):
-    return [as_waveform_array(audio) for audio in result.audios]
+    """Each `.audios` item as an artifact.
+
+    With the rate attach_audio_sample_rate recorded, each item becomes an
+    AudioTrack carrying it, shaped (channels, samples); without one, the bare
+    (samples, channels) array it always was, and the workflow's 'sample_rate'
+    (or the default) applies at save.
+    """
+    sample_rate = getattr(result, "audio_sample_rate", None)
+    if sample_rate is None:
+        return [as_waveform_array(audio) for audio in result.audios]
+    return [
+        AudioTrack(as_waveform_array(audio).T, int(sample_rate))
+        for audio in result.audios
+    ]
 
 
 # Diffusers output fields get_artifact_list knows how to turn into artifacts, tried in
