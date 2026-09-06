@@ -1,0 +1,23 @@
+extensions:
+  # validate_path() resolves a path with realpath and raises PathTraversalError
+  # unless it lands inside base_dir. Its return value is contained by
+  # construction, so taint stops there.
+  - addsTo:
+      pack: codeql/python-all
+      extensible: barrierModel
+    data:
+      - ["dw.security", "Member[validate_path].ReturnValue", "path-injection"]
+      - ["dw.security", "Member[validate_workflow_path].ReturnValue", "path-injection"]
+      - ["dw.security", "Member[validate_output_path].ReturnValue", "path-injection"]
+      - ["dw.security", "Member[validate_prompt_path].ReturnValue", "path-injection"]
+
+      # The name validators are regex whitelists that raise InvalidInputError:
+      # a workspace name is one path segment (^[\w][\w.-]*\Z - no separator,
+      # and '..' cannot match a leading \w), an asset or output reference is
+      # bounded, separator-limited segments of the same shape. Each returns the
+      # name it validated, so the return value is the safe one to use.
+      - ["dw.security", "Member[validate_workspace_name].ReturnValue", "path-injection"]
+      - ["dw.security", "Member[validate_asset_reference].ReturnValue", "path-injection"]
+      - ["dw.security", "Member[validate_output_reference].ReturnValue", "path-injection"]
+      - ["dw.security", "Member[validate_prompt_reference].ReturnValue", "path-injection"]
+      - ["dw.security", "Member[validate_variable_name].ReturnValue", "path-injection"]

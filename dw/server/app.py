@@ -1718,7 +1718,7 @@ def create_app(
         source = _output_file(request.name, ws.outputs)
         asset_name = request.asset_name or os.path.basename(request.name)
         try:
-            validate_asset_reference(asset_name)
+            asset_name = validate_asset_reference(asset_name)
             destination = validate_path(os.path.join(library, asset_name), library)
         except SecurityError as e:
             raise HTTPException(status_code=400, detail=str(e))

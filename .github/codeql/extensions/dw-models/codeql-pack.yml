@@ -1,0 +1,16 @@
+# A CodeQL model pack describing this project's own security barriers.
+#
+# CodeQL's dataflow library cannot see that dw/security.py validates a path
+# and *raises* rather than returning a rewritten one, so py/path-injection
+# reports every os.* call downstream of a validated path. These rows tell it
+# the barrier is there.
+#
+# Placed under .github/codeql/extensions/, this is picked up automatically by
+# code scanning default setup - no workflow changes, nothing to publish.
+name: dkackman/dw-models
+version: 0.0.1
+library: true
+extensionTargets:
+  codeql/python-all: "*"
+dataExtensions:
+  - models/**/*.yml
