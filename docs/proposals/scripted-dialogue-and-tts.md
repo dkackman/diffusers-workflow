@@ -34,7 +34,7 @@ So: script → TTS → `match_audio` trades away the one thing that works for fr
 
 ## The workflow already largely exists
 
-[`workflows/minimax/MiniMaxH3SitcomShort.json`](../../workflows/minimax/MiniMaxH3SitcomShort.json)
+[`workflows/templates/minimax/dialogue-short.json`](../../workflows/templates/minimax/dialogue-short.json)
 is nearly the described flow already:
 
 - two Z-Image steps draw the cast portraits (the second reuses the first's
@@ -67,7 +67,7 @@ which is "the track the mouth follows":
 
 1. **Voice *timbre* reference.** `ref2va` takes an `<Audio 1>` reference that
    fixes a voice while H3 still generates the speech — see
-   [`MiniMaxH3Ref2VA.json`](../../workflows/minimax/MiniMaxH3Ref2VA.json), whose
+   [`MiniMaxH3Ref2VA.json`](../../workflows/templates/minimax/reference-to-video.json), whose
    `retention_analysis` says explicitly that only timbre, pitch and delivery are
    referenced and "none of its content is reused". A few seconds of TTS per
    character, referenced in every shot, makes voice consistency an actual
@@ -113,8 +113,8 @@ Prototype either (a) the `generate_speech` task in its timbre-reference role, or
 (a) is implemented: the `generate_speech` task
 ([`dw/tasks/speech_generation.py`](../../dw/tasks/speech_generation.py),
 documented in [TASKS.md](../TASKS.md#speech-generation)), with
-[`GenerateSpeech.json`](../../workflows/tasks/GenerateSpeech.json) and
-[`MiniMaxH3GeneratedVoice.json`](../../workflows/minimax/MiniMaxH3GeneratedVoice.json)
+[`GenerateSpeech.json`](../../workflows/templates/generate-speech.json) and
+[`MiniMaxH3GeneratedVoice.json`](../../workflows/templates/minimax/voice-timbre-reference.json)
 showing the timbre-reference role.
 
 It returns an `AudioTrack` - a waveform carrying the rate it was generated at -

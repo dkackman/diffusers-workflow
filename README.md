@@ -160,14 +160,14 @@ the pages and the HTTP API.
 ## The command line
 
 The engine runs standalone, with no server involved.
-`workflows/sd15.json` is the smallest starting point — a small, ungated model
+`workflows/templates/text-to-image.json` is the smallest starting point — a small, ungated model
 and a literal prompt, so the first run needs no Hugging Face login and
 downloads only a few GB:
 
 ```bash
-python -m dw.run workflows/sd15.json
-python -m dw.run workflows/sd15.json prompt="a cat" num_images_per_prompt=4
-python -m dw.validate workflows/sd15.json
+python -m dw.run workflows/templates/text-to-image.json
+python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
+python -m dw.validate workflows/templates/text-to-image.json
 ```
 
 Most of the workflows under `workflows/` (Flux, LTX-2, MiniMax...) use **gated**
@@ -177,7 +177,7 @@ then:
 
 ```bash
 huggingface-cli login
-python -m dw.run workflows/flux/FluxDev.json
+python -m dw.run workflows/models/flux-dev.json
 ```
 
 Without this, the run fails partway through with an HTTP 401/403 from the Hub.
@@ -186,7 +186,7 @@ An interactive REPL keeps models resident between runs for 2-4x faster
 iteration:
 
 ```text
-dw> workflow load flux/FluxDev
+dw> workflow load models/flux-dev
 dw> arg set prompt="a beautiful sunset"
 dw> workflow run
 [... models load once ...]

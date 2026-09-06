@@ -126,6 +126,6 @@ python -m dw.run workflow.json lora="other-user/other-lora"
 
 ## Examples
 
-- [FluxLora.json](../workflows/flux/FluxLora.json) — Flux with realism LoRA and variables
-- [lora.json](../workflows/lora.json) — SD 3.5 with yarn art style LoRA
-- [bnb_quant.json](../workflows/archive/bnb_quant.json) — Quantized model with LoRA
+- [lora.json](../workflows/templates/lora.json) — Flux with realism LoRA and variables
+- [lora.json](../workflows/templates/lora.json) — SD 3.5 with yarn art style LoRA
+- [lora.json](../workflows/templates/lora.json) — A LoRA adapter on FLUX.1 dev, with the SD 3.5 variant in its description

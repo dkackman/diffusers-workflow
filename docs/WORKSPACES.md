@@ -42,7 +42,7 @@ The existing per-directory flags still work and each overrides exactly one
 folder of the workspace:
 
 ```bash
-python -m dw.run workflows/sd15.json -o /mnt/big-disk/renders
+python -m dw.run workflows/templates/text-to-image.json -o /mnt/big-disk/renders
 python -m dw.serve --workspace ~/studio --output-dir /mnt/big-disk/renders
 python -m dw.run some.json --prompt-dir ~/shared-prompts
 ```
@@ -67,7 +67,7 @@ An example from a checkout still runs by path, and writes into the workspace's
 outputs:
 
 ```bash
-DW_WORKSPACE=~/studio python -m dw.run ~/src/diffusers-workflow/workflows/sd15.json
+DW_WORKSPACE=~/studio python -m dw.run ~/src/diffusers-workflow/workflows/templates/text-to-image.json
 ```
 
 The server reports what it resolved at `GET /api/server`, under
