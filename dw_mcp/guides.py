@@ -63,8 +63,7 @@ GUIDES = {
     ),
     "prompt-weighting": (
         "PROMPT_WEIGHTING.md",
-        "Emphasis and de-emphasis syntax in prompts, and which pipelines "
-        "honour it.",
+        "Emphasis and de-emphasis syntax in prompts, and which pipelines " "honour it.",
     ),
     "ip-adapter": (
         "IP_ADAPTER.md",
@@ -105,8 +104,7 @@ def read_guide(name):
     """
     if name not in GUIDES:
         raise DwApiError(
-            f"No guide named '{name}'. The guides are: "
-            f"{', '.join(sorted(GUIDES))}."
+            f"No guide named '{name}'. The guides are: " f"{', '.join(sorted(GUIDES))}."
         )
 
     path = _guide_file(GUIDES[name][0])

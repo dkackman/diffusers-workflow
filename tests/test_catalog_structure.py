@@ -38,9 +38,9 @@ def test_every_template_describes_itself(path):
     both, whatever its filename says."""
     definition = json.load(open(path, encoding="utf-8"))
 
-    assert definition.get("description", "").strip(), (
-        f"{os.path.relpath(path, REPO_ROOT)} has no description"
-    )
+    assert definition.get(
+        "description", ""
+    ).strip(), f"{os.path.relpath(path, REPO_ROOT)} has no description"
 
 
 MODELS_DIR = os.path.join(REPO_ROOT, "workflows", "models")

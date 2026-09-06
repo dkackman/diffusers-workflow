@@ -449,7 +449,10 @@ def test_the_wiring_table_covers_every_registered_tool():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "name,arguments",
-    [("list_guides", {}), ("get_guide", {"name": "tasks", "section": "Speech Generation"})],
+    [
+        ("list_guides", {}),
+        ("get_guide", {"name": "tasks", "section": "Speech Generation"}),
+    ],
 )
 async def test_the_guide_tools_reach_no_server(name, arguments):
     """They have to work against an engine that is not answering - and against a
