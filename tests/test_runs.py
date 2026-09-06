@@ -91,7 +91,9 @@ class TestRunIds:
 
         # Parse the stamp and verify it is within 5 seconds of now
         parsed_stamp = datetime.strptime(stamp_str, "%Y%m%d-%H%M%S")
-        time_diff = (now_utc - parsed_stamp.replace(tzinfo=timezone.utc)).total_seconds()
+        time_diff = (
+            now_utc - parsed_stamp.replace(tzinfo=timezone.utc)
+        ).total_seconds()
         assert -5 <= time_diff <= 5, f"Stamp is off by {time_diff} seconds"
 
 
@@ -280,7 +282,9 @@ class TestRunDirectories:
         written = list((tmp_path / "ltx2").iterdir())
         assert [path.suffix for path in written] == [".png"]
 
-    def test_empty_steps_workflow_records_completed_status(self, tmp_path, fake_pipeline):
+    def test_empty_steps_workflow_records_completed_status(
+        self, tmp_path, fake_pipeline
+    ):
         from dw.workflow import Workflow
 
         # Workflow with no steps but with a seed

@@ -70,8 +70,7 @@ export function outputUrl(
 ): string {
   const name = path.startsWith('/') ? (path.split('/').pop() ?? '') : path
   const url = `/outputs/${encodePath(name)}`
-  const versioned =
-    version === undefined ? url : appendQuery(url, 'v', version)
+  const versioned = version === undefined ? url : appendQuery(url, 'v', version)
   if (workspace === undefined) return scoped(versioned)
   return workspace === DEFAULT_WORKSPACE
     ? versioned
@@ -239,7 +238,9 @@ export const api = {
   // Omitting `workspace` returns jobs from all of them.
   listJobs: (workspace?: string) =>
     request<{ jobs: JobSummary[] }>(
-      workspace ? `/api/jobs?workspace=${encodeURIComponent(workspace)}` : '/api/jobs',
+      workspace
+        ? `/api/jobs?workspace=${encodeURIComponent(workspace)}`
+        : '/api/jobs',
       undefined,
       { scope: false },
     ),

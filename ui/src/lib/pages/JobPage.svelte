@@ -114,7 +114,8 @@
   // along - without it the browser shows this job the image it cached from
   // the previous one. The job's own workspace rides along too, so its media
   // still loads correctly if the picker has since moved elsewhere.
-  const fileUrl = (path: string) => outputUrl(path, job?.id ?? '', job?.workspace)
+  const fileUrl = (path: string) =>
+    outputUrl(path, job?.id ?? '', job?.workspace)
   const isVideo = (path: string) => /\.(mp4|webm)$/i.test(path)
   const isImage = (path: string) => /\.(png|jpe?g|webp|gif)$/i.test(path)
 </script>

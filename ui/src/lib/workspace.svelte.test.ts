@@ -43,9 +43,8 @@ it('shares one fetch across concurrent and repeated calls', async () => {
 })
 
 it('refetches only after invalidateWorkspaces()', async () => {
-  const { invalidateWorkspaces, loadWorkspaces } = await import(
-    './workspace.svelte'
-  )
+  const { invalidateWorkspaces, loadWorkspaces } =
+    await import('./workspace.svelte')
   await loadWorkspaces()
   await loadWorkspaces()
   expect(listWorkspaces).toHaveBeenCalledTimes(1)

@@ -189,6 +189,7 @@ def test_a_404_names_what_was_missing():
 def test_a_deleted_workspace_404_suggests_recovery():
     """When a workspace was deleted elsewhere, the error message should
     point to list_workspaces and use_workspace."""
+
     def handler(request):
         return httpx.Response(404, json={"detail": "No such workspace: shots"})
 

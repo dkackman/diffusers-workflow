@@ -1263,9 +1263,7 @@ def create_app(
         return {"presets": preset_descriptions()}
 
     @app.post("/api/enhance", status_code=201)
-    def enhance(
-        request: EnhanceRequest, ws: Workspace = Depends(selected_workspace)
-    ):
+    def enhance(request: EnhanceRequest, ws: Workspace = Depends(selected_workspace)):
         """Queue a prompt enhancement as an ordinary job. The enhanced text
         is the job's single manifest file once it succeeds.
 

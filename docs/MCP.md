@@ -175,7 +175,7 @@ Nothing in this sequence costs GPU time.
 
 ## Tool reference
 
-43 tools in six groups. Names and arguments below are transcribed from
+50 tools in six groups. Names and arguments below are transcribed from
 `dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
@@ -201,7 +201,7 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | `list_models()` | — | List what the Hugging Face model cache holds, largest first |
 | `get_memory()` | — | Get the worker's VRAM and RAM statistics |
 | `get_health()` | — | Check that the server is alive, and which machine answered: `version`, `device`, whether the worker process is up, the job running now and the queue depth |
-| `get_server_info()` | — | What this installation can do and where it keeps things: `device` (the accelerator a run will use), `version`, the workflow/output/prompt `directories`, the bind address and port, whether a token is required, and whether MCP is mounted. Check the device before authoring - a CUDA-only choice (bitsandbytes, `torch.compile`, flash attention) is not available on an `mps` or `cpu` server |
+| `get_server_info()` | — | What this installation can do and where it keeps things: `device` (the accelerator a run will use), `version`, the `workspace` this session is working in and the workflow/asset/output/prompt `directories` of *that* workspace, the bind address and port, whether a token is required, and whether MCP is mounted. Check the device before authoring - a CUDA-only choice (bitsandbytes, `torch.compile`, flash attention) is not available on an `mps` or `cpu` server |
 | `list_jobs()` | — | List queued, running and recent jobs |
 | `list_gallery(limit=50)` | `limit` | List generated output files, newest first |
 | `get_gallery_metadata(name)` | `name` | Get the metadata embedded in a generated file: the exact workflow and arguments that produced it |
@@ -216,6 +216,13 @@ workflow is a preference, not a rule; `run_workflow` still takes an
 | `delete_output(name)` | `name` | Permanently remove one generated file from the output directory |
 
 ### Authoring
+
+Authoring happens inside one workspace. A server can hold several - each with
+its own `workflows/`, `assets/` and `outputs/`, all sharing one prompt library
+- and `use_workspace` picks the one this session reads and writes for the rest
+of its life. That is how two agents work against one GPU without saving over
+each other; see [Workspaces](WORKSPACES.md#several-workspaces-on-one-server).
+The session starts in `default` and stays there unless it is told otherwise.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
@@ -278,7 +285,7 @@ hazard twice. That refusal arrives as the server's own explanation.
 
 ## The cost gate
 
-Six tools refuse unless `acknowledged_cost=true` is passed. Each commits
+Seven tools refuse unless `acknowledged_cost=true` is passed. Each commits
 the machine to something the user would want to have been asked about first,
 and each says so in its own words — a single shared refusal would be wrong
 for each of them in a different way, and a gate the user learns to wave
@@ -292,6 +299,7 @@ through is not a gate.
 | `delete_model` | Cached weights, unrecoverably — getting them back means downloading again |
 | `update_diffusers` | Replacing the installed library with an untagged development build |
 | `enhance_prompt` | A real job on the one-at-a-time engine, delaying any generation behind it |
+| `delete_workspace` | Every workflow, asset and generated file in a workspace, unrecoverably |
 
 `rerun_job` is gated for the same reason as `run_workflow`: it queues the
 identical work, so leaving it open would make the gate worth nothing — any
@@ -361,12 +369,16 @@ default) for any server an MCP client can reach.
 - **Images only.** `get_output_image` decodes and returns images; it refuses
   video and audio outputs. Use `get_gallery_metadata` to inspect other media
   kinds.
-- **No upload.** Files move outward only. There is no tool for `POST
-  /api/uploads` (the web UI's file picker route), so an input image or video
-  a workflow conditions on has to already be on the server machine, or be
-  reachable by URL - the arguments that take a path take a URL too. `download_output`
-  moves a *generated* file, and on a `dw.serve --mcp` endpoint it writes on
-  the GPU box, not the client's machine.
+- **Uploads read the MCP server's disk.** `upload_asset(file_path)` pushes a
+  local file into the asset library, but "local" means the machine `dw-mcp`
+  runs on. Over `dw.serve --mcp` that is the GPU box, so a file sitting on
+  the client's laptop is not reachable that way - put it on the server, or
+  give the workflow a URL (the arguments that take a path take a URL too).
+  `download_output` has the same asymmetry in the other direction: on a
+  `--mcp` endpoint it writes on the GPU box, not the client's machine.
+- **Prompts are not per-workspace.** Switching workspaces changes which
+  workflows, assets and outputs the session sees; the prompt library is one
+  library shared by all of them, because `prompt:` is shared by reference.
 
 ## Troubleshooting
 

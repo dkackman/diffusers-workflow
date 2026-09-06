@@ -94,7 +94,14 @@ rooted at the library rather than at the workflow file — so a workflow and the
 media it reads no longer have to sit in the same folder. `--asset-dir` and
 `DW_ASSET_DIR` override the folder, and browser uploads land in
 `assets/uploads/`, coming back as `asset:uploads/<name>` (and served for
-preview under `/inputs/`, since the SPA's own bundles own `/assets/`). See
+preview under `/inputs/`, since the SPA's own bundles own `/assets/`).
+
+A generated file becomes an input the same way: **Keep as asset** in the
+gallery (`POST /api/assets/keep`, `keep_output` over MCP) links or copies it
+out of `outputs/` into `assets/` under a name you choose, so a later workflow
+carries `asset:<name>` rather than a run id that pruning would break. The copy
+stays inside the workspace — a hard link where the filesystem allows one, so
+keeping one frame of a large render costs no second copy of it. See
 [Asset References](WORKFLOW_GUIDE.md#asset-references).
 
 ## Where workflows are read from, and written to
@@ -172,11 +179,69 @@ To keep the previous layout — everything at the output root, with only a
 or `"output_layout": "flat"` in settings. Scripts that glob the output directory
 are the reason to.
 
+## Several workspaces on one server
+
+Everything above describes one workspace, which is all `dw.run` and the REPL
+ever see. `dw.serve` goes one step further: the workspace root can hold
+several, and a client picks which one it is working in.
+
+```
+<workspace root>/
+  workflows/  assets/  outputs/    <- the 'default' workspace
+  prompts/                         <- shared by all of them
+  studio/
+    workflows/  assets/  outputs/  <- the 'studio' workspace
+  scratch/
+    workflows/  assets/  outputs/  <- the 'scratch' workspace
+```
+
+The root's own three folders are the workspace named `default`, so a server
+that has never heard of named workspaces behaves exactly as it did. A named
+workspace is a sibling directory holding the same three folders — and *not* a
+`prompts/`, because there is one prompt library: `prompt:` is shared by
+reference, and a prompt duplicated per workspace would resolve to different
+text depending on where a workflow happened to be saved. `workflows`,
+`prompts`, `assets` and `outputs` are reserved names for that reason.
+
+This is what lets two agents share one GPU without sharing a namespace: each
+takes a workspace, and neither can save over the other's workflows or delete
+the other's renders.
+
+**How a client picks one.** Every scoped route takes an optional
+`?workspace=<name>`; omitting it means `default`, which is why every
+pre-workspace call still means what it meant.
+
+| Client | How |
+| --- | --- |
+| Web UI | The workspace picker on the Workflows and Gallery pages. The choice is remembered in `localStorage`, and the Jobs page adds a filter — job history spans every workspace and says which one each job ran in |
+| MCP | `list_workspaces`, then `use_workspace(name)`. It is a session default rather than an argument on each call, so switching is one visible step in the transcript instead of a flag that can be forgotten on the call where it mattered |
+| HTTP | `?workspace=` on the route, or `"workspace"` in a `POST /api/jobs` body |
+| Server page | The Workspaces section lists them, creates and deletes them |
+
+A job carries its own workflow, asset and output directories, so it stays in
+the workspace it was submitted from however many others the server serves
+while it runs — including through a rerun, and when its files are served back
+from history.
+
+**Creating and deleting.** `POST /api/workspaces` (`create_workspace` over
+MCP) makes one; creating does not switch to it. Deleting removes everything in
+it, so it refuses until acknowledged and answers first with what it would
+remove — file counts and bytes per folder. The default workspace cannot be
+deleted (it holds the shared prompt library, and there has to be somewhere to
+work), nor can one with jobs still queued.
+
+A workspace is a **namespace, not a security boundary**. The API token is
+all-or-nothing: anything that can reach the server can name any workspace on
+it. Use them to keep work apart, not to keep it private.
+
 ## Where this is going
 
-Workspaces are the first stage of the design in
-[proposals/workspaces.md](proposals/workspaces.md): a workflow search path with
-writes confined to the workspace, run directories with an on-disk manifest,
-`asset:` and `output:` references, and an MCP client that can keep its
-workspace on its own machine. Only the resolver and its wiring are implemented
-today; everything still lives where it did.
+Workspaces were the first stage of the design in
+[proposals/workspaces.md](proposals/workspaces.md). The resolver, the workflow
+search path with writes confined to the writable root, run directories with an
+on-disk manifest, `asset:` and `output:` references, and server-side named
+workspaces are all implemented. What remains from the proposal is an MCP
+client that keeps its workspace on its own machine and mirrors it to the
+server — see
+[proposals/server-workspaces.md](proposals/server-workspaces.md) for why
+mirroring is not currently planned.

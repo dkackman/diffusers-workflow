@@ -98,7 +98,10 @@ def server_info(client):
     if client.workspace != DEFAULT_WORKSPACE:
         listing = client.get_json("/api/workspaces")
         for workspace in listing.get("workspaces") or []:
-            if isinstance(workspace, dict) and workspace.get("name") == client.workspace:
+            if (
+                isinstance(workspace, dict)
+                and workspace.get("name") == client.workspace
+            ):
                 info["directories"] = {
                     **(info.get("directories") or {}),
                     **{
