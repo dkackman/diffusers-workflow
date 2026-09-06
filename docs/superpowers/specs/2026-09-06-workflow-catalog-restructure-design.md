@@ -25,7 +25,8 @@ one flat list, and to let the catalog say which is which.
 | Collapsing model variation | Into variables where the pipeline class matches; stop where component configs genuinely differ. |
 | `archive/` | Pruned to the generalizable few, which graduate into `templates/`. The rest is deleted. |
 | Workflow `id` | Stays stable across a move, so the step cache survives. |
-| Run-directory identity | Allowed to change with the path. A one-time break, documented. |
+| Backward compatibility | Not maintained. Existing outputs and any reference into them may break. |
+| Acceptance criterion | The post-state is internally consistent: every reference in the repo resolves. |
 | Sequencing | The keep/collapse/delete inventory is agreed with the user *before* anything is deleted. |
 | Out of scope | The derived shape index and measured runtimes (a separate piece, built on top of this - see "What this unblocks"). |
 
@@ -107,39 +108,53 @@ pipeline class but not their quantization blocks, so they keep separate model
 configs under one template. Collapsing those would produce a file that is
 harder to read than the ones it replaced, which is the opposite of the point.
 
-## Compatibility
+## Compatibility, and what replaces it
 
-Moving a file has two consequences, and they are not equal.
+Backward compatibility is explicitly not a goal (user's decision, 2026-09-06).
+Existing outputs may be orphaned and references into them may break. No alias
+mechanism, no migration shim, no old->new mapping document - each would be a
+permanent feature carried for a one-time move.
 
-**The step cache survives.** It is keyed on the workflow's `id`
-(`dw/step_cache.py`), not its path, so every surviving workflow keeps the `id`
-it has even where its filename changes. This is a constraint on the
-restructure, not an observation: renaming ids would silently invalidate the
-cache for every workflow at once.
+What replaces it is a stricter obligation on the *end* state: **when this lands,
+every reference in the repo resolves.** Not "mostly", and not "the ones a test
+happens to cover" - the point of the restructure is a catalog that can be
+trusted, and a catalog with a dangling reference in it cannot be.
 
-**Run-directory identity does not survive.** `workflow_identity`
-(`dw/runs.py:246`) derives identity from the file's path under a `workflows/`
-tree, so `flux/FluxDev.json` is `flux/FluxDev`. Moving it changes where its runs
-land. Consequences, all accepted as a one-time cost:
+### The reference classes, and what enforces each
 
-- existing outputs for a moved workflow are orphaned from it - the gallery
-  groups them under the old identity
-- any `output:flux/FluxDev/latest/file.png` reference stops resolving
-- the old→new mapping is documented so a stale reference can be repaired by
-  hand
+Counted on 2026-09-06:
 
-Not mitigated in code. An identity-alias mechanism would be a permanent feature
-carried for a one-time move.
+| Class | Count | Enforced by |
+| --- | --- | --- |
+| Markdown links into `workflows/` (docs/ + README) | 66 distinct paths | `tests/test_docs_links.py`, which walks every `.md` in the repo |
+| Workflow naming another workflow by `path` | 6 files | `tests/test_examples.py::test_example_workflow_references_resolve` |
+| `prompt:` references into the prompt library | 18 distinct names across 20 files | **nothing - a gap this work closes** |
+| `asset:` and `output:` references | none in `workflows/` | moot |
+| UI source referencing a workflow path | none | moot |
 
-**Links.** 66 distinct paths under `workflows/` are linked from `docs/`,
-`README.md` and `ui/`. All are updated; `tests/test_docs_links.py` enforces that
-they resolve.
+The `prompt:` gap matters here specifically because collapsing rewrites and
+merges the files that carry those references, and a `prompt:` naming something
+that no longer exists fails only when the workflow is actually run. A test
+asserting every `prompt:` reference in the tree resolves against `prompts/` is
+part of this work, and is worth having independently of the restructure.
 
-**Relative paths inside workflows.** Six workflows name another workflow by
-path, and a `path` resolves against the referencing file's own directory. Moves
-have to be applied to both files together or the reference silently breaks -
-schema validation does not follow it, and nothing else does until the workflow
-runs.
+### The one thing that must not change
+
+The workflow `id`. The step cache is keyed on it (`dw/step_cache.py`), not on
+the path, so every surviving workflow keeps the `id` it has even where its
+filename changes. This is a constraint on the restructure, not an observation:
+renaming ids would silently invalidate the cache for every workflow at once.
+
+Run-directory identity, by contrast, is derived from the file's path under a
+`workflows/` tree (`workflow_identity`, `dw/runs.py:246`) and therefore does
+change. That is the accepted break.
+
+### Relative paths inside workflows
+
+A `path` resolves against the referencing file's own directory, so a move has to
+be applied to both files together. Schema validation does not follow those
+references and nothing else does until the workflow runs - which is why the test
+above is the thing standing between a move and a silent break.
 
 ## Verification
 
@@ -148,6 +163,8 @@ runs.
 - every doc link resolves - `tests/test_docs_links.py`
 - a new test for the invariant this exists to create: every template carries a
   description, and every model config names the template it configures
+- a new test that every `prompt:` reference in `workflows/` resolves against
+  `prompts/` - the one reference class nothing currently checks
 
 The listing needs no change to distinguish the two: a catalog name already
 carries its path, so `templates/...` and `models/...` are self-describing.
@@ -164,8 +181,9 @@ the follow-on piece.
 3. **Move and collapse.** Apply the agreed list, keeping `id`s stable and moving
    path-referencing pairs together.
 4. **Fix links and docs.** All 66, plus any prose describing the old layout.
-5. **Record the mapping.** Old identity → new identity, for repairing stale
-   `output:` references.
+5. **Prove consistency.** Every reference class in the table above resolves,
+   including the `prompt:` one under its new test. This is the acceptance
+   criterion, and the point at which the work is done.
 
 ## What this unblocks
 
