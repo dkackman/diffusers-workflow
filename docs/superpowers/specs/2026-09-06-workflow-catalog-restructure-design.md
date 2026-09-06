@@ -213,7 +213,7 @@ built *after* this, not before. Two reasons: classifying a catalog about to be
 halved is wasted work, and the derivation gets materially more accurate once
 "template or model config" is a distinction it can read rather than infer.
 
-That piece, as agreed but not specified here: shape derived from the definition
+That piece is now specified in [docs/proposals/catalog-shape-index.md](../../proposals/catalog-shape-index.md). In outline, as agreed here: shape derived from the definition
 in `workflow_details` (`dw/server/app.py:154`, which already parses and caches
 per file) with an optional declared override where the derivation is wrong; and
 median observed runtime per workflow from the `jobs` table, which carries
