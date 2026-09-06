@@ -4,10 +4,22 @@
   let {
     workflow,
     onselect = undefined,
+    activeStep = undefined,
+    doneSteps = [],
   }: {
     workflow: Record<string, any>
     onselect?: (stepName: string) => void
+    /** The step a run is executing right now, when the graph is showing a
+     * live job rather than a workflow being edited. */
+    activeStep?: string
+    /** Steps that run has already finished. */
+    doneSteps?: string[]
   } = $props()
+
+  const showsRun = $derived(activeStep !== undefined || doneSteps.length > 0)
+  const stateOf = $derived((name: string) =>
+    name === activeStep ? 'active' : doneSteps.includes(name) ? 'done' : '',
+  )
 
   const graph = $derived(dataFlowGraph(workflow))
 
@@ -96,6 +108,19 @@
       select(name)
     }
   }
+
+  // Without a consumer for the click - the job page just shows the shape of
+  // the run - a node is not a control: no focus stop, no pointer, nothing
+  // announced as a button.
+  const nodeAttributes = (name: string) =>
+    onselect
+      ? {
+          role: 'button',
+          tabindex: 0,
+          onclick: () => select(name),
+          onkeydown: (event: KeyboardEvent) => onKeydown(event, name),
+        }
+      : {}
 </script>
 
 {#if (graph.nodes ?? []).length === 0}
@@ -104,10 +129,13 @@
   <div class="flowwrap panel">
     <p class="muted hint">
       Read-only data-flow view: boxes are steps, arrows are
-      <code>previous_result</code> references labeled with the argument they feed.
-      A step with more than one incoming arrow multiplies its inputs together (CLAUDE.md's
-      cartesian-product gotcha) - its border is highlighted and the multiplier is
-      noted. Click a step to jump to it in the form view.
+      <code>previous_result</code> references labeled with the argument they
+      feed. A step with more than one incoming arrow multiplies its inputs
+      together (CLAUDE.md's cartesian-product gotcha) - its border is
+      highlighted and the multiplier is noted.{#if showsRun}
+        A finished step is outlined in green, the one running now in the accent
+        colour.{/if}{#if onselect}
+        Click a step to jump to it in the form view.{/if}
     </p>
     <div class="scrollarea">
       <svg
@@ -148,12 +176,12 @@
               class="node"
               class:entry={node.isEntryPoint}
               class:fanin={!!fanIn}
+              class:clickable={!!onselect}
+              class:active={node.name === activeStep}
+              class:done={stateOf(node.name) === 'done'}
               transform={`translate(${pos.x}, ${pos.y})`}
-              role="button"
-              tabindex="0"
-              aria-label={`step ${node.name}, ${kindLabel(node.kind)}${node.isEntryPoint ? ', entry point' : ''}${fanIn ? ', fan-in: ' + fanIn.label : ''}`}
-              onclick={() => select(node.name)}
-              onkeydown={(e) => onKeydown(e, node.name)}
+              aria-label={`step ${node.name}, ${kindLabel(node.kind)}${stateOf(node.name) ? ', ' + stateOf(node.name) : ''}${node.isEntryPoint ? ', entry point' : ''}${fanIn ? ', fan-in: ' + fanIn.label : ''}`}
+              {...nodeAttributes(node.name)}
             >
               <rect width={BOX_W} height={BOX_H} rx="8" class="box" />
               <text x="10" y="20" class="stepname">{node.name}</text>
@@ -216,7 +244,7 @@
     text-anchor: middle;
     font-family: ui-monospace, 'Cascadia Code', monospace;
   }
-  .node {
+  .node.clickable {
     cursor: pointer;
   }
   .box {
@@ -224,8 +252,8 @@
     stroke: var(--line);
     stroke-width: 1.5;
   }
-  .node:hover .box,
-  .node:focus-visible .box {
+  .node.clickable:hover .box,
+  .node.clickable:focus-visible .box {
     stroke: var(--accent);
   }
   .node.entry .box {
@@ -234,6 +262,22 @@
   .node.fanin .box {
     stroke: var(--warn);
     stroke-width: 2;
+  }
+  /* Run state last: on a live job which step is running matters more than
+     the static fan-in warning the same border would otherwise carry. */
+  .node.done .box {
+    stroke: var(--good);
+    stroke-width: 2;
+  }
+  .node.active .box {
+    stroke: var(--accent);
+    stroke-width: 2.5;
+    animation: dw-pulse 1.6s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .node.active .box {
+      animation: none;
+    }
   }
   .stepname {
     font-size: 12px;

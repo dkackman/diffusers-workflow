@@ -346,6 +346,47 @@ def test_submit_accepts_a_stored_workflow_name(server, tmp_path):
         assert executes[0]["workflow_path"].endswith("Basic.json")
 
 
+def test_job_workflow_returns_an_inline_definition(server):
+    """The job page draws the flow graph from the definition the job ran -
+    an inline one comes straight back from the job's spec."""
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        body = client.get(f"/api/jobs/{job['id']}/workflow").json()
+        assert body["id"] == job["id"]
+        assert body["definition"] == valid_workflow()
+
+        # and still after it finishes and history is the only record of it
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+        manager = client.app.state.job_manager
+        manager.jobs.pop(job["id"])
+        historical = client.get(f"/api/jobs/{job['id']}/workflow").json()
+        assert historical["definition"] == valid_workflow()
+
+
+def test_job_workflow_reads_back_a_job_launched_from_a_file(server):
+    """A job submitted by path names no definition - the file it ran is
+    re-read from the root the job was confined to."""
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
+        body = client.get(f"/api/jobs/{job['id']}/workflow").json()
+        assert body["definition"] == valid_workflow("basic")
+
+
+def test_job_workflow_404s_for_an_unknown_job(server):
+    with server(success_script) as client:
+        assert client.get("/api/jobs/nosuchjob/workflow").status_code == 404
+
+
+def test_job_workflow_404s_when_the_file_is_gone(server, tmp_path):
+    """The graph is a nicety: a workflow file deleted since the run leaves
+    the job itself readable, just without a definition to draw."""
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
+        os.remove(str(tmp_path / "workflows" / "Basic.json"))
+        assert client.get(f"/api/jobs/{job['id']}/workflow").status_code == 404
+        assert client.get(f"/api/jobs/{job['id']}").status_code == 200
+
+
 def test_submit_rejects_a_real_path_outside_the_workflow_dir(server, tmp_path):
     """workflow_path is confined to --workflow-dir, the same as the
     /api/workflows CRUD routes - a real, existing file elsewhere on disk

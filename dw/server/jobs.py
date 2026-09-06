@@ -18,7 +18,12 @@ import threading
 from ..repl_worker import WorkerManager
 from ..workflow import workflow_from_file, workflow_from_definition
 from ..introspection import workflow_argument_warnings
-from ..security import validate_output_path
+from ..security import (
+    SecurityError,
+    validate_json_size,
+    validate_output_path,
+    validate_workflow_path,
+)
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 
@@ -488,6 +493,40 @@ class JobManager:
         if job is not None:
             return job
         return self.history.get(job_id)
+
+    def definition(self, job_id):
+        """The workflow JSON a job ran, for a read-only view of it.
+
+        An inline definition comes straight from the spec; a job launched
+        from a path is re-read from disk, confined to the root the job ran
+        against. None when there is no such job, or when the file it named
+        has since moved, grown past the size limit or stopped parsing - a
+        graph of the run is a nicety, never a reason to fail the page.
+        """
+        job = self.jobs.get(job_id)
+        if job is not None:
+            spec = job.spec
+        else:
+            historical = self.history.get(job_id)
+            if historical is None:
+                return None
+            spec = historical.get("spec") or {}
+        inline = spec.get("workflow")
+        if inline is not None:
+            return copy.deepcopy(inline)
+        path = spec.get("workflow_path")
+        if not path:
+            return None
+        try:
+            validated = validate_workflow_path(
+                path, spec.get("workflow_dir") or self.workflow_dir
+            )
+            validate_json_size(validated)
+            with open(validated, "r") as file:
+                return json.load(file)
+        except (SecurityError, OSError, ValueError):
+            logger.debug(f"No workflow definition available for job {job_id}")
+            return None
 
     def rerun(self, job_id):
         """Queue a fresh job from a previous job's spec.
