@@ -795,7 +795,9 @@ class TestBuildObjects:
             }
         }
 
-        with pytest.raises(ValueError, match="holds a video, but the step it names produced"):
+        with pytest.raises(
+            ValueError, match="holds a video, but the step it names produced"
+        ):
             build_objects(arguments)
 
     def test_the_wrong_media_for_the_kind_is_an_error(self):

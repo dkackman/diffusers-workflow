@@ -21,9 +21,9 @@ describe('groupOf', () => {
   it('is not how the gallery groups - a gallery name carries a run id', () => {
     // <identity>/<run id>/<file>: the last folder is the run, not the workflow.
     // GalleryPage groups by the server's `folder` (strip_run_id) instead
-    expect(groupOf('templates/ltx2/two-stage/20260906-101500-a1b2c3d4/still.png')).toBe(
-      'templates/ltx2/two-stage/20260906-101500-a1b2c3d4',
-    )
+    expect(
+      groupOf('templates/ltx2/two-stage/20260906-101500-a1b2c3d4/still.png'),
+    ).toBe('templates/ltx2/two-stage/20260906-101500-a1b2c3d4')
   })
 })
 
@@ -50,7 +50,10 @@ describe('groupNames', () => {
     // run id - the name alone cannot tell a run id from a folder
     const folderOf = (name: string) => name.split('/')[0]
     const grouped = groupNames(
-      ['tti/20260906-101500-a1b2c3d4/a.png', 'tti/20260906-101612-ffffffff/b.png'],
+      [
+        'tti/20260906-101500-a1b2c3d4/a.png',
+        'tti/20260906-101612-ffffffff/b.png',
+      ],
       folderOf,
     )
     expect([...grouped.keys()]).toEqual(['tti'])

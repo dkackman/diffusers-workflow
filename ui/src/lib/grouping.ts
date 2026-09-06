@@ -31,7 +31,5 @@ export const groupNames = (
     if (bucket) bucket.push(name)
     else buckets.set(group, [name])
   }
-  return new Map(
-    [...buckets.entries()].sort(([a], [b]) => a.localeCompare(b)),
-  )
+  return new Map([...buckets.entries()].sort(([a], [b]) => a.localeCompare(b)))
 }

@@ -246,7 +246,8 @@ file, or a URL, exactly like the plain `image`/`video` forms.
 
 Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `audio/wav`, `audio/flac`, `audio/mpeg` (mp3), `audio/ogg`, `audio/opus`, `audio/aiff`, `application/json`, `text/plain` (plus the common aliases `audio/x-wav`, `audio/mp3`, `audio/vorbis`).
 
-For video, add `"fps": 8`. For audio, add `"sample_rate": 44100`. Setting `embed_metadata: true`
+For video, add `"fps": 8`. For audio, add `"sample_rate": 44100` when the waveform doesn't
+already carry a rate of its own (a declared rate always wins). Setting `embed_metadata: true`
 on an image result embeds the step's model name and arguments as generation metadata -
 PNG info chunks for `image/png`, EXIF `UserComment` (via `piexif`) for `image/jpeg` and
 `image/webp`.
@@ -1116,7 +1117,7 @@ lands in comes from the type's own `kind`:
 | ------- | ------------------------------------------------------------------------- |
 | `image` | The generated image                                                       |
 | `video` | The generated frames, and the soundtrack generated with them if there was one |
-| `audio` | The generated soundtrack - or, for a step that produced audio alone (a music pipeline, a `slice_audio` task), the waveform itself, which carries no rate of its own, so declare `sample_rate` beside `from_previous_result` |
+| `audio` | The generated soundtrack - or, for a step that produced audio alone (a music pipeline, a `slice_audio` task), the waveform itself. The rate travels with the waveform when the pipeline or task reports one (an `AudioTrack` - AudioLDM2, StableAudio, `generate_speech`); declare `sample_rate` beside `from_previous_result` only for a waveform from a task or file that carries none, and a declared rate always wins |
 
 Any other key is a field of the object and wins over what the media carried —
 `"fps": 30.0` where the producing pipeline generated at a rate the consuming one does

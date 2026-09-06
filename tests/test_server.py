@@ -464,7 +464,9 @@ def test_workflow_browsing_and_confinement(server):
 
 def test_configures_resolves_against_the_listing(server):
     with server(success_script) as client:
-        client.put("/api/workflows/templates/tti", json={"workflow": valid_workflow("tti")})
+        client.put(
+            "/api/workflows/templates/tti", json={"workflow": valid_workflow("tti")}
+        )
 
         good = valid_workflow("good")
         good["configures"] = "templates/tti"

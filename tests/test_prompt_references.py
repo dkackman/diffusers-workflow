@@ -21,7 +21,10 @@ PROMPT_DIR = os.path.join(REPO_ROOT, "prompts")
 
 def prompt_references(definition):
     """Every 'prompt:' reference a workflow makes, as written."""
-    return [f"{PROMPT_PREFIX}{name}" for name in sorted(collect_prompt_references(definition))]
+    return [
+        f"{PROMPT_PREFIX}{name}"
+        for name in sorted(collect_prompt_references(definition))
+    ]
 
 
 @pytest.mark.parametrize("example_file", get_example_files())

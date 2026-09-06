@@ -1101,8 +1101,12 @@ _SAMPLE_RATE_SOURCES = (
 )
 
 
-def _component_sample_rate(pipeline):
+def _component_sample_rate(pipeline, has_audios):
     for component_name, attribute in _SAMPLE_RATE_SOURCES:
+        if component_name == "vae" and not has_audios:
+            # A video VAE's config is not where an audio rate lives - only an
+            # audio-only pipeline's VAE (StableAudio) reports one there
+            continue
         config = getattr(getattr(pipeline, component_name, None), "config", None)
         sample_rate = getattr(config, attribute, None)
         if sample_rate is not None:
@@ -1128,7 +1132,7 @@ def attach_audio_sample_rate(pipeline, output):
     if not (has_audio or has_audios):
         return
 
-    sample_rate = _component_sample_rate(pipeline)
+    sample_rate = _component_sample_rate(pipeline, has_audios)
     if sample_rate is None:
         logger.warning(
             "Pipeline generated audio but no component reports its sample rate - "

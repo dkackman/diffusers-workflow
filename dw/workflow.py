@@ -155,7 +155,7 @@ def catalog_root_dir(file_spec):
     except ValueError:
         return directory
 
-    return os.sep.join(parts[: index + 1]) or os.sep
+    return os.sep.join(parts[: index + 1])
 
 
 def pipeline_cache_key(pipeline_definition):

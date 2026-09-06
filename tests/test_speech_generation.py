@@ -138,7 +138,9 @@ class TestGenerateSpeech(unittest.TestCase):
         mock_pipeline.return_value.processor = None
 
         with self.assertRaises(ValueError) as raised:
-            generate_speech("hi", model_name="facebook/mms-tts-eng", voice_preset="v2/en_speaker_6")
+            generate_speech(
+                "hi", model_name="facebook/mms-tts-eng", voice_preset="v2/en_speaker_6"
+            )
 
         self.assertIn("voice_preset", str(raised.exception))
         self.assertIn("facebook/mms-tts-eng", str(raised.exception))

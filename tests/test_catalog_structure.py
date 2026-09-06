@@ -28,9 +28,7 @@ def test_every_template_describes_itself(path):
     both, whatever its filename says."""
     definition = json.load(open(os.path.join(REPO_ROOT, path), encoding="utf-8"))
 
-    assert definition.get(
-        "description", ""
-    ).strip(), f"{path} has no description"
+    assert definition.get("description", "").strip(), f"{path} has no description"
 
 
 def test_there_are_model_configs():
@@ -47,6 +45,6 @@ def test_every_model_config_names_the_template_it_configures(path):
 
     assert configures, f"{path} has no 'configures'"
     target = os.path.join(REPO_ROOT, "workflows", f"{configures}.json")
-    assert os.path.isfile(target), (
-        f"{path} configures '{configures}', which is not a workflow ({target})"
-    )
+    assert os.path.isfile(
+        target
+    ), f"{path} configures '{configures}', which is not a workflow ({target})"

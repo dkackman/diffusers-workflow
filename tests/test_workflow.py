@@ -359,7 +359,10 @@ class TestSubWorkflowPathsAcrossTheCatalog:
             "steps": [
                 {
                     "name": "noop",
-                    "task": {"command": "get_dict_value", "arguments": {"dict": {"k": 1}, "key": "k"}},
+                    "task": {
+                        "command": "get_dict_value",
+                        "arguments": {"dict": {"k": 1}, "key": "k"},
+                    },
                 }
             ],
         }
@@ -409,7 +412,12 @@ class TestSubWorkflowPathsAcrossTheCatalog:
         outside.write_text(json.dumps({"id": "x", "steps": []}))
         parent = {
             "id": "parent",
-            "steps": [{"name": "sub", "workflow": {"path": "../outside.json", "arguments": {}}}],
+            "steps": [
+                {
+                    "name": "sub",
+                    "workflow": {"path": "../outside.json", "arguments": {}},
+                }
+            ],
         }
         parent_path = root / "parent.json"
         parent_path.write_text(json.dumps(parent))
@@ -424,7 +432,9 @@ class TestSubWorkflowPathsAcrossTheCatalog:
                 device="cpu",
             )
 
-    def test_an_unconfined_run_still_refuses_climbing_out_of_the_catalog(self, tmp_path):
+    def test_an_unconfined_run_still_refuses_climbing_out_of_the_catalog(
+        self, tmp_path
+    ):
         """No workflow_dir (a bare CLI run) still confines a relative
         sub-workflow reference - to the catalog root now, rather than
         relying on the '..' regex normpath removes."""
@@ -439,7 +449,10 @@ class TestSubWorkflowPathsAcrossTheCatalog:
         parent = {
             "id": "parent",
             "steps": [
-                {"name": "sub", "workflow": {"path": "../../outside.json", "arguments": {}}}
+                {
+                    "name": "sub",
+                    "workflow": {"path": "../../outside.json", "arguments": {}},
+                }
             ],
         }
         parent_path = tmp_path / "workflows" / "templates" / "parent.json"
@@ -470,7 +483,10 @@ class TestSubWorkflowPathsAcrossTheCatalog:
             "steps": [
                 {
                     "name": "noop",
-                    "task": {"command": "get_dict_value", "arguments": {"dict": {"k": 1}, "key": "k"}},
+                    "task": {
+                        "command": "get_dict_value",
+                        "arguments": {"dict": {"k": 1}, "key": "k"},
+                    },
                 }
             ],
         }
@@ -478,7 +494,10 @@ class TestSubWorkflowPathsAcrossTheCatalog:
         parent = {
             "id": "parent",
             "steps": [
-                {"name": "sub", "workflow": {"path": "../models/child.json", "arguments": {}}}
+                {
+                    "name": "sub",
+                    "workflow": {"path": "../models/child.json", "arguments": {}},
+                }
             ],
         }
         parent_path = tmp_path / "workflows" / "templates" / "parent.json"
@@ -495,7 +514,9 @@ class TestSubWorkflowPathsAcrossTheCatalog:
 
         assert action is not None
 
-    def test_a_file_outside_any_catalog_is_confined_to_its_own_directory(self, tmp_path):
+    def test_a_file_outside_any_catalog_is_confined_to_its_own_directory(
+        self, tmp_path
+    ):
         """No 'workflows' ancestor at all - the referencing file's own
         directory is the confinement, so a sibling of a sibling is still
         refused even though the target file genuinely exists."""
@@ -511,7 +532,10 @@ class TestSubWorkflowPathsAcrossTheCatalog:
         parent = {
             "id": "parent",
             "steps": [
-                {"name": "sub", "workflow": {"path": "../b/child.json", "arguments": {}}}
+                {
+                    "name": "sub",
+                    "workflow": {"path": "../b/child.json", "arguments": {}},
+                }
             ],
         }
         parent_path = tmp_path / "a" / "parent.json"

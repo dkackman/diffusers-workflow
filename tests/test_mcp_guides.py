@@ -40,7 +40,9 @@ class TestListing:
 
 
 class TestWhereTheyComeFrom:
-    def test_a_checkout_is_preferred_over_a_stale_packaged_copy(self, tmp_path, monkeypatch):
+    def test_a_checkout_is_preferred_over_a_stale_packaged_copy(
+        self, tmp_path, monkeypatch
+    ):
         """build_dist.sh leaves dw/docs/ behind (gitignored). If that copy won,
         every later edit to docs/ would be invisible to the MCP and to these
         tests - so the repo's docs/ wins whenever it is there, and the packaged
@@ -62,7 +64,9 @@ class TestWhereTheyComeFrom:
 
         assert guides.read_guide("tasks") == "## Packaged\n"
 
-    def test_a_checkout_with_no_packaged_copy_reads_the_repo_docs(self, tmp_path, monkeypatch):
+    def test_a_checkout_with_no_packaged_copy_reads_the_repo_docs(
+        self, tmp_path, monkeypatch
+    ):
         root = tmp_path / "repo"
         (root / "docs").mkdir(parents=True)
         (root / "docs" / "TASKS.md").write_text("## Checkout\n")

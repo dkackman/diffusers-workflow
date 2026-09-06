@@ -687,6 +687,27 @@ class TestSaveAudio:
             _, sample_rate = soundfile.read(os.path.join(temp_dir, "line-0.0.wav"))
             assert sample_rate == 24000
 
+    def test_a_batched_track_keeps_its_rate_across_the_recursion(self):
+        # A batched AudioTrack (several waveforms in one artifact) recurses through
+        # save_artifact per waveform - the recursion must keep re-wrapping as an
+        # AudioTrack by checking for a carried sample_rate, not by isinstance, so
+        # a batch saved this way still saves at the rate it carries
+        from dw.result import AudioTrack
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav"})
+            result.add_result(
+                AudioTrack(numpy.zeros((2, 1, 4410), dtype=numpy.float32), 22050)
+            )
+
+            result.save(temp_dir, "line")
+
+            for j in (0, 1):
+                _, sample_rate = soundfile.read(
+                    os.path.join(temp_dir, f"line-0.0-{j}.wav")
+                )
+                assert sample_rate == 22050
+
     def test_a_declared_rate_wins_over_the_one_the_track_carries(self):
         from dw.result import AudioTrack
 

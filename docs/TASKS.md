@@ -955,7 +955,7 @@ It is merged after everything else, so it can override `repetition_penalty` and 
 
 ## Speech Generation
 
-Speak a line of text with a local text-to-speech model. The result is a waveform carrying the rate its model generated at, so it composes with [`slice_audio`](#slice_audio), [`fade_audio`](#fade_audio), [`pair_audio`](#pair_audio) and [`concat_videos`](#concat_videos) directly.
+Speak a line of text with a local text-to-speech model. The result is a waveform carrying the rate its model generated at, so it composes with [`slice_audio`](#slice_audio), [`fade_audio`](#fade_audio) and [`pair_audio`](#pair_audio) directly ([`concat_videos`](#concat_videos) and `dissolve_videos` join videos — pair the track onto a video first).
 
 ```json
 {
@@ -974,7 +974,7 @@ Speak a line of text with a local text-to-speech model. The result is a waveform
 | -------- | -------- | ----------- |
 | `text` | Yes | The line to speak |
 | `model_name` | No | HuggingFace model ID (default: `suno/bark-small`) |
-| `voice_preset` | No | The speaker, for a model with presets — `v2/en_speaker_0` through `v2/en_speaker_9` for Bark |
+| `voice_preset` | No | The speaker, for a model with presets — `v2/en_speaker_0` through `v2/en_speaker_9` for Bark. A model with no processor (a single-voice model such as `facebook/mms-tts-eng`) refuses a `voice_preset` with an error rather than ignoring it |
 | `forward_params` | No | Passed to the model's forward/generate call |
 | `generate_kwargs` | No | Ad-hoc generation settings for a generative model — `temperature`, `do_sample` |
 

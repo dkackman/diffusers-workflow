@@ -200,7 +200,7 @@ when no single workflow covers it.
 | --- | --- | --- |
 | `list_guides()` | — | List the documentation shipped with the engine: each guide's name, what it covers, and its section headings. The index is the routing table - match a request's shape against a heading rather than guessing |
 | `get_guide(name, section=None)` | `name`, `section` | Get one guide whole, or one section of it. Prefer a section: a guide runs to thousands of lines. Section names match loosely, so a heading copied approximately still resolves |
-| `list_workflows()` | — | List stored workflows, each with its description, output kinds, step count, variable names, the stored prompts it references, and its `origin`/`writable` - a workflow from a read-only examples directory can be read and run but not saved over or deleted. The first call to make for a request an existing workflow might cover |
+| `list_workflows()` | — | List stored workflows, each with its description, output kinds, step count, variable names, the stored prompts it references, and its `origin`/`writable` - a workflow from a read-only examples directory can be read and run but not saved over or deleted. A `models/` entry also carries `configures`, the template it configures, or `configures_missing` naming it when that template does not resolve. The first call to make for a request an existing workflow might cover |
 | `get_workflow(name)` | `name` | Get one stored workflow's full JSON definition |
 | `get_schema()` | — | Get the JSON schema every workflow definition must satisfy |
 | `list_pipelines()` | — | List every diffusers pipeline class this installation provides |

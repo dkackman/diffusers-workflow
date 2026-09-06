@@ -420,9 +420,12 @@ class Result:
                                 # Keep the rate the track carries across the
                                 # recursion - a bare waveform would fall back
                                 # to the default
-                                AudioTrack(waveform.T, sample_rate)
-                                if isinstance(artifact, AudioTrack)
-                                else waveform,
+                                (
+                                    AudioTrack(waveform.T, sample_rate)
+                                    if getattr(artifact, "sample_rate", None)
+                                    is not None
+                                    else waveform
+                                ),
                                 f"{file_base_name}-{k}",
                                 content_type,
                                 extension,
