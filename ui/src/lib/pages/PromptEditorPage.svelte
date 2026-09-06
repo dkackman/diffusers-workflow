@@ -16,6 +16,7 @@
   import { phaseLabel } from '../progress'
   import { notify } from '../toast'
   import { loadPromptLibrary } from '../promptlib.svelte'
+  import { groupOf, leafOf } from '../grouping'
   import {
     emptyPrompt,
     knownIntendedModels,
@@ -47,13 +48,7 @@
 
   // Existing folders, from the listing - one level is the designed depth
   const folders = $derived(
-    [
-      ...new Set(
-        promptFiles
-          .filter((file) => file.includes('/'))
-          .map((file) => file.split('/').slice(0, -1).join('/')),
-      ),
-    ].sort(),
+    [...new Set(promptFiles.map(groupOf).filter(Boolean))].sort(),
   )
 
   type EditorView = 'form' | 'split' | 'json'
@@ -254,9 +249,8 @@
       .catch((e) => notify.error(e.message))
     refreshModels()
     if (name) {
-      const segments = name.split('/')
-      saveName = segments[segments.length - 1]
-      folder = segments.slice(0, -1).join('/')
+      saveName = leafOf(name)
+      folder = groupOf(name)
       api
         .getPrompt(name)
         .then((definition) => {

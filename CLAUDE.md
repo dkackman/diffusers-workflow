@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install
 bash ./install.sh && source ./activate
 
-# Run a workflow - sd15.json uses a small, ungated model and a literal
+# Run a workflow - templates/text-to-image.json uses a small, ungated model and a literal
 # prompt, so it needs no Hugging Face login and downloads only a few GB
 python -m dw.run workflows/templates/text-to-image.json
 python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
