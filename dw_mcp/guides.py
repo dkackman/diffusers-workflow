@@ -30,9 +30,11 @@ from dw_mcp.client import DwApiError
 GUIDES = {
     "workflows": (
         "WORKFLOW_GUIDE.md",
-        "How a workflow is put together: steps, variables, the reference "
-        "conventions that carry data between steps, sub-workflows, and "
-        "releasing models mid-run. Read before authoring one.",
+        "How the catalog is organised - templates/ teaching a pattern, models/ "
+        "recording what makes a checkpoint fit - and how a workflow is put "
+        "together: steps, variables, the reference conventions that carry data "
+        "between steps, sub-workflows, and releasing models mid-run. Read "
+        "before authoring one.",
     ),
     "tasks": (
         "TASKS.md",

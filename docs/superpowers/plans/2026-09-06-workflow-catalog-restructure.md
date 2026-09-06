@@ -572,11 +572,13 @@ inv = pathlib.Path(
     "docs/superpowers/plans/2026-09-06-catalog-inventory.md"
 ).read_text()
 rows = [l.split("|") for l in inv.splitlines() if l.startswith("| workflows/")]
-deleted = {r[1].strip() for r in rows if r[2].strip() == "DELETE"}
+# An id survives only where its file survives as itself: DELETE removes the
+# file, and COLLAPSE folds it into another that keeps its own id
+gone = {r[1].strip() for r in rows if r[2].strip() in ("DELETE", "COLLAPSE INTO")}
 expected = {
     r[4].strip()
     for r in rows
-    if r[1].strip() not in deleted and r[4].strip() not in ("—", "")
+    if r[1].strip() not in gone and r[4].strip() not in ("—", "")
 }
 on_disk = {json.load(open(p))["id"] for p in pathlib.Path("workflows").rglob("*.json")}
 lost = sorted(expected - on_disk)

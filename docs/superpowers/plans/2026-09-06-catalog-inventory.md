@@ -4,7 +4,7 @@ Verdicts for every workflow under `workflows/`. Produced by Task 2 of the
 [restructure plan](2026-09-06-workflow-catalog-restructure.md); the file lists
 in Tasks 3-5 are this table, filtered by verdict.
 
-Status: approved 2026-09-06
+Status: applied 2026-09-06
 
 Counts: COLLAPSE INTO 6, DELETE 42, MODEL 9, TEMPLATE 64 (total 121)
 

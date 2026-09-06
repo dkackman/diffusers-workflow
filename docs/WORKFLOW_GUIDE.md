@@ -1,5 +1,37 @@
 # Workflow Guide
 
+## How the catalog is organised
+
+`workflows/` holds two trees, and which one a file is in says what it is for.
+
+**`workflows/templates/`** teaches a pattern. One file per capability - a shape
+(image to video, a multi-shot cut sequence), a mechanism (shared components,
+sub-workflows, `pipeline_reference`, typed references), or a reference
+convention (`prompt:`, `previous_result:`). These are what to read and copy.
+Where several checkpoints run the same pattern through the same pipeline class,
+one template carries them all and its `description` spells out the per-checkpoint
+argument sets, so the variations travel with the file rather than in a document
+that drifts from it. The `templates/ltx2/` and `templates/minimax/` subfolders
+each hold a family whose members build on one baseline.
+
+**`workflows/models/`** records a hardware fact: the quantization, offloading and
+component placement that make one checkpoint fit a real card. That is knowledge
+you cannot re-derive from a template, so it is kept runnable - but nobody learns
+a pattern from the fifth one, so these stay out of the way. Each carries a
+`configures` naming the template it is an instance of:
+
+```json
+{
+    "id": "flux-dev",
+    "description": "Text-to-image with FLUX.1 dev - the reference FLUX workflow.",
+    "configures": "templates/text-to-image",
+    "steps": [ ... ]
+}
+```
+
+The distinction exists because a catalog entry that cannot say which of the two
+it is leaves every reader - and every agent - to guess from the filename.
+
 ## Structure
 
 Every workflow is a JSON file with an `id`, optional `variables`, and a list of `steps`:
