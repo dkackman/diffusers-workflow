@@ -215,6 +215,20 @@ def workflow_details(sources_by_name):
             "writable": source.writable,
         }
     _prune_missing(_workflow_detail_cache)
+    # A model config names its template as a catalog name. Resolve it here,
+    # where the whole listing is in hand, so a badge is a link to a real card
+    # rather than a string - and say which name did not resolve. Entries can
+    # be the very dict cached above (a cache hit skips the copy at line
+    # 212), so copy before mutating - otherwise a stale "not found yet"
+    # verdict would stick in the cache and outlive the typo once the
+    # template it names is added.
+    for name, detail in details.items():
+        named = detail.get("configures", "")
+        if named and named not in details:
+            detail = dict(detail)
+            detail["configures_missing"] = named
+            detail["configures"] = ""
+            details[name] = detail
     return details
 
 

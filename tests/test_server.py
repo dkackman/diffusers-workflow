@@ -462,6 +462,25 @@ def test_workflow_browsing_and_confinement(server):
         assert client.get("/api/workflows/nope").status_code == 404
 
 
+def test_configures_resolves_against_the_listing(server):
+    with server(success_script) as client:
+        client.put("/api/workflows/templates/tti", json={"workflow": valid_workflow("tti")})
+
+        good = valid_workflow("good")
+        good["configures"] = "templates/tti"
+        client.put("/api/workflows/models/good", json={"workflow": good})
+
+        typo = valid_workflow("typo")
+        typo["configures"] = "templates/nope"
+        client.put("/api/workflows/models/typo", json={"workflow": typo})
+
+        details = client.get("/api/workflows").json()["details"]
+
+        assert details["models/good"]["configures"] == "templates/tti"
+        assert details["models/typo"]["configures"] == ""
+        assert details["models/typo"]["configures_missing"] == "templates/nope"
+
+
 def test_a_silently_killed_worker_reports_its_exit_and_frees_the_manager(tmp_path):
     """The OOM killer leaves no traceback, so the exit code is the whole
     diagnosis - and the manager must stop believing the dead process is
@@ -1351,6 +1370,11 @@ def test_workflow_details_name_the_template_a_model_config_configures(server):
     cannot see which is which shows it as just another catalog entry - the
     thing the two-tree layout exists to stop."""
     with server(success_script) as client:
+        client.put(
+            "/api/workflows/templates/text-to-image",
+            json={"workflow": valid_workflow("tti")},
+        )
+
         workflow = valid_workflow("tuned")
         workflow["configures"] = "templates/text-to-image"
         client.put("/api/workflows/models/Tuned", json={"workflow": workflow})
