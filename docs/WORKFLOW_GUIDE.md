@@ -818,7 +818,28 @@ a pipeline's own `seed` overrides its step's, which overrides the workflow's:
 }
 ```
 
-Omit `seed` entirely to let the workflow draw a random one at run time.
+Omit `seed` entirely to let the workflow draw a random one at run time. The seed a run
+actually used - drawn or named - is recorded in its `manifest.json`, so a run you liked
+can be reproduced after the fact.
+
+Any of the three levels accepts a `variable:` reference, which is how a seed becomes
+settable per run without editing the file:
+
+```json
+{
+    "variables": { "seed": 42 },
+    "seed": "variable:seed",
+    "steps": [ ... ]
+}
+```
+
+```bash
+python -m dw.run workflows/ZImage.json seed=1234
+```
+
+Declare the variable with an integer default, as above: the value from the command line
+arrives as a string and is converted to the declared type. A string that is not a
+`variable:` reference is rejected by the schema.
 
 The seed also reaches sub-workflows: a delegated `workflow` step runs the child under
 the parent's seed unless the child names its own. Without that a child draws its own
