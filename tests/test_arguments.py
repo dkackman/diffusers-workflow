@@ -779,6 +779,25 @@ class TestBuildObjects:
 
         assert build_objects(arguments)["reference"].fps == 30.0
 
+    def test_a_video_reference_to_a_speech_step_says_so(self):
+        # Pointing a video-kind reference at generate_speech's output should
+        # name the mismatch, not fail inside the frame helper
+        import numpy
+
+        from dw.result import AudioTrack
+
+        arguments = {
+            "reference": {
+                "reference_type": VideoReference,
+                "from_previous_result": AudioTrack(
+                    numpy.zeros((1, 50), dtype="float32"), 24000
+                ),
+            }
+        }
+
+        with pytest.raises(ValueError, match="holds a video, but the step it names produced"):
+            build_objects(arguments)
+
     def test_the_wrong_media_for_the_kind_is_an_error(self):
         arguments = {
             "reference": {

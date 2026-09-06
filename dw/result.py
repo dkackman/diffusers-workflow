@@ -912,7 +912,12 @@ def normalize_audio(artifact):
     Returns:
         List of numpy arrays shaped (samples,) or (samples, channels)
     """
-    artifact = getattr(artifact, "audio", artifact)
+    if hasattr(artifact, "audio"):
+        if artifact.audio is None:
+            raise ValueError(
+                f"Cannot save a {type(artifact).__name__} as audio - it carries no audio track"
+            )
+        artifact = artifact.audio
 
     # Torch tensors may be on the GPU and in a dtype numpy does not understand
     if hasattr(artifact, "detach"):

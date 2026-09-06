@@ -665,6 +665,12 @@ class TestSaveAudio:
             _, sample_rate = soundfile.read(os.path.join(temp_dir, "song-0.0.wav"))
             assert sample_rate == 44100
 
+    def test_saving_a_silent_video_as_audio_names_the_problem(self):
+        from dw.result import AudioVideo, normalize_audio
+
+        with pytest.raises(ValueError, match="carries no audio"):
+            normalize_audio(AudioVideo([], None, None))
+
     def test_a_track_saves_at_the_rate_it_carries(self):
         # A generated track knows its own rate - generate_speech produces one at
         # whatever its model runs at - so the workflow does not have to declare it

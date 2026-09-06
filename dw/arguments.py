@@ -697,6 +697,15 @@ def object_from_result(description):
     return object_type(**arguments)
 
 
+def _carried_audio(artifact, torch, as_channels_samples):
+    """The (waveform tensor, rate) an artifact carries as '.audio'/'.sample_rate'
+    - an AudioVideo or an AudioTrack - or (None, None) for anything else."""
+    if getattr(artifact, "audio", None) is None:
+        return None, None
+    audio = torch.as_tensor(as_channels_samples(artifact.audio))
+    return audio, getattr(artifact, "sample_rate", None)
+
+
 def media_arguments(object_type, artifact):
     """The constructor arguments a step's artifact makes, for a type's media kind.
 
@@ -731,17 +740,19 @@ def media_arguments(object_type, artifact):
             )
         return {"image": artifact}
 
-    # A generated soundtrack arrives paired with the frames it was generated with
-    # (an AudioVideo) or by itself with the rate it was generated at (an
-    # AudioTrack); anything else the step produced carries none. Read off the
-    # attributes rather than the types, which is how every other audio consumer
-    # here accepts both
-    audio, sample_rate = None, None
-    if getattr(artifact, "audio", None) is not None:
-        audio = torch.as_tensor(as_channels_samples(artifact.audio))
-        sample_rate = getattr(artifact, "sample_rate", None)
-
     if kind == "video":
+        # Frames first: an audio-only artifact has none, and that is the thing
+        # to say rather than whatever the frame helper raises about it
+        if (
+            not hasattr(artifact, "frames")
+            and not isinstance(artifact, (list, tuple))
+            and not hasattr(artifact, "ndim")
+        ):
+            raise ValueError(
+                f"{object_type.__name__} holds a video, but the step it names "
+                f"produced a {type(artifact).__name__} - reference a step that "
+                f"generates video"
+            )
         frames = frames_as_pil_list(artifact)
         if not frames:
             raise ValueError(
@@ -749,11 +760,13 @@ def media_arguments(object_type, artifact):
                 f"produced no frames"
             )
         arguments = {"frames": frames}
+        audio, sample_rate = _carried_audio(artifact, torch, as_channels_samples)
         if audio is not None:
             arguments["audio"] = audio
             arguments["sample_rate"] = sample_rate
         return arguments
 
+    audio, sample_rate = _carried_audio(artifact, torch, as_channels_samples)
     if audio is None and hasattr(artifact, "ndim") and artifact.ndim <= 3:
         # A step that generates audio alone - a music pipeline, a slice_audio
         # task - produces the waveform itself rather than an AudioVideo. It
