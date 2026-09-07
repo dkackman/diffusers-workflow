@@ -34,8 +34,11 @@ SUMMARY_LIMIT = 120
 _KIND_PRECEDENCE = ("video", "audio", "image", "text")
 _EDIT_PIPELINE = re.compile(r"inpaint|img2img|edit|upscale|outpaint", re.I)
 _CHAIN_ARGUMENTS = frozenset({"last_frame", "last_segment", "last_image", "match_audio"})
-_MEDIA_ARGUMENTS = frozenset({"image", "video", "audio", "mask_image"})
+_MEDIA_ARGUMENTS = frozenset({"image", "video", "audio", "mask_image", "urls"})
 _CUT_TASKS = frozenset({"concat_videos", "dissolve_videos"})
+# Components that exist only to synthesise a waveform. A video pipeline
+# carrying one emits an audio track whether or not it says so in `output`.
+_AUDIO_COMPONENTS = frozenset({"vocoder", "audio_vae"})
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s|\n")
 
 
@@ -113,7 +116,12 @@ def _needs_input_media(steps):
     for step in steps:
         arguments = _arguments(step)
         for name, value in arguments.items():
-            if name in _MEDIA_ARGUMENTS and isinstance(value, str) and value.startswith("variable:"):
+            if name not in _MEDIA_ARGUMENTS:
+                continue
+            # A list argument (gather_images' `urls`) carries the same fact
+            # one level in.
+            candidates = value if isinstance(value, list) else [value]
+            if any(isinstance(item, str) and item.startswith("variable:") for item in candidates):
                 return True
         for value in _walk(arguments):
             if isinstance(value, str) and value.startswith("asset:"):
@@ -123,7 +131,34 @@ def _needs_input_media(steps):
     return False
 
 
+def _cuts_together(steps):
+    """A concat or dissolve fed by two or more distinct steps."""
+    for step in steps:
+        key, body = _block(step)
+        if key == "task" and body.get("command") in _CUT_TASKS:
+            if len(_fed_by(_arguments(step).get("videos"))) >= 2:
+                return True
+    return False
+
+
+def _audio_components(step):
+    """Component names the step's pipeline configures, at either level."""
+    key, body = _block(step)
+    if key != "pipeline":
+        return set()
+    names = {name for name in body if isinstance(body.get(name), dict)}
+    configuration = body.get("configuration")
+    if isinstance(configuration, dict) and isinstance(configuration.get("components"), dict):
+        names |= set(configuration["components"])
+    return names & _AUDIO_COMPONENTS
+
+
 def _derive_shape(steps, kind):
+    # Cutting shots together makes a sequence even when every shot was
+    # supplied rather than generated - an edit is what comes out, and the
+    # utility fallthrough would otherwise hide the assembly templates.
+    if kind == "video" and _cuts_together(steps):
+        return "sequence"
     if kind is None or not any(_generates(step) for step in steps):
         return "utility"
     if kind == "text":
@@ -131,17 +166,12 @@ def _derive_shape(steps, kind):
     if kind == "audio":
         return "audio"
     if kind == "video":
-        for step in steps:
-            key, body = _block(step)
-            if key == "task" and body.get("command") in _CUT_TASKS:
-                if len(_fed_by(_arguments(step).get("videos"))) >= 2:
-                    return "sequence"
         return "shot"
     image_steps = [step for step in steps if _generates(step) and _kind(step) == "image"]
     for step in image_steps:
         if _EDIT_PIPELINE.search(_component_type(step)):
             return "image-edit"
-        if _MEDIA_ARGUMENTS & set(_arguments(step)) & {"image", "mask_image"}:
+        if {"image", "mask_image"} & set(_arguments(step)):
             return "image-edit"
     if len(image_steps) >= 2 or any(_block(step)[0] == "workflow" for step in image_steps):
         return "image-set"
@@ -157,6 +187,8 @@ def _derive_traits(steps):
             traits.add("speech")
         output = arguments.get("output")
         if _kind(step) == "video" and isinstance(output, list) and "audio" in output:
+            traits.add("speech")
+        if _kind(step) == "video" and _audio_components(step):
             traits.add("speech")
         if key == "pipeline" and "chain" in body:
             traits.add("chained")

@@ -371,3 +371,76 @@ def test_unknown_shape_or_trait_names_the_vocabulary():
     with pytest.raises(ValueError) as caught:
         project_listing(LISTING, traits=["fast"])
     assert "speech" in str(caught.value)
+
+
+# Rules that had to change once they met the real catalog (task 8).
+
+
+def test_a_cut_of_supplied_shots_is_a_sequence_not_a_utility():
+    """An assembly pass generates nothing, but an edit is what comes out of
+    it. The utility fallthrough would otherwise hide every cutting template
+    from `list_workflows(shape=sequence)`."""
+    meta = derive_catalog_metadata(
+        definition(
+            task_step("hold_1", "stabilize_video", {"smooth": 0, "clip": "variable:shot_1"}),
+            task_step("hold_2", "stabilize_video", {"smooth": 0, "clip": "variable:shot_2"}),
+            task_step(
+                "edit",
+                "concat_videos",
+                {"videos": ["previous_result:hold_1", "previous_result:hold_2"]},
+                content_type="video/mp4",
+            ),
+        )
+    )
+    assert meta["shape"] == "sequence"
+
+
+def test_one_supplied_clip_reprocessed_is_still_a_utility():
+    """The sequence rule needs two distinct sources; one clip through a
+    filter is processing, not an edit."""
+    meta = derive_catalog_metadata(
+        definition(
+            task_step("hold", "stabilize_video", {"clip": "variable:shot"}),
+            task_step(
+                "edit", "concat_videos", {"videos": ["previous_result:hold"]}, content_type="video/mp4"
+            ),
+        )
+    )
+    assert meta["shape"] == "utility"
+
+
+def test_a_variable_inside_a_urls_list_needs_input_media():
+    """`gather_images` names its input `urls` and takes a list; the same
+    fact as an `image` argument, one level in."""
+    meta = derive_catalog_metadata(
+        definition(
+            task_step("load", "gather_images", {"urls": ["variable:image_url"]}, content_type="image/png"),
+            pipeline_step("gen", "image/jpeg"),
+        )
+    )
+    assert "needs-input-media" in meta["traits"]
+
+
+def test_a_literal_url_needs_nothing_supplied():
+    meta = derive_catalog_metadata(
+        definition(
+            task_step("load", "gather_images", {"urls": ["https://example.com/a.png"]}, content_type="image/png"),
+            pipeline_step("gen", "image/jpeg"),
+        )
+    )
+    assert "needs-input-media" not in meta["traits"]
+
+
+@pytest.mark.parametrize("component", ["vocoder", "audio_vae"])
+def test_a_video_pipeline_carrying_a_vocoder_generates_audio(component):
+    """A pipeline family that always emits audio need not say so in its
+    `output` argument - the components it configures say it instead."""
+    step = pipeline_step("clip", "video/mp4")
+    step["pipeline"]["configuration"]["components"] = {component: {"device": "cuda"}}
+    assert "speech" in derive_catalog_metadata(definition(step))["traits"]
+
+
+def test_an_image_pipeline_carrying_a_vocoder_does_not():
+    step = pipeline_step("still", "image/jpeg")
+    step["pipeline"]["configuration"]["components"] = {"vocoder": {"device": "cuda"}}
+    assert "speech" not in derive_catalog_metadata(definition(step))["traits"]

@@ -1,6 +1,6 @@
 {
   "id": "TrimFadeAudio",
-  "description": "Trims an audio file to a duration and fades it in and out - a finishing pass for a generated track whose tail ends abruptly. Leaving 'duration_seconds' unset degrades to a fade-only pass over the whole track rather than failing.",
+  "description": "Trims an audio file to a duration and fades it in and out - a finishing pass for a track that ends abruptly. Leaving 'duration_seconds' unset degrades to a fade-only pass over the whole track rather than failing.",
   "variables": {
     "input_audio": "https://example.com/audio.mp3",
     "start_seconds": 0.0,
