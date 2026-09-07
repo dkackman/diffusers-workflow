@@ -20,7 +20,7 @@ it is also the fastest configuration measured (1024x1024, 28 steps, pipeline loa
 | Approach | Config | Measured on RTX 3090 |
 | -------- | ------ | -------------------- |
 | **bf16 + model offload** | [flux-dev.json](../workflows/models/flux-dev.json) | 55s per image (72s cold) |
-| **bf16 + model offload + compile** | [flux-dev-fast.json](../workflows/models/flux-dev-fast.json) - `compile: {repeated_blocks: true}` on the transformer | 52s per image (64s cold) |
+| **bf16 + model offload + compile** | [flux-dev-compile.json](../workflows/models/flux-dev-compile.json) - `compile: {repeated_blocks: true}` on the transformer | 52s per image (64s cold) |
 | **int8 TorchAO** | transformer `quant_type: "torchao.quantization.Int8WeightOnlyConfig"` + `compile`, with or without `cache: first_block` | over 60s per *denoising step* - do not use on Ampere |
 | **float8 TorchAO** (RTX 40-series+) | `Float8DynamicActivationFloat8WeightConfig` + `compile` | needs compute capability 8.9+ (Ada); unmeasured |
 | **GGUF Q8** | [flux-gguf.json](../workflows/models/flux-gguf.json) - `from_single_file` Q8_0 transformer + `offload: "model"` | unmeasured; smallest VRAM, best quality retention |
@@ -28,7 +28,7 @@ it is also the fastest configuration measured (1024x1024, 28 steps, pipeline loa
 Measured 2026-09-07. A number in this table came from a run on the named card; a row
 without one is a configuration that loads, not a speed claim.
 
-**Examples:** [flux-dev-fast.json](../workflows/models/flux-dev-fast.json), [flux-gguf.json](../workflows/models/flux-gguf.json), [step-caching.json](../workflows/templates/step-caching.json)
+**Examples:** [flux-dev-compile.json](../workflows/models/flux-dev-compile.json), [flux-gguf.json](../workflows/models/flux-gguf.json), [step-caching.json](../workflows/templates/step-caching.json)
 
 ## Qwen-Image (20B)
 

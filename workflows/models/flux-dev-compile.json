@@ -1,5 +1,5 @@
 {
-    "id": "FluxDevFast",
+    "id": "FluxDevCompile",
     "description": "FLUX.1 dev with regional torch.compile on the transformer, otherwise the plain bf16 model-offload configuration of models/flux-dev. Measured on an RTX 3090 (24GB) at 1024x1024, 28 steps: 52s per image with the pipeline loaded against 55s for models/flux-dev, 64s against 72s cold. The earlier int8 TorchAO recipe this entry carried ran at over a minute per denoising step on the same card, with or without the first-block cache, so it is gone; float8 TorchAO needs an Ada (40-series) card and is unmeasured here. The compile is skipped with a warning on MPS.",
     "summary": "FLUX.1 dev, bf16 model offload plus regional compile: 52s per 1024x1024 image on an RTX 3090, 55s without.",
     "configures": "templates/text-to-image",
