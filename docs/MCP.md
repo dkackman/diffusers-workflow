@@ -182,11 +182,12 @@ Nothing in this sequence costs GPU time.
 ### Catalog (read-only)
 
 The catalog is large, so the server's instructions point a client at
-`list_workflows` first: its listing carries enough about each workflow -
-description, output kinds, variable names - to pick one and know what to
-pass it, without fetching every candidate's definition. Reusing a stored
-workflow is a preference, not a rule; `run_workflow` still takes an
-`inline_workflow` for a request nothing on disk covers.
+`list_workflows` first: its listing carries enough about each workflow - a
+one-line `summary`, its `shape` and `traits`, its measured `cost`, output
+kinds and variable names - to pick one and know what to pass it, without
+fetching every candidate's definition. Reusing a stored workflow is a
+preference, not a rule; `run_workflow` still takes an `inline_workflow` for
+a request nothing on disk covers.
 
 A request usually names a *subject* ("a lego movie trailer set in the marvel
 universe") while the catalog is written in *shapes* - a single image, an image
@@ -200,7 +201,7 @@ when no single workflow covers it.
 | --- | --- | --- |
 | `list_guides()` | — | List the documentation shipped with the engine: each guide's name, what it covers, and its section headings. The index is the routing table - match a request's shape against a heading rather than guessing |
 | `get_guide(name, section=None)` | `name`, `section` | Get one guide whole, or one section of it. Prefer a section: a guide runs to thousands of lines. Section names match loosely, so a heading copied approximately still resolves |
-| `list_workflows()` | — | List stored workflows, each with its description, output kinds, step count, variable names, the stored prompts it references, and its `origin`/`writable` - a workflow from a read-only examples directory can be read and run but not saved over or deleted. A `models/` entry also carries `configures`, the template it configures, or `configures_missing` naming it when that template does not resolve. The first call to make for a request an existing workflow might cover |
+| `list_workflows(shape=None, traits=None, configures=None, include_models=False)` | `shape`, `traits`, `configures`, `include_models` | List stored workflows. Always the server's compact view: each entry carries `summary`, `shape`, `traits`, `cost`, `kinds`, `variable_names`, and `configures` only when set - `get_workflow` has the full description and definition. `shape` keeps one of `image`, `image-set`, `image-edit`, `shot`, `sequence`, `audio`, `text`, `utility`; `traits` is comma-separated and every one listed must match (`has-audio`, `chained`, `image-conditioned`, `identity-referenced`, `needs-input-media`, `composes-workflows`); an unknown value in either is a 400 listing the vocabulary. Templates only by default - `configures=<template>` lists the checkpoint configs tuned for one, `include_models=true` lists them all. The first call to make for a request an existing workflow might cover |
 | `get_workflow(name)` | `name` | Get one stored workflow's full JSON definition |
 | `get_schema()` | — | Get the JSON schema every workflow definition must satisfy |
 | `list_pipelines()` | — | List every diffusers pipeline class this installation provides |
