@@ -31,6 +31,28 @@ def valid_workflow(job_id="server_test"):
     }
 
 
+def video_workflow(job_id, with_cost=False):
+    workflow = {
+        "id": job_id,
+        "description": "One clip from a prompt. It runs a while.",
+        "variables": {"prompt": "d"},
+        "steps": [
+            {
+                "name": "gen",
+                "pipeline": {
+                    "configuration": {"component_type": "{Fake}", "no_generator": True},
+                    "from_pretrained_arguments": {"model_name": "m"},
+                    "arguments": {"prompt": "variable:prompt", "output": ["videos", "audio"]},
+                },
+                "result": {"content_type": "video/mp4"},
+            }
+        ],
+    }
+    if with_cost:
+        workflow["cost"] = [{"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}]
+    return workflow
+
+
 class ScriptedWorkerManager:
     """Answers execute commands with a scripted message sequence."""
 
@@ -481,6 +503,34 @@ def test_configures_resolves_against_the_listing(server):
         assert details["models/good"]["configures"] == "templates/tti"
         assert details["models/typo"]["configures"] == ""
         assert details["models/typo"]["configures_missing"] == "templates/nope"
+
+
+def test_the_listing_carries_derived_metadata(server):
+    with server(success_script) as client:
+        client.put("/api/workflows/templates/clip", json={"workflow": video_workflow("clip", with_cost=True)})
+        tuned = video_workflow("tuned")
+        tuned["configures"] = "templates/clip"
+        tuned["description"] = "The same clip on a bigger checkpoint."
+        client.put("/api/workflows/models/tuned", json={"workflow": tuned})
+
+        details = client.get("/api/workflows").json()["details"]
+
+        clip = details["templates/clip"]
+        assert clip["shape"] == "shot"
+        assert clip["traits"] == ["speech"]
+        assert clip["summary"] == "One clip from a prompt."
+        assert clip["cost"] == [{"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}]
+
+        tuned = details["models/tuned"]
+        assert tuned["shape"] == "shot" and tuned["traits"] == ["speech"]
+        assert tuned["summary"] == "The same clip on a bigger checkpoint."
+        assert tuned["cost"] is None
+
+        basic = details["Basic"]
+        assert basic["shape"] == "utility"  # no result block, so no kind
+        assert basic["summary"] == "" and basic["cost"] is None
+        # nothing the UI reads went away
+        assert {"kinds", "steps", "variables", "variable_names", "description", "configures", "prompt_refs", "origin", "writable"} <= set(basic)
 
 
 def test_a_silently_killed_worker_reports_its_exit_and_frees_the_manager(tmp_path):
@@ -1359,6 +1409,10 @@ def test_workflow_listing_carries_details(server):
             "description": "Renders a small test image.",
             "configures": "",
             "prompt_refs": [],
+            "shape": "image",
+            "traits": [],
+            "summary": "Renders a small test image.",
+            "cost": None,
             # where it came from, and whether a client should offer save and
             # delete for it or only save-a-copy
             "origin": "workspace",

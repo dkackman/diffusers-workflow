@@ -85,6 +85,7 @@ from ..workflow_sources import (
 from .jobs import JobManager, MAX_PERSISTED_EVENTS, TERMINAL_STATES
 from .netinfo import local_addresses
 from .updater import DiffusersUpdater
+from .catalog_shape import derive_catalog_metadata
 
 logger = logging.getLogger("dw")
 
@@ -191,6 +192,8 @@ def workflow_details(sources_by_name):
                 }
             )
             variables = definition.get("variables", {}) or {}
+            metadata = derive_catalog_metadata(definition)
+            cost = definition.get("cost")
             detail = {
                 "kinds": kinds,
                 "steps": len(definition.get("steps", [])),
@@ -201,6 +204,10 @@ def workflow_details(sources_by_name):
                 # is what lets a client show the two as different kinds of thing
                 "configures": str(definition.get("configures", "") or ""),
                 "prompt_refs": sorted(collect_prompt_references(definition)),
+                "shape": metadata["shape"],
+                "traits": metadata["traits"],
+                "summary": metadata["summary"],
+                "cost": cost if isinstance(cost, list) and cost else None,
             }
         except Exception:
             detail = {
@@ -210,6 +217,10 @@ def workflow_details(sources_by_name):
                 "variable_names": [],
                 "description": "",
                 "prompt_refs": [],
+                "shape": "utility",
+                "traits": [],
+                "summary": "",
+                "cost": None,
             }
         _workflow_detail_cache[path] = (mtime, detail)
         # Cached by content, not by placement: the same file listed from a
@@ -222,18 +233,26 @@ def workflow_details(sources_by_name):
     _prune_missing(_workflow_detail_cache)
     # A model config names its template as a catalog name. Resolve it here,
     # where the whole listing is in hand, so a badge is a link to a real card
-    # rather than a string - and say which name did not resolve. Entries can
-    # be the very dict cached above (a cache hit skips the copy at line
-    # 212), so copy before mutating - otherwise a stale "not found yet"
+    # rather than a string - and say which name did not resolve. A config
+    # also takes its shape and traits from the template: what it makes is
+    # the template's business, what it costs is its own. Entries can be the
+    # very dict cached above (a cache hit skips the copy at the origin
+    # merge), so copy before mutating - otherwise a stale "not found yet"
     # verdict would stick in the cache and outlive the typo once the
     # template it names is added.
     for name, detail in details.items():
         named = detail.get("configures", "")
-        if named and named not in details:
-            detail = dict(detail)
+        if not named:
+            continue
+        detail = dict(detail)
+        template = details.get(named)
+        if template is None:
             detail["configures_missing"] = named
             detail["configures"] = ""
-            details[name] = detail
+        else:
+            detail["shape"] = template["shape"]
+            detail["traits"] = list(template["traits"])
+        details[name] = detail
     return details
 
 
