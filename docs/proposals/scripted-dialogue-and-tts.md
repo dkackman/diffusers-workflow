@@ -103,6 +103,11 @@ as the same medium shot, so the cuts read as jump cuts. Measure framing variety
 as mean absolute difference between shots' average frames; under ~10 means the
 reference won.
 
+Whether this becomes a task, a generator, or stays documentation is decided
+below, in "What was built" — and the reasoning there is now the general case
+for closing any catalog gap like it, recorded in
+[agent-catalog-legibility.md](agent-catalog-legibility.md).
+
 ## Suggested next step
 
 Prototype either (a) the `generate_speech` task in its timbre-reference role, or
@@ -136,4 +141,6 @@ knowledge* (the Context-IR fields, verbatim voice descriptions, the `<Picture N>
 clause stripping compositional authority, `17n + 5`, ~13 shots a run), which is
 documentation and a template workflow rather than code. Revisit a `dw.script`
 generator or an MCP tool once that shape has been used enough by hand to be sure
-of it.
+of it. This case is now the worked example for the general "format-knowledge
+belongs in guides and templates, not new engine code" rule in
+[agent-catalog-legibility.md](agent-catalog-legibility.md).
