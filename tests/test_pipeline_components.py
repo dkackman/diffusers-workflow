@@ -2,6 +2,8 @@
 Unit tests for component-name discovery and cache wiring in pipeline definitions
 """
 
+import io
+import torch
 from unittest.mock import MagicMock
 
 import pytest
@@ -554,3 +556,47 @@ class TestAudiosSampleRate:
         attach_audio_sample_rate(pipeline, output)
 
         assert not hasattr(output, "audio_sample_rate")
+
+
+class TestRemoteTextEncoderResponse:
+    """A retired endpoint answers with an HTML page. The error has to say
+    that, not hand back torch's unpickling complaint about it."""
+
+    def _response(self, status, content_type, body=b"<!DOCTYPE html>"):
+        response = MagicMock()
+        response.ok = status < 400
+        response.status_code = status
+        response.headers = {"Content-Type": content_type}
+        response.content = body
+        return response
+
+    def test_an_html_page_is_refused_with_the_url_named(self, monkeypatch):
+        from dw.pipeline_processors import remote
+
+        monkeypatch.setattr(remote, "get_token", lambda: "tok")
+        monkeypatch.setattr(
+            remote.requests,
+            "post",
+            lambda *a, **k: self._response(206, "text/html; charset=utf-8"),
+        )
+
+        with pytest.raises(RuntimeError, match="https://example.invalid/predict"):
+            remote.remote_text_encoder(["a mug"], "https://example.invalid/predict", "cpu")
+
+    def test_a_tensor_response_is_loaded(self, monkeypatch):
+        from dw.pipeline_processors import remote
+
+        buffer = io.BytesIO()
+        torch.save(torch.zeros(2), buffer)
+        monkeypatch.setattr(remote, "get_token", lambda: "tok")
+        monkeypatch.setattr(
+            remote.requests,
+            "post",
+            lambda *a, **k: self._response(
+                200, "application/octet-stream", buffer.getvalue()
+            ),
+        )
+
+        embeds = remote.remote_text_encoder(["a mug"], "https://example.invalid", "cpu")
+
+        assert embeds.shape == (2,)

@@ -1,0 +1,106 @@
+{
+    "variables": {
+        "prompt": "a single ceramic coffee mug on a plain wooden table, soft window light, photograph",
+        "first_edit": "make the mug red",
+        "second_edit": "make the mug blue",
+        "third_edit": "make the mug green"
+    },
+    "id": "ConsistentSet",
+    "shape": "image-set",
+    "description": "A set of pictures of one subject that differ in a single stated way, generated once and then edited. A shared seed across separate generations gives a matching style, not a matching object: each prompt still draws its own composition. Editing holds everything the instruction does not name. FLUX.1 Kontext draws the base with no input picture and edits with one, so all four steps share a single loaded pipeline - identical configurations load once. Add a step per variant, each taking the base step's result as the picture to edit.",
+    "steps": [
+        {
+            "name": "base",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "FluxKontextPipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-Kontext-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "height": 1024,
+                    "width": 1024,
+                    "num_inference_steps": 28,
+                    "guidance_scale": 3.5
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        },
+        {
+            "name": "first",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "FluxKontextPipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-Kontext-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:first_edit",
+                    "image": "previous_result:base",
+                    "num_inference_steps": 28,
+                    "guidance_scale": 2.5
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        },
+        {
+            "name": "second",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "FluxKontextPipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-Kontext-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:second_edit",
+                    "image": "previous_result:base",
+                    "num_inference_steps": 28,
+                    "guidance_scale": 2.5
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        },
+        {
+            "name": "third",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "FluxKontextPipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-Kontext-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:third_edit",
+                    "image": "previous_result:base",
+                    "num_inference_steps": 28,
+                    "guidance_scale": 2.5
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        }
+    ]
+}
