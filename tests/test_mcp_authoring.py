@@ -83,7 +83,12 @@ def test_validate_returns_an_invalid_verdict_rather_than_raising():
         {
             ("POST", "/api/validate"): (
                 200,
-                {"valid": False, "error": "steps must not be empty", "warnings": []},
+                {
+                    "valid": False,
+                    "error": "Validation error: steps must not be empty",
+                    "errors": [{"path": None, "message": "steps must not be empty"}],
+                    "warnings": [],
+                },
             )
         }
     )

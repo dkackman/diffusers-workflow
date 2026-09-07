@@ -34,7 +34,7 @@ from .runs import (
     run_directory,
     write_manifest,
 )
-from .schema import validate_data, load_schema
+from .schema import validate_data_all, format_validation_errors, load_schema
 from .variables import replace_variables, set_variables
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.model_cache import clear_model_cache
@@ -275,14 +275,23 @@ class Workflow:
             os.path.join(self.output_dir, subfolder) if subfolder else self.output_dir
         )
 
+    def validation_errors(self):
+        """Every schema violation in the definition, as [{path, message}];
+        empty when it validates."""
+        return validate_data_all(self.workflow_definition, load_schema("workflow"))
+
     def validate(self):
-        """Validates workflow definition against JSON schema"""
+        """Validates workflow definition against JSON schema.
+
+        Every violation is reported, one per line, so the CLI, the REPL
+        and an agent iterating on a draft fix them in one pass rather than
+        one per round trip.
+        """
         logger.debug(f"Validating workflow: {self.name}")
-        status, message = validate_data(
-            self.workflow_definition, load_schema("workflow")
-        )
-        if not status:
-            # message already carries the 'Validation error at <path>:' prefix
+        errors = self.validation_errors()
+        if errors:
+            # message already carries the 'Validation error' prefix
+            message = format_validation_errors(errors)
             logger.error(message)
             raise Exception(message)
         logger.debug(f"Workflow {self.name} validated successfully")

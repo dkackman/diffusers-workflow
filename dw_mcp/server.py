@@ -477,7 +477,8 @@ def build_server(client):
         """Check a workflow against the schema and against real pipeline
         signatures. Free and instant - always run this before run_workflow.
         Give exactly one of `workflow` or `name` - `name` being a stored
-        workflow as `list_workflows` reports it."""
+        workflow as `list_workflows` reports it. Every schema error comes
+        back at once, each with its JSON path."""
         return authoring.validate_workflow(client, workflow=workflow, name=name)
 
     def save_workflow(name: str, workflow: dict) -> dict:

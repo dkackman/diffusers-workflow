@@ -501,7 +501,7 @@ starts from the record rather than the intent. Updated as work lands.
 | 5 drift checks | done (tasks 8, 9) | spec §1.8 | shape and summary invariants over the real catalog (task 8); unique ids, cost shape, and description-drift checks over the real catalog found no drift (task 9); drift test uses the catalog's single-quote convention (final review) - the backtick pattern had matched nothing, and the six real mentions it then surfaced are sub-workflow arguments, chain fields and result fields, carried in an allowlist |
 | 6 UI | designed | spec plan 3 | client-side filter; templates-first grouping |
 | 7 authoring guide | designed | spec §2.3 | one new `WORKFLOW_GUIDE.md` section; `CLAUDE.md` points at it |
-| 8 multi-error validation | designed | spec §2.2 | `validate_data_all`, capped at 25, additive `/api/validate` shape |
+| 8 multi-error validation | done (plan 2, tasks 4–5) | spec §2.2 | `validate_data_all` over `iter_errors`, each reduced with `best_match` so the one-error case reads exactly as before; sorted, deduplicated, capped at 25; `Workflow.validate()` joins one per line under one `Validation errors (N):` heading (the CLI/REPL count the prefix once); `/api/validate` adds `errors` beside the existing `error` — the spec's `message` name was not used because `error` is what every client already reads |
 | 9 composition rules | designed | spec §2.3 | folded into the authoring section |
 | 10 save-time metadata | done (task 6) | spec §1.6 | derived and returned on save; empty summary warns, never rejects |
 | Part 3 constraint | carried | spec "Principle" | derivation reads structure, never model family |

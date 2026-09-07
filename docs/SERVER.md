@@ -194,7 +194,9 @@ The editor's forms come from these; they are just as usable from scripts:
   warnings for pipeline and task steps (catches the typo before the model
   loads). Accepts `workflow_path` (same resolution and confinement as
   `/api/jobs`, above) as an alternative to inline `workflow` - exactly one
-  of the two, or a 400
+  of the two, or a 400. Every schema violation is returned in `errors`
+  (`[{path, message}]`, sorted by path, capped at 25), and joined one per
+  line in `error`.
 
 ## Files and models
 

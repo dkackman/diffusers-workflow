@@ -49,7 +49,7 @@ from ..introspection import (
     describe_task,
     workflow_argument_warnings,
 )
-from ..schema import load_schema, validate_data
+from ..schema import load_schema, validate_data, format_validation_errors
 from ..prompts import PROMPT_PREFIX, RESERVED_TEXT_PREFIXES
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
@@ -1083,13 +1083,18 @@ def create_app(
                 detail="Workflow could not be constructed - the server log "
                 "has the detail",
             )
-        try:
-            candidate.validate()
-        except Exception as e:
-            return {"valid": False, "error": str(e), "warnings": []}
+        errors = candidate.validation_errors()
+        if errors:
+            return {
+                "valid": False,
+                "error": format_validation_errors(errors),
+                "errors": errors,
+                "warnings": [],
+            }
         return {
             "valid": True,
             "error": None,
+            "errors": [],
             "warnings": workflow_argument_warnings(definition),
         }
 
