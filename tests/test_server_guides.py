@@ -142,6 +142,52 @@ class TestTheRealDocs:
 
         assert "Speech Generation" in tasks["sections"]
 
+    def test_the_authoring_section_is_reachable_by_name(self):
+        guide = guides.get_guide(
+            "workflows", section="authoring-a-workflow-from-an-agent"
+        )
+
+        assert guide["section"] == "Authoring a workflow from an agent"
+
+    def test_the_authoring_section_names_every_reference_prefix(self):
+        """The prefixes the engine reserves are the ones the section has to
+        explain; a new prefix added to the engine fails here until it is
+        written up."""
+        from dw.prompts import RESERVED_TEXT_PREFIXES
+
+        content = guides.get_guide(
+            "workflows", section="Authoring a workflow from an agent"
+        )["content"]
+
+        for prefix in RESERVED_TEXT_PREFIXES:
+            assert f"`{prefix}`" in content, prefix
+
+    def test_the_authoring_section_states_the_cartesian_rule_and_the_loop(self):
+        content = guides.get_guide(
+            "workflows", section="Authoring a workflow from an agent"
+        )["content"]
+
+        assert "cartesian" in content.lower()
+        for tool in (
+            "validate_workflow",
+            "save_workflow",
+            "run_workflow",
+            "wait_for_job",
+            "get_output_image",
+        ):
+            assert f"`{tool}`" in content, tool
+        for shape in (
+            "image",
+            "image-set",
+            "image-edit",
+            "shot",
+            "sequence",
+            "audio",
+            "text",
+            "utility",
+        ):
+            assert f"`{shape}`" in content, shape
+
 
 @pytest.fixture
 def client(tmp_path, checkout):
