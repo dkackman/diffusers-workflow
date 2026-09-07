@@ -21,12 +21,12 @@ session that never chooses looks exactly like one from before workspaces.
 (`/api/server`) is the capability call: the device a run will use, the dw
 version, the workspace and the workflow/output/prompt/asset directories, which is what tells an
 agent authoring remotely whether a CUDA-only choice is even available. It is an HTTP client of a *running* `dw.serve` — it owns no
-job state and no GPU worker. `guides.py` is the one handler that talks to no
-server at all: `list_guides`/`get_guide` read the markdown in `docs/` (copied
-into `dw/docs/` at build time, so an install carries it) by path rather than by
-import, which keeps the no-`dw.*`-import boundary intact. They exist because a
-request names a subject and the catalog is written in shapes, and an agent with
-nowhere to look up the shape authors a fresh workflow instead of composing one. Only `dw_mcp/server.py` imports the MCP SDK; the
+job state and no GPU worker. `guides.py` proxies `GET /api/guides`: the guides an agent reads are the guides
+for the engine it is about to drive, so nothing is read from this package's
+own install (the `GUIDES` table lives in `dw/server/guides.py`). They exist
+because a request names a subject and the catalog is written in shapes, and an
+agent with nowhere to look up the shape authors a fresh workflow instead of
+composing one. Only `dw_mcp/server.py` imports the MCP SDK; the
 handlers in `catalog.py`, `authoring.py`, `prompts.py`, `diagnose.py`,
 `media.py`, `assets.py`, `models.py` and `workspaces.py` are plain `(client, **kwargs)` functions, which is what makes
 them testable without an MCP session. It is a top-level package rather than

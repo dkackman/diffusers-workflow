@@ -284,7 +284,7 @@ def build_server(client):
         return catalog.get_gallery_metadata(client, name)
 
     def list_guides() -> dict:
-        """List the documentation shipped with this engine: each guide's
+        """List the documentation the engine serves: each guide's
         name, what it covers, and its section headings. Read this when a
         request is open-ended enough that no catalog entry obviously
         answers it - a request names a subject ("a lego movie trailer"),
@@ -293,7 +293,7 @@ def build_server(client):
         B-roll), and the section headings are where the two get matched
         up. Cheaper than guessing: reading a section costs a fraction of
         one wrong run."""
-        return guides.list_guides()
+        return guides.list_guides(client)
 
     def get_guide(name: str, section: str | None = None) -> dict:
         """Get one guide from `list_guides`, whole or one section of it.
@@ -301,7 +301,7 @@ def build_server(client):
         headings in the listing are there so the right part can be asked
         for by name. A section name is matched loosely, so a heading
         copied approximately still resolves."""
-        return guides.get_guide(name, section=section)
+        return guides.get_guide(client, name, section=section)
 
     for fn in (
         list_guides,

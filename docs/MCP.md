@@ -193,13 +193,13 @@ A request usually names a *subject* ("a lego movie trailer set in the marvel
 universe") while the catalog is written in *shapes* - a single image, an image
 set, one shot, a multi-shot cut sequence, video with speech. Nothing in a
 catalog entry will match the subject, so the shape is what has to be decided
-first and matched against. `list_guides` indexes the shipped documentation by
+first and matched against. `list_guides` indexes the engine's documentation by
 section for exactly that, and `list_tasks` is what a shape gets composed from
 when no single workflow covers it.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `list_guides()` | — | List the documentation shipped with the engine: each guide's name, what it covers, and its section headings. The index is the routing table - match a request's shape against a heading rather than guessing |
+| `list_guides()` | — | List the documentation the engine serves: each guide's name, what it covers, and its section headings. The index is the routing table - match a request's shape against a heading rather than guessing |
 | `get_guide(name, section=None)` | `name`, `section` | Get one guide whole, or one section of it. Prefer a section: a guide runs to thousands of lines. Section names match loosely, so a heading copied approximately still resolves |
 | `list_workflows(shape=None, traits=None, configures=None, include_models=False)` | `shape`, `traits`, `configures`, `include_models` | List stored workflows. Always the server's compact view: each entry carries `summary`, `shape`, `traits`, `cost`, `kinds`, `variable_names`, and `configures` only when set - `get_workflow` has the full description and definition. `shape` keeps one of `image`, `image-set`, `image-edit`, `shot`, `sequence`, `audio`, `text`, `utility`; `traits` is comma-separated and every one listed must match (`has-audio`, `chained`, `image-conditioned`, `identity-referenced`, `needs-input-media`, `composes-workflows`); an unknown value in either is a 400 listing the vocabulary. Templates only by default - `configures=<template>` lists the checkpoint configs tuned for one, `include_models=true` lists them all. The first call to make for a request an existing workflow might cover |
 | `get_workflow(name)` | `name` | Get one stored workflow's full JSON definition |
