@@ -255,7 +255,7 @@ not validation.
   step, named by that step's `name`. It iterates; see the cartesian rule
   below. A `.field` suffix
   (`previous_result:invert.inverted_latents`) picks one field of a result that
-  is a dict.
+  is a dict, or a data attribute of a result object.
 - `constant:` — `constant:module.path.NAME` is a value declared in Python,
   read by import rather than copied into JSON. Anything callable is refused.
 - `asset:` — `asset:name` is a file in the asset library. Rooted at the
@@ -303,7 +303,10 @@ signal to restructure the workflow, not to add another reference.
    that do not appear in the real pipeline signature.
 2. Fix everything reported, including the warnings: a passing validation does
    not mean the pipeline accepts the arguments, and a typo against a real
-   `__call__` shows up only as one of those warnings.
+   `__call__` shows up only as one of those warnings. The server only computes
+   signature warnings for a schema-valid draft — while schema errors remain it
+   returns `warnings: []`, so validate again after fixing them to see the
+   warnings.
 3. `save_workflow` — validates again on the way in and returns the catalog
    metadata the saved draft will carry.
 4. `run_workflow` with `acknowledged_cost=true`, after telling the user what it

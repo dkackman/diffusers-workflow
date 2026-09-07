@@ -538,6 +538,23 @@ def test_validate_endpoint_lists_every_schema_error(server):
         assert result["valid"] is True and result["errors"] == []
 
 
+def test_validate_endpoint_reports_non_schema_exception(server, monkeypatch):
+    import dw.workflow
+
+    def raise_boom(self):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(dw.workflow.Workflow, "validation_errors", raise_boom)
+
+    with server(success_script) as client:
+        result = client.post("/api/validate", json={"workflow": valid_workflow()})
+
+        assert result.status_code == 200
+        body = result.json()
+        assert body["valid"] is False
+        assert "boom" in body["error"]
+
+
 def test_workflow_browsing_and_confinement(server):
     with server(success_script) as client:
         listing = client.get("/api/workflows").json()

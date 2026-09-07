@@ -1083,7 +1083,15 @@ def create_app(
                 detail="Workflow could not be constructed - the server log "
                 "has the detail",
             )
-        errors = candidate.validation_errors()
+        try:
+            errors = candidate.validation_errors()
+        except Exception as e:
+            return {
+                "valid": False,
+                "error": f"Validation error: {e}",
+                "errors": [{"path": None, "message": str(e)}],
+                "warnings": [],
+            }
         if errors:
             return {
                 "valid": False,
