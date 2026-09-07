@@ -249,6 +249,12 @@ export const api = {
       { scope: false },
     ),
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
+  /** The definition a job ran, for the job page's read-only flow view.
+   * 404s when the job named a workflow file that is no longer readable. */
+  getJobWorkflow: (id: string) =>
+    request<{ id: string; definition: Record<string, any> }>(
+      `/api/jobs/${id}/workflow`,
+    ),
   rerunJob: (id: string) =>
     request<JobDetail>(`/api/jobs/${id}/rerun`, { method: 'POST' }),
   listTasks: () =>
