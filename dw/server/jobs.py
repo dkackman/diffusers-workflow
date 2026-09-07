@@ -42,6 +42,8 @@ RERUN_SPEC_KEYS = (
     "workspace",
     "output_dir",
     "asset_dir",
+    # so a rerun is attributed to the same catalog entry
+    "catalog_name",
     "workflow_dir",
 )
 
@@ -96,6 +98,13 @@ class JobHistory:
                 connection.execute(
                     "UPDATE jobs SET workspace = 'default' WHERE workspace IS NULL"
                 )
+            # The catalog name the job was run from, beside `workflow` (the
+            # definition's id). Ids are not unique across a catalog forever;
+            # names are, and a later runtime-by-workflow join wants the exact
+            # one. Rows before this column stay NULL: old history is
+            # unjoinable, new history is exact
+            if "workflow_name" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN workflow_name TEXT")
 
     def _connect(self):
         return sqlite3.connect(self.db_path, timeout=5)
@@ -107,7 +116,8 @@ class JobHistory:
             connection.execute(
                 "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
                 " started_at, finished_at, arguments, spec, manifest, warnings,"
-                " error, events, workspace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " error, events, workspace, workflow_name) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -122,6 +132,7 @@ class JobHistory:
                     job.error,
                     json.dumps(job.events[-MAX_PERSISTED_EVENTS:], default=str),
                     job.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
+                    job.catalog_name,
                 ),
             )
 
@@ -134,7 +145,7 @@ class JobHistory:
         """
         query = (
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
-            " workspace FROM jobs"
+            " workspace, workflow_name FROM jobs"
         )
         params = []
         if workspace:
@@ -153,6 +164,7 @@ class JobHistory:
                 "started_at": row[4],
                 "finished_at": row[5],
                 "workspace": row[6] or DEFAULT_WORKSPACE_NAME,
+                "workflow_name": row[7],
                 "historical": True,
             }
             for row in rows
@@ -162,7 +174,7 @@ class JobHistory:
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
-                " arguments, spec, manifest, warnings, error, workspace"
+                " arguments, spec, manifest, warnings, error, workspace, workflow_name"
                 " FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
@@ -276,6 +288,7 @@ class JobHistory:
             "warnings": parse(row[9], []),
             "error": row[10],
             "workspace": row[11] or DEFAULT_WORKSPACE_NAME,
+            "workflow_name": row[12],
             "traceback": None,
             "event_count": 0,
             "historical": True,
@@ -289,6 +302,7 @@ class Job:
         self.id = uuid.uuid4().hex[:12]
         self.spec = spec
         self.workflow_name = spec.get("workflow_name", "unknown")
+        self.catalog_name = spec.get("catalog_name")
         self.status = QUEUED
         self.created_at = time.time()
         self.started_at = None
@@ -331,6 +345,7 @@ class Job:
         return {
             "id": self.id,
             "workflow": self.workflow_name,
+            "workflow_name": self.catalog_name,
             "status": self.status,
             "created_at": self.created_at,
             "started_at": self.started_at,
@@ -401,6 +416,7 @@ class JobManager:
         output_dir=None,
         asset_dir=None,
         workspace=None,
+        catalog_name=None,
     ):
         """Validate a job request and queue it. Raises ValueError on a bad
         request so the HTTP layer can answer 400 before anything runs.
@@ -415,6 +431,9 @@ class JobManager:
         job runs in. They travel with the job for the same reason: one
         server holds several workspaces, and the process-wide roots would
         make every job belong to whichever one was configured at startup.
+
+        `catalog_name` is the listing name the caller resolved `workflow_path`
+        from, kept for history; None for an inline definition.
         """
         arguments = arguments or {}
         if (workflow_path is None) == (workflow is None):
@@ -464,6 +483,7 @@ class JobManager:
         # it - recorded on the job so history, the worker command and a
         # rerun all agree without re-deriving them
         spec["workspace"] = workspace
+        spec["catalog_name"] = catalog_name
         spec["output_dir"] = job_output_dir
         if asset_dir:
             spec["asset_dir"] = asset_dir
@@ -531,6 +551,7 @@ class JobManager:
             output_dir=spec.get("output_dir"),
             asset_dir=spec.get("asset_dir"),
             workspace=workspace,
+            catalog_name=spec.get("catalog_name"),
         )
 
     def queue_position(self, job_id):

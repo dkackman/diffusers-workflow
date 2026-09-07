@@ -777,6 +777,9 @@ def create_app(
                 output_dir=workspace.outputs,
                 asset_dir=workspace.assets,
                 workspace=workspace.name,
+                # The listing name, when the request came as one - what a
+                # later runtime-by-workflow report joins on
+                catalog_name=request.workflow_path if source else None,
             )
         except HTTPException:
             raise

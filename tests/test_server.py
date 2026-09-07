@@ -2500,6 +2500,7 @@ def _finished_job_with_events(job_id, events):
     class FinishedJob:
         id = job_id
         workflow_name = "w"
+        catalog_name = None
         status = "complete"
         created_at = 1.0
         started_at = 1.0
@@ -3035,3 +3036,42 @@ def test_saving_reports_how_the_workflow_will_be_matched(server):
         saved = client.put("/api/workflows/bare", json={"workflow": bare}).json()
         assert saved["summary"] == ""
         assert any("summary" in w and "description" in w for w in saved["warnings"])
+
+
+def test_a_job_remembers_the_catalog_name_it_ran_from(server, tmp_path):
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
+        assert job["workflow"] == "basic"          # the definition's id, as before
+        assert job["workflow_name"] == "Basic"     # the catalog name
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+
+        listed = {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}
+        assert listed[job["id"]]["workflow_name"] == "Basic"
+
+        inline = client.post("/api/jobs", json={"workflow": valid_workflow("inline")}).json()
+        assert inline["workflow_name"] is None
+        wait_for_status(client, inline["id"], TERMINAL_STATES)
+
+    # history, read back by a fresh manager over the same database
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    detail = manager.get(job["id"])
+    assert detail["workflow_name"] == "Basic"
+    assert manager.get(inline["id"])["workflow_name"] is None
+
+
+def test_an_old_history_database_gains_the_column(tmp_path):
+    import sqlite3
+    db = tmp_path / "old.sqlite"
+    with sqlite3.connect(db) as connection:
+        connection.execute(
+            "CREATE TABLE jobs (id TEXT PRIMARY KEY, workflow TEXT, status TEXT, created_at REAL,"
+            " started_at REAL, finished_at REAL, arguments TEXT, spec TEXT, manifest TEXT,"
+            " warnings TEXT, error TEXT)"
+        )
+        connection.execute("INSERT INTO jobs (id, workflow, status) VALUES ('old1', 'sd', 'finished')")
+    manager = JobManager(str(tmp_path / "outputs"), worker_manager=ScriptedWorkerManager(success_script), history_path=str(db))
+    assert manager.get("old1")["workflow_name"] is None
