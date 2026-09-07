@@ -78,7 +78,7 @@ def build_server(client):
             "variables, rather than authoring a new workflow for a "
             "request an existing one covers. Shapes: image, image-set, "
             "image-edit, shot, sequence, audio, text, utility. Traits: "
-            "speech, chained, image-conditioned, identity-referenced, "
+            "has-audio, chained, image-conditioned, identity-referenced, "
             "needs-input-media, composes-workflows.\n"
             "\n"
             "When a request is open-ended - a subject rather than a shape "
@@ -152,7 +152,7 @@ def build_server(client):
         """List the workflows stored on the server, compactly. Decide the
         deliverable's shape first and pass it: one of image, image-set,
         image-edit, shot, sequence, audio, text, utility. `traits` narrows
-        further (comma-separated, all must match): speech, chained,
+        further (comma-separated, all must match): has-audio, chained,
         image-conditioned, identity-referenced, needs-input-media,
         composes-workflows. Each entry carries a one-line `summary`, its
         `shape` and `traits` (what it needs supplied), `cost` (measured

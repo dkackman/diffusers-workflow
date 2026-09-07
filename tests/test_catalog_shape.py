@@ -39,7 +39,7 @@ def definition(*steps, **top):
 def test_vocabularies_are_closed_and_stable():
     assert SHAPES == ("image", "image-set", "image-edit", "shot", "sequence", "audio", "text", "utility")
     assert TRAITS == (
-        "speech", "chained", "image-conditioned", "identity-referenced",
+        "has-audio", "chained", "image-conditioned", "identity-referenced",
         "needs-input-media", "composes-workflows",
     )
     assert GENERATIVE_TASKS == frozenset(
@@ -155,7 +155,7 @@ def test_audio_only_is_audio():
     step = task_step("speak", "generate_speech", {"text": "variable:text"}, "audio/wav")
     meta = derive_catalog_metadata(definition(step))
     assert meta["shape"] == "audio"
-    assert "speech" in meta["traits"]
+    assert "has-audio" in meta["traits"]
 
 
 def test_text_only_is_text():
@@ -177,7 +177,7 @@ def test_a_generative_task_is_not_utility():
 
 def test_a_video_pipeline_emitting_audio_speaks():
     step = pipeline_step("v", "video/mp4", arguments={"prompt": "p", "output": ["videos", "audio"]})
-    assert "speech" in derive_catalog_metadata(definition(step))["traits"]
+    assert "has-audio" in derive_catalog_metadata(definition(step))["traits"]
 
 
 def test_a_video_pipeline_with_an_image_argument_is_image_conditioned():
@@ -319,8 +319,8 @@ def entry(shape, traits=(), configures="", **extra):
 
 LISTING = {
     "templates/tti": entry("image"),
-    "templates/talk": entry("sequence", ["speech", "identity-referenced"]),
-    "templates/clip": entry("shot", ["speech"]),
+    "templates/talk": entry("sequence", ["has-audio", "identity-referenced"]),
+    "templates/clip": entry("shot", ["has-audio"]),
     "models/flux": entry("image", configures="templates/tti"),
     "mine": entry("image"),
 }
@@ -335,8 +335,8 @@ def test_shape_filters():
 
 
 def test_traits_must_all_match():
-    assert set(project_listing(LISTING, traits=["speech"])) == {"templates/talk", "templates/clip"}
-    assert set(project_listing(LISTING, traits=["speech", "identity-referenced"])) == {"templates/talk"}
+    assert set(project_listing(LISTING, traits=["has-audio"])) == {"templates/talk", "templates/clip"}
+    assert set(project_listing(LISTING, traits=["has-audio", "identity-referenced"])) == {"templates/talk"}
 
 
 def test_configures_filters_to_a_templates_configs():
@@ -374,7 +374,7 @@ def test_unknown_shape_or_trait_names_the_vocabulary():
     assert "sequence" in str(caught.value)
     with pytest.raises(ValueError) as caught:
         project_listing(LISTING, traits=["fast"])
-    assert "speech" in str(caught.value)
+    assert "has-audio" in str(caught.value)
 
 
 # Rules that had to change once they met the real catalog (task 8).
@@ -441,10 +441,10 @@ def test_a_video_pipeline_carrying_a_vocoder_generates_audio(component):
     `output` argument - the components it configures say it instead."""
     step = pipeline_step("clip", "video/mp4")
     step["pipeline"]["configuration"]["components"] = {component: {"device": "cuda"}}
-    assert "speech" in derive_catalog_metadata(definition(step))["traits"]
+    assert "has-audio" in derive_catalog_metadata(definition(step))["traits"]
 
 
 def test_an_image_pipeline_carrying_a_vocoder_does_not():
     step = pipeline_step("still", "image/jpeg")
     step["pipeline"]["configuration"]["components"] = {"vocoder": {"device": "cuda"}}
-    assert "speech" not in derive_catalog_metadata(definition(step))["traits"]
+    assert "has-audio" not in derive_catalog_metadata(definition(step))["traits"]

@@ -517,12 +517,12 @@ def test_the_listing_carries_derived_metadata(server):
 
         clip = details["templates/clip"]
         assert clip["shape"] == "shot"
-        assert clip["traits"] == ["speech"]
+        assert clip["traits"] == ["has-audio"]
         assert clip["summary"] == "One clip from a prompt."
         assert clip["cost"] == [{"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}]
 
         tuned = details["models/tuned"]
-        assert tuned["shape"] == "shot" and tuned["traits"] == ["speech"]
+        assert tuned["shape"] == "shot" and tuned["traits"] == ["has-audio"]
         assert tuned["summary"] == "The same clip on a bigger checkpoint."
         assert tuned["cost"] is None
 
@@ -1475,12 +1475,12 @@ def test_the_listing_filters_and_compacts(server):
         configs = client.get("/api/workflows", params={"configures": "templates/clip"}).json()
         assert set(configs["details"]) == {"models/tuned"}
 
-        by_trait = client.get("/api/workflows", params={"traits": "speech"}).json()
+        by_trait = client.get("/api/workflows", params={"traits": "has-audio"}).json()
         assert "Basic" not in by_trait["details"]
 
         bad = client.get("/api/workflows", params={"shape": "cinematic"})
         assert bad.status_code == 400 and "sequence" in bad.json()["detail"]
-        bad = client.get("/api/workflows", params={"traits": "speech,fast"})
+        bad = client.get("/api/workflows", params={"traits": "has-audio,fast"})
         assert bad.status_code == 400 and "fast" in bad.json()["detail"]
 
 
@@ -3029,7 +3029,7 @@ def test_saving_reports_how_the_workflow_will_be_matched(server):
     with server(success_script) as client:
         saved = client.put("/api/workflows/clip", json={"workflow": video_workflow("clip")}).json()
         assert saved["shape"] == "shot"
-        assert saved["traits"] == ["speech"]
+        assert saved["traits"] == ["has-audio"]
         assert saved["summary"] == "One clip from a prompt."
         assert not any("summary" in w for w in saved["warnings"])
 

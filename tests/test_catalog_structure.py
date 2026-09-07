@@ -60,16 +60,16 @@ def load(path):
 # is subtle enough that a rule change should have to answer to them.
 EXPECTED_SHAPES = {
     "workflows/templates/text-to-image.json": ("image", []),
-    "workflows/templates/minimax/storyboard.json": ("shot", ["identity-referenced", "speech"]),
-    "workflows/templates/minimax/dialogue-short.json": ("sequence", ["identity-referenced", "speech"]),
-    "workflows/templates/minimax/music-video.json": ("sequence", ["identity-referenced", "speech"]),
-    "workflows/templates/minimax/chained-segments.json": ("shot", ["chained", "image-conditioned", "needs-input-media", "speech"]),
-    "workflows/templates/ltx2/chained-segments.json": ("shot", ["chained", "image-conditioned", "needs-input-media", "speech"]),
+    "workflows/templates/minimax/storyboard.json": ("shot", ["has-audio", "identity-referenced"]),
+    "workflows/templates/minimax/dialogue-short.json": ("sequence", ["has-audio", "identity-referenced"]),
+    "workflows/templates/minimax/music-video.json": ("sequence", ["has-audio", "identity-referenced"]),
+    "workflows/templates/minimax/chained-segments.json": ("shot", ["chained", "has-audio", "image-conditioned", "needs-input-media"]),
+    "workflows/templates/ltx2/chained-segments.json": ("shot", ["chained", "has-audio", "image-conditioned", "needs-input-media"]),
     "workflows/templates/image-variation.json": ("image-edit", ["needs-input-media"]),
     "workflows/templates/segment-and-inpaint.json": ("image-edit", ["needs-input-media"]),
     "workflows/templates/describe-and-regenerate.json": ("image-set", ["composes-workflows", "needs-input-media"]),
     "workflows/templates/compose-workflows.json": ("shot", ["composes-workflows", "image-conditioned"]),
-    "workflows/templates/generate-speech.json": ("audio", ["speech"]),
+    "workflows/templates/generate-speech.json": ("audio", ["has-audio"]),
     "workflows/templates/assemble-and-score.json": ("sequence", ["needs-input-media"]),
     "workflows/templates/image-processors.json": ("utility", []),
 }

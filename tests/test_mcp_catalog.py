@@ -103,13 +103,13 @@ def test_list_workflows_passes_its_filters_through():
     client, seen = recording_client({"workflows": [], "details": {}})
 
     catalog.list_workflows(
-        client, shape="sequence", traits=["speech", "chained"], configures="templates/x", include_models=True
+        client, shape="sequence", traits=["has-audio", "chained"], configures="templates/x", include_models=True
     )
 
     assert seen["params"] == {
         "view": "compact",
         "shape": "sequence",
-        "traits": "speech,chained",
+        "traits": "has-audio,chained",
         "configures": "templates/x",
         "include_models": "true",
     }

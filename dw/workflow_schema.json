@@ -24,7 +24,7 @@
             "uniqueItems": true,
             "items": {
                 "type": "string",
-                "enum": ["speech", "chained", "image-conditioned", "identity-referenced", "needs-input-media", "composes-workflows"]
+                "enum": ["has-audio", "chained", "image-conditioned", "identity-referenced", "needs-input-media", "composes-workflows"]
             },
             "description": "How the output is made or what it needs supplied. Derived by the server; declare only to override."
         },

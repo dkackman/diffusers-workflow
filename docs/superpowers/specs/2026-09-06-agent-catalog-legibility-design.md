@@ -30,7 +30,7 @@ the rest hangs on.
 1. **`shape` is one value; conditioning facts are `traits`.** `shape` is a
    closed enum of *what comes out*. Everything about how it is made or
    what it needs supplied is a boolean trait. `video-with-speech` is not a
-   shape; `speech` is a trait.
+   shape; `has-audio` is a trait.
 2. **Derived, with a declared override, and the test rejects a redundant
    override.** Metadata is computed from the definition. A top-level
    declaration wins when present, and must differ from what derivation
@@ -72,7 +72,7 @@ Each listing entry from `workflow_details`
 | field | type | source |
 |---|---|---|
 | `shape` | one of `image`, `image-set`, `image-edit`, `shot`, `sequence`, `audio`, `text`, `utility` | derived; top-level `shape` overrides |
-| `traits` | sorted subset of `speech`, `chained`, `image-conditioned`, `identity-referenced`, `needs-input-media`, `composes-workflows` | derived; top-level `traits` overrides |
+| `traits` | sorted subset of `has-audio`, `chained`, `image-conditioned`, `identity-referenced`, `needs-input-media`, `composes-workflows` | derived; top-level `traits` overrides |
 | `summary` | string, ≤ 120 chars | top-level `summary`; else the first sentence of `description` |
 | `cost` | list of `{device, name, vram_gb, minutes}`, or `null` | top-level `cost` only |
 
@@ -112,37 +112,45 @@ is a video workflow and the stills are intermediates.
 **Shape rules, first match wins:**
 
 1. `sequence` — kind is video, and a `concat_videos` or `dissolve_videos`
-   task whose input references ≥ 2 distinct steps. Checked before
-   `utility`: cutting shots together is what comes out even when every
-   shot was supplied rather than generated, so an editorial cut must not
-   fall through to `utility` for lack of a generating step.
-2. `utility` — no `pipeline` step, no `workflow` step, and no task whose
-   command is in `GENERATIVE_TASKS` (`generate_speech`, `text_generation`,
+   task whose `videos` argument names ≥ 2 distinct steps through
+   `previous_result:`. Checked before `utility`: cutting shots together is
+   what comes out even when every shot was supplied rather than generated,
+   so an editorial cut must not fall through to `utility` for lack of a
+   generating step.
+2. `utility` — nothing generates: no `pipeline` or `pipeline_reference`
+   step, no `workflow` step, and no task whose command is in
+   `GENERATIVE_TASKS` (`generate_speech`, `text_generation`,
    `image_to_text`, `diffusion_upscale`, `interpolate_frames`; a
-   module-level constant with its own test)
+   module-level constant with its own test). Also when no step declares a
+   `result.content_type` at all, since then there is no kind to reason
+   from
 3. `text` — kind is text
 4. `audio` — kind is audio
 5. `shot` — kind is video
 6. `image-edit` — kind is image, and the producing pipeline's
-   `component_type` matches `Inpaint|Img2Img|Edit|Upscale|Outpaint|Kontext`
+   `component_type` matches `Inpaint|Img2Img|Edit|Upscale|Outpaint`
    (case-insensitive substring), or its `arguments` include `image` or
    `mask_image`
-7. `image-set` — kind is image, and ≥ 2 pipeline steps emit images, or a
-   `workflow` step does
+7. `image-set` — kind is image, and ≥ 2 generating steps emit images, or
+   a `workflow` step does
 8. `image`
 
 **Trait rules, each independent:**
 
-- `speech` — any `generate_speech` task, or a video pipeline whose
-  `output` argument lists `audio`
+- `has-audio` — the workflow emits a generated audio track; not
+  specifically dialogue. Any `generate_speech` task, a video pipeline whose
+  `output` argument lists `audio`, or a video pipeline whose
+  `configuration.components` names a `vocoder` or an `audio_vae`
 - `chained` — a `chain` block on any pipeline, or an argument named
   `last_frame`, `last_segment`, `last_image` or `match_audio`
 - `image-conditioned` — a video pipeline with an `image` argument, or
   `component_type` containing `ImageToVideo`
 - `identity-referenced` — any `references` argument
 - `needs-input-media` — any `asset:` reference anywhere, any
-  `{"location": …}` argument, or an `image`/`video`/`audio`/`mask_image`
-  argument bound to a `variable:`
+  `{"location": …}` argument, or an
+  `image`/`video`/`audio`/`mask_image`/`urls` argument bound to a
+  `variable:` — lists are searched one level in, so `gather_images`' list
+  of `urls` counts
 - `composes-workflows` — any `workflow` step
 
 Rules read arguments on `pipeline.arguments`, `task.arguments` and
@@ -239,9 +247,13 @@ word-boundary truncation, `GENERATIVE_TASKS` membership.
 - **Unique ids** — across `workflows/templates/`, `workflows/models/` and
   `dw/workflows/`.
 - **`cost` well-formed** — when present.
-- **Description drift** — every backticked identifier in a `description`
-  matching `^[a-z_][a-z0-9_]*$` that is also a `variable:` name somewhere
-  in the catalog must be declared by this workflow's `variables`.
+- **Description drift** — every single-quoted identifier in a
+  `description` matching `^[a-z_][a-z0-9_]*$` that is also a `variable:`
+  name somewhere in the catalog must be declared by this workflow's
+  `variables` — single quotes are the convention the catalog's
+  descriptions actually use. An allowlist carries the mentions that are a
+  sub-workflow's argument or a result field rather than this workflow's
+  own variable.
 - **Token budget** — the compact listing over the repo catalog meets the
   two ceilings in *Goal*.
 

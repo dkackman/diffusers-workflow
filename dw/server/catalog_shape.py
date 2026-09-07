@@ -17,7 +17,7 @@ import re
 
 SHAPES = ("image", "image-set", "image-edit", "shot", "sequence", "audio", "text", "utility")
 TRAITS = (
-    "speech",
+    "has-audio",
     "chained",
     "image-conditioned",
     "identity-referenced",
@@ -142,15 +142,14 @@ def _cuts_together(steps):
 
 
 def _audio_components(step):
-    """Component names the step's pipeline configures, at either level."""
+    """Audio-only components the step's pipeline configures."""
     key, body = _block(step)
     if key != "pipeline":
         return set()
-    names = {name for name in body if isinstance(body.get(name), dict)}
     configuration = body.get("configuration")
-    if isinstance(configuration, dict) and isinstance(configuration.get("components"), dict):
-        names |= set(configuration["components"])
-    return names & _AUDIO_COMPONENTS
+    if not isinstance(configuration, dict) or not isinstance(configuration.get("components"), dict):
+        return set()
+    return set(configuration["components"]) & _AUDIO_COMPONENTS
 
 
 def _derive_shape(steps, kind):
@@ -179,17 +178,23 @@ def _derive_shape(steps, kind):
 
 
 def _derive_traits(steps):
+    """The independent facts about how the output is made or what it needs.
+
+    `has-audio` says the workflow emits a generated audio track - a speech
+    task, a video pipeline asked for audio, or one carrying a component that
+    exists only to synthesise a waveform. Not specifically dialogue.
+    """
     traits = set()
     for step in steps:
         key, body = _block(step)
         arguments = _arguments(step)
         if key == "task" and body.get("command") == "generate_speech":
-            traits.add("speech")
+            traits.add("has-audio")
         output = arguments.get("output")
         if _kind(step) == "video" and isinstance(output, list) and "audio" in output:
-            traits.add("speech")
+            traits.add("has-audio")
         if _kind(step) == "video" and _audio_components(step):
-            traits.add("speech")
+            traits.add("has-audio")
         if key == "pipeline" and "chain" in body:
             traits.add("chained")
         if _CHAIN_ARGUMENTS & set(arguments):

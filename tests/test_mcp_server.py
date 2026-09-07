@@ -850,5 +850,5 @@ async def test_list_workflows_takes_shape_and_traits():
 @pytest.mark.asyncio
 async def test_the_instructions_name_the_vocabulary():
     server = server_over(ok({}))
-    for word in ("image-set", "sequence", "speech", "list_workflows(shape="):
+    for word in ("image-set", "sequence", "has-audio", "list_workflows(shape="):
         assert word in server.instructions
