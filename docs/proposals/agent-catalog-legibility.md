@@ -494,11 +494,11 @@ starts from the record rather than the intent. Updated as work lands.
 
 | proposal | status | where | notes |
 |---|---|---|---|
-| 1 shape vocabulary | done (tasks 1–4) | spec §1.1–1.3 | became one `shape` value plus boolean `traits`; `video-with-speech` is the `speech` trait; `chain` yields `shot` + `chained`, not `sequence`; MCP tool and instructions updated (task 5); three rules changed against the real catalog (task 8): a concat/dissolve of two or more sources is a `sequence` ahead of the utility fallthrough, `urls` counts as a media argument, and a video pipeline with a `vocoder`/`audio_vae` component carries `speech` |
+| 1 shape vocabulary | done (tasks 1–4) | spec §1.1–1.3 | became one `shape` value plus boolean `traits`; `video-with-speech` is the `has-audio` trait; `chain` yields `shot` + `chained`, not `sequence`; MCP tool and instructions updated (task 5); three rules changed against the real catalog (task 8): a concat/dissolve of two or more sources is a `sequence` ahead of the utility fallthrough, `urls` counts as a media argument, and a video pipeline with a `vocoder`/`audio_vae` component carries the audio trait; trait `speech` renamed `has-audio` (final review), since it fires on any generated audio track rather than on dialogue |
 | 2 `summary` | done (tasks 1, 3) | spec §1.1 | derived from `description`'s first sentence, declared override, ≤ 120 chars; budget test (task 10) |
 | 3 `cost` | done (tasks 7, 9) | spec §1.1, §1.7 | per-device list, hand-authored; `workflow_name` on jobs landed (task 7); shape validated by task 9's `test_a_declared_cost_is_well_formed`; no entries authored yet - no measured runs to hand |
 | 4 server-side guides | designed | spec §2.1 | supersedes `guides.py`'s "works with the server down" rationale |
-| 5 drift checks | done (tasks 8, 9) | spec §1.8 | shape and summary invariants over the real catalog (task 8); unique ids, cost shape, and description-drift checks over the real catalog found no drift (task 9) |
+| 5 drift checks | done (tasks 8, 9) | spec §1.8 | shape and summary invariants over the real catalog (task 8); unique ids, cost shape, and description-drift checks over the real catalog found no drift (task 9); drift test uses the catalog's single-quote convention (final review) - the backtick pattern had matched nothing, and the six real mentions it then surfaced are sub-workflow arguments, chain fields and result fields, carried in an allowlist |
 | 6 UI | designed | spec plan 3 | client-side filter; templates-first grouping |
 | 7 authoring guide | designed | spec §2.3 | one new `WORKFLOW_GUIDE.md` section; `CLAUDE.md` points at it |
 | 8 multi-error validation | designed | spec §2.2 | `validate_data_all`, capped at 25, additive `/api/validate` shape |
