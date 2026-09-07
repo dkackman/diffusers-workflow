@@ -19,8 +19,18 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "Flux2Pipeline",
-                    "attention_backend": "flash_hub",
                     "offload": "model"
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "component_type": "transformers.Mistral3ForConditionalGeneration",
+                        "device": "cpu"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "diffusers/FLUX.2-dev-bnb-4bit",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "diffusers/FLUX.2-dev-bnb-4bit",

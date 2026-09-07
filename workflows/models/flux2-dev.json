@@ -6,7 +6,15 @@
         "guidance_scale": 4
     },
     "id": "Flux2Dev",
-    "description": "Text-to-image with FLUX.2 dev, pre-quantized to 4-bit BitsAndBytes. The text encoder loads from the same repo and model offloading hands the accelerator to one component at a time, so both fit on a 24 GB card.",
+    "description": "Text-to-image with FLUX.2 dev, pre-quantized to 4-bit BitsAndBytes. The 4-bit text encoder is loaded first as its own component and rested on the CPU, since BitsAndBytes materializes on the accelerator and the two together do not fit at load; model offloading then hands the accelerator to one component at a time, so both run on a 24 GB card.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 3.3
+        }
+    ],
     "configures": "templates/text-to-image",
     "steps": [
         {
@@ -14,8 +22,18 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "Flux2Pipeline",
-                    "attention_backend": "flash_hub",
                     "offload": "model"
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "component_type": "transformers.Mistral3ForConditionalGeneration",
+                        "device": "cpu"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "diffusers/FLUX.2-dev-bnb-4bit",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "diffusers/FLUX.2-dev-bnb-4bit",
