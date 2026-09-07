@@ -8,11 +8,12 @@ configures.
 
 import json
 import os
+import re
 
 import pytest
 
 from dw.server.catalog_shape import SUMMARY_LIMIT, derive_catalog_metadata
-from tests.test_examples import REPO_ROOT, get_example_files
+from tests.test_examples import BUILTIN_DIR, REPO_ROOT, get_example_files
 
 TEMPLATES = [f for f in get_example_files() if f.startswith("workflows/templates/")]
 MODEL_CONFIGS = [f for f in get_example_files() if f.startswith("workflows/models/")]
@@ -119,3 +120,57 @@ def test_every_template_has_a_summary_that_fits(path):
     assert not meta["summary_truncated"], (
         f"{path}: first sentence runs past {SUMMARY_LIMIT} chars - shorten it or declare 'summary': {meta['summary']!r}"
     )
+
+
+BUILTINS = sorted(
+    os.path.relpath(os.path.join(BUILTIN_DIR, name), REPO_ROOT)
+    for name in os.listdir(BUILTIN_DIR)
+    if name.endswith(".json")
+)
+
+
+def test_workflow_ids_are_unique_across_the_catalog():
+    """A duplicate id is a step-cache collision waiting to happen, and it
+    makes job history ambiguous about which workflow ran."""
+    seen = {}
+    for path in TEMPLATES + MODEL_CONFIGS + BUILTINS:
+        identity = load(path).get("id")
+        assert identity, f"{path} has no id"
+        assert identity not in seen, f"{path} and {seen[identity]} share id {identity!r}"
+        seen[identity] = path
+
+
+@pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS)
+def test_a_declared_cost_is_well_formed(path):
+    cost = load(path).get("cost")
+    if cost is None:
+        return
+    assert isinstance(cost, list) and cost, f"{path}: cost must be a non-empty list or absent"
+    for entry in cost:
+        assert entry["device"] in ("cuda", "mps", "cpu"), path
+        assert isinstance(entry["vram_gb"], (int, float)) and entry["vram_gb"] >= 0, path
+        assert isinstance(entry["minutes"], (int, float)) and entry["minutes"] >= 0, path
+
+
+BACKTICKED = re.compile(r"`([a-z_][a-z0-9_]*)`")
+
+
+def _variable_names_in_catalog():
+    names = set()
+    for path in TEMPLATES + MODEL_CONFIGS:
+        names |= set((load(path).get("variables") or {}).keys())
+    return names
+
+
+@pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS)
+def test_a_description_names_only_variables_the_workflow_declares(path):
+    """A description that says `num_frames` for a workflow with no such
+    variable sends an agent to pass an argument nothing reads. Restricted
+    to identifiers that are variable names somewhere in the catalog, so a
+    backticked task or type name is not a false positive."""
+    definition = load(path)
+    declared = set((definition.get("variables") or {}).keys())
+    catalog_variables = _variable_names_in_catalog()
+    mentioned = set(BACKTICKED.findall(definition.get("description", "")))
+    undeclared = (mentioned & catalog_variables) - declared
+    assert not undeclared, f"{path} describes {sorted(undeclared)} but declares no such variable"
