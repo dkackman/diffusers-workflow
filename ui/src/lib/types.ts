@@ -81,6 +81,40 @@ export interface MemoryInfo {
   } | null
 }
 
+/** What a workflow makes. The server derives it from the definition
+ * (dw/server/catalog_shape.py) unless the file declares one. */
+export const WORKFLOW_SHAPES = [
+  'image',
+  'image-set',
+  'image-edit',
+  'shot',
+  'sequence',
+  'audio',
+  'text',
+  'utility',
+] as const
+export type WorkflowShape = (typeof WORKFLOW_SHAPES)[number]
+
+/** Independent facts about how the output is made or what it needs. */
+export const WORKFLOW_TRAITS = [
+  'has-audio',
+  'chained',
+  'image-conditioned',
+  'identity-referenced',
+  'needs-input-media',
+  'composes-workflows',
+] as const
+export type WorkflowTrait = (typeof WORKFLOW_TRAITS)[number]
+
+/** One measured run. `name` is the accelerator for a person ('RTX 4090')
+ * and is optional - only `device`, `vram_gb` and `minutes` are required. */
+export interface WorkflowCost {
+  device: string
+  name?: string
+  vram_gb: number
+  minutes: number
+}
+
 export interface WorkflowDefinition {
   id: string
   variables?: Record<string, unknown>

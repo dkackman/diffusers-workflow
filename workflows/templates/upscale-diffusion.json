@@ -1,6 +1,9 @@
 {
   "id": "DiffusionUpscaleImage",
-  "description": "Upscales an input image with a Stable Diffusion upscale pipeline, guided by a prompt. There is no generation step, so any existing image can be upscaled.",
+  "description": "Upscales an input image with a Stable Diffusion upscale pipeline, guided by a prompt. There is no generation step, so any existing image can be upscaled. First load adds about 2 minutes.",
+  "cost": [
+    {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 0.2}
+  ],
   "variables": {
     "input_image": {
       "location": "https://example.com/image.jpg"

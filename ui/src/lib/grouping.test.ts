@@ -45,6 +45,28 @@ describe('groupNames', () => {
     expect(grouped.get('')).toEqual(['root'])
   })
 
+  it('puts templates before models, whatever the alphabet says', () => {
+    // The two-tree catalog: templates are what a person picks from, the
+    // model configs are variants of them - so templates lead
+    const grouped = groupNames([
+      'models/flux-dev',
+      'templates/ltx2/shot',
+      'templates/text-to-image',
+      'loose',
+    ])
+    expect([...grouped.keys()]).toEqual([
+      '',
+      'templates',
+      'templates/ltx2',
+      'models',
+    ])
+  })
+
+  it('leaves the order within a group alone', () => {
+    const grouped = groupNames(['models/b', 'models/a'])
+    expect(grouped.get('models')).toEqual(['models/b', 'models/a'])
+  })
+
   it('takes a caller-supplied grouper', () => {
     // The gallery groups by the folder the server computed, which strips the
     // run id - the name alone cannot tell a run id from a folder

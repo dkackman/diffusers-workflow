@@ -818,7 +818,9 @@ def test_the_instructions_send_an_agent_to_the_authoring_guide_before_it_writes(
     server = server_over(ok({}))
 
     assert "Authoring a workflow from an agent" in server.instructions
-    assert server.instructions.index("Authoring a workflow from an agent") < server.instructions.index("`validate_workflow`")
+    assert server.instructions.index(
+        "Authoring a workflow from an agent"
+    ) < server.instructions.index("`validate_workflow`")
 
 
 @pytest.mark.asyncio

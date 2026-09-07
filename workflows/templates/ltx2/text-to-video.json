@@ -1,6 +1,9 @@
 {
     "id": "LTX2",
-    "description": "The baseline for the LTX-2.5 family: text to video with a soundtrack generated alongside it, on a single 24GB card. The distilled transformer runs a fixed eight-step schedule with guidance off, quantized per component so it stays resident while the Gemma text encoder and the connectors are group offloaded around it.",
+    "description": "The baseline for the LTX-2.5 family: text to video with a soundtrack generated alongside it, on a single 24GB card. The distilled transformer runs a fixed eight-step schedule with guidance off, quantized per component so it stays resident while the Gemma text encoder and the connectors are group offloaded around it. First load adds about 10 minutes.",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 0.6}
+    ],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",

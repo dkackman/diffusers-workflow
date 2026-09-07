@@ -14,7 +14,10 @@ import type {
   PromptDetail,
   ServerInfo,
   ValidationResult,
+  WorkflowCost,
   WorkflowDefinition,
+  WorkflowShape,
+  WorkflowTrait,
   StoredPrompt,
   WorkflowWithOrigin,
 } from './types'
@@ -220,6 +223,18 @@ export const api = {
            * Absent from an older server, and from every template. */
           configures?: string
           prompt_refs?: string[]
+          /** What the workflow makes, derived by the server from the
+           * definition (dw/server/catalog_shape.py). Absent from an older
+           * server. */
+          shape?: WorkflowShape
+          /** Sorted, independent facts about how the output is made or what
+           * it needs. */
+          traits?: WorkflowTrait[]
+          /** The description's first sentence, clipped - what a card shows. */
+          summary?: string
+          /** Measured runs, one per device the maintainer measured on. Null
+           * (or absent) means unknown - never derived. */
+          cost?: WorkflowCost[] | null
           /** Which source it came from: 'workspace', 'examples', 'builtin'. */
           origin?: string
           /** False for a read-only source: offer save-a-copy, not delete. */
