@@ -7,27 +7,41 @@
   import HintBar from '../HintBar.svelte'
   import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
+  import {
+    WORKFLOW_SHAPES,
+    WORKFLOW_TRAITS,
+    type WorkflowCost,
+    type WorkflowShape,
+    type WorkflowTrait,
+  } from '../types'
+
+  type Detail = {
+    kinds: string[]
+    steps?: number
+    variables: number
+    description: string
+    /** For a model config: the template it configures. */
+    configures?: string
+    /** What the workflow makes - the server derives it. */
+    shape?: WorkflowShape
+    /** Sorted facts about how it is made or what it needs. */
+    traits?: WorkflowTrait[]
+    /** The description's first sentence, clipped by the server. */
+    summary?: string
+    /** Measured runs; null or absent means nobody has measured it. */
+    cost?: WorkflowCost[] | null
+    /** Which source the workflow was read from. */
+    origin?: string
+    /** False for a read-only source - an examples directory. */
+    writable?: boolean
+  }
 
   let workflows = $state<string[]>([])
-  let details = $state<
-    Record<
-      string,
-      {
-        kinds: string[]
-        steps?: number
-        variables: number
-        description: string
-        /** For a model config: the template it configures. */
-        configures?: string
-        /** Which source the workflow was read from. */
-        origin?: string
-        /** False for a read-only source - an examples directory. */
-        writable?: boolean
-      }
-    >
-  >({})
+  let details = $state<Record<string, Detail>>({})
   let workflowDir = $state('')
   let filter = $state('')
+  let shape = $state('')
+  let traits = $state<WorkflowTrait[]>([])
   let error = $state('')
   let loaded = $state(false)
 
@@ -45,15 +59,61 @@
       .catch((e) => (error = e.message))
   })
 
+  // Only the shapes and traits the listing actually has: the vocabulary is
+  // fixed, but a workspace holding no video has no use for a `shot` option
+  const shapesPresent = $derived(
+    WORKFLOW_SHAPES.filter((value) =>
+      workflows.some((name) => details[name]?.shape === value),
+    ),
+  )
+  const traitsPresent = $derived(
+    WORKFLOW_TRAITS.filter((value) =>
+      workflows.some((name) => details[name]?.traits?.includes(value)),
+    ),
+  )
+
+  const toggleTrait = (trait: WorkflowTrait) => {
+    traits = traits.includes(trait)
+      ? traits.filter((value) => value !== trait)
+      : [...traits, trait]
+  }
+
+  // Client-side over the listing the page already holds - shape, then every
+  // selected trait (AND, not OR: the chips narrow), then the text filter
   const visible = $derived(
     workflows.filter((name) => {
+      const detail = details[name]
+      if (shape && detail?.shape !== shape) return false
+      const has = detail?.traits ?? []
+      if (!traits.every((trait) => has.includes(trait))) return false
       const needle = filter.toLowerCase()
       return (
         name.toLowerCase().includes(needle) ||
-        (details[name]?.description ?? '').toLowerCase().includes(needle)
+        (detail?.description ?? '').toLowerCase().includes(needle)
       )
     }),
   )
+
+  const filterActive = $derived(
+    filter !== '' || shape !== '' || traits.length > 0,
+  )
+
+  /** Minutes for a person: under one is '<1 min', anything else keeps the
+   * measured value ('~3 min', '~1.5 min') rather than rounding it away. */
+  const formatMinutes = (minutes: number) =>
+    minutes < 1 ? '<1 min' : `~${Number(minutes.toFixed(2))} min`
+
+  /** The one measurement a card shows: the first the maintainer recorded.
+   * '~3 min · 22 GB (RTX 4090)', with the accelerator dropped when the entry
+   * did not name one. */
+  const formatCost = (cost?: WorkflowCost[] | null) => {
+    const measured = cost?.[0]
+    if (!measured) return ''
+    const where = measured.name ? ` (${measured.name})` : ''
+    return `${formatMinutes(measured.minutes)} · ${Number(
+      measured.vram_gb.toFixed(2),
+    )} GB${where}`
+  }
 
   const href = (name: string) =>
     '#/workflows/' + name.split('/').map(encodeURIComponent).join('/')
@@ -63,12 +123,36 @@
   <h1>Workflows</h1>
   <WorkspacePicker />
   <span class="muted">{workflowDir}</span>
-  <input placeholder="filter…" bind:value={filter} class="filter" />
+  <div class="filters">
+    <select bind:value={shape} class="shape" aria-label="shape">
+      <option value="">any shape</option>
+      {#each shapesPresent as value (value)}
+        <option {value}>{value}</option>
+      {/each}
+    </select>
+    <input placeholder="filter…" bind:value={filter} class="filter" />
+  </div>
   <a class="newlink" href="#/edit" title="new workflow"><Plus size={15} /></a>
 </div>
 
 {#if error}
   <p class="muted">Could not load workflows: {error}</p>
+{/if}
+
+{#if traitsPresent.length}
+  <div class="chips">
+    {#each traitsPresent as trait (trait)}
+      <button
+        class="chip"
+        class:on={traits.includes(trait)}
+        aria-pressed={traits.includes(trait)}
+        onclick={() => toggleTrait(trait)}
+        title="show only workflows that are {trait}"
+      >
+        {trait}
+      </button>
+    {/each}
+  </div>
 {/if}
 
 <HintBar storageKey="hint-dismissed">
@@ -79,7 +163,7 @@
 <FolderGroups
   names={visible}
   collapseKey="collapsed-folders"
-  filterActive={filter !== ''}
+  {filterActive}
   newHref="#/edit"
   onnewingroup={(group) => sessionStorage.setItem('dw-editor-folder', group)}
 >
@@ -94,6 +178,13 @@
         <span class="cardname">{leafOf(name)}</span>
       </span>
       <span class="cardmeta muted">
+        {#if detail?.shape}<span class="badge" title="what this workflow makes"
+            >{detail.shape}</span
+          >{/if}
+        {#each detail?.traits ?? [] as trait (trait)}<span
+            class="badge trait"
+            title="trait: {trait}">{trait}</span
+          >{/each}
         {#if detail?.configures}<span
             class="configures"
             title="a tuned configuration of {detail.configures}"
@@ -114,9 +205,16 @@
             title="{detail.variables} variables to tweak"
             >{detail.variables} vars</span
           >{/if}
+        {#if detail?.cost?.length}<span
+            class="cost"
+            title="measured on {detail.cost[0].name ?? detail.cost[0].device}"
+            >{formatCost(detail.cost)}</span
+          >{/if}
       </span>
-      {#if detail?.description}
-        <span class="carddesc muted">{detail.description}</span>
+      {#if detail?.summary || detail?.description}
+        <span class="carddesc muted"
+          >{detail.summary || detail.description}</span
+        >
       {/if}
     </a>
   {/snippet}
@@ -139,9 +237,43 @@
     gap: 0.4rem 1rem;
     margin-bottom: 1rem;
   }
+  .filters {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: auto;
+  }
   .filter {
     max-width: 220px;
-    margin-left: auto;
+  }
+  .shape {
+    font-size: 0.8rem;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-bottom: 0.8rem;
+  }
+  /* A chip narrows the listing the page already holds - no refetch, so the
+     selected set reads as part of the filter row rather than a mode */
+  .chip {
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 500;
+    padding: 0.1rem 0.5rem;
+    cursor: pointer;
+  }
+  .chip:hover {
+    color: var(--ink);
+    filter: none;
+  }
+  .chip.on {
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .newlink {
     display: inline-flex;
@@ -195,6 +327,22 @@
     border-radius: 3px;
     padding: 0 0.25rem;
     opacity: 0.75;
+    white-space: nowrap;
+  }
+
+  /* shape and traits: what the catalog is chosen by, so they sit with the
+     kind icons rather than in the description */
+  .badge {
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    padding: 0 0.25rem;
+    opacity: 0.75;
+    white-space: nowrap;
+  }
+  .badge.trait {
+    opacity: 0.6;
+  }
+  .cost {
     white-space: nowrap;
   }
 

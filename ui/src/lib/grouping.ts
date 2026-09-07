@@ -15,6 +15,23 @@ export const leafOf = (name: string) =>
   name.includes('/') ? name.slice(name.lastIndexOf('/') + 1) : name
 
 /**
+ * Where a group sits relative to the others, before alphabetical order.
+ *
+ * The catalog is two trees: `templates/` is what a person picks from and
+ * `models/` is the checkpoint variants of those templates, so templates come
+ * first and models last however the alphabet would have ordered them. The
+ * root ('') keeps its place ahead of every folder, and any other folder
+ * sorts between the two trees, alphabetically as before.
+ */
+const groupRank = (group: string): number => {
+  if (group === '') return 0
+  const top = group.split('/')[0]
+  if (top === 'templates') return 1
+  if (top === 'models') return 3
+  return 2
+}
+
+/**
  * Names bucketed by group, one pass, groups in sorted order. A page hands in
  * its own grouper when the name alone cannot say which folder an entry belongs
  * to - the gallery's names carry a run id the server has already stripped into
@@ -31,5 +48,9 @@ export const groupNames = (
     if (bucket) bucket.push(name)
     else buckets.set(group, [name])
   }
-  return new Map([...buckets.entries()].sort(([a], [b]) => a.localeCompare(b)))
+  return new Map(
+    [...buckets.entries()].sort(
+      ([a], [b]) => groupRank(a) - groupRank(b) || a.localeCompare(b),
+    ),
+  )
 }
