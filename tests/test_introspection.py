@@ -102,11 +102,16 @@ def test_a_declared_reference_anywhere_in_the_definition_is_not_warned_about():
         "steps": [
             {
                 "name": "s",
-                "task": {"command": "nonexistent", "arguments": {"a": ["variable:p", {"b": "variable:n"}]}},
+                "task": {
+                    "command": "nonexistent",
+                    "arguments": {"a": ["variable:p", {"b": "variable:n"}]},
+                },
             }
         ],
     }
-    assert not any("names no declared variable" in w for w in workflow_argument_warnings(workflow))
+    assert not any(
+        "names no declared variable" in w for w in workflow_argument_warnings(workflow)
+    )
 
 
 def test_describe_class_init_target_reads_constructors():
