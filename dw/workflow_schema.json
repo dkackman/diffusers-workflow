@@ -14,6 +14,40 @@
             "type": "string",
             "description": "For a workflow under models/: the templates/ workflow this is a tuned per-checkpoint configuration of, as a catalog name such as 'templates/text-to-image'."
         },
+        "shape": {
+            "type": "string",
+            "enum": ["image", "image-set", "image-edit", "shot", "sequence", "audio", "text", "utility"],
+            "description": "What the workflow produces. Derived from the steps by the server; declare it only where the derivation is wrong. Closed vocabulary - adding a value is additive, renaming one breaks every client that filtered on it."
+        },
+        "traits": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "enum": ["speech", "chained", "image-conditioned", "identity-referenced", "needs-input-media", "composes-workflows"]
+            },
+            "description": "How the output is made or what it needs supplied. Derived by the server; declare only to override."
+        },
+        "summary": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "One line saying what the workflow is for, carried in catalog listings. Defaults to the first sentence of 'description'."
+        },
+        "cost": {
+            "type": "array",
+            "description": "Measured runs, one per device the maintainer measured on. Never derived; absent means unknown.",
+            "items": {
+                "type": "object",
+                "required": ["device", "vram_gb", "minutes"],
+                "properties": {
+                    "device": {"type": "string", "enum": ["cuda", "mps", "cpu"]},
+                    "name": {"type": "string", "description": "The accelerator, for a person: 'RTX 4090', 'M2 Ultra'"},
+                    "vram_gb": {"type": "number", "minimum": 0},
+                    "minutes": {"type": "number", "minimum": 0}
+                },
+                "additionalProperties": false
+            }
+        },
         "variables": {
             "$ref": "#/$defs/arguments"
         },

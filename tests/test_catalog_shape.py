@@ -278,3 +278,27 @@ def test_a_long_declared_summary_is_truncated_too():
 def test_an_empty_or_malformed_definition_derives_something():
     assert derive_catalog_metadata({})["shape"] == "utility"
     assert derive_catalog_metadata({"steps": "nope"})["shape"] == "utility"
+
+
+def test_the_schema_declares_the_vocabulary():
+    from dw.schema import load_schema, validate_data
+    schema = load_schema("workflow")
+    props = schema["properties"]
+    assert tuple(props["shape"]["enum"]) == SHAPES
+    assert tuple(props["traits"]["items"]["enum"]) == TRAITS
+    assert props["summary"]["maxLength"] == SUMMARY_LIMIT
+    cost_item = props["cost"]["items"]
+    assert set(cost_item["required"]) == {"device", "vram_gb", "minutes"}
+    assert cost_item["properties"]["device"]["enum"] == ["cuda", "mps", "cpu"]
+
+
+def test_a_declared_cost_validates_and_a_bad_one_does_not():
+    from dw.schema import load_schema, validate_data
+    schema = load_schema("workflow")
+    base = definition(pipeline_step("g", "image/jpeg"))
+    ok, _ = validate_data({**base, "cost": [{"device": "cuda", "name": "RTX 4090", "vram_gb": 22, "minutes": 3}]}, schema)
+    assert ok
+    bad, message = validate_data({**base, "cost": [{"device": "tpu", "vram_gb": 1, "minutes": 1}]}, schema)
+    assert not bad and "cost" in message
+    bad, _ = validate_data({**base, "shape": "cinematic"}, schema)
+    assert not bad
