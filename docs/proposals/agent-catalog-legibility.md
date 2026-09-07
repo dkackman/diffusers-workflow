@@ -507,3 +507,40 @@ starts from the record rather than the intent. Updated as work lands.
 | Part 3 constraint | carried | spec "Principle" | derivation reads structure, never model family |
 | Part 4 packaging | open | — | note for later: `templates/minimax/README.md` and `ltx2/README.md` are already model knowledge as data, unindexed — a third channel |
 
+
+### Cold-session probe, 2026-09-07
+
+A fresh Claude Code session (empty directory, no `CLAUDE.md`, no memory) was
+asked for "a short multi-shot video with cuts between the shots" against a
+server on this branch. What the access log showed, in order:
+`list_workflows(shape=sequence)`, `list_workflows(shape=shot)`,
+`get_workflow` on `templates/assemble-and-score` and
+`templates/ltx2/text-to-video`, `list_assets`. It never fetched the
+unfiltered catalog. It shipped three LTX-2 shots cut with assemble-and-score:
+two visually related, the third an unrelated nature scene.
+
+What that says about Part 1 as built, and what Part 2 has to carry:
+
+- **The shape-first entry works cold.** Discovery cost two compact filtered
+  listings and two definitions.
+- **Without `cost`, an agent picks the shortest path, not the best one.**
+  Every `cost` is null, so nothing distinguished `ltx2/text-to-video` (no
+  input media, "on a single 24GB card") from the MiniMax H3 keyframe route
+  (`chained`, `image-conditioned`, `needs-input-media` - a longer chain with
+  invisible prerequisites). Authoring `cost` on the shot baselines is the
+  first lever; a "choosing a video model" guide (proposal 4) is the second.
+- **Traits say what a workflow needs, not when you want it.** The listing
+  carried `identity-referenced` and `image-conditioned`, but nothing said
+  that cuts between shots imply continuity, so the agent sampled each shot
+  fresh. A guide on keeping shots consistent (generate the subject once and
+  reference it, or pin keyframes) is a proposal 4 item, indexed under
+  `sequence`.
+- **Several MiniMax summaries are weak as first sentences** ("The stronger
+  form of chain continuity.", "Conditioning on the end of the clip alone.")
+  because the fun-chapter descriptions read as prose. A declared `summary`
+  on those puts them level with the LTX-2 entries. Cheap, do it before Part 2.
+- **A rich workspace `CLAUDE.md` pre-empts discovery entirely.** The same
+  prompt in a workspace with a film playbook produced a full H3 plan without
+  a single catalog call. The compact listing serves agents starting cold;
+  Part 4's packaging question includes how a playbook and the catalog share
+  the knowledge rather than compete for it.
