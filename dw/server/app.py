@@ -193,7 +193,14 @@ def workflow_details(sources_by_name):
             continue
         cached = _workflow_detail_cache.get(path)
         if cached and cached[0] == mtime:
-            details[name] = cached[1]
+            # The cached detail is placement-free; the origin and writability
+            # are the source's, and a warm cache must still carry them or a
+            # second listing loses the fields a client decides save-vs-copy on
+            details[name] = {
+                **cached[1],
+                "origin": source.origin,
+                "writable": source.writable,
+            }
             continue
         try:
             with open(path, "r") as file:
@@ -1171,7 +1178,7 @@ def create_app(
             details = project_listing(
                 workflow_details(found),
                 shape=shape,
-                traits=[t for t in (traits or "").split(",") if t],
+                traits=[t.strip() for t in (traits or "").split(",") if t.strip()],
                 configures=configures,
                 include_models=include_models,
                 view=view,

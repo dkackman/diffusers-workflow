@@ -164,7 +164,7 @@ def build_server(client):
         return catalog.list_workflows(
             client,
             shape=shape,
-            traits=[t for t in (traits or "").split(",") if t],
+            traits=[t.strip() for t in (traits or "").split(",") if t.strip()],
             configures=configures,
             include_models=include_models,
         )

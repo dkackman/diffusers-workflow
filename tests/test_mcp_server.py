@@ -848,6 +848,23 @@ async def test_list_workflows_takes_shape_and_traits():
 
 
 @pytest.mark.asyncio
+async def test_a_spaced_trait_list_is_trimmed():
+    """`traits` arrives as one string an agent typed. "a, b" names the same
+    two traits as "a,b"; sent as " b" the server would 400 on it."""
+    seen = {}
+
+    def handler(request):
+        seen["params"] = dict(request.url.params)
+        return httpx.Response(200, json={"workflows": [], "details": {}})
+
+    server = server_over(handler)
+
+    await server.call_tool("list_workflows", {"traits": "has-audio, chained"})
+
+    assert seen["params"]["traits"] == "has-audio,chained"
+
+
+@pytest.mark.asyncio
 async def test_the_instructions_name_the_vocabulary():
     server = server_over(ok({}))
     for word in ("image-set", "sequence", "has-audio", "list_workflows(shape="):

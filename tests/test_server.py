@@ -1478,6 +1478,10 @@ def test_the_listing_filters_and_compacts(server):
         by_trait = client.get("/api/workflows", params={"traits": "has-audio"}).json()
         assert "Basic" not in by_trait["details"]
 
+        # a hand-written list is spaced; the spaces are not part of the trait
+        spaced = client.get("/api/workflows", params={"traits": "has-audio, chained"})
+        assert spaced.status_code == 200
+
         bad = client.get("/api/workflows", params={"shape": "cinematic"})
         assert bad.status_code == 400 and "sequence" in bad.json()["detail"]
         bad = client.get("/api/workflows", params={"traits": "has-audio,fast"})
@@ -1521,6 +1525,13 @@ def test_examples_are_listed_read_only(examples_server):
         # the writable root is still what a save targets, and is named first
         assert listing["sources"][0]["writable"] is True
         assert listing["sources"][1]["origin"] == "examples"
+
+        # a second listing is answered from the detail cache, which holds no
+        # placement of its own - the origin and writability must be merged
+        # back in every time or a warm cache silently drops them
+        again = client.get("/api/workflows").json()
+        assert again["details"]["ltx2/Gyre"]["origin"] == "examples"
+        assert again["details"]["ltx2/Gyre"]["writable"] is False
 
         # and it reads like any other workflow
         assert client.get("/api/workflows/ltx2/Gyre").status_code == 200
