@@ -834,18 +834,7 @@ The default model is deliberately tiny, matching the footprint of the old captio
 
 Returns a caption string. Save as `text/plain` for `.txt` output, or pass to a downstream step via `previous_result:` as a prompt for image generation.
 
-For Florence-2's advanced task-token captioning (detailed captions, object detection, OCR), use the built-in `describe_image` workflow instead:
-
-```json
-{
-    "name": "caption",
-    "workflow": {
-        "path": "builtin:describe_image.json",
-        "arguments": { "image": "previous_result:input_image" }
-    },
-    "result": { "content_type": "text/plain" }
-}
-```
+For a detailed caption, hand the image to [`text_generation`](#text-generation) with a question and a larger vision-language model; that is what [describe-and-regenerate.json](../workflows/templates/describe-and-regenerate.json) does ahead of its prompt expansion.
 
 **Examples:**
 
@@ -1079,7 +1068,7 @@ The QR code is generated then resampled to `max(height, width)`, aligned to the 
 
 ## Chat/Dict Plumbing
 
-These small tasks glue together multi-step pipelines that mix raw `transformers` components with task steps — used internally by the builtin `augment_prompt` and `describe_image` workflows, but usable directly in any workflow.
+These small tasks glue together multi-step pipelines that mix raw `transformers` components with task steps — for the cases `text_generation` does not cover.
 
 ### format_chat_message
 
@@ -1150,7 +1139,7 @@ Decode generated token IDs and run model-specific post-processing (e.g., Florenc
 | `generated_ids` | Yes | Token IDs to decode (e.g., a model step's `generated_ids` output) |
 | `task` | Yes | Task token to post-process for (e.g., `<DETAILED_CAPTION>`) |
 
-Calls `processor.batch_decode(...)` then `processor.post_process_generation(..., task=task)` and returns `parsed_answer[task]`. See the builtin `describe_image` workflow for the full Florence-2 pattern.
+Calls `processor.batch_decode(...)` then `processor.post_process_generation(..., task=task)` and returns `parsed_answer[task]`.
 
 ## Multi-Step Example
 

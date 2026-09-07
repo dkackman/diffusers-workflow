@@ -84,9 +84,9 @@ describe('stepDigest', () => {
     expect(
       stepDigest({
         name: 'aug',
-        workflow: { path: 'builtin:augment_prompt.json', arguments: {} },
+        workflow: { path: 'builtin:h3_context_ir.json', arguments: {} },
       }).summary,
-    ).toBe('workflow: builtin:augment_prompt.json')
+    ).toBe('workflow: builtin:h3_context_ir.json')
   })
 
   it('never throws on a bare or malformed step', () => {

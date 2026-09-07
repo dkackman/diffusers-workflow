@@ -142,9 +142,9 @@ Invoke another workflow file:
 
 ```json
 {
-    "name": "augment",
+    "name": "expand",
     "workflow": {
-        "path": "builtin:augment_prompt.json",
+        "path": "builtin:h3_context_ir.json",
         "arguments": { "prompt": "variable:prompt" }
     },
     "result": { "content_type": "text/plain" }
@@ -288,6 +288,15 @@ in braces keeps it a plain string — `"{nf4}"` is the string `nf4`. Getting thi
 wrong fails at load time, after validation has already passed, so a value that
 is meant as text under one of those keys must be braced.
 
+### Remote code is refused by default
+
+A server started without `--trust-workflows` refuses any
+`from_pretrained_arguments` that sets `trust_remote_code` or
+`custom_pipeline`, at load time, after validation has passed. Use a
+pipeline diffusers ships: no bundled catalog entry carries either key, and a
+workflow that does runs only on a server whose operator turned trust on,
+which `get_server_info` does not report.
+
 ### Several `previous_result` references multiply
 
 When one step carries two or more `previous_result` references, the engine runs
@@ -326,6 +335,30 @@ signal to restructure the workflow, not to add another reference.
    `still_running: true`.
 6. `get_output_image` to look at what was actually made, and say whether it
    answers the request. Nothing before this step establishes that it does.
+
+### Keeping a set consistent
+
+"Four pictures of the same thing" is the commonest shape a request takes that
+the catalog does not name directly, and what "the same" means decides the
+workflow.
+
+- **The same style, different subjects or scenes.** One prompt per picture,
+  the same `seed` on the workflow, and a shared style phrase in every prompt.
+  A shared seed does not make the pictures alike; it makes the run
+  reproducible. Consistency here comes from the prompts.
+- **The same object, differing in one stated way** - four spoons identical
+  but for colour, one mug in four glazes, a product in each colourway.
+  Generate the object *once*, then run an image-edit pass per variant with
+  the base step's result as its `image` and an instruction that names only
+  the change ("make the mug red"). Separate generations, seeded or not, draw
+  a different object every time; an edit holds everything the instruction
+  does not mention. `templates/consistent-set.json` is this shape.
+- **The same character in different situations.** A reference rather than an
+  edit: an identity-referencing pipeline or IP-Adapter conditioned on one
+  portrait, used by every picture (`templates/ip-adapter.json`,
+  `templates/multi-image-reference.json`, and for video the MiniMax
+  `reference-to-video` and `dialogue-short` templates). The `identity-referenced`
+  trait in the listing marks the workflows that take one.
 
 ### Being found next time
 

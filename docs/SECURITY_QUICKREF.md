@@ -63,7 +63,7 @@ Invalid: my.var, var;name, $var, var name
 **File paths:** No `../` traversal. No `~/`, `/dev/`, `/proc/`, `/sys/`.
 
 ```text
-OK:      ./subdir/workflow.json, /full/path/workflow.json, builtin:augment_prompt.json
+OK:      ./subdir/workflow.json, /full/path/workflow.json, builtin:h3_context_ir.json
 Invalid: ../../../etc/passwd, ~/secret.json
 ```
 

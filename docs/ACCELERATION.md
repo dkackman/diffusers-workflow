@@ -192,7 +192,7 @@ Select the attention implementation diffusers uses for the duration of each pipe
 }
 ```
 
-Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use rather than needing a local install.
+Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use, which needs the `kernels` package installed (`pip install kernels`) - it is not a dw dependency, and no bundled workflow sets a backend, so each runs on a plain install.
 
 A component can also pin its backend persistently instead, via `set_attention_backend`:
 
@@ -205,8 +205,6 @@ A component can also pin its backend persistently instead, via `set_attention_ba
 ```
 
 Prefer the pinned form for a compiled component - the per-call context manager switches implementations under the compiled graph and forces a recompile on every run.
-
-**Example:** [flux2-dev.json](../workflows/models/flux2-dev.json)
 
 ## Attention Slicing
 
