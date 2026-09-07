@@ -581,7 +581,9 @@ class TestRemoteTextEncoderResponse:
         )
 
         with pytest.raises(RuntimeError, match="https://example.invalid/predict"):
-            remote.remote_text_encoder(["a mug"], "https://example.invalid/predict", "cpu")
+            remote.remote_text_encoder(
+                ["a mug"], "https://example.invalid/predict", "cpu"
+            )
 
     def test_a_tensor_response_is_loaded(self, monkeypatch):
         from dw.pipeline_processors import remote
