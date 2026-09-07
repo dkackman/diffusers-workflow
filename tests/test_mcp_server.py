@@ -823,6 +823,17 @@ def test_the_instructions_send_an_agent_to_the_authoring_guide_before_it_writes(
     ) < server.instructions.index("`validate_workflow`")
 
 
+def test_the_instructions_say_where_a_copied_workflow_gets_its_cost_from():
+    """A cold session copied an image-set workflow, saw only null costs in
+    the listing it fetched, and told the user "a few minutes". The figures
+    live on the models/ entries, which the compact listing omits unless
+    asked, so the instructions have to say to look there."""
+    server = server_over(ok({}))
+
+    assert "include_models=true" in server.instructions
+    assert "times the number of images" in server.instructions
+
+
 @pytest.mark.asyncio
 async def test_list_workflows_takes_shape_and_traits():
     tools = await tools_of(server_over(ok({})))
