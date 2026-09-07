@@ -346,12 +346,16 @@ def test_configures_filters_to_a_templates_configs():
 def test_compact_drops_prose_and_model_configs_and_keeps_user_workflows():
     compact = project_listing(LISTING, view="compact")
     assert set(compact) == {"templates/tti", "templates/talk", "templates/clip", "mine"}
-    assert set(compact["templates/tti"]) == set(COMPACT_FIELDS)
+    assert set(compact["templates/tti"]) == set(COMPACT_FIELDS) - {"configures"}
     assert "description" not in compact["templates/tti"]
+    assert "steps" not in compact["templates/tti"]
+    assert "variables" not in compact["templates/tti"]
 
 
 def test_compact_with_include_models_keeps_them():
-    assert "models/flux" in project_listing(LISTING, view="compact", include_models=True)
+    with_models = project_listing(LISTING, view="compact", include_models=True)
+    assert "models/flux" in with_models
+    assert with_models["models/flux"]["configures"] == "templates/tti"
 
 
 def test_compact_with_configures_implies_models():

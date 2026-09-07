@@ -1466,6 +1466,7 @@ def test_the_listing_filters_and_compacts(server):
         compact = client.get("/api/workflows", params={"view": "compact"}).json()
         assert set(compact["details"]) == {"Basic", "templates/clip"}
         assert "description" not in compact["details"]["templates/clip"]
+        assert "steps" not in compact["details"]["templates/clip"]
         assert compact["details"]["templates/clip"]["summary"] == "One clip from a prompt."
 
         with_models = client.get("/api/workflows", params={"view": "compact", "include_models": "true"}).json()

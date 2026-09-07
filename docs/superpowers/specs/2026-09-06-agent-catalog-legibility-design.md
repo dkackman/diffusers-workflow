@@ -111,14 +111,17 @@ is a video workflow and the stills are intermediates.
 
 **Shape rules, first match wins:**
 
-1. `utility` — no `pipeline` step, no `workflow` step, and no task whose
+1. `sequence` — kind is video, and a `concat_videos` or `dissolve_videos`
+   task whose input references ≥ 2 distinct steps. Checked before
+   `utility`: cutting shots together is what comes out even when every
+   shot was supplied rather than generated, so an editorial cut must not
+   fall through to `utility` for lack of a generating step.
+2. `utility` — no `pipeline` step, no `workflow` step, and no task whose
    command is in `GENERATIVE_TASKS` (`generate_speech`, `text_generation`,
    `image_to_text`, `diffusion_upscale`, `interpolate_frames`; a
    module-level constant with its own test)
-2. `text` — kind is text
-3. `audio` — kind is audio
-4. `sequence` — kind is video, and a `concat_videos` or `dissolve_videos`
-   task whose input references ≥ 2 distinct steps
+3. `text` — kind is text
+4. `audio` — kind is audio
 5. `shot` — kind is video
 6. `image-edit` — kind is image, and the producing pipeline's
    `component_type` matches `Inpaint|Img2Img|Edit|Upscale|Outpaint|Kontext`
@@ -169,12 +172,16 @@ returns:
 | `traits=a,b` | keep entries carrying **all** listed traits; unknown trait → 400 |
 | `configures=<name>` | keep model configs of that template |
 | `include_models=true` | include model configs in a compact view (they are excluded from compact by default, always included in the full view) |
-| `view=compact` | drop `description`, `origin`, `writable`, `prompt_refs`; keep `summary`, `shape`, `traits`, `cost`, `kinds`, `steps`, `variables`, `variable_names`, `configures` (and `configures_missing` when set) |
+| `view=compact` | drop `description`, `origin`, `writable`, `prompt_refs`, `steps`, `variables`; keep `summary`, `shape`, `traits`, `cost`, `kinds`, `variable_names`, plus `configures` only when set and `configures_missing` when set |
 
 No params → today's response plus the four new fields per entry. A
 workspace-authored workflow (neither under `templates/` nor carrying
 `configures`) is treated as a template: it appears in the default compact
 listing, since the user wrote it to be found.
+
+Measured 2026-09-06: the step and variable counts and an always-empty
+`configures` were a fifth of the listing and nothing an agent reads, so
+compact drops them.
 
 ### 1.5 MCP
 

@@ -267,8 +267,6 @@ COMPACT_FIELDS = (
     "traits",
     "cost",
     "kinds",
-    "steps",
-    "variables",
     "variable_names",
     "configures",
 )
@@ -307,7 +305,7 @@ def project_listing(details, *, shape=None, traits=None, configures=None, includ
         if is_model and not keep_models:
             continue
         if compact:
-            slim = {key: detail.get(key) for key in COMPACT_FIELDS}
+            slim = {key: detail.get(key) for key in COMPACT_FIELDS if key != "configures" or detail.get(key)}
             if detail.get("configures_missing"):
                 slim["configures_missing"] = detail["configures_missing"]
             projected[name] = slim
