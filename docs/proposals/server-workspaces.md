@@ -1,6 +1,11 @@
 # Proposal: workspaces on the server, and client workspaces that mirror into them
 
-Status: draft / scoping only — no implementation.
+Status: stages 1–3 implemented — named server-side workspaces
+(`/api/workspaces` CRUD, `dw/server/app.py`), the UI workspace switcher
+(`ui/src/lib/WorkspacePicker.svelte`), and MCP workspace selection
+(`dw_mcp/workspaces.py`). Stages 4–5 (client-side mirroring, `fetch_run`) are
+designed here but deliberately not planned — see "Mirroring" and "Staging"
+below.
 Follows [workspaces.md](workspaces.md), whose stages one through five and
 stage six level one are implemented. Replaces the first draft of level two,
 which made a client-side workspace the system of record and submitted runs as
