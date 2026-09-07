@@ -1,6 +1,7 @@
 {
     "id": "LTX2Extend",
     "description": "Continuing a clip rather than restarting one. The opening is generated, then conditioned on in full so the second pass carries its motion and framing forward instead of inferring them from a single frame, with both steps sharing one copy of the loaded model.",
+    "summary": "A longer LTX-2 clip: an opening is generated, then continued conditioned on the whole clip, not one frame.",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",

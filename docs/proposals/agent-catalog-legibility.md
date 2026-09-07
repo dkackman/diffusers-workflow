@@ -78,7 +78,7 @@ Measured on the PR 41 branch (chars ÷ 4 ≈ tokens):
 | 54 tool descriptions | ~3,750 tokens | every session, unconditionally |
 | `list_guides` | ~865 tokens | once, on demand |
 | `list_workflows` (73 entries) | **~11,450 tokens** | the first catalog look — the instructions say to start here |
-| `list_workflows` (compact) | **~5,327 tokens** (64 entries) | measured 2026-09-06 after the shape/summary/`view=compact` work (tasks 1-10) |
+| `list_workflows` (compact) | **~5,550 tokens** (64 entries) | measured 2026-09-07; 5,327 after tasks 1-10, then 19 declared summaries on the MiniMax and LTX-2 templates (+~220 tokens, ceiling raised 5.5k -> 6k) |
 | `list_tasks` | ~270 tokens (bare names) | on demand |
 | `get_task <cmd>` | 350-1,400 tokens | per command inspected |
 | a whole guide (`tasks`, `workflows`) | ~13,000 tokens each | should never happen; `get_guide` takes a section |
@@ -495,7 +495,7 @@ starts from the record rather than the intent. Updated as work lands.
 | proposal | status | where | notes |
 |---|---|---|---|
 | 1 shape vocabulary | done (tasks 1–4) | spec §1.1–1.3 | became one `shape` value plus boolean `traits`; `video-with-speech` is the `has-audio` trait; `chain` yields `shot` + `chained`, not `sequence`; MCP tool and instructions updated (task 5); three rules changed against the real catalog (task 8): a concat/dissolve of two or more sources is a `sequence` ahead of the utility fallthrough, `urls` counts as a media argument, and a video pipeline with a `vocoder`/`audio_vae` component carries the audio trait; trait `speech` renamed `has-audio` (final review), since it fires on any generated audio track rather than on dialogue |
-| 2 `summary` | done (tasks 1, 3) | spec §1.1 | derived from `description`'s first sentence, declared override, ≤ 120 chars; budget test (task 10) |
+| 2 `summary` | done (tasks 1, 3) | spec §1.1 | derived from `description`'s first sentence, declared override, ≤ 120 chars; budget test (task 10); 19 MiniMax and LTX-2 templates declare a `summary` (2026-09-07) because their first sentences named a technique, not what the workflow makes - see the cold-session probe below |
 | 3 `cost` | done (tasks 7, 9) | spec §1.1, §1.7 | per-device list, hand-authored; `workflow_name` on jobs landed (task 7); shape validated by task 9's `test_a_declared_cost_is_well_formed`; no entries authored yet - no measured runs to hand |
 | 4 server-side guides | designed | spec §2.1 | supersedes `guides.py`'s "works with the server down" rationale |
 | 5 drift checks | done (tasks 8, 9) | spec §1.8 | shape and summary invariants over the real catalog (task 8); unique ids, cost shape, and description-drift checks over the real catalog found no drift (task 9); drift test uses the catalog's single-quote convention (final review) - the backtick pattern had matched nothing, and the six real mentions it then surfaced are sub-workflow arguments, chain fields and result fields, carried in an allowlist |
@@ -507,3 +507,40 @@ starts from the record rather than the intent. Updated as work lands.
 | Part 3 constraint | carried | spec "Principle" | derivation reads structure, never model family |
 | Part 4 packaging | open | — | note for later: `templates/minimax/README.md` and `ltx2/README.md` are already model knowledge as data, unindexed — a third channel |
 
+
+### Cold-session probe, 2026-09-07
+
+A fresh Claude Code session (empty directory, no `CLAUDE.md`, no memory) was
+asked for "a short multi-shot video with cuts between the shots" against a
+server on this branch. What the access log showed, in order:
+`list_workflows(shape=sequence)`, `list_workflows(shape=shot)`,
+`get_workflow` on `templates/assemble-and-score` and
+`templates/ltx2/text-to-video`, `list_assets`. It never fetched the
+unfiltered catalog. It shipped three LTX-2 shots cut with assemble-and-score:
+two visually related, the third an unrelated nature scene.
+
+What that says about Part 1 as built, and what Part 2 has to carry:
+
+- **The shape-first entry works cold.** Discovery cost two compact filtered
+  listings and two definitions.
+- **Without `cost`, an agent picks the shortest path, not the best one.**
+  Every `cost` is null, so nothing distinguished `ltx2/text-to-video` (no
+  input media, "on a single 24GB card") from the MiniMax H3 keyframe route
+  (`chained`, `image-conditioned`, `needs-input-media` - a longer chain with
+  invisible prerequisites). Authoring `cost` on the shot baselines is the
+  first lever; a "choosing a video model" guide (proposal 4) is the second.
+- **Traits say what a workflow needs, not when you want it.** The listing
+  carried `identity-referenced` and `image-conditioned`, but nothing said
+  that cuts between shots imply continuity, so the agent sampled each shot
+  fresh. A guide on keeping shots consistent (generate the subject once and
+  reference it, or pin keyframes) is a proposal 4 item, indexed under
+  `sequence`.
+- **Several MiniMax summaries are weak as first sentences** ("The stronger
+  form of chain continuity.", "Conditioning on the end of the clip alone.")
+  because the fun-chapter descriptions read as prose. A declared `summary`
+  on those puts them level with the LTX-2 entries. Cheap, do it before Part 2.
+- **A rich workspace `CLAUDE.md` pre-empts discovery entirely.** The same
+  prompt in a workspace with a film playbook produced a full H3 plan without
+  a single catalog call. The compact listing serves agents starting cold;
+  Part 4's packaging question includes how a playbook and the catalog share
+  the knowledge rather than compete for it.

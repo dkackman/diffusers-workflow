@@ -1,6 +1,7 @@
 {
     "id": "LTX2I2VEnhancePrompt",
     "description": "Handing the shot to the model. LTX-2.5's own prompt enhancer rewrites a one-line idea into the detailed prompt the model was trained on, conditioned on the reference frame, and the duration head picks the clip's length instead of a fixed frame count.",
+    "summary": "LTX-2 video from a one-line idea and a reference frame; its own enhancer writes the prompt and picks the length.",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
