@@ -495,9 +495,9 @@ starts from the record rather than the intent. Updated as work lands.
 |---|---|---|---|
 | 1 shape vocabulary | done (tasks 1–4) | spec §1.1–1.3 | became one `shape` value plus boolean `traits`; `video-with-speech` is the `speech` trait; `chain` yields `shot` + `chained`, not `sequence`; MCP tool and instructions updated (task 5); three rules changed against the real catalog (task 8): a concat/dissolve of two or more sources is a `sequence` ahead of the utility fallthrough, `urls` counts as a media argument, and a video pipeline with a `vocoder`/`audio_vae` component carries `speech` |
 | 2 `summary` | done (tasks 1, 3) | spec §1.1 | derived from `description`'s first sentence, declared override, ≤ 120 chars |
-| 3 `cost` | designed | spec §1.1, §1.7 | per-device list, hand-authored; `workflow_name` on jobs landed (task 7); observed runtime deferred |
+| 3 `cost` | done (tasks 7, 9) | spec §1.1, §1.7 | per-device list, hand-authored; `workflow_name` on jobs landed (task 7); shape validated by task 9's `test_a_declared_cost_is_well_formed`; no entries authored yet - no measured runs to hand |
 | 4 server-side guides | designed | spec §2.1 | supersedes `guides.py`'s "works with the server down" rationale |
-| 5 drift checks | partly done (task 8) | spec §1.8 | shape and summary invariants over the real catalog; description drift in task 9 |
+| 5 drift checks | done (tasks 8, 9) | spec §1.8 | shape and summary invariants over the real catalog (task 8); unique ids, cost shape, and description-drift checks over the real catalog found no drift (task 9) |
 | 6 UI | designed | spec plan 3 | client-side filter; templates-first grouping |
 | 7 authoring guide | designed | spec §2.3 | one new `WORKFLOW_GUIDE.md` section; `CLAUDE.md` points at it |
 | 8 multi-error validation | designed | spec §2.2 | `validate_data_all`, capped at 25, additive `/api/validate` shape |
