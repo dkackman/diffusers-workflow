@@ -157,6 +157,21 @@ def collect_prompt_references(value):
     return references
 
 
+def catalog_name_for(path, source):
+    """The listing name a resolved workflow path has within its source.
+
+    None when the run came from an inline definition, or when the path is
+    not under the source root after all - a name that does not name an
+    entry is worse than no name for anything that later joins on it.
+    """
+    if source is None:
+        return None
+    relative = os.path.relpath(path, source.root)
+    if relative.startswith(".."):
+        return None
+    return os.path.splitext(relative)[0].replace(os.sep, "/")
+
+
 def workflow_details(sources_by_name):
     """Per-workflow card metadata: output kinds, step and variable counts,
     and the variable names themselves - enough for an agent to pick a
@@ -778,8 +793,11 @@ def create_app(
                 asset_dir=workspace.assets,
                 workspace=workspace.name,
                 # The listing name, when the request came as one - what a
-                # later runtime-by-workflow report joins on
-                catalog_name=request.workflow_path if source else None,
+                # later runtime-by-workflow report joins on. Derived from
+                # the resolved path rather than echoing what was asked
+                # for, so 'Basic', 'Basic.json' and an absolute path
+                # inside the source all record the one catalog name
+                catalog_name=catalog_name_for(resolved, source),
             )
         except HTTPException:
             raise

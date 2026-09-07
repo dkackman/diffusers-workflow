@@ -3046,6 +3046,13 @@ def test_a_job_remembers_the_catalog_name_it_ran_from(server, tmp_path):
         assert job["workflow_name"] == "Basic"     # the catalog name
         wait_for_status(client, job["id"], TERMINAL_STATES)
 
+        # the name is the listing name, whatever spelling the request used
+        with_suffix = client.post(
+            "/api/jobs", json={"workflow_path": "Basic.json"}
+        ).json()
+        assert with_suffix["workflow_name"] == "Basic"
+        wait_for_status(client, with_suffix["id"], TERMINAL_STATES)
+
         listed = {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}
         assert listed[job["id"]]["workflow_name"] == "Basic"
 
