@@ -1,4 +1,4 @@
-# Proposal: making the catalog legible to an agent — shape, cost, and where format-knowledge lives
+# Proposal: making dw legible to an agent — discovery, authoring, and model-specific knowledge
 
 Status: proposed, 2026-09-06. Synthesizes and replaces two prior proposals,
 `catalog-shape-index.md` and `mcp-discovery-data.md` (both fully folded into
@@ -7,24 +7,45 @@ the discovery-facing conclusion of
 [scripted-dialogue-and-tts.md](scripted-dialogue-and-tts.md), which keeps its
 TTS-specific design record but no longer restates the point made here.
 
-## The question
+Phased and directional throughout: each part names a gap and a direction, not
+a locked design. Specifics (exact field shapes, tool signatures, plugin
+mechanics) are left to the implementation step for each phase.
 
-An agent connected to `dw_mcp` is handed a request stated as a *subject*
-("a lego movie trailer set in the marvel universe") or a *shape* ("make me
-a dialogue scene"). Neither names a workflow. What has to be matched is the
-*shape* of the deliverable — a single still, an image set, one shot, a
-multi-shot cut sequence, video with generated speech — against a catalog
-that says nothing about shape in machine-readable form, and once a
-candidate is found, nothing tells the agent what running it costs. Every
-surface it reads to close that gap costs tokens on every session, and
-everything hand-written drifts out of sync with the workflows it describes.
-Three questions, one answer each: what shape does this produce, what will
-it cost, and — when neither the catalog nor a guide already answers a
-request — where does the missing knowledge belong?
+## The question, stated in full
 
-## What already shipped, and what it did not solve
+An agent connected to `dw_mcp` (the primary surface this proposal optimizes
+for; the web UI and filesystem access are secondary and should benefit as a
+side effect, not drive the design) is handed a request stated as a *subject*
+("a lego movie trailer set in the marvel universe") or a *shape* ("make me a
+dialogue scene"). Closing that gap turns out to be three nested problems, not
+one:
 
-Landed 2026-09-06, closing about half of this:
+1. **Discovery** — does an existing workflow already produce this shape, and
+   what would running it cost? (Part 1, below.)
+2. **Authoring** — if nothing matches, can the agent compose a *new* workflow
+   from dw's primitives (tasks, types, schema, composition rules) with enough
+   confidence to validate and save it rather than guess-and-check against a
+   running GPU? (Part 2.)
+3. **Driving a specific model** — some workflows aren't hard to structurally
+   assemble but require knowledge specific to one model family. MiniMax H3
+   wants Context-IR (`subject_definitions` / `summary` / `retention_analysis`
+   / `detailed_description` / `overall_soundscape`), verbatim voice
+   descriptions repeated per shot, and a `<Picture N>` clause stripping a
+   reference image's compositional authority — none of which is inferable
+   from dw's own schema or task signatures, because it isn't a dw concept,
+   it's an H3 prompting convention. (Part 3.)
+
+These are linked — shape-first matching is the gate that decides whether (2)
+and (3) are even needed — but they are not the same legibility problem, and
+conflating them risks either bloating the standing MCP surface (the thing
+Part 1 is careful to avoid) or scattering model-specific prompting knowledge
+into engine code (which is a hard constraint, not a preference — see Part 3).
+
+## Part 1: catalog and discovery legibility
+
+### What already shipped, and what it did not solve
+
+Landed 2026-09-06, closing about half of the discovery problem:
 
 - **Two trees.** `workflows/templates/` teaches a pattern, `workflows/models/`
   records what makes a checkpoint fit, and a model config names the template
@@ -44,7 +65,7 @@ already knows the domain, plus `kinds` (image/video/audio), step and
 variable counts. "Multi-shot cut sequence" is nowhere in that, and neither
 is "this takes forty minutes".
 
-## What it costs today
+### What it costs today
 
 Measured on the PR 41 branch (chars ÷ 4 ≈ tokens):
 
@@ -65,7 +86,7 @@ characters are `description` strings, five of them (the MiniMax narratives)
 at 700-1,400 characters each. Every entry also repeats `origin`, `writable`
 and `prompt_refs`, which an agent choosing a template never uses.
 
-## What is working and should not change
+### What is working and should not change
 
 - **The guides index as a routing table.** ~865 tokens for nine guides with
   their `##` headings converts "trailer" into "multi-shot + dialogue + cuts"
@@ -81,7 +102,7 @@ and `prompt_refs`, which an agent choosing a template never uses.
   to "text-to-image with a checkpoint choice" the moment an agent can see
   the field.
 
-## Proposal 1: a closed shape vocabulary, derived, with an override
+### Proposal 1: a closed shape vocabulary, derived, with an override
 
 Compute a small, controlled shape vocabulary from the definition itself, in
 [`workflow_details`](../../dw/server/app.py) — which already parses every
@@ -135,7 +156,7 @@ string is a description with a shorter name.
 Validation: `tests/test_catalog_structure.py` requires every template to
 carry a shape from the vocabulary, the way it now requires a description.
 
-## Proposal 2: split `summary` from `description`
+### Proposal 2: split `summary` from `description`
 
 An agent picking a template needs, per entry: what shape it produces, what
 inputs it needs, what it will cost, and one line saying what it is for. The
@@ -153,7 +174,7 @@ Together, `summary` and `shape` take the first catalog look from ~11.4k
 tokens to under 3k for a filtered call, with no guesswork left in the shape
 question.
 
-## Proposal 3: report what a run actually costs
+### Proposal 3: report what a run actually costs
 
 The instructions say "say what it will cost before spending it". The agent
 has nothing to say it from except a guide written per model — nothing in
@@ -186,7 +207,7 @@ minimum that makes "say what it will cost" answerable from the listing
 without a job-history join. Move to observed runtime once the join is
 worth its complexity.
 
-## Proposal 4: guides served by the engine they describe
+### Proposal 4: guides served by the engine they describe
 
 `list_guides`/`get_guide` read the MCP *client's* install (`dw/docs/` or the
 repo's `docs/`). Their tool descriptions say "the documentation shipped
@@ -205,7 +226,11 @@ summaries) moves to the server; the guides an agent reads are then the
 guides for the engine it is about to drive. The one thing lost is answering
 `list_guides` against a server that is down, which is not a real use.
 
-## Proposal 5: catch drift with a check
+This matters more once Part 3 exists: model-specific guide content is
+exactly the kind of thing that goes stale silently if the MCP client and
+the server it drives can disagree about what's in `docs/`.
+
+### Proposal 5: catch drift with a check
 
 Nothing checks that a description's argument set (`"prompt", "num_frames"
 ...`) names variables the workflow actually declares, or that the shape a
@@ -215,7 +240,7 @@ workflow: every variable named in backticks in a description exists; every
 `prompt:` reference resolves (already done); a `video-with-speech` template
 has a step producing audio.
 
-## Proposal 6: let the UI show it
+### Proposal 6: let the UI show it
 
 The restructure regressed the web UI before anything improved it — the
 folder grouping took only the first path segment, so the new layout
@@ -233,11 +258,160 @@ What shape and cost data would additionally buy:
 None of this is worth building before the data exists, and all of it is
 cheap once it does.
 
+## Part 2: authoring legibility
+
+Part 1 answers "does an existing workflow fit". When nothing does, an agent
+needs to compose a new one — and a survey of the current MCP surface
+(2026-09-06) found most of the needed primitives already exist, just not
+stitched into a stated path, with three concrete gaps left open.
+
+### What already exists
+
+- **`validate_workflow`** ([`dw_mcp/authoring.py`](../../dw_mcp/authoring.py))
+  → `POST /api/validate` → `Workflow.validate()`: schema check plus a
+  pipeline/task-argument signature check, no GPU or model load. This is
+  already the cheap "did I get this right" loop — there is no separate
+  dry-run concept to add.
+- **`get_schema`** returns the raw `dw/workflow_schema.json` over MCP, not
+  just for local validation.
+- **`list_tasks` / `get_task`** return real signatures pulled from the
+  implementation functions themselves (name, required/default, annotation,
+  docstring) — cannot drift from runtime the way hand-written docs can.
+- **`save_workflow` / `delete_workflow`** wrap `PUT`/`DELETE
+  /api/workflows/{name}`, validating on the way in and shadowing read-only
+  sources into the writable directory per [`dw/workflow_sources.py`](../../dw/workflow_sources.py).
+- **`docs/WORKFLOW_GUIDE.md`**, served via `get_guide("workflows")`, is
+  already the "how to author from scratch" guide, distinct from the
+  model/task guides.
+
+### Proposal 7: put the reference-prefix conventions where an agent can read them
+
+`asset:` / `output:` / `prompt:` / `previous_result:` / `constant:`
+resolution, `_type`/`_dtype` conversion, and `{}` string-escaping are stated
+plainly in `CLAUDE.md` — which an MCP-connected agent cannot read, since
+it's a Claude Code project file, not served content. `WORKFLOW_GUIDE.md`
+covers most of the same ground in prose spread across several sections.
+Consolidate these into one authoring-guide section written for an agent
+composing a draft (not a human onboarding to the codebase), so this becomes
+reachable at `get_guide("workflows", section=...)` rather than requiring
+filesystem access to `CLAUDE.md`.
+
+### Proposal 8: multi-error validation
+
+`Workflow.validate()` surfaces only the first schema violation
+([`dw/schema.py`](../../dw/schema.py)) plus step-level argument-name
+warnings. An agent iterating on a draft gets one correction per round trip.
+Collect all schema violations (jsonschema supports this via
+`iter_errors`) and return them as a list; keep the JSON-path prefix per
+error so each is locatable.
+
+### Proposal 9: state the composition rules, not just the schema
+
+`previous_results.py` deliberately does a cartesian product across multiple
+`previous_result` references — by design, not limitation — but nothing in
+the authoring guide says so. An agent composing a multi-input step has no
+way to know that a zip-shaped need (shot *i* paired with speaker *i*) isn't
+expressible this way without hitting the combinatorial-explosion gotcha
+first and reasoning backward. State the rule in `WORKFLOW_GUIDE.md`
+directly: this is the generalized form of the reasoning
+[scripted-dialogue-and-tts.md](scripted-dialogue-and-tts.md) worked out for
+one case, made discoverable instead of living only in a design doc.
+
+### Proposal 10: close the loop at save time
+
+An agent-authored workflow saved via `save_workflow` gets no `shape`,
+`summary`, or `cost` — it's invisible to Part 1's matching until a human
+backfills those fields. Either require them as arguments to `save_workflow`
+(shape can often be derived per Proposal 1's rules even for a freshly
+authored file) or have the server compute what it can and flag what it
+can't (cost, always — nothing has run yet) as `null` pending a first
+measured run. The point: an agent's authored output should make the next
+agent's discovery easier, not degrade it.
+
+## Part 3: two knowledge audiences, two budgets
+
+Everything above is generic to dw: schema, task signatures, composition
+semantics, the reference-prefix conventions — true of every workflow
+regardless of which model it drives. A second, distinct kind of knowledge
+exists *per model family* and doesn't fit the same channel.
+
+MiniMax H3 is the concrete case: it wants prompts shaped as Context-IR
+(`subject_definitions` / `summary` / `retention_analysis` /
+`detailed_description` / `overall_soundscape` / `non_diegetic_music`),
+voice descriptions repeated verbatim across shots for consistency, a
+`<Picture N>` clause in `retention_analysis` that explicitly strips a
+reference image's compositional authority (without it, every shot inherits
+the portrait's framing and cuts read as jump cuts), and frame counts
+constrained to `17n + 5`. None of this is a dw concept — the schema has no
+opinion on it, `get_task` can't surface it because it isn't a task
+argument, and it will not generalize to the next model family added.
+LTX-2's distilled-sigma constants and its own prompting idiosyncrasies are
+a different pile of the same kind of knowledge; every complex model adds
+another.
+
+**The hard constraint, restated and widened:** this knowledge must not
+become engine code. Not just "don't add a `generate_dialogue_shots` task"
+(the conclusion already reached for scripted dialogue) — no per-model
+Python formatting functions, no hardcoded prompt templates in `dw/`, full
+stop. It stays as data: guide prose and example/template workflows, the
+same principle Part 1 already states for closing catalog gaps generally,
+now covering prompt-authoring convention as well as workflow shape.
+
+**Why it's a different budget than Part 1's guides.** The existing guide
+system is engine-native and MCP-reachable by any client, which is exactly
+right for dw-generic knowledge everyone needs. But it is a standing,
+enumerated index (`list_guides`) — every model family that gets a guide
+section adds to what every session's routing table lists, even for agents
+that will never touch that model. H3-specific Context-IR knowledge is
+large (the design doc alone runs to hundreds of lines) and only relevant
+the moment an agent is actually driving H3. Loading it by default, or even
+indexing it by default, works against the economy Part 1 fought to
+establish.
+
+## Part 4: packaging model-specific knowledge — an open design question
+
+Given Part 3's constraint (data, not code) and its budget concern
+(don't bloat the standing MCP index), there appear to be two non-exclusive
+channels, and this proposal deliberately does not choose between them —
+that choice belongs to a follow-up design pass once there's a second model
+family's worth of this knowledge to generalize from, not just H3's.
+
+**Channel A: more guide sections in dw's own `docs/`.** Consistent with
+what already exists (Part 1's guide system, Proposal 4's server-side
+guides). Reachable by any MCP client, not just Claude Code. Cost is borne
+per-guide only when fetched, same as today — the standing index cost is
+one line per guide in `list_guides`, not the guide's full content.
+
+**Channel B: a Claude Code Skill or plugin.** Since the primary harness
+this proposal optimizes for is Claude Code, model-specific composition
+knowledge could instead (or also) ship as a Skill — triggered contextually
+by intent ("the user wants a dialogue scene" → load the H3-authoring
+skill), rather than enumerated in a standing index at all. This is a
+genuinely different economy: a Skill's cost is paid only in the sessions
+that trigger it, and doesn't touch the MCP token budget or the guide index
+the way even a lazily-fetched guide section does. It also generalizes
+naturally to *not* being dw-specific — a skill could encode "how to
+structure prompts for MiniMax H3" independent of which tool ultimately
+runs them.
+
+**The tension worth naming now, not resolving:** if the same knowledge
+exists as both a guide (for non-Claude-Code MCP clients) and a Skill (for
+the primary harness), that's two copies to keep in sync — the same
+staleness risk Proposal 4 already fixes for guides-versus-server, one
+level up. The direction most consistent with "stays as data, single
+source of truth" is a *thin* Skill that mostly points at and quotes the
+guide content already living in dw's `docs/` (fetched live via
+`get_guide`/`get_workflow` when the harness has MCP access, bundled as a
+fallback copy otherwise) rather than a Skill that duplicates the
+authoring knowledge independently. Whether that's practical, and whether
+it should ship as a plugin bundled with `dw_mcp` or live separately, is
+exactly the kind of specific-mechanism question this proposal defers.
+
 ## Principle: format-knowledge belongs in guides and templates, not in new engine code
 
-The catalog and guides answer "which existing workflow fits", but an agent
-will sometimes hit a shape the catalog does not cover — the gap is not
-always a missing field, sometimes it is missing *authoring knowledge*.
+The catalog and guides answer "which existing workflow fits", and Part 2's
+primitives answer "how do I compose a new one" — but an agent will
+sometimes hit a shape or a model-specific convention that neither covers.
 [scripted-dialogue-and-tts.md](scripted-dialogue-and-tts.md) worked through
 one: turning a plain dialogue script into H3's Context-IR shot list (voice
 descriptions carried verbatim, speaker alternation driving cuts, stripping
@@ -247,13 +421,16 @@ engine task — a generator belongs in authoring, not runtime, and doing it
 as a workflow-emitting step keeps the artifact inspectable rather than
 hiding prompts until after the GPU has spent time on them.
 
-The general rule this sets for closing catalog gaps: when a shape is
-missing, prefer adding a guide section and a template workflow that
-demonstrates it over adding an engine feature or an MCP tool. A tool is
-justified only when the composition genuinely cannot be expressed as a
-workflow (as `zip`-versus-cartesian-product composition could not, in that
-case). This keeps the surface an agent has to learn small and keeps new
-capability inspectable rather than opaque.
+The general rule this sets for closing catalog gaps: when a shape or a
+model-specific convention is missing, prefer adding a guide section and a
+template workflow that demonstrates it — or, per Part 4, a Skill that
+teaches the same thing to the primary harness — over adding an engine
+feature or an MCP tool. A tool is justified only when the composition
+genuinely cannot be expressed as a workflow (as `zip`-versus-cartesian-
+product composition could not, in that case). This keeps the surface an
+agent has to learn small and keeps new capability inspectable rather than
+opaque, regardless of which channel (Part 1's guides, Part 4's skills)
+delivers it.
 
 ## What not to do
 
@@ -273,6 +450,10 @@ capability inspectable rather than opaque.
   carefully, not to guess what the user wants. If shape matching turns into
   scoring and ranking, it has gone too far — an agent that can see the
   shapes can do its own choosing.
+- **Do not encode model-specific prompting knowledge in Python, anywhere.**
+  Not a formatting function, not a template string constant, not a
+  per-model branch in a task. It stays as guide prose, template workflows,
+  or Skill content — data a maintainer edits, not code a maintainer ships.
 
 ## Order
 
@@ -281,12 +462,23 @@ capability inspectable rather than opaque.
 2. `shape` field, vocabulary in the schema, `list_workflows(shape=)`,
    catalog-structure test.
 3. Server-side guides; `dw_mcp/guides.py` becomes a proxy; the build-script
-   copy step goes away.
+   copy step goes away. (Prerequisite for Part 3/4 — model-specific guide
+   content shouldn't inherit the version-skew problem this fixes.)
 4. `cost` field (hand-authored `{vram_gb, minutes}` first; observed
    job-history runtime once the id/catalog-name join is settled).
 5. Description-to-workflow consistency checks.
 6. UI: shape filter, cost on the card, templates-first ordering.
+7. Authoring-guide consolidation (Proposal 7) and multi-error validation
+   (Proposal 8) — both are self-contained and can land any time after (3).
+8. Composition-rules documentation (Proposal 9) — a doc-only change,
+   no dependency.
+9. Save-time metadata capture (Proposal 10) — depends on (1) and (2)
+   existing to require/derive against.
+10. Model-specific knowledge packaging (Parts 3-4) — deliberately last and
+    deliberately open-ended: prototype with MiniMax H3 as the worked case,
+    in whichever channel (guide section, Skill, or both) proves cheapest
+    in practice, before generalizing a mechanism to the next model family.
 
-Each is independent of the next and each shrinks or de-risks what the agent
-reads; 1 and 2 together are the highest-value, lowest-risk pair and can ship
-before anything else on this list.
+Each phase is independent of the next and each shrinks or de-risks what the
+agent reads or must infer; 1 and 2 together are the highest-value,
+lowest-risk pair and can ship before anything else on this list.
