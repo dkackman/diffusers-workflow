@@ -85,6 +85,7 @@ from ..workflow_sources import (
 from .jobs import JobManager, MAX_PERSISTED_EVENTS, TERMINAL_STATES
 from .netinfo import local_addresses
 from .updater import DiffusersUpdater
+from .catalog_shape import derive_catalog_metadata, project_listing
 
 logger = logging.getLogger("dw")
 
@@ -156,6 +157,21 @@ def collect_prompt_references(value):
     return references
 
 
+def catalog_name_for(path, source):
+    """The listing name a resolved workflow path has within its source.
+
+    None when the run came from an inline definition, or when the path is
+    not under the source root after all - a name that does not name an
+    entry is worse than no name for anything that later joins on it.
+    """
+    if source is None:
+        return None
+    relative = os.path.relpath(path, source.root)
+    if relative.startswith(".."):
+        return None
+    return os.path.splitext(relative)[0].replace(os.sep, "/")
+
+
 def workflow_details(sources_by_name):
     """Per-workflow card metadata: output kinds, step and variable counts,
     and the variable names themselves - enough for an agent to pick a
@@ -177,7 +193,14 @@ def workflow_details(sources_by_name):
             continue
         cached = _workflow_detail_cache.get(path)
         if cached and cached[0] == mtime:
-            details[name] = cached[1]
+            # The cached detail is placement-free; the origin and writability
+            # are the source's, and a warm cache must still carry them or a
+            # second listing loses the fields a client decides save-vs-copy on
+            details[name] = {
+                **cached[1],
+                "origin": source.origin,
+                "writable": source.writable,
+            }
             continue
         try:
             with open(path, "r") as file:
@@ -191,6 +214,8 @@ def workflow_details(sources_by_name):
                 }
             )
             variables = definition.get("variables", {}) or {}
+            metadata = derive_catalog_metadata(definition)
+            cost = definition.get("cost")
             detail = {
                 "kinds": kinds,
                 "steps": len(definition.get("steps", [])),
@@ -201,6 +226,10 @@ def workflow_details(sources_by_name):
                 # is what lets a client show the two as different kinds of thing
                 "configures": str(definition.get("configures", "") or ""),
                 "prompt_refs": sorted(collect_prompt_references(definition)),
+                "shape": metadata["shape"],
+                "traits": metadata["traits"],
+                "summary": metadata["summary"],
+                "cost": cost if isinstance(cost, list) and cost else None,
             }
         except Exception:
             detail = {
@@ -210,6 +239,10 @@ def workflow_details(sources_by_name):
                 "variable_names": [],
                 "description": "",
                 "prompt_refs": [],
+                "shape": "utility",
+                "traits": [],
+                "summary": "",
+                "cost": None,
             }
         _workflow_detail_cache[path] = (mtime, detail)
         # Cached by content, not by placement: the same file listed from a
@@ -222,18 +255,26 @@ def workflow_details(sources_by_name):
     _prune_missing(_workflow_detail_cache)
     # A model config names its template as a catalog name. Resolve it here,
     # where the whole listing is in hand, so a badge is a link to a real card
-    # rather than a string - and say which name did not resolve. Entries can
-    # be the very dict cached above (a cache hit skips the copy at line
-    # 212), so copy before mutating - otherwise a stale "not found yet"
+    # rather than a string - and say which name did not resolve. A config
+    # also takes its shape and traits from the template: what it makes is
+    # the template's business, what it costs is its own. Entries can be the
+    # very dict cached above (a cache hit skips the copy at the origin
+    # merge), so copy before mutating - otherwise a stale "not found yet"
     # verdict would stick in the cache and outlive the typo once the
     # template it names is added.
     for name, detail in details.items():
         named = detail.get("configures", "")
-        if named and named not in details:
-            detail = dict(detail)
+        if not named:
+            continue
+        detail = dict(detail)
+        template = details.get(named)
+        if template is None:
             detail["configures_missing"] = named
             detail["configures"] = ""
-            details[name] = detail
+        else:
+            detail["shape"] = template["shape"]
+            detail["traits"] = list(template["traits"])
+        details[name] = detail
     return details
 
 
@@ -758,6 +799,12 @@ def create_app(
                 output_dir=workspace.outputs,
                 asset_dir=workspace.assets,
                 workspace=workspace.name,
+                # The listing name, when the request came as one - what a
+                # later runtime-by-workflow report joins on. Derived from
+                # the resolved path rather than echoing what was asked
+                # for, so 'Basic', 'Basic.json' and an absolute path
+                # inside the source all record the one catalog name
+                catalog_name=catalog_name_for(resolved, source),
             )
         except HTTPException:
             raise
@@ -1121,18 +1168,43 @@ def create_app(
     # ------------------------------------------------------------- workflows
 
     @app.get("/api/workflows")
-    def list_workflows(ws: Workspace = Depends(selected_workspace)):
+    def list_workflows(
+        ws: Workspace = Depends(selected_workspace),
+        shape: Optional[str] = None,
+        traits: Optional[str] = None,
+        configures: Optional[str] = None,
+        include_models: bool = False,
+        view: Optional[str] = None,
+    ):
         """Every workflow the search path offers, each detail saying which
         source it came from and whether it can be written to. 'workflow_dir'
-        stays the writable one - what a save targets."""
+        stays the writable one - what a save targets.
+
+        `shape`, `traits` (comma-separated, all must match) and `configures`
+        narrow the listing; `view=compact` is the agent's view - summaries
+        rather than descriptions, templates rather than model configs
+        unless `include_models` asks for them. `workflows` always names
+        exactly the entries `details` holds.
+        """
         sources = _sources_for(ws)
         found = listing(sources)
+        try:
+            details = project_listing(
+                workflow_details(found),
+                shape=shape,
+                traits=[t.strip() for t in (traits or "").split(",") if t.strip()],
+                configures=configures,
+                include_models=include_models,
+                view=view,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         return {
             "workspace": ws.name,
             "workflow_dir": ws.workflows,
             "sources": [source.to_dict() for source in sources],
-            "workflows": list(found),
-            "details": workflow_details(found),
+            "workflows": sorted(details),
+            "details": details,
         }
 
     @app.put("/api/workflows/{name:path}")
@@ -1165,10 +1237,25 @@ def create_app(
             json.dump(request.workflow, file, indent=2)
             file.write("\n")
         logger.info(f"Saved workflow {name} to {path}")
+        # What the catalog will say about it, so the author sees the match
+        # it just created. An empty summary is a warning, never a refusal:
+        # a workflow with no description still runs, it is just invisible
+        # to shape-first discovery
+        metadata = derive_catalog_metadata(request.workflow)
+        warnings = list(workflow_argument_warnings(request.workflow))
+        if not metadata["summary"]:
+            warnings.append(
+                "No summary: add a 'description' (its first sentence becomes "
+                "the catalog summary) or a 'summary' so the listing can say "
+                "what this workflow is for"
+            )
         return {
             "name": name,
             "path": path,
-            "warnings": workflow_argument_warnings(request.workflow),
+            "warnings": warnings,
+            "shape": metadata["shape"],
+            "traits": metadata["traits"],
+            "summary": metadata["summary"],
         }
 
     @app.delete("/api/workflows/{name:path}")

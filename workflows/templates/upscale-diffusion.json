@@ -1,6 +1,6 @@
 {
   "id": "DiffusionUpscaleImage",
-  "description": "Upscales an input image with a Stable Diffusion upscale pipeline, guided by a prompt - no generation step, so any existing image can be upscaled.",
+  "description": "Upscales an input image with a Stable Diffusion upscale pipeline, guided by a prompt. There is no generation step, so any existing image can be upscaled.",
   "variables": {
     "input_image": {
       "location": "https://example.com/image.jpg"

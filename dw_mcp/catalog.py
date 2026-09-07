@@ -6,14 +6,26 @@ keep in sync."""
 from dw_mcp.client import api_path
 
 
-def list_workflows(client):
-    """Workflow names the server can reach, with details - description,
-    output kinds and variable names per workflow, plus which source each came
-    from and whether it can be written to (a read-only examples directory
-    can be read and run, but not saved over or deleted). A `models/` entry
-    also carries `configures`, the template it configures, or
-    `configures_missing` naming it when that template does not resolve."""
-    return client.get_json("/api/workflows")
+def list_workflows(
+    client, shape=None, traits=None, configures=None, include_models=False
+):
+    """Workflow names the server can reach, in the compact view: summary,
+    shape, traits, cost, output kinds and variable names per workflow -
+    what choosing one needs and nothing that reading one needs. Templates
+    only unless `include_models` or `configures` asks for the model configs
+    of one template. `get_workflow` has the full definition."""
+    params = {"view": "compact"}
+    if shape:
+        params["shape"] = shape
+    if traits:
+        params["traits"] = (
+            ",".join(traits) if isinstance(traits, (list, tuple)) else traits
+        )
+    if configures:
+        params["configures"] = configures
+    if include_models:
+        params["include_models"] = "true"
+    return client.get_json("/api/workflows", params=params)
 
 
 def get_workflow(client, name):

@@ -31,6 +31,33 @@ def valid_workflow(job_id="server_test"):
     }
 
 
+def video_workflow(job_id, with_cost=False):
+    workflow = {
+        "id": job_id,
+        "description": "One clip from a prompt. It runs a while.",
+        "variables": {"prompt": "d"},
+        "steps": [
+            {
+                "name": "gen",
+                "pipeline": {
+                    "configuration": {"component_type": "{Fake}", "no_generator": True},
+                    "from_pretrained_arguments": {"model_name": "m"},
+                    "arguments": {
+                        "prompt": "variable:prompt",
+                        "output": ["videos", "audio"],
+                    },
+                },
+                "result": {"content_type": "video/mp4"},
+            }
+        ],
+    }
+    if with_cost:
+        workflow["cost"] = [
+            {"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}
+        ]
+    return workflow
+
+
 class ScriptedWorkerManager:
     """Answers execute commands with a scripted message sequence."""
 
@@ -522,6 +549,49 @@ def test_configures_resolves_against_the_listing(server):
         assert details["models/good"]["configures"] == "templates/tti"
         assert details["models/typo"]["configures"] == ""
         assert details["models/typo"]["configures_missing"] == "templates/nope"
+
+
+def test_the_listing_carries_derived_metadata(server):
+    with server(success_script) as client:
+        client.put(
+            "/api/workflows/templates/clip",
+            json={"workflow": video_workflow("clip", with_cost=True)},
+        )
+        tuned = video_workflow("tuned")
+        tuned["configures"] = "templates/clip"
+        tuned["description"] = "The same clip on a bigger checkpoint."
+        client.put("/api/workflows/models/tuned", json={"workflow": tuned})
+
+        details = client.get("/api/workflows").json()["details"]
+
+        clip = details["templates/clip"]
+        assert clip["shape"] == "shot"
+        assert clip["traits"] == ["has-audio"]
+        assert clip["summary"] == "One clip from a prompt."
+        assert clip["cost"] == [
+            {"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}
+        ]
+
+        tuned = details["models/tuned"]
+        assert tuned["shape"] == "shot" and tuned["traits"] == ["has-audio"]
+        assert tuned["summary"] == "The same clip on a bigger checkpoint."
+        assert tuned["cost"] is None
+
+        basic = details["Basic"]
+        assert basic["shape"] == "utility"  # no result block, so no kind
+        assert basic["summary"] == "" and basic["cost"] is None
+        # nothing the UI reads went away
+        assert {
+            "kinds",
+            "steps",
+            "variables",
+            "variable_names",
+            "description",
+            "configures",
+            "prompt_refs",
+            "origin",
+            "writable",
+        } <= set(basic)
 
 
 def test_a_silently_killed_worker_reports_its_exit_and_frees_the_manager(tmp_path):
@@ -1400,6 +1470,10 @@ def test_workflow_listing_carries_details(server):
             "description": "Renders a small test image.",
             "configures": "",
             "prompt_refs": [],
+            "shape": "image",
+            "traits": [],
+            "summary": "Renders a small test image.",
+            "cost": None,
             # where it came from, and whether a client should offer save and
             # delete for it or only save-a-copy
             "origin": "workspace",
@@ -1434,6 +1508,53 @@ def test_a_workflow_that_configures_nothing_says_so(server):
         listing = client.get("/api/workflows").json()
 
         assert listing["details"]["Basic"]["configures"] == ""
+
+
+def test_the_listing_filters_and_compacts(server):
+    with server(success_script) as client:
+        client.put(
+            "/api/workflows/templates/clip", json={"workflow": video_workflow("clip")}
+        )
+        tuned = video_workflow("tuned")
+        tuned["configures"] = "templates/clip"
+        client.put("/api/workflows/models/tuned", json={"workflow": tuned})
+
+        full = client.get("/api/workflows").json()
+        assert set(full["details"]) == {"Basic", "templates/clip", "models/tuned"}
+
+        by_shape = client.get("/api/workflows", params={"shape": "shot"}).json()
+        assert set(by_shape["details"]) == {"templates/clip", "models/tuned"}
+        assert by_shape["workflows"] == sorted(by_shape["details"])
+
+        compact = client.get("/api/workflows", params={"view": "compact"}).json()
+        assert set(compact["details"]) == {"Basic", "templates/clip"}
+        assert "description" not in compact["details"]["templates/clip"]
+        assert "steps" not in compact["details"]["templates/clip"]
+        assert (
+            compact["details"]["templates/clip"]["summary"] == "One clip from a prompt."
+        )
+
+        with_models = client.get(
+            "/api/workflows", params={"view": "compact", "include_models": "true"}
+        ).json()
+        assert "models/tuned" in with_models["details"]
+
+        configs = client.get(
+            "/api/workflows", params={"configures": "templates/clip"}
+        ).json()
+        assert set(configs["details"]) == {"models/tuned"}
+
+        by_trait = client.get("/api/workflows", params={"traits": "has-audio"}).json()
+        assert "Basic" not in by_trait["details"]
+
+        # a hand-written list is spaced; the spaces are not part of the trait
+        spaced = client.get("/api/workflows", params={"traits": "has-audio, chained"})
+        assert spaced.status_code == 200
+
+        bad = client.get("/api/workflows", params={"shape": "cinematic"})
+        assert bad.status_code == 400 and "sequence" in bad.json()["detail"]
+        bad = client.get("/api/workflows", params={"traits": "has-audio,fast"})
+        assert bad.status_code == 400 and "fast" in bad.json()["detail"]
 
 
 @pytest.fixture
@@ -1473,6 +1594,13 @@ def test_examples_are_listed_read_only(examples_server):
         # the writable root is still what a save targets, and is named first
         assert listing["sources"][0]["writable"] is True
         assert listing["sources"][1]["origin"] == "examples"
+
+        # a second listing is answered from the detail cache, which holds no
+        # placement of its own - the origin and writability must be merged
+        # back in every time or a warm cache silently drops them
+        again = client.get("/api/workflows").json()
+        assert again["details"]["ltx2/Gyre"]["origin"] == "examples"
+        assert again["details"]["ltx2/Gyre"]["writable"] is False
 
         # and it reads like any other workflow
         assert client.get("/api/workflows/ltx2/Gyre").status_code == 200
@@ -2453,6 +2581,7 @@ def _finished_job_with_events(job_id, events):
     class FinishedJob:
         id = job_id
         workflow_name = "w"
+        catalog_name = None
         status = "complete"
         created_at = 1.0
         started_at = 1.0
@@ -2974,3 +3103,74 @@ class TestInlineJobConfinement:
                 json={"workflow": valid_workflow(), "base_dir": str(elsewhere)},
             )
         assert response.status_code == 400
+
+
+def test_saving_reports_how_the_workflow_will_be_matched(server):
+    with server(success_script) as client:
+        saved = client.put(
+            "/api/workflows/clip", json={"workflow": video_workflow("clip")}
+        ).json()
+        assert saved["shape"] == "shot"
+        assert saved["traits"] == ["has-audio"]
+        assert saved["summary"] == "One clip from a prompt."
+        assert not any("summary" in w for w in saved["warnings"])
+
+        bare = valid_workflow("bare")
+        saved = client.put("/api/workflows/bare", json={"workflow": bare}).json()
+        assert saved["summary"] == ""
+        assert any("summary" in w and "description" in w for w in saved["warnings"])
+
+
+def test_a_job_remembers_the_catalog_name_it_ran_from(server, tmp_path):
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
+        assert job["workflow"] == "basic"  # the definition's id, as before
+        assert job["workflow_name"] == "Basic"  # the catalog name
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+
+        # the name is the listing name, whatever spelling the request used
+        with_suffix = client.post(
+            "/api/jobs", json={"workflow_path": "Basic.json"}
+        ).json()
+        assert with_suffix["workflow_name"] == "Basic"
+        wait_for_status(client, with_suffix["id"], TERMINAL_STATES)
+
+        listed = {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}
+        assert listed[job["id"]]["workflow_name"] == "Basic"
+
+        inline = client.post(
+            "/api/jobs", json={"workflow": valid_workflow("inline")}
+        ).json()
+        assert inline["workflow_name"] is None
+        wait_for_status(client, inline["id"], TERMINAL_STATES)
+
+    # history, read back by a fresh manager over the same database
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    detail = manager.get(job["id"])
+    assert detail["workflow_name"] == "Basic"
+    assert manager.get(inline["id"])["workflow_name"] is None
+
+
+def test_an_old_history_database_gains_the_column(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "old.sqlite"
+    with sqlite3.connect(db) as connection:
+        connection.execute(
+            "CREATE TABLE jobs (id TEXT PRIMARY KEY, workflow TEXT, status TEXT, created_at REAL,"
+            " started_at REAL, finished_at REAL, arguments TEXT, spec TEXT, manifest TEXT,"
+            " warnings TEXT, error TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO jobs (id, workflow, status) VALUES ('old1', 'sd', 'finished')"
+        )
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(db),
+    )
+    assert manager.get("old1")["workflow_name"] is None

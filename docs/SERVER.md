@@ -197,10 +197,30 @@ The editor's forms come from these; they are just as usable from scripts:
   `prompt_refs` naming the stored prompts it leans on, and `configures` - for
   a workflow under `models/`, the `templates/` name it is a tuned
   configuration of, empty when it is a template itself or when the name does
-  not resolve (then `configures_missing` carries what was written). Enough
+  not resolve (then `configures_missing` carries what was written). Four more
+  say what the workflow makes, read off its definition (a top-level `shape`,
+  `traits` or `summary` in the file overrides): `shape`, one of `image`,
+  `image-set`, `image-edit`, `shot`, `sequence`, `audio`, `text`, `utility`;
+  `traits`, a sorted subset of `has-audio`, `chained`, `image-conditioned`,
+  `identity-referenced`, `needs-input-media`, `composes-workflows`; `summary`,
+  the first sentence of the description, capped at 120 characters; and `cost`,
+  the maintainer-measured `{device, name, vram_gb, minutes}` runs, or `null`
+  when nobody has measured it. A `models/` entry takes its `shape` and
+  `traits` from the template it configures and keeps its own `cost`. Enough
   to choose a workflow and know what to pass it without reading each one; the
   variable defaults are deliberately left out, being an order of magnitude more
   payload on a listing the UI reloads. Cached by file mtime
+
+  Optional query params narrow and shrink it:
+  `?shape=&traits=&configures=&include_models=&view=compact`. `shape` keeps
+  entries of that shape and `traits` (comma-separated) those carrying all of
+  them - an unknown value in either is a 400 whose `detail` lists the
+  vocabulary. `configures=<template>` keeps that template's model configs.
+  `view=compact` is the agent's projection: it drops `description`, `origin`,
+  `writable`, `prompt_refs`, `steps` and `variables`, keeps `summary`,
+  `shape`, `traits`, `cost`, `kinds` and `variable_names`, and lists templates
+  only unless `include_models=true` or a `configures` asks otherwise. With no
+  params the response is what it always was, plus the four new fields
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`)
 - `GET /api/workflows/{name:path}/download` — download a workflow file as JSON

@@ -10,7 +10,7 @@
         "video_num_inference_steps": 20
     },
     "id": "txt2img2vid",
-    "description": "Composes any text-to-image workflow with any image-to-video workflow - both named as variables, so the pair can be swapped without touching this file. The still the first step generates is handed to the second as its 'image'. Paths resolve against this file's own directory, so a workflow elsewhere in the catalog is named relatively: '../models/z-image.json' here for the still, './minimax/image-to-video.json' for the animation.",
+    "description": "Composes any text-to-image workflow with any image-to-video workflow into one still-then-animate run. Both are named as variables, so the pair can be swapped without touching this file. The still the first step generates is handed to the second as its 'image'. Paths resolve against this file's own directory, so a workflow elsewhere in the catalog is named relatively: '../models/z-image.json' here for the still, './minimax/image-to-video.json' for the animation.",
     "steps": [
         {
             "name": "image_generation",

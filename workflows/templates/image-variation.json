@@ -5,6 +5,7 @@
     },
     "id": "FluxRedux",
     "description": "Image variation with FLUX.1 Redux - encodes a reference image and regenerates it with FLUX.1 dev.",
+    "shape": "image-edit",
     "steps": [
         {
             "name": "prior",

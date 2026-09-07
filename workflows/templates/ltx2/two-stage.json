@@ -1,6 +1,6 @@
 {
     "id": "LTX2TwoStage",
-    "description": "LTX-2.5's recommended quality flow: render small, then upscale in latent space rather than generating at the target resolution. A latent upsampler doubles the render, and the soundtrack the base step generated is paired back onto the result.",
+    "description": "LTX-2.5's recommended quality flow: render small, then upscale in latent space rather than at full size. A latent upsampler doubles the render, and the soundtrack the base step generated is paired back onto the result.",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",

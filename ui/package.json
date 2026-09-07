@@ -47,5 +47,10 @@
   "allowScripts": {
     "fsevents@2.3.3": true,
     "fsevents@2.3.2": true
+  },
+  "overrides": {
+    "monaco-editor": {
+      "dompurify": "^3.4.13"
+    }
   }
 }

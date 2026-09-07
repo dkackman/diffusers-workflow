@@ -1,6 +1,6 @@
 {
     "id": "LTX2ICLora",
-    "description": "A generative 2x upscale: an in-context LoRA re-renders a low-resolution clip at twice the size, inventing detail rather than interpolating it. The clip generated in the first step becomes the reference the second one attends to.",
+    "description": "Re-renders a low-resolution clip at twice the size with an in-context LoRA, inventing detail rather than interpolating. The clip generated in the first step becomes the reference the second one attends to.",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
