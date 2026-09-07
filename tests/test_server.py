@@ -3021,3 +3021,17 @@ class TestInlineJobConfinement:
                 json={"workflow": valid_workflow(), "base_dir": str(elsewhere)},
             )
         assert response.status_code == 400
+
+
+def test_saving_reports_how_the_workflow_will_be_matched(server):
+    with server(success_script) as client:
+        saved = client.put("/api/workflows/clip", json={"workflow": video_workflow("clip")}).json()
+        assert saved["shape"] == "shot"
+        assert saved["traits"] == ["speech"]
+        assert saved["summary"] == "One clip from a prompt."
+        assert not any("summary" in w for w in saved["warnings"])
+
+        bare = valid_workflow("bare")
+        saved = client.put("/api/workflows/bare", json={"workflow": bare}).json()
+        assert saved["summary"] == ""
+        assert any("summary" in w and "description" in w for w in saved["warnings"])

@@ -1195,10 +1195,25 @@ def create_app(
             json.dump(request.workflow, file, indent=2)
             file.write("\n")
         logger.info(f"Saved workflow {name} to {path}")
+        # What the catalog will say about it, so the author sees the match
+        # it just created. An empty summary is a warning, never a refusal:
+        # a workflow with no description still runs, it is just invisible
+        # to shape-first discovery
+        metadata = derive_catalog_metadata(request.workflow)
+        warnings = list(workflow_argument_warnings(request.workflow))
+        if not metadata["summary"]:
+            warnings.append(
+                "No summary: add a 'description' (its first sentence becomes "
+                "the catalog summary) or a 'summary' so the listing can say "
+                "what this workflow is for"
+            )
         return {
             "name": name,
             "path": path,
-            "warnings": workflow_argument_warnings(request.workflow),
+            "warnings": warnings,
+            "shape": metadata["shape"],
+            "traits": metadata["traits"],
+            "summary": metadata["summary"],
         }
 
     @app.delete("/api/workflows/{name:path}")
