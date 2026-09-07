@@ -92,28 +92,28 @@
     >
       <span class="cardtop">
         <span class="cardname">{leafOf(name)}</span>
-        <span class="cardmeta muted">
-          {#if detail?.configures}<span
-              class="configures"
-              title="a tuned configuration of {detail.configures}"
-              >configures {leafOf(detail.configures)}</span
-            >{/if}
-          {#if detail?.writable === false}<span
-              title="read-only: from the {detail.origin} directory"
-              >{detail.origin}</span
-            >{/if}
-          {#if detail?.kinds.includes('image')}<Image size={13} />{/if}
-          {#if detail?.kinds.includes('video')}<Film size={13} />{/if}
-          {#if detail?.kinds.includes('audio')}<Music size={13} />{/if}
-          {#if (detail?.steps ?? 0) > 1}<span
-              title="{detail.steps} steps run in sequence"
-              >{detail.steps} steps</span
-            >{/if}
-          {#if detail?.variables}<span
-              title="{detail.variables} variables to tweak"
-              >{detail.variables} vars</span
-            >{/if}
-        </span>
+      </span>
+      <span class="cardmeta muted">
+        {#if detail?.configures}<span
+            class="configures"
+            title="a tuned configuration of {detail.configures}"
+            >configures {leafOf(detail.configures)}</span
+          >{/if}
+        {#if detail?.writable === false}<span
+            title="read-only: from the {detail.origin} directory"
+            >{detail.origin}</span
+          >{/if}
+        {#if detail?.kinds.includes('image')}<Image size={13} />{/if}
+        {#if detail?.kinds.includes('video')}<Film size={13} />{/if}
+        {#if detail?.kinds.includes('audio')}<Music size={13} />{/if}
+        {#if (detail?.steps ?? 0) > 1}<span
+            title="{detail.steps} steps run in sequence"
+            >{detail.steps} steps</span
+          >{/if}
+        {#if detail?.variables}<span
+            title="{detail.variables} variables to tweak"
+            >{detail.variables} vars</span
+          >{/if}
       </span>
       {#if detail?.description}
         <span class="carddesc muted">{detail.description}</span>
@@ -169,7 +169,6 @@
   .cardtop {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
     width: 100%;
   }
   .cardname {
@@ -177,6 +176,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 0.95rem;
   }
   .carddesc {
     font-weight: 400;
@@ -199,11 +199,11 @@
   }
 
   .cardmeta {
-    display: inline-flex;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.35rem;
     font-size: 0.72rem;
     font-weight: 500;
-    flex-shrink: 0;
   }
 </style>

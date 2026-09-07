@@ -4,11 +4,16 @@
   import { go } from '../router.svelte'
   import { groupResultFiles } from '../results'
   import { stepProgress } from '../progress'
+  import FlowView from '../editor/FlowView.svelte'
   import type { JobDetail, JobEvent } from '../types'
 
   let { jobId }: { jobId: string } = $props()
 
   let job = $state<JobDetail | null>(null)
+  // The definition this job ran, for the read-only flow view. Null while it
+  // loads and when the job named a file that is no longer readable - the
+  // graph is a nicety, so it simply stays absent rather than erroring.
+  let definition = $state<Record<string, any> | null>(null)
   let events = $state<JobEvent[]>([])
   let error = $state('')
   // arrival clocks for pipeline_step events, for the ETA estimate
@@ -19,10 +24,19 @@
   $effect(() => {
     job = null
     events = []
+    definition = null
     // stopped guards the async gap: navigating away mid-fetch must not let
     // a late-resolving getJob open a stream nothing will ever stop
     let stopped = false
     let stop: (() => void) | null = null
+    api
+      .getJobWorkflow(jobId)
+      .then((result) => {
+        if (!stopped) definition = result.definition
+      })
+      .catch(() => {
+        /* no definition on file - the graph just does not appear */
+      })
     api
       .getJob(jobId)
       .then((detail) => {
@@ -222,6 +236,17 @@
     </div>
   {/if}
 
+  {#if definition}
+    <section class="flowsection">
+      <h2>Workflow</h2>
+      <FlowView
+        workflow={definition}
+        activeStep={running ? currentStep : undefined}
+        doneSteps={[...finishedSteps]}
+      />
+    </section>
+  {/if}
+
   {#if fileGroups.length}
     <div class="panel">
       <h2>Results</h2>
@@ -291,6 +316,12 @@
   }
   .panel {
     margin-bottom: 1rem;
+  }
+  .flowsection {
+    margin-bottom: 1rem;
+  }
+  .flowsection h2 {
+    margin-bottom: var(--space-2);
   }
   .warnings {
     color: var(--warn);

@@ -782,6 +782,20 @@ def create_app(
         # a historical job is already a detail dict; a live one renders itself
         return job if isinstance(job, dict) else manager.describe(job)
 
+    @app.get("/api/jobs/{job_id}/workflow")
+    def get_job_workflow(job_id: str):
+        """The workflow definition this job ran, for the read-only graph on
+        the job page. 404 when the job named a file that is no longer
+        readable - the job itself still is."""
+        if manager.get(job_id) is None:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        definition = manager.definition(job_id)
+        if definition is None:
+            raise HTTPException(
+                status_code=404, detail="No workflow definition for this job"
+            )
+        return {"id": job_id, "definition": definition}
+
     @app.post("/api/jobs/{job_id}/rerun", status_code=201)
     def rerun_job(job_id: str):
         """Queue a fresh job from a previous job's stored spec."""
