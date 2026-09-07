@@ -6,18 +6,16 @@
         "guidance_scale": 4
     },
     "id": "Flux2Dev",
-    "description": "Text-to-image with FLUX.2 dev, pre-quantized to 4-bit BitsAndBytes.",
+    "description": "Text-to-image with FLUX.2 dev, pre-quantized to 4-bit BitsAndBytes. The text encoder loads from the same repo and model offloading hands the accelerator to one component at a time, so both fit on a 24 GB card.",
     "configures": "templates/text-to-image",
     "steps": [
         {
             "name": "txt2img",
             "pipeline": {
-                "remote_text_encoder": {
-                    "url": "https://remote-text-encoder-flux-2.huggingface.co/predict"
-                },
                 "configuration": {
                     "component_type": "Flux2Pipeline",
-                    "attention_backend": "flash_hub"
+                    "attention_backend": "flash_hub",
+                    "offload": "model"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "diffusers/FLUX.2-dev-bnb-4bit",

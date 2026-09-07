@@ -5,32 +5,25 @@
             "location": "https://pbs.twimg.com/media/HNi-N_eWIAAJfTZ?format=jpg&name=900x900"
         }
     },
-    "id": "Krea2Edit",
+    "id": "FluxKontextEdit",
+    "description": "Edits an input picture toward a written instruction rather than regenerating it from scratch. FLUX.1 Kontext holds everything the instruction does not name - subject, framing, light - and changes only what it does. A diffusers pipeline, so it runs without --trust-workflows.",
     "steps": [
         {
-            "name": "txt2img",
+            "name": "edit",
             "pipeline": {
                 "configuration": {
-                    "component_type": "Krea2Pipeline",
+                    "component_type": "FluxKontextPipeline",
                     "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "krea/Krea-2-Turbo",
-                    "torch_dtype": "torch.bfloat16",
-                    "custom_pipeline": "ostris/Krea2OstrisEdit",
-                    "trust_remote_code": true
+                    "model_name": "black-forest-labs/FLUX.1-Kontext-dev",
+                    "torch_dtype": "torch.bfloat16"
                 },
-                "loras": [
-                    {
-                        "model_name": "conradlocke/krea2-identity-edit",
-                        "weight_name": "krea2_identity_edit_v1_2.safetensors"
-                    }
-                ],
                 "arguments": {
                     "prompt": "variable:prompt",
                     "image": "variable:input_image",
-                    "num_inference_steps": 8,
-                    "guidance_scale": 0.0
+                    "num_inference_steps": 28,
+                    "guidance_scale": 2.5
                 }
             },
             "result": {
@@ -38,6 +31,5 @@
                 "embed_metadata": true
             }
         }
-    ],
-    "description": "Edits an input picture toward a written instruction rather than regenerating it from scratch. An identity-preserving LoRA holds the subject's likeness steady across the edit. Krea 2 Turbo through the ostris/Krea2OstrisEdit custom pipeline, which needs trust_remote_code."
+    ]
 }

@@ -292,10 +292,10 @@ is meant as text under one of those keys must be braced.
 
 A server started without `--trust-workflows` refuses any
 `from_pretrained_arguments` that sets `trust_remote_code` or
-`custom_pipeline`, at load time, after validation has passed. Prefer a
-pipeline diffusers ships - a catalog entry that carries either key
-(`templates/image-edit.json`) runs only on a server whose operator turned
-trust on, and `get_server_info` does not report whether this one did.
+`custom_pipeline`, at load time, after validation has passed. Use a
+pipeline diffusers ships: no bundled catalog entry carries either key, and a
+workflow that does runs only on a server whose operator turned trust on,
+which `get_server_info` does not report.
 
 ### Several `previous_result` references multiply
 

@@ -302,3 +302,36 @@ def test_the_compact_listing_fits_the_budget():
     assert (
         _tokens(sequences) <= FILTERED_BUDGET
     ), f"shape=sequence is {_tokens(sequences):.0f} tokens"
+
+
+def _walk(value):
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            yield key, inner
+            yield from _walk(inner)
+    elif isinstance(value, list):
+        for inner in value:
+            yield from _walk(inner)
+
+
+REMOTE_CODE_KEYS = ("trust_remote_code", "custom_pipeline")
+
+
+@pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS)
+def test_no_catalog_entry_needs_trust_workflows(path):
+    """A server started without --trust-workflows refuses either key at load,
+    after validation has passed. An entry that carries one runs only where an
+    operator lowered that guard, and an agent has no way to find out whether
+    this server did - so the catalog carries neither, and a workflow that
+    needs remote code is written elsewhere."""
+    definition = load(path)
+
+    found = [key for key, _ in _walk(definition) if key in REMOTE_CODE_KEYS]
+
+    assert not found, f"{path} sets {', '.join(found)}, which needs --trust-workflows"
+
+
+def test_the_remote_code_check_sees_nested_keys():
+    definition = {"steps": [{"pipeline": {"from_pretrained_arguments": {"custom_pipeline": "x"}}}]}
+
+    assert [k for k, _ in _walk(definition) if k in REMOTE_CODE_KEYS] == ["custom_pipeline"]

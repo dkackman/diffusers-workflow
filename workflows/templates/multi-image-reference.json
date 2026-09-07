@@ -12,17 +12,15 @@
         }
     },
     "id": "Flux2DevImageCombine",
-    "description": "FLUX.2 dev combining multiple reference images into a single generation.",
+    "description": "FLUX.2 dev combining multiple reference images into a single generation. Loads its 4-bit text encoder locally with model offloading rather than calling a remote encoder.",
     "steps": [
         {
             "name": "txt2img",
             "pipeline": {
-                "remote_text_encoder": {
-                    "url": "https://remote-text-encoder-flux-2.huggingface.co/predict"
-                },
                 "configuration": {
                     "component_type": "Flux2Pipeline",
-                    "attention_backend": "flash_hub"
+                    "attention_backend": "flash_hub",
+                    "offload": "model"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "diffusers/FLUX.2-dev-bnb-4bit",
