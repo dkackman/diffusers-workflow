@@ -810,6 +810,17 @@ def test_the_instructions_send_an_agent_to_the_catalog_before_authoring():
     assert "list_workflows" in server.instructions
 
 
+def test_the_instructions_send_an_agent_to_the_authoring_guide_before_it_writes():
+    """A cold session repairing a schema error wrote `$steps` for a variable
+    and only found `variable:steps` once told to read the authoring guide.
+    The instructions have to name the section, so the read happens before
+    the first draft rather than after the first failed run."""
+    server = server_over(ok({}))
+
+    assert "Authoring a workflow from an agent" in server.instructions
+    assert server.instructions.index("Authoring a workflow from an agent") < server.instructions.index("`validate_workflow`")
+
+
 @pytest.mark.asyncio
 async def test_list_workflows_takes_shape_and_traits():
     tools = await tools_of(server_over(ok({})))
