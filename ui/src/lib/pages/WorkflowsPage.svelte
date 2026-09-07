@@ -177,14 +177,19 @@
       <span class="cardtop">
         <span class="cardname">{leafOf(name)}</span>
       </span>
+      {#if detail?.shape || detail?.traits?.length}
+        <span class="cardbadges muted">
+          {#if detail?.shape}<span
+              class="badge"
+              title="what this workflow makes">{detail.shape}</span
+            >{/if}
+          {#each detail?.traits ?? [] as trait (trait)}<span
+              class="badge trait"
+              title="trait: {trait}">{trait}</span
+            >{/each}
+        </span>
+      {/if}
       <span class="cardmeta muted">
-        {#if detail?.shape}<span class="badge" title="what this workflow makes"
-            >{detail.shape}</span
-          >{/if}
-        {#each detail?.traits ?? [] as trait (trait)}<span
-            class="badge trait"
-            title="trait: {trait}">{trait}</span
-          >{/each}
         {#if detail?.configures}<span
             class="configures"
             title="a tuned configuration of {detail.configures}"
@@ -346,6 +351,15 @@
     white-space: nowrap;
   }
 
+  /* Shape and traits on a row of their own: sharing the meta line with the
+     origin, icons and counts wrapped at a different point on every card */
+  .cardbadges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+  }
   .cardmeta {
     display: flex;
     flex-wrap: wrap;
