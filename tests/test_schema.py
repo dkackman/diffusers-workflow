@@ -1,5 +1,11 @@
 import pytest
-from dw.schema import validate_data, load_schema
+from dw.schema import (
+    MAX_VALIDATION_ERRORS,
+    format_validation_errors,
+    load_schema,
+    validate_data,
+    validate_data_all,
+)
 
 
 def test_load_schema():
@@ -280,3 +286,111 @@ class TestChainSchema:
         )
         status, message = validate_data(workflow, schema)
         assert status is True, message
+
+
+class TestEveryError:
+    """An agent iterating on a draft should get every schema violation in one
+    round trip, each with the JSON path it sits at."""
+
+    def _three_violations(self):
+        workflow = _pipeline_step({}, seed="not-a-number")
+        workflow["steps"][0]["release_models"] = "yes"
+        workflow["variables"] = "not-an-object"
+        return workflow
+
+    def test_independent_violations_are_all_reported_with_paths(self):
+        errors = validate_data_all(self._three_violations(), load_schema("workflow"))
+
+        paths = [e["path"] for e in errors]
+        assert "steps[0].seed" in paths
+        assert "steps[0].release_models" in paths
+        assert "variables" in paths
+        assert all(e["message"] for e in errors)
+
+    def test_errors_are_sorted_by_path(self):
+        errors = validate_data_all(self._three_violations(), load_schema("workflow"))
+
+        assert [e["path"] for e in errors] == sorted(e["path"] for e in errors)
+
+    def test_a_single_error_is_reported_exactly_as_validate_data_does(self):
+        # The one-error case is the common one and must not change shape
+        # or wording: the CLI, the REPL and the editor all show it
+        workflow = _pipeline_step({}, seed="not-a-number")
+        schema = load_schema("workflow")
+
+        errors = validate_data_all(workflow, schema)
+        _status, message = validate_data(workflow, schema)
+
+        assert len(errors) == 1
+        assert (
+            message
+            == f"Validation error at {errors[0]['path']}: {errors[0]['message']}"
+        )
+
+    def test_a_valid_definition_yields_no_errors(self):
+        assert validate_data_all(_pipeline_step({}), load_schema("workflow")) == []
+
+    def test_the_list_is_capped(self):
+        # anyOf branches produce dozens of near-identical entries; 25 is
+        # more than an agent fixes in one pass
+        workflow = _pipeline_step({})
+        workflow["steps"] = [
+            {"name": f"s{i}", "seed": "x", "pipeline": "nope"} for i in range(40)
+        ]
+
+        errors = validate_data_all(workflow, load_schema("workflow"))
+
+        assert len(errors) == MAX_VALIDATION_ERRORS
+
+    def test_duplicates_on_path_and_message_collapse(self):
+        errors = validate_data_all(self._three_violations(), load_schema("workflow"))
+
+        assert len(errors) == len({(e["path"], e["message"]) for e in errors})
+
+    def test_a_root_error_has_no_path(self):
+        errors = validate_data_all({"id": "x"}, load_schema("workflow"))
+
+        assert errors[0]["path"] is None
+        assert "steps" in errors[0]["message"]
+
+
+class TestFormatting:
+    def test_one_error_is_the_familiar_line(self):
+        text = format_validation_errors(
+            [{"path": "steps[0].seed", "message": "'x' is not of type 'integer'"}]
+        )
+
+        assert text == "Validation error at steps[0].seed: 'x' is not of type 'integer'"
+
+    def test_one_root_error_has_no_location(self):
+        text = format_validation_errors(
+            [{"path": None, "message": "'steps' is a required property"}]
+        )
+
+        assert text == "Validation error: 'steps' is a required property"
+
+    def test_several_errors_are_one_per_line_under_one_heading(self):
+        text = format_validation_errors(
+            [
+                {"path": None, "message": "'steps' is a required property"},
+                {"path": "variables", "message": "'x' is not of type 'object'"},
+            ]
+        )
+
+        assert text == (
+            "Validation errors (2):\n"
+            "  at root: 'steps' is a required property\n"
+            "  at variables: 'x' is not of type 'object'"
+        )
+        # The CLI and the REPL count this prefix once per failure
+        assert text.count("Validation error") == 1
+
+    def test_a_capped_list_says_so(self):
+        errors = [
+            {"path": f"steps[{i}]", "message": "bad"}
+            for i in range(MAX_VALIDATION_ERRORS)
+        ]
+
+        text = format_validation_errors(errors)
+
+        assert text.startswith(f"Validation errors (first {MAX_VALIDATION_ERRORS}):\n")

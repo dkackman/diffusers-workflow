@@ -1,3 +1,4 @@
 include dw/*.json
 recursive-include dw/workflows *.json
 recursive-include dw/server/ui *
+recursive-include dw/docs *.md

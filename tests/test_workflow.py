@@ -550,3 +550,31 @@ class TestSubWorkflowPathsAcrossTheCatalog:
                 default_seed=42,
                 device="cpu",
             )
+
+
+def test_validate_reports_every_schema_error_at_once(tmp_path):
+    """An agent iterating on a draft fixes all of them in one round trip."""
+    from dw.workflow import Workflow
+
+    definition = {
+        "id": "bad",
+        "variables": "not-an-object",
+        "steps": [
+            {
+                "name": "gen",
+                "seed": "not-a-number",
+                "pipeline": {
+                    "configuration": {"component_type": "{Fake}"},
+                    "from_pretrained_arguments": {"model_name": "m"},
+                    "arguments": {},
+                },
+            }
+        ],
+    }
+    with pytest.raises(Exception) as exc_info:
+        Workflow(definition, str(tmp_path), "").validate()
+    message = str(exc_info.value)
+    assert message.startswith("Validation errors (2):")
+    assert "  at steps[0].seed:" in message
+    assert "  at variables:" in message
+    assert message.count("Validation error") == 1

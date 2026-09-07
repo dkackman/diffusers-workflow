@@ -183,11 +183,20 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/tasks/{command}` — a task's argument schema, read from its
   registered implementation's real signature
 - `GET /api/schema` — the workflow JSON schema
+- `GET /api/guides` — the documentation that bears on choosing a
+  capability: each guide's name, what it covers, and its section headings
+- `GET /api/guides/{name}?section=` — one guide whole, or one section of
+  it; section names match loosely. Served by the engine so an MCP client
+  at another version reads the guides for the server it is driving, not
+  its own. A checkout serves the repo's `docs/`; an install the copy
+  `build_dist.sh` puts under `dw/docs/`
 - `POST /api/validate` — schema validation plus signature-level argument
   warnings for pipeline and task steps (catches the typo before the model
   loads). Accepts `workflow_path` (same resolution and confinement as
   `/api/jobs`, above) as an alternative to inline `workflow` - exactly one
-  of the two, or a 400
+  of the two, or a 400. Every schema violation is returned in `errors`
+  (`[{path, message}]`, sorted by path, capped at 25), and joined one per
+  line in `error`.
 
 ## Files and models
 

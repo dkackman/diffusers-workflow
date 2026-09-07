@@ -64,6 +64,51 @@ def test_warnings_are_never_wrong():
     assert "guidance_scael" in warnings[0] and "real" in warnings[0]
 
 
+def test_a_reference_naming_no_variable_is_warned_about_before_anything_loads():
+    """An agent wrote `variable:base_prompt, clear sky` expecting
+    interpolation; validation passed and the run failed at resolution. The
+    warning names where it sits, what it asked for, and what is declared."""
+    workflow = {
+        "variables": {"base_prompt": "a lighthouse", "steps": 4},
+        "seed": "variable:seed",
+        "steps": [
+            {
+                "name": "clear",
+                "pipeline": {
+                    "configuration": {"component_type": "ZImagePipeline"},
+                    "arguments": {
+                        "prompt": "variable:base_prompt, clear sky",
+                        "num_inference_steps": "variable:steps",
+                    },
+                },
+            }
+        ],
+    }
+    warnings = workflow_argument_warnings(workflow)
+    assert len(warnings) == 2
+    assert warnings[0] == (
+        "seed: 'variable:seed' names no declared variable; "
+        "declared: base_prompt, steps"
+    )
+    assert warnings[1].startswith(
+        "steps[0].pipeline.arguments.prompt: 'variable:base_prompt, clear sky' "
+        "names no declared variable - a reference is the whole value"
+    )
+
+
+def test_a_declared_reference_anywhere_in_the_definition_is_not_warned_about():
+    workflow = {
+        "variables": {"p": "x", "n": 1},
+        "steps": [
+            {
+                "name": "s",
+                "task": {"command": "nonexistent", "arguments": {"a": ["variable:p", {"b": "variable:n"}]}},
+            }
+        ],
+    }
+    assert not any("names no declared variable" in w for w in workflow_argument_warnings(workflow))
+
+
 def test_describe_class_init_target_reads_constructors():
     from dw.introspection import describe_class
 

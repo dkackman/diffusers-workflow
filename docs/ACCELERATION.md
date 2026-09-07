@@ -252,7 +252,7 @@ Typical gains are 1.3-1.5x on diffusion transformers, and compilation stacks wit
 - **Don't combine `fullgraph` with a `cache`**: the cache hooks decide skip-or-compute per step, a data-dependent branch diffusers wraps in `torch.compiler.disable` - it needs the graph break that `fullgraph: true` forbids. Compile with the default (partial) graph mode when a cache is active.
 - **TorchAO quantization needs compile to be fast** - see [QUANTIZATION.md](QUANTIZATION.md#torchao).
 
-**Example:** [flux-dev-fast.json](../workflows/models/flux-dev-fast.json), [flux-torchao.json](../workflows/models/flux-torchao.json)
+**Example:** [flux-dev-compile.json](../workflows/models/flux-dev-compile.json), [flux-torchao.json](../workflows/models/flux-torchao.json)
 
 ## Layerwise Casting
 

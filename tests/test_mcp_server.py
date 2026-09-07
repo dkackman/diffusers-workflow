@@ -289,6 +289,13 @@ def _a_file_to_upload():
 
 
 TOOL_WIRING = [
+    ("list_guides", {}, "GET", "/api/guides"),
+    (
+        "get_guide",
+        {"name": "tasks", "section": "Speech Generation"},
+        "GET",
+        "/api/guides/tasks",
+    ),
     ("list_workflows", {}, "GET", "/api/workflows"),
     ("get_workflow", {"name": "w"}, "GET", "/api/workflows/w"),
     ("get_schema", {}, "GET", "/api/schema"),
@@ -435,44 +442,8 @@ TOOL_WIRING = [
 ]
 
 
-# The guides are documentation packaged with dw rather than server state, so
-# these two answer without a request. Everything else is a proxy and belongs in
-# the wiring table above; the test below holds them to making no request at all,
-# so this stays a statement about them rather than a hole in the coverage.
-LOCAL_TOOLS = {"list_guides", "get_guide"}
-
-
 def test_the_wiring_table_covers_every_registered_tool():
-    assert {name for name, _, _, _ in TOOL_WIRING} == EXPECTED_TOOLS - LOCAL_TOOLS
-
-
-# One case per local tool - and every local tool has one, or the wiring
-# exemption below would be a hole rather than a statement
-LOCAL_TOOL_CASES = [
-    ("list_guides", {}),
-    ("get_guide", {"name": "tasks", "section": "Speech Generation"}),
-]
-
-
-def test_every_local_tool_is_held_to_making_no_request():
-    assert {name for name, _ in LOCAL_TOOL_CASES} == LOCAL_TOOLS
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("name,arguments", LOCAL_TOOL_CASES)
-async def test_the_guide_tools_reach_no_server(name, arguments):
-    """They have to work against an engine that is not answering - and against a
-    remote one, whose disk is not where the packaged guides are."""
-    seen = []
-
-    def handler(request):
-        seen.append(request.url.path)
-        return httpx.Response(500, json={"detail": "the engine is down"})
-
-    result = await server_over(handler).call_tool(name, arguments)
-
-    assert seen == []
-    assert result.content
+    assert {name for name, _, _, _ in TOOL_WIRING} == EXPECTED_TOOLS
 
 
 @pytest.mark.asyncio
@@ -837,6 +808,17 @@ def test_the_instructions_send_an_agent_to_the_catalog_before_authoring():
     server = server_over(ok({}))
 
     assert "list_workflows" in server.instructions
+
+
+def test_the_instructions_send_an_agent_to_the_authoring_guide_before_it_writes():
+    """A cold session repairing a schema error wrote `$steps` for a variable
+    and only found `variable:steps` once told to read the authoring guide.
+    The instructions have to name the section, so the read happens before
+    the first draft rather than after the first failed run."""
+    server = server_over(ok({}))
+
+    assert "Authoring a workflow from an agent" in server.instructions
+    assert server.instructions.index("Authoring a workflow from an agent") < server.instructions.index("`validate_workflow`")
 
 
 @pytest.mark.asyncio

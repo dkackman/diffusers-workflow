@@ -234,6 +234,112 @@ media is instead of relying on its argument name:
 `media_type` is `"image"` or `"video"`. `location` is a path relative to the workflow
 file, or a URL, exactly like the plain `image`/`video` forms.
 
+## Authoring a workflow from an agent
+
+For an agent that has read the catalog (`list_workflows`), found nothing that
+produces the shape it needs, and is about to write JSON. `get_schema` says what
+is *well-formed*; this section says what the engine *does* with a well-formed
+document, which is where a draft that validates still fails.
+
+### References
+
+An argument value is a reference when it begins with one of these prefixes.
+Each resolves before the step runs; a name that does not resolve fails the run,
+not validation.
+
+- `variable:` — `variable:name` is the workflow's own `variables` entry,
+  overridden by the caller's `arguments`. A variable declared `null` is optional and untyped.
+  Schema validation runs before substitution, so a default must already be the
+  JSON type the field expects: `25`, not `"25"`.
+- `previous_result:` — `previous_result:step_name` is the outputs of an earlier
+  step, named by that step's `name`. It iterates; see the cartesian rule
+  below. A `.field` suffix
+  (`previous_result:invert.inverted_latents`) picks one field of a result that
+  is a dict, or a data attribute of a result object.
+- `constant:` — `constant:module.path.NAME` is a value declared in Python,
+  read by import rather than copied into JSON. Anything callable is refused.
+- `asset:` — `asset:name` is a file in the asset library. Rooted at the
+  library and confined to it, never resolved relative to the workflow file; a path that
+  escapes the library is rejected. `upload_asset` returns one of these names.
+- `output:` — `output:<workflow identity>/<run id>/<file>` is a file an earlier
+  run wrote, under the output root and confined to it. `latest` in the run-id position
+  picks the newest run that holds that file. A run id is not stable against
+  pruning: to depend on a generated file, promote it with `keep_output` and
+  reference the `asset:` name instead.
+- `prompt:` — `prompt:name` or `prompt:folder/name` is a stored prompt's
+  `text`, rooted at the prompt library. That text may not itself begin with any of these
+  prefixes; the engine rejects such a prompt rather than resolving twice.
+
+A reference is resolved wherever it appears in the arguments, including inside
+a nested object or list — not only at the top level. It is always the *whole*
+value: `"variable:base_prompt"` resolves, `"variable:base_prompt, in fog"` asks
+for a variable named `base_prompt, in fog` and fails the run. Nothing is
+interpolated around a reference. To vary a fixed prompt across steps, write
+each full prompt out, or put the shared text in a variable and let a step's
+argument override it whole. `validate_workflow` warns about a `variable:`
+reference that names nothing the workflow declares.
+
+### Types and escaping
+
+Any key ending in `_type` or `_dtype`, or named `dtype`, has its string value
+loaded as a Python object: `"FluxPipeline"` from `diffusers`, a dotted name
+(`"torch.bfloat16"`, `"sdnq.SDNQConfig"`) by full module path. Wrapping a value
+in braces keeps it a plain string — `"{nf4}"` is the string `nf4`. Getting this
+wrong fails at load time, after validation has already passed, so a value that
+is meant as text under one of those keys must be braced.
+
+### Several `previous_result` references multiply
+
+When one step carries two or more `previous_result` references, the engine runs
+that step once for every combination — a cartesian product. Four images and
+three masks is twelve iterations, not three pairs. Past 10000 combinations the
+run is refused outright.
+
+This is deliberate: it is how one prompt fans out over a set. The consequence
+is that a *pairing* — shot *i* with speaker *i*, prompt *i* with portrait *i* —
+cannot be expressed with two references on one step. Write it as one step per
+pair, each referencing exactly the two things it pairs, or gather the pairs
+upstream so each is a single result. A step that seems to need a "zip" is the
+signal to restructure the workflow, not to add another reference.
+
+### The loop
+
+1. `validate_workflow` — free and instant. It reports every schema error at
+   once, each with the JSON path it sits at, plus warnings for argument names
+   that do not appear in the real pipeline signature.
+2. Fix everything reported, including the warnings: a passing validation does
+   not mean the pipeline accepts the arguments, and a typo against a real
+   `__call__` shows up only as one of those warnings. The server only computes
+   signature warnings for a schema-valid draft — while schema errors remain it
+   returns `warnings: []`, so validate again after fixing them to see the
+   warnings.
+3. `save_workflow` — validates again on the way in and returns the catalog
+   metadata the saved draft will carry.
+4. `run_workflow` with `acknowledged_cost=true`, after telling the user what it
+   costs. Without the acknowledgement the call is refused.
+5. `wait_for_job` rather than a polling loop; call it again if it returns
+   `still_running: true`.
+6. `get_output_image` to look at what was actually made, and say whether it
+   answers the request. Nothing before this step establishes that it does.
+
+### Being found next time
+
+The catalog derives each entry's `shape` — one of `image`, `image-set`,
+`image-edit`, `shot`, `sequence`, `audio`, `text`, `utility` — and its `traits`
+(`has-audio`, `chained`, `image-conditioned`, `identity-referenced`,
+`needs-input-media`, `composes-workflows`) from the structure of the
+definition, and its `summary` from the first sentence of `description`.
+
+So write that first sentence to say what the workflow *makes* and what it
+*needs supplied*, in under 120 characters — "H3 video with audio between two
+supplied stills" — rather than what technique it demonstrates. A first sentence
+longer than that is truncated with an ellipsis in every listing.
+
+Declare `shape`, `traits` or `summary` at the top level only when derivation
+gets it wrong; a declaration that merely repeats the derivation is noise that
+rots when the rules change, and the repo's catalog tests refuse it. `cost` is
+never derived — leave it absent until a run has been measured.
+
 ## Result Configuration
 
 ```json

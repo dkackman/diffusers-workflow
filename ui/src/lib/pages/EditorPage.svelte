@@ -632,6 +632,10 @@
       {#each validation.warnings as warning, i (i)}
         <div class="warn"><TriangleAlert size={14} /> {warning}</div>
       {/each}
+    {:else if validation.errors && validation.errors.length}
+      {#each validation.errors as e, i (i)}
+        <div class="error">{e.path ?? 'root'}: {e.message}</div>
+      {/each}
     {:else}
       <div class="error">{validation.error}</div>
     {/if}

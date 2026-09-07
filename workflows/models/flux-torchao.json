@@ -3,7 +3,7 @@
         "prompt": "a marmot wearing a tophat, in a forest scene."
     },
     "id": "FluxTorchAO",
-    "description": "FLUX.1 dev with the transformer quantized to int8 via TorchAO.",
+    "description": "FLUX.1 dev with the transformer quantized to int4 via TorchAO, compiled. Unmeasured; the int8 variant ran at over a minute per denoising step on an RTX 3090, so measure before relying on it - models/flux-dev-compile records what was measured there.",
     "configures": "templates/text-to-image",
     "steps": [
         {

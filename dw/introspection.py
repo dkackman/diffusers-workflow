@@ -14,6 +14,7 @@ any module on the system.
 import re
 import inspect
 import logging
+from .variables import undeclared_variable_references
 
 logger = logging.getLogger("dw")
 
@@ -489,6 +490,17 @@ def workflow_argument_warnings(workflow_definition):
     get the same check against their registered implementation's signature.
     """
     warnings = []
+    declared = sorted(workflow_definition.get("variables") or {})
+    for path, name in undeclared_variable_references(workflow_definition):
+        hint = (
+            " - a reference is the whole value, nothing is interpolated around it"
+            if any(c in name for c in " ,")
+            else ""
+        )
+        warnings.append(
+            f"{path}: 'variable:{name}' names no declared variable{hint}; "
+            f"declared: {', '.join(declared) or '<none>'}"
+        )
     for step in workflow_definition.get("steps", []):
         task = step.get("task")
         if task and isinstance(task.get("arguments"), dict):

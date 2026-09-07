@@ -49,7 +49,7 @@ from ..introspection import (
     describe_task,
     workflow_argument_warnings,
 )
-from ..schema import load_schema, validate_data
+from ..schema import load_schema, validate_data, format_validation_errors
 from ..prompts import PROMPT_PREFIX, RESERVED_TEXT_PREFIXES
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
@@ -86,6 +86,8 @@ from .jobs import JobManager, MAX_PERSISTED_EVENTS, TERMINAL_STATES
 from .netinfo import local_addresses
 from .updater import DiffusersUpdater
 from .catalog_shape import derive_catalog_metadata, project_listing
+from . import guides
+from .guides import GuideError
 
 logger = logging.getLogger("dw")
 
@@ -1007,6 +1009,27 @@ def create_app(
         """The workflow JSON schema, for schema-aware JSON editing."""
         return JSONResponse(load_schema("workflow"))
 
+    # ------------------------------------------------------------ guides
+
+    @app.get("/api/guides")
+    def list_guides():
+        """The documentation that bears on choosing a capability: each
+        guide's name, what it covers, and its section headings. Served by
+        the engine rather than read from an MCP client's install, so the
+        guides an agent reads are the guides for the engine it drives."""
+        return guides.list_guides()
+
+    @app.get("/api/guides/{name}")
+    def get_guide(name: str, section: Optional[str] = None):
+        """One guide from /api/guides, whole or one section of it. A
+        section name is matched loosely - case and punctuation dropped -
+        so a heading copied approximately still resolves. An unknown name
+        or section is a 404 whose detail lists what exists."""
+        try:
+            return guides.get_guide(name, section=section)
+        except GuideError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
     @app.post("/api/validate")
     def validate_workflow(
         request: JobRequest, ws: Workspace = Depends(selected_workspace)
@@ -1061,12 +1084,25 @@ def create_app(
                 "has the detail",
             )
         try:
-            candidate.validate()
+            errors = candidate.validation_errors()
         except Exception as e:
-            return {"valid": False, "error": str(e), "warnings": []}
+            return {
+                "valid": False,
+                "error": f"Validation error: {e}",
+                "errors": [{"path": None, "message": str(e)}],
+                "warnings": [],
+            }
+        if errors:
+            return {
+                "valid": False,
+                "error": format_validation_errors(errors),
+                "errors": errors,
+                "warnings": [],
+            }
         return {
             "valid": True,
             "error": None,
+            "errors": [],
             "warnings": workflow_argument_warnings(definition),
         }
 

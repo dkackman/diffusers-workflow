@@ -138,6 +138,10 @@ docs/WORKSPACES.md, and docs/proposals/workspaces.md for the later stages
   `--prompt-dir`, else `./prompts` if it exists, else found by walking up from the
   workflow file's directory
 
+The same conventions, written for an agent composing a workflow over MCP, are
+the `Authoring a workflow from an agent` section of docs/WORKFLOW_GUIDE.md;
+change both when one changes.
+
 ### Quantization Support
 
 Quantization configs are defined per-component in workflow JSON and instantiated in `config_objects.py`. Supported frameworks: BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto. The `config_type` field is a free-form string — new quantization backends work automatically via dynamic import.

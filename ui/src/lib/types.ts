@@ -153,6 +153,8 @@ export interface PipelineDescription {
 export interface ValidationResult {
   valid: boolean
   error: string | null
+  /** Every schema violation with its JSON path; empty when valid. */
+  errors: { path: string | null; message: string }[]
   warnings: string[]
 }
 
