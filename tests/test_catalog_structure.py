@@ -340,6 +340,10 @@ def test_no_catalog_entry_needs_trust_workflows(path):
 
 
 def test_the_remote_code_check_sees_nested_keys():
-    definition = {"steps": [{"pipeline": {"from_pretrained_arguments": {"custom_pipeline": "x"}}}]}
+    definition = {
+        "steps": [{"pipeline": {"from_pretrained_arguments": {"custom_pipeline": "x"}}}]
+    }
 
-    assert [k for k, _ in _walk(definition) if k in REMOTE_CODE_KEYS] == ["custom_pipeline"]
+    assert [k for k, _ in _walk(definition) if k in REMOTE_CODE_KEYS] == [
+        "custom_pipeline"
+    ]
