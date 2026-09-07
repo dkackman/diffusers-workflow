@@ -493,7 +493,7 @@ starts from the record rather than the intent. Updated as work lands.
 
 | proposal | status | where | notes |
 |---|---|---|---|
-| 1 shape vocabulary | done (tasks 1–4) | spec §1.1–1.3 | became one `shape` value plus boolean `traits`; `video-with-speech` is the `speech` trait; `chain` yields `shot` + `chained`, not `sequence` |
+| 1 shape vocabulary | done (tasks 1–4) | spec §1.1–1.3 | became one `shape` value plus boolean `traits`; `video-with-speech` is the `speech` trait; `chain` yields `shot` + `chained`, not `sequence`; MCP tool and instructions updated (task 5) |
 | 2 `summary` | done (tasks 1, 3) | spec §1.1 | derived from `description`'s first sentence, declared override, ≤ 120 chars |
 | 3 `cost` | designed | spec §1.1, §1.7 | per-device list, hand-authored; `workflow_name` on jobs and unique-id test ship now, observed runtime deferred |
 | 4 server-side guides | designed | spec §2.1 | supersedes `guides.py`'s "works with the server down" rationale |
