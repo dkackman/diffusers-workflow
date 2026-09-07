@@ -597,12 +597,18 @@ from dw_mcp.client import DwApiError, DwClient
 
 
 def scripted(routes):
-    """routes: {(method, path): (status, json_body)}; records params seen."""
+    """routes: {(method, path): (status, json_body)}; records params and wire path."""
     seen = []
 
     def handler(request):
         key = (request.method, request.url.path)
-        seen.append({"key": key, "params": dict(request.url.params)})
+        seen.append(
+            {
+                "key": key,
+                "params": dict(request.url.params),
+                "raw_path": request.url.raw_path,
+            }
+        )
         if key not in routes:
             return httpx.Response(404, json={"detail": f"unrouted {key}"})
         status, body = routes[key]
@@ -663,14 +669,16 @@ def test_a_404_detail_reaches_the_model_as_the_message():
 
 
 def test_a_guide_name_is_path_encoded():
-    """A name with a slash must reach the server as one segment, so its own
-    validation - not URL normalisation - decides what it means."""
+    """A name with '..' must reach the server intact, so its own validation
+    - not httpx's dot-segment normalisation - decides what it means.
+    httpx.URL.path decodes escapes for display; only raw_path shows the
+    wire bytes."""
     client, seen = scripted({})
 
     with pytest.raises(DwApiError):
         guides.get_guide(client, "../escape")
 
-    assert seen[0]["key"][1] == "/api/guides/..%2Fescape"
+    assert seen[0]["raw_path"] == b"/api/guides/..%2Fescape"
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
