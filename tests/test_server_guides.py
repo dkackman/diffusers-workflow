@@ -9,9 +9,13 @@ what the right ones are.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
 from dw.server import guides
+from dw.server.app import create_app
 from dw.server.guides import GuideError
+from dw.server.jobs import JobManager
+from tests.test_server import ScriptedWorkerManager, success_script
 
 TASKS_TEXT = (
     "# Tasks\n\n## Speech Generation\n\ngenerate_speech\n\n"
@@ -137,3 +141,61 @@ class TestTheRealDocs:
         tasks = next(g for g in guides.list_guides()["guides"] if g["name"] == "tasks")
 
         assert "Speech Generation" in tasks["sections"]
+
+
+@pytest.fixture
+def client(tmp_path, checkout):
+    """An app over the two-guide checkout; nothing here queues a job."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    prompt_dir = tmp_path / "prompts"
+    prompt_dir.mkdir()
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(workflow_dir),
+        output_dir=str(tmp_path / "outputs"),
+        prompt_dir=str(prompt_dir),
+        job_manager=manager,
+    )
+    with TestClient(app, base_url="http://localhost") as c:
+        yield c
+
+
+class TestRoutes:
+    def test_the_listing_is_the_index(self, client):
+        body = client.get("/api/guides").json()
+
+        names = [g["name"] for g in body["guides"]]
+        assert names == ["tasks", "workflows"]
+        tasks = body["guides"][0]
+        assert tasks["sections"] == ["Speech Generation", "Frame Interpolation"]
+        assert tasks["summary"].strip()
+
+    def test_a_whole_guide(self, client):
+        body = client.get("/api/guides/tasks").json()
+
+        assert body == {"name": "tasks", "section": None, "content": TASKS_TEXT}
+
+    def test_one_section_matched_loosely(self, client):
+        body = client.get(
+            "/api/guides/tasks", params={"section": "speech-generation"}
+        ).json()
+
+        assert body["section"] == "Speech Generation"
+        assert body["content"] == "## Speech Generation\n\ngenerate_speech\n"
+
+    def test_an_unknown_guide_is_a_404_naming_the_guides(self, client):
+        response = client.get("/api/guides/nonexistent")
+
+        assert response.status_code == 404
+        assert "tasks, workflows" in response.json()["detail"]
+
+    def test_an_unknown_section_is_a_404_naming_the_sections(self, client):
+        response = client.get("/api/guides/tasks", params={"section": "nope"})
+
+        assert response.status_code == 404
+        assert "Speech Generation, Frame Interpolation" in response.json()["detail"]
