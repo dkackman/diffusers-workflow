@@ -317,13 +317,21 @@ def _walk(value):
 REMOTE_CODE_KEYS = ("trust_remote_code", "custom_pipeline")
 
 
-@pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS)
+BUILTINS = sorted(
+    os.path.relpath(os.path.join(BUILTIN_DIR, name), REPO_ROOT)
+    for name in os.listdir(BUILTIN_DIR)
+    if name.endswith(".json")
+)
+
+
+@pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS + BUILTINS)
 def test_no_catalog_entry_needs_trust_workflows(path):
     """A server started without --trust-workflows refuses either key at load,
     after validation has passed. An entry that carries one runs only where an
     operator lowered that guard, and an agent has no way to find out whether
-    this server did - so the catalog carries neither, and a workflow that
-    needs remote code is written elsewhere."""
+    this server did - so the catalog carries neither, nor do the packaged
+    builtin: sub-workflows a template can compose, and a workflow that needs
+    remote code is written elsewhere."""
     definition = load(path)
 
     found = [key for key, _ in _walk(definition) if key in REMOTE_CODE_KEYS]

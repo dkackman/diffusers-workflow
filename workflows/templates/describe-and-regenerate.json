@@ -1,9 +1,11 @@
 {
     "variables": {
-        "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download:true"
+        "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download:true",
+        "vision_model": "Qwen/Qwen3-VL-4B-Instruct",
+        "language_model": "Qwen/Qwen2.5-1.5B-Instruct"
     },
     "id": "img2txt2img",
-    "description": "Describes an input image with a VLM, expands the caption with an LLM, then regenerates it with FLUX.1 dev.",
+    "description": "Describes an input image with a VLM, expands the caption with an LLM, then regenerates it with FLUX.1 dev. Both text steps are the 'text_generation' task - with an image it runs the vision model named in 'vision_model', without one the language model in 'language_model' - and 'release_models' drops each before the next model loads. Every model is one transformers ships, so nothing needs --trust-workflows.",
     "steps": [
         {
             "name": "input_image",
@@ -18,27 +20,35 @@
         },
         {
             "name": "describe_image",
-            "workflow": {
-                "path": "builtin:describe_image.json",
+            "task": {
+                "command": "text_generation",
                 "arguments": {
-                    "image": "previous_result:input_image"
+                    "prompt": "Describe this picture in detail: the subject, its setting, the light and the colours. One paragraph, no preamble.",
+                    "image": "previous_result:input_image",
+                    "model_name": "variable:vision_model",
+                    "max_new_tokens": 300
                 }
             },
             "result": {
                 "content_type": "text/plain"
-            }
+            },
+            "release_models": true
         },
         {
             "name": "augment_prompt",
-            "workflow": {
-                "path": "builtin:augment_prompt.json",
+            "task": {
+                "command": "text_generation",
                 "arguments": {
-                    "prompt": "previous_result:describe_image"
+                    "prompt": "previous_result:describe_image",
+                    "system_prompt": "You are a helpful AI assistant that creates prompts for text to image generative AI. When supplied input generate only the prompt.",
+                    "model_name": "variable:language_model",
+                    "max_new_tokens": 300
                 }
             },
             "result": {
                 "content_type": "text/plain"
-            }
+            },
+            "release_models": true
         },
         {
             "name": "flux",

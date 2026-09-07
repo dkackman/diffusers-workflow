@@ -557,7 +557,7 @@
           id={'wfpath-' + index}
           list="workflow-files"
           bind:value={step.workflow.path}
-          placeholder="Other.json, flux/FluxDev.json or builtin:augment_prompt.json"
+          placeholder="Other.json, flux/FluxDev.json or builtin:h3_context_ir.json"
         />
       </div>
       <h3>arguments</h3>

@@ -142,9 +142,9 @@ Invoke another workflow file:
 
 ```json
 {
-    "name": "augment",
+    "name": "expand",
     "workflow": {
-        "path": "builtin:augment_prompt.json",
+        "path": "builtin:h3_context_ir.json",
         "arguments": { "prompt": "variable:prompt" }
     },
     "result": { "content_type": "text/plain" }
