@@ -8,6 +8,14 @@
     "id": "ConsistentSet",
     "shape": "image-set",
     "description": "A set of pictures of one subject that differ in a single stated way, generated once and then edited. A shared seed across separate generations gives a matching style, not a matching object: each prompt still draws its own composition. Editing holds everything the instruction does not name. FLUX.1 Kontext draws the base with no input picture and edits with one, so all four steps share a single loaded pipeline - identical configurations load once. Add a step per variant, each taking the base step's result as the picture to edit.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 11.5
+        }
+    ],
     "steps": [
         {
             "name": "base",
