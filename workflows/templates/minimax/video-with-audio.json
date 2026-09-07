@@ -1,6 +1,7 @@
 {
     "id": "MiniMaxH3",
     "description": "The baseline for the MiniMax H3 family: a joint video-and-audio modular pipeline fitted onto a single consumer GPU. Shows the pieces every other H3 example builds on - a ModularPipeline whose components are loaded and quantized individually (SDNQ per component, with the numerically sensitive projections excluded), a mixed offload strategy that group offloads the transformer by blocks and the text encoder by leaves while small components stay resident, a step-distillation LoRA to cut inference steps, and a result that muxes the pipeline's video and audio outputs into one file.",
+    "summary": "The MiniMax H3 baseline: text to video with audio, fitted onto a single consumer GPU.",
     "variables": {
         "prompt": "prompt:minimax/fox_dawn_context_ir",
         "num_frames": 124,

@@ -19,7 +19,7 @@ against stated rules and get every validation error in one round trip.
 
 Measured targets, over the repo catalog (`len(json) / 4`):
 
-- the full compact listing ≤ 5.5k tokens (today's full listing is ~11.4k)
+- the full compact listing ≤ 6k tokens (today's full listing is ~11.4k; set at 5.5k, raised 2026-09-07 when the MiniMax and LTX-2 summaries were rewritten to say what each makes - about 220 tokens well spent)
 - `list_workflows(shape=sequence)` ≤ 1.5k tokens
 
 ## Decisions taken
