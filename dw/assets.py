@@ -17,7 +17,7 @@ import logging
 import os
 
 from .security import validate_asset_reference, validate_path
-from .workspace import ASSETS_SUBDIR, discover_library
+from .workspace import ASSETS_SUBDIR, discover_library, library_fallbacks
 
 logger = logging.getLogger("dw")
 
@@ -72,6 +72,23 @@ def is_asset_reference(value):
     return isinstance(value, str) and value.startswith(ASSET_PREFIX)
 
 
+def asset_search_path(asset_dir=None, base_dir=None):
+    """Every directory an 'asset:' reference is looked for in, in order.
+
+    The workspace's own library first, then the read-only ones an entry
+    point put on the path (workspace.library_fallbacks - the assets a
+    --examples-dir tree brings with it), so an example workflow reaches the
+    media it ships with while an upload still lands in the workspace.
+
+    Args:
+        asset_dir: The first directory; defaults to get_asset_dir()
+        base_dir: The workflow file's directory, anchoring discovery when no
+            asset directory is configured
+    """
+    primary = asset_dir or get_asset_dir(base_dir)
+    return [primary] + library_fallbacks(ASSETS_SUBDIR, primary)
+
+
 def resolve_asset_reference(reference, asset_dir=None, base_dir=None):
     """Resolve an 'asset:' reference to the file it names.
 
@@ -87,23 +104,25 @@ def resolve_asset_reference(reference, asset_dir=None, base_dir=None):
     Raises:
         InvalidInputError: If the name is not a valid asset name
         PathTraversalError: If the name escapes the asset directory
-        ValueError: If no file exists under that name
+        ValueError: If no file exists under that name in any directory on
+            the search path
     """
     name = validate_asset_reference(reference.removeprefix(ASSET_PREFIX).strip())
-    asset_dir = asset_dir or get_asset_dir(base_dir)
-    # Confined to the library: the name is joined onto a directory, so the
-    # containment check is what makes a name a name rather than a path
-    # allow_create leaves "does not exist" to the check below, which can say
-    # what an asset reference is instead of what a path is
-    path = validate_path(os.path.join(asset_dir, name), asset_dir)
-    if not os.path.isfile(path):
-        raise ValueError(
-            f"Asset '{name}' not found in {asset_dir} - an 'asset:' reference "
-            f"names a file in the asset library, with its extension, like "
-            f"'asset:iris.jpg' or 'asset:gyre/frame_1.jpg'"
-        )
-    logger.debug(f"Resolved {reference} to {path}")
-    return path
+    roots = asset_search_path(asset_dir, base_dir)
+    for root in roots:
+        # Confined to the library it was found in: the name is joined onto a
+        # directory, so the containment check is what makes a name a name
+        # rather than a path
+        path = validate_path(os.path.join(root, name), root)
+        if os.path.isfile(path):
+            logger.debug(f"Resolved {reference} to {path}")
+            return path
+    searched = ", ".join(roots)
+    raise ValueError(
+        f"Asset '{name}' not found in {searched} - an 'asset:' reference "
+        f"names a file in the asset library, with its extension, like "
+        f"'asset:iris.jpg' or 'asset:gyre/frame_1.jpg'"
+    )
 
 
 def fetch_asset(reference, asset_dir=None, base_dir=None):

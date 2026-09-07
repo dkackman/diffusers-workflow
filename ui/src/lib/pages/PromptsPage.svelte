@@ -9,6 +9,7 @@
 
   let prompts = $state<string[]>([])
   let details = $state<Record<string, PromptDetail>>({})
+  let origins = $state<Record<string, string>>({})
   let promptDir = $state('')
   let filter = $state('')
   let error = $state('')
@@ -20,6 +21,7 @@
       .then((result) => {
         prompts = result.prompts
         details = result.details ?? {}
+        origins = result.origins ?? {}
         promptDir = result.prompt_dir
         loaded = true
       })
@@ -82,6 +84,14 @@
       ></a>
       <span class="cardtop">
         <span class="cardname">{leafOf(name)}</span>
+        {#if origins[name] && origins[name] !== 'workspace'}
+          <span
+            class="origin muted"
+            title="read-only: from the {origins[name]} library"
+          >
+            {origins[name]}
+          </span>
+        {/if}
         {#if detail?.intended_model}
           <button
             class="chip modelchip"
@@ -122,6 +132,9 @@
 {/if}
 
 <style>
+  .origin {
+    font-size: 0.75rem;
+  }
   .head {
     display: flex;
     flex-wrap: wrap;

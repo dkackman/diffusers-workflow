@@ -246,6 +246,87 @@ def set_workspace(workspace):
     return workspace
 
 
+# Read-only libraries searched after the one a run writes to. A tree named
+# by --examples-dir brings the prompts and assets its workflows reference
+# along with it, and neither is reachable from the workspace's own library -
+# the search path is what closes that. Carried in the environment, joined by
+# os.pathsep, so a spawned worker inherits it the way it inherits
+# DW_PROMPT_DIR and DW_ASSET_DIR
+PROMPT_PATH_ENV_VAR = "DW_PROMPT_PATH"
+ASSET_PATH_ENV_VAR = "DW_ASSET_PATH"
+
+LIBRARY_PATH_ENV_VARS = {
+    PROMPTS_SUBDIR: PROMPT_PATH_ENV_VAR,
+    ASSETS_SUBDIR: ASSET_PATH_ENV_VAR,
+}
+
+
+def library_fallbacks(subdir, primary=None):
+    """The read-only roots a library is searched in after its own, in order.
+
+    Args:
+        subdir: 'prompts' or 'assets'
+        primary: The library that is searched first, dropped from the result
+            when it also appears here - a checkout serving as both the
+            workspace and the examples tree has one library, not two
+
+    Returns:
+        A list of absolute paths, each an existing directory
+    """
+    raw = os.environ.get(LIBRARY_PATH_ENV_VARS[subdir], "")
+    first = os.path.abspath(os.path.expanduser(str(primary))) if primary else None
+    roots = []
+    for entry in raw.split(os.pathsep):
+        if not entry.strip():
+            continue
+        root = os.path.abspath(os.path.expanduser(entry))
+        if root == first or root in roots or not os.path.isdir(root):
+            continue
+        roots.append(root)
+    return roots
+
+
+def set_library_fallbacks(subdir, roots):
+    """Pin a library's read-only roots in the environment, so the worker
+    subprocess resolves a reference exactly as the entry point would."""
+    joined = os.pathsep.join(
+        os.path.abspath(os.path.expanduser(str(root))) for root in roots or []
+    )
+    if joined:
+        os.environ[LIBRARY_PATH_ENV_VARS[subdir]] = joined
+    else:
+        os.environ.pop(LIBRARY_PATH_ENV_VARS[subdir], None)
+    return joined
+
+
+def example_libraries(examples_dirs):
+    """The prompt and asset libraries the trees named by --examples-dir
+    bring with them.
+
+    A workflows/ tree inside a checkout keeps the prompts and assets its
+    workflows reference beside it, so the sibling of each examples directory
+    is where they are; a directory that holds them itself - someone pointing
+    --examples-dir at a whole workspace - is checked first, and either can
+    be missing.
+
+    Args:
+        examples_dirs: The directories --examples-dir named, in order
+
+    Returns:
+        {'prompts': [roots], 'assets': [roots]}, deduplicated, in the order
+        the examples directories were given
+    """
+    found = {PROMPTS_SUBDIR: [], ASSETS_SUBDIR: []}
+    for directory in examples_dirs or []:
+        root = os.path.abspath(os.path.expanduser(str(directory)))
+        for holder in (root, os.path.dirname(root)):
+            for subdir in found:
+                candidate = os.path.join(holder, subdir)
+                if os.path.isdir(candidate) and candidate not in found[subdir]:
+                    found[subdir].append(candidate)
+    return found
+
+
 def discover_library(subdir, env_var, base_dir=None):
     """Where a shared library (prompts, assets) is rooted, by the precedence
     get_prompt_dir and get_asset_dir both need: an environment variable names

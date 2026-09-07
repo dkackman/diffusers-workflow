@@ -79,6 +79,16 @@ examples workflow runs confined to the examples directory rather than to the
 writable one. Packaged `dw/workflows/` is off the path - it is what `builtin:`
 sub-workflow steps name, resolved in `dw/workflow.py`.
 
+The prompt and asset libraries have the same shape: each `--examples-dir`
+brings the `prompts/` and `assets/` beside it (`example_libraries` in
+`dw/workspace.py`), pinned into `DW_PROMPT_PATH` / `DW_ASSET_PATH` by
+`dw.serve` so the spawned worker resolves as the API does. `prompt_search_path`
+/ `asset_search_path` put the workspace's own library first, so a workspace
+name shadows an example's; `GET /api/prompts` and `GET /api/assets` span the
+path and tag each entry with its `origin`; writes (`PUT /api/prompts`, uploads,
+keep-as-asset) only ever land in the workspace, and deleting a read-only prompt
+answers 403.
+
 ### Workspaces
 
 `dw/workspace.py` resolves the one directory a run's content belongs to -

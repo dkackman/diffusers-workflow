@@ -15,6 +15,7 @@ import type {
   ServerInfo,
   ValidationResult,
   WorkflowDefinition,
+  StoredPrompt,
   WorkflowWithOrigin,
 } from './types'
 import { getApiToken } from './token'
@@ -417,12 +418,26 @@ export const api = {
     ),
   listPrompts: () =>
     request<{
+      /** The writable library - where a save lands. */
       prompt_dir: string
+      /** The search path, writable library first. Absent from an older
+       * server, which had only the one. */
+      prompt_dirs?: string[]
       prompts: string[]
+      /** Which library each name came from: 'workspace' or 'examples'. */
+      origins?: Record<string, string>
       details: Record<string, PromptDetail>
     }>('/api/prompts'),
+  /** The prompt plus which library it came from, read off the response
+   * headers rather than a separate `listPrompts` lookup. */
   getPrompt: (name: string) =>
-    request<PromptDefinition>(`/api/prompts/${encodePath(name)}`),
+    fetchJson<PromptDefinition>(`/api/prompts/${encodePath(name)}`).then(
+      ({ body, response }): StoredPrompt => ({
+        prompt: body,
+        origin: response.headers.get('X-Prompt-Origin') ?? '',
+        writable: response.headers.get('X-Prompt-Writable') !== 'false',
+      }),
+    ),
   savePrompt: (name: string, prompt: PromptDefinition) =>
     request<{ name: string; path: string }>(
       `/api/prompts/${encodePath(name)}`,
