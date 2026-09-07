@@ -9,6 +9,9 @@
     },
     "id": "FluxDev",
     "description": "Text-to-image with FLUX.1 dev - the reference FLUX workflow.",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 1.0}
+    ],
     "configures": "templates/text-to-image",
     "steps": [
         {

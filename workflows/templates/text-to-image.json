@@ -5,6 +5,9 @@
     },
     "id": "text-to-image",
     "description": "Baseline text-to-image with Stable Diffusion 1.5 - the smallest, fastest starting point.",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 0.2}
+    ],
     "steps": [
         {
             "name": "main",

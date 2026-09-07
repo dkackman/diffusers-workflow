@@ -12,6 +12,9 @@
     "seed": "variable:seed",
     "id": "ZImage",
     "description": "Text-to-image with Z-Image Turbo - photorealistic output in nine steps.",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 1.4}
+    ],
     "configures": "templates/text-to-image",
     "steps": [
         {
