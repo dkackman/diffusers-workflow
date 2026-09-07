@@ -1,6 +1,9 @@
 # Proposal: making dw legible to an agent — discovery, authoring, and model-specific knowledge
 
-Status: proposed, 2026-09-06. Synthesizes and replaces two prior proposals,
+Status: Parts 1–2 designed 2026-09-06 — see the
+[design spec](../superpowers/specs/2026-09-06-agent-catalog-legibility-design.md)
+and the **Ledger** at the end of this document, which records what was
+actually done against each proposal. Parts 3–4 remain open. Synthesizes and replaces two prior proposals,
 `catalog-shape-index.md` and `mcp-discovery-data.md` (both fully folded into
 this document and deleted — see git history for the original framing), plus
 the discovery-facing conclusion of
@@ -482,3 +485,24 @@ delivers it.
 Each phase is independent of the next and each shrinks or de-risks what the
 agent reads or must infer; 1 and 2 together are the highest-value,
 lowest-risk pair and can ship before anything else on this list.
+
+## Ledger
+
+What was actually done against each proposal, kept here so a future phase
+starts from the record rather than the intent. Updated as work lands.
+
+| proposal | status | where | notes |
+|---|---|---|---|
+| 1 shape vocabulary | designed | spec §1.1–1.3 | became one `shape` value plus boolean `traits`; `video-with-speech` is the `speech` trait; `chain` yields `shot` + `chained`, not `sequence` |
+| 2 `summary` | designed | spec §1.1 | derived from `description`'s first sentence, declared override, ≤ 120 chars |
+| 3 `cost` | designed | spec §1.1, §1.7 | per-device list, hand-authored; `workflow_name` on jobs and unique-id test ship now, observed runtime deferred |
+| 4 server-side guides | designed | spec §2.1 | supersedes `guides.py`'s "works with the server down" rationale |
+| 5 drift checks | designed | spec §1.8 | backticked variable names; redundant-override and summary-cap tests |
+| 6 UI | designed | spec plan 3 | client-side filter; templates-first grouping |
+| 7 authoring guide | designed | spec §2.3 | one new `WORKFLOW_GUIDE.md` section; `CLAUDE.md` points at it |
+| 8 multi-error validation | designed | spec §2.2 | `validate_data_all`, capped at 25, additive `/api/validate` shape |
+| 9 composition rules | designed | spec §2.3 | folded into the authoring section |
+| 10 save-time metadata | designed | spec §1.6 | derived and returned on save; empty summary warns, never rejects |
+| Part 3 constraint | carried | spec "Principle" | derivation reads structure, never model family |
+| Part 4 packaging | open | — | note for later: `templates/minimax/README.md` and `ltx2/README.md` are already model knowledge as data, unindexed — a third channel |
+
