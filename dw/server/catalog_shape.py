@@ -32,7 +32,7 @@ GENERATIVE_TASKS = frozenset(
 SUMMARY_LIMIT = 120
 
 _KIND_PRECEDENCE = ("video", "audio", "image", "text")
-_EDIT_PIPELINE = re.compile(r"inpaint|img2img|edit|upscale|outpaint|kontext", re.I)
+_EDIT_PIPELINE = re.compile(r"inpaint|img2img|edit|upscale|outpaint", re.I)
 _CHAIN_ARGUMENTS = frozenset({"last_frame", "last_segment", "last_image", "match_audio"})
 _MEDIA_ARGUMENTS = frozenset({"image", "video", "audio", "mask_image"})
 _CUT_TASKS = frozenset({"concat_videos", "dissolve_videos"})
@@ -173,16 +173,25 @@ def _derive_traits(steps):
     return sorted(traits)
 
 
+def _truncate(text):
+    """One line, cut at a word boundary and elided if it runs past the limit.
+
+    A declared summary goes through this too: `workflow_details` reads a file
+    without validating it, so the schema's maxLength never runs on that path
+    and a long declaration would otherwise reach a listing unclipped.
+    """
+    if len(text) <= SUMMARY_LIMIT:
+        return text, False
+    cut = text[: SUMMARY_LIMIT - 1]
+    cut = cut[: cut.rfind(" ")] if " " in cut else cut
+    return cut.rstrip() + "…", True
+
+
 def _derive_summary(description):
     text = str(description or "").strip()
     if not text:
         return "", False
-    first = _SENTENCE_END.split(text, maxsplit=1)[0].strip()
-    if len(first) <= SUMMARY_LIMIT:
-        return first, False
-    cut = first[: SUMMARY_LIMIT - 1]
-    cut = cut[: cut.rfind(" ")] if " " in cut else cut
-    return cut.rstrip() + "…", True
+    return _truncate(_SENTENCE_END.split(text, maxsplit=1)[0].strip())
 
 
 def derive_catalog_metadata(definition):
@@ -209,7 +218,7 @@ def derive_catalog_metadata(definition):
         declared.add("traits")
     summary, truncated = _derive_summary(definition.get("description"))
     if isinstance(definition.get("summary"), str) and definition["summary"].strip():
-        summary, truncated = definition["summary"].strip(), False
+        summary, truncated = _truncate(definition["summary"].strip())
         declared.add("summary")
     return {
         "shape": shape,

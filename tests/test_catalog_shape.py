@@ -72,11 +72,20 @@ def test_a_workflow_step_emitting_images_is_an_image_set():
 
 
 @pytest.mark.parametrize(
-    "component_type", ["FluxImg2ImgPipeline", "StableDiffusionInpaintPipeline", "QwenImageEditPipeline", "FluxKontextPipeline", "StableDiffusionUpscalePipeline"]
+    "component_type", ["FluxImg2ImgPipeline", "StableDiffusionInpaintPipeline", "QwenImageEditPipeline", "StableDiffusionUpscalePipeline"]
 )
 def test_an_editing_pipeline_is_image_edit(component_type):
     meta = derive_catalog_metadata(definition(pipeline_step("gen", "image/jpeg", component_type)))
     assert meta["shape"] == "image-edit"
+
+
+def test_an_edit_pipeline_the_name_does_not_betray_is_caught_by_its_image_argument():
+    """No model-family name is in the rules, so a product-named editor is read
+    structurally: it takes an image in, which is what makes it an edit."""
+    step = pipeline_step(
+        "gen", "image/jpeg", "FluxKontextPipeline", arguments={"prompt": "p", "image": "variable:image"}
+    )
+    assert derive_catalog_metadata(definition(step))["shape"] == "image-edit"
 
 
 def test_an_image_argument_on_an_image_pipeline_is_image_edit():
@@ -251,6 +260,19 @@ def test_declarations_override_and_are_reported():
     assert meta["traits"] == ["chained"]
     assert meta["summary"] == "Declared."
     assert meta["declared"] == {"shape", "traits", "summary"}
+
+
+def test_a_long_declared_summary_is_truncated_too():
+    """workflow_details reads a file without validating it, so the schema's
+    maxLength never runs there - the derivation clips a declaration itself."""
+    meta = derive_catalog_metadata(
+        definition(pipeline_step("g", "image/jpeg"), summary=" ".join(["word"] * 40) + ".")
+    )
+    assert len(meta["summary"]) <= SUMMARY_LIMIT
+    assert meta["summary"].endswith("…")
+    assert not meta["summary"][:-1].endswith(" ")
+    assert meta["summary_truncated"] is True
+    assert meta["declared"] == {"summary"}
 
 
 def test_an_empty_or_malformed_definition_derives_something():
