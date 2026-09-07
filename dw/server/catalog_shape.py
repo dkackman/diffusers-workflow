@@ -227,3 +227,58 @@ def derive_catalog_metadata(definition):
         "summary_truncated": truncated,
         "declared": declared,
     }
+
+
+COMPACT_FIELDS = (
+    "summary",
+    "shape",
+    "traits",
+    "cost",
+    "kinds",
+    "steps",
+    "variables",
+    "variable_names",
+    "configures",
+)
+
+
+def project_listing(details, *, shape=None, traits=None, configures=None, include_models=False, view=None):
+    """The listing an agent asked for: filtered by shape and traits, and in
+    the compact view stripped to what choosing a template needs.
+
+    Compact is templates-only unless `include_models` or `configures` says
+    otherwise - nine checkpoint variants of text-to-image are the noise the
+    two-tree split removed. A workflow with no `configures` is a template
+    for this purpose, whichever directory it sits in: a user wrote it to be
+    found. The full view never drops entries or fields.
+    """
+    if shape is not None and shape not in SHAPES:
+        raise ValueError(f"Unknown shape {shape!r}. The shapes are: {', '.join(SHAPES)}.")
+    traits = list(traits or [])
+    unknown = [t for t in traits if t not in TRAITS]
+    if unknown:
+        raise ValueError(f"Unknown trait(s) {', '.join(unknown)}. The traits are: {', '.join(TRAITS)}.")
+    if view not in (None, "compact"):
+        raise ValueError("view must be 'compact' or omitted")
+
+    compact = view == "compact"
+    keep_models = include_models or configures is not None or not compact
+    projected = {}
+    for name, detail in details.items():
+        is_model = bool(detail.get("configures") or detail.get("configures_missing"))
+        if shape is not None and detail.get("shape") != shape:
+            continue
+        if traits and not set(traits) <= set(detail.get("traits", [])):
+            continue
+        if configures is not None and detail.get("configures") != configures:
+            continue
+        if is_model and not keep_models:
+            continue
+        if compact:
+            slim = {key: detail.get(key) for key in COMPACT_FIELDS}
+            if detail.get("configures_missing"):
+                slim["configures_missing"] = detail["configures_missing"]
+            projected[name] = slim
+        else:
+            projected[name] = detail
+    return projected

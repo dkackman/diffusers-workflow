@@ -302,3 +302,72 @@ def test_a_declared_cost_validates_and_a_bad_one_does_not():
     assert not bad and "cost" in message
     bad, _ = validate_data({**base, "shape": "cinematic"}, schema)
     assert not bad
+
+
+from dw.server.catalog_shape import COMPACT_FIELDS, project_listing
+
+
+def entry(shape, traits=(), configures="", **extra):
+    return {
+        "kinds": [], "steps": 1, "variables": 0, "variable_names": [],
+        "description": "long text", "configures": configures, "prompt_refs": [],
+        "origin": "workspace", "writable": True,
+        "shape": shape, "traits": sorted(traits), "summary": "short", "cost": None,
+        **extra,
+    }
+
+
+LISTING = {
+    "templates/tti": entry("image"),
+    "templates/talk": entry("sequence", ["speech", "identity-referenced"]),
+    "templates/clip": entry("shot", ["speech"]),
+    "models/flux": entry("image", configures="templates/tti"),
+    "mine": entry("image"),
+}
+
+
+def test_no_options_returns_the_listing_untouched():
+    assert project_listing(LISTING) == LISTING
+
+
+def test_shape_filters():
+    assert set(project_listing(LISTING, shape="shot")) == {"templates/clip"}
+
+
+def test_traits_must_all_match():
+    assert set(project_listing(LISTING, traits=["speech"])) == {"templates/talk", "templates/clip"}
+    assert set(project_listing(LISTING, traits=["speech", "identity-referenced"])) == {"templates/talk"}
+
+
+def test_configures_filters_to_a_templates_configs():
+    assert set(project_listing(LISTING, configures="templates/tti")) == {"models/flux"}
+
+
+def test_compact_drops_prose_and_model_configs_and_keeps_user_workflows():
+    compact = project_listing(LISTING, view="compact")
+    assert set(compact) == {"templates/tti", "templates/talk", "templates/clip", "mine"}
+    assert set(compact["templates/tti"]) == set(COMPACT_FIELDS)
+    assert "description" not in compact["templates/tti"]
+
+
+def test_compact_with_include_models_keeps_them():
+    assert "models/flux" in project_listing(LISTING, view="compact", include_models=True)
+
+
+def test_compact_with_configures_implies_models():
+    assert set(project_listing(LISTING, view="compact", configures="templates/tti")) == {"models/flux"}
+
+
+def test_compact_keeps_configures_missing_when_set():
+    listing = {"models/typo": entry("image", configures="", configures_missing="templates/nope")}
+    compact = project_listing(listing, view="compact", include_models=True)
+    assert compact["models/typo"]["configures_missing"] == "templates/nope"
+
+
+def test_unknown_shape_or_trait_names_the_vocabulary():
+    with pytest.raises(ValueError) as caught:
+        project_listing(LISTING, shape="cinematic")
+    assert "sequence" in str(caught.value)
+    with pytest.raises(ValueError) as caught:
+        project_listing(LISTING, traits=["fast"])
+    assert "speech" in str(caught.value)

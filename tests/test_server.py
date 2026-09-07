@@ -1449,6 +1449,40 @@ def test_a_workflow_that_configures_nothing_says_so(server):
         assert listing["details"]["Basic"]["configures"] == ""
 
 
+def test_the_listing_filters_and_compacts(server):
+    with server(success_script) as client:
+        client.put("/api/workflows/templates/clip", json={"workflow": video_workflow("clip")})
+        tuned = video_workflow("tuned")
+        tuned["configures"] = "templates/clip"
+        client.put("/api/workflows/models/tuned", json={"workflow": tuned})
+
+        full = client.get("/api/workflows").json()
+        assert set(full["details"]) == {"Basic", "templates/clip", "models/tuned"}
+
+        by_shape = client.get("/api/workflows", params={"shape": "shot"}).json()
+        assert set(by_shape["details"]) == {"templates/clip", "models/tuned"}
+        assert by_shape["workflows"] == sorted(by_shape["details"])
+
+        compact = client.get("/api/workflows", params={"view": "compact"}).json()
+        assert set(compact["details"]) == {"Basic", "templates/clip"}
+        assert "description" not in compact["details"]["templates/clip"]
+        assert compact["details"]["templates/clip"]["summary"] == "One clip from a prompt."
+
+        with_models = client.get("/api/workflows", params={"view": "compact", "include_models": "true"}).json()
+        assert "models/tuned" in with_models["details"]
+
+        configs = client.get("/api/workflows", params={"configures": "templates/clip"}).json()
+        assert set(configs["details"]) == {"models/tuned"}
+
+        by_trait = client.get("/api/workflows", params={"traits": "speech"}).json()
+        assert "Basic" not in by_trait["details"]
+
+        bad = client.get("/api/workflows", params={"shape": "cinematic"})
+        assert bad.status_code == 400 and "sequence" in bad.json()["detail"]
+        bad = client.get("/api/workflows", params={"traits": "speech,fast"})
+        assert bad.status_code == 400 and "fast" in bad.json()["detail"]
+
+
 @pytest.fixture
 def examples_server(tmp_path):
     """A server whose workspace library is empty and whose examples come

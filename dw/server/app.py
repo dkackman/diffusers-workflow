@@ -85,7 +85,7 @@ from ..workflow_sources import (
 from .jobs import JobManager, MAX_PERSISTED_EVENTS, TERMINAL_STATES
 from .netinfo import local_addresses
 from .updater import DiffusersUpdater
-from .catalog_shape import derive_catalog_metadata
+from .catalog_shape import derive_catalog_metadata, project_listing
 
 logger = logging.getLogger("dw")
 
@@ -1126,18 +1126,43 @@ def create_app(
     # ------------------------------------------------------------- workflows
 
     @app.get("/api/workflows")
-    def list_workflows(ws: Workspace = Depends(selected_workspace)):
+    def list_workflows(
+        ws: Workspace = Depends(selected_workspace),
+        shape: Optional[str] = None,
+        traits: Optional[str] = None,
+        configures: Optional[str] = None,
+        include_models: bool = False,
+        view: Optional[str] = None,
+    ):
         """Every workflow the search path offers, each detail saying which
         source it came from and whether it can be written to. 'workflow_dir'
-        stays the writable one - what a save targets."""
+        stays the writable one - what a save targets.
+
+        `shape`, `traits` (comma-separated, all must match) and `configures`
+        narrow the listing; `view=compact` is the agent's view - summaries
+        rather than descriptions, templates rather than model configs
+        unless `include_models` asks for them. `workflows` always names
+        exactly the entries `details` holds.
+        """
         sources = _sources_for(ws)
         found = listing(sources)
+        try:
+            details = project_listing(
+                workflow_details(found),
+                shape=shape,
+                traits=[t for t in (traits or "").split(",") if t],
+                configures=configures,
+                include_models=include_models,
+                view=view,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         return {
             "workspace": ws.name,
             "workflow_dir": ws.workflows,
             "sources": [source.to_dict() for source in sources],
-            "workflows": list(found),
-            "details": workflow_details(found),
+            "workflows": sorted(details),
+            "details": details,
         }
 
     @app.put("/api/workflows/{name:path}")
