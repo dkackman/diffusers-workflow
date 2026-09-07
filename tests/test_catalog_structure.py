@@ -174,3 +174,29 @@ def test_a_description_names_only_variables_the_workflow_declares(path):
     mentioned = set(BACKTICKED.findall(definition.get("description", "")))
     undeclared = (mentioned & catalog_variables) - declared
     assert not undeclared, f"{path} describes {sorted(undeclared)} but declares no such variable"
+
+
+from dw.server.app import workflow_details
+from dw.server.catalog_shape import project_listing
+from dw.workflow_sources import WorkflowSource, listing
+
+# Spec targets, as chars / 4. The listing is the first thing an agent reads;
+# these are the ceilings that keep it readable rather than skimmed.
+COMPACT_BUDGET = 5_500
+FILTERED_BUDGET = 1_500
+
+
+def _tokens(payload):
+    return len(json.dumps(payload)) / 4
+
+
+def test_the_compact_listing_fits_the_budget():
+    found = listing([WorkflowSource(os.path.join(REPO_ROOT, "workflows"), "workspace", True)])
+    details = workflow_details(found)
+
+    compact = project_listing(details, view="compact")
+    assert _tokens(compact) <= COMPACT_BUDGET, f"compact listing is {_tokens(compact):.0f} tokens"
+
+    sequences = project_listing(details, view="compact", shape="sequence")
+    assert sequences, "no template derives 'sequence'"
+    assert _tokens(sequences) <= FILTERED_BUDGET, f"shape=sequence is {_tokens(sequences):.0f} tokens"
