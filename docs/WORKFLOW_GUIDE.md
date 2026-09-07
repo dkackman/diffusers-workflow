@@ -271,7 +271,13 @@ not validation.
   prefixes; the engine rejects such a prompt rather than resolving twice.
 
 A reference is resolved wherever it appears in the arguments, including inside
-a nested object or list — not only at the top level.
+a nested object or list — not only at the top level. It is always the *whole*
+value: `"variable:base_prompt"` resolves, `"variable:base_prompt, in fog"` asks
+for a variable named `base_prompt, in fog` and fails the run. Nothing is
+interpolated around a reference. To vary a fixed prompt across steps, write
+each full prompt out, or put the shared text in a variable and let a step's
+argument override it whole. `validate_workflow` warns about a `variable:`
+reference that names nothing the workflow declares.
 
 ### Types and escaping
 

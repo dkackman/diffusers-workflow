@@ -86,6 +86,38 @@ def replace_variables(data, variables):
     return copy.deepcopy(data)
 
 
+def undeclared_variable_references(definition):
+    """The "variable:name" references in a workflow definition that name no
+    entry of its `variables` - the ones `replace_variables` will refuse at run
+    time, found before anything loads.
+
+    Walks everything but `variables` itself, the way resolution does. Returns
+    a list of (path, name) pairs, path being where the reference sits
+    (`steps[0].pipeline.arguments.prompt`) and name what it asked for - which
+    is the whole remainder of the string, since a reference is the entire
+    value and nothing is interpolated around it.
+    """
+    declared = definition.get("variables") or {}
+    found = []
+
+    def walk(node, path):
+        if isinstance(node, str) and node.startswith("variable:"):
+            name = node.removeprefix("variable:")
+            if name not in declared:
+                found.append((path, name))
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                walk(v, f"{path}.{k}" if path else k)
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, f"{path}[{i}]")
+
+    for key, value in definition.items():
+        if key != "variables":
+            walk(value, key)
+    return found
+
+
 def set_variables(values, variables):
     """
     Sets the values of variables from a dictionary of new values with validation
