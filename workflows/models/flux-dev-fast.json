@@ -1,11 +1,15 @@
 {
     "id": "FluxDevFast",
-    "description": "Flux dev tuned for speed on a 24GB card: int8 TorchAO quantization on the transformer (quantized directly onto the GPU - quantized tensors cannot be moved between devices, so it stays resident), regional torch.compile, first-block caching, and group offload for the T5 encoder. On Ada/40-series cards use Float8DynamicActivationFloat8WeightConfig instead of Int8WeightOnlyConfig.",
+    "description": "FLUX.1 dev with regional torch.compile on the transformer, otherwise the plain bf16 model-offload configuration of models/flux-dev. Measured on an RTX 3090 (24GB) at 1024x1024, 28 steps: 52s per image with the pipeline loaded against 55s for models/flux-dev, 64s against 72s cold. The earlier int8 TorchAO recipe this entry carried ran at over a minute per denoising step on the same card, with or without the first-block cache, so it is gone; float8 TorchAO needs an Ada (40-series) card and is unmeasured here. The compile is skipped with a warning on MPS.",
+    "summary": "FLUX.1 dev, bf16 model offload plus regional compile: 52s per 1024x1024 image on an RTX 3090, 55s without.",
     "configures": "templates/text-to-image",
     "variables": {
         "prompt": "a marmot wearing a tophat, in a forest scene.",
         "num_inference_steps": 28,
-        "model_name": "black-forest-labs/FLUX.1-schnell"
+        "guidance_scale": 3.5,
+        "width": 1024,
+        "height": 1024,
+        "model_name": "black-forest-labs/FLUX.1-dev"
     },
     "steps": [
         {
@@ -13,48 +17,13 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "cache": {
-                        "type": "first_block",
-                        "threshold": 0.05
-                    },
+                    "offload": "model",
                     "components": {
                         "transformer": {
                             "compile": {
                                 "repeated_blocks": true
                             }
-                        },
-                        "text_encoder_2": {
-                            "group_offload": {
-                                "offload_type": "leaf_level",
-                                "use_stream": true
-                            }
-                        },
-                        "text_encoder": {
-                            "device": "cuda"
-                        },
-                        "vae": {
-                            "device": "cuda"
                         }
-                    }
-                },
-                "transformer": {
-                    "configuration": {
-                        "component_type": "FluxTransformer2DModel",
-                        "preserve_device_placement": true
-                    },
-                    "quantization_config": {
-                        "configuration": {
-                            "config_type": "TorchAoConfig"
-                        },
-                        "arguments": {
-                            "quant_type": "torchao.quantization.Int8WeightOnlyConfig"
-                        }
-                    },
-                    "from_pretrained_arguments": {
-                        "model_name": "variable:model_name",
-                        "subfolder": "transformer",
-                        "torch_dtype": "torch.bfloat16",
-                        "device_map": "cuda"
                     }
                 },
                 "from_pretrained_arguments": {
@@ -63,7 +32,11 @@
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
-                    "num_inference_steps": "variable:num_inference_steps"
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "guidance_scale": "variable:guidance_scale",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "max_sequence_length": 512
                 }
             },
             "result": {

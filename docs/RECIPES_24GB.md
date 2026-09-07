@@ -12,15 +12,23 @@ The general recipe, in order of impact:
 
 ## Flux dev (12B)
 
-The bf16 transformer is ~24GB - it does not fit alongside the T5 encoder. Two good options:
+The bf16 transformer is ~24GB - it does not fit alongside the T5 encoder, and it does
+not fit alongside the VAE either: a resident bf16 transformer runs the denoise and then
+fails at decode. `offload: "model"` is what makes bf16 work on 24GB, and on an RTX 3090
+it is also the fastest configuration measured (1024x1024, 28 steps, pipeline loaded):
 
-| Approach | Config | Notes |
-| -------- | ------ | ----- |
-| **int8 TorchAO** (RTX 30-series) | transformer `quant_type: "torchao.quantization.Int8WeightOnlyConfig"` + `compile` + `cache: first_block` + `offload: "model"` | Needs compile to be fast. |
-| **float8 TorchAO** (RTX 40-series+) | same, with `Float8DynamicActivationFloat8WeightConfig` | Fastest, but fp8 needs compute capability 8.9+ (Ada). |
-| **GGUF Q8** | `from_single_file` Q8_0 transformer + `offload: "model"` | Simplest, best quality retention, slower than TorchAO+compile. |
+| Approach | Config | Measured on RTX 3090 |
+| -------- | ------ | -------------------- |
+| **bf16 + model offload** | [flux-dev.json](../workflows/models/flux-dev.json) | 55s per image (72s cold) |
+| **bf16 + model offload + compile** | [flux-dev-fast.json](../workflows/models/flux-dev-fast.json) - `compile: {repeated_blocks: true}` on the transformer | 52s per image (64s cold) |
+| **int8 TorchAO** | transformer `quant_type: "torchao.quantization.Int8WeightOnlyConfig"` + `compile`, with or without `cache: first_block` | over 60s per *denoising step* - do not use on Ampere |
+| **float8 TorchAO** (RTX 40-series+) | `Float8DynamicActivationFloat8WeightConfig` + `compile` | needs compute capability 8.9+ (Ada); unmeasured |
+| **GGUF Q8** | [flux-gguf.json](../workflows/models/flux-gguf.json) - `from_single_file` Q8_0 transformer + `offload: "model"` | unmeasured; smallest VRAM, best quality retention |
 
-**Examples:** [flux-dev-fast.json](../workflows/models/flux-dev-fast.json) (the int8 recipe - swap in `Float8DynamicActivationFloat8WeightConfig` on Ada or newer), [flux-gguf.json](../workflows/models/flux-gguf.json), [step-caching.json](../workflows/templates/step-caching.json)
+Measured 2026-09-07. A number in this table came from a run on the named card; a row
+without one is a configuration that loads, not a speed claim.
+
+**Examples:** [flux-dev-fast.json](../workflows/models/flux-dev-fast.json), [flux-gguf.json](../workflows/models/flux-gguf.json), [step-caching.json](../workflows/templates/step-caching.json)
 
 ## Qwen-Image (20B)
 

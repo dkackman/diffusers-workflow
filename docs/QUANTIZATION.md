@@ -82,7 +82,10 @@ RTX 40-series/Ada or newer).
 
 **Pair TorchAO with `torch.compile`.** Int8 weight-only and float8 dynamic-activation
 quant types get their fused-kernel speedups only under compilation - uncompiled they are
-a memory win but often a speed *loss*. Add a `compile` block to the quantized component
+a memory win but often a speed *loss*. Compiled is not a guarantee either: int8 weight-only
+on an RTX 3090 measured over a minute per denoising step for Flux dev, compiled, against
+two seconds for bf16 (see [RECIPES_24GB.md](RECIPES_24GB.md#flux-dev-12b)). Measure on the
+card before recording a TorchAO recipe as fast. Add a `compile` block to the quantized component
 (see [ACCELERATION.md](ACCELERATION.md#torchcompile)):
 
 ```json
