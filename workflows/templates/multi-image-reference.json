@@ -13,6 +13,14 @@
     },
     "id": "Flux2DevImageCombine",
     "description": "FLUX.2 dev combining multiple reference images into a single generation. Loads its 4-bit text encoder locally with model offloading rather than calling a remote encoder.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 2.5
+        }
+    ],
     "steps": [
         {
             "name": "txt2img",
