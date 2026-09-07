@@ -316,7 +316,12 @@ signal to restructure the workflow, not to add another reference.
 3. `save_workflow` — validates again on the way in and returns the catalog
    metadata the saved draft will carry.
 4. `run_workflow` with `acknowledged_cost=true`, after telling the user what it
-   costs. Without the acknowledgement the call is refused.
+   costs. Without the acknowledgement the call is refused. A workflow you wrote
+   or copied carries no `cost` of its own, but the pipeline inside it usually
+   does: `list_workflows(include_models=true)` finds the `models/` entry that
+   loads the same checkpoint, and its per-image figure times the number of
+   images is the number to quote. Say "a few minutes" only when no entry with
+   that pipeline has been measured.
 5. `wait_for_job` rather than a polling loop; call it again if it returns
    `still_running: true`.
 6. `get_output_image` to look at what was actually made, and say whether it
