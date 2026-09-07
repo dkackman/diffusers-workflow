@@ -15,7 +15,16 @@ read structure (a concat step, a `references` argument), never checkpoints.
 
 import re
 
-SHAPES = ("image", "image-set", "image-edit", "shot", "sequence", "audio", "text", "utility")
+SHAPES = (
+    "image",
+    "image-set",
+    "image-edit",
+    "shot",
+    "sequence",
+    "audio",
+    "text",
+    "utility",
+)
 TRAITS = (
     "has-audio",
     "chained",
@@ -27,13 +36,21 @@ TRAITS = (
 # Tasks that create content rather than process it. A workflow made only
 # of processing tasks is a utility.
 GENERATIVE_TASKS = frozenset(
-    {"generate_speech", "text_generation", "image_to_text", "diffusion_upscale", "interpolate_frames"}
+    {
+        "generate_speech",
+        "text_generation",
+        "image_to_text",
+        "diffusion_upscale",
+        "interpolate_frames",
+    }
 )
 SUMMARY_LIMIT = 120
 
 _KIND_PRECEDENCE = ("video", "audio", "image", "text")
 _EDIT_PIPELINE = re.compile(r"inpaint|img2img|edit|upscale|outpaint", re.I)
-_CHAIN_ARGUMENTS = frozenset({"last_frame", "last_segment", "last_image", "match_audio"})
+_CHAIN_ARGUMENTS = frozenset(
+    {"last_frame", "last_segment", "last_image", "match_audio"}
+)
 _MEDIA_ARGUMENTS = frozenset({"image", "video", "audio", "mask_image", "urls"})
 _CUT_TASKS = frozenset({"concat_videos", "dissolve_videos"})
 # Components that exist only to synthesise a waveform. A video pipeline
@@ -44,7 +61,11 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s|\n")
 
 def _steps(definition):
     steps = definition.get("steps") if isinstance(definition, dict) else None
-    return [step for step in steps if isinstance(step, dict)] if isinstance(steps, list) else []
+    return (
+        [step for step in steps if isinstance(step, dict)]
+        if isinstance(steps, list)
+        else []
+    )
 
 
 def _block(step):
@@ -121,7 +142,10 @@ def _needs_input_media(steps):
             # A list argument (gather_images' `urls`) carries the same fact
             # one level in.
             candidates = value if isinstance(value, list) else [value]
-            if any(isinstance(item, str) and item.startswith("variable:") for item in candidates):
+            if any(
+                isinstance(item, str) and item.startswith("variable:")
+                for item in candidates
+            ):
                 return True
         for value in _walk(arguments):
             if isinstance(value, str) and value.startswith("asset:"):
@@ -147,7 +171,9 @@ def _audio_components(step):
     if key != "pipeline":
         return set()
     configuration = body.get("configuration")
-    if not isinstance(configuration, dict) or not isinstance(configuration.get("components"), dict):
+    if not isinstance(configuration, dict) or not isinstance(
+        configuration.get("components"), dict
+    ):
         return set()
     return set(configuration["components"]) & _AUDIO_COMPONENTS
 
@@ -166,13 +192,17 @@ def _derive_shape(steps, kind):
         return "audio"
     if kind == "video":
         return "shot"
-    image_steps = [step for step in steps if _generates(step) and _kind(step) == "image"]
+    image_steps = [
+        step for step in steps if _generates(step) and _kind(step) == "image"
+    ]
     for step in image_steps:
         if _EDIT_PIPELINE.search(_component_type(step)):
             return "image-edit"
         if {"image", "mask_image"} & set(_arguments(step)):
             return "image-edit"
-    if len(image_steps) >= 2 or any(_block(step)[0] == "workflow" for step in image_steps):
+    if len(image_steps) >= 2 or any(
+        _block(step)[0] == "workflow" for step in image_steps
+    ):
         return "image-set"
     return "image"
 
@@ -199,7 +229,9 @@ def _derive_traits(steps):
             traits.add("chained")
         if _CHAIN_ARGUMENTS & set(arguments):
             traits.add("chained")
-        if _kind(step) == "video" and ("image" in arguments or "ImageToVideo" in _component_type(step)):
+        if _kind(step) == "video" and (
+            "image" in arguments or "ImageToVideo" in _component_type(step)
+        ):
             traits.add("image-conditioned")
         if "references" in arguments:
             traits.add("identity-referenced")
@@ -277,7 +309,15 @@ COMPACT_FIELDS = (
 )
 
 
-def project_listing(details, *, shape=None, traits=None, configures=None, include_models=False, view=None):
+def project_listing(
+    details,
+    *,
+    shape=None,
+    traits=None,
+    configures=None,
+    include_models=False,
+    view=None,
+):
     """The listing an agent asked for: filtered by shape and traits, and in
     the compact view stripped to what choosing a template needs.
 
@@ -288,11 +328,15 @@ def project_listing(details, *, shape=None, traits=None, configures=None, includ
     found. The full view never drops entries or fields.
     """
     if shape is not None and shape not in SHAPES:
-        raise ValueError(f"Unknown shape {shape!r}. The shapes are: {', '.join(SHAPES)}.")
+        raise ValueError(
+            f"Unknown shape {shape!r}. The shapes are: {', '.join(SHAPES)}."
+        )
     traits = list(traits or [])
     unknown = [t for t in traits if t not in TRAITS]
     if unknown:
-        raise ValueError(f"Unknown trait(s) {', '.join(unknown)}. The traits are: {', '.join(TRAITS)}.")
+        raise ValueError(
+            f"Unknown trait(s) {', '.join(unknown)}. The traits are: {', '.join(TRAITS)}."
+        )
     if view not in (None, "compact"):
         raise ValueError("view must be 'compact' or omitted")
 
@@ -310,7 +354,11 @@ def project_listing(details, *, shape=None, traits=None, configures=None, includ
         if is_model and not keep_models:
             continue
         if compact:
-            slim = {key: detail.get(key) for key in COMPACT_FIELDS if key != "configures" or detail.get(key)}
+            slim = {
+                key: detail.get(key)
+                for key in COMPACT_FIELDS
+                if key != "configures" or detail.get(key)
+            }
             if detail.get("configures_missing"):
                 slim["configures_missing"] = detail["configures_missing"]
             projected[name] = slim

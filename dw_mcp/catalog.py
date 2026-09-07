@@ -6,7 +6,9 @@ keep in sync."""
 from dw_mcp.client import api_path
 
 
-def list_workflows(client, shape=None, traits=None, configures=None, include_models=False):
+def list_workflows(
+    client, shape=None, traits=None, configures=None, include_models=False
+):
     """Workflow names the server can reach, in the compact view: summary,
     shape, traits, cost, output kinds and variable names per workflow -
     what choosing one needs and nothing that reading one needs. Templates
@@ -16,7 +18,9 @@ def list_workflows(client, shape=None, traits=None, configures=None, include_mod
     if shape:
         params["shape"] = shape
     if traits:
-        params["traits"] = ",".join(traits) if isinstance(traits, (list, tuple)) else traits
+        params["traits"] = (
+            ",".join(traits) if isinstance(traits, (list, tuple)) else traits
+        )
     if configures:
         params["configures"] = configures
     if include_models:

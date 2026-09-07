@@ -42,14 +42,19 @@ def video_workflow(job_id, with_cost=False):
                 "pipeline": {
                     "configuration": {"component_type": "{Fake}", "no_generator": True},
                     "from_pretrained_arguments": {"model_name": "m"},
-                    "arguments": {"prompt": "variable:prompt", "output": ["videos", "audio"]},
+                    "arguments": {
+                        "prompt": "variable:prompt",
+                        "output": ["videos", "audio"],
+                    },
                 },
                 "result": {"content_type": "video/mp4"},
             }
         ],
     }
     if with_cost:
-        workflow["cost"] = [{"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}]
+        workflow["cost"] = [
+            {"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}
+        ]
     return workflow
 
 
@@ -507,7 +512,10 @@ def test_configures_resolves_against_the_listing(server):
 
 def test_the_listing_carries_derived_metadata(server):
     with server(success_script) as client:
-        client.put("/api/workflows/templates/clip", json={"workflow": video_workflow("clip", with_cost=True)})
+        client.put(
+            "/api/workflows/templates/clip",
+            json={"workflow": video_workflow("clip", with_cost=True)},
+        )
         tuned = video_workflow("tuned")
         tuned["configures"] = "templates/clip"
         tuned["description"] = "The same clip on a bigger checkpoint."
@@ -519,7 +527,9 @@ def test_the_listing_carries_derived_metadata(server):
         assert clip["shape"] == "shot"
         assert clip["traits"] == ["has-audio"]
         assert clip["summary"] == "One clip from a prompt."
-        assert clip["cost"] == [{"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}]
+        assert clip["cost"] == [
+            {"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}
+        ]
 
         tuned = details["models/tuned"]
         assert tuned["shape"] == "shot" and tuned["traits"] == ["has-audio"]
@@ -530,7 +540,17 @@ def test_the_listing_carries_derived_metadata(server):
         assert basic["shape"] == "utility"  # no result block, so no kind
         assert basic["summary"] == "" and basic["cost"] is None
         # nothing the UI reads went away
-        assert {"kinds", "steps", "variables", "variable_names", "description", "configures", "prompt_refs", "origin", "writable"} <= set(basic)
+        assert {
+            "kinds",
+            "steps",
+            "variables",
+            "variable_names",
+            "description",
+            "configures",
+            "prompt_refs",
+            "origin",
+            "writable",
+        } <= set(basic)
 
 
 def test_a_silently_killed_worker_reports_its_exit_and_frees_the_manager(tmp_path):
@@ -1451,7 +1471,9 @@ def test_a_workflow_that_configures_nothing_says_so(server):
 
 def test_the_listing_filters_and_compacts(server):
     with server(success_script) as client:
-        client.put("/api/workflows/templates/clip", json={"workflow": video_workflow("clip")})
+        client.put(
+            "/api/workflows/templates/clip", json={"workflow": video_workflow("clip")}
+        )
         tuned = video_workflow("tuned")
         tuned["configures"] = "templates/clip"
         client.put("/api/workflows/models/tuned", json={"workflow": tuned})
@@ -1467,12 +1489,18 @@ def test_the_listing_filters_and_compacts(server):
         assert set(compact["details"]) == {"Basic", "templates/clip"}
         assert "description" not in compact["details"]["templates/clip"]
         assert "steps" not in compact["details"]["templates/clip"]
-        assert compact["details"]["templates/clip"]["summary"] == "One clip from a prompt."
+        assert (
+            compact["details"]["templates/clip"]["summary"] == "One clip from a prompt."
+        )
 
-        with_models = client.get("/api/workflows", params={"view": "compact", "include_models": "true"}).json()
+        with_models = client.get(
+            "/api/workflows", params={"view": "compact", "include_models": "true"}
+        ).json()
         assert "models/tuned" in with_models["details"]
 
-        configs = client.get("/api/workflows", params={"configures": "templates/clip"}).json()
+        configs = client.get(
+            "/api/workflows", params={"configures": "templates/clip"}
+        ).json()
         assert set(configs["details"]) == {"models/tuned"}
 
         by_trait = client.get("/api/workflows", params={"traits": "has-audio"}).json()
@@ -3038,7 +3066,9 @@ class TestInlineJobConfinement:
 
 def test_saving_reports_how_the_workflow_will_be_matched(server):
     with server(success_script) as client:
-        saved = client.put("/api/workflows/clip", json={"workflow": video_workflow("clip")}).json()
+        saved = client.put(
+            "/api/workflows/clip", json={"workflow": video_workflow("clip")}
+        ).json()
         assert saved["shape"] == "shot"
         assert saved["traits"] == ["has-audio"]
         assert saved["summary"] == "One clip from a prompt."
@@ -3053,8 +3083,8 @@ def test_saving_reports_how_the_workflow_will_be_matched(server):
 def test_a_job_remembers_the_catalog_name_it_ran_from(server, tmp_path):
     with server(success_script) as client:
         job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
-        assert job["workflow"] == "basic"          # the definition's id, as before
-        assert job["workflow_name"] == "Basic"     # the catalog name
+        assert job["workflow"] == "basic"  # the definition's id, as before
+        assert job["workflow_name"] == "Basic"  # the catalog name
         wait_for_status(client, job["id"], TERMINAL_STATES)
 
         # the name is the listing name, whatever spelling the request used
@@ -3067,7 +3097,9 @@ def test_a_job_remembers_the_catalog_name_it_ran_from(server, tmp_path):
         listed = {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}
         assert listed[job["id"]]["workflow_name"] == "Basic"
 
-        inline = client.post("/api/jobs", json={"workflow": valid_workflow("inline")}).json()
+        inline = client.post(
+            "/api/jobs", json={"workflow": valid_workflow("inline")}
+        ).json()
         assert inline["workflow_name"] is None
         wait_for_status(client, inline["id"], TERMINAL_STATES)
 
@@ -3084,6 +3116,7 @@ def test_a_job_remembers_the_catalog_name_it_ran_from(server, tmp_path):
 
 def test_an_old_history_database_gains_the_column(tmp_path):
     import sqlite3
+
     db = tmp_path / "old.sqlite"
     with sqlite3.connect(db) as connection:
         connection.execute(
@@ -3091,6 +3124,12 @@ def test_an_old_history_database_gains_the_column(tmp_path):
             " started_at REAL, finished_at REAL, arguments TEXT, spec TEXT, manifest TEXT,"
             " warnings TEXT, error TEXT)"
         )
-        connection.execute("INSERT INTO jobs (id, workflow, status) VALUES ('old1', 'sd', 'finished')")
-    manager = JobManager(str(tmp_path / "outputs"), worker_manager=ScriptedWorkerManager(success_script), history_path=str(db))
+        connection.execute(
+            "INSERT INTO jobs (id, workflow, status) VALUES ('old1', 'sd', 'finished')"
+        )
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(db),
+    )
     assert manager.get("old1")["workflow_name"] is None

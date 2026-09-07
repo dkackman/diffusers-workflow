@@ -843,7 +843,9 @@ def test_the_instructions_send_an_agent_to_the_catalog_before_authoring():
 async def test_list_workflows_takes_shape_and_traits():
     tools = await tools_of(server_over(ok({})))
     schema = tools["list_workflows"].input_schema
-    assert {"shape", "traits", "configures", "include_models"} <= set(schema["properties"])
+    assert {"shape", "traits", "configures", "include_models"} <= set(
+        schema["properties"]
+    )
     assert "shape" in tools["list_workflows"].description
 
 
