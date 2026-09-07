@@ -719,6 +719,7 @@ async def test_a_gated_tool_refuses_through_the_session(name):
 # Explicit mapping of wrapper tool name -> (handler_module, handler_function_name)
 # Only includes tools whose handlers declare parameter defaults (beyond the client arg).
 WRAPPER_HANDLER_MAP = {
+    "list_workflows": (catalog, "list_workflows"),
     "get_job_events": (diagnose, "get_job_events"),
     "wait_for_job": (diagnose, "wait_for_job"),
     "get_output_image": (media, "get_output_image"),
@@ -836,3 +837,18 @@ def test_the_instructions_send_an_agent_to_the_catalog_before_authoring():
     server = server_over(ok({}))
 
     assert "list_workflows" in server.instructions
+
+
+@pytest.mark.asyncio
+async def test_list_workflows_takes_shape_and_traits():
+    tools = await tools_of(server_over(ok({})))
+    schema = tools["list_workflows"].input_schema
+    assert {"shape", "traits", "configures", "include_models"} <= set(schema["properties"])
+    assert "shape" in tools["list_workflows"].description
+
+
+@pytest.mark.asyncio
+async def test_the_instructions_name_the_vocabulary():
+    server = server_over(ok({}))
+    for word in ("image-set", "sequence", "speech", "list_workflows(shape="):
+        assert word in server.instructions

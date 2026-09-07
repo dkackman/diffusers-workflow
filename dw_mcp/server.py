@@ -6,7 +6,7 @@ this file stays a description of the surface rather than logic.
 """
 
 import functools
-from typing import Literal
+from typing import Literal, Optional
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -71,19 +71,22 @@ def build_server(client):
             "diffusers pipeline or a utility task; the engine runs one job "
             "at a time.\n"
             "\n"
-            "Start from `list_workflows`: the server keeps a large "
-            "catalog, and its listing carries each workflow's description, "
-            "output kinds and variable names - run what is already there, "
-            "with `arguments` overriding its variables, rather than "
-            "authoring a new workflow for a request an existing one "
-            "covers.\n"
+            "Start from `list_workflows(shape=...)`: the server keeps a "
+            "large catalog, and its compact listing carries each "
+            "workflow's summary, shape, traits, cost and variable names - "
+            "run what is already there, with `arguments` overriding its "
+            "variables, rather than authoring a new workflow for a "
+            "request an existing one covers. Shapes: image, image-set, "
+            "image-edit, shot, sequence, audio, text, utility. Traits: "
+            "speech, chained, image-conditioned, identity-referenced, "
+            "needs-input-media, composes-workflows.\n"
             "\n"
             "When a request is open-ended - a subject rather than a shape "
             '("a lego movie trailer set in the marvel universe") - no '
             "catalog entry will name it, because entries are written in "
             "shapes: a single image, an image set, one shot, a multi-shot "
             "cut sequence, video with speech. Decide which shape the "
-            "deliverable is first, then match the catalog against that; "
+            "deliverable is first, then call `list_workflows` with it; "
             "`list_guides` indexes the documentation by section so a shape "
             "can be looked up rather than guessed at, and `list_tasks` is "
             "what a shape is composed from when no single workflow covers "
@@ -140,16 +143,31 @@ def build_server(client):
 
     # ------------------------------------------------------------- catalog
 
-    def list_workflows() -> dict:
-        """List the workflows stored on the server. Each entry carries its
-        description, output kinds, step count, variable names and the
-        stored prompts it references - enough to pick one and know what to
-        pass it without fetching every definition. Look here before
-        authoring a new workflow: the catalog is large and usually already
-        covers the request. An entry also reports `origin` and `writable`:
-        a workflow from a read-only examples directory runs like any other
-        but cannot be saved over or deleted."""
-        return catalog.list_workflows(client)
+    def list_workflows(
+        shape: Optional[str] = None,
+        traits: Optional[str] = None,
+        configures: Optional[str] = None,
+        include_models: bool = False,
+    ) -> dict:
+        """List the workflows stored on the server, compactly. Decide the
+        deliverable's shape first and pass it: one of image, image-set,
+        image-edit, shot, sequence, audio, text, utility. `traits` narrows
+        further (comma-separated, all must match): speech, chained,
+        image-conditioned, identity-referenced, needs-input-media,
+        composes-workflows. Each entry carries a one-line `summary`, its
+        `shape` and `traits` (what it needs supplied), `cost` (measured
+        runs per device; null means unknown - call `get_memory` and say
+        so), output kinds and variable names. Templates only by default;
+        `configures=<template>` lists the checkpoint configs tuned for
+        one, `include_models=true` lists them all. `get_workflow` has the
+        full description and definition."""
+        return catalog.list_workflows(
+            client,
+            shape=shape,
+            traits=[t for t in (traits or "").split(",") if t],
+            configures=configures,
+            include_models=include_models,
+        )
 
     def get_workflow(name: str) -> dict:
         """Get one stored workflow's full JSON definition, by a name from

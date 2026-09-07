@@ -90,6 +90,31 @@ def test_a_pass_through_tool_returns_the_body_unchanged():
     assert catalog.list_workflows(client) == {"workflows": ["a"], "details": {}}
 
 
+def test_list_workflows_always_asks_for_the_compact_view():
+    client, seen = recording_client({"workflows": [], "details": {}})
+
+    catalog.list_workflows(client)
+
+    assert seen["path"] == "/api/workflows"
+    assert seen["params"] == {"view": "compact"}
+
+
+def test_list_workflows_passes_its_filters_through():
+    client, seen = recording_client({"workflows": [], "details": {}})
+
+    catalog.list_workflows(
+        client, shape="sequence", traits=["speech", "chained"], configures="templates/x", include_models=True
+    )
+
+    assert seen["params"] == {
+        "view": "compact",
+        "shape": "sequence",
+        "traits": "speech,chained",
+        "configures": "templates/x",
+        "include_models": "true",
+    }
+
+
 def test_a_missing_workflow_propagates_the_api_error():
     def handler(request):
         return httpx.Response(404, json={"detail": "No such workflow: ghost"})
