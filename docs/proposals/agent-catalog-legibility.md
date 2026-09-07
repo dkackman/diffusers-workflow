@@ -502,7 +502,7 @@ starts from the record rather than the intent. Updated as work lands.
 | 7 authoring guide | designed | spec §2.3 | one new `WORKFLOW_GUIDE.md` section; `CLAUDE.md` points at it |
 | 8 multi-error validation | designed | spec §2.2 | `validate_data_all`, capped at 25, additive `/api/validate` shape |
 | 9 composition rules | designed | spec §2.3 | folded into the authoring section |
-| 10 save-time metadata | designed | spec §1.6 | derived and returned on save; empty summary warns, never rejects |
+| 10 save-time metadata | done (task 6) | spec §1.6 | derived and returned on save; empty summary warns, never rejects |
 | Part 3 constraint | carried | spec "Principle" | derivation reads structure, never model family |
 | Part 4 packaging | open | — | note for later: `templates/minimax/README.md` and `ltx2/README.md` are already model knowledge as data, unindexed — a third channel |
 
