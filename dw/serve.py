@@ -61,7 +61,10 @@ def main():
         metavar="DIR",
         help="A read-only directory of workflows to offer alongside the "
         "workspace's own - a checkout's workflows/ tree, say. Repeatable. "
-        "Saves never go here: they always land in --workflow-dir",
+        "Saves never go here: they always land in --workflow-dir. The "
+        "prompts/ and assets/ beside such a tree come with it, read-only, "
+        "at the back of the prompt and asset libraries, so an example runs "
+        "with the prompts and media it references",
     )
     parser.add_argument(
         "--asset-dir",
@@ -119,7 +122,7 @@ def main():
     # Resolved and pinned before anything derives a directory from it - the
     # spawned worker inherits the environment variable, the way it inherits
     # the prompt directory and the trust flag below
-    from .workspace import resolve_workspace, set_workspace
+    from .workspace import PROMPTS_SUBDIR, resolve_workspace, set_workspace
 
     workspace = set_workspace(resolve_workspace(args.workspace))
     workflow_dir = args.workflow_dir or workspace.workflows
@@ -182,6 +185,18 @@ def main():
         args.prompt_dir or get_prompt_dir(base_dir=os.path.abspath(workflow_dir))
     )
     os.environ["DW_PROMPT_DIR"] = prompt_dir
+
+    # An --examples-dir tree brings the prompts and assets its workflows
+    # reference along with it, and those live beside the tree rather than in
+    # this workspace. Putting them on the read-only end of each library's
+    # search path is what lets an example run as it shipped: the workspace's
+    # own library is still searched first and is still the only one written
+    # to. Pinned in the environment, so the worker resolves as the API does
+    from .workspace import ASSETS_SUBDIR, example_libraries, set_library_fallbacks
+
+    example_dirs = example_libraries(args.examples_dirs)
+    set_library_fallbacks(PROMPTS_SUBDIR, example_dirs[PROMPTS_SUBDIR])
+    set_library_fallbacks(ASSETS_SUBDIR, example_dirs[ASSETS_SUBDIR])
 
     try:
         import uvicorn

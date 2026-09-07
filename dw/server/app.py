@@ -57,18 +57,23 @@ from ..result import read_embedded_metadata
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..runs import strip_run_id
 from ..workspace import (
+    ASSETS_SUBDIR,
     DEFAULT_WORKSPACE_NAME,
+    PROMPTS_SUBDIR,
     ConfiguredWorkspace,
     NotAWorkspaceError,
     Workspace,
     _holds_a_workspace,
     create_workspace,
     delete_workspace,
+    example_libraries,
     named_workspace,
     workspace_contents,
     workspace_names,
 )
 from ..workflow_sources import (
+    EXAMPLES_ORIGIN,
+    WORKSPACE_ORIGIN,
     find_workflow,
     listing,
     resolve_in_source,
@@ -310,13 +315,16 @@ def resolve_workflow_reference(workflow_path, sources):
 _prompt_detail_cache = {}
 
 
-def prompt_details(prompt_dir, names):
+def prompt_details(paths):
     """Per-prompt card metadata: description, intended model, tags - and
     the text itself, which the editors show as the tooltip wherever a
-    prompt: reference stands in for it."""
+    prompt: reference stands in for it.
+
+    Keyed by path rather than by name under one directory: the prompt
+    library is a search path now, and two roots can hold the same name.
+    """
     details = {}
-    for name in names:
-        path = os.path.join(prompt_dir, f"{name}.json")
+    for name, path in paths.items():
         try:
             mtime = os.path.getmtime(path)
         except OSError:
@@ -338,7 +346,10 @@ def prompt_details(prompt_dir, names):
             detail = {"description": "", "intended_model": "", "tags": [], "text": ""}
         _prompt_detail_cache[path] = (mtime, detail)
         details[name] = detail
-    _prune_detail_cache(_prompt_detail_cache, prompt_dir, names)
+    # By existence, not by what this listing named: the cache spans every
+    # root on the search path, and one listing shows only the names that
+    # were not shadowed
+    _prune_missing(_prompt_detail_cache)
     return details
 
 
@@ -526,6 +537,14 @@ def create_app(
     # saves only ever reach the front
     app.state.workflow_sources = workflow_sources(workflow_dir, examples_dirs)
     app.state.prompt_dir = prompt_dir
+    # The read-only libraries the --examples-dir trees bring with them: an
+    # example workflow references the prompts and assets that live beside
+    # its tree, not the ones in this workspace. They are searched after the
+    # workspace's own and never written to - a save of an example prompt
+    # lands in the workspace, the way saving an example workflow does
+    _example_libraries = example_libraries(examples_dirs)
+    app.state.example_prompt_dirs = _example_libraries[PROMPTS_SUBDIR]
+    app.state.example_asset_dirs = _example_libraries[ASSETS_SUBDIR]
     # Where uploads land and 'asset:' references resolve. None when the
     # caller configured no asset library: uploads then fall back to the
     # output directory's uploads/ subfolder, as they did before there was one
@@ -1203,15 +1222,57 @@ def create_app(
         except InvalidInputError:
             return False
 
+    def _prompt_roots():
+        """The prompt search path: the library this server writes to, then
+        the read-only ones an --examples-dir tree brought with it. A name in
+        an earlier root shadows the same name later, as on the workflow
+        search path."""
+        roots = [app.state.prompt_dir]
+        primary = os.path.abspath(app.state.prompt_dir)
+        for root in app.state.example_prompt_dirs:
+            if os.path.abspath(root) != primary:
+                roots.append(root)
+        return roots
+
+    def _find_prompt(name):
+        """(path, writable) for the first root on the search path that holds
+        this name. 404s when no root does, the way resolve_prompt_name does
+        for a name that cannot be referenced at all."""
+        for index, root in enumerate(_prompt_roots()):
+            try:
+                # allow_create so a name that is simply absent from this root
+                # is a miss to carry on from, rather than a 404 raised out of
+                # the middle of the search
+                path = resolve_prompt_name(root, name, allow_create=True)
+            except HTTPException as error:
+                # a name no workflow could reference is a miss too, not the
+                # 400 a save would get for it
+                raise HTTPException(status_code=404, detail=error.detail)
+            if os.path.isfile(path):
+                return path, index == 0
+        raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
+
     @app.get("/api/prompts")
     def list_prompts():
         # A stray file too deep or oddly named can sit in the directory, but
         # no workflow could reference it - listing it would only invite that
-        names = [n for n in workflow_names(app.state.prompt_dir) if referenceable(n)]
+        paths = {}
+        origins = {}
+        roots = _prompt_roots()
+        for index, root in enumerate(roots):
+            for name in workflow_names(root):
+                if referenceable(name) and name not in paths:
+                    paths[name] = os.path.join(root, f"{name}.json")
+                    origins[name] = WORKSPACE_ORIGIN if index == 0 else EXAMPLES_ORIGIN
+        names = sorted(paths)
         return {
+            # The writable library, unchanged: what a save is written to,
+            # and what a client that predates the search path expects
             "prompt_dir": app.state.prompt_dir,
+            "prompt_dirs": roots,
             "prompts": names,
-            "details": prompt_details(app.state.prompt_dir, names),
+            "origins": origins,
+            "details": prompt_details(paths),
         }
 
     @app.put("/api/prompts/{name:path}")
@@ -1237,8 +1298,16 @@ def create_app(
 
     @app.delete("/api/prompts/{name:path}")
     def delete_prompt(name: str):
-        """Remove a prompt file from the prompt directory."""
-        path = resolve_prompt_name(app.state.prompt_dir, name)
+        """Remove a prompt file from the prompt directory. A prompt that
+        came from a read-only examples library is not this server's to
+        delete - the same 403 a read-only workflow answers with."""
+        path, writable = _find_prompt(name)
+        if not writable:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Prompt {name} is read-only: it comes from an examples "
+                f"library, not this workspace's prompt directory",
+            )
         os.remove(path)
         logger.info(f"Deleted prompt {name} ({path})")
         return {"name": name, "deleted": True}
@@ -1247,17 +1316,28 @@ def create_app(
     @query_token_ok
     def download_prompt(name: str):
         """Serve a stored prompt as a forced download."""
-        path = resolve_prompt_name(app.state.prompt_dir, name)
+        path, _ = _find_prompt(name)
         return FileResponse(
             path, filename=os.path.basename(path), media_type="application/json"
         )
 
     @app.get("/api/prompts/{name:path}")
     def get_prompt(name: str):
-        path = resolve_prompt_name(app.state.prompt_dir, name)
+        path, writable = _find_prompt(name)
         try:
             with open(path, "r") as file:
-                return JSONResponse(json.load(file))
+                # Which library it came from, the way a workflow carries its
+                # source - the editor offers delete only for a prompt this
+                # server owns, and save-a-copy for a read-only one
+                return JSONResponse(
+                    json.load(file),
+                    headers={
+                        "X-Prompt-Origin": (
+                            WORKSPACE_ORIGIN if writable else EXAMPLES_ORIGIN
+                        ),
+                        "X-Prompt-Writable": "true" if writable else "false",
+                    },
+                )
         except (OSError, json.JSONDecodeError) as e:
             raise HTTPException(status_code=500, detail=f"Could not read prompt: {e}")
 
@@ -1349,6 +1429,20 @@ def create_app(
             files = StaticFiles(directory=root)
             cache[root] = files
         return files
+
+    def _asset_roots(ws):
+        """The asset search path of one workspace: its own library, then the
+        read-only ones an --examples-dir tree brought with it. The same order
+        'asset:' resolves in (dw/assets.asset_search_path), so what the
+        browser lists is what a job would load."""
+        roots = []
+        for root in [ws.assets, *app.state.example_asset_dirs]:
+            if not root:
+                continue
+            root = os.path.abspath(root)
+            if root not in roots and os.path.isdir(root):
+                roots.append(root)
+        return roots
 
     def _served_url(path, ws, version=None):
         """The URL a served file is reachable at: the default workspace's
@@ -1662,35 +1756,46 @@ def create_app(
         asset to be.
         """
         library = ws.assets
-        if not library or not os.path.isdir(library):
-            return {"asset_dir": library, "assets": [], "folders": []}
+        roots = _asset_roots(ws)
+        if not roots:
+            return {"asset_dir": library, "asset_dirs": [], "assets": [], "folders": []}
 
         assets = []
-        try:
-            files = list(_iter_gallery_files(library, group_runs=False))
-        except OSError:
-            files = []
-        for relative, folder, kind, path in files:
+        seen = set()
+        for index, root in enumerate(roots):
             try:
-                stat = os.stat(path)
+                files = list(_iter_gallery_files(root, group_runs=False))
             except OSError:
-                continue
-            assets.append(
-                {
-                    "name": relative,
-                    "reference": f"asset:{relative}",
-                    "folder": folder,
-                    "kind": kind,
-                    "size": stat.st_size,
-                    "mtime": stat.st_mtime,
-                    # For the editor's own preview - fetchable the same
-                    # way an upload's URL is
-                    "url": _served_url(f"/inputs/{quote(relative)}", ws),
-                }
-            )
+                files = []
+            for relative, folder, kind, path in files:
+                # A name in the workspace shadows the same name in an
+                # examples library, exactly as 'asset:' resolution does
+                if relative in seen:
+                    continue
+                try:
+                    stat = os.stat(path)
+                except OSError:
+                    continue
+                seen.add(relative)
+                assets.append(
+                    {
+                        "name": relative,
+                        "reference": f"asset:{relative}",
+                        "folder": folder,
+                        "kind": kind,
+                        "size": stat.st_size,
+                        "mtime": stat.st_mtime,
+                        "origin": WORKSPACE_ORIGIN if index == 0 else EXAMPLES_ORIGIN,
+                        # For the editor's own preview - fetchable the same
+                        # way an upload's URL is
+                        "url": _served_url(f"/inputs/{quote(relative)}", ws),
+                    }
+                )
         assets.sort(key=lambda entry: entry["mtime"], reverse=True)
         return {
+            # The workspace's own library, unchanged: where an upload lands
             "asset_dir": library,
+            "asset_dirs": roots,
             "assets": assets,
             "folders": sorted({entry["folder"] for entry in assets} | {""}),
         }
@@ -2019,12 +2124,24 @@ def create_app(
     async def input_file(
         name: str, request: Request, ws: Workspace = Depends(selected_workspace)
     ):
-        """One file from a workspace's asset library, for the editor's
-        preview of an uploaded or chosen asset."""
-        library = ws.assets
-        if not library:
+        """One file from the asset search path, for the editor's preview of
+        an uploaded or chosen asset - the workspace's own library first,
+        then any read-only examples library, so an example workflow's media
+        previews the way an upload does."""
+        roots = _asset_roots(ws)
+        if not roots:
             raise HTTPException(status_code=404, detail="No asset library")
-        files = _static_files_for(library)
+        for root in roots:
+            try:
+                candidate = validate_path(os.path.join(root, name), root)
+            except SecurityError:
+                continue
+            if os.path.isfile(candidate):
+                files = _static_files_for(root)
+                return await files.get_response(name, request.scope)
+        # Nothing has it: let the workspace's own library answer, so the
+        # 404 (and its headers) come from StaticFiles as they always did
+        files = _static_files_for(roots[0])
         return await files.get_response(name, request.scope)
 
     # ---------------------------------------------------------------- the UI

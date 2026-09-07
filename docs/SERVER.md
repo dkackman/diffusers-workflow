@@ -37,7 +37,9 @@ load entirely.
   listed and where a save lands.
 - **Prompts** — the prompt library under `--prompt-dir` (default: discovered
   the way a CLI run discovers it, then pinned for every job, so the page and
-  `prompt:` resolution always agree): stored prompts as
+  `prompt:` resolution always agree), plus the read-only `prompts/` beside
+  each `--examples-dir`, so an example's `prompt:` references resolve: stored
+  prompts as
   cards with descriptions, intended-model badges, and tags, foldered the
   same way workflows are. Each opens in an editor with form, split, and
   schema-aware JSON views, and an **Enhance with AI** panel that expands an

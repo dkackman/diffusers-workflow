@@ -44,6 +44,10 @@
   let folder = $state('')
   let newFolder = $state('')
   let busy = $state(false)
+  // A prompt from a read-only examples library: it can be edited and saved
+  // (the save lands in this workspace's library, shadowing it) but not
+  // deleted, the way a read-only workflow behaves
+  let readOnly = $state(false)
   let baseline = $state('')
 
   // Existing folders, from the listing - one level is the designed depth
@@ -253,10 +257,14 @@
       folder = groupOf(name)
       api
         .getPrompt(name)
-        .then((definition) => {
-          doc = definition as PromptDefinition
-          baseline = JSON.stringify(definition)
-          idea = definition.enhanced?.idea ?? ''
+        // the definition comes back beside where it was found: a prompt
+        // from a read-only examples library can be edited and saved (the
+        // copy lands here) but not deleted
+        .then(({ prompt, writable }) => {
+          readOnly = !writable
+          doc = prompt
+          baseline = JSON.stringify(prompt)
+          idea = prompt.enhanced?.idea ?? ''
           preselect()
         })
         .catch((e) => notify.error(e.message))
@@ -495,13 +503,15 @@
       <Copy size={14} />Duplicate
     </button>
     <DownloadLink href={api.promptDownloadUrl(name)} />
-    <button
-      class="quiet withicon danger"
-      onclick={remove}
-      title="delete this prompt from the library"
-    >
-      <Trash2 size={14} />Delete
-    </button>
+    {#if !readOnly}
+      <button
+        class="quiet withicon danger"
+        onclick={remove}
+        title="delete this prompt from the library"
+      >
+        <Trash2 size={14} />Delete
+      </button>
+    {/if}
   {/if}
   <button
     class="withicon"

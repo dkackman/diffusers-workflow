@@ -105,6 +105,18 @@ export interface PromptDefinition {
   enhanced?: { model?: string; idea?: string }
 }
 
+/** A stored prompt plus which library it came from - `getPrompt` reads the
+ * two off the `X-Prompt-Origin` / `X-Prompt-Writable` response headers, the
+ * way `getWorkflow` reads a workflow's source. Beside the definition rather
+ * than spread into it: a prompt is saved back exactly as it was read, and a
+ * stray field would fail the schema. */
+export interface StoredPrompt {
+  prompt: PromptDefinition
+  /** 'workspace' | 'examples'. */
+  origin: string
+  writable: boolean
+}
+
 export interface PromptDetail {
   description: string
   intended_model: string

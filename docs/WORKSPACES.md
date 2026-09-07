@@ -134,6 +134,32 @@ python -m dw.serve --workspace ~/studio --examples-dir ~/src/diffusers-workflow/
 its `origin` and `writable`, which is how the UI knows to hide delete and how
 an MCP client can tell what it may change.
 
+### The prompts and assets an examples tree brings with it
+
+An example workflow references the prompts and media that live beside its
+tree, not the ones in your workspace, so each `--examples-dir` puts those on
+the back of the two libraries as well: the `prompts/` and `assets/` folders
+beside the directory (or inside it, if that is where they are). Both libraries
+work exactly like the workflow path — your workspace's own is searched first
+and a name there shadows the example's, reads span everything, and writes only
+ever reach your own:
+
+```
+<workspace>/prompts/      yours, writable — every save lands here
+<--examples-dir>/../prompts   read-only
+
+<workspace>/assets/       yours, writable — uploads and "keep as asset" land here
+<--examples-dir>/../assets    read-only
+```
+
+So the command above makes `workflows/models/flux-dev.json`'s
+`"prompt:flux/biomechanical_daffodil"` resolve out of the checkout, without
+copying the prompt library into the workspace. `GET /api/prompts` and
+`GET /api/assets` report the roots as `prompt_dirs` / `asset_dirs` and tag
+each entry with its `origin`; deleting a prompt that came from a read-only
+library is refused with a 403, and saving one writes a copy into your
+workspace the way saving an example workflow does.
+
 The packaged workflows in `dw/workflows/` are deliberately *not* on the path.
 They are the pieces a `builtin:` sub-workflow step names, resolved by the
 engine where that step is read — not workflows to browse or run on their own.
