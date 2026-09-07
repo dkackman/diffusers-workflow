@@ -12,7 +12,13 @@ import re
 
 import pytest
 
-from dw.server.catalog_shape import SUMMARY_LIMIT, derive_catalog_metadata
+from dw.server.app import workflow_details
+from dw.server.catalog_shape import (
+    SUMMARY_LIMIT,
+    derive_catalog_metadata,
+    project_listing,
+)
+from dw.workflow_sources import WorkflowSource, listing
 from tests.test_examples import BUILTIN_DIR, REPO_ROOT, get_example_files
 
 TEMPLATES = [f for f in get_example_files() if f.startswith("workflows/templates/")]
@@ -152,7 +158,27 @@ def test_a_declared_cost_is_well_formed(path):
         assert isinstance(entry["minutes"], (int, float)) and entry["minutes"] >= 0, path
 
 
-BACKTICKED = re.compile(r"`([a-z_][a-z0-9_]*)`")
+# The catalog's descriptions quote identifiers in single quotes, not
+# backticks - JSON strings, where a backtick reads as a stray character.
+QUOTED = re.compile(r"'([a-z_][a-z0-9_]*)'")
+
+# Mentions that are deliberately not this workflow's variables: a
+# sub-workflow's argument, a step argument, a chain field or a result field.
+# One line per entry saying what the name actually is.
+LEGITIMATE_MENTIONS = {
+    # the argument the composed image-to-video workflow receives
+    "workflows/templates/compose-workflows.json": {"image"},
+    # a 'result' field, and the point is that this workflow omits it
+    "workflows/templates/generate-speech.json": {"sample_rate"},
+    # arguments of the image_to_text step, edited into the file rather than passed
+    "workflows/templates/image-to-text.json": {"model_name", "prompt"},
+    # a field of the step's 'chain' block
+    "workflows/templates/minimax/chained-segments.json": {"trim_frames"},
+    # the fl2va sub-workflow's argument, named to say this one leaves it unset
+    "workflows/templates/minimax/last-frame-only.json": {"image"},
+    # a 'result' field the modular pipeline needs declared
+    "workflows/templates/minimax/music.json": {"sample_rate"},
+}
 
 
 def _variable_names_in_catalog():
@@ -162,23 +188,37 @@ def _variable_names_in_catalog():
     return names
 
 
+def _mentioned(definition):
+    return set(QUOTED.findall(definition.get("description", "")))
+
+
 @pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS)
 def test_a_description_names_only_variables_the_workflow_declares(path):
-    """A description that says `num_frames` for a workflow with no such
+    """A description that says 'num_frames' for a workflow with no such
     variable sends an agent to pass an argument nothing reads. Restricted
     to identifiers that are variable names somewhere in the catalog, so a
-    backticked task or type name is not a false positive."""
+    quoted task or type name is not a false positive, and to the mentions
+    LEGITIMATE_MENTIONS does not account for."""
     definition = load(path)
     declared = set((definition.get("variables") or {}).keys())
     catalog_variables = _variable_names_in_catalog()
-    mentioned = set(BACKTICKED.findall(definition.get("description", "")))
-    undeclared = (mentioned & catalog_variables) - declared
+    allowed = LEGITIMATE_MENTIONS.get(path, set())
+    undeclared = (_mentioned(definition) & catalog_variables) - declared - allowed
     assert not undeclared, f"{path} describes {sorted(undeclared)} but declares no such variable"
 
 
-from dw.server.app import workflow_details
-from dw.server.catalog_shape import project_listing
-from dw.workflow_sources import WorkflowSource, listing
+def test_the_drift_check_actually_matches_something():
+    """The quoting convention is the whole test: match backticks instead and
+    every set is empty and every assertion passes for nothing."""
+    matched = [path for path in TEMPLATES if _mentioned(load(path)) & _variable_names_in_catalog()]
+    assert matched, "no template description quotes a catalog variable name - the pattern is wrong"
+
+
+def test_no_stale_entry_in_the_allowlist():
+    for path, names in LEGITIMATE_MENTIONS.items():
+        assert path in TEMPLATES + MODEL_CONFIGS, f"{path} is allowlisted but not in the catalog"
+        assert names <= _mentioned(load(path)), f"{path} no longer mentions {sorted(names - _mentioned(load(path)))}"
+
 
 # Spec targets, as chars / 4. The listing is the first thing an agent reads;
 # these are the ceilings that keep it readable rather than skimmed.

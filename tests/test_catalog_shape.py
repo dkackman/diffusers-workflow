@@ -5,12 +5,15 @@ Every rule in spec §1.2 gets a minimal definition that exercises only it.
 
 import pytest
 
+from dw.schema import load_schema, validate_data
 from dw.server.catalog_shape import (
+    COMPACT_FIELDS,
     GENERATIVE_TASKS,
     SHAPES,
     SUMMARY_LIMIT,
     TRAITS,
     derive_catalog_metadata,
+    project_listing,
 )
 
 
@@ -281,7 +284,6 @@ def test_an_empty_or_malformed_definition_derives_something():
 
 
 def test_the_schema_declares_the_vocabulary():
-    from dw.schema import load_schema, validate_data
     schema = load_schema("workflow")
     props = schema["properties"]
     assert tuple(props["shape"]["enum"]) == SHAPES
@@ -293,7 +295,6 @@ def test_the_schema_declares_the_vocabulary():
 
 
 def test_a_declared_cost_validates_and_a_bad_one_does_not():
-    from dw.schema import load_schema, validate_data
     schema = load_schema("workflow")
     base = definition(pipeline_step("g", "image/jpeg"))
     ok, _ = validate_data({**base, "cost": [{"device": "cuda", "name": "RTX 4090", "vram_gb": 22, "minutes": 3}]}, schema)
@@ -302,9 +303,6 @@ def test_a_declared_cost_validates_and_a_bad_one_does_not():
     assert not bad and "cost" in message
     bad, _ = validate_data({**base, "shape": "cinematic"}, schema)
     assert not bad
-
-
-from dw.server.catalog_shape import COMPACT_FIELDS, project_listing
 
 
 def entry(shape, traits=(), configures="", **extra):
