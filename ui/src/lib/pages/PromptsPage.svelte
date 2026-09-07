@@ -205,10 +205,13 @@
     flex-wrap: wrap;
     gap: 0.3rem;
   }
+  /* A tag is a button, and the global button rule would paint it accent-ink
+     on the panel - invisible in either theme - so the text colour is set here */
   .chip {
     cursor: pointer;
     border: 1px solid var(--line);
     background: var(--panel-2);
+    color: var(--muted);
     font-size: 0.7rem;
     font-weight: 500;
     padding: 0.05rem 0.45rem;
