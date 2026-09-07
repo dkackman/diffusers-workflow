@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test'
 
 const ROUTES = [
   '#/workflows',
-  '#/workflows/ZImage',
+  '#/workflows/models/z-image',
   '#/prompts',
   '#/prompt-edit/scenic_landscape',
   '#/jobs',
@@ -39,7 +39,7 @@ for (const width of WIDTHS) {
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 })
-    await page.goto('/#/edit/flux/FluxDev')
+    await page.goto('/#/edit/models/flux-dev')
     await page.waitForLoadState('networkidle')
     // loaded steps default to the compact digest - switch to full to render
     // the deepest layout (the component/arguments grid)

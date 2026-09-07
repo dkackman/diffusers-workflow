@@ -13,7 +13,7 @@ python -m dw.repl
 ```
 
 ```text
-dw> workflow load flux/FluxDev
+dw> workflow load models/flux-dev
 dw> arg set prompt="a cat wearing a hat"
 dw> workflow run         # first run — loads model (~30-60s)
 dw> arg set prompt="a dog in a park"

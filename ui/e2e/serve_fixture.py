@@ -39,6 +39,15 @@ for name in ("e2e-one.png", "e2e-two.png"):
     with open(os.path.join(outputs, name), "wb") as handle:
         handle.write(ONE_PIXEL_PNG)
 
+# Two runs of the same workflow, in the <identity>/<run id>/<file> shape a
+# real execution writes - so the gallery has something to fold under one
+# folder heading instead of one per run.
+for run_id in ("20260906-101500-a1b2c3d4", "20260906-101612-ffffffff"):
+    run_dir = os.path.join(outputs, "e2e-run-group", run_id)
+    os.makedirs(run_dir)
+    with open(os.path.join(run_dir, "still.png"), "wb") as handle:
+        handle.write(ONE_PIXEL_PNG)
+
 os.chdir(root)
 os.execv(
     sys.executable,

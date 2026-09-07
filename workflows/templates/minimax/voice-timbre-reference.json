@@ -1,0 +1,165 @@
+{
+    "id": "MiniMaxH3GeneratedVoice",
+    "description": "Generates the voice it conditions on. A 'generate_speech' step speaks a throwaway line with a chosen Bark preset, and that clip goes in as H3's <Audio 1> - which references timbre, pitch and delivery only, while H3 still generates the dialogue itself and so keeps the lip sync it is good at. Repeat the same preset across every shot of a scene and a character's voice is a conditioning signal rather than a prose description hoping to land the same way twice. The reference is built with 'from_previous_result', which carries the clip's own sample rate across, and 'release_models' drops the speech model before the video model loads.",
+    "variables": {
+        "prompt": "subject_definitions:\n<Subject 1> is the astronaut in <Picture 1>, in a white hard-shell suit with a gold-mirrored visor, an orange chest harness and a soft-sided life-support pack.\n<Audio 1> is the voice timbre reference for <Subject 1> (S1): a male voice, mid-range in pitch, measured and formal in delivery.\n\nsummary:\n[reference generation + audio reference] The target video shows <Subject 1> speaking directly to camera in the setting of <Picture 1>. The lip and jaw movement is synchronised to the generated dialogue, and the voice timbre references <Audio 1>.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the suit, visor, harness and proportions of <Picture 1> are kept exactly, with the head and shoulders newly animated to speak.\n<Picture 1>: carries no compositional detail - no framing, no shot size, no camera position. Only the appearance of <Subject 1> is taken from it; the framing below is what governs the shot.\n<Audio 1>: reference - only the timbre, pitch and measured delivery of the voice are referenced for <Subject 1>'s speech; none of its content is reused.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium close-up frames <Subject 1> from the chest up, centred and facing camera, in the setting of <Picture 1>. Warm low sunlight rakes across the left of the suit and reflects off the gold visor as a long soft highlight; the background sits well behind in shallow focus. <Subject 1> (S1) speaks in a measured, formal male voice, his jaw and lips moving in natural synchronisation behind the open visor, <d>[English] We have come a long way, and the way ahead is longer still.</d> As he delivers the line he lifts his chin slightly and turns a few degrees toward the light, one gloved hand rising into the lower frame to settle on the chest harness. Exactly as his voice stops his mouth closes and holds, and he looks past the lens toward the horizon. The camera pushes in with small amplitude at slow speed across the whole shot.\n\noverall_soundscape:\nA broad, open outdoor room tone with a steady low wind moving across the microphone. The suit fabric and harness give a dry creak as he turns and as his glove meets his chest, and a faint regulator hiss cycles quietly under the dialogue throughout.\n\nnon_diegetic_music:\nA slow, sparse orchestral bed of sustained low strings under a single held horn note, mixed well beneath the voice, swelling gently as he turns toward the light and settling back into stillness at the end of the clip.",
+        "subject": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg",
+        "voice_line": "The way ahead is longer still, and we are going anyway.",
+        "voice_preset": "v2/en_speaker_6",
+        "num_frames": 124,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 20,
+        "weights_dtype": "{int4}"
+    },
+    "steps": [
+        {
+            "name": "voice",
+            "task": {
+                "command": "generate_speech",
+                "arguments": {
+                    "text": "variable:voice_line",
+                    "voice_preset": "variable:voice_preset"
+                }
+            },
+            "result": {
+                "content_type": "audio/wav",
+                "save": false
+            },
+            "release_models": true
+        },
+        {
+            "name": "reference_to_video_audio",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "cache": {
+                        "type": "first_block",
+                        "threshold": 0.1
+                    },
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer_ref": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer_ref": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "ref2va"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "references": [
+                        {
+                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+                            "from_file": "variable:subject"
+                        },
+                        {
+                            "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+                            "from_previous_result": "voice"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

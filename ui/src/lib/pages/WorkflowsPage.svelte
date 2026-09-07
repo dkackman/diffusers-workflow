@@ -3,6 +3,7 @@
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
+  import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
   import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
@@ -16,6 +17,8 @@
         steps?: number
         variables: number
         description: string
+        /** For a model config: the template it configures. */
+        configures?: string
         /** Which source the workflow was read from. */
         origin?: string
         /** False for a read-only source - an examples directory. */
@@ -82,17 +85,19 @@
 >
   {#snippet card(name)}
     {@const detail = details[name]}
-    {@const group = name.includes('/') ? name.split('/')[0] : ''}
     <a
       class="card panel"
       href={href(name)}
       title={detail?.description || undefined}
     >
       <span class="cardtop">
-        <span class="cardname"
-          >{group ? name.split('/').slice(1).join('/') : name}</span
-        >
+        <span class="cardname">{leafOf(name)}</span>
         <span class="cardmeta muted">
+          {#if detail?.configures}<span
+              class="configures"
+              title="a tuned configuration of {detail.configures}"
+              >configures {leafOf(detail.configures)}</span
+            >{/if}
           {#if detail?.writable === false}<span
               title="read-only: from the {detail.origin} directory"
               >{detail.origin}</span
@@ -183,6 +188,16 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  /* Marks a model config as a tuned instance of a template rather than a
+     pattern to copy - the one distinction the two-tree catalog turns on */
+  .configures {
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    padding: 0 0.25rem;
+    opacity: 0.75;
+    white-space: nowrap;
+  }
+
   .cardmeta {
     display: inline-flex;
     align-items: center;

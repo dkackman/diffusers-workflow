@@ -7,15 +7,18 @@ test('workflow browser lists, describes and filters', async ({ page }) => {
   await expect(
     page.getByText('Text-to-image with Z-Image Turbo').first(),
   ).toBeVisible()
-  // the filter searches descriptions, not just names
-  await page.getByPlaceholder('filter…').fill('inpaint')
-  await expect(page.getByRole('link', { name: /FluxFill/ })).toBeVisible()
-  await expect(page.getByRole('link', { name: /^ZImage / })).toHaveCount(0)
+  // the filter searches descriptions, not just names: 'fill dev' appears in
+  // outpaint's description and in no workflow's name
+  await page.getByPlaceholder('filter…').fill('fill dev')
+  await expect(page.getByRole('link', { name: /^outpaint / })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^z-image / })).toHaveCount(0)
 })
 
 test('workflow page shows JSON and a run form', async ({ page }) => {
-  await page.goto('/#/workflows/ZImage')
-  await expect(page.getByRole('heading', { name: 'ZImage' })).toBeVisible()
+  await page.goto('/#/workflows/models/z-image')
+  await expect(
+    page.getByRole('heading', { name: 'models/z-image' }),
+  ).toBeVisible()
   // JSON is shown by default via Monaco
   await expect(page.locator('.monaco-editor').first()).toBeVisible({
     timeout: 20_000,
@@ -29,7 +32,7 @@ test('editor opens a workflow with introspected arguments', async ({
   page,
 }) => {
   test.setTimeout(120_000) // first describe imports the pipeline class server-side
-  await page.goto('/#/edit/flux/FluxDev')
+  await page.goto('/#/edit/models/flux-dev')
   await page.getByRole('button', { name: 'full' }).click()
   await expect(page.locator('#ct-0')).toHaveValue('FluxPipeline')
   // the arguments editor discovered real __call__ parameters - the
@@ -51,7 +54,7 @@ test('editor opens a workflow with introspected arguments', async ({
 })
 
 test('split view shows editable JSON beside the form', async ({ page }) => {
-  await page.goto('/#/edit/ZImage')
+  await page.goto('/#/edit/models/z-image')
   await page.getByRole('button', { name: /split/ }).click()
   await expect(page.locator('.jsoncol')).toBeVisible()
   // the live definition renders in a real editor
@@ -115,7 +118,7 @@ test('editor validates, saves into a new folder, and deletes', async ({
   page,
 }) => {
   test.setTimeout(60_000)
-  await page.goto('/#/edit/ZImage')
+  await page.goto('/#/edit/models/z-image')
   await page.getByRole('button', { name: 'Validate' }).click()
   await expect(page.getByText('schema-valid')).toBeVisible({ timeout: 30_000 })
 
@@ -148,14 +151,16 @@ test('editor validates, saves into a new folder, and deletes', async ({
 test('the editor breadcrumb walks back to the workflow it opened', async ({
   page,
 }) => {
-  await page.goto('/#/workflows/ZImage')
+  await page.goto('/#/workflows/models/z-image')
   await page.getByRole('link', { name: 'Edit', exact: true }).click()
-  await expect(page).toHaveURL(/#\/edit\/ZImage$/)
+  await expect(page).toHaveURL(/#\/edit\/models\/z-image$/)
   // the way back to the read-only page, which the bare "← workflows"
   // link never offered
-  await page.getByRole('link', { name: 'ZImage', exact: true }).click()
-  await expect(page).toHaveURL(/#\/workflows\/ZImage$/)
-  await expect(page.getByRole('heading', { name: 'ZImage' })).toBeVisible()
+  await page.getByRole('link', { name: 'z-image', exact: true }).click()
+  await expect(page).toHaveURL(/#\/workflows\/models\/z-image$/)
+  await expect(
+    page.getByRole('heading', { name: 'models/z-image' }),
+  ).toBeVisible()
 })
 
 test('prompts page lists, creates at the root, and deletes', async ({
@@ -196,6 +201,23 @@ test('jobs and gallery pages render', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Jobs' })).toBeVisible()
   await page.goto('/#/gallery')
   await expect(page.getByRole('heading', { name: 'Gallery' })).toBeVisible()
+})
+
+test('gallery groups every run of a workflow under one folder', async ({
+  page,
+}) => {
+  await page.goto('/#/gallery')
+  // The fixture seeds two runs of the same workflow; a heading per run would
+  // show a timestamped folder name. Scoped to the folder headings
+  // (`.group`) rather than every button - a cell's image `alt` is the full
+  // file name and would otherwise also match the run id pattern.
+  const folderHeadings = page.locator('.group')
+  await expect(
+    folderHeadings.filter({ hasText: /\d{8}-\d{6}-[0-9a-f]{8}/ }),
+  ).toHaveCount(0)
+  await expect(
+    folderHeadings.filter({ hasText: 'e2e-run-group/' }),
+  ).toBeVisible()
 })
 
 test('downloads a multi-file gallery selection as one zip', async ({
@@ -253,7 +275,7 @@ test('models page inventories the hub cache', async ({ page }) => {
 })
 
 test('task steps get introspection-driven forms', async ({ page }) => {
-  await page.goto('/#/edit/tasks/ImageToText')
+  await page.goto('/#/edit/templates/image-to-text')
   await page.getByRole('button', { name: 'full' }).first().click()
   // the command's discovered schema renders labeled fields
   await expect(page.locator('label', { hasText: 'image' }).first()).toBeVisible(
@@ -268,7 +290,7 @@ test('task steps get introspection-driven forms', async ({ page }) => {
 test('editor flags a dangling reference without asking the server', async ({
   page,
 }) => {
-  await page.goto('/#/edit/ZImage')
+  await page.goto('/#/edit/models/z-image')
   await expect(page.locator('#wfvar-prompt')).toBeVisible()
   await expect(page.locator('.stepwarn')).toHaveCount(0)
   // removing the variable the step's prompt argument points at - the
@@ -284,7 +306,7 @@ test('editor flags a dangling reference without asking the server', async ({
 
 test('the theme toggle re-themes an open Monaco editor', async ({ page }) => {
   // Playwright's default colour scheme is light, so "system" starts light
-  await page.goto('/#/workflows/ZImage')
+  await page.goto('/#/workflows/models/z-image')
   const editor = page.locator('.monaco-editor').first()
   await expect(editor).toBeVisible({ timeout: 20_000 })
   await expect(editor).toHaveClass(/\bvs\b/)

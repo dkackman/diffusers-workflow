@@ -1,0 +1,49 @@
+{
+    "id": "FluxCanny",
+    "description": "Extracts Canny edges from an input image and generates with FLUX.1 Canny dev guided by them. The preprocessor is the only thing that changes between control types: swap the 'canny' task for 'depth' and the model for 'black-forest-labs/FLUX.1-Depth-dev' (guidance_scale 10 rather than 30) for depth control. image-processors.json runs every preprocessor side by side.",
+    "steps": [
+        {
+            "name": "canny",
+            "task": {
+                "command": "canny",
+                "arguments": {
+                    "image": {
+                        "location": "https://pbs.twimg.com/media/GezfaKzaQAEwLJJ?format=jpg&name=medium",
+                        "low_threshold": 50,
+                        "high_threshold": 200,
+                        "detect_resolution": 1024,
+                        "image_resolution": 1024
+                    }
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        },
+        {
+            "name": "FluxCanny",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "FluxControlPipeline",
+                    "offload": "sequential"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-Canny-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "control_image": "previous_result:canny",
+                    "prompt": "A Chimpanzee dressed as super man flying over a city",
+                    "guidance_scale": 30,
+                    "num_inference_steps": 50,
+                    "max_sequence_length": 512
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        }
+    ]
+}

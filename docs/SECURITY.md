@@ -88,7 +88,7 @@ own modeling code) and `custom_pipeline` (fetches and imports a pipeline
 module from the Hub or a local path). Neither goes through an
 `importlib` call of ours, so the dotted-name gate alone would leave
 diffusers' remote-code paths open. A workflow that needs them
-(`workflows/Krea2Edit.json`, say) needs `--trust-workflows`.
+(`workflows/templates/image-edit.json`, say) needs `--trust-workflows`.
 
 `--trust-workflows` is a blanket, process-wide choice - it is not scoped
 per-workflow or per-request. A `dw-serve` instance that accepts jobs from

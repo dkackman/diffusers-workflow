@@ -1,0 +1,25 @@
+{
+  "id": "GenerateSpeech",
+  "description": "Speaks a line of text with a local text-to-speech model and saves it as a wav. The result declares no 'sample_rate': a generated track carries the rate its model produced it at, so saying nothing is what saves it correctly. Bark's 'voice_preset' selects the speaker - give two characters two presets and they sound like two people.",
+  "variables": {
+    "text": "Somebody finished the pistachio and nobody is saying anything.",
+    "voice_preset": "v2/en_speaker_6",
+    "model_name": "suno/bark-small"
+  },
+  "steps": [
+    {
+      "name": "speak",
+      "task": {
+        "command": "generate_speech",
+        "arguments": {
+          "text": "variable:text",
+          "voice_preset": "variable:voice_preset",
+          "model_name": "variable:model_name"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav"
+      }
+    }
+  ]
+}

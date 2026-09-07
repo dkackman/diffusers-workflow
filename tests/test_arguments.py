@@ -745,6 +745,28 @@ class TestBuildObjects:
         assert reference.audio.shape == (2, 50)
         assert reference.sample_rate == 44100
 
+    def test_an_audio_reference_takes_a_generated_track_with_its_rate(self):
+        # A step that generates audio alone but knows the rate it generated at -
+        # generate_speech - carries the rate across rather than making the
+        # reference declare one that may not match
+        import numpy
+
+        from dw.result import AudioTrack
+
+        arguments = {
+            "reference": {
+                "reference_type": AudioReference,
+                "from_previous_result": AudioTrack(
+                    numpy.zeros((1, 50), dtype="float32"), 24000
+                ),
+            }
+        }
+
+        reference = build_objects(arguments)["reference"]
+
+        assert reference.audio.shape == (1, 50)
+        assert reference.sample_rate == 24000
+
     def test_a_named_field_wins_over_the_one_the_media_carried(self):
         # A step that generated at another rate than the consuming pipeline reads
         arguments = {
@@ -756,6 +778,27 @@ class TestBuildObjects:
         }
 
         assert build_objects(arguments)["reference"].fps == 30.0
+
+    def test_a_video_reference_to_a_speech_step_says_so(self):
+        # Pointing a video-kind reference at generate_speech's output should
+        # name the mismatch, not fail inside the frame helper
+        import numpy
+
+        from dw.result import AudioTrack
+
+        arguments = {
+            "reference": {
+                "reference_type": VideoReference,
+                "from_previous_result": AudioTrack(
+                    numpy.zeros((1, 50), dtype="float32"), 24000
+                ),
+            }
+        }
+
+        with pytest.raises(
+            ValueError, match="holds a video, but the step it names produced"
+        ):
+            build_objects(arguments)
 
     def test_the_wrong_media_for_the_kind_is_an_error(self):
         arguments = {

@@ -72,7 +72,7 @@ extending `arguments`:
 ```jsonc
 POST /api/jobs
 {
-  "workflow_path": "workflows/ZImage.json",
+  "workflow_path": "workflows/models/z-image.json",
   "arguments": { "prompt": "a cat", "num_images_per_prompt": 4 },
   "sweep": { "variable": "steps", "values": [20, 30, 40] }
 }

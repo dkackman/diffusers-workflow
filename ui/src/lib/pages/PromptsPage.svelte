@@ -3,6 +3,7 @@
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
+  import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
   import type { PromptDetail } from '../types'
 
@@ -70,7 +71,6 @@
 >
   {#snippet card(name)}
     {@const detail = details[name]}
-    {@const group = name.includes('/') ? name.split('/')[0] : ''}
     <!-- The link is an overlay rather than a wrapper: buttons may not
          nest inside an anchor, and the chips are real buttons -->
     <div class="card panel">
@@ -81,9 +81,7 @@
         title={detail?.description || detail?.text || undefined}
       ></a>
       <span class="cardtop">
-        <span class="cardname"
-          >{group ? name.split('/').slice(1).join('/') : name}</span
-        >
+        <span class="cardname">{leafOf(name)}</span>
         {#if detail?.intended_model}
           <button
             class="chip modelchip"

@@ -1445,5 +1445,5 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 1. `git pull && bash ./install.sh` on the box; install the unit per `contrib/systemd/README.md`.
 2. From the laptop: `curl http://<box>:8765/api/health -H "Authorization: Bearer <token>"` shows the box's hostname and `"device": "cuda"`.
-3. Browser: open `http://<box>:8765`, paste the token, run `workflows/sd15.json`. The POST must return 201, not 403 - that is Task 1 working.
+3. Browser: open `http://<box>:8765`, paste the token, run `workflows/templates/text-to-image.json`. The POST must return 201, not 403 - that is Task 1 working.
 4. `claude mcp add --transport http dw http://<box>:8765/mcp --header "Authorization: Bearer <token>"`, new session, `/mcp` shows connected, `get_health` returns the box's hostname, `list_workflows` returns the catalog, `run_workflow` on `sd15.json` with `acknowledged_cost=true` queues a job and `wait_for_job` sees it succeed.

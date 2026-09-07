@@ -82,7 +82,7 @@ bash ./install.sh
 huggingface-cli login
 ```
 
-`workflows/sd15.json` uses an ungated model and needs no login - start there if you just want to confirm the install works.
+`workflows/templates/text-to-image.json` uses an ungated model and needs no login - start there if you just want to confirm the install works.
 
 **Package conflicts:** Re-run the install script — it recreates the venv from scratch.
 

@@ -71,8 +71,8 @@ Any other pipeline whose class name starts with `Flux` (e.g. `FluxKontextPipelin
 ## Example
 
 ```bash
-python -m dw.run workflows/flux/FluxSchnellWeighted.json \
+python -m dw.run workflows/templates/prompt-weighting.json \
     prompt="a (cinematic:1.5) shot of a (dragon:1.3) breathing [smoke] over a (medieval:0.8) castle"
 ```
 
-See [FluxSchnellWeighted.json](../workflows/flux/FluxSchnellWeighted.json).
+See [prompt-weighting.json](../workflows/templates/prompt-weighting.json).

@@ -32,8 +32,8 @@ workflow restart         Restart the worker process (clears GPU cache)
 ```
 
 `workflow load` resolves names against the workflow directory (`./workflows`
-by default), including subfolders - `workflow load flux/FluxDev` loads
-`workflows/flux/FluxDev.json`. `workflow list` shows the available names.
+by default), including subfolders - `workflow load models/flux-dev` loads
+`workflows/models/flux-dev.json`. `workflow list` shows the available names.
 
 `workflow run ask <arg>` prompts you interactively for `<arg>`'s value (the
 value is not saved to shell/readline history) before running — a shortcut
@@ -101,7 +101,7 @@ cached; a second Ctrl+C stops the worker process itself.
 ## Typical Session
 
 ```bash
-dw> workflow load flux/FluxDev
+dw> workflow load models/flux-dev
 dw> arg show
 dw> arg set prompt="a majestic mountain landscape"
 dw> workflow run

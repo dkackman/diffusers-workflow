@@ -20,26 +20,26 @@ The bf16 transformer is ~24GB - it does not fit alongside the T5 encoder. Two go
 | **float8 TorchAO** (RTX 40-series+) | same, with `Float8DynamicActivationFloat8WeightConfig` | Fastest, but fp8 needs compute capability 8.9+ (Ada). |
 | **GGUF Q8** | `from_single_file` Q8_0 transformer + `offload: "model"` | Simplest, best quality retention, slower than TorchAO+compile. |
 
-**Examples:** [FluxDevFast.json](../workflows/flux/FluxDevFast.json) (the int8 recipe - swap in `Float8DynamicActivationFloat8WeightConfig` on Ada or newer), [FluxGGUF.json](../workflows/flux/FluxGGUF.json), [FluxDevFirstBlockCache.json](../workflows/flux/FluxDevFirstBlockCache.json)
+**Examples:** [flux-dev-fast.json](../workflows/models/flux-dev-fast.json) (the int8 recipe - swap in `Float8DynamicActivationFloat8WeightConfig` on Ada or newer), [flux-gguf.json](../workflows/models/flux-gguf.json), [step-caching.json](../workflows/templates/step-caching.json)
 
 ## Qwen-Image (20B)
 
 Too large for bf16 on 24GB. Quantize the transformer (TorchAO int8/float8 or GGUF Q4/Q5) and model-offload the rest; add `compile` + `first_block` cache as for Flux. The Qwen2.5-VL text encoder is large - quantize it too, or group-offload it (`"text_encoder.model"` with `leaf_level`).
 
-**Example:** [QwenImageEdit.json](../workflows/archive/QwenImageEdit.json)
+The catalog no longer ships a Qwen-Image workflow - author one from [text-to-image.json](../workflows/templates/text-to-image.json) with the configuration above.
 
 ## Wan 2.2
 
 - **TI2V-5B**: fits in bf16 on 24GB. No quantization needed - just `compile` + `cache` + VAE tiling for longer clips.
 - **T2V/I2V-A14B**: two 14B transformers (`transformer` + `transformer_2`). Quantize both (GGUF Q4/Q5 or TorchAO int8) and use `offload: "model"`; enable `vae.enable_tiling`.
 
-**Examples:** [Wan22TI2V5B.json](../workflows/archive/Wan22TI2V5B.json), [Wan22T2V14B.json](../workflows/archive/Wan22T2V14B.json)
+The catalog no longer ships Wan workflows - author one from [minimax/image-to-video.json](../workflows/templates/minimax/image-to-video.json) with the configuration above.
 
 ## HunyuanVideo (13B)
 
 Same shape as Flux: quantize the transformer (GGUF Q6/Q8, or TorchAO int8/float8 per the Flux table) + `offload: "model"` + `vae.enable_tiling`. The Llama text encoder benefits from group offload. Use `first_block` cache - video steps are expensive, caching pays off more than on images.
 
-**Examples:** [HunyuanVideoGguf.json](../workflows/archive/HunyuanVideoGguf.json), [hunyuan15.json](../workflows/archive/hunyuan15.json)
+The catalog no longer ships a HunyuanVideo workflow - author one from [ltx2/text-to-video.json](../workflows/templates/ltx2/text-to-video.json) with the configuration above.
 
 ## MiniMax-H3
 
@@ -92,7 +92,7 @@ model first (Z-Image drawing a subject, Music3 writing a song) must free it with
 `release_pipeline` before H3 loads - with it, the multi-model digital-short
 workflows below fit; without it, the load is an OOM kill, not a slowdown.
 
-**Examples:** [MiniMaxH3Ref2VA.json](../workflows/minimax/MiniMaxH3Ref2VA.json), [MiniMaxH3Ref2VAChained.json](../workflows/minimax/MiniMaxH3Ref2VAChained.json), [MiniMaxH3I2V.json](../workflows/minimax/MiniMaxH3I2V.json), [MiniMaxH3SitcomShort.json](../workflows/minimax/MiniMaxH3SitcomShort.json) (five ref2va shots + two Z-Image portraits in ~35 minutes end to end)
+**Examples:** [reference-to-video.json](../workflows/templates/minimax/reference-to-video.json), [chain-matched-to-audio.json](../workflows/templates/minimax/chain-matched-to-audio.json), [image-to-video.json](../workflows/templates/minimax/image-to-video.json), [dialogue-short.json](../workflows/templates/minimax/dialogue-short.json) (five ref2va shots + two Z-Image portraits in ~35 minutes end to end)
 
 ## LTX-2.5 (22B, video + audio)
 
@@ -135,19 +135,19 @@ upsample the latents 2x, and the result is sharper than a single pass at 1536x89
 fits where that would not. The base step shares its `vae` into the upsampler and sets
 `release_pipeline`, which frees the 11GB transformer before the 2x decode runs.
 
-**Examples:** [LTX2.json](../workflows/ltx2/LTX2.json) (t2v),
-[LTX2TwoStage.json](../workflows/ltx2/LTX2TwoStage.json) (base -> latent upsample -> mux),
-[LTX2Keyframes.json](../workflows/ltx2/LTX2Keyframes.json) (first and
-last frame), [LTX2Extend.json](../workflows/ltx2/LTX2Extend.json) (continue a clip),
-[LTX2ICLora.json](../workflows/ltx2/LTX2ICLora.json) (generative 2x upscale via IC-LoRA),
-[LTX2I2VEnhancePrompt.json](../workflows/ltx2/LTX2I2VEnhancePrompt.json) (native prompt
+**Examples:** [text-to-video.json](../workflows/templates/ltx2/text-to-video.json) (t2v),
+[two-stage.json](../workflows/templates/ltx2/two-stage.json) (base -> latent upsample -> mux),
+[keyframes.json](../workflows/templates/ltx2/keyframes.json) (first and
+last frame), [extend-clip.json](../workflows/templates/ltx2/extend-clip.json) (continue a clip),
+[generative-upscale.json](../workflows/templates/ltx2/generative-upscale.json) (generative 2x upscale via IC-LoRA),
+[enhance-prompt.json](../workflows/templates/ltx2/enhance-prompt.json) (native prompt
 enhancer and duration head)
 
 ## SDXL (2.6B UNet)
 
 Fits several times over in 24GB. Skip quantization and offloading entirely; `compile` the UNet if you generate many images per session. Use `num_images_per_prompt` batching with `vae.enable_slicing`.
 
-**Example:** [sdxl.json](../workflows/archive/sdxl.json)
+**Example:** [base-and-refiner.json](../workflows/templates/base-and-refiner.json)
 
 ## Multi-model workflows
 

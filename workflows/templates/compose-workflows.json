@@ -1,0 +1,46 @@
+{
+    "variables": {
+        "width": 720,
+        "height": 480,
+        "image_generation_workflow": "../models/z-image.json",
+        "image_num_inference_steps": 9,
+        "image_prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of a marmot, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, asymmetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
+        "video_generation_workflow": "./minimax/image-to-video.json",
+        "video_prompt": "the marmot blinks and looks around",
+        "video_num_inference_steps": 20
+    },
+    "id": "txt2img2vid",
+    "description": "Composes any text-to-image workflow with any image-to-video workflow - both named as variables, so the pair can be swapped without touching this file. The still the first step generates is handed to the second as its 'image'. Paths resolve against this file's own directory, so a workflow elsewhere in the catalog is named relatively: '../models/z-image.json' here for the still, './minimax/image-to-video.json' for the animation.",
+    "steps": [
+        {
+            "name": "image_generation",
+            "workflow": {
+                "path": "variable:image_generation_workflow",
+                "arguments": {
+                    "prompt": "variable:image_prompt",
+                    "num_inference_steps": "variable:image_num_inference_steps",
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        },
+        {
+            "name": "video_generation",
+            "workflow": {
+                "path": "variable:video_generation_workflow",
+                "arguments": {
+                    "image": "previous_result:image_generation",
+                    "prompt": "variable:video_prompt",
+                    "num_inference_steps": "variable:video_num_inference_steps"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4"
+            }
+        }
+    ]
+}

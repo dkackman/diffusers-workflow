@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Build a distributable wheel: the SPA is built with npm, copied into the
-# dw.server package (where default_ui_dir finds it in an install), and the
-# wheel is assembled around it.
+# Build a distributable wheel: the SPA is built with npm and copied into the
+# dw.server package (where default_ui_dir finds it in an install), the guides
+# dw_mcp serves are copied into dw/docs/, and the wheel is assembled around
+# them.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -10,9 +11,19 @@ cd "$(dirname "$0")/.."
 rm -rf dw/server/ui
 cp -r ui/dist dw/server/ui
 
+# The guides dw_mcp serves. A checkout reads the repo's docs/ directly, so this
+# copy only matters to an install - but without it an installed dw-mcp has no
+# guides at all. Every doc goes in: read_guide only ever opens the names in
+# dw_mcp.guides.GUIDES, so the extras are inert, and this needs no import of
+# dw_mcp (whose client pulls in httpx, which the wheel job does not install)
+rm -rf dw/docs
+mkdir -p dw/docs
+cp docs/*.md dw/docs/
+
 python -m pip show build >/dev/null 2>&1 || python -m pip install build
 python -m build
 
 echo ""
-echo "Artifacts in dist/. dw/server/ui/ is a build product (gitignored);"
-echo "remove it or rebuild it - a checkout serves ui/dist first regardless."
+echo "Artifacts in dist/. dw/server/ui/ and dw/docs/ are build products"
+echo "(gitignored); remove or rebuild them - a checkout serves ui/dist and"
+echo "the repo's own docs/ regardless."

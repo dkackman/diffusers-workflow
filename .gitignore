@@ -148,6 +148,9 @@ test_outputs/
 
 # built SPA copied into the package by scripts/build_dist.sh
 dw/server/ui/
+
+# the guides dw_mcp serves, copied into the package by the same script
+dw/docs/
 venv
 
 # generated media - regenerable, archived outside the repo

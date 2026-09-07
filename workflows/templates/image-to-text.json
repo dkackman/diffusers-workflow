@@ -1,0 +1,32 @@
+{
+    "id": "ImageToText",
+    "description": "Captions input images with an image-to-text model. Supplying 'model_name' switches to a vision-language model, which answers a question rather than captioning: 'Qwen/Qwen2.5-VL-3B-Instruct' with a 'prompt' such as \"What is shown in this image? Answer in one sentence.\" and 'max_new_tokens' of 100.",
+    "variables": {
+        "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true"
+    },
+    "steps": [
+        {
+            "name": "input_image",
+            "task": {
+                "command": "gather_images",
+                "arguments": {
+                    "urls": [
+                        "variable:image_url"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "caption",
+            "task": {
+                "command": "image_to_text",
+                "arguments": {
+                    "image": "previous_result:input_image"
+                }
+            },
+            "result": {
+                "content_type": "text/plain"
+            }
+        }
+    ]
+}

@@ -1,0 +1,128 @@
+{
+    "id": "assemble-and-score",
+    "description": "Editing shots that already exist, with no generation in the run at all - the pass you re-run while cutting, when re-generating the footage each time would cost GPU hours to change a fade. Each clip is held through stabilize_video with smooth 0, which re-encodes them to one consistent format rather than smoothing anything, then cut together with hard cuts. The shots' own recorded sound is carried up to the score's sample rate and mixed underneath it, so the room tone of each world survives the edit instead of being replaced by music. Supply the shots and the score as asset: references - 'shot_1.mp4' and friends, uploaded with upload_asset or promoted from a generated run with keep_output.",
+    "variables": {
+        "shot_1": "asset:shot_1.mp4",
+        "shot_2": "asset:shot_2.mp4",
+        "shot_3": "asset:shot_3.mp4",
+        "score": "asset:score.wav",
+        "sample_rate": 44100,
+        "fps": 24,
+        "score_start_frame": 0,
+        "total_frames": 360,
+        "score_gain": 1.0,
+        "world_gain": 1.8
+    },
+    "steps": [
+        {
+            "name": "hold_1",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_1"
+                }
+            }
+        },
+        {
+            "name": "hold_2",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_2"
+                }
+            }
+        },
+        {
+            "name": "hold_3",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_3"
+                }
+            }
+        },
+        {
+            "name": "edit",
+            "task": {
+                "command": "concat_videos",
+                "arguments": {
+                    "videos": [
+                        "previous_result:hold_1",
+                        "previous_result:hold_2",
+                        "previous_result:hold_3"
+                    ],
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "world",
+            "task": {
+                "command": "resample_audio",
+                "arguments": {
+                    "audio": "previous_result:edit",
+                    "target_sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "soundtrack",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "variable:score",
+                    "start_frame": "variable:score_start_frame",
+                    "num_frames": "variable:total_frames",
+                    "fps": "variable:fps",
+                    "sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "mixed",
+            "task": {
+                "command": "mix_audio",
+                "arguments": {
+                    "audios": [
+                        "previous_result:soundtrack",
+                        "previous_result:world"
+                    ],
+                    "gains": [
+                        "variable:score_gain",
+                        "variable:world_gain"
+                    ],
+                    "sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "balanced",
+            "task": {
+                "command": "normalize_audio",
+                "arguments": {
+                    "audio": "previous_result:mixed",
+                    "peak_dbfs": -1.0,
+                    "sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "film",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:edit",
+                    "audio": "previous_result:balanced",
+                    "sample_rate": "variable:sample_rate"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

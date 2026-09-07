@@ -1,8 +1,8 @@
 """Every example workflow loads, validates, and points at files that exist.
 
-The example workflows in workflows/ live in subfolders - flux/, ltx2/,
-minimax/, tasks/, archive/ - so discovery walks the tree rather than listing
-one directory.
+The example workflows in workflows/ live in subfolders - templates/ (with
+ltx2/ and minimax/ beneath it) and models/ - so discovery walks the tree
+rather than listing one directory.
 
 The reference check guards what subfolders put at risk: a workflow's path to
 another workflow resolves against the referencing file's own directory, so
@@ -77,15 +77,23 @@ def workflow_references(definition):
             yield from workflow_references(value)
 
 
-def resolve_reference(path, base_dir):
-    """Where a sub-workflow path points, or None when only a run can tell."""
+def resolve_reference(path, base_dir, variables=None):
+    """Where a sub-workflow path points, or None when only a run can tell.
+
+    A 'variable:' path is followed to the variable's default when the workflow
+    declares one - the shipped templates do, and a default that cannot be
+    reached is exactly the kind of break this test exists to catch.
+    """
     if path.startswith("variable:"):
-        return None  # supplied at run time
+        default = (variables or {}).get(path.removeprefix("variable:"))
+        if not isinstance(default, str):
+            return None  # supplied at run time
+        path = default
     if path.startswith("builtin:"):
         return os.path.join(BUILTIN_DIR, path.removeprefix("builtin:"))
     if os.path.isabs(path):
         return path
-    return os.path.join(base_dir, path)
+    return os.path.normpath(os.path.join(base_dir, path))
 
 
 @pytest.mark.parametrize("example_file", get_example_files())
@@ -107,7 +115,9 @@ def test_example_workflow_references_resolve(example_file):
         definition = json.load(file)
 
     for reference in workflow_references(definition):
-        target = resolve_reference(reference, os.path.dirname(path))
+        target = resolve_reference(
+            reference, os.path.dirname(path), definition.get("variables")
+        )
         if target is None:
             continue
         assert os.path.isfile(target), (

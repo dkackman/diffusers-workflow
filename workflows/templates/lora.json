@@ -1,0 +1,47 @@
+{
+    "variables": {
+        "prompt": "A realistic photograph of a masculine looking female mouse playing volleyball against a team of professional volleyball players.",
+        "lora": "XLabs-AI/flux-RealismLora",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 25,
+        "guidance_scale": 3.5
+    },
+    "id": "FluxLora",
+    "description": "FLUX.1 dev with a LoRA adapter. The same 'loras' list works on any pipeline that supports adapters - on StableDiffusion3Pipeline with 'stabilityai/stable-diffusion-3.5-large' and the 'linoyts/yart_art_sd3-5_lora' adapter, for instance.",
+    "steps": [
+        {
+            "name": "txt2img",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "FluxPipeline",
+                    "offload": "model",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/FLUX.1-dev",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora"
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "guidance_scale": "variable:guidance_scale",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "max_sequence_length": 512
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true,
+                "save": true
+            }
+        }
+    ]
+}

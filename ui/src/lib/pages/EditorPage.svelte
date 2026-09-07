@@ -24,6 +24,7 @@
     referenceSuggestions,
   } from '../editor'
   import { danglingReferenceDetails, flowGraph } from '../flow'
+  import { groupOf, leafOf } from '../grouping'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
   import { PROMPT_LIST_ID } from '../prompts'
   import { storageGet, storageSet } from '../storage'
@@ -70,13 +71,7 @@
   // Existing folders, from the listing - one level is the designed depth,
   // but any deeper directories that exist still appear and keep working
   const folders = $derived(
-    [
-      ...new Set(
-        workflowFiles
-          .filter((file) => file.includes('/'))
-          .map((file) => file.split('/').slice(0, -1).join('/')),
-      ),
-    ].sort(),
+    [...new Set(workflowFiles.map(groupOf).filter(Boolean))].sort(),
   )
   let validation = $state<ValidationResult | null>(null)
   type EditorView = 'form' | 'split' | 'json' | 'flow'
@@ -129,8 +124,10 @@
   // Crumbs back out of the editor. The read-only page is where an edit
   // usually starts, and until now the only exit landed on the list - so
   // the last crumb links back to the workflow itself, when one is saved.
-  const crumbFolders = $derived(name ? name.split('/').slice(0, -1) : [])
-  const crumbName = $derived(name ? name.split('/').slice(-1)[0] : '')
+  const crumbFolders = $derived(
+    name ? groupOf(name).split('/').filter(Boolean) : [],
+  )
+  const crumbName = $derived(name ? leafOf(name) : '')
   const workflowHref = $derived(
     '#/workflows/' + name.split('/').map(encodeURIComponent).join('/'),
   )
@@ -201,9 +198,8 @@
     loadPromptLibrary()
     validation = null
     if (name) {
-      const segments = name.split('/')
-      saveName = segments[segments.length - 1]
-      folder = segments.slice(0, -1).join('/')
+      saveName = leafOf(name)
+      folder = groupOf(name)
       fileOpen = false
       api
         .getWorkflow(name)

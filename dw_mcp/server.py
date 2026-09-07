@@ -17,6 +17,7 @@ from dw_mcp import (
     authoring,
     catalog,
     diagnose,
+    guides,
     media,
     models,
     prompts,
@@ -76,6 +77,18 @@ def build_server(client):
             "with `arguments` overriding its variables, rather than "
             "authoring a new workflow for a request an existing one "
             "covers.\n"
+            "\n"
+            "When a request is open-ended - a subject rather than a shape "
+            '("a lego movie trailer set in the marvel universe") - no '
+            "catalog entry will name it, because entries are written in "
+            "shapes: a single image, an image set, one shot, a multi-shot "
+            "cut sequence, video with speech. Decide which shape the "
+            "deliverable is first, then match the catalog against that; "
+            "`list_guides` indexes the documentation by section so a shape "
+            "can be looked up rather than guessed at, and `list_tasks` is "
+            "what a shape is composed from when no single workflow covers "
+            "it. Author new JSON only once neither does, and say what it "
+            "will cost before spending it.\n"
             "\n"
             "The engine that answers is one machine: `get_server_info` "
             "reports its accelerator, its directories and which workspace "
@@ -252,7 +265,29 @@ def build_server(client):
         re-run."""
         return catalog.get_gallery_metadata(client, name)
 
+    def list_guides() -> dict:
+        """List the documentation shipped with this engine: each guide's
+        name, what it covers, and its section headings. Read this when a
+        request is open-ended enough that no catalog entry obviously
+        answers it - a request names a subject ("a lego movie trailer"),
+        while the catalog and these guides are written in shapes
+        (multi-shot video, cuts, a consistent cast, narration over
+        B-roll), and the section headings are where the two get matched
+        up. Cheaper than guessing: reading a section costs a fraction of
+        one wrong run."""
+        return guides.list_guides()
+
+    def get_guide(name: str, section: str | None = None) -> dict:
+        """Get one guide from `list_guides`, whole or one section of it.
+        Prefer a section - a guide runs to thousands of lines, and the
+        headings in the listing are there so the right part can be asked
+        for by name. A section name is matched loosely, so a heading
+        copied approximately still resolves."""
+        return guides.get_guide(name, section=section)
+
     for fn in (
+        list_guides,
+        get_guide,
         list_workflows,
         get_workflow,
         get_schema,

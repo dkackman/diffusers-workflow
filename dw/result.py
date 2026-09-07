@@ -116,6 +116,32 @@ class AudioVideo:
         self.sample_rate = sample_rate
 
 
+class AudioTrack:
+    """A generated waveform together with the rate it was generated at.
+
+    A step that produces audio alone usually returns the waveform by itself, and
+    the workflow declares the rate - which is fine where the rate is a property of
+    the workflow (a slice of a file it named) rather than of the model. It is not
+    fine for a generated track: every text-to-speech model has its own rate, and a
+    declared 44100 against a 24 kHz model plays the speech fast without failing.
+
+    Carrying the rate with the waveform is what lets a workflow say nothing about
+    it. Everything downstream of audio already reads '.audio' and '.sample_rate'
+    off whatever it is handed - slice_audio, fade_audio, pair_audio and the H3
+    audio references all accept one of these - and a rate the workflow does declare
+    still wins over the one carried here.
+    """
+
+    def __init__(self, audio, sample_rate):
+        """
+        Args:
+            audio: The waveform, shaped (channels, samples)
+            sample_rate: Sample rate the waveform was generated at
+        """
+        self.audio = audio
+        self.sample_rate = sample_rate
+
+
 class Result:
     """Manages and stores results from workflow steps.
 
@@ -378,9 +404,11 @@ class Result:
                 )
             elif content_type.startswith("audio"):
                 waveforms = normalize_audio(artifact)
-                sample_rate = self.result_definition.get(
-                    "sample_rate",
-                    self.result_definition.get("samplerate", DEFAULT_AUDIO_SAMPLE_RATE),
+                # Declared rate > the rate a generated track carries > default
+                sample_rate = (
+                    self.result_definition.get("sample_rate")
+                    or getattr(artifact, "sample_rate", None)
+                    or DEFAULT_AUDIO_SAMPLE_RATE
                 )
                 # A batched waveform holds several songs - save each one separately
                 if len(waveforms) > 1:
@@ -389,7 +417,15 @@ class Result:
                         saved_files.extend(
                             self.save_artifact(
                                 output_dir,
-                                waveform,
+                                # Keep the rate the track carries across the
+                                # recursion - a bare waveform would fall back
+                                # to the default
+                                (
+                                    AudioTrack(waveform.T, sample_rate)
+                                    if getattr(artifact, "sample_rate", None)
+                                    is not None
+                                    else waveform
+                                ),
                                 f"{file_base_name}-{k}",
                                 content_type,
                                 extension,
@@ -613,7 +649,20 @@ def _frames_from_attributes(result):
 
 
 def _audios_from_attribute(result):
-    return [as_waveform_array(audio) for audio in result.audios]
+    """Each `.audios` item as an artifact.
+
+    With the rate attach_audio_sample_rate recorded, each item becomes an
+    AudioTrack carrying it, shaped (channels, samples); without one, the bare
+    (samples, channels) array it always was, and the workflow's 'sample_rate'
+    (or the default) applies at save.
+    """
+    sample_rate = getattr(result, "audio_sample_rate", None)
+    if sample_rate is None:
+        return [as_waveform_array(audio) for audio in result.audios]
+    return [
+        AudioTrack(as_waveform_array(audio).T, int(sample_rate))
+        for audio in result.audios
+    ]
 
 
 # Diffusers output fields get_artifact_list knows how to turn into artifacts, tried in
@@ -855,11 +904,20 @@ def normalize_audio(artifact):
     optionally batched. soundfile wants samples first, one waveform at a time.
 
     Args:
-        artifact: Audio waveform(s) as a torch tensor or numpy array
+        artifact: Audio waveform(s) as a torch tensor or numpy array, or anything
+            carrying one as '.audio' - an AudioTrack, or a video whose soundtrack
+            is what is being saved
 
     Returns:
         List of numpy arrays shaped (samples,) or (samples, channels)
     """
+    if hasattr(artifact, "audio"):
+        if artifact.audio is None:
+            raise ValueError(
+                f"Cannot save a {type(artifact).__name__} as audio - it carries no audio track"
+            )
+        artifact = artifact.audio
+
     # Torch tensors may be on the GPU and in a dtype numpy does not understand
     if hasattr(artifact, "detach"):
         artifact = artifact.detach().float().cpu().numpy()

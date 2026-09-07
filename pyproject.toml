@@ -121,6 +121,9 @@ include = ["dw*"]
 namespaces = true
 
 [tool.setuptools.package-data]
-dw = ["*.json", "workflows/*.json", "community_pipelines/*.py"]
+dw = ["*.json", "workflows/*.json", "community_pipelines/*.py", "docs/*.md"]
+# docs/ is copied in by scripts/build_dist.sh, the way the SPA is - it is what
+# dw_mcp's list_guides/get_guide serve. A checkout has no copy and reads the
+# repo's own docs/ instead
 # The built SPA, copied in by scripts/build_dist.sh before packaging
 "dw.server" = ["ui/**"]

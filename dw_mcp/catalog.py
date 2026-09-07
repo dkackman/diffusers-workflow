@@ -10,7 +10,9 @@ def list_workflows(client):
     """Workflow names the server can reach, with details - description,
     output kinds and variable names per workflow, plus which source each came
     from and whether it can be written to (a read-only examples directory
-    can be read and run, but not saved over or deleted)."""
+    can be read and run, but not saved over or deleted). A `models/` entry
+    also carries `configures`, the template it configures, or
+    `configures_missing` naming it when that template does not resolve."""
     return client.get_json("/api/workflows")
 
 

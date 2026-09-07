@@ -284,6 +284,33 @@ class TestGetArtifactList:
         assert artifacts[0].shape == (100, 2)
         assert artifacts[0].dtype == numpy.float32
 
+    def test_audios_with_a_recorded_rate_become_audio_tracks(self):
+        # attach_audio_sample_rate put the rate on the output; each item
+        # carries it from here on, so a workflow declares nothing
+        from dw.result import AudioTrack
+
+        class MockResult:
+            audios = numpy.zeros((2, 2, 100), dtype=numpy.float32)
+            audio_sample_rate = 16000
+
+        artifacts = get_artifact_list(MockResult())
+
+        assert len(artifacts) == 2
+        assert all(isinstance(a, AudioTrack) for a in artifacts)
+        assert artifacts[0].sample_rate == 16000
+        # channels-first, the layout AudioTrack documents
+        assert artifacts[0].audio.shape == (2, 100)
+
+    def test_audios_without_a_rate_stay_bare_waveforms(self):
+        # Nothing to carry: the shape every existing consumer already handles
+        class MockResult:
+            audios = numpy.zeros((1, 2, 100), dtype=numpy.float32)
+
+        artifacts = get_artifact_list(MockResult())
+
+        assert isinstance(artifacts[0], numpy.ndarray)
+        assert artifacts[0].shape == (100, 2)
+
     def test_images_take_precedence_over_frames(self):
         # The output-field registry is consulted in order - a result exposing both
         # (which nothing real does, but the registry order must still be deterministic)
@@ -637,6 +664,80 @@ class TestSaveAudio:
 
             _, sample_rate = soundfile.read(os.path.join(temp_dir, "song-0.0.wav"))
             assert sample_rate == 44100
+
+    def test_saving_a_silent_video_as_audio_names_the_problem(self):
+        from dw.result import AudioVideo, normalize_audio
+
+        with pytest.raises(ValueError, match="carries no audio"):
+            normalize_audio(AudioVideo([], None, None))
+
+    def test_a_track_saves_at_the_rate_it_carries(self):
+        # A generated track knows its own rate - generate_speech produces one at
+        # whatever its model runs at - so the workflow does not have to declare it
+        from dw.result import AudioTrack
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav"})
+            result.add_result(
+                AudioTrack(numpy.zeros((1, 4410), dtype=numpy.float32), 24000)
+            )
+
+            result.save(temp_dir, "line")
+
+            _, sample_rate = soundfile.read(os.path.join(temp_dir, "line-0.0.wav"))
+            assert sample_rate == 24000
+
+    def test_a_batched_track_keeps_its_rate_across_the_recursion(self):
+        # A batched AudioTrack (several waveforms in one artifact) recurses through
+        # save_artifact per waveform - the recursion must keep re-wrapping as an
+        # AudioTrack by checking for a carried sample_rate, not by isinstance, so
+        # a batch saved this way still saves at the rate it carries
+        from dw.result import AudioTrack
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav"})
+            result.add_result(
+                AudioTrack(numpy.zeros((2, 1, 4410), dtype=numpy.float32), 22050)
+            )
+
+            result.save(temp_dir, "line")
+
+            for j in (0, 1):
+                _, sample_rate = soundfile.read(
+                    os.path.join(temp_dir, f"line-0.0-{j}.wav")
+                )
+                assert sample_rate == 22050
+
+    def test_a_declared_rate_wins_over_the_one_the_track_carries(self):
+        from dw.result import AudioTrack
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav", "sample_rate": 44100})
+            result.add_result(
+                AudioTrack(numpy.zeros((1, 4410), dtype=numpy.float32), 24000)
+            )
+
+            result.save(temp_dir, "line")
+
+            _, sample_rate = soundfile.read(os.path.join(temp_dir, "line-0.0.wav"))
+            assert sample_rate == 44100
+
+    def test_a_batch_of_tracks_each_save_at_the_carried_rate(self):
+        # Each item of a batched .audios is its own AudioTrack, so each is saved
+        # as its own artifact at the rate it carries
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav"})
+
+            class MockResult:
+                audios = numpy.zeros((2, 1, 4410), dtype=numpy.float32)
+                audio_sample_rate = 22050
+
+            result.add_result(MockResult())
+            result.save(temp_dir, "song")
+
+            for j in (0, 1):
+                _, rate = soundfile.read(os.path.join(temp_dir, f"song-0.{j}.wav"))
+                assert rate == 22050
 
     def test_numpy_audios_output_saves_without_attribute_error(self):
         # Regression test: AudioPipelineOutput.audios is a numpy ndarray under the

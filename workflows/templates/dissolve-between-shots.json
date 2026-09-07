@@ -1,0 +1,130 @@
+{
+    "id": "dissolve-between-shots",
+    "description": "assemble-and-score.json with the cuts softened into cross-dissolves. dissolve_videos overlaps each pair by 'dissolve_frames' rather than butting them together, which suits shots that share a composition - registered on the same centre at the same size, an overlap reads as one thing becoming another rather than as a fade between two pictures. Shots whose framing disagrees will read as a plain cross-fade, so use hard cuts there. The audio bed is mixed the same way as in assemble-and-score.",
+    "variables": {
+        "shot_1": "asset:shot_1.mp4",
+        "shot_2": "asset:shot_2.mp4",
+        "shot_3": "asset:shot_3.mp4",
+        "dissolve_frames": 12,
+        "score": "asset:score.wav",
+        "sample_rate": 44100,
+        "fps": 24,
+        "score_start_frame": 0,
+        "total_frames": 360,
+        "score_gain": 1.0,
+        "world_gain": 1.8
+    },
+    "steps": [
+        {
+            "name": "hold_1",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_1"
+                }
+            }
+        },
+        {
+            "name": "hold_2",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_2"
+                }
+            }
+        },
+        {
+            "name": "hold_3",
+            "task": {
+                "command": "stabilize_video",
+                "arguments": {
+                    "smooth": 0,
+                    "clip": "variable:shot_3"
+                }
+            }
+        },
+        {
+            "name": "edit",
+            "task": {
+                "command": "dissolve_videos",
+                "arguments": {
+                    "videos": [
+                        "previous_result:hold_1",
+                        "previous_result:hold_2",
+                        "previous_result:hold_3"
+                    ],
+                    "dissolve_frames": "variable:dissolve_frames",
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "world",
+            "task": {
+                "command": "resample_audio",
+                "arguments": {
+                    "audio": "previous_result:edit",
+                    "target_sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "soundtrack",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "variable:score",
+                    "start_frame": "variable:score_start_frame",
+                    "num_frames": "variable:total_frames",
+                    "fps": "variable:fps",
+                    "sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "mixed",
+            "task": {
+                "command": "mix_audio",
+                "arguments": {
+                    "audios": [
+                        "previous_result:soundtrack",
+                        "previous_result:world"
+                    ],
+                    "gains": [
+                        "variable:score_gain",
+                        "variable:world_gain"
+                    ],
+                    "sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "balanced",
+            "task": {
+                "command": "normalize_audio",
+                "arguments": {
+                    "audio": "previous_result:mixed",
+                    "peak_dbfs": -1.0,
+                    "sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "film",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:edit",
+                    "audio": "previous_result:balanced",
+                    "sample_rate": "variable:sample_rate"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

@@ -37,3 +37,19 @@ def clear_model_cache():
     if _cache:
         logger.info(f"Clearing {len(_cache)} cached task models")
     _cache.clear()
+
+
+def hf_pipeline_placement(device):
+    """How a transformers pipeline is told where to load.
+
+    A device_map has the loading threads cast their shards straight onto the
+    device, which races inside torch's Metal shader cache on MPS. Passing
+    `device` instead leaves the load on the CPU and moves the finished model in
+    one call on this thread. Every task that builds a transformers pipeline
+    spells `**hf_pipeline_placement(device)` so the accommodation lives once.
+    """
+    from .. import get_device_type
+
+    if get_device_type(device) == "mps":
+        return {"device": device}
+    return {"device_map": device}

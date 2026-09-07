@@ -1091,26 +1091,53 @@ def warn_if_safety_checker_blanked(output):
         )
 
 
-def attach_audio_sample_rate(pipeline, output):
-    """Record the vocoder's sample rate on an output that carries generated audio.
+# Where an audio pipeline's components record the rate they generate at, in
+# the order they are tried. LTX-2's vocoder names it output_sampling_rate,
+# AudioLDM2's vocoder and StableAudio's VAE name it sampling_rate
+_SAMPLE_RATE_SOURCES = (
+    ("vocoder", "output_sampling_rate"),
+    ("vocoder", "sampling_rate"),
+    ("vae", "sampling_rate"),
+)
 
-    Pipelines that generate audio with their video (LTX-2) return the waveform without
-    its sample rate - only the vocoder that produced it knows that. Saving the video
-    needs the rate to mux the audio, so it travels with the output.
+
+def _component_sample_rate(pipeline, has_audios):
+    for component_name, attribute in _SAMPLE_RATE_SOURCES:
+        if component_name == "vae" and not has_audios:
+            # A video VAE's config is not where an audio rate lives - only an
+            # audio-only pipeline's VAE (StableAudio) reports one there
+            continue
+        config = getattr(getattr(pipeline, component_name, None), "config", None)
+        sample_rate = getattr(config, attribute, None)
+        if sample_rate is not None:
+            return sample_rate
+    return None
+
+
+def attach_audio_sample_rate(pipeline, output):
+    """Record the generating component's sample rate on an output that carries audio.
+
+    Pipelines that generate audio - with their video (LTX-2, on `.audio`) or by
+    itself (AudioLDM2, StableAudio, on `.audios`) - return the waveform without
+    its sample rate; only the vocoder or VAE that produced it knows that. Saving
+    needs the rate, so it travels with the output, and get_artifact_list wraps
+    `.audios` items in an AudioTrack that carries it.
 
     Args:
         pipeline: The pipeline that produced the output
         output: The pipeline output
     """
-    if getattr(output, "audio", None) is None:
+    has_audio = getattr(output, "audio", None) is not None
+    has_audios = getattr(output, "audios", None) is not None
+    if not (has_audio or has_audios):
         return
 
-    vocoder_config = getattr(getattr(pipeline, "vocoder", None), "config", None)
-    sample_rate = getattr(vocoder_config, "output_sampling_rate", None)
+    sample_rate = _component_sample_rate(pipeline, has_audios)
     if sample_rate is None:
         logger.warning(
-            "Pipeline generated audio but has no vocoder sample rate - "
-            "set 'audio_sample_rate' in the step result to save it with the video"
+            "Pipeline generated audio but no component reports its sample rate - "
+            "set 'sample_rate' (audio results) or 'audio_sample_rate' (muxed video) "
+            "in the step result to save it correctly"
         )
         return
 

@@ -1,0 +1,71 @@
+{
+    "id": "recenter-crop",
+    "description": "Registering a set of stills on each other before they become shots. recenter_crop re-frames each picture around a point given in fractions of its own width and height, at a crop size chosen per image, so subjects that were photographed at different distances all land at the same size in the same square frame. That is what lets a later dissolve read as one shape becoming another rather than as a fade. 'center_x'/'center_y' locate the subject, 'crop' sets how much of the source to keep, and 'fill' - 'symmetric' here - decides what happens when the crop runs past an edge.",
+    "variables": {
+        "width": 704,
+        "height": 704,
+        "source_1": {
+            "location": "asset:source_1.jpg"
+        },
+        "source_2": {
+            "location": "asset:source_2.jpg"
+        },
+        "source_3": {
+            "location": "asset:source_3.jpg"
+        }
+    },
+    "steps": [
+        {
+            "name": "frame_1",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:source_1",
+                    "center_x": 0.4892,
+                    "center_y": 0.4592,
+                    "crop": 0.83,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "frame_2",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:source_2",
+                    "center_x": 0.495,
+                    "center_y": 0.4825,
+                    "crop": 0.55,
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        },
+        {
+            "name": "frame_3",
+            "task": {
+                "command": "recenter_crop",
+                "arguments": {
+                    "image": "variable:source_3",
+                    "center_x": 0.5615,
+                    "center_y": 0.4887,
+                    "crop": 0.99,
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "fill": "symmetric"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg"
+            }
+        }
+    ]
+}

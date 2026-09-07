@@ -1,0 +1,36 @@
+{
+    "variables": {
+        "prompt": "An eco-friendly crypto currency logo"
+    },
+    "id": "FluxLogo",
+    "description": "Generates a logo with the FluxLora workflow, then removes its background.",
+    "steps": [
+        {
+            "name": "logo",
+            "workflow": {
+                "path": "./lora.json",
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "lora": "Shakker-Labs/FLUX.1-dev-LoRA-Logo-Design"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        },
+        {
+            "name": "remove_background",
+            "task": {
+                "command": "remove_background",
+                "arguments": {
+                    "image": "previous_result:logo"
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "embed_metadata": true
+            }
+        }
+    ]
+}

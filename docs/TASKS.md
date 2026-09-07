@@ -305,7 +305,7 @@ the joined length, not the sum. When every input carries audio, the tracks are
 crossfaded over exactly the seam's span so they stay in step with the picture;
 when any input is silent the result is, and `pair_audio` puts a score under it.
 
-**Example:** [GyreDissolve.json](../workflows/gyre/GyreDissolve.json)
+**Example:** [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json)
 
 ### stabilize_video
 
@@ -335,7 +335,7 @@ before the task ever saw it. Frames are shifted back and the result is cropped
 to the region every frame covers, then resized to the original size; a
 soundtrack passes through untouched.
 
-**Example:** [GyreDissolve.json](../workflows/gyre/GyreDissolve.json)
+**Example:** [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json)
 
 ### video_frames
 
@@ -364,7 +364,7 @@ An argument that goes through diffusers' video processor instead - LTX-2's
 IC-LoRA references - wants the `[0, 1]` frames the pipeline returned rather than
 this array; hand those over with `previous_result:step.frames`.
 
-**Example:** [LTX2Extend.json](../workflows/ltx2/LTX2Extend.json)
+**Example:** [extend-clip.json](../workflows/templates/ltx2/extend-clip.json)
 
 ### pair_audio
 
@@ -392,7 +392,7 @@ returns frames without it, and this puts it back:
 | `audio` | Yes | The soundtrack - a waveform, or the earlier step whose video carried one, which brings its sample rate along |
 | `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
 
-**Example:** [LTX2TwoStage.json](../workflows/ltx2/LTX2TwoStage.json)
+**Example:** [two-stage.json](../workflows/templates/ltx2/two-stage.json)
 
 ### slice_audio
 
@@ -470,7 +470,7 @@ ending. The curve is the equal-power cosine the seam joins use:
 | `fade_out_ms` | No | Length of the fade out, to the tail of the track (default: 0) |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
-**Example:** [TrimFadeAudio.json](../workflows/tasks/TrimFadeAudio.json) — slice a generated track to length, then fade the cut into an ending.
+**Example:** [audio-trim-fade.json](../workflows/templates/audio-trim-fade.json) — slice a generated track to length, then fade the cut into an ending.
 
 ### normalize_audio
 
@@ -500,7 +500,7 @@ changes, so the dynamics survive:
 
 A silent track is returned unchanged.
 
-**Example:** [GyreDissolve.json](../workflows/gyre/GyreDissolve.json)
+**Example:** [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json)
 
 ### mix_audio
 
@@ -533,7 +533,7 @@ shorter than the picture leaves the tail dry rather than cutting the picture
 down to fit. Summing can push peaks past full scale and the sum is *not*
 rescaled - follow it with `normalize_audio` to bring the peak back down.
 
-**Example:** [GyreDissolve.json](../workflows/gyre/GyreDissolve.json) — a
+**Example:** [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — a
 generated score mixed under the shots' own audio.
 
 ### resample_audio
@@ -563,7 +563,7 @@ supplied recording once, up front, feeds it what it already wants:
 A track already at the target rate is returned untouched. The conversion is
 PyAV's, which dw already needs for video - no torchaudio dependency.
 
-**Example:** [GyreAssemble.json](../workflows/gyre/GyreAssemble.json)
+**Example:** [assemble-and-score.json](../workflows/templates/assemble-and-score.json)
 
 ## Data Gathering
 
@@ -653,8 +653,8 @@ Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR
 Large images are automatically tiled to avoid GPU memory issues. Models can be loaded from HuggingFace Hub repos or local `.pth`/`.safetensors` files.
 
 **Examples:**
-- [SpandrelUpscale.json](../workflows/tasks/SpandrelUpscale.json) — Generate at 512px, then 4x upscale to 2048px.
-- [UpscaleImage.json](../workflows/tasks/UpscaleImage.json) — Upscale an image you already have; there is no generation step, so the input is a path or URL.
+- [upscale-spandrel.json](../workflows/templates/upscale-spandrel.json) — Upscale any existing image 4x.
+- [upscale-spandrel.json](../workflows/templates/upscale-spandrel.json) — Upscale an image you already have; there is no generation step, so the input is a path or URL.
 
 ## Diffusion Upscaling
 
@@ -690,8 +690,8 @@ Two modes are available:
 | `noise_level` | No | Noise level for x4 mode (default: 20, ignored for x2) |
 
 **Examples:**
-- [DiffusionUpscale.json](../workflows/tasks/DiffusionUpscale.json) — Generate at 512px, then upscale. `mode` selects which: `x4` (the default) reaches 2048px, `x2` reaches 1024px through the latent upscaler.
-- [DiffusionUpscaleImage.json](../workflows/tasks/DiffusionUpscaleImage.json) — Prompt-guided upscale of an image you already have, with no generation step.
+- [upscale-diffusion.json](../workflows/templates/upscale-diffusion.json) — Upscale any existing image. `mode` selects which: `x4` (the default) reaches 2048px, `x2` reaches 1024px through the latent upscaler.
+- [upscale-diffusion.json](../workflows/templates/upscale-diffusion.json) — Prompt-guided upscale of an image you already have, with no generation step.
 
 ## Face Restoration
 
@@ -725,7 +725,7 @@ Restore and enhance faces in images using spandrel-compatible face restoration m
 
 Models are loaded via spandrel, so any `.pth`/`.safetensors` face restoration weights work. CodeFormer requires `pip install spandrel-extra-arches` (non-commercial license).
 
-**Example:** [FaceRestore.json](../workflows/tasks/FaceRestore.json) — Generate a portrait, then restore faces with GFPGAN v1.4.
+**Example:** [restore-faces.json](../workflows/templates/restore-faces.json) — Generate a portrait, then restore faces with GFPGAN v1.4.
 
 ### Combining with Upscaling
 
@@ -801,8 +801,8 @@ Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, b
 
 **Examples:**
 
-- [Segment.json](../workflows/tasks/Segment.json) — Segment an object from an image
-- [SegmentAndInpaint.json](../workflows/tasks/SegmentAndInpaint.json) — Segment, then inpaint the masked region
+- [segment.json](../workflows/templates/segment.json) — Segment an object from an image
+- [segment-and-inpaint.json](../workflows/templates/segment-and-inpaint.json) — Segment, then inpaint the masked region
 
 ## Image Captioning
 
@@ -849,9 +849,9 @@ For Florence-2's advanced task-token captioning (detailed captions, object detec
 
 **Examples:**
 
-- [ImageToText.json](../workflows/tasks/ImageToText.json) — Basic captioning with the default model, saves as `.txt`
-- [ImageToTextVLM.json](../workflows/tasks/ImageToTextVLM.json) — Larger VLM answering a specific question
-- [CaptionToImage.json](../workflows/tasks/CaptionToImage.json) — Caption an image, then regenerate with Flux
+- [image-to-text.json](../workflows/templates/image-to-text.json) — Basic captioning with the default model, saves as `.txt`
+- [image-to-text.json](../workflows/templates/image-to-text.json) — Larger VLM answering a specific question
+- [describe-and-regenerate.json](../workflows/templates/describe-and-regenerate.json) — Describe an image, expand the caption, then regenerate it
 
 ## Extracting Sections
 
@@ -950,12 +950,63 @@ It is merged after everything else, so it can override `repetition_penalty` and 
 
 **Examples:**
 
-- [ExpandPrompt.json](../workflows/tasks/ExpandPrompt.json) — Expand a short prompt and save as `.txt`
-- [ExpandAndGenerate.json](../workflows/tasks/ExpandAndGenerate.json) — Expand prompt, then generate with Flux
+- [expand-prompt.json](../workflows/templates/expand-prompt.json) — Expand a short prompt and save as `.txt`
+- [expand-prompt.json](../workflows/templates/expand-prompt.json) — Expand prompt, then generate with Flux
+
+## Speech Generation
+
+Speak a line of text with a local text-to-speech model. The result is a waveform carrying the rate its model generated at, so it composes with [`slice_audio`](#slice_audio), [`fade_audio`](#fade_audio) and [`pair_audio`](#pair_audio) directly ([`concat_videos`](#concat_videos) and `dissolve_videos` join videos — pair the track onto a video first).
+
+```json
+{
+    "task": {
+        "command": "generate_speech",
+        "arguments": {
+            "text": "The way ahead is longer still.",
+            "voice_preset": "v2/en_speaker_6"
+        }
+    },
+    "result": { "content_type": "audio/wav" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `text` | Yes | The line to speak |
+| `model_name` | No | HuggingFace model ID (default: `suno/bark-small`) |
+| `voice_preset` | No | The speaker, for a model with presets — `v2/en_speaker_0` through `v2/en_speaker_9` for Bark. A model with no processor (a single-voice model such as `facebook/mms-tts-eng`) refuses a `voice_preset` with an error rather than ignoring it |
+| `forward_params` | No | Passed to the model's forward/generate call |
+| `generate_kwargs` | No | Ad-hoc generation settings for a generative model — `temperature`, `do_sample` |
+
+The default is Bark because its voice presets give distinct speakers, which is what two characters in a scene need; `facebook/mms-tts-eng` is a quarter the size and a good override where one voice will do. `voice_preset` is a preprocessing argument — it selects the speaker before generation rather than parameterizing it — so naming it here is what makes it reach the processor. Passed through `forward_params` it would be dropped and every character would sound the same.
+
+The result needs no `sample_rate`. A generated track carries the rate its model produced it at, and that beats the 44100 default; declaring one still wins over both, for a track whose rate was reported wrong. Every TTS model runs at a different rate, so a declared rate that does not match plays the speech at the wrong speed and pitch without ever failing.
+
+### Generating a voice to condition on
+
+The role this earns its place in is voice *timbre reference*, not the track a mouth follows. MiniMax H3 lip-syncs well when it generates the speech itself and poorly when it must follow supplied audio, so its `MiniMaxH3AudioReference` takes a few seconds of a voice to fix timbre, pitch and delivery while H3 still generates the line. Build the reference with `from_previous_result` and the clip's own sample rate comes across with it:
+
+```json
+"references": [
+    {
+        "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+        "from_previous_result": "voice"
+    }
+]
+```
+
+Referencing the same preset in every shot of a scene makes a character's voice a conditioning signal rather than a prose description that has to land identically a dozen times. The other honest uses are a voice that must be matched — a specific delivery H3 will not produce from description alone — and narration over shots where nothing has to lip-sync to it, muxed with [`pair_audio`](#pair_audio).
+
+A speech model is worth releasing before a video model loads — set `release_models` on the step, as in the example below.
+
+**Examples:**
+
+- [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line and save it as a `.wav`
+- [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice, then condition H3's `<Audio 1>` on it
 
 ## Frame Interpolation
 
-Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a video and inserts intermediate frames between each pair. The result is one video artifact without a soundtrack - the frame count changed, so [`pair_audio`](#pair_audio) is how the original track comes back. [InterpolateFrames.json](../workflows/InterpolateFrames.json) shows the interpolation itself.
+Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a video and inserts intermediate frames between each pair. The result is one video artifact without a soundtrack - the frame count changed, so [`pair_audio`](#pair_audio) is how the original track comes back. [interpolate-frames.json](../workflows/templates/interpolate-frames.json) shows the interpolation itself.
 
 ```json
 {
@@ -979,7 +1030,7 @@ Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). T
 
 Uses vendored IFNet v4.13 architecture. Weights are downloaded from HuggingFace Hub on first use.
 
-**Example:** [InterpolateFrames.json](../workflows/InterpolateFrames.json) — Generate video with Mochi, then 2x interpolate from 30fps to 60fps.
+**Example:** [interpolate-frames.json](../workflows/templates/interpolate-frames.json) — Generate video with Mochi, then 2x interpolate from 30fps to 60fps.
 
 ## Metadata Embedding
 
@@ -1001,7 +1052,7 @@ Embed generation parameters in saved images. Enable by setting `embed_metadata: 
 
 Metadata includes step name, model name, and generation arguments (prompt, steps, guidance scale, etc.) as JSON.
 
-**Example:** [MetadataEmbed.json](../workflows/tasks/MetadataEmbed.json) — Generate with Flux and embed parameters in PNG.
+**Example:** [embed-metadata.json](../workflows/templates/embed-metadata.json) — Generate with Flux and embed parameters in PNG.
 
 ## QR Code Generation
 
@@ -1024,7 +1075,7 @@ Metadata includes step name, model name, and generation arguments (prompt, steps
 
 The QR code is generated then resampled to `max(height, width)`, aligned to the nearest 64px multiple.
 
-**Example:** [qr_code.json](../workflows/archive/qr_code.json) — QR code with artistic ControlNet
+**Example:** [qr-code.json](../workflows/templates/qr-code.json) — QR code with artistic ControlNet
 
 ## Chat/Dict Plumbing
 
@@ -1147,21 +1198,23 @@ Canny edge detection followed by ControlNet generation:
 
 ## Examples
 
-- [FluxCanny.json](../workflows/flux/FluxCanny.json) — Canny edge ControlNet
-- [FluxDepth.json](../workflows/flux/FluxDepth.json) — Depth-guided generation
-- [qr_code.json](../workflows/archive/qr_code.json) — QR code with artistic ControlNet
-- [SpandrelUpscale.json](../workflows/tasks/SpandrelUpscale.json) — Generate + spandrel 4x upscale
-- [FaceRestore.json](../workflows/tasks/FaceRestore.json) — Generate portrait + GFPGAN face restoration
-- [Segment.json](../workflows/tasks/Segment.json) — Text-prompted object segmentation
-- [SegmentAndInpaint.json](../workflows/tasks/SegmentAndInpaint.json) — Segment + inpaint
-- [ImageToText.json](../workflows/tasks/ImageToText.json) — image captioning with the SmolVLM default
-- [ImageToTextVLM.json](../workflows/tasks/ImageToTextVLM.json) — VLM captioning with a specific question
-- [CaptionToImage.json](../workflows/tasks/CaptionToImage.json) — Caption then regenerate
-- [InterpolateFrames.json](../workflows/InterpolateFrames.json) — RIFE frame interpolation
-- [MetadataEmbed.json](../workflows/tasks/MetadataEmbed.json) — Embed generation parameters in PNG
-- [ExpandPrompt.json](../workflows/tasks/ExpandPrompt.json) — LLM prompt expansion
-- [ExpandAndGenerate.json](../workflows/tasks/ExpandAndGenerate.json) — Expand prompt + generate image
-- [UpscaleImage.json](../workflows/tasks/UpscaleImage.json) — Spandrel upscale of an existing image
-- [DiffusionUpscaleImage.json](../workflows/tasks/DiffusionUpscaleImage.json) — Diffusion upscale of an existing image
-- [TrimFadeAudio.json](../workflows/tasks/TrimFadeAudio.json) — Trim a generated track and fade its tail
-- [GyreDissolve.json](../workflows/gyre/GyreDissolve.json) — Stabilize generated shots, dissolve between them, and mix a score under their own audio
+- [controlnet.json](../workflows/templates/controlnet.json) — Canny edge ControlNet
+- [controlnet.json](../workflows/templates/controlnet.json) — Depth-guided generation
+- [qr-code.json](../workflows/templates/qr-code.json) — QR code with artistic ControlNet
+- [upscale-spandrel.json](../workflows/templates/upscale-spandrel.json) — Spandrel 4x upscale of an existing image
+- [restore-faces.json](../workflows/templates/restore-faces.json) — Generate portrait + GFPGAN face restoration
+- [segment.json](../workflows/templates/segment.json) — Text-prompted object segmentation
+- [segment-and-inpaint.json](../workflows/templates/segment-and-inpaint.json) — Segment + inpaint
+- [image-to-text.json](../workflows/templates/image-to-text.json) — image captioning with the SmolVLM default
+- [image-to-text.json](../workflows/templates/image-to-text.json) — VLM captioning with a specific question
+- [describe-and-regenerate.json](../workflows/templates/describe-and-regenerate.json) — Describe, expand, then regenerate
+- [interpolate-frames.json](../workflows/templates/interpolate-frames.json) — RIFE frame interpolation
+- [embed-metadata.json](../workflows/templates/embed-metadata.json) — Embed generation parameters in PNG
+- [expand-prompt.json](../workflows/templates/expand-prompt.json) — LLM prompt expansion
+- [expand-prompt.json](../workflows/templates/expand-prompt.json) — Expand prompt + generate image
+- [upscale-spandrel.json](../workflows/templates/upscale-spandrel.json) — Spandrel upscale of an existing image
+- [upscale-diffusion.json](../workflows/templates/upscale-diffusion.json) — Diffusion upscale of an existing image
+- [audio-trim-fade.json](../workflows/templates/audio-trim-fade.json) — Trim a generated track and fade its tail
+- [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line with a local text-to-speech model
+- [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
+- [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Stabilize generated shots, dissolve between them, and mix a score under their own audio
