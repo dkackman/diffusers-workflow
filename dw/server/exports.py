@@ -22,6 +22,7 @@ and a hard link would make deleting it look like deleting the original.
 import json
 import logging
 import os
+import re
 import shutil
 from dataclasses import dataclass, field
 
@@ -34,6 +35,7 @@ from ..runs import (
     resolve_output_reference,
 )
 from ..security import (
+    PathTraversalError,
     SecurityError,
     validate_asset_reference,
     validate_output_path,
@@ -41,6 +43,11 @@ from ..security import (
 )
 from ..workspace import EXPORTS_SUBDIR
 from .jobs import TERMINAL_STATES
+
+# A job id is one path segment of the manager's making - hex today, but any
+# name without a separator or a leading dot is accepted so history stays
+# readable if the shape ever changes
+JOB_ID_SEGMENT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
 
 logger = logging.getLogger("dw")
 
@@ -165,6 +172,11 @@ def export_directory(workspace_root, job_id):
     """
     if not workspace_root:
         raise ValueError("This server has no workspace root to export into")
+    # One plain segment, before the join: validate_path accepts a path equal
+    # to its root, so '.' or '' would otherwise name the exports root itself
+    # and the zip route would archive every export in the workspace
+    if not JOB_ID_SEGMENT.fullmatch(job_id or ""):
+        raise PathTraversalError(f"Not a job id: {job_id!r}")
     root = validate_output_path(os.path.join(workspace_root, EXPORTS_SUBDIR), None)
     return validate_path(os.path.join(root, job_id), root)
 

@@ -381,6 +381,16 @@ class TestExportZip:
             f"{job_id}/{entry['path']}" for entry in body["files"]
         )
 
+    def test_a_dot_does_not_archive_the_whole_exports_folder(self, server):
+        # validate_path accepts a path equal to its root, so without a
+        # shape check '.' would resolve to exports/ itself and zip every job
+        with server() as client:
+            job_id = finished(client)
+            client.post(f"/api/jobs/{job_id}/export")
+            response = client.get("/exports/..zip")
+
+        assert response.status_code == 404
+
     def test_no_export_is_404(self, server):
         with server() as client:
             job_id = finished(client)
