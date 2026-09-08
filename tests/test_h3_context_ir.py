@@ -9,6 +9,9 @@ the corrections in place and the unsourced lines out.
 import glob
 import json
 import os
+import re
+
+import pytest
 
 from dw.security import MAX_VARIABLE_VALUE_LENGTH
 from tests.test_examples import BUILTIN_DIR, REPO_ROOT
@@ -104,3 +107,23 @@ def test_no_catalog_template_overrides_the_context_ir_system_prompt():
                 isinstance(value, str)
                 and value.startswith("prompt:prompt_enhancement/minimax_h3")
             ), f"{path}: overrides the builtin's system prompt with a stored copy"
+
+
+BUNDLED_H3_PROMPTS = sorted(
+    glob.glob(os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "*.json"))
+)
+
+
+@pytest.mark.parametrize("path", BUNDLED_H3_PROMPTS, ids=lambda p: os.path.basename(p))
+def test_bundled_prompts_write_silent_audio_fields_as_the_literal(path):
+    """The guides' literal for a silent audio field is N/A; the templates had
+    drifted to "None." (found by the 2026-09-08 drill)."""
+    text = open(path, encoding="utf-8").read()
+    for field in ("overall_soundscape", "non_diegetic_music"):
+        for m in re.finditer(field + r":\\n([^\\]{0,12})", text):
+            head = m.group(1).strip().rstrip(".").lower()
+            assert head not in ("none", "no music", "silence", "silent", ""), (
+                path,
+                field,
+                m.group(1),
+            )

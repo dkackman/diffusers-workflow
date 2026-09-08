@@ -38,6 +38,10 @@ not from here.
 - **Several boards in one generation, one unbroken score**:
   `templates/minimax/storyboard` - H3 cuts between the boards inside a single
   generation, which no concat of separate clips can match for continuous audio.
+- **Longer than 14.4 seconds**: decide first whether the seam is a cut or a
+  continuation. Chain when the same action or line of speech has to cross the
+  seam; cut when the scene changes, and treat each cut as its own generation.
+  Six distinct scenes are a cuts piece, not a chain.
 - **Longer than 14.4 seconds as one take**: a chain. `templates/minimax/chained-segments`
   (last-frame continuity), `templates/minimax/chain-video-continuity` (the
   previous segment's tail rides along as a video reference - motion, camera and
@@ -50,7 +54,15 @@ not from here.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one loaded model
   per shot, `concat_videos` splices) and `templates/minimax/music-video`
   (shots cut to a generated song, lip-synced slices). A cut erases drift; the
-  last shot is as clean as the first. Write shots, not takes.
+  last shot is as clean as the first. Write shots, not takes. Each shot
+  generates its own audio, so write `non_diegetic_music: N/A` in every shot
+  and lay one score under the concat afterwards: `templates/minimax/music`
+  writes the track and `templates/assemble-and-score` shows the `pair_audio`
+  step that mixes it under the world sound (it takes three shots; for more,
+  author the concat and score steps the same way). A character who speaks in
+  several shots keeps one voice by passing the same clip as an audio
+  reference in each (the `voice-timbre-reference` pattern); a repeated voice
+  description alone drifts.
 - **Music alone**: `templates/minimax/music` (Music3).
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and
@@ -75,6 +87,11 @@ read the `workflows` guide's authoring section first.
   `storyboard`, `dialogue-short`, `music-video` and
   `chain-matched-and-aligned` pass references *and* keep the turbo LoRA at
   nine steps; say nine for those, not 20.
+- Nothing carries between generations except what is passed as a reference:
+  no latent memory and no extension mode, in the checkpoint, the hosted API or
+  diffusers. Identity rides on a picture, voice on an audio clip, motion and
+  camera on a video tail (what a chain passes forward), and a score across
+  cuts is laid under the concat afterwards.
 - H3 is guidance-distilled: no `guidance_scale`, no negative prompt. Say what is
   there, never what is not.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
