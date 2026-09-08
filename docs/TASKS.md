@@ -392,7 +392,7 @@ returns frames without it, and this puts it back:
 | `audio` | Yes | The soundtrack - a waveform, or the earlier step whose video carried one, which brings its sample rate along |
 | `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
 
-**Example:** [two-stage.json](../workflows/templates/ltx2/two-stage.json)
+**Example:** [assemble-and-score.json](../workflows/templates/assemble-and-score.json)
 
 ### slice_audio
 

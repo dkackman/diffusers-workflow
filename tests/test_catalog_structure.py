@@ -383,6 +383,8 @@ class TestLtxTwoStage:
         base = _step(definition, "base")["pipeline"]
         refine = _step(definition, "refine")["pipeline"]
 
-        assert base["configuration"] == refine["configuration"]
-        assert base["from_pretrained_arguments"] == refine["from_pretrained_arguments"]
+        base_cache_key = {k: v for k, v in base.items() if k != "arguments"}
+        refine_cache_key = {k: v for k, v in refine.items() if k != "arguments"}
+
+        assert base_cache_key == refine_cache_key
         assert not _step(definition, "base").get("release_pipeline", False)
