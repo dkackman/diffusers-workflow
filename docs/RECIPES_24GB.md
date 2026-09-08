@@ -146,6 +146,9 @@ and it is the flow the model card, Lightricks' pipeline notes and the diffusers 
 describe. The base pass keeps its pipeline loaded so the refine pass is served from the
 cache; the refine pass releases it. Since 2026-08 Lightricks route production quality
 through their DFR pipeline instead, which diffusers ships and nothing here uses yet.
+Measured on an RTX 3090 the refined clip is sharper than the 2x upsample alone at the
+same seed: fur, branches and snow texture resolve where the upsample-only frame is a
+soft blur. About eight warm minutes, three and a half of them writing the full-size clip.
 
 **Examples:** [text-to-video.json](../workflows/templates/ltx2/text-to-video.json) (t2v),
 [two-stage.json](../workflows/templates/ltx2/two-stage.json) (base -> latent upsample -> refine),
