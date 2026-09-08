@@ -147,8 +147,11 @@ test('editor validates, saves into a new folder, and deletes', async ({
   await expect(
     page.getByRole('heading', { name: 'e2e-scratch/E2EScratch' }),
   ).toBeVisible()
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: /delete this workflow/ }).click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Delete', exact: true })
+    .click()
   await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
   await expect(page.getByRole('link', { name: /E2EScratch/ })).toHaveCount(0)
 })
@@ -193,8 +196,11 @@ test('prompts page lists, creates at the root, and deletes', async ({
     'an e2e scratch prompt',
     { timeout: 15_000 },
   )
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: /Delete/ }).click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Delete', exact: true })
+    .click()
   await expect(page.getByRole('heading', { name: 'Prompts' })).toBeVisible()
   await expect(
     page.getByRole('link', { name: 'E2EScratchPrompt' }),

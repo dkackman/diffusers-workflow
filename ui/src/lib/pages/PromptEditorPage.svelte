@@ -15,6 +15,7 @@
   import { go } from '../router.svelte'
   import { phaseLabel } from '../progress'
   import { notify } from '../toast'
+  import { confirmDialog } from '../confirm.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
   import { groupOf, leafOf } from '../grouping'
   import {
@@ -429,9 +430,10 @@
       /* the confirm still protects the file itself */
     }
     if (
-      !window.confirm(
+      !(await confirmDialog(
         `Delete ${name}.json? This removes the file on disk.${warning}`,
-      )
+        { confirmLabel: 'Delete' },
+      ))
     )
       return
     try {

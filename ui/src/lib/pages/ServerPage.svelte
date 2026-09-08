@@ -18,6 +18,7 @@
   } from '../serverinfo'
   import type { HealthInfo, ServerInfo } from '../types'
   import { notify } from '../toast'
+  import { confirmDialog } from '../confirm.svelte'
   import {
     DEFAULT_WORKSPACE,
     invalidateWorkspaces,
@@ -96,7 +97,12 @@
       await api.deleteWorkspace(name)
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e)
-      if (!window.confirm(`${detail}\n\nDelete workspace "${name}"?`)) return
+      if (
+        !(await confirmDialog(`${detail}\n\nDelete workspace "${name}"?`, {
+          confirmLabel: 'Delete',
+        }))
+      )
+        return
       try {
         await api.deleteWorkspace(name, true)
         if (workspace.current === name) selectWorkspace(DEFAULT_WORKSPACE)

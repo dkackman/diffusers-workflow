@@ -14,6 +14,7 @@
   import { go } from '../router.svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { notify } from '../toast'
+  import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile } from '../types'
   import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
@@ -65,7 +66,9 @@
       // choice to replace belongs to the person, not the button
       if (
         message.includes('already exists') &&
-        window.confirm(`${message}\n\nReplace it?`)
+        (await confirmDialog(`${message}\n\nReplace it?`, {
+          confirmLabel: 'Replace',
+        }))
       ) {
         try {
           const result = await api.keepOutput(selected.name, assetName, true)
@@ -146,9 +149,10 @@
   async function removePicked() {
     const names = pickedNames
     if (
-      !window.confirm(
+      !(await confirmDialog(
         `Delete ${names.length} file${names.length === 1 ? '' : 's'}? This removes them on disk.`,
-      )
+        { confirmLabel: 'Delete' },
+      ))
     )
       return
     busy = true
@@ -199,7 +203,10 @@
   async function removeFile() {
     if (!selected) return
     if (
-      !window.confirm(`Delete ${selected.name}? This removes the file on disk.`)
+      !(await confirmDialog(
+        `Delete ${selected.name}? This removes the file on disk.`,
+        { confirmLabel: 'Delete' },
+      ))
     )
       return
     const name = selected.name
