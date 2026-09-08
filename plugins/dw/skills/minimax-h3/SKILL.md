@@ -14,14 +14,15 @@ not from here.
 
 1. `get_server_info`: the device (H3 templates are CUDA; the quantized
    configurations do not run on mps) and which workspace this session is in.
-2. `list_workflows(shape="shot")` and `list_workflows(shape="sequence")`:
-   the family's templates by their current names, with `summary`, `traits`
-   and `cost`. Trust the listing over the names quoted below.
+2. `list_workflows(shape="shot")`, `list_workflows(shape="sequence")` and
+   `list_workflows(shape="audio")`: the family's templates by their current
+   names, with `summary`, `traits` and `cost`. Trust the listing over the
+   names quoted below.
 3. `get_workflow` on the one chosen, for its variables and their defaults.
 
 ## Which shape is the request
 
-- **One clip, up to 14 seconds, from text**: `templates/minimax/video-with-audio`.
+- **One clip, up to 14.4 seconds, from text**: `templates/minimax/video-with-audio`.
   From a one-line idea: `templates/minimax/enhance-prompt` writes the prompt
   with the built-in Context-IR enhancer first.
 - **Pinned to a picture**: first frame `templates/minimax/image-to-video`;
@@ -58,7 +59,7 @@ read the `workflows` guide's authoring section first.
 ## Hard rules
 
 - `num_frames` is `17n + 5`, from 124 to 345, at a fixed 24 fps: 5.2 to 14.4
-  seconds in one clip. Templates default to 124 for fast iteration; `num_frames=345`
+  seconds in one clip. Most templates default to 124 for fast iteration (storyboard uses 192); `num_frames=345`
   is the full length and fits the same 24 GB configuration. The 5-second floor
   is diffusers'; the model card says 4.
 - Canvas: a 768-pixel short edge, at most 768x1344 pixels, dimensions multiples
@@ -101,8 +102,11 @@ composition.
 1. `validate_workflow` first - free, and it catches arguments the pipeline
    does not accept.
 2. Quote the listing's `cost` (warm minutes on the card it was measured on;
-   a first load is longer) and get the user's go-ahead before `run_workflow`
-   with `acknowledged_cost=true`.
+   a first load is longer). When the listing declares none, say so and give the
+   shape of the spend instead: a 124-frame clip is a few minutes on a 24 GB
+   card, the full 345 frames about three times that, and a chain multiplies by
+   its segment count. Get the user's go-ahead before `run_workflow` with
+   `acknowledged_cost=true`.
 3. `wait_for_job`, then `get_job` for the manifest. A cancelled H3 job runs
    on to its next step boundary, minutes on this model.
 4. Look: `get_output_image` on a frame, the gallery `url` for the clip.
