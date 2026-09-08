@@ -66,10 +66,15 @@ read the `workflows` guide's authoring section first.
   aspect from 1:4 to 4:1. Output audio is 32 kHz stereo.
 - The text- and frame-conditioned templates render at 960x544 with the 544p
   turbo LoRA in nine steps, and those three go together - change one, change
-  all three. The six reference-conditioned templates carry no LoRA and run 20
-  steps, because the turbo LoRA is distilled against the base transformer and
-  they load the reference one; a reference-conditioned run is about twice the
-  time of a turbo one at the same length.
+  all three. Six templates that condition on references alone
+  (`reference-to-video`, `composable-references`, `voice-timbre-reference`,
+  `generated-subject-reference`, `chain-matched-to-audio`,
+  `chain-video-continuity`) carry no LoRA and run 20 steps, because the turbo
+  LoRA is distilled against the base transformer and they load the reference
+  one; such a run is about twice the time of a turbo one at the same length.
+  `storyboard`, `dialogue-short`, `music-video` and
+  `chain-matched-and-aligned` pass references *and* keep the turbo LoRA at
+  nine steps; say nine for those, not 20.
 - H3 is guidance-distilled: no `guidance_scale`, no negative prompt. Say what is
   there, never what is not.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can

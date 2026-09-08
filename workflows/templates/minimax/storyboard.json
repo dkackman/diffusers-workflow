@@ -1,6 +1,9 @@
 {
     "id": "MiniMaxH3Storyboard",
     "description": "One generation, three shots, from a storyboard of stills. H3 packs every reference into the same sequence it generates, so a request can hand it several images and say what each one is for: Z-Image draws three boards, and the 'ref2va' prompt makes <Picture 1> the first frame of [Shot 1] and <Picture 2> and <Picture 3> storyboard anchors for the cuts at 00:02.700 and 00:05.400. Because the cuts happen inside one in-context generation rather than between separate runs, the soundtrack - a piano score - runs unbroken across them, which no concat of separate shots can give. The boards are drawn by one Z-Image pipeline (identical configurations share a load) and 'release_pipeline' on the last frees it before H3 loads. 'reference_image_short_edge' is lowered from its 2048 default so three references fit alongside a 192-frame clip on a 24GB card.",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 10.1}
+    ],
     "variables": {
         "board_1_launch": "close-up at puddle level on a rain-wet cobblestone street: a child's small hand in a yellow raincoat sleeve setting a folded white paper boat onto a wide rain puddle, raindrops ringing the water, blurred umbrellas and shopfront lights reflected in it, overcast soft daylight, photographic, sharp focus on the boat",
         "board_2_gutter": "low angle photograph of a folded white paper boat racing along a rushing rain-swollen stone gutter between cobblestones, white water splashing around its bow, wet grey street and blurred passing legs beyond, rainy afternoon light, photographic, sharp focus on the boat",

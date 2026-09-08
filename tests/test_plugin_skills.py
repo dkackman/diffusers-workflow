@@ -186,11 +186,27 @@ class TestMiniMaxH3Skill:
         assert before_encoder is not None
 
     def test_the_lora_coupling_is_scoped_to_the_turbo_templates(self):
-        """Six reference-conditioned templates carry no LoRA and run 20 steps."""
+        """Six reference-only templates carry no LoRA and run 20 steps; the four
+        that mix references with the turbo LoRA run nine (the 2026-09-08 drill
+        caught the skill saying 20 for storyboard)."""
         import json
 
         text = skill_text(H3_SKILL)
-        assert "20\n  steps" in text or "20 steps" in text
+        assert "run 20 steps" in text
+        assert "keep the turbo LoRA at\n  nine steps" in text
+        for name in (
+            "storyboard",
+            "dialogue-short",
+            "music-video",
+            "chain-matched-and-aligned",
+        ):
+            path = os.path.join(
+                REPO_ROOT, "workflows", "templates", "minimax", name + ".json"
+            )
+            spec = open(path, encoding="utf-8").read()
+            assert (
+                '"loras"' in spec or "lora_model_name" in spec
+            ) and '"num_inference_steps": 9' in spec, name
         for name in (
             "reference-to-video",
             "composable-references",
