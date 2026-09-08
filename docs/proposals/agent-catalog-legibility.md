@@ -608,7 +608,7 @@ them (`storyboard`, `dialogue-short`, `music-video`,
 session repeated the wrong number; fixed, with the four now named and pinned
 by test. And `storyboard` had no `cost`, so both sessions guessed; it now
 carries the control run's 10.1 warm minutes. The `download_output` failure is
-an engine follow-up below.
+fixed on the branch; see the engine note under the follow-ups.
 
 ### Model-knowledge follow-ups, 2026-09-07
 
@@ -648,13 +648,12 @@ MiniMax H3 ([audit](audits/2026-09-07-minimax-h3-audit.md)):
   be the only reference; H3-Regenerate-2K is API-only.
 - Music3 `audio_duration` cap: 9000 frames, six minutes.
 
-Engine, from the 2026-09-08 plugin drill:
+Engine, from the 2026-09-08 plugin drill, fixed on the same branch:
 
 - `download_output` over `dw.serve --mcp` writes on the GPU box, and a path from
-  the agent's own machine fails there with an unwrapped `PermissionError` that
-  the MCP layer reports as `Error executing tool download_output`; an agent
-  then retries with no destination and leaves a copy in the server's working
-  directory. `dw_mcp/media.py` should catch the `OSError` and answer with the
-  tool's own docstring sentence (this saves on the server; use the gallery url
-  or the inline tools), and probably refuse a destination outside the server's
-  workspace.
+  the agent's own machine failed there with an unwrapped `PermissionError` that
+  the MCP layer reported as `Error executing tool download_output`; the agent
+  then retried with no destination and left a copy in the server's working
+  directory. `dw_mcp/media.py` now answers an `OSError` with a `DwApiError`
+  that says the write happens on the server and names the client-side ways to
+  see the file (the gallery url, the inline tools, `keep_output`).
