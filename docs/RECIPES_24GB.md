@@ -102,6 +102,20 @@ workflows below fit; without it, the load is an OOM kill, not a slowdown.
 
 **Examples:** [reference-to-video.json](../workflows/templates/minimax/reference-to-video.json), [chain-matched-to-audio.json](../workflows/templates/minimax/chain-matched-to-audio.json), [image-to-video.json](../workflows/templates/minimax/image-to-video.json), [dialogue-short.json](../workflows/templates/minimax/dialogue-short.json) (five ref2va shots + two Z-Image portraits in ~35 minutes end to end)
 
+## MiniMax-Music3
+
+Music3 runs at about 22GiB in bfloat16 under the templates' `components_manager`
+auto CPU offload, which keeps only the running component resident; no quantization
+is needed on a 24GB card. The language model is the part worth offloading harder:
+a leaf-level `group_offload` of `language_model` brings it to about 8GiB (the model
+card's low-VRAM recipe). Two things the examples carry: `release_pipeline` on the
+music step in any workflow that loads H3 afterwards, since host RAM is the binding
+constraint (see Multi-model workflows below), and the run's time follows the length
+the model actually sings, not `audio_duration`, which is a ceiling of at most 9000
+frames at 25 frames per second (360 seconds). Output is 44.1 kHz stereo.
+
+**Examples:** [music.json](../workflows/templates/minimax/music.json), [music-video.json](../workflows/templates/minimax/music-video.json)
+
 ## LTX-2.5 (22B, video + audio)
 
 A standard pipeline, but placed per component rather than with a pipeline-level

@@ -453,6 +453,29 @@ def test_download_output_refuses_to_overwrite_an_existing_file_by_default(tmp_pa
     assert destination.read_bytes() == b"already here"
 
 
+def test_download_output_reports_an_unwritable_destination_as_the_servers_disk(
+    tmp_path,
+):
+    # A cold agent over dw.serve --mcp passed a path on its own machine; on
+    # the server that parent is a file, so makedirs raises. The message has
+    # to say the write happened server-side and name the ways to see the
+    # file from the client, instead of an anonymous tool error (drill
+    # 2026-09-08).
+    blocker = tmp_path / "private"
+    blocker.write_bytes(b"not a directory")
+    destination = blocker / "scratch" / "clip.mp4"
+    client = serving(png_bytes(10, 10), "image/png")
+
+    with pytest.raises(DwApiError) as excinfo:
+        download_output(client, "clip.mp4", destination=str(destination))
+
+    message = str(excinfo.value)
+    assert str(destination) in message
+    assert "machine running the MCP server" in message
+    assert "list_gallery" in message and "keep_output" in message
+    assert not destination.exists()
+
+
 def test_download_output_overwrite_true_replaces_an_existing_file(tmp_path):
     destination = tmp_path / "existing.png"
     destination.write_bytes(b"already here")

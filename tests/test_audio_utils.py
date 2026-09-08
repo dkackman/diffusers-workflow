@@ -195,6 +195,62 @@ class TestLoadAudio:
         with pytest.raises(Exception):
             load_audio(str(path))
 
+    @staticmethod
+    def _write_video(path, num_frames=8, fps=4, sample_rate=8000, audio=True):
+        from diffusers.utils.export_utils import encode_video
+        from PIL import Image
+
+        frames = [Image.new("RGB", (16, 16), (i, 0, 0)) for i in range(num_frames)]
+        track = (
+            torch.full((2, int(num_frames / fps * sample_rate)), 0.25)
+            if audio
+            else None
+        )
+        encode_video(
+            frames,
+            fps=fps,
+            output_path=str(path),
+            audio=track,
+            audio_sample_rate=sample_rate if audio else None,
+        )
+        return str(path)
+
+    def test_a_video_file_contributes_its_soundtrack(self, tmp_path):
+        # The cut an earlier run wrote is what a scoring pass mixes under; an
+        # agent hit "File extension not allowed: .mp4" here on 2026-09-08
+        path = self._write_video(tmp_path / "cut.mp4")
+
+        waveform, sample_rate = load_audio(path)
+
+        assert waveform.shape[0] == 2
+        assert sample_rate == 8000
+        assert abs(waveform.shape[1] - 2 * 8000) < 8000 // 4
+
+    def test_a_silent_video_file_is_an_error_not_silence(self, tmp_path):
+        path = self._write_video(tmp_path / "mute.mp4", audio=False)
+
+        with pytest.raises(ValueError, match="no audio track"):
+            load_audio(path)
+
+    def test_every_audio_task_takes_a_video_path(self, tmp_path):
+        from dw.tasks.audio_utils import (
+            crossfade_audio,
+            fade_audio,
+            mix_audio,
+            normalize_audio,
+            resample_audio,
+            slice_audio,
+        )
+
+        path = self._write_video(tmp_path / "cut.mp4")
+
+        assert resample_audio(path, 4000).shape[1] == 2
+        assert slice_audio(path, start_seconds=0, duration_seconds=1).shape[0] == 8000
+        assert fade_audio(path, fade_out_ms=100).shape[1] == 2
+        assert normalize_audio(path).shape[1] == 2
+        assert mix_audio([path, path]).shape[1] == 2
+        assert crossfade_audio([path, path], crossfade_ms=10).shape[1] == 2
+
 
 class TestBleedJoin:
     def test_the_tail_rings_on_over_a_silent_head(self):

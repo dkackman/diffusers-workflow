@@ -6,6 +6,7 @@ into that layout.
 """
 
 import io
+import os
 import logging
 from fractions import Fraction
 
@@ -192,9 +193,28 @@ def crossfade_concat(waveforms, sample_rate, crossfade_ms):
 def load_audio(location, base_dir=None):
     """Load an audio file from a local path or http(s) URL.
 
+    A video file loads too, and contributes the track muxed into it: the cut
+    an earlier run wrote is exactly what a scoring pass wants to mix under,
+    and refusing its extension made an agent extract the audio by hand
+    (2026-09-08). A video without an audio stream is an error, not silence.
+
     Returns:
         Tuple of a (channels, samples) float32 waveform and its sample rate
     """
+    from ..security import ALLOWED_VIDEO_EXTENSIONS
+
+    extension = os.path.splitext(location.split("?", 1)[0])[1].lower()
+    if extension in ALLOWED_VIDEO_EXTENSIONS:
+        from .video_utils import load_audio_video
+
+        video = load_audio_video(location, base_dir=base_dir)
+        if video.audio is None:
+            raise ValueError(
+                f"{location} carries no audio track - a video's soundtrack is "
+                "what an audio task takes from it"
+            )
+        return as_channels_samples(video.audio), video.sample_rate
+
     if location.startswith(("http://", "https://")):
         import requests
 
@@ -248,7 +268,8 @@ def slice_audio(
     rather than failing.
 
     Args:
-        audio: Path or URL of an audio file, a video generated with a
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a video generated with a
             soundtrack (which brings its sample rate along), or a waveform
             (which needs sample_rate alongside it)
         sample_rate: Sample rate of a waveform passed directly; given for a
@@ -305,7 +326,8 @@ def resample_audio(audio, target_sample_rate, sample_rate=None):
     the conversion.
 
     Args:
-        audio: Path or URL of an audio file, a video generated with a
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a video generated with a
             soundtrack (which brings its sample rate along), or a waveform
             (which needs sample_rate alongside it)
         target_sample_rate: Rate to convert to
@@ -351,8 +373,8 @@ def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
     shorter than the plain sum by one window per seam.
 
     Args:
-        audios: The tracks to join, in order - waveforms, audio file paths, or
-            videos generated with a soundtrack
+        audios: The tracks to join, in order - waveforms, audio or video file
+            paths, or videos generated with a soundtrack
         crossfade_ms: Length of each crossfade
         sample_rate: Sample rate of the waveforms. Required unless every track
             brings its own; given here it wins
@@ -397,7 +419,7 @@ def mix_audio(audios, gains=None, sample_rate=None):
     should sound - follow it with normalize_audio to bring the peak back down.
 
     Args:
-        audios: The tracks to layer - waveforms, audio file paths, or videos
+        audios: The tracks to layer - waveforms, audio or video file paths, or videos
             generated with a soundtrack
         gains: One plain multiplier per track, in the same order - not decibels.
             Defaults to unity on every track
@@ -487,7 +509,8 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
     not a volume knob.
 
     Args:
-        audio: Path or URL of an audio file, a video generated with a
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a video generated with a
             soundtrack, or a waveform (which needs sample_rate alongside it)
         fade_in_ms: Length of the fade in, from the head of the track
         fade_out_ms: Length of the fade out, to the tail of the track
@@ -520,7 +543,8 @@ def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
     nothing but the gain, so the dynamics survive.
 
     Args:
-        audio: Path or URL of an audio file, a video generated with a
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a video generated with a
             soundtrack, or a waveform (which needs sample_rate alongside it)
         peak_dbfs: The level the loudest sample is moved to, in dB below full
             scale. 0 is full scale; -1 leaves a little headroom

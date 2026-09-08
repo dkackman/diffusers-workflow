@@ -49,6 +49,15 @@ claude mcp add --transport http dw http://gpu-box:8765/mcp \
   --header "Authorization: Bearer $DW_API_TOKEN"
 ```
 
+The [dw plugin](plugins/dw/README.md) adds one skill per model family - what
+to run for a given shape, the rules that bite, what it costs - and points at
+the vendors' own prompt guides rather than restating them:
+
+```
+/plugin marketplace add dkackman/diffusers-workflow
+/plugin install dw@diffusers-workflow
+```
+
 You don't have to compose that command by hand — the server's own **Server**
 page builds it from the address you pick, alongside the directories it
 resolved and the workspaces it holds:

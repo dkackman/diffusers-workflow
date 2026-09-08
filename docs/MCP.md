@@ -46,6 +46,14 @@ call; that probe is fatal for a remote URL and only a warning for a
 loopback one (where it usually means `dw.serve` is not up yet).
 [REMOTE.md](REMOTE.md) covers the remote setup end to end.
 
+Claude Code users can add the composition skills as well:
+`/plugin marketplace add dkackman/diffusers-workflow` then
+`/plugin install dw@diffusers-workflow`. The plugin ships one skill per model
+family (MiniMax H3, MiniMax Music 3, LTX-2.5) that picks a template for a
+request's shape and states the family's rules - see
+[plugins/dw/README.md](../plugins/dw/README.md). It is optional; every tool
+below works without it.
+
 ### Use the absolute path to `dw-mcp`
 
 **This is the one setup detail that reliably goes wrong.** If you installed
@@ -224,7 +232,7 @@ when no single workflow covers it.
 | --- | --- | --- |
 | `get_output_image(name, max_dimension=768)` | `name`, `max_dimension` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent |
 | `get_output_text(name, max_characters=20000)` | `name`, `max_characters` | Read a text output — a prompt enhancement, or any step whose result is `text/plain` or JSON. Reports the file's real length and whether it was truncated |
-| `download_output(name, destination=None, overwrite=False)` | `name`, `destination`, `overwrite` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context. Writes on the machine running the MCP server - over `dw.serve --mcp` that is the GPU box |
+| `download_output(name, destination=None, overwrite=False)` | `name`, `destination`, `overwrite` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context. Writes on the machine running the MCP server - over `dw.serve --mcp` that is the GPU box. A write that fails there (a path that exists only on the client, for instance) comes back as an error naming the server-side write and the client-side alternatives, not as an anonymous tool failure |
 | `delete_output(name)` | `name` | Permanently remove one generated file from the output directory |
 
 ### Authoring, assets and workspaces

@@ -15,15 +15,23 @@ from .audio_utils import as_channels_samples
 logger = logging.getLogger("dw")
 
 
+class _Loaded:
+    """A waveform read from a file, shaped like the artifact pair_audio expects."""
+
+    def __init__(self, audio, sample_rate):
+        self.audio = audio
+        self.sample_rate = sample_rate
+
+
 def pair_audio(video, audio, sample_rate=None):
     """Pair a video's frames with an audio track.
 
     Args:
         video: The frames - a frame list, a frame array or tensor, or an
             AudioVideo whose own soundtrack is replaced by this one
-        audio: The soundtrack - a waveform, or an AudioVideo (or any object
-            carrying '.audio') to take it from, which brings its sample rate
-            along with it
+        audio: The soundtrack - a waveform, an AudioVideo (or any object
+            carrying '.audio') to take it from, or the path or URL of an
+            audio or video file; the last two bring their sample rate along
         sample_rate: Sample rate of the waveform. Required unless `audio`
             carries one; given here it wins, for a track whose rate was
             reported wrong
@@ -35,6 +43,11 @@ def pair_audio(video, audio, sample_rate=None):
         ValueError: If no waveform was given, or if no sample rate can be
             established for the one that was
     """
+    if isinstance(audio, str):
+        # A file an earlier run wrote - a score, or a cut whose track is wanted
+        from .audio_utils import load_audio
+
+        audio = _Loaded(*load_audio(audio))
     waveform = getattr(audio, "audio", audio)
     if waveform is None:
         raise ValueError(

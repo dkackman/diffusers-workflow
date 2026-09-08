@@ -69,10 +69,23 @@ with open(path, "w", encoding="utf-8") as f:
     f.write(text)
 EOF
     echo "pyproject.toml: $current -> $version"
+
+    python3 - "$version" <<'EOF'
+import json, sys
+
+path = "plugins/dw/.claude-plugin/plugin.json"
+with open(path, encoding="utf-8") as f:
+    plugin = json.load(f)
+plugin["version"] = sys.argv[1]
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(plugin, f, indent=4, ensure_ascii=False)
+    f.write("\n")
+EOF
+    echo "plugins/dw/.claude-plugin/plugin.json: -> $version"
 fi
 
-if ! git diff --quiet -- pyproject.toml; then
-    git commit -m "release $version" -- pyproject.toml
+if ! git diff --quiet -- pyproject.toml plugins/dw/.claude-plugin/plugin.json; then
+    git commit -m "release $version" -- pyproject.toml plugins/dw/.claude-plugin/plugin.json
 else
     echo "pyproject.toml already at $version and committed - tagging HEAD"
 fi

@@ -263,7 +263,7 @@ it. Use them to keep work apart, not to keep it private.
 ## Where this is going
 
 Workspaces were the first stage of the design in
-[proposals/workspaces.md](proposals/workspaces.md). The resolver, the workflow
+[proposals/server-workspaces.md](proposals/server-workspaces.md). The resolver, the workflow
 search path with writes confined to the writable root, run directories with an
 on-disk manifest, `asset:` and `output:` references, and server-side named
 workspaces are all implemented. What remains from the proposal is an MCP

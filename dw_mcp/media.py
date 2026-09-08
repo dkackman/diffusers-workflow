@@ -171,12 +171,26 @@ def download_output(client, name, destination=None, overwrite=False):
         )
 
     parent = os.path.dirname(destination)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-
-    content_type, bytes_written = client.stream_to_file(
-        api_path("outputs", name), destination
-    )
+    try:
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        content_type, bytes_written = client.stream_to_file(
+            api_path("outputs", name), destination
+        )
+    except OSError as e:
+        # A client-side path handed to a `dw.serve --mcp` endpoint lands
+        # here: the write happens on the server, so a permission or
+        # missing-volume error is the surest sign the agent is on another
+        # machine. Say so, rather than letting the OSError surface as an
+        # anonymous "Error executing tool".
+        raise DwApiError(
+            f"Could not write {destination} on the machine running the MCP "
+            f"server ({e.strerror or e}). This tool saves on that machine - "
+            "over a dw.serve --mcp endpoint that is the GPU box, not where "
+            "you are. To see the file from here use the url list_gallery "
+            "reports, get_output_image / get_output_text for inline content, "
+            "or keep_output to make it an asset for a later workflow."
+        ) from e
 
     return {
         "name": name,

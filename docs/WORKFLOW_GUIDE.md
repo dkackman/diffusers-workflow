@@ -557,7 +557,7 @@ once, not twice.
 - **Ignored when the component's device is the CPU**, where there is nothing to move it
   off of.
 
-On a 24GB card, `MiniMaxH3Ref2VA.json` peaks at 18.9GiB of reserved VRAM with on-demand
+On a 24GB card, `templates/minimax/reference-to-video.json` peaks at 18.9GiB of reserved VRAM with on-demand
 VAEs against 23.2GiB resident, and the tighter resident fit costs 40 allocator retries -
 cache flushes forced by a failed allocation - where the on-demand run has none. The
 headroom is also what lets the chained variant run: its later segments carry an extra
@@ -815,7 +815,7 @@ and `load_components` pulls the weights:
                   "modules_to_not_convert": ["proj_in", "proj_out"]
               }
           },
-          "text_encoder": {
+          "language_model": {
               "configuration": { "config_type": "transformers.TorchAoConfig" },
               "arguments": { "quant_type": "torchao.quantization.Int8WeightOnlyConfig" }
           }
@@ -1172,7 +1172,9 @@ directory being copied. `latest` only selects a run where run directories are; a
 workflow or file that happens to be called `latest` is still named as itself.
 
 Like `asset:`, a reference resolves to a path and then whatever loads paths loads it, so
-it works under `image`, `video`, a `from_file`, or a list of them. It resolves against
+it works under `image`, `video`, a `from_file`, or a list of them. The audio tasks take
+a video file's path too and use the soundtrack muxed into it, which is how a finished
+cut is scored in a later run without re-cutting it. It resolves against
 the output directory the run was told to write to, and cannot leave it: `..`, an
 absolute path, and a symlink pointing out are all refused.
 

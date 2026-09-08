@@ -361,7 +361,9 @@ class TestLtxTwoStage:
     name, so the template carries the literal and this test ties it to the library."""
 
     def _definition(self):
-        path = os.path.join(REPO_ROOT, "workflows", "templates", "ltx2", "two-stage.json")
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "ltx2", "two-stage.json"
+        )
         return json.load(open(path, encoding="utf-8"))
 
     def test_the_renoise_scale_is_the_first_stage_two_sigma(self):
@@ -369,13 +371,19 @@ class TestLtxTwoStage:
 
         refine = _step(self._definition(), "refine")
 
-        assert refine["pipeline"]["arguments"]["noise_scale"] == STAGE_2_DISTILLED_SIGMA_VALUES[0]
+        assert (
+            refine["pipeline"]["arguments"]["noise_scale"]
+            == STAGE_2_DISTILLED_SIGMA_VALUES[0]
+        )
 
     def test_the_refine_pass_runs_the_stage_two_schedule_on_the_upsampled_latents(self):
         refine = _step(self._definition(), "refine")
         arguments = refine["pipeline"]["arguments"]
 
-        assert arguments["sigmas"] == "constant:diffusers.pipelines.ltx2.utils.STAGE_2_DISTILLED_SIGMA_VALUES"
+        assert (
+            arguments["sigmas"]
+            == "constant:diffusers.pipelines.ltx2.utils.STAGE_2_DISTILLED_SIGMA_VALUES"
+        )
         assert arguments["latents"] == "previous_result:upscale.frames"
         assert arguments["audio_latents"] == "previous_result:base.audio"
 
@@ -394,7 +402,10 @@ class TestLtxTwoStage:
 LINK_PATTERN = re.compile(r"\]\(([^)]+)\)")
 READMES = sorted(
     os.path.relpath(path, REPO_ROOT)
-    for path in glob.glob(os.path.join(REPO_ROOT, "workflows", "templates", "**", "README.md"), recursive=True)
+    for path in glob.glob(
+        os.path.join(REPO_ROOT, "workflows", "templates", "**", "README.md"),
+        recursive=True,
+    )
 )
 
 
@@ -410,4 +421,6 @@ def test_every_readme_link_resolves(path):
         if target.startswith(("http://", "https://", "#")):
             continue
         target = target.split("#", 1)[0]
-        assert os.path.exists(os.path.join(base, target)), f"{path} links to {target}, which does not exist"
+        assert os.path.exists(
+            os.path.join(base, target)
+        ), f"{path} links to {target}, which does not exist"

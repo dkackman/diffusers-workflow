@@ -45,6 +45,16 @@ See docs/SERVER.md, `dw/server/CLAUDE.md` and `ui/CLAUDE.md`.
 
 The stdio MCP server lives in `dw_mcp/` — see `dw_mcp/CLAUDE.md` and docs/MCP.md.
 
+### Claude Code plugin
+
+`.claude-plugin/marketplace.json` publishes the `dw` plugin in `plugins/dw/`: one
+composition skill per model family (`minimax-h3`, `minimax-music3`, `ltx-2.5`) that
+chooses a template for a request's shape and states the family's hard rules. Model
+knowledge lives there and in the catalog, never in engine code; every number a skill
+states is pinned to a diffusers symbol by `tests/test_plugin_skills.py`. `plugin.json`'s
+version is the engine's, bumped by `scripts/release.sh`. Adding or re-auditing a family
+is `.claude/skills/model-family-onboarding/`.
+
 ### REPL Architecture
 
 The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`) to keep GPU models cached between runs. Communication is via `multiprocessing.Queue`. Worker management is in `dw/repl_worker.py`, command handlers in `dw/repl_commands.py`.
@@ -103,7 +113,7 @@ read an inferred workspace back as one the user named - `get_prompt_dir` yields
 to its older discovery (`./prompts`, then the walk up from the workflow file)
 for an inferred workspace but not for an explicit one. `--workflow-dir`,
 `--output-dir` and `--prompt-dir` each still override one folder. See
-docs/WORKSPACES.md, and docs/proposals/workspaces.md for the later stages
+docs/WORKSPACES.md, and docs/proposals/server-workspaces.md for the later stages
 (workflow search path, run directories, `asset:`/`output:` references).
 
 ### Type System

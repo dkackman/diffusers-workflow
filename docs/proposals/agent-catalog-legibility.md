@@ -3,7 +3,7 @@
 Status: Parts 1–2 designed 2026-09-06 — see the
 [design spec](../superpowers/specs/2026-09-06-agent-catalog-legibility-design.md)
 and the **Ledger** at the end of this document, which records what was
-actually done against each proposal. Parts 3–4 remain open. Synthesizes and replaces two prior proposals,
+actually done against each proposal. Part 3 is carried as a constraint and Part 4 shipped through both channels (see the Ledger and the plugin drill at the end); no part remains open. Synthesizes and replaces two prior proposals,
 `catalog-shape-index.md` and `mcp-discovery-data.md` (both fully folded into
 this document and deleted — see git history for the original framing), plus
 the discovery-facing conclusion of
@@ -372,7 +372,7 @@ the moment an agent is actually driving H3. Loading it by default, or even
 indexing it by default, works against the economy Part 1 fought to
 establish.
 
-## Part 4: packaging model-specific knowledge — an open design question
+## Part 4: packaging model-specific knowledge — resolved 2026-09-07 in favour of Channel B
 
 Given Part 3's constraint (data, not code) and its budget concern
 (don't bloat the standing MCP index), there appear to be two non-exclusive
@@ -410,6 +410,18 @@ fallback copy otherwise) rather than a Skill that duplicates the
 authoring knowledge independently. Whether that's practical, and whether
 it should ship as a plugin bundled with `dw_mcp` or live separately, is
 exactly the kind of specific-mechanism question this proposal defers.
+
+**Resolved (2026-09-07, shipped 2026-09-08).** Both channels are in use,
+asymmetrically: dw-generic authoring knowledge went to the guides (Channel
+A, the `WORKFLOW_GUIDE.md` authoring section), and model-family knowledge
+ships as the dw plugin's per-family skills (Channel B: `plugins/dw/skills/`
+for MiniMax H3, MiniMax Music 3 and LTX-2.5), while `dw/server/guides.py`
+deliberately indexes no model family. The two-copies risk named above is
+answered by keeping the skills thin - they defer prompt format to the
+vendors' own text and quote catalog names rather than catalog content - and
+by `tests/test_plugin_skills.py`, which pins every number a skill states to
+the diffusers module that enforces it. The paragraphs above stay as the
+design record; the "Plugin drill" section below is the acceptance test.
 
 ## Principle: format-knowledge belongs in guides and templates, not in new engine code
 
@@ -505,7 +517,7 @@ starts from the record rather than the intent. Updated as work lands.
 | 9 composition rules | done (plan 2, task 6) | spec §2.3 | the cartesian rule and the one-step-per-pair form are stated in the authoring section, the general case of `scripted-dialogue-and-tts.md`'s reasoning |
 | 10 save-time metadata | done (task 6) | spec §1.6 | derived and returned on save; empty summary warns, never rejects |
 | Part 3 constraint | carried | spec "Principle" | derivation reads structure, never model family |
-| Part 4 packaging | first item through Channel A (2026-09-07) | `WORKFLOW_GUIDE.md` authoring section | the spoon-set drill (cold session, PR #48 merged) planned a shared seed for "identical but for colour", which draws a different object per prompt; `### Keeping a set consistent` now says which of style, object or character consistency wants prompts, an edit pass or a reference, and `templates/consistent-set.json` (declared `image-set`: derivation says `image-edit`) is the generate-then-edit shape on FLUX.1 Kontext, whose one pipeline both draws and edits; measured on lem 2026-09-07 at 11.5 warm minutes (2.2 for the base, 3.1 per edit, sequential offload) and the four mugs came out identical but for colour. A FLUX.2 draft found that the HF remote text encoder every FLUX.2 entry names now answers with an HTML page (broken on lem since 2026-08-26); `remote.py` now says so instead of raising an unpickling error, and both FLUX.2 entries load the repo's own 4-bit text encoder under model offload instead. The FLUX.2 text encoder is declared as its own component pinned to the CPU, because BitsAndBytes materializes on the accelerator and the two 4-bit models do not fit at load; the `flash_hub` backend went too, since it needs the `kernels` package no install has. models/flux2-dev measured at 3.3 warm minutes on lem. The Krea edit template moved to FLUX.1 Kontext for the same reason, and a catalog test now refuses `trust_remote_code` and `custom_pipeline` in any bundled entry or packaged builtin, so nothing dw ships asks an operator to lower `--trust-workflows`. The Florence-2 and Phi-3.5 builtins went with it: the `text_generation` task had replaced both, and `describe-and-regenerate` now composes it twice. `### Remote code is refused by default` came out of the same run: the first draft used the Krea edit template's `custom_pipeline`, which a server without `--trust-workflows` refuses at load. Still open: `templates/minimax/README.md` and `ltx2/README.md` are model knowledge as data, unindexed — a third channel. Catalog repair task 1: the latent handoff a two-stage flow needs is proven by test (tests/test_result.py::TestLatentHandoff), no engine change. Catalog repair task 2: two-stage.json is the three-move flow (8 sigmas at 768x448, 2x latent upsample, renoise + 3 stage-two sigmas at 1536x896, audio latents carried); latents pass by name; a test holds noise_scale to STAGE_2_DISTILLED_SIGMA_VALUES[0]. Cost and the sharpness comparison await the lem run (task 7). Catalog repair task 3: the six prompts/ltx2 captions are rewritten to the trained format (one paragraph, 150-220 words, shot type/camera motion/viewpoint in prose, sound interleaved; the two I2V ones describe only what changes), intended_model ltx-2.5, four summaries say LTX-2.5; tests/test_ltx_prompt_library.py holds the shape. Catalog repair task 4: h3_context_ir names its two source guides, writes N/A for silent audio fields, numbers <Video N>/<Audio N> within their category, labels continuity modes as this engine's chaining convention (nothing in the engine emits the phrase; it is a user-message convention), adds the ref guide's dialogue-fidelity rules, drops the two unsourced lines; tests/test_h3_context_ir.py. Catalog repair task 5: both template READMEs link the files that exist, name the vendor sources and the audit, the H3 one states the canvas rules and the 5-second diffusers floor; a test resolves every README link. Lem found templates/minimax/enhance-prompt failing on master already: both enhance templates passed a stored copy of the Context-IR system prompt (prompts/prompt_enhancement/minimax_h3.json, 10096 chars) as a sub-workflow argument, which exceeded MAX_VARIABLE_VALUE_LENGTH 10000; the limit is now 20000, the stored copy is gone, and the templates run the builtin's own prompt, with a test refusing a future override. Three wordings of the N/A rule were drafted before the final review found the templates were running the stored copy, so none of them had been tested; the third, which puts the rule on each audio field's own line, is what shipped.  Catalog repair task 7, verified on lem 2026-09-08: two-stage runs at 1536x896, 8.2 warm minutes (base 1.7, refine 2.7, writing the full-size clip 3.5), latents handed by name and the refine pass served from the pipeline cache; at seed 42 the refined frame is sharp where the upsample-only frame is a soft blur. The fox and hummingbird captions ran as written (tracking shot and pull-out; hold and close-up), the hummingbird soundtrack near-silent. The silent-candle brief's three runs went through the stale stored prompt (final review), so the N/A rule's effect on the Qwen3-4B enhancer is re-verified below. Re-verified 2026-09-08 with the templates on the builtin's prompt: the framed idea the template documents (Task, Duration, Idea) gives a full integrated_multimodal_description with both audio fields N/A; a bare idea first collapsed to the two N/A lines alone, so the description field is now declared unconditional and a bare idea also gets its description (jobs 28f1d29a5b90, be94ed994ecd). The N/A rule took four wordings in all, and only the last two were ever tested. Two engine findings on the way: the step cache keys on the resolved step definition, which names a builtin by path, so editing a builtin does not invalidate a cached step (follow-up); and a cancelled H3 job runs to its next step boundary, minutes on this model. |
+| Part 4 packaging | done: Channel A for the generic item (2026-09-07), Channel B for model families (2026-09-08) | `WORKFLOW_GUIDE.md` authoring section; `plugins/dw/`, `.claude-plugin/marketplace.json`, `.claude/skills/model-family-onboarding` | the spoon-set drill (cold session, PR #48 merged) planned a shared seed for "identical but for colour", which draws a different object per prompt; `### Keeping a set consistent` now says which of style, object or character consistency wants prompts, an edit pass or a reference, and `templates/consistent-set.json` (declared `image-set`: derivation says `image-edit`) is the generate-then-edit shape on FLUX.1 Kontext, whose one pipeline both draws and edits; measured on lem 2026-09-07 at 11.5 warm minutes (2.2 for the base, 3.1 per edit, sequential offload) and the four mugs came out identical but for colour. A FLUX.2 draft found that the HF remote text encoder every FLUX.2 entry names now answers with an HTML page (broken on lem since 2026-08-26); `remote.py` now says so instead of raising an unpickling error, and both FLUX.2 entries load the repo's own 4-bit text encoder under model offload instead. The FLUX.2 text encoder is declared as its own component pinned to the CPU, because BitsAndBytes materializes on the accelerator and the two 4-bit models do not fit at load; the `flash_hub` backend went too, since it needs the `kernels` package no install has. models/flux2-dev measured at 3.3 warm minutes on lem. The Krea edit template moved to FLUX.1 Kontext for the same reason, and a catalog test now refuses `trust_remote_code` and `custom_pipeline` in any bundled entry or packaged builtin, so nothing dw ships asks an operator to lower `--trust-workflows`. The Florence-2 and Phi-3.5 builtins went with it: the `text_generation` task had replaced both, and `describe-and-regenerate` now composes it twice. `### Remote code is refused by default` came out of the same run: the first draft used the Krea edit template's `custom_pipeline`, which a server without `--trust-workflows` refuses at load. Superseded by plugin tasks 1-5 below: `templates/minimax/README.md` and `ltx2/README.md` are the sources the family skills derive from and link back to, so that knowledge is reached through the plugin rather than a third channel. Catalog repair task 1: the latent handoff a two-stage flow needs is proven by test (tests/test_result.py::TestLatentHandoff), no engine change. Catalog repair task 2: two-stage.json is the three-move flow (8 sigmas at 768x448, 2x latent upsample, renoise + 3 stage-two sigmas at 1536x896, audio latents carried); latents pass by name; a test holds noise_scale to STAGE_2_DISTILLED_SIGMA_VALUES[0]. Cost and the sharpness comparison await the lem run (task 7). Catalog repair task 3: the six prompts/ltx2 captions are rewritten to the trained format (one paragraph, 150-220 words, shot type/camera motion/viewpoint in prose, sound interleaved; the two I2V ones describe only what changes), intended_model ltx-2.5, four summaries say LTX-2.5; tests/test_ltx_prompt_library.py holds the shape. Catalog repair task 4: h3_context_ir names its two source guides, writes N/A for silent audio fields, numbers <Video N>/<Audio N> within their category, labels continuity modes as this engine's chaining convention (nothing in the engine emits the phrase; it is a user-message convention), adds the ref guide's dialogue-fidelity rules, drops the two unsourced lines; tests/test_h3_context_ir.py. Catalog repair task 5: both template READMEs link the files that exist, name the vendor sources and the audit, the H3 one states the canvas rules and the 5-second diffusers floor; a test resolves every README link. Lem found templates/minimax/enhance-prompt failing on master already: both enhance templates passed a stored copy of the Context-IR system prompt (prompts/prompt_enhancement/minimax_h3.json, 10096 chars) as a sub-workflow argument, which exceeded MAX_VARIABLE_VALUE_LENGTH 10000; the limit is now 20000, the stored copy is gone, and the templates run the builtin's own prompt, with a test refusing a future override. Three wordings of the N/A rule were drafted before the final review found the templates were running the stored copy, so none of them had been tested; the third, which puts the rule on each audio field's own line, is what shipped.  Catalog repair task 7, verified on lem 2026-09-08: two-stage runs at 1536x896, 8.2 warm minutes (base 1.7, refine 2.7, writing the full-size clip 3.5), latents handed by name and the refine pass served from the pipeline cache; at seed 42 the refined frame is sharp where the upsample-only frame is a soft blur. The fox and hummingbird captions ran as written (tracking shot and pull-out; hold and close-up), the hummingbird soundtrack near-silent. The silent-candle brief's three runs went through the stale stored prompt (final review), so the N/A rule's effect on the Qwen3-4B enhancer is re-verified below. Re-verified 2026-09-08 with the templates on the builtin's prompt: the framed idea the template documents (Task, Duration, Idea) gives a full integrated_multimodal_description with both audio fields N/A; a bare idea first collapsed to the two N/A lines alone, so the description field is now declared unconditional and a bare idea also gets its description (jobs 28f1d29a5b90, be94ed994ecd). The N/A rule took four wordings in all, and only the last two were ever tested. Two engine findings on the way: the step cache keys on the resolved step definition, which names a builtin by path, so editing a builtin does not invalidate a cached step (follow-up); and a cancelled H3 job runs to its next step boundary, minutes on this model. Plugin task 1: a marketplace at the repo root and the dw plugin under plugins/dw, installable with two commands the README shows; plugin.json's version is the engine's, bumped by release.sh and held by test. Plugin task 2: the minimax-h3 skill - shape decision over the family's templates, the frame and canvas rules pinned by test to the diffusers modular pipeline, prompts deferred to MiniMax's h3-prompt-writing skill and the two guides, the run-and-judge loop; the README points at it. Plugin task 3: the ltx-2.5 skill - shape decision, the schedule and size rules pinned to the LTX-2 pipeline, the trained caption spec quoted and held equal to the diffusers constant by test; the README points at it. Final review of the plugin branch: the H3 skill's LoRA coupling scoped to the text- and frame-conditioned templates (the six reference ones run no LoRA at 20 steps), both judge steps rewritten because no MCP tool shows a video frame (the agent hands over the gallery url and checks metadata), the fps rule marked as the DFR path's, tighter numeric pins. Plugin task 4: cold drill 2026-09-08 - pass; the skill fired on the bare prompt, chose templates/minimax/storyboard, wrote a Ref2VA Context-IR prompt, quoted cost and asked before an 11.6-minute run, and inspected the result, where the control ran unasked and could not download the file; the drill caught the skill overstating 20 steps for four LoRA-bearing reference templates (fixed, pinned) and gave storyboard its measured cost (10.1 warm minutes); the mould for the next family is copy a skill, follow its six sections, add the family's rules to tests/test_plugin_skills.py, cite the vendor, and run this drill (.claude/skills/model-family-onboarding). Plugin task 5 (2026-09-08, the 30-second follow-up to the drill): the H3 skill states that nothing carries between generations except a reference, gives the chain-or-cut rule, and says how a cuts piece gets one score and one voice; seven bundled prompts wrote a silent music field as None. and now write N/A, held by test. MiniMax Music 3 went through the lifecycle the same night: audited (docs/proposals/audits/2026-09-08-minimax-music3-audit.md; the ceiling rule and the 44.1 kHz result were confirmed against three primary sources, four small corrections landed: music.json's stale trim-task path, music-video's 21-second ceiling over 20.7 seconds of slices, the README's invented guillotine mechanism, and a text_encoder component the quantization docs showed that Music3 does not have), and plugins/dw/skills/minimax-music3/SKILL.md written with its caps, window, guider and output rate pinned to the diffusers modular pipeline and the caption format deferred to MiniMax's music-caption-rewriter skill, which the repo had never mentioned. Its cold drill is still to run. |
 
 
 ### Cold-session probe, 2026-09-07
@@ -545,6 +557,88 @@ What that says about Part 1 as built, and what Part 2 has to carry:
   Part 4's packaging question includes how a playbook and the catalog share
   the knowledge rather than compete for it.
 
+### Plugin drill, 2026-09-08
+
+The Part 4 acceptance test: a fresh Claude Code session in an empty directory
+(`~/testing/7`, no `CLAUDE.md`, no memory, only the dw MCP server for lem on
+branch `dw-plugin`), the dw plugin installed from this checkout, asked "a short
+multi-shot video with cuts between the shots"; then the same prompt in the same
+directory with the plugin uninstalled, as the control. Transcripts:
+`~/.claude/projects/-Users-don-testing-7/24d8bc9d-7c01-4320-aa5d-a8acace418ef.jsonl`
+(plugin) and `...-testing-7/bb52715b-c3ea-4227-97fd-88dee384af42.jsonl`
+(control). Lem's `dw.log` is the engine log, not the access log, so the call
+order below is the transcripts'.
+
+**Plugin session.** The `dw:minimax-h3` skill fired on the bare prompt, before
+any tool call. It asked which cut style (storyboard, dialogue short, music
+video), then the subject ("a lighthouse keeper's last night before the light is
+automated"). Then, in order: `get_server_info`, `list_workflows(shape=sequence)`,
+`list_workflows(shape=shot)`, `get_workflow(templates/minimax/storyboard)`,
+`validate_workflow`, a plan with 192 frames (17x11+5), 960x544, cuts at 2.7 and
+5.4 seconds, and the skill's fallback cost wording because the template carried
+no `cost` ("not measured for this template; a few minutes for a turbo-length
+clip, reference-conditioned roughly doubles that"). It asked before running.
+After `run_workflow` and eleven `wait_for_job` polls it read `get_job_events`
+to see which step it was on, then `list_gallery` and `get_gallery_metadata` on
+the mp4, handed over the gallery url with the manifest path, and named the
+family's failure modes to look for (face drift across cuts, storyboard anchors
+overriding the framing). Job 9f75733cfb3c, 11.6 minutes with both models
+loading from disk.
+
+**Control session.** No shape question; it asked for the subject with an open
+question. Then `get_server_info`, the same two shape listings, `list_guides`
+(never followed by a `get_guide`), the same `get_workflow`, `validate_workflow`,
+`get_memory`, and `run_workflow` without asking, with "similar template ran a
+few minutes" as its whole cost statement. It passed the template's own
+`image_reference_type` default back as an argument, harmless but a variable it
+did not understand. When the job finished it called `download_output` with a
+path on this machine, which lem cannot write (`PermissionError` on `/private`,
+surfaced as an opaque `Error executing tool`); it retried twice, once with no
+destination, which saved the mp4 into lem's working directory; then it fetched
+the three stills inline with `get_output_image` and reported. Job
+513205c86652, 10.1 warm minutes.
+
+**The prompts.** Both sessions wrote a correct six-section Ref2VA Context-IR
+prompt (subject definitions, tagged summary, per-reference retention analysis,
+timed shots, soundscape, continuous score) and they are near-identical in
+structure. Neither took it from the skill's vendor pointer: the storyboard
+template's default `prompt` is itself a full Context-IR example, and both
+patterned on it. On a template that carries an example, the vendor format
+reaches a cold agent through the catalog with or without the plugin.
+
+**The 30-second follow-up, same session.** Asked for a 30-second continuation,
+the plugin session did not stretch one generation past 14.4 seconds: it planned
+six 124-frame shots from one keeper portrait, concatenated with hard cuts, and
+quoted 30-45 minutes before running. It had to be told that H3 shares context
+only inside a generation, so each shot writes its music field as N/A and one
+score goes under the concat; that sentence is now in the skill. Its score step
+then failed because it passed empty lyrics for an instrumental (Music 3 rejects
+them; a tag-only body is the form), and its retry, an inline workflow with one
+argument changed, regenerated all six cached shots. The cut was scored from the
+failed run's files by a saved seven-step workflow (`score-lighthouse` on lem):
+a cello instrumental at a 50-second ceiling, a one-video `concat_videos` to
+read the edit with its soundtrack, slice, mix, normalize, pair. Its own first
+attempt hit the audio tasks refusing a video path. Second run 7 seconds with
+the score served from the cache; the film is
+`outputs/score-lighthouse/20260908-061449-*/ScoreLighthouseCut-film.6-0.0.mp4`.
+Both engine findings are in the follow-ups below.
+
+**Verdict: pass, with the skill's contribution measured honestly.** The skill
+fired unprompted, the right template was chosen, prompts were in the vendor's
+format, the cost was stated before the run, and the output was inspected. What
+the plugin changed against the control was the shape choice put to the user,
+asking before spending eleven GPU minutes, the honest cost wording, and the
+family-specific judging brief at the end. What it did not change was
+discovery (both sessions found the template in the same three calls) or the
+prompt format on this template. Two defects it surfaced: the skill said the
+reference-conditioned templates run 20 steps without a LoRA, but four of
+them (`storyboard`, `dialogue-short`, `music-video`,
+`chain-matched-and-aligned`) keep the turbo LoRA at nine, and the plugin
+session repeated the wrong number; fixed, with the four now named and pinned
+by test. And `storyboard` had no `cost`, so both sessions guessed; it now
+carries the control run's 10.1 warm minutes. The `download_output` failure is
+fixed on the branch; see the engine note under the follow-ups.
+
 ### Model-knowledge follow-ups, 2026-09-07
 
 What the two vendor audits found that the catalog does not carry, dated by the
@@ -581,4 +675,48 @@ MiniMax H3 ([audit](audits/2026-09-07-minimax-h3-audit.md)):
 - Step-count note: 20 default, ~25 for motion (ComfyUI).
 - Ref2VA input limits (≤9 images, ≤3 videos, ≤3 audio, ≤12) and that audio can never
   be the only reference; H3-Regenerate-2K is API-only.
-- Music3 `audio_duration` cap: 9000 frames, six minutes.
+- Music3 `audio_duration` cap: 9000 frames, six minutes (done 2026-09-08, in the `minimax-music3` skill and the README).
+
+MiniMax Music 3 ([audit](audits/2026-09-08-minimax-music3-audit.md), 2026-09-08),
+deliberately not done:
+
+- No stored prompt or template exercises the three-heading Structured Caption
+  (Global Metadata, Vocal Details, Arrangement); the library carries only the
+  concise one-paragraph form. `_clean_caption` strips markdown, so one can be
+  pasted as-is.
+- No instrumental example: a tag-only lyrics body plus a caption that names the
+  lead instrument, since diffusers has no `is_instrumental` flag and rejects
+  empty lyrics.
+- The 8 GB path (leaf-level group offload of `language_model`) is undocumented
+  in RECIPES_24GB.
+- The vendor's five-minute range against the engine's 360-second cap; the skill
+  says stay at or under 300.
+- The model card says CUDA only; the diffusers snippet lists mps and cpu. Untested
+  here on either.
+
+Engine, from the 30-second follow-up on 2026-09-08:
+
+- Fixed on the branch: the audio tasks (`resample_audio`, `slice_audio`,
+  `mix_audio` and the rest) refused a path to a video file ("File extension
+  not allowed: .mp4"), though a video's soundtrack is exactly what scoring an
+  existing cut needs, and `pair_audio` could not take a path for its track at
+  all. `load_audio` now takes a video file's soundtrack (a silent one is an
+  error), so every audio task accepts the cut an earlier run wrote, and
+  `pair_audio` reads a path. A survey of the rest found the frame-consuming
+  tasks already fine, since the engine loads any argument named `video` from a
+  path, and `concat_videos`, `dissolve_videos` and `stabilize_video` load
+  paths with their audio themselves.
+- Not fixed: an inline workflow's step-cache key covers the whole definition, so fixing
+  one argument on a retry regenerated six cached H3 shots (thirty minutes);
+  a saved workflow with a stable id would have served them. The authoring
+  guide should say to save a workflow before a long run.
+
+Engine, from the 2026-09-08 plugin drill, fixed on the same branch:
+
+- `download_output` over `dw.serve --mcp` writes on the GPU box, and a path from
+  the agent's own machine failed there with an unwrapped `PermissionError` that
+  the MCP layer reported as `Error executing tool download_output`; the agent
+  then retried with no destination and left a copy in the server's working
+  directory. `dw_mcp/media.py` now answers an `OSError` with a `DwApiError`
+  that says the write happens on the server and names the client-side ways to
+  see the file (the gallery url, the inline tools, `keep_output`).

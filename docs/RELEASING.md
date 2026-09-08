@@ -8,20 +8,23 @@ scripts/release.sh 0.38.0-alpha.1 "UI front end"   # optional tag message
 ```
 
 The script bumps `pyproject.toml` (the single source of the version —
-`dw.__version__` reads it at runtime), commits just that file, pushes
+`dw.__version__` reads it at runtime) and sets the same version in
+`plugins/dw/.claude-plugin/plugin.json`, so an installed plugin names the
+engine it was written against; it commits just those two files, pushes
 master, tags the bump commit `v0.38.0`, and pushes the tag. It refuses
 a malformed version, a branch other than master, an existing tag, or a
 dirty index (unstaged changes elsewhere are fine — the release commit
-is path-limited to pyproject.toml).
+is path-limited to those two files).
 
 By hand, the equivalent is:
 
 ```bash
 # 1. Bump the version in pyproject.toml:
 #    version = "0.38.0"
-git commit -m "release 0.38.0" -- pyproject.toml
+# 2. Set the same version in plugins/dw/.claude-plugin/plugin.json
+git commit -m "release 0.38.0" -- pyproject.toml plugins/dw/.claude-plugin/plugin.json
 
-# 2. Tag the bump commit and push
+# 3. Tag the bump commit and push
 git tag -a v0.38.0 -m "release 0.38.0"
 git push origin master v0.38.0
 ```

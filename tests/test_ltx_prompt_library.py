@@ -45,7 +45,9 @@ def test_a_prompt_is_one_paragraph_of_caption_length(path):
 
     assert "\n" not in text.strip(), f"{path} is more than one paragraph"
     words = len(text.split())
-    assert 140 <= words <= 240, f"{path} is {words} words; the trained caption is 150-220"
+    assert (
+        140 <= words <= 240
+    ), f"{path} is {words} words; the trained caption is 150-220"
 
 
 @pytest.mark.parametrize("path", PROMPTS, ids=os.path.basename)
@@ -62,7 +64,9 @@ def test_a_prompt_names_the_model_it_is_for(path):
 
 
 def test_no_ltx_template_summary_names_the_older_model():
-    templates = glob.glob(os.path.join(REPO_ROOT, "workflows", "templates", "ltx2", "*.json"))
+    templates = glob.glob(
+        os.path.join(REPO_ROOT, "workflows", "templates", "ltx2", "*.json")
+    )
     for path in templates:
         summary = json.load(open(path, encoding="utf-8")).get("summary", "")
         assert "LTX-2 " not in summary and not summary.endswith("LTX-2"), path
