@@ -283,7 +283,9 @@ def _copy_assets(summary, workflow, target, asset_roots):
         if source is None:
             summary.missing.append(reference)
             continue
-        _copy(summary, source, target, os.path.join("assets", *name.split("/")))
+        _copy(
+            summary, source, target, os.path.join("assets", *name.split("/")), reference
+        )
 
 
 def _copy_inputs(summary, workflow, target, output_root):
@@ -302,7 +304,9 @@ def _copy_inputs(summary, workflow, target, output_root):
         except (SecurityError, OSError, ValueError):
             summary.missing.append(reference)
             continue
-        _copy(summary, source, target, os.path.join("inputs", *name.split("/")))
+        _copy(
+            summary, source, target, os.path.join("inputs", *name.split("/")), reference
+        )
 
 
 def _copy_outputs(summary, manifest, target, output_root, run_dir):
@@ -315,6 +319,9 @@ def _copy_outputs(summary, manifest, target, output_root, run_dir):
     identity and run id that say where it really came from.
     """
     run_root = os.path.join(output_root, run_dir) if run_dir else output_root
+    # One file can be listed by two steps (a chain's output is the next
+    # step's input); it is one file in the export, copied and counted once
+    copied = set()
     for entry in manifest.get("steps") or []:
         if not isinstance(entry, dict):
             continue
@@ -332,17 +339,21 @@ def _copy_outputs(summary, manifest, target, output_root, run_dir):
             if not os.path.isfile(source):
                 summary.missing.append(recorded)
                 continue
+            if source in copied:
+                continue
+            copied.add(source)
             try:
                 relative = os.path.relpath(source, run_root)
             except ValueError:  # different drive on Windows
                 relative = os.path.basename(source)
-            if relative.startswith(os.pardir):
+            if relative == os.pardir or relative.startswith(os.pardir + os.sep):
                 relative = os.path.relpath(source, output_root)
             _copy(
                 summary,
                 source,
                 target,
                 os.path.join("outputs", *relative.split(os.sep)),
+                recorded,
             )
 
 
@@ -399,15 +410,20 @@ def _bullets(lines):
 # ------------------------------------------------------------------- files
 
 
-def _copy(summary, source, target, relative):
-    """Copy one file into the export and record it."""
+def _copy(summary, source, target, relative, name):
+    """Copy one file into the export and record it.
+
+    `name` is how a failure is reported - the reference or the manifest's own
+    entry, never the absolute path, because `missing` is read out of the
+    README on another machine where that path means nothing.
+    """
     destination = os.path.join(target, relative)
     try:
         os.makedirs(os.path.dirname(destination), exist_ok=True)
         shutil.copyfile(source, destination)
     except OSError as e:
         logger.warning(f"Could not copy {source} into the export: {e}")
-        summary.missing.append(source)
+        summary.missing.append(name)
         return
     _record(summary, destination, target)
 

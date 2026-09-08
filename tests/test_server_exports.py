@@ -75,6 +75,86 @@ def exporting_script(command):
     }
 
 
+PRIOR_RUN_ID = new_run_id({"workflow": "prior"})
+PRIOR_REFERENCE = f"output:prior/{PRIOR_RUN_ID}/prior.png"
+
+
+def untracked_script(command):
+    """A run from before run tracking: no run_start event, so the job never
+    learns a run directory and its own row is the only manifest there is."""
+    output_dir = command["output_dir"]
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, "legacy.png")
+    with open(path, "wb") as file:
+        file.write(b"an older image")
+    yield {
+        "type": "success",
+        "message": "ok",
+        "run_count": 1,
+        "manifest": [{"step": "gen", "files": [path]}],
+    }
+
+
+def chained_script(command):
+    """A run whose realized workflow names an earlier run's file."""
+    output_dir = command["output_dir"]
+    prior_dir = os.path.join(output_dir, "prior", PRIOR_RUN_ID)
+    os.makedirs(prior_dir, exist_ok=True)
+    with open(os.path.join(prior_dir, "prior.png"), "wb") as file:
+        file.write(b"the first stage")
+
+    run_dir = os.path.join(output_dir, "server_test", RUN_ID)
+    os.makedirs(run_dir, exist_ok=True)
+    with open(os.path.join(run_dir, "still.png"), "wb") as file:
+        file.write(b"an image")
+    with open(os.path.join(run_dir, REALIZED_FILE_NAME), "w") as file:
+        json.dump(
+            {
+                "id": "server_test",
+                "seed": 7,
+                "steps": [
+                    {
+                        "name": "gen",
+                        "pipeline": {
+                            "configuration": {"component_type": "{Fake}"},
+                            "from_pretrained_arguments": {"model_name": "m"},
+                            "arguments": {"image": PRIOR_REFERENCE},
+                        },
+                    }
+                ],
+            },
+            file,
+        )
+    with open(os.path.join(run_dir, "manifest.json"), "w") as file:
+        json.dump(
+            {
+                "run_id": RUN_ID,
+                "status": "completed",
+                "seed": 7,
+                # The same file twice: a chain's step names the one before
+                # it, and the export holds one copy of it
+                "steps": [
+                    {"step": "gen", "files": ["still.png"]},
+                    {"step": "post", "files": ["still.png"]},
+                ],
+            },
+            file,
+        )
+    yield {
+        "type": "progress",
+        "event": "run_start",
+        "run_id": RUN_ID,
+        "identity": "server_test",
+        "run_dir": RUN_DIR,
+    }
+    yield {
+        "type": "success",
+        "message": "ok",
+        "run_count": 1,
+        "manifest": [{"step": "gen", "files": [os.path.join(run_dir, "still.png")]}],
+    }
+
+
 @pytest.fixture
 def workspace_root(tmp_path):
     root = Workspace(tmp_path / "studio", "flag").ensure()
@@ -159,6 +239,37 @@ class TestExportDirectory:
         assert "spec" not in historical and "historical" not in historical
         assert historical["id"] == job_id
         assert historical["run_dir"] == RUN_DIR
+
+    def test_a_job_with_no_run_directory_gets_a_synthesized_manifest(self, server):
+        with server(untracked_script) as client:
+            job_id = finished(client)
+            body = client.post(f"/api/jobs/{job_id}/export").json()
+
+        directory = body["directory"]
+        assert body["manifest"]["synthesized"] is True
+        assert body["manifest"]["steps"] == [{"step": "gen", "files": ["legacy.png"]}]
+        # The job predates run tracking, so the workflow is the definition
+        # as submitted rather than a realized one - and the file the row
+        # names still lands, resolved against the output root itself
+        assert (
+            json.loads(open(os.path.join(directory, "job.json")).read())["realized"]
+            is False
+        )
+        assert os.path.isfile(os.path.join(directory, "outputs", "legacy.png"))
+        assert body["missing"] == []
+
+    def test_an_output_reference_is_copied_under_the_run_it_names(self, server):
+        with server(chained_script) as client:
+            job_id = finished(client)
+            body = client.post(f"/api/jobs/{job_id}/export").json()
+
+        copied = os.path.join("inputs", "prior", PRIOR_RUN_ID, "prior.png")
+        assert os.path.isfile(os.path.join(body["directory"], copied))
+        paths = [entry["path"] for entry in body["files"]]
+        assert copied.replace(os.sep, "/") in paths
+        # Listed by two steps, copied and counted once
+        assert paths.count("outputs/still.png") == 1
+        assert body["missing"] == []
 
     def test_the_readme_names_the_job_and_says_how_to_run_it(self, server):
         with server() as client:

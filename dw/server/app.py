@@ -2347,26 +2347,26 @@ def create_app(
             raise HTTPException(status_code=404, detail="No export for this job")
 
         handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-        handle.close()
-        with zipfile.ZipFile(handle.name, "w", zipfile.ZIP_DEFLATED) as archive:
-            for current, _dirs, names in os.walk(directory):
-                for name in sorted(names):
-                    path = os.path.join(current, name)
-                    entry = os.path.relpath(path, directory).replace(os.sep, "/")
-                    archive.write(path, f"{job_id}/{entry}")
+        try:
+            with handle:
+                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for current, _dirs, names in os.walk(directory):
+                        for name in sorted(names):
+                            path = os.path.join(current, name)
+                            entry = os.path.relpath(path, directory).replace(
+                                os.sep, "/"
+                            )
+                            archive.write(path, f"{job_id}/{entry}")
+        except BaseException:
+            # Nothing is going to attach the background unlink now, so the
+            # half-written archive has to go here
+            os.unlink(handle.name)
+            raise
 
-        def stream():
-            with open(handle.name, "rb") as file:
-                while True:
-                    chunk = file.read(64 * 1024)
-                    if not chunk:
-                        return
-                    yield chunk
-
-        return StreamingResponse(
-            stream(),
+        return FileResponse(
+            handle.name,
             media_type="application/zip",
-            headers={"content-disposition": f'attachment; filename="{job_id}.zip"'},
+            filename=f"{job_id}.zip",
             # The archive is a temp file, not a second permanent copy - it
             # goes as soon as the response has been sent
             background=BackgroundTask(os.unlink, handle.name),
