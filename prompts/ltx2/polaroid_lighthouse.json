@@ -1,9 +1,9 @@
 {
-  "text": "A polaroid photograph of a lighthouse on a rocky shore lies on a table. The camera pushes in until the photograph fills the frame and the scene comes alive: waves break against the rocks, the beam sweeps across low cloud, gulls call overhead.",
+  "text": "The polaroid is beginning to move inside its white border as the camera starts a slow push toward the table, a medium shot from a high angle looking down on the print, the wood grain running diagonally beneath it. Initially only the edges are shifting, a fringe of grass along the bottom of the print bending and the grey cloud across its top sliding right, while the room is quiet apart from a faint hiss off the print's surface that is thickening into surf. A moment later the push has carried the frame past the white border and the photographed shore is filling the screen, the still now running as live footage in a matched close-up from the same high angle: waves are breaking against the black rocks and throwing spray that hangs and falls, the water going from flat grey to moving green-grey with white heads. Simultaneously the lighthouse beam is coming round and sweeping across the low cloud in a broad warm band, gulls are calling above the break, and the camera is easing to a stop as the beam passes a second time.",
   "description": "Push-in on a polaroid until the photographed lighthouse comes alive",
-  "intended_model": "ltx-2",
+  "intended_model": "ltx-2.5",
   "tags": [
-    "t2v",
+    "i2v",
     "keyframes",
     "lighthouse"
   ]

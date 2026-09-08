@@ -101,9 +101,11 @@
     opacity: 1;
   }
   .groupnew:hover {
-    color: var(--accent);
+    color: var(--ink);
     border-color: var(--line);
   }
+  /* A folder name is a path segment the engine resolves, so it is mono
+     like every other name in the app */
   .group {
     display: flex;
     align-items: center;
@@ -111,8 +113,10 @@
     background: none;
     border: none;
     color: var(--muted);
+    font-family: var(--font-mono);
     font-weight: 600;
-    font-size: 0.95rem;
+    font-size: var(--t-sm);
+    letter-spacing: -0.01em;
     padding: 0;
     margin: 0;
     cursor: pointer;
@@ -121,8 +125,12 @@
     color: var(--ink);
     filter: none;
   }
+  /* Cards are deliberately not equal height - one that has produced
+     something carries a picture and one that has not does not - so rows
+     align to the top rather than stretching the short ones */
   .grid {
     display: grid;
+    align-items: start;
     gap: 0.6rem;
   }
 </style>

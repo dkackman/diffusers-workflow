@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the imports so the static import of the component below -
@@ -40,6 +41,11 @@ vi.mock('../api', () => ({
     // WorkspacePicker mounts with the page; a listing that never lands
     // leaves it hidden, which is what a single-workspace server shows
     listWorkspaces: vi.fn(() => new Promise(() => {})),
+    // The proof thumbnails load beside the listing. These tests are about
+    // the catalog's text, so the gallery answers empty and every card
+    // renders in its no-output form.
+    gallery: vi.fn(() => Promise.resolve({ files: [] })),
+    galleryThumbnailUrl: (name: string) => `/api/gallery/${name}/thumbnail`,
   },
 }))
 
@@ -102,13 +108,18 @@ it('narrows the list to one shape', async () => {
   await renderPage('tti')
   expect(card('shot')).toBeTruthy()
 
-  await fireEvent.change(screen.getByLabelText('shape'), {
-    target: { value: 'shot' },
-  })
+  // Shape is a row of buttons rather than a select, so the vocabulary is
+  // visible without opening anything
+  const shapes = screen.getByRole('group', { name: 'filter by shape' })
+  await fireEvent.click(within(shapes).getByRole('button', { name: 'shot' }))
 
   await waitFor(() => expect(card('tti')).toBeNull())
   expect(card('shot')).toBeTruthy()
   expect(card('flux-dev')).toBeNull()
+
+  // and pressing the active one again clears the filter
+  await fireEvent.click(within(shapes).getByRole('button', { name: 'shot' }))
+  await waitFor(() => expect(card('tti')).toBeTruthy())
 })
 
 it('ANDs two traits together rather than widening', async () => {
@@ -131,10 +142,11 @@ it('ANDs two traits together rather than widening', async () => {
 it('shows the measured cost and omits it when nothing was measured', async () => {
   await renderPage('tti')
 
-  expect(screen.getByText('~3 min · 22 GB (RTX 4090)')).toBeTruthy()
-  // Under a minute reads as a bound, and an entry naming no accelerator
-  // drops the parenthetical rather than showing an empty one
-  expect(screen.getByText('<1 min · 0.5 GB')).toBeTruthy()
+  // The accelerator it was measured on moves to the card's tooltip - the
+  // caption has room for the numbers, not for the hardware
+  expect(screen.getByText('~3 min · 22 GB VRAM')).toBeTruthy()
+  // Under a minute reads as a bound rather than a rounded zero
+  expect(screen.getByText('<1 min · 0.5 GB VRAM')).toBeTruthy()
   // cost: null - the card says nothing rather than guessing
   expect(card('tti')?.textContent).not.toContain('min')
 })
@@ -154,7 +166,7 @@ it('keeps a fractional measurement rather than rounding it away', async () => {
     },
   }
   await renderPage('half')
-  expect(screen.getByText('~1.5 min · 8 GB')).toBeTruthy()
+  expect(screen.getByText('~1.5 min · 8 GB VRAM')).toBeTruthy()
 })
 
 it('shows the summary rather than the whole description', async () => {

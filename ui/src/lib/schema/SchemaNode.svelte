@@ -216,7 +216,7 @@
     flex-shrink: 0;
   }
   .name {
-    font-family: var(--mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     font-weight: 600;
   }
   .req {

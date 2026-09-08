@@ -261,7 +261,7 @@
 <div class="head">
   <h1>Gallery</h1>
   <WorkspacePicker />
-  <span class="muted">{files.length} files</span>
+  <span class="num muted">{files.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
 </div>
 
@@ -345,8 +345,8 @@
 {#if selected}
   <div class="detail panel">
     <div class="bar">
-      <strong>{selected.name}</strong>
-      <span class="muted">{mb(selected.size)} · {day(selected.mtime)}</span>
+      <strong class="selname">{selected.name}</strong>
+      <span class="num muted">{mb(selected.size)} · {day(selected.mtime)}</span>
       <span class="flex"></span>
       {#if embeddedWorkflow}
         <button
@@ -453,8 +453,8 @@
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 0.4rem 1rem;
-    margin-bottom: 1rem;
+    gap: 0.4rem 0.8rem;
+    margin-bottom: var(--space-4);
   }
   .filter {
     max-width: 220px;
@@ -479,11 +479,15 @@
   }
   .pick {
     position: absolute;
-    top: 0.55rem;
-    left: 0.55rem;
+    top: 0.4rem;
+    left: 0.4rem;
     z-index: 1;
     margin: 0;
+    width: auto;
     cursor: pointer;
+    /* It now sits over the picture rather than over a padded panel, so it
+       needs its own ground to stay findable against a dark output */
+    outline: 2px solid var(--panel);
     /* Out of the way until it is wanted: hovering the tile, focusing the
        box itself, or any selection existing at all brings it back */
     opacity: 0;
@@ -493,34 +497,41 @@
   .pick:checked {
     opacity: 1;
   }
+  /* Selected is the user's own state, not the machine's, so it reads as a
+     heavier ink edge rather than taking the signal colour */
   .cellwrap.picked .cell {
-    border-color: var(--accent);
+    border-color: var(--ink);
+    box-shadow: inset 0 0 0 1px var(--ink);
   }
+  /* A frame with a caption strip under it, like the catalog's cards: the
+     picture bleeds to the edges and the label sits below the rule rather
+     than floating on a padded card */
   .cell {
     flex: 1;
     min-width: 0;
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 0.4rem;
+    border-radius: var(--radius-2);
+    padding: 0;
+    overflow: hidden;
     cursor: pointer;
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
     color: var(--muted);
     font-weight: 500;
-    font-size: 0.75rem;
+    font-size: var(--t-xs);
+    text-align: left;
     /* A folder of thousands of outputs still renders every cell's DOM node
        (no true windowing library is in the project's dependencies yet),
        but content-visibility skips layout/paint for cells scrolled out of
        view, which is most of the win for cheap. contain-intrinsic-size
        keeps scrollbar height stable before a cell has ever been measured. */
     content-visibility: auto;
-    contain-intrinsic-size: 150px 190px;
+    contain-intrinsic-size: 150px 180px;
   }
   .cell:hover,
   .cell.active {
-    border-color: var(--accent);
+    border-color: var(--ink);
     filter: none;
   }
   .cell img,
@@ -528,15 +539,21 @@
     width: 100%;
     aspect-ratio: 1;
     object-fit: cover;
-    border-radius: 5px;
     display: block;
   }
   .audio {
     aspect-ratio: 1;
     display: grid;
     place-items: center;
+    font-family: var(--font-mono);
+    background: var(--panel-2);
   }
+  /* The file's own name, which is what the engine wrote and what you would
+     type to reference it */
   .caption {
+    font-family: var(--font-mono);
+    padding: 0.35rem 0.5rem 0.4rem;
+    border-top: 1px solid var(--line);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -553,6 +570,12 @@
     align-items: center;
     gap: 0.4rem 0.8rem;
     margin-bottom: 0.7rem;
+  }
+  /* The path the engine wrote, and what you would type to reference it */
+  .selname {
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
+    overflow-wrap: anywhere;
   }
   .flex {
     flex: 1;
@@ -575,7 +598,8 @@
   .body img,
   .body video {
     max-width: min(480px, 100%);
-    border-radius: 6px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-frame);
   }
   .meta {
     display: flex;

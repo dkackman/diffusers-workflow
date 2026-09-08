@@ -1,20 +1,21 @@
 import { expect, test } from '@playwright/test'
 
-test('the status strip carries worker state and docs, off the nav row', async ({
+test('worker state and docs sit on the nav row, in one header row', async ({
   page,
 }) => {
   await page.goto('/')
-  const strip = page.locator('header .statusbar')
-  await expect(strip).toBeVisible()
-  // worker state renders in the strip (fixture worker is idle at start)
-  await expect(strip).toContainText(/idle|GB/)
-  // docs links moved down out of the nav row
+  // One header row: the state the old second row carried now sits at the
+  // right of the nav, so no page spends a strip on the word "idle"
+  const row = page.locator('header .navrow')
+  await expect(row).toHaveCount(1)
+  const state = page.locator('header .state')
+  await expect(state).toBeVisible()
+  // worker state renders there (fixture worker is idle at start)
+  await expect(state).toContainText(/idle|GB/)
   await expect(
-    strip.getByRole('link', { name: 'documentation on GitHub' }),
+    state.getByRole('link', { name: 'documentation on GitHub' }),
   ).toBeVisible()
-  await expect(
-    page.locator('header .navrow').getByRole('link', { name: 'Workflows' }),
-  ).toBeVisible()
+  await expect(row.getByRole('link', { name: 'Workflows' })).toBeVisible()
 })
 
 test('? opens the shortcuts overlay; Escape closes it; typing ? in a field does not', async ({
@@ -85,8 +86,11 @@ test('the status popover traps focus and returns it to its trigger button', asyn
 
 test('tab order walks the nav row in reading order', async ({ page }) => {
   await page.goto('/')
-  // From the top of the document, Tab lands on the nav links in their
-  // visual order - the baseline "rational tab order" check on the chrome
+  // From the top of the document, Tab lands on the header's links in their
+  // visual order - the baseline "rational tab order" check on the chrome.
+  // The wordmark is the first stop: it is a link home.
+  await page.keyboard.press('Tab')
+  await expect(page.locator('header .brand')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(
     page.getByRole('link', { name: 'Workflows' }).first(),

@@ -1,7 +1,7 @@
 {
     "id": "LTX2I2VChained",
     "description": "A long clip built from short ones. The chain re-runs the pipeline per segment, handing each the last frame of the one before, and stitches the frames and the generated audio back into a single video.",
-    "summary": "A long LTX-2 clip with audio, chained from short segments that each start on the previous one's last frame.",
+    "summary": "A long LTX-2.5 clip with audio, chained from short segments that each start on the previous one's last frame.",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",

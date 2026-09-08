@@ -1,7 +1,7 @@
 {
-  "text": "A lighthouse keeper in a yellow oilskin climbs the spiral stair of a lighthouse, lamplight flaring on the wet brass rail. Waves break far below and the wind hums through the tower.",
+  "text": "A lighthouse keeper is climbing the spiral stair inside the tower, a medium shot from behind and slightly below as the camera rises with him and curves around the central column. He is a broad man in his fifties in a yellow oilskin coat, hood down, grey hair flattened and wet, one hand sliding up the brass rail and leaving a smeared track through the condensation on it. Initially his boots are ringing on the iron treads in a slow uneven rhythm, water is dripping from his hem onto the step below, and the wind is humming through the tower in a low unbroken note. A moment later the lamp above is flaring as the mechanism turns, and warm light is running down the rail in a bright line and sliding off the whitewashed curve of the wall, film-grade contrast between the lit brass and the dark stairwell. Simultaneously waves are breaking far below, each one arriving as a dull thud through the stonework, and he is pausing on a landing with one hand on the rail, his breath audible over the wind before he is climbing on into the turning light.",
   "description": "Lighthouse keeper climbing the spiral stair - opening segment",
-  "intended_model": "ltx-2",
+  "intended_model": "ltx-2.5",
   "tags": [
     "t2v",
     "lighthouse"

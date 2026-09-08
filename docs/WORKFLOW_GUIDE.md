@@ -1333,20 +1333,22 @@ interpolator - returns frames without it. Two tasks carry the pieces across:
 
 ```json
 {
-    "name": "muxed",
+    "name": "film",
     "task": {
         "command": "pair_audio",
         "arguments": {
-            "video": "previous_result:upscale",
-            "audio": "previous_result:base"
+            "video": "previous_result:edit",
+            "audio": "previous_result:balanced",
+            "sample_rate": "variable:sample_rate"
         }
     },
     "result": { "content_type": "video/mp4", "fps": 24 }
 }
 ```
 
-`audio` takes either a waveform or, as here, the earlier step whose video carried the
-soundtrack - which brings its sample rate along.
+`audio` takes either a waveform or the earlier step whose video carried the soundtrack,
+which brings its sample rate along; here it is an earlier step's waveform, so
+`sample_rate` is given explicitly.
 
 Which shape a pipeline argument wants is the pipeline's business, and the two LTX-2
 paths differ: a keyframe condition is mapped from 0-255, so it takes the `video_frames`
@@ -1354,4 +1356,4 @@ array, while an IC-LoRA reference goes through the video processor, which expect
 `[0, 1]` frames the pipeline returned - `previous_result:step.frames` hands those over
 untouched.
 
-**Example:** [workflows/templates/ltx2/two-stage.json](../workflows/templates/ltx2/two-stage.json)
+**Example:** [workflows/templates/assemble-and-score.json](../workflows/templates/assemble-and-score.json)

@@ -1,7 +1,7 @@
 {
-  "text": "A lighthouse keeper in a yellow oilskin climbs the spiral stair of a lighthouse, lamplight flaring on the wet brass rail, then steps out onto the gallery. The beam sweeps past him across low cloud, gulls call, and he says 'still burning' as the wind hums through the tower.",
+  "text": "The same lighthouse keeper is pushing open the door at the top of the stair and stepping out onto the gallery, a medium shot from behind at his shoulder as the camera follows him through the doorway and then arcs around to a side view against the rail. He is still in the yellow oilskin, hood down, grey hair wet and flattened, and the brass rail is running past him beaded with spray. Initially the wind is jumping in volume as the door is opening, the humming of the tower giving way to a flat roar and to the hard rattle of the oilskin against his legs. A moment later the beam is sweeping past overhead and out across low cloud, the underside of the cloud is lighting in a moving band of warm white, and the sea below is showing as broken grey with white edges. Simultaneously gulls are calling and wheeling out beyond the rail, he is laying both hands on the wet metal and turning his face up toward the lamp, and he is saying 'still burning' just under the wind as the beam comes round again behind him.",
   "description": "Continuation of lighthouse_keeper: out onto the gallery ('still burning') - for Extend workflows",
-  "intended_model": "ltx-2",
+  "intended_model": "ltx-2.5",
   "tags": [
     "t2v",
     "lighthouse",

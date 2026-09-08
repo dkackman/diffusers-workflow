@@ -220,7 +220,7 @@
         </span>
       {:else}
         <button
-          class="withicon"
+          class="quiet withicon"
           onclick={startDiffusersUpdate}
           title="install the latest diffusers from GitHub - new model pipelines usually land there before a release. The worker restarts when idle so the next job uses it"
         >
@@ -341,7 +341,7 @@
               <span class="sizenum">{size(repo.size_on_disk)}</span>
             </td>
             <td class="num muted">{repo.nb_files}</td>
-            <td class="muted">{day(repo.last_accessed)}</td>
+            <td class="muted lastused">{day(repo.last_accessed)}</td>
             <td>
               <button
                 class="quiet icon danger"
@@ -364,7 +364,7 @@
                 </td>
                 <td class="num muted">{size(revision.size_on_disk)}</td>
                 <td></td>
-                <td class="muted">{day(revision.last_modified)}</td>
+                <td class="muted lastused">{day(revision.last_modified)}</td>
                 <td></td>
               </tr>
             {/each}
@@ -439,7 +439,7 @@
   .diskbar > span {
     display: block;
     height: 100%;
-    background: var(--accent);
+    background: var(--muted);
     opacity: 0.7;
   }
   .warn {
@@ -490,6 +490,8 @@
     font-size: 0.82rem;
   }
   .dlrepo {
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
     font-weight: 500;
   }
   .dlbar {
@@ -500,10 +502,12 @@
     overflow: hidden;
     display: inline-block;
   }
+  /* A download in flight - the machine working, so the signal colour, the
+     same as a running job and a filling progress bar */
   .dlbar > span {
     display: block;
     height: 100%;
-    background: var(--accent);
+    background: var(--live);
   }
   .dlnum {
     font-variant-numeric: tabular-nums;
@@ -522,8 +526,7 @@
     font-weight: 600;
     color: var(--muted);
     font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    text-transform: none;
     padding: 0.4rem 0.5rem;
     border-bottom: 1px solid var(--line);
   }
@@ -537,8 +540,16 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
+  /* A repo id is what you paste into a workflow for the engine to resolve */
   .repo {
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
     font-weight: 500;
+  }
+  .lastused {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--t-xs);
   }
   .badge {
     font-size: 0.7rem;

@@ -120,11 +120,19 @@
 
 <svelte:window onkeydown={onKeydown} />
 
+<!-- One row. The old second row spent ~30px of every page saying "idle";
+     the state it carries now sits at the right of the nav, where the
+     running job is a link to that job rather than a word. Primary
+     destinations (the daily work) are separated by a rule from the
+     reference pages, which are demoted but not hidden in a menu. -->
 <header>
   <div class="navrow">
-    <span class="brand">diffusers<span class="accent">-workflow</span></span>
+    <a class="brand plain" href="#/workflows"
+      >diffusers<span class="dim">-workflow</span></a
+    >
     <nav>
       <a
+        class="plain"
         href="#/workflows"
         class:active={route.parts[0] === 'workflows'}
         title="Workflows"
@@ -132,6 +140,7 @@
         <Layers size={15} /><span class="navlabel">Workflows</span>
       </a>
       <a
+        class="plain"
         href="#/prompts"
         class:active={route.parts[0] === 'prompts' ||
           route.parts[0] === 'prompt-edit'}
@@ -139,13 +148,16 @@
       >
         <MessageSquareText size={15} /><span class="navlabel">Prompts</span>
       </a>
-      <a href="#/jobs" class:active={route.parts[0] === 'jobs'} title="Jobs">
+      <a
+        class="plain"
+        href="#/jobs"
+        class:active={route.parts[0] === 'jobs'}
+        title="Jobs"
+      >
         <ListTodo size={15} /><span class="navlabel">Jobs</span>
       </a>
-      <a href="#/edit" class:active={route.parts[0] === 'edit'} title="Editor">
-        <SquarePen size={15} /><span class="navlabel">Editor</span>
-      </a>
       <a
+        class="plain"
         href="#/gallery"
         class:active={route.parts[0] === 'gallery'}
         title="Gallery"
@@ -153,6 +165,16 @@
         <Images size={15} /><span class="navlabel">Gallery</span>
       </a>
       <a
+        class="plain"
+        href="#/edit"
+        class:active={route.parts[0] === 'edit'}
+        title="Editor"
+      >
+        <SquarePen size={15} /><span class="navlabel">Editor</span>
+      </a>
+      <span class="navrule" aria-hidden="true"></span>
+      <a
+        class="plain second"
         href="#/models"
         class:active={route.parts[0] === 'models'}
         title="Models"
@@ -160,6 +182,7 @@
         <Database size={15} /><span class="navlabel">Models</span>
       </a>
       <a
+        class="plain second"
         href="#/schema"
         class:active={route.parts[0] === 'schema'}
         title="Schema"
@@ -167,6 +190,7 @@
         <ListTree size={15} /><span class="navlabel">Schema</span>
       </a>
       <a
+        class="plain second"
         href="#/server"
         class:active={route.parts[0] === 'server'}
         title="Server"
@@ -174,85 +198,102 @@
         <Server size={15} /><span class="navlabel">Server</span>
       </a>
     </nav>
-    <button
-      class="quiet icon themebtn"
-      onclick={(e) => {
-        e.stopPropagation()
-        tokenOpen = !tokenOpen
-      }}
-      title="API token"
-      aria-label="API token"
-      aria-expanded={tokenOpen}
-    >
-      <KeyRound size={15} />
-    </button>
-    <TokenPopover bind:open={tokenOpen} />
-    <button
-      class="quiet icon themebtn"
-      onclick={cycleTheme}
-      title="theme: {theme} - click to change"
-      aria-label="theme: {theme} - click to change"
-    >
-      {#if theme === 'light'}<Sun size={15} />{:else if theme === 'dark'}<Moon
-          size={15}
-        />{:else}<MonitorCog size={15} />{/if}
-    </button>
-  </div>
-  <div class="statusbar">
-    <button
-      class="statusbtn"
-      class:runningnow={currentJob !== null}
-      class:muted={currentJob === null}
-      onclick={(e) => {
-        e.stopPropagation()
-        statusOpen = !statusOpen
-      }}
-      title="server & worker status"
-      aria-label="server & worker status"
-      aria-expanded={statusOpen}
-    >
-      {#if currentJob}<span class="pulse-dot"></span>running{:else}idle{/if}
-    </button>
-    <StatusPopover bind:open={statusOpen} {health} {memory} />
-    <span class="flex"></span>
-    {#if memory?.info?.gpu_available}
-      <span class="vram muted">
-        {memory.info.gpu_device_name} · {gb(
-          memory.info.gpu_memory_allocated_mb ?? 0,
-        )} /
-        {gb(memory.info.gpu_memory_total_mb ?? 0)} GB
-      </span>
-    {/if}
-    {#if vramPct !== null}
-      <div class="meter" title="VRAM allocated">
-        <div
-          class="fill"
-          class:hot={vramPct > 75}
-          class:critical={vramPct > 92}
-          style:width={vramPct + '%'}
-        ></div>
-      </div>
-    {/if}
-    <a
-      class="helplink"
-      href="https://github.com/dkackman/diffusers-workflow#documentation"
-      target="_blank"
-      rel="noopener"
-      title="documentation on GitHub"
-      aria-label="documentation on GitHub"
-    >
-      <BookOpen size={14} />
-    </a>
-    <a
-      class="helplink"
-      href="/docs"
-      target="_blank"
-      rel="noopener"
-      title="interactive API reference (OpenAPI)"
-      aria-label="interactive API reference (OpenAPI)"
-    >
-      <Braces size={14} />
-    </a>
+
+    <div class="state">
+      {#if currentJob}
+        <!-- The one thing worth pinning to every page: what the GPU is
+             doing, and a way straight to it -->
+        <a class="plain live" href="#/jobs/{currentJob}" title="go to the job">
+          <span class="pulse-dot"></span>running
+        </a>
+      {/if}
+      {#if vramPct !== null}
+        <button
+          class="bare vram"
+          onclick={(e) => {
+            e.stopPropagation()
+            statusOpen = !statusOpen
+          }}
+          title={memory?.info?.gpu_device_name
+            ? `${memory.info.gpu_device_name} - ${gb(memory.info.gpu_memory_allocated_mb ?? 0)} of ${gb(memory.info.gpu_memory_total_mb ?? 0)} GB allocated`
+            : 'VRAM allocated'}
+          aria-label="server & worker status"
+          aria-expanded={statusOpen}
+        >
+          <span class="meter">
+            <span
+              class="fill"
+              class:hot={vramPct > 75}
+              class:critical={vramPct > 92}
+              style:width={vramPct + '%'}
+            ></span>
+          </span>
+          <span class="num vramtext"
+            >{gb(memory?.info?.gpu_memory_allocated_mb ?? 0)}/{gb(
+              memory?.info?.gpu_memory_total_mb ?? 0,
+            )} GB</span
+          >
+        </button>
+      {:else}
+        <button
+          class="bare"
+          class:muted={currentJob === null}
+          onclick={(e) => {
+            e.stopPropagation()
+            statusOpen = !statusOpen
+          }}
+          title="server & worker status"
+          aria-label="server & worker status"
+          aria-expanded={statusOpen}
+        >
+          {currentJob ? 'status' : 'idle'}
+        </button>
+      {/if}
+      <StatusPopover bind:open={statusOpen} {health} {memory} />
+      <button
+        class="bare icon"
+        onclick={(e) => {
+          e.stopPropagation()
+          tokenOpen = !tokenOpen
+        }}
+        title="API token"
+        aria-label="API token"
+        aria-expanded={tokenOpen}
+      >
+        <KeyRound size={15} />
+      </button>
+      <TokenPopover bind:open={tokenOpen} />
+      <button
+        class="bare icon"
+        onclick={cycleTheme}
+        title="theme: {theme} - click to change"
+        aria-label="theme: {theme} - click to change"
+      >
+        {#if theme === 'light'}<Sun size={15} />{:else if theme === 'dark'}<Moon
+            size={15}
+          />{:else}<MonitorCog size={15} />{/if}
+      </button>
+      <a
+        class="plain helplink"
+        href="https://github.com/dkackman/diffusers-workflow#documentation"
+        target="_blank"
+        rel="noopener"
+        title="documentation on GitHub"
+        aria-label="documentation on GitHub"
+      >
+        <BookOpen size={15} />
+      </a>
+      <a
+        class="plain helplink"
+        href="/docs"
+        target="_blank"
+        rel="noopener"
+        title="interactive API reference (OpenAPI)"
+        aria-label="interactive API reference (OpenAPI)"
+      >
+        <Braces size={15} />
+      </a>
+    </div>
   </div>
 </header>
 
@@ -301,117 +342,126 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 0.5rem 1.5rem;
-    padding: 0.7rem 1.2rem 0.5rem;
-  }
-  .statusbar {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 0.6rem 1rem;
-    padding: 0.25rem 1.2rem;
-    border-top: 1px solid var(--line);
-    font-size: 0.8rem;
-    min-height: 1.6rem;
-  }
-  .statusbtn {
-    background: none;
-    border: 0;
-    padding: 0.1rem 0.4rem;
-    margin-left: -0.4rem;
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    border-radius: var(--radius-1);
-  }
-  .statusbtn:hover {
-    background: var(--panel-2);
-    color: var(--ink);
-    filter: none;
-  }
-  .statusbar .flex {
-    flex: 1;
+    gap: 0.5rem 1.4rem;
+    padding: 0.55rem 1.2rem;
   }
   .brand {
+    font-family: var(--font-mono);
     font-weight: 700;
-    font-size: 1rem;
+    font-size: 0.95rem;
+    letter-spacing: -0.02em;
+    color: var(--ink);
   }
-  .accent {
-    color: var(--accent);
+  .brand .dim {
+    color: var(--muted);
+    font-weight: 500;
   }
   nav {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem 1.1rem;
+    align-items: center;
+    gap: 0.4rem 1.05rem;
     flex: 1;
+  }
+  /* Separates the daily work from the reference pages without hiding the
+     reference pages behind a menu */
+  .navrule {
+    width: 1px;
+    align-self: stretch;
+    margin: 0.1rem 0;
+    background: var(--line);
   }
   nav a {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
     color: var(--muted);
+    font-size: var(--t-sm);
     font-weight: 600;
-    padding: 0.2rem 0;
+    padding: 0.15rem 0;
     border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  nav a.second {
+    font-weight: 500;
   }
   nav a:hover {
     color: var(--ink);
   }
   nav a.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
+    color: var(--ink);
+    border-bottom-color: var(--ink);
+  }
+  .state {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: var(--t-sm);
+  }
+  .state :global(button) {
+    padding: 0.25rem 0.45rem;
+  }
+  .state :global(button.icon) {
+    display: inline-flex;
+  }
+  /* The signal colour, earning its keep: the GPU is busy */
+  .live {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--live);
+    font-weight: 600;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-1);
+    background: color-mix(in srgb, var(--live) 12%, transparent);
+  }
+  .vram {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .vramtext {
+    font-size: var(--t-xs);
+    white-space: nowrap;
+  }
+  .meter {
+    display: block;
+    width: 54px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--panel-2);
+    overflow: hidden;
+    flex: none;
+  }
+  .meter .fill {
+    display: block;
+    height: 100%;
+    background: var(--muted);
+    transition: width 0.4s ease;
+  }
+  /* Pressure is machine state, so it takes the signal colour */
+  .meter .fill.hot {
+    background: var(--live);
+  }
+  .meter .fill.critical {
+    background: var(--bad);
   }
   .helplink {
     display: inline-flex;
     align-items: center;
     color: var(--muted);
-    padding: 0.2rem;
+    padding: 0.25rem;
+    border-radius: var(--radius-1);
   }
   .helplink:hover {
     color: var(--ink);
-  }
-  .runningnow {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    color: var(--accent);
-    font-weight: 600;
-  }
-  .vram {
-    max-width: 22ch;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .themebtn {
-    display: inline-flex;
-    padding: 0.3rem 0.45rem;
-  }
-  .meter {
-    width: 90px;
-    height: 6px;
-    border-radius: 3px;
     background: var(--panel-2);
-    overflow: hidden;
-  }
-  .meter .fill {
-    height: 100%;
-    background: var(--accent);
-    transition: width 0.4s ease;
-  }
-  .meter .fill.hot {
-    background: var(--warn);
-  }
-  .meter .fill.critical {
-    background: var(--bad);
   }
   main {
-    max-width: 1100px;
+    max-width: 1180px;
     margin: 0 auto;
-    padding: 1.2rem;
+    padding: 1.6rem 1.2rem 4rem;
   }
   main.wide {
     max-width: 1560px;
@@ -420,7 +470,7 @@
   /* Below the nav's natural width the header wraps to a second row rather
      than overflowing - a sticky header does not pin horizontally, so any
      document-level scroll would slide it off screen */
-  @media (max-width: 900px) {
+  @media (max-width: 1080px) {
     .navrow {
       gap: 0.5rem 1rem;
     }
@@ -428,27 +478,30 @@
       order: 3;
       flex-basis: 100%;
     }
+    .state {
+      margin-left: auto;
+    }
+    .vramtext {
+      display: none;
+    }
   }
   /* Icons alone below the small breakpoint: eight labelled links do not fit
      a phone, and each keeps its title for the tooltip */
   @media (max-width: 640px) {
     .navrow {
-      padding: 0.6rem 0.8rem 0.5rem;
-    }
-    .statusbar {
-      padding: 0.25rem 0.8rem;
+      padding: 0.5rem 0.8rem;
     }
     main {
-      padding: 0.8rem;
+      padding: 1rem 0.8rem 3rem;
     }
     .navlabel {
       display: none;
     }
     nav {
-      gap: 0.4rem 1.3rem;
+      gap: 0.4rem 1.25rem;
     }
-    .vram {
-      max-width: 14ch;
+    .meter {
+      display: none;
     }
   }
 </style>
