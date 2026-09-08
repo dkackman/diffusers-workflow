@@ -15,4 +15,14 @@ guide file resolves to the checkout's `docs/` first, else the packaged
 `dw/docs/` copy `scripts/build_dist.sh` makes, the same rule `default_ui_dir`
 uses for the SPA. `dw_mcp/guides.py` is a proxy of these routes.
 
+`exports.py` gathers one finished job into a standalone directory -
+`workflow.json` (the realized copy when the run wrote one), `manifest.json`,
+`job.json`, a README, and copies of the assets, earlier-run inputs and outputs
+it referenced - under `<workspace>/exports/<job id>/`. `EXPORTS_SUBDIR` lives
+in `dw/workspace.py` rather than here, since `RESERVED_WORKSPACE_NAMES` needs
+it and `dw/workspace.py` must not import from `dw.server`; this module
+re-imports it. `app.py`'s `POST /api/jobs/{id}/export` calls it and returns
+the summary plus a `zip_url`; `GET /exports/{id}.zip` builds the archive on
+request from the same directory rather than keeping a second copy.
+
 See docs/SERVER.md.

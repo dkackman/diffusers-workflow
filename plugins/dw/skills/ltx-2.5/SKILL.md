@@ -134,6 +134,9 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
    where the prompt contradicted the image; softness where the refine pass was
    skipped; a near-silent soundtrack where the caption gave the sound nothing
    to do.
+- After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
+  so the next run is by name rather than by pasting JSON; `export_job` bundles
+  the run — workflow, manifest, job row and media — for git.
 
 ## Sources
 

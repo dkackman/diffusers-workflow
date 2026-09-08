@@ -270,6 +270,14 @@ not validation.
   `text`, rooted at the prompt library. That text may not itself begin with any of these
   prefixes; the engine rejects such a prompt rather than resolving twice.
 
+After a long inline run that is worth keeping, `get_job_workflow(job_id)`
+returns the realized workflow — the definition with the arguments, seed and
+prompts of that run pinned into it — and `save_workflow` gives it a name, so
+the next run is by name rather than by pasting JSON again. `export_job(job_id)`
+bundles the whole run (workflow, manifest, job row, the media on both sides)
+into a directory on the server plus a zip URL, for a run worth committing or
+handing to someone else.
+
 A reference is resolved wherever it appears in the arguments, including inside
 a nested object or list — not only at the top level. It is always the *whole*
 value: `"variable:base_prompt"` resolves, `"variable:base_prompt, in fog"` asks
@@ -998,6 +1006,23 @@ a pipeline's own `seed` overrides its step's, which overrides the workflow's:
 Omit `seed` entirely to let the workflow draw a random one at run time. The seed a run
 actually used - drawn or named - is recorded in its `manifest.json`, so a run you liked
 can be reproduced after the fact.
+
+Beside that manifest the run also writes `workflow.json` — the *realized*
+workflow, meaning the one that actually ran. Every mutable input is pinned into
+it: the caller's `arguments` folded into the `variables` defaults, the seed the
+run used, each `prompt:` reference replaced by the stored text, and each
+`output:<identity>/latest/<file>` rewritten to the run id it resolved to.
+`asset:`, `constant:`, `previous_result:` and `builtin:` are kept as written —
+each already names something pinned by the asset library or by the manifest's
+`dw_version` — and a sub-workflow named by local path is kept with its file's
+SHA-256 recorded in the manifest. The manifest also lists which stored prompts
+were inlined, since inlining loses the name.
+
+The file is a valid workflow: `python -m dw.run workflow.json` from inside the
+run directory reproduces the run, and so does handing it to `run_workflow` as
+`inline_workflow`. Writing it is best effort, exactly like the manifest — a run
+that produced its files has succeeded either way — and `--output-layout flat`
+writes no run directory, so it writes neither file.
 
 Any of the three levels accepts a `variable:` reference, which is how a seed becomes
 settable per run without editing the file:

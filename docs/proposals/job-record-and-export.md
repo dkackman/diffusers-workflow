@@ -1,9 +1,11 @@
 # Proposal: the realized workflow as a job's record, and exporting a job
 
-Status: designed 2026-09-08 (`docs/superpowers/specs/2026-09-08-job-record-and-export-design.md`), not implemented. Supplies the "manifest carries step identity"
-stage of [resume.md](resume.md), which stays the design for resuming a run;
-this proposal is the record that resume reads, plus the two ways to get it
-off the server.
+Status: implemented 2026-09-08 (design:
+`docs/superpowers/specs/2026-09-08-job-record-and-export-design.md`, plan:
+`docs/superpowers/plans/2026-09-08-job-record-and-export.md`). Supplies the
+"manifest carries step identity" stage of [resume.md](resume.md), which stays
+the design for resuming a run; this proposal is the record that resume reads,
+plus the two ways to get it off the server.
 
 ## Problem
 

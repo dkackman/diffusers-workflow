@@ -176,6 +176,7 @@ outputs/
       Gyre-still.0-0.0.png
       Gyre-video.1-0.0.mp4
       manifest.json
+      workflow.json
 ```
 
 The folder is the workflow's identity — its path under a `workflows/` tree
@@ -184,6 +185,10 @@ The run id is a timestamp plus a short digest of what actually ran, so two
 runs of the same workflow sort by time and a rerun of an edited workflow is
 visibly different; a second run of the same spec in the same second takes a
 counter rather than sharing a directory.
+
+`workflow.json` is the realized workflow — the definition with this run's
+arguments, seed and stored prompts pinned into it, so the directory reproduces
+itself. `manifest.json` points at it and lists which prompts were inlined.
 
 `manifest.json` records the run beside what it made — status, seed, arguments,
 device, dw version, and each step's files, named relative to the directory so
@@ -228,6 +233,10 @@ workspace is a sibling directory holding the same three folders — and *not* a
 reference, and a prompt duplicated per workspace would resolve to different
 text depending on where a workflow happened to be saved. `workflows`,
 `prompts`, `assets` and `outputs` are reserved names for that reason.
+
+A fifth name is reserved beside `workflows`, `prompts`, `assets` and `outputs`:
+`exports`. `POST /api/jobs/{id}/export` gathers one finished job into
+`<root>/exports/<job id>/`, and that folder is never mistaken for a workspace.
 
 This is what lets two agents share one GPU without sharing a namespace: each
 takes a workspace, and neither can save over the other's workflows or delete
