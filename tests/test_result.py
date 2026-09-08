@@ -247,7 +247,9 @@ class TestLatentHandoff:
     def _base_result(self):
         result = Result({"content_type": "video/mp4", "save": False})
         result.add_result(
-            _LatentOutput(frames=torch.zeros(1, 128, 16, 14, 24), audio=torch.zeros(1, 8, 50, 16))
+            _LatentOutput(
+                frames=torch.zeros(1, 128, 16, 14, 24), audio=torch.zeros(1, 8, 50, 16)
+            )
         )
         return result
 

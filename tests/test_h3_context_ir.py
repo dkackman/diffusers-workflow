@@ -31,7 +31,10 @@ def test_silent_audio_fields_are_written_as_not_applicable():
     prompt = _system_prompt()
 
     assert "N/A" in prompt
-    assert "overall_soundscape" in prompt[prompt.index("N/A") - 600 : prompt.index("N/A") + 600]
+    assert (
+        "overall_soundscape"
+        in prompt[prompt.index("N/A") - 600 : prompt.index("N/A") + 600]
+    )
 
 
 def test_video_and_audio_references_are_numbered_within_their_own_category():
