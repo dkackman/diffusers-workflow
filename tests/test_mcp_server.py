@@ -45,6 +45,7 @@ EXPECTED_TOOLS = {
     "cancel_job",
     "rerun_job",
     "move_job",
+    "export_job",
     "download_model",
     "list_downloads",
     "cancel_download",
@@ -77,6 +78,7 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "cancel_job",
     "rerun_job",
     "move_job",
+    "export_job",
     "download_model",
     "cancel_download",
     "delete_model",
@@ -365,6 +367,7 @@ TOOL_WIRING = [
         "/api/jobs/j1/rerun",
     ),
     ("move_job", {"job_id": "j1", "direction": "up"}, "POST", "/api/jobs/j1/move"),
+    ("export_job", {"job_id": "j1"}, "POST", "/api/jobs/j1/export"),
     (
         "download_model",
         {"repo_id": "org/model", "acknowledged_cost": True},

@@ -17,6 +17,7 @@ from dw_mcp import (
     authoring,
     catalog,
     diagnose,
+    exports,
     guides,
     media,
     models,
@@ -659,11 +660,23 @@ def build_server(client):
         already running cannot."""
         return diagnose.move_job(client, job_id, direction)
 
+    def export_job(job_id: str, overwrite: bool = False) -> dict:
+        """Gather one finished job into a directory on the server: the
+        realized workflow, the run's manifest, the job row, a README, and
+        copies of every asset it used, every earlier run's file it read and
+        every file it made. Returns the directory, a zip URL, the file list
+        with sizes and the total, and the three JSON files inline. THE
+        DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours - report
+        it as a server path and hand the user the zip URL if they want the
+        files locally. Refuses a job that is still running; refuses an
+        existing export unless overwrite=true."""
+        return exports.export_job(client, job_id, overwrite=overwrite)
+
     tool(get_job, READ_ONLY)
     tool(get_job_workflow, READ_ONLY)
     tool(get_job_events, READ_ONLY)
     tool(wait_for_job, READ_ONLY)
-    for fn in (run_workflow, cancel_job, rerun_job, move_job):
+    for fn in (run_workflow, cancel_job, rerun_job, move_job, export_job):
         tool(fn, WRITES)
 
     # -------------------------------------------------------------- models
