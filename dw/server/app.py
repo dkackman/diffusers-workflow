@@ -833,17 +833,26 @@ def create_app(
 
     @app.get("/api/jobs/{job_id}/workflow")
     def get_job_workflow(job_id: str):
-        """The workflow definition this job ran, for the read-only graph on
-        the job page. 404 when the job named a file that is no longer
-        readable - the job itself still is."""
+        """The workflow this job ran, for the read-only graph on the job page
+        and for `get_job_workflow` over MCP.
+
+        `realized: true` means every mutable input is pinned - the copy the
+        run itself wrote. `false` means the job predates run tracking (or its
+        run directory is gone) and this is the definition as submitted. 404
+        when neither is readable - the job itself still is."""
         if manager.get(job_id) is None:
             raise HTTPException(status_code=404, detail="Unknown job")
-        definition = manager.definition(job_id)
+        realized = manager.realized(job_id)
+        definition = realized if realized is not None else manager.definition(job_id)
         if definition is None:
             raise HTTPException(
                 status_code=404, detail="No workflow definition for this job"
             )
-        return {"id": job_id, "definition": definition}
+        return {
+            "id": job_id,
+            "definition": definition,
+            "realized": realized is not None,
+        }
 
     @app.post("/api/jobs/{job_id}/rerun", status_code=201)
     def rerun_job(job_id: str):

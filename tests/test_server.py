@@ -432,6 +432,20 @@ def test_job_workflow_404s_when_the_file_is_gone(server, tmp_path):
         assert client.get(f"/api/jobs/{job['id']}").status_code == 200
 
 
+def test_job_workflow_reports_whether_it_is_realized(server):
+    """A job with no run record falls back to the submitted definition and
+    says so - the flag is what tells a client which it is looking at."""
+    with server(success_script) as client:
+        submitted = client.post(
+            "/api/jobs", json={"workflow": valid_workflow(), "arguments": {}}
+        ).json()
+        wait_for_status(client, submitted["id"], TERMINAL_STATES)
+        body = client.get(f"/api/jobs/{submitted['id']}/workflow").json()
+
+    assert body["realized"] is False
+    assert body["definition"]["id"] == "server_test"
+
+
 def test_submit_rejects_a_real_path_outside_the_workflow_dir(server, tmp_path):
     """workflow_path is confined to --workflow-dir, the same as the
     /api/workflows CRUD routes - a real, existing file elsewhere on disk
@@ -2626,6 +2640,8 @@ def _finished_job_with_events(job_id, events):
         manifest = []
         warnings = []
         error = None
+        run_id = None
+        run_dir = None
         spec = {"arguments": {}, "workflow_path": "w.json"}
 
     job = FinishedJob()
