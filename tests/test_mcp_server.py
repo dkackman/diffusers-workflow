@@ -608,6 +608,15 @@ async def test_rerun_job_advertises_its_cost():
 
 
 @pytest.mark.asyncio
+async def test_export_job_warns_the_copy_costs_disk_and_names_total_bytes():
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["export_job"].description
+    assert "copies every output and input" in description
+    assert "total_bytes" in description
+
+
+@pytest.mark.asyncio
 async def test_rerun_job_refuses_without_acknowledgement_and_sends_nothing():
     seen = []
 

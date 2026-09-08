@@ -36,6 +36,7 @@ from .variables import set_variables
 logger = logging.getLogger("dw")
 
 BUILTIN_PREFIX = "builtin:"
+VARIABLE_PREFIX = "variable:"
 
 
 def realize_workflow(
@@ -78,6 +79,18 @@ def realize_workflow(
         set_variables(arguments or {}, variables)
 
     realized["seed"] = seed
+    # A definition can point its top-level seed at a declared variable
+    # ('"seed": "variable:seed_arg"') rather than an integer, so the run's
+    # resolved seed can also be read wherever else the workflow names that
+    # variable. Pinning the top-level field alone would leave the variable's
+    # own default whatever it was written as (typically none) - and a rerun
+    # of this realized copy with no seed argument would put that null
+    # default back over the pinned integer everywhere but the top level.
+    definition_seed = definition.get("seed")
+    if isinstance(definition_seed, str) and definition_seed.startswith(VARIABLE_PREFIX):
+        seed_variable = definition_seed.removeprefix(VARIABLE_PREFIX)
+        if isinstance(variables, dict) and seed_variable in variables:
+            variables[seed_variable] = seed
     realized = _pin(realized, annotations, base_dir, prompt_dir, output_root)
     _record_sub_workflows(realized.get("steps"), annotations, base_dir, workflow_dir)
     return realized, annotations

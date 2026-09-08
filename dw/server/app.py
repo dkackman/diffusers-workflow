@@ -883,7 +883,11 @@ def create_app(
         other way to read them without fetching the zip."""
         try:
             summary = export_job(
-                manager, job_id, ws.root, _asset_roots(ws), overwrite=overwrite
+                manager,
+                job_id,
+                ws.root,
+                _asset_roots_for_job(job_id, ws),
+                overwrite=overwrite,
             )
         except FileExistsError as e:
             raise HTTPException(status_code=409, detail=str(e))
@@ -1624,6 +1628,35 @@ def create_app(
         browser lists is what a job would load."""
         roots = []
         for root in [ws.assets, *app.state.example_asset_dirs]:
+            if not root:
+                continue
+            root = os.path.abspath(root)
+            if root not in roots and os.path.isdir(root):
+                roots.append(root)
+        return roots
+
+    def _asset_roots_for_job(job_id, ws):
+        """The asset search path a job's own run used, for export: its spec's
+        `asset_dir` (or the historical row's), then the read-only example
+        libraries an --examples-dir tree brought with it - the same shape
+        `_asset_roots` builds for the selected workspace, but rooted at
+        wherever the job actually ran rather than at the workspace the
+        caller happens to be scoped to now. A job that ran in one workspace
+        while the caller exports it scoped to another must still find its
+        own 'asset:' files, not the other workspace's.
+
+        Falls back to `_asset_roots(ws)` when the job carries no asset_dir
+        of its own - an inline-workflow job, or one recorded before this
+        field existed."""
+        job = manager.get(job_id)
+        if job is None:
+            return _asset_roots(ws)
+        spec = (job.get("spec") or {}) if isinstance(job, dict) else job.spec
+        asset_dir = spec.get("asset_dir")
+        if not asset_dir:
+            return _asset_roots(ws)
+        roots = []
+        for root in [asset_dir, *app.state.example_asset_dirs]:
             if not root:
                 continue
             root = os.path.abspath(root)

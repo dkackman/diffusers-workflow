@@ -206,17 +206,16 @@ All entry points use `dw/security.py`. When adding features:
   Identity is the workflow's path under a `workflows/` tree, else its file name, else its
   `id`; the run id is `<UTC timestamp>-<8 hex of the spec>`, with a `-N` counter if taken.
   A sub-workflow inherits the parent's run directory and writes no manifest of its own.
-  The realized workflow is written into the same directory as `workflow.json`
-  (`dw/realize.py`, `write_realized_workflow`), and the manifest's `workflow`
-  block carries `realized`, `prompts` (the stored prompts inlined) and
+  `--output-layout flat` / `DW_OUTPUT_LAYOUT` / the `output_layout` setting restores the
+  old layout. The gallery groups a workflow's runs under one folder by stripping the run
+  id (`strip_run_id`). The realized workflow is written into the same directory as
+  `workflow.json` (`dw/realize.py`, `write_realized_workflow`), and the manifest's
+  `workflow` block carries `realized`, `prompts` (the stored prompts inlined) and
   `sub_workflows` (path -> SHA-256). A job records the run it was
   (`run_id`/`run_dir` on `Job` and in `jobs.sqlite`), which is how
   `JobManager.realized` finds the file. `exports` is a reserved workspace name:
   `POST /api/jobs/{id}/export` gathers one finished job into
-  `<workspace>/exports/<job id>/` and `GET /exports/<job id>.zip` streams it
-  `--output-layout flat` / `DW_OUTPUT_LAYOUT` / the `output_layout` setting restores the
-  old layout. The gallery groups a workflow's runs under one folder by stripping the run
-  id (`strip_run_id`)
+  `<workspace>/exports/<job id>/` and `GET /exports/<job id>.zip` streams it.
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it

@@ -163,6 +163,8 @@ def export_directory(workspace_root, job_id):
     then validated rather than trusted to be the hex string the manager
     generates.
     """
+    if not workspace_root:
+        raise ValueError("This server has no workspace root to export into")
     root = validate_output_path(os.path.join(workspace_root, EXPORTS_SUBDIR), None)
     return validate_path(os.path.join(root, job_id), root)
 

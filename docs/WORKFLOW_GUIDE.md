@@ -1018,11 +1018,14 @@ each already names something pinned by the asset library or by the manifest's
 SHA-256 recorded in the manifest. The manifest also lists which stored prompts
 were inlined, since inlining loses the name.
 
-The file is a valid workflow: `python -m dw.run workflow.json` from inside the
-run directory reproduces the run, and so does handing it to `run_workflow` as
-`inline_workflow`. Writing it is best effort, exactly like the manifest — a run
-that produced its files has succeeded either way — and `--output-layout flat`
-writes no run directory, so it writes neither file.
+The file is a valid workflow, and running it again is `python -m dw.run
+workflow.json` or handing its contents to `run_workflow` as `inline_workflow`
+— but either way the `asset:` and `output:` names in it resolve against the
+server's or CLI's own libraries, not against the run directory, so doing this
+from inside that directory reproduces the run only when its libraries are the
+ones the original run used too. Writing the file is best effort, exactly like
+the manifest — a run that produced its files has succeeded either way — and
+`--output-layout flat` writes no run directory, so it writes neither file.
 
 Any of the three levels accepts a `variable:` reference, which is how a seed becomes
 settable per run without editing the file:

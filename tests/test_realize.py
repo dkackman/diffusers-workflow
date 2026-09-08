@@ -68,6 +68,16 @@ class TestVariablesAndSeed:
         realized, _ = realize_workflow(definition(), {}, 991)
         assert realized["seed"] == 991
 
+    def test_a_seed_pinned_through_a_variable_reference_updates_that_variable(self):
+        source = definition()
+        source["seed"] = "variable:seed_arg"
+        source["variables"]["seed_arg"] = None
+
+        realized, _ = realize_workflow(source, {}, 991)
+
+        assert realized["seed"] == 991
+        assert realized["variables"]["seed_arg"] == 991
+
     def test_the_input_definition_is_not_mutated(self):
         original = definition()
         before = copy.deepcopy(original)

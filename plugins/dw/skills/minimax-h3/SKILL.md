@@ -150,9 +150,9 @@ inherits the portrait's composition.
    failure modes: a character that changes between shots (reference the same
    portraits in every shot), a reference portrait imposing its framing on every
    shot, a storyboard skipped, drift sharpening into noise late in a chain.
-- After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
-  so the next run is by name rather than by pasting JSON; `export_job` bundles
-  the run — workflow, manifest, job row and media — for git.
+5. After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
+   so the next run is by name rather than by pasting JSON; `export_job` bundles
+   the run — workflow, manifest, job row and media — for git.
 
 ## Sources
 

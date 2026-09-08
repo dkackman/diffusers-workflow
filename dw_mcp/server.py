@@ -664,7 +664,10 @@ def build_server(client):
         """Gather one finished job into a directory on the server: the
         realized workflow, the run's manifest, the job row, a README, and
         copies of every asset it used, every earlier run's file it read and
-        every file it made. Returns the directory, a zip URL, the file list
+        every file it made. The export copies every output and input file
+        rather than linking them, so a video job's export costs its size
+        again on the server's disk; `total_bytes` in the result reports
+        what was copied. Returns the directory, a zip URL, the file list
         with sizes and the total, and the three JSON files inline. THE
         DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours - report
         it as a server path and hand the user the zip URL if they want the

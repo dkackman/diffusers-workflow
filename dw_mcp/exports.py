@@ -12,10 +12,13 @@ from dw_mcp.client import api_path
 def export_job(client, job_id, overwrite=False):
     """Gather one finished job into a directory on the machine running
     dw.serve: workflow.json (realized), manifest.json, job.json, README,
-    assets/, inputs/, outputs/. Returns the directory, the zip URL, the
-    file list with sizes and the total, and the three JSON files inline.
-    The directory is on the server machine, not this one - use the zip
-    URL to fetch it elsewhere."""
+    assets/, inputs/, outputs/. The export copies every output and input
+    file rather than linking them, so a video job's export costs its size
+    again on the server's disk; `total_bytes` in the result reports what
+    was copied. Returns the directory, the zip URL, the file list with
+    sizes and the total, and the three JSON files inline. The directory is
+    on the server machine, not this one - use the zip URL to fetch it
+    elsewhere."""
     body = client.post_json(
         api_path("api", "jobs", job_id, "export"),
         params={"overwrite": "true" if overwrite else "false"},

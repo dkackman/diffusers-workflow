@@ -156,6 +156,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | `job_status` | queued/running/terminal transitions | `status` |
 | `log` | worker output lines | `message` |
 | `memory` | device memory after a run | `info` |
+| `run_start` | the run directory is chosen, before the first step | `run_id`, `identity`, `run_dir` |
 | `workflow_start` | the run begins | `workflow`, `total_steps`, `steps`, `seed` |
 | `step_start` / `step_end` | each step | `step`, `index`, `total_steps`; `files` at the end. A step served from the step cache adds `reused: true` to `step_end`, and its `files` are the earlier run's files rather than newly written ones |
 | `iteration_start` | each argument combination in a step | `step`, `iteration`, `total_iterations` |
@@ -253,10 +254,6 @@ The editor's forms come from these; they are just as usable from scripts:
   throttles a burst of single downloads, so the gallery's bulk download
   goes through here; an unknown or out-of-directory name 404s the whole
   request rather than yielding a partial archive
-
-  `exports/` sits beside the workspace's own folders, holding one directory per
-  exported job. It is a reserved name: no workspace can be called `exports`, and
-  the folder is never listed as one.
 - `GET /api/workspaces`, `POST /api/workspaces` (`{"name": ...}`),
   `DELETE /api/workspaces/{name}?acknowledged=true` — the workspaces on this
   server. The workspace root's own `workflows/assets/outputs` are the
@@ -265,6 +262,10 @@ The editor's forms come from these; they are just as usable from scripts:
   refuses until acknowledged, refuses the default, and refuses a workspace
   with jobs still queued. A workspace is a namespace, **not** a security
   boundary: the API token is all-or-nothing
+
+  `exports/` sits beside the workspace's own folders, holding one directory per
+  exported job. It is a reserved name: no workspace can be called `exports`, and
+  the folder is never listed as one.
 - `GET /api/assets` — the asset library: input media, each with the
   `asset:` reference a workflow carries rather than a path, since a path
   only means something on the server's own machine. Empty rather than an

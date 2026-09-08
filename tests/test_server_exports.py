@@ -12,11 +12,13 @@ from fastapi.testclient import TestClient
 from dw.runs import REALIZED_FILE_NAME, new_run_id
 from dw.server.app import create_app
 from dw.server.jobs import JobManager, TERMINAL_STATES
-from dw.workspace import Workspace
+from dw.workspace import Workspace, create_workspace
 
 from .test_server import (
     ScriptedWorkerManager,
     hanging_script,
+    server as workspace_less_server,
+    success_script,
     valid_workflow,
     wait_for_status,
 )
@@ -281,6 +283,38 @@ class TestExportDirectory:
         assert "python -m dw.run workflow.json" in readme
         assert "Git LFS" in readme
 
+    def test_the_job_s_own_asset_dir_is_used_not_the_export_s_workspace(
+        self, server, workspace_root
+    ):
+        # The job ran in workspace 'a', whose asset library holds iris.png;
+        # exporting it while scoped to workspace 'b' - which has no assets
+        # of its own - must still find iris.png through the job's own
+        # asset_dir, not report it missing because 'b' lacks it.
+        a = create_workspace(workspace_root, "a")
+        create_workspace(workspace_root, "b")
+        with open(os.path.join(a.assets, "iris.png"), "wb") as file:
+            file.write(b"an iris")
+
+        with server() as client:
+            submitted = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": valid_workflow(),
+                    "arguments": {},
+                    "workspace": "a",
+                },
+            ).json()
+            wait_for_status(client, submitted["id"], TERMINAL_STATES)
+            response = client.post(f"/api/jobs/{submitted['id']}/export?workspace=b")
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["directory"] == os.path.join(
+            workspace_root.root, "b", "exports", submitted["id"]
+        )
+        assert os.path.isfile(os.path.join(body["directory"], "assets", "iris.png"))
+        assert body["missing"] == []
+
     def test_an_unresolvable_asset_is_reported_missing(self, server, workspace_root):
         os.unlink(os.path.join(workspace_root.assets, "iris.png"))
         with server() as client:
@@ -312,6 +346,26 @@ class TestExportDirectory:
             assert again.status_code == 409
             forced = client.post(f"/api/jobs/{job_id}/export?overwrite=true")
             assert forced.status_code == 201
+
+
+class TestExportWithoutAWorkspace:
+    def test_a_server_with_no_workspace_root_answers_409_not_a_crash(
+        self, workspace_less_server
+    ):
+        # create_app(workspace=None) - the fixture in test_server.py, used
+        # by everything that predates workspaces - leaves the default
+        # workspace's 'root' None. export_directory used to hand that
+        # straight to os.path.join and blow up with a TypeError; it must
+        # answer 409 like any other export that cannot proceed.
+        with workspace_less_server(success_script) as client:
+            submitted = client.post(
+                "/api/jobs", json={"workflow": valid_workflow(), "arguments": {}}
+            ).json()
+            wait_for_status(client, submitted["id"], TERMINAL_STATES)
+            response = client.post(f"/api/jobs/{submitted['id']}/export")
+
+        assert response.status_code == 409
+        assert "workspace" in response.json()["detail"]
 
 
 class TestExportZip:
