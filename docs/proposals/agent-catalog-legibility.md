@@ -677,6 +677,19 @@ deliberately not done:
 - The model card says CUDA only; the diffusers snippet lists mps and cpu. Untested
   here on either.
 
+Engine, from the 30-second follow-up on 2026-09-08, not fixed:
+
+- The audio tasks (`resample_audio`, `slice_audio`, `mix_audio` and the rest)
+  refuse a path to a video file ("File extension not allowed: .mp4"), though a
+  video's soundtrack is exactly what scoring an existing cut needs; the
+  workaround is a one-video `concat_videos` step, which reads the file with its
+  track. `_waveform_and_rate` in `dw/tasks/audio_utils.py` should load a video
+  path's track the way it already takes an `AudioVideo` result.
+- An inline workflow's step-cache key covers the whole definition, so fixing
+  one argument on a retry regenerated six cached H3 shots (thirty minutes);
+  a saved workflow with a stable id would have served them. The authoring
+  guide should say to save a workflow before a long run.
+
 Engine, from the 2026-09-08 plugin drill, fixed on the same branch:
 
 - `download_output` over `dw.serve --mcp` writes on the GPU box, and a path from
