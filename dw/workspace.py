@@ -60,6 +60,12 @@ OUTPUTS_SUBDIR = "outputs"
 
 SUBDIRS = (WORKFLOWS_SUBDIR, PROMPTS_SUBDIR, ASSETS_SUBDIR, OUTPUTS_SUBDIR)
 
+# Where a job export lands: '<root>/exports/<job id>/'. Not a workspace
+# folder - it is beside them, holding gathered copies rather than working
+# content - but it is a name a workspace may not take, and workspace_names
+# must not mistake it for one
+EXPORTS_SUBDIR = "exports"
+
 # What makes a directory recognizable as a workspace. assets/ is deliberately
 # not a marker - a bare assets/ folder is a common thing to have lying around,
 # where these three together say "content lives here"
@@ -74,8 +80,8 @@ MARKER_SUBDIRS = (WORKFLOWS_SUBDIR, PROMPTS_SUBDIR, OUTPUTS_SUBDIR)
 DEFAULT_WORKSPACE_NAME = "default"
 
 # Names a workspace cannot take, because the root's own folders already
-# use them
-RESERVED_WORKSPACE_NAMES = SUBDIRS
+# use them - its four content folders, and the exports gathered beside them
+RESERVED_WORKSPACE_NAMES = SUBDIRS + (EXPORTS_SUBDIR,)
 
 # What a named workspace holds - prompts excluded, per above
 NAMED_SUBDIRS = (WORKFLOWS_SUBDIR, ASSETS_SUBDIR, OUTPUTS_SUBDIR)
@@ -384,9 +390,11 @@ def _holds_a_workspace(path):
 
 
 def _foreign_entries(path):
-    """What a directory holds besides a workspace's own three folders."""
+    """What a directory holds besides a workspace's own three folders and
+    the exports it may have gathered."""
+    ignored = NAMED_SUBDIRS + (EXPORTS_SUBDIR,)
     try:
-        return sorted(entry for entry in os.listdir(path) if entry not in NAMED_SUBDIRS)
+        return sorted(entry for entry in os.listdir(path) if entry not in ignored)
     except OSError:
         return []
 

@@ -53,6 +53,7 @@ from ..schema import load_schema, validate_data, format_validation_errors
 from ..prompts import PROMPT_PREFIX, RESERVED_TEXT_PREFIXES
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
+from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..runs import strip_run_id
@@ -864,6 +865,46 @@ def create_app(
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         return manager.describe(job)
+
+    @app.post("/api/jobs/{job_id}/export", status_code=201)
+    def export_job_route(
+        job_id: str,
+        overwrite: bool = False,
+        ws: Workspace = Depends(selected_workspace),
+    ):
+        """Gather one finished job into '<workspace>/exports/<job id>/': the
+        workflow it ran, the run's manifest, the job row, the media it used
+        and the media it made, plus a README. 404 for an unknown job, 409 for
+        one still running or for an export that already exists without
+        `overwrite`.
+
+        The three JSON files come back inline as well as on disk - the
+        directory is on the server, and a client on another machine has no
+        other way to read them without fetching the zip."""
+        try:
+            summary = export_job(
+                manager, job_id, ws.root, _asset_roots(ws), overwrite=overwrite
+            )
+        except FileExistsError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except ValueError as e:
+            message = str(e)
+            if message.startswith("Unknown job"):
+                raise HTTPException(status_code=404, detail=message)
+            raise HTTPException(status_code=409, detail=message)
+        body = summary.as_dict()
+        body["zip_url"] = _served_url(f"/exports/{quote(job_id)}.zip", ws)
+        for key, name in (
+            ("workflow", "workflow.json"),
+            ("manifest", "manifest.json"),
+            ("job", "job.json"),
+        ):
+            try:
+                with open(os.path.join(summary.directory, name), "r") as file:
+                    body[key] = json.load(file)
+            except (OSError, ValueError):
+                body[key] = None
+        return body
 
     class MoveRequest(BaseModel):
         direction: str = Field(description="up, down, front, or back")
@@ -2289,6 +2330,47 @@ def create_app(
         # 404 (and its headers) come from StaticFiles as they always did
         files = _static_files_for(roots[0])
         return await files.get_response(name, request.scope)
+
+    # Ungated for the same reason the two above are: a download link cannot
+    # attach an Authorization header either
+    @app.get("/exports/{job_id}.zip")
+    def export_zip(job_id: str, ws: Workspace = Depends(selected_workspace)):
+        """One job's export as a zip, built on request from the directory
+        rather than kept as a second copy. Entries are named
+        '<job id>/<relative path>', so unzipping anywhere gives the same tree
+        the server holds."""
+        try:
+            directory = export_directory(ws.root, job_id)
+        except SecurityError:
+            raise HTTPException(status_code=404, detail="No export for this job")
+        if not os.path.isdir(directory):
+            raise HTTPException(status_code=404, detail="No export for this job")
+
+        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        handle.close()
+        with zipfile.ZipFile(handle.name, "w", zipfile.ZIP_DEFLATED) as archive:
+            for current, _dirs, names in os.walk(directory):
+                for name in sorted(names):
+                    path = os.path.join(current, name)
+                    entry = os.path.relpath(path, directory).replace(os.sep, "/")
+                    archive.write(path, f"{job_id}/{entry}")
+
+        def stream():
+            with open(handle.name, "rb") as file:
+                while True:
+                    chunk = file.read(64 * 1024)
+                    if not chunk:
+                        return
+                    yield chunk
+
+        return StreamingResponse(
+            stream(),
+            media_type="application/zip",
+            headers={"content-disposition": f'attachment; filename="{job_id}.zip"'},
+            # The archive is a temp file, not a second permanent copy - it
+            # goes as soon as the response has been sent
+            background=BackgroundTask(os.unlink, handle.name),
+        )
 
     # ---------------------------------------------------------------- the UI
 
