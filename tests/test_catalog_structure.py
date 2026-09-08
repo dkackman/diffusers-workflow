@@ -6,6 +6,7 @@ template must describe itself and a model config must name the template it
 configures.
 """
 
+import glob
 import json
 import os
 import re
@@ -347,3 +348,66 @@ def test_the_remote_code_check_sees_nested_keys():
     assert [k for k, _ in _walk(definition) if k in REMOTE_CODE_KEYS] == [
         "custom_pipeline"
     ]
+
+
+def _step(definition, name):
+    return next(step for step in definition["steps"] if step["name"] == name)
+
+
+class TestLtxTwoStage:
+    """LTX-2.5's distilled two-stage flow is three moves: eight sigmas at half
+    size, a 2x latent upsample, then renoise and three more sigmas at full size.
+    The renoise scale is the first stage-two sigma, which no reference syntax can
+    name, so the template carries the literal and this test ties it to the library."""
+
+    def _definition(self):
+        path = os.path.join(REPO_ROOT, "workflows", "templates", "ltx2", "two-stage.json")
+        return json.load(open(path, encoding="utf-8"))
+
+    def test_the_renoise_scale_is_the_first_stage_two_sigma(self):
+        from diffusers.pipelines.ltx2.utils import STAGE_2_DISTILLED_SIGMA_VALUES
+
+        refine = _step(self._definition(), "refine")
+
+        assert refine["pipeline"]["arguments"]["noise_scale"] == STAGE_2_DISTILLED_SIGMA_VALUES[0]
+
+    def test_the_refine_pass_runs_the_stage_two_schedule_on_the_upsampled_latents(self):
+        refine = _step(self._definition(), "refine")
+        arguments = refine["pipeline"]["arguments"]
+
+        assert arguments["sigmas"] == "constant:diffusers.pipelines.ltx2.utils.STAGE_2_DISTILLED_SIGMA_VALUES"
+        assert arguments["latents"] == "previous_result:upscale.frames"
+        assert arguments["audio_latents"] == "previous_result:base.audio"
+
+    def test_the_base_and_refine_passes_share_one_pipeline(self):
+        definition = self._definition()
+        base = _step(definition, "base")["pipeline"]
+        refine = _step(definition, "refine")["pipeline"]
+
+        base_cache_key = {k: v for k, v in base.items() if k != "arguments"}
+        refine_cache_key = {k: v for k, v in refine.items() if k != "arguments"}
+
+        assert base_cache_key == refine_cache_key
+        assert not _step(definition, "base").get("release_pipeline", False)
+
+
+LINK_PATTERN = re.compile(r"\]\(([^)]+)\)")
+READMES = sorted(
+    os.path.relpath(path, REPO_ROOT)
+    for path in glob.glob(os.path.join(REPO_ROOT, "workflows", "templates", "**", "README.md"), recursive=True)
+)
+
+
+@pytest.mark.parametrize("path", READMES)
+def test_every_readme_link_resolves(path):
+    """A README is a reading-order map over the templates beside it. The
+    templates were renamed once and every link in the map broke; this keeps the
+    map pointing at files that exist."""
+    text = open(os.path.join(REPO_ROOT, path), encoding="utf-8").read()
+    base = os.path.dirname(os.path.join(REPO_ROOT, path))
+
+    for target in LINK_PATTERN.findall(text):
+        if target.startswith(("http://", "https://", "#")):
+            continue
+        target = target.split("#", 1)[0]
+        assert os.path.exists(os.path.join(base, target)), f"{path} links to {target}, which does not exist"

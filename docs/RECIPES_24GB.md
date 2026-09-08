@@ -136,15 +136,23 @@ Two things about the checkpoint are worth knowing before tuning anything:
   blocks tile - and the attention mask they build is quadratic in the output grid:
   70GiB at 1536x896x121, which no tile size reduces. Base resolution fits comfortably.
   And a step that returns latents returns *audio* latents too, which nothing outside a
-  pipeline call can vocode, so that path is silent. Nothing here ships it.
+  pipeline call can vocode - the two-stage template below feeds them back into one,
+  which is the only way they become sound. Nothing here ships the diffusion decoder.
 
-Spend headroom on the two-stage flow rather than on base resolution: render at 768x448,
-upsample the latents 2x, and the result is sharper than a single pass at 1536x896 and
-fits where that would not. The base step shares its `vae` into the upsampler and sets
-`release_pipeline`, which frees the 11GB transformer before the 2x decode runs.
+Spend headroom on the two-stage flow rather than on base resolution: render at 768x448
+on the eight distilled sigmas, double the video latents with the latent upsampler, then
+renoise them and run the three stage-two sigmas at 1536x896 through the same pipeline.
+That refine pass is what puts the detail back - the upsampler alone gives a soft 2x -
+and it is the flow the model card, Lightricks' pipeline notes and the diffusers docs all
+describe. The base pass keeps its pipeline loaded so the refine pass is served from the
+cache; the refine pass releases it. Since 2026-08 Lightricks route production quality
+through their DFR pipeline instead, which diffusers ships and nothing here uses yet.
+Measured on an RTX 3090 the refined clip is sharper than the 2x upsample alone at the
+same seed: fur, branches and snow texture resolve where the upsample-only frame is a
+soft blur. About eight warm minutes, three and a half of them writing the full-size clip.
 
 **Examples:** [text-to-video.json](../workflows/templates/ltx2/text-to-video.json) (t2v),
-[two-stage.json](../workflows/templates/ltx2/two-stage.json) (base -> latent upsample -> mux),
+[two-stage.json](../workflows/templates/ltx2/two-stage.json) (base -> latent upsample -> refine),
 [keyframes.json](../workflows/templates/ltx2/keyframes.json) (first and
 last frame), [extend-clip.json](../workflows/templates/ltx2/extend-clip.json) (continue a clip),
 [generative-upscale.json](../workflows/templates/ltx2/generative-upscale.json) (generative 2x upscale via IC-LoRA),

@@ -8,11 +8,14 @@ import os
 import tempfile
 import json
 import logging
+from dataclasses import dataclass
+
 import numpy
 import soundfile
 import torch
 from PIL import Image
 from unittest.mock import patch
+from dw.previous_results import get_previous_results
 from dw.result import (
     AudioVideo,
     Result,
@@ -225,6 +228,40 @@ class TestResult:
             assert os.path.exists(nested_dir)
             output_file = os.path.join(nested_dir, "test_output-0.json")
             assert os.path.exists(output_file)
+
+
+@dataclass
+class _LatentOutput:
+    """The shape LTX2PipelineOutput has when output_type is 'latent': two
+    tensors, video latents under 'frames' and audio latents under 'audio'."""
+
+    frames: torch.Tensor
+    audio: torch.Tensor
+
+
+class TestLatentHandoff:
+    """A step that returns latents hands each tensor to the next step by name,
+    which is what a two-stage flow needs: the upsampler takes the video latents
+    and the refinement pass takes the audio latents the base step made."""
+
+    def _base_result(self):
+        result = Result({"content_type": "video/mp4", "save": False})
+        result.add_result(
+            _LatentOutput(frames=torch.zeros(1, 128, 16, 14, 24), audio=torch.zeros(1, 8, 50, 16))
+        )
+        return result
+
+    def test_the_video_latents_are_reached_by_name(self):
+        values = get_previous_results({"base": self._base_result()}, "base.frames")
+
+        assert len(values) == 1
+        assert values[0].shape == (1, 128, 16, 14, 24)
+
+    def test_the_audio_latents_are_reached_by_name(self):
+        values = get_previous_results({"base": self._base_result()}, "base.audio")
+
+        assert len(values) == 1
+        assert values[0].shape == (1, 8, 50, 16)
 
 
 class TestGetArtifactList:
