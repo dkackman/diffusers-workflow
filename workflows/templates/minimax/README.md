@@ -16,6 +16,10 @@ for hand-written prompts, read them rather than reverse-engineering the examples
 Audited against those sources on 2026-09-07
 ([the audit](../../../docs/proposals/audits/2026-09-07-minimax-h3-audit.md)).
 
+An agent driving this family from Claude Code has the `minimax-h3` skill of the
+[dw plugin](../../../plugins/dw/README.md), which chooses among these templates
+and points at the guides.
+
 Read them in this order and each introduces one new idea on top of the last.
 
 ## The basics
