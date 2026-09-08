@@ -544,3 +544,41 @@ What that says about Part 1 as built, and what Part 2 has to carry:
   a single catalog call. The compact listing serves agents starting cold;
   Part 4's packaging question includes how a playbook and the catalog share
   the knowledge rather than compete for it.
+
+### Model-knowledge follow-ups, 2026-09-07
+
+What the two vendor audits found that the catalog does not carry, dated by the
+source, and deliberately not done in the repair pass. Each is a template or a
+guide sentence when it lands, never engine code.
+
+LTX-2.5 ([audit](audits/2026-09-07-ltx-2.5-audit.md)):
+
+- DFR pipeline as the production-quality path (LTX-2 1.2.0, 2026-08-11; refined
+  1.3.0, 2026-08-25): `LTX2DFRPipeline` ships in diffusers, unused; needs
+  64-divisible dimensions.
+- Temporal upscaling to 48/96 fps (2026-08-11), and the RoPE fps trap: condition
+  at 60 for high frame rates, never 120.
+- Generated keyframe slots for fast motion (2026-08-11).
+- Image conditioning is re-compressed at CRF 18 and needs a PIL image; undocumented.
+- Keyframe strength below 1.0 for smooth interpolation (`ANCHOR_KEYFRAME_STRENGTH`).
+- IC-LoRA trade-off (fewer steps, closer to reference) and the clean-reference rule.
+- fp8 / NVFP4 / CUDA-graph capture / `AUTO_TILING` (2026-08); HDR and retake pipelines;
+  native multishot prompting.
+- The dev transformer's bf16 size in RECIPES_24GB (stated ~38GB; 22B is ~44GB).
+
+MiniMax H3 ([audit](audits/2026-09-07-minimax-h3-audit.md)):
+
+- A Ref2VA turbo LoRA exists (4-step v0.1; 8-step v1.0 768p, HF 2026-09-04); every
+  Ref2VA template runs 20 unaccelerated steps.
+- Newer FL2VA LoRAs (4-step v1.1/v1.2 768p, 8-step v1.0 768p) and the scheduler-shift
+  contract they carry (12/3 at 544p, 6/3 at 768p); nothing here mentions shifts.
+- Reference-image resize policy: ModelTC recommend `match`; diffusers' fixed 2048 short
+  edge is the `diffusers` policy.
+- Four templates load the FL2VA LoRA on reference-bearing requests (`storyboard`,
+  `dialogue-short`, `music-video`, `chain-matched-and-aligned`); check against the
+  Ref2VA LoRA.
+- Cut-verb and audio-continuity vocabularies (base guide §4.2, §4.4).
+- Step-count note: 20 default, ~25 for motion (ComfyUI).
+- Ref2VA input limits (≤9 images, ≤3 videos, ≤3 audio, ≤12) and that audio can never
+  be the only reference; H3-Regenerate-2K is API-only.
+- Music3 `audio_duration` cap: 9000 frames, six minutes.
