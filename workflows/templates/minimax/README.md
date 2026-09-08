@@ -4,8 +4,17 @@ Joint video-and-audio generation with [MiniMax-H3](https://huggingface.co/MiniMa
 and music generation with [MiniMax-Music3](https://huggingface.co/MiniMaxAI/MiniMax-Music3),
 fitted onto a single 24GB consumer GPU. Every example here runs on an RTX 3090;
 the memory configuration they share is explained in
-[docs/RECIPES_24GB.md](../../docs/RECIPES_24GB.md), and the H3 prompt format each
-one writes is what the [built-in enhancer](MiniMaxH3EnhancePrompt.json) produces.
+[docs/RECIPES_24GB.md](../../../docs/RECIPES_24GB.md).
+
+The prompt format is MiniMax's own. Two guides on the model card define it -
+`docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md` for text- and frame-conditioned
+generation and `docs/VIDEO_PROMPT_WRITING_GUIDE_ref_en.md` for reference-conditioned -
+and MiniMax publishes them as an agent skill, `skills/h3-prompt-writing`, in the
+[MiniMax-H3 GitHub repository](https://github.com/MiniMax-AI/MiniMax-H3). The
+[built-in enhancer](enhance-prompt.json) writes the same format from those guides;
+for hand-written prompts, read them rather than reverse-engineering the examples.
+Audited against those sources on 2026-09-07
+([the audit](../../../docs/proposals/audits/2026-09-07-minimax-h3-audit.md)).
 
 Read them in this order and each introduces one new idea on top of the last.
 
@@ -13,14 +22,14 @@ Read them in this order and each introduces one new idea on top of the last.
 
 | Example | What it introduces |
 | ------- | ------------------ |
-| [MiniMaxMusic.json](MiniMaxMusic.json) | The minimal modular pipeline: a `components_manager` owns device placement, and the output is audio, not video |
-| [MiniMaxH3.json](MiniMaxH3.json) | The baseline text-to-video-audio run: per-component SDNQ quantization, mixed offload, the turbo LoRA, and muxing video + audio into one file |
+| [music.json](music.json) | The minimal modular pipeline: a `components_manager` owns device placement, and the output is audio, not video |
+| [video-with-audio.json](video-with-audio.json) | The baseline text-to-video-audio run: per-component SDNQ quantization, mixed offload, the turbo LoRA, and muxing video + audio into one file |
 
 A note on `audio_duration`: Music3 reads it as a ceiling rather than a target.
 The piece ends where the music ends, so a value set to the length the song
 *should* be will guillotine the outro mid-decay. Ask for more time than the
 song needs and trim the tail afterwards -
-[tasks/TrimFadeAudio.json](../tasks/TrimFadeAudio.json) slices a generated track
+[templates/audio-trim-fade.json](../audio-trim-fade.json) slices a generated track
 to length and fades the cut into an ending.
 
 A note on length: H3 accepts any `num_frames` of the form `17n + 5` between 124
@@ -33,29 +42,36 @@ should span the full duration, since a prompt scripted for five seconds
 conditions a five-second story regardless of the frame count. Reach for chains
 and cuts when you need to go past 14 seconds.
 
+A note on the canvas: H3 draws on a 768-pixel short edge (960x544 in these
+examples is the speed choice, coupled to the 544p turbo LoRA and its nine steps -
+change one and change the others), dimensions are multiples of 32, and aspect ratios
+run from 1:4 to 4:1. The 5-second floor is diffusers' constraint; the model card and
+the hosted API accept 4. Output audio is 32 kHz stereo.
+
 ## Conditioning on frames
 
 | Example | What it introduces |
 | ------- | ------------------ |
-| [MiniMaxH3I2V.json](MiniMaxH3I2V.json) | A supplied image pins the first frame (the `fl2va` workflow given only an `image`) |
-| [MiniMaxH3FL2VA.json](MiniMaxH3FL2VA.json) | Pinning both ends - `image` and `last_image` - so the model interpolates between two fixed states |
-| [MiniMaxH3L2V.json](MiniMaxH3L2V.json) | Pinning the end alone - the model invents the approach to a picture you already have |
+| [image-to-video.json](image-to-video.json) | A supplied image pins the first frame (the `fl2va` workflow given only an `image`) |
+| [first-and-last-frame.json](first-and-last-frame.json) | Pinning both ends - `image` and `last_image` - so the model interpolates between two fixed states |
+| [last-frame-only.json](last-frame-only.json) | Pinning the end alone - the model invents the approach to a picture you already have |
 
 ## Writing the prompt with a model
 
 | Example | What it introduces |
 | ------- | ------------------ |
-| [MiniMaxH3EnhancePrompt.json](MiniMaxH3EnhancePrompt.json) | A `workflow` step runs the built-in enhancer, and the pipeline draws its prompt from `previous_result` |
-| [MiniMaxH3I2VEnhancePrompt.json](MiniMaxH3I2VEnhancePrompt.json) | Showing the enhancer the same picture the pipeline gets, so prompt and keyframe agree |
+| [enhance-prompt.json](enhance-prompt.json) | A `workflow` step runs the built-in enhancer, and the pipeline draws its prompt from `previous_result` |
+| [enhance-prompt-with-image.json](enhance-prompt-with-image.json) | Showing the enhancer the same picture the pipeline gets, so prompt and keyframe agree |
 
 ## Conditioning on identity
 
 | Example | What it introduces |
 | ------- | ------------------ |
-| [MiniMaxH3Ref2VA.json](MiniMaxH3Ref2VA.json) | The `references` list: an image fixes a subject's appearance, an audio clip fixes their voice |
-| [MiniMaxH3Ref2VAVideo.json](MiniMaxH3Ref2VAVideo.json) | A video reference contributes framing, lighting and camera rather than appearance |
-| [MiniMaxH3Ref2VAGeneratedSubject.json](MiniMaxH3Ref2VAGeneratedSubject.json) | Drawing the subject with Z-Image first and referencing it with `from_previous_result` |
-| [MiniMaxH3Storyboard.json](MiniMaxH3Storyboard.json) | Several images in one request: a first frame plus storyboard anchors for later shots, so one generation cuts between three boards under an unbroken score |
+| [reference-to-video.json](reference-to-video.json) | The `references` list: an image fixes a subject's appearance, an audio clip fixes their voice |
+| [voice-timbre-reference.json](voice-timbre-reference.json) | A `generate_speech` step speaks a throwaway line with a chosen Bark preset, and that clip goes in as H3's `<Audio 1>` to fix timbre, pitch and delivery while H3 still generates the dialogue; reuse the same preset across shots for a consistent voice |
+| [composable-references.json](composable-references.json) | A video reference contributes framing, lighting and camera rather than appearance |
+| [generated-subject-reference.json](generated-subject-reference.json) | Drawing the subject with Z-Image first and referencing it with `from_previous_result` |
+| [storyboard.json](storyboard.json) | Several images in one request: a first frame plus storyboard anchors for later shots, so one generation cuts between three boards under an unbroken score |
 
 ## Going long: chains
 
@@ -70,10 +86,10 @@ segments means half the compounding.
 
 | Example | What it introduces |
 | ------- | ------------------ |
-| [MiniMaxH3I2VChained.json](MiniMaxH3I2VChained.json) | The simplest chain: fixed segment count, `last_frame` continuity, trimmed seams, crossfaded audio |
-| [MiniMaxH3Ref2VAChained.json](MiniMaxH3Ref2VAChained.json) | `match_audio`: a supplied track decides the length, and the final video is muxed against the original, seamless track |
-| [MiniMaxH3Ref2VAChainedVideo.json](MiniMaxH3Ref2VAChainedVideo.json) | `last_segment` continuity: the previous segment's tail rides along as a video reference, carrying motion and voice across the seam |
-| [MiniMaxH3Ref2VAChainedAligned.json](MiniMaxH3Ref2VAChainedAligned.json) | Everything together for a long soundtrack-driven take, with per-segment prompts and crash-safe `save_segments` |
+| [chained-segments.json](chained-segments.json) | The simplest chain: fixed segment count, `last_frame` continuity, trimmed seams, crossfaded audio |
+| [chain-matched-to-audio.json](chain-matched-to-audio.json) | `match_audio`: a supplied track decides the length, and the final video is muxed against the original, seamless track |
+| [chain-video-continuity.json](chain-video-continuity.json) | `last_segment` continuity: the previous segment's tail rides along as a video reference, carrying motion and voice across the seam |
+| [chain-matched-and-aligned.json](chain-matched-and-aligned.json) | Everything together for a long soundtrack-driven take, with per-segment prompts and crash-safe `save_segments` |
 
 ## Going long: cuts (digital shorts)
 
@@ -85,5 +101,5 @@ write shots, not takes.
 
 | Example | What it introduces |
 | ------- | ------------------ |
-| [MiniMaxH3SitcomShort.json](MiniMaxH3SitcomShort.json) | A five-shot sitcom scene: Z-Image draws the cast, `pipeline_reference` reruns one loaded model per shot, `concat_videos` splices the episode |
-| [MiniMaxH3MusicVideo.json](MiniMaxH3MusicVideo.json) | A music video cut to a generated song: `slice_audio` deals frame-exact pieces to lip-synced shots, and `pair_audio` lays the unbroken track over the finished edit |
+| [dialogue-short.json](dialogue-short.json) | A five-shot sitcom scene: Z-Image draws the cast, `pipeline_reference` reruns one loaded model per shot, `concat_videos` splices the episode |
+| [music-video.json](music-video.json) | A music video cut to a generated song: `slice_audio` deals frame-exact pieces to lip-synced shots, and `pair_audio` lays the unbroken track over the finished edit |

@@ -6,6 +6,7 @@ template must describe itself and a model config must name the template it
 configures.
 """
 
+import glob
 import json
 import os
 import re
@@ -388,3 +389,25 @@ class TestLtxTwoStage:
 
         assert base_cache_key == refine_cache_key
         assert not _step(definition, "base").get("release_pipeline", False)
+
+
+LINK_PATTERN = re.compile(r"\]\(([^)]+)\)")
+READMES = sorted(
+    os.path.relpath(path, REPO_ROOT)
+    for path in glob.glob(os.path.join(REPO_ROOT, "workflows", "templates", "**", "README.md"), recursive=True)
+)
+
+
+@pytest.mark.parametrize("path", READMES)
+def test_every_readme_link_resolves(path):
+    """A README is a reading-order map over the templates beside it. The
+    templates were renamed once and every link in the map broke; this keeps the
+    map pointing at files that exist."""
+    text = open(os.path.join(REPO_ROOT, path), encoding="utf-8").read()
+    base = os.path.dirname(os.path.join(REPO_ROOT, path))
+
+    for target in LINK_PATTERN.findall(text):
+        if target.startswith(("http://", "https://", "#")):
+            continue
+        target = target.split("#", 1)[0]
+        assert os.path.exists(os.path.join(base, target)), f"{path} links to {target}, which does not exist"
