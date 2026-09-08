@@ -50,11 +50,12 @@ read the `workflows` guide's authoring section first.
 
 ## Hard rules
 
-- `num_frames` is `8k + 1` (121, 241, 481); `width` and `height` are multiples
-  of 32. The templates generate at 24 fps. The 60 ceiling is a separate rule,
-  on the frame rate a conditioning video or a higher-fps request is expressed
-  at: at most 60, never 120 - RoPE time is `frame / fps`, and the model is
-  trained around 24, 25, 30 and 60.
+- `num_frames` is `8k + 1` (121, 241, 481); `width` and `height` are in multiples of 32.
+  The templates generate at 24 fps. RoPE time is `frame / fps` and the model is
+  trained around 24, 25, 30 and 60, so for a higher-fps request generate at 24
+  (or condition at 60 at most - `MAX_CONDITIONING_FPS`, never 120) and let
+  playback carry the rate. The temporal-upscaling path that renders 48 and 96
+  fps belongs to the DFR pipelines, which no template here uses yet.
 - The distilled transformer runs its eight trained sigmas (`DISTILLED_SIGMA_VALUES`)
   with `guidance_scale` 1.0 and STG and modality guidance off. No
   `num_inference_steps`. Those knobs mean something only against the dev
@@ -124,10 +125,15 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
    before `run_workflow` with `acknowledged_cost=true`.
 3. `wait_for_job`, then `get_job` for the manifest. Writing a 121-frame
    1536x896 clip takes minutes after the last step ends; the job is not stuck.
-4. Look: `get_output_image` on a frame, the gallery `url` for the clip.
-   Failure modes: a scene cut where the prompt contradicted the image;
-   softness when the refine pass was skipped; a near-silent soundtrack when
-   the caption gave the sound nothing to do.
+4. You cannot watch a video: no tool returns a frame from one, and this family
+   has no image steps for `get_output_image` to read. Hand the user the gallery
+   `url` (`list_gallery`, or the manifest's file name) and ask them to look, and
+   check what you can yourself - `get_job` for the manifest and its warnings,
+   `get_gallery_metadata` for duration, size and whether an audio stream is
+   present. Ask the user to look for the family's failure modes: a scene cut
+   where the prompt contradicted the image; softness where the refine pass was
+   skipped; a near-silent soundtrack where the caption gave the sound nothing
+   to do.
 
 ## Sources
 

@@ -38,7 +38,7 @@ not from here.
 - **Several boards in one generation, one unbroken score**:
   `templates/minimax/storyboard` - H3 cuts between the boards inside a single
   generation, which no concat of separate clips can match for continuous audio.
-- **Longer than 14 seconds as one take**: a chain. `templates/minimax/chained-segments`
+- **Longer than 14.4 seconds as one take**: a chain. `templates/minimax/chained-segments`
   (last-frame continuity), `templates/minimax/chain-video-continuity` (the
   previous segment's tail rides along as a video reference - motion, camera and
   voice carry across the seam), `templates/minimax/chain-matched-to-audio` (a
@@ -62,10 +62,14 @@ read the `workflows` guide's authoring section first.
   seconds in one clip. Most templates default to 124 for fast iteration (storyboard uses 192); `num_frames=345`
   is the full length and fits the same 24 GB configuration. The 5-second floor
   is diffusers'; the model card says 4.
-- Canvas: a 768-pixel short edge, at most 768x1344 pixels, dimensions multiples
-  of 32, aspect from 1:4 to 4:1. The templates' 960x544 is the speed choice and
-  is coupled to the 544p turbo LoRA and its nine steps - change one, change all
-  three. Output audio is 32 kHz stereo.
+- Canvas: a 768-pixel short edge, at most 768x1344 pixels, dimensions in multiples of 32,
+  aspect from 1:4 to 4:1. Output audio is 32 kHz stereo.
+- The text- and frame-conditioned templates render at 960x544 with the 544p
+  turbo LoRA in nine steps, and those three go together - change one, change
+  all three. The six reference-conditioned templates carry no LoRA and run 20
+  steps, because the turbo LoRA is distilled against the base transformer and
+  they load the reference one; a reference-conditioned run is about twice the
+  time of a turbo one at the same length.
 - H3 is guidance-distilled: no `guidance_scale`, no negative prompt. Say what is
   there, never what is not.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
@@ -94,8 +98,9 @@ paraphrase it from examples:
 
 Whichever route: repeat a speaker's voice description verbatim across shots,
 and when a reference picture should fix identity but not framing, say so in
-the prompt's reference analysis, or every shot inherits the portrait's
-composition.
+the prompt itself - in a reference-conditioned request, in the lines that
+define the subject and state what each reference keeps - or every shot
+inherits the portrait's composition.
 
 ## Run and judge
 
@@ -103,17 +108,25 @@ composition.
    does not accept.
 2. Quote the listing's `cost` (warm minutes on the card it was measured on;
    a first load is longer). When the listing declares none, say so and give the
-   shape of the spend instead: a 124-frame clip is a few minutes on a 24 GB
-   card, the full 345 frames about three times that, and a chain multiplies by
-   its segment count. Get the user's go-ahead before `run_workflow` with
+   shape of the spend instead: a 124-frame turbo clip is a few minutes on a
+   24 GB card, the full 345 frames about three times that, a
+   reference-conditioned clip about twice a turbo one, and a chain multiplies
+   by its segment count. Get the user's go-ahead before `run_workflow` with
    `acknowledged_cost=true`.
 3. `wait_for_job`, then `get_job` for the manifest. A cancelled H3 job runs
    on to its next step boundary, minutes on this model.
-4. Look: `get_output_image` on a frame, the gallery `url` for the clip.
-   Check for the family's failure modes: a character that changes between
-   shots (reference the same portraits in every shot), a reference portrait
-   imposing its framing on every shot, a storyboard skipped, drift sharpening
-   into noise late in a chain.
+4. You cannot watch a video: no tool returns a frame from one. Hand the user
+   the gallery `url` (`list_gallery`, or the manifest's file name) and ask them
+   to look, and check what you can yourself - `get_job` for the manifest and
+   its warnings, `get_gallery_metadata` for duration, size and whether an audio
+   stream is present. `get_output_image` works only on image steps, which in
+   this family are the Z-Image portraits and boards of
+   `templates/minimax/dialogue-short`, `templates/minimax/storyboard`,
+   `templates/minimax/generated-subject-reference` and
+   `templates/minimax/music-video`. Ask the user to look for the family's
+   failure modes: a character that changes between shots (reference the same
+   portraits in every shot), a reference portrait imposing its framing on every
+   shot, a storyboard skipped, drift sharpening into noise late in a chain.
 
 ## Sources
 
