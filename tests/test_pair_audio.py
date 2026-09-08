@@ -22,6 +22,18 @@ def _waveform(samples=100, channels=2):
     return numpy.zeros((channels, samples), dtype=numpy.float32)
 
 
+def test_pairs_frames_with_a_soundtrack_read_from_a_file(tmp_path):
+    import soundfile
+
+    path = tmp_path / "score.wav"
+    soundfile.write(path, numpy.zeros((100, 2), dtype=numpy.float32), 16000)
+
+    paired = pair_audio(["frame1"], str(path))
+
+    assert paired.audio.shape == (2, 100)
+    assert paired.sample_rate == 16000
+
+
 def test_pairs_frames_with_a_bare_waveform():
     paired = pair_audio(["frame1", "frame2"], _waveform(), sample_rate=24000)
 

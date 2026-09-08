@@ -694,15 +694,19 @@ deliberately not done:
 - The model card says CUDA only; the diffusers snippet lists mps and cpu. Untested
   here on either.
 
-Engine, from the 30-second follow-up on 2026-09-08, not fixed:
+Engine, from the 30-second follow-up on 2026-09-08:
 
-- The audio tasks (`resample_audio`, `slice_audio`, `mix_audio` and the rest)
-  refuse a path to a video file ("File extension not allowed: .mp4"), though a
-  video's soundtrack is exactly what scoring an existing cut needs; the
-  workaround is a one-video `concat_videos` step, which reads the file with its
-  track. `_waveform_and_rate` in `dw/tasks/audio_utils.py` should load a video
-  path's track the way it already takes an `AudioVideo` result.
-- An inline workflow's step-cache key covers the whole definition, so fixing
+- Fixed on the branch: the audio tasks (`resample_audio`, `slice_audio`,
+  `mix_audio` and the rest) refused a path to a video file ("File extension
+  not allowed: .mp4"), though a video's soundtrack is exactly what scoring an
+  existing cut needs, and `pair_audio` could not take a path for its track at
+  all. `load_audio` now takes a video file's soundtrack (a silent one is an
+  error), so every audio task accepts the cut an earlier run wrote, and
+  `pair_audio` reads a path. A survey of the rest found the frame-consuming
+  tasks already fine, since the engine loads any argument named `video` from a
+  path, and `concat_videos`, `dissolve_videos` and `stabilize_video` load
+  paths with their audio themselves.
+- Not fixed: an inline workflow's step-cache key covers the whole definition, so fixing
   one argument on a retry regenerated six cached H3 shots (thirty minutes);
   a saved workflow with a stable id would have served them. The authoring
   guide should say to save a workflow before a long run.

@@ -389,7 +389,7 @@ returns frames without it, and this puts it back:
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `video` | Yes | The frames - a frame list, a frame array or tensor, or an audio+video pair whose own soundtrack is replaced |
-| `audio` | Yes | The soundtrack - a waveform, or the earlier step whose video carried one, which brings its sample rate along |
+| `audio` | Yes | The soundtrack - a waveform, the earlier step whose video carried one, or the path or URL of an audio or video file; the last two bring their sample rate along |
 | `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
 
 **Example:** [assemble-and-score.json](../workflows/templates/assemble-and-score.json)
@@ -419,7 +419,7 @@ a length still passes the whole track along:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `audio` | Yes | Path or URL of an audio file, a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
 | `start_seconds` / `duration_seconds` | One pair | The slice in seconds; either may be omitted |
 | `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames; `fps` is required, start and count may be omitted |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
@@ -465,7 +465,7 @@ ending. The curve is the equal-power cosine the seam joins use:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `audio` | Yes | Path or URL of an audio file, a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
 | `fade_in_ms` | No | Length of the fade in, from the head of the track (default: 0) |
 | `fade_out_ms` | No | Length of the fade out, to the tail of the track (default: 0) |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
@@ -494,7 +494,7 @@ changes, so the dynamics survive:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `audio` | Yes | Path or URL of an audio file, a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
 | `peak_dbfs` | No | The level the loudest sample is moved to, in dB below full scale (default: -1.0). 0 is full scale |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
@@ -524,7 +524,7 @@ at every cut:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `audios` | Yes | The tracks to layer - waveforms, audio file paths, or videos generated with a soundtrack |
+| `audios` | Yes | The tracks to layer - waveforms, audio or video file paths, or videos generated with a soundtrack |
 | `gains` | No | One plain multiplier per track, in the same order - not decibels. Defaults to unity on every track |
 | `sample_rate` | With a raw waveform | Sample rate of the waveforms. Required unless every track brings its own; given here it wins |
 
@@ -556,7 +556,7 @@ supplied recording once, up front, feeds it what it already wants:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `audio` | Yes | Path or URL of an audio file, a video generated with a soundtrack (which brings its sample rate along), or a waveform |
+| `audio` | Yes | Path or URL of an audio or video file, a video generated with a soundtrack (which brings its sample rate along), or a waveform |
 | `target_sample_rate` | Yes | The rate to convert to |
 | `sample_rate` | With a waveform | Sample rate of a waveform passed directly; given for a file or a video it overrides the rate they carry |
 

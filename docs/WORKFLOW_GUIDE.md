@@ -1172,7 +1172,9 @@ directory being copied. `latest` only selects a run where run directories are; a
 workflow or file that happens to be called `latest` is still named as itself.
 
 Like `asset:`, a reference resolves to a path and then whatever loads paths loads it, so
-it works under `image`, `video`, a `from_file`, or a list of them. It resolves against
+it works under `image`, `video`, a `from_file`, or a list of them. The audio tasks take
+a video file's path too and use the soundtrack muxed into it, which is how a finished
+cut is scored in a later run without re-cutting it. It resolves against
 the output directory the run was told to write to, and cannot leave it: `..`, an
 absolute path, and a symlink pointing out are all refused.
 
