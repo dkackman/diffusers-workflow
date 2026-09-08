@@ -9,7 +9,9 @@ scripts/release.sh 0.38.0-alpha.1 "UI front end"   # optional tag message
 
 The script bumps `pyproject.toml` (the single source of the version —
 `dw.__version__` reads it at runtime), commits just that file, pushes
-master, tags the bump commit `v0.38.0`, and pushes the tag. It refuses
+master, tags the bump commit `v0.38.0`, and pushes the tag. The same commit
+sets `plugins/dw/.claude-plugin/plugin.json`'s version, so an installed
+plugin names the engine it was written against. It refuses
 a malformed version, a branch other than master, an existing tag, or a
 dirty index (unstaged changes elsewhere are fine — the release commit
 is path-limited to pyproject.toml).

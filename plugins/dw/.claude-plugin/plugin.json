@@ -1,0 +1,16 @@
+{
+    "name": "dw",
+    "description": "Compose MiniMax H3 and LTX-2.5 video workflows over a dw MCP server: which template fits which shape, the hard rules, cost, and how to judge the output. Prompt format comes from the vendors' own guides.",
+    "version": "0.4.0-beta.1",
+    "author": {
+        "name": "Don Kackman"
+    },
+    "repository": "https://github.com/dkackman/diffusers-workflow",
+    "keywords": [
+        "diffusers",
+        "video",
+        "minimax-h3",
+        "ltx-2.5",
+        "mcp"
+    ]
+}
