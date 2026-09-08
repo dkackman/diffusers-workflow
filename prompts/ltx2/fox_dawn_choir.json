@@ -1,7 +1,7 @@
 {
-  "text": "A cinematic shot of a fox walking through a snowy forest at dawn, the camera tracking alongside, snow crunching underfoot. a choir singing 'l t x' in the background, cinematic lighting, 8k, ultra-detailed, photorealistic in the distance",
+  "text": "A red fox is trotting through deep snow between birch trunks at dawn, a wide shot from a side view as the camera tracks alongside at shoulder height and matches its pace. Its rust-orange coat is dark along the spine and pale at the throat, its black-stockinged legs are sinking to the ankle at every step, and its breath is clouding in short bursts. Snow is compressing under each pad with a dry crunch, close and steady, while a choir is holding one sustained syllable, 'l t x', low under the ambience. Initially the light between the trunks is flat and blue; a moment later the sun is edging over the ridge behind the trees, long orange bars are falling across the snow in warm cinematic light, and the fox's shadow is stretching away to the left of frame. Simultaneously more voices are joining on 'l t x' and the chord is widening, while loose snow is sifting from a laden branch overhead with a soft hiss. The camera is slowing into a medium shot from a low angle as the fox is stopping, ears swivelling toward the sound, one forepaw lifted, and the voices are thinning back to a single line.",
   "description": "Fox tracking shot through snowy forest with a choir singing 'l t x'",
-  "intended_model": "ltx-2",
+  "intended_model": "ltx-2.5",
   "tags": [
     "t2v",
     "audio",

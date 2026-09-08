@@ -1,7 +1,7 @@
 {
-  "text": "The marmot stands looking directly at the camera, singing 'i for one welcome our robot overloards', while wearing a top hat and monocle. The background is a whimsical forest with glowing mushrooms and twinkling fireflies. The scene is illuminated by soft, warm light filtering through the trees, creating a magical atmosphere. The animal's eyes are expressive and convey a sense of intelligence and curiosity. The image is highly detailed, with realistic textures and vibrant colors, capturing the essence of a fantastical woodland setting.",
+  "text": "The marmot is holding its position facing the lens and beginning to sing, 'i for one welcome our robot overloards', its jaw opening and closing on each syllable and its whiskers moving with it, a medium close-up from a front-facing angle as the camera pushes in very slowly. Its top hat is tipping a few degrees as it lifts its chin, the monocle cord is swinging against its chest fur, and the brass rim is catching a moving highlight. Initially the voice is thin and reedy and on pitch, carried over a soft low hum of insects; a moment later a small three-note melody is entering underneath it on strings, quiet at first and then rising. Simultaneously the fireflies behind it are drifting through frame in slow arcs with their light pulsing on and off, and the glow of the mushrooms is brightening and dimming with them, throwing green flecks along the animal's flank and across the warm shafts of light between the trunks. The camera is settling as the last word is sung, the marmot is dropping its forepaws to the ground and blinking once, and the strings are falling away to leave the insects and a single distant birdcall.",
   "description": "Marmot in top hat and monocle sings to camera in a glowing woodland (I2V)",
-  "intended_model": "ltx-2",
+  "intended_model": "ltx-2.5",
   "tags": [
     "i2v",
     "marmot",

@@ -1,7 +1,7 @@
 {
-  "text": "A hummingbird hovers at a red trumpet flower in a sunlit garden, wings blurred, tongue flicking into the bloom. Insects drone in the background and leaves rustle in a light breeze.",
+  "text": "A hummingbird is working along a row of red trumpet flowers in a sunlit garden, a medium shot from a side view as the camera drifts slowly right to stay level with it. Its back is metallic green, its throat is flashing copper whenever it turns, and its wings are a grey blur on either side of the body. Initially the bird is holding position at the first bloom, bill sunk to the base of the flower's throat, while the wingbeats are producing a fine continuous hum and unseen insects are droning under it. A moment later it is backing out, the flower is springing upright and shedding a bead of dew, and the camera is pushing in to a close-up from the same side angle, the petals filling the left of frame in flat orange-red and the background compressing to soft green. Simultaneously the bird is darting a hand's width to the next bloom, the hum is climbing in pitch as it brakes and settling as it hovers again, and a light breeze is moving the leaves behind it with a dry rustle while low sunlight is picking out the fine barbs of its tail feathers in crisp detail.",
   "description": "Hummingbird at a trumpet flower, wings blurred, garden ambience",
-  "intended_model": "ltx-2",
+  "intended_model": "ltx-2.5",
   "tags": [
     "t2v",
     "nature"

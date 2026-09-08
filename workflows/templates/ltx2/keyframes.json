@@ -1,7 +1,7 @@
 {
     "id": "LTX2Keyframes",
     "description": "Pinning the first and last frames and letting the model fill in the motion between them. The keyframes are conditions - objects built from the arguments the workflow names, each with the latent index it lands on.",
-    "summary": "LTX-2 video with audio between two supplied stills, pinned as the first and last frames.",
+    "summary": "LTX-2.5 video with audio between two supplied stills, pinned as the first and last frames.",
     "traits": ["has-audio", "image-conditioned", "needs-input-media"],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
