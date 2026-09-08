@@ -606,6 +606,23 @@ template's default `prompt` is itself a full Context-IR example, and both
 patterned on it. On a template that carries an example, the vendor format
 reaches a cold agent through the catalog with or without the plugin.
 
+**The 30-second follow-up, same session.** Asked for a 30-second continuation,
+the plugin session did not stretch one generation past 14.4 seconds: it planned
+six 124-frame shots from one keeper portrait, concatenated with hard cuts, and
+quoted 30-45 minutes before running. It had to be told that H3 shares context
+only inside a generation, so each shot writes its music field as N/A and one
+score goes under the concat; that sentence is now in the skill. Its score step
+then failed because it passed empty lyrics for an instrumental (Music 3 rejects
+them; a tag-only body is the form), and its retry, an inline workflow with one
+argument changed, regenerated all six cached shots. The cut was scored from the
+failed run's files by a saved seven-step workflow (`score-lighthouse` on lem):
+a cello instrumental at a 50-second ceiling, a one-video `concat_videos` to
+read the edit with its soundtrack, slice, mix, normalize, pair. Its own first
+attempt hit the audio tasks refusing a video path. Second run 7 seconds with
+the score served from the cache; the film is
+`outputs/score-lighthouse/20260908-061449-*/ScoreLighthouseCut-film.6-0.0.mp4`.
+Both engine findings are in the follow-ups below.
+
 **Verdict: pass, with the skill's contribution measured honestly.** The skill
 fired unprompted, the right template was chosen, prompts were in the vendor's
 format, the cost was stated before the run, and the output was inspected. What
