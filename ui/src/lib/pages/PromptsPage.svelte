@@ -47,9 +47,9 @@
 
 <div class="head">
   <h1>Prompts</h1>
-  <span class="muted">{promptDir}</span>
+  <span class="flex"></span>
   <input placeholder="filter…" bind:value={filter} class="filter" />
-  <a class="newlink" href="#/prompt-edit" title="new prompt"
+  <a class="newlink plain" href="#/prompt-edit" title="new prompt"
     ><Plus size={15} /></a
   >
 </div>
@@ -131,6 +131,12 @@
   <p class="muted">Nothing matches "{filter}".</p>
 {/if}
 
+{#if promptDir}
+  <p class="dir muted">
+    read from <span class="path">{promptDir}</span>
+  </p>
+{/if}
+
 <style>
   .origin {
     font-size: 0.75rem;
@@ -139,8 +145,22 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.4rem 1rem;
-    margin-bottom: 1rem;
+    gap: 0.4rem 0.8rem;
+    margin-bottom: var(--space-4);
+  }
+  .head .flex {
+    flex: 1;
+  }
+  /* An absolute path is worth knowing and not worth the slot beside the
+     title - and as one unbreakable token it was pushing the page sideways
+     on a phone */
+  .dir {
+    margin-top: 2.5rem;
+    font-size: var(--t-xs);
+  }
+  .path {
+    font-family: var(--font-mono);
+    word-break: break-all;
   }
   .filter {
     max-width: 220px;

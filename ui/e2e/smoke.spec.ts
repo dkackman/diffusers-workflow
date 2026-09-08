@@ -14,18 +14,23 @@ test('workflow browser lists, describes and filters', async ({ page }) => {
   await expect(page.getByRole('link', { name: /^z-image / })).toHaveCount(0)
 })
 
-test('workflow page shows JSON and a run form', async ({ page }) => {
+test('workflow page leads with the run form and reveals JSON on request', async ({
+  page,
+}) => {
   await page.goto('/#/workflows/models/z-image')
   await expect(
     page.getByRole('heading', { name: 'models/z-image' }),
   ).toBeVisible()
-  // JSON is shown by default via Monaco
-  await expect(page.locator('.monaco-editor').first()).toBeVisible({
-    timeout: 20_000,
-  })
   // the variables form renders with defaults as placeholders
   await expect(page.getByLabel('num_inference_steps')).toBeVisible()
   await expect(page.getByRole('button', { name: /Run/ })).toBeEnabled()
+  // the definition is collapsed by default - this page is for setting
+  // variables and running, not for reading the file
+  await expect(page.locator('.monaco-editor')).toHaveCount(0)
+  await page.getByRole('button', { name: 'show JSON' }).click()
+  await expect(page.locator('.monaco-editor').first()).toBeVisible({
+    timeout: 20_000,
+  })
 })
 
 test('editor opens a workflow with introspected arguments', async ({
@@ -307,6 +312,8 @@ test('editor flags a dangling reference without asking the server', async ({
 test('the theme toggle re-themes an open Monaco editor', async ({ page }) => {
   // Playwright's default colour scheme is light, so "system" starts light
   await page.goto('/#/workflows/models/z-image')
+  // the definition is collapsed by default, so ask for it first
+  await page.getByRole('button', { name: 'show JSON' }).click()
   const editor = page.locator('.monaco-editor').first()
   await expect(editor).toBeVisible({ timeout: 20_000 })
   await expect(editor).toHaveClass(/\bvs\b/)

@@ -133,7 +133,7 @@
       feed. A step with more than one incoming arrow multiplies its inputs
       together (CLAUDE.md's cartesian-product gotcha) - its border is
       highlighted and the multiplier is noted.{#if showsRun}
-        A finished step is outlined in green, the one running now in the accent
+        A finished step is outlined in green, the one running now in amber
         colour.{/if}{#if onselect}
         Click a step to jump to it in the form view.{/if}
     </p>
@@ -217,7 +217,7 @@
     gap: var(--space-2);
   }
   .hint code {
-    font-family: ui-monospace, 'Cascadia Code', monospace;
+    font-family: var(--font-mono);
     font-size: 0.78rem;
   }
   .scrollarea {
@@ -242,7 +242,7 @@
     font-size: 10px;
     fill: var(--muted);
     text-anchor: middle;
-    font-family: ui-monospace, 'Cascadia Code', monospace;
+    font-family: var(--font-mono);
   }
   .node.clickable {
     cursor: pointer;
@@ -269,8 +269,9 @@
     stroke: var(--good);
     stroke-width: 2;
   }
+  /* The step running right now - machine state, so the signal colour */
   .node.active .box {
-    stroke: var(--accent);
+    stroke: var(--live);
     stroke-width: 2.5;
     animation: dw-pulse 1.6s ease-in-out infinite;
   }
@@ -287,19 +288,17 @@
   .stepkind {
     font-size: 10px;
     fill: var(--accent);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    text-transform: none;
   }
   .stepdetail {
     font-size: 10px;
     fill: var(--muted);
-    font-family: ui-monospace, 'Cascadia Code', monospace;
+    font-family: var(--font-mono);
   }
   .entrytag {
     font-size: 9px;
     fill: var(--good);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    text-transform: none;
   }
   .fanlabel {
     font-size: 10px;

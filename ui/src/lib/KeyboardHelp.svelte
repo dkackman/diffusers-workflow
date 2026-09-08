@@ -61,7 +61,7 @@
     color: var(--muted);
   }
   kbd {
-    font-family: ui-monospace, 'Cascadia Code', monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     border: 1px solid var(--line);
     border-bottom-width: 2px;

@@ -113,8 +113,9 @@
   <div class="panel list">
     {#each visible as job (job.id)}
       <a
-        class="row"
+        class="row plain"
         class:historical={job.historical}
+        class:runningnow={job.status === 'running'}
         href={'#/jobs/' + job.id}
         title={job.historical
           ? 'finished before this server started - loaded from history'
@@ -184,6 +185,15 @@
     margin: 0;
     flex: 1;
   }
+  /* The job the worker is on right now, marked the way it is marked in the
+     header: the one row you came to the page to find */
+  .row.runningnow {
+    background: color-mix(in srgb, var(--live) 10%, transparent);
+    box-shadow: inset 2px 0 0 var(--live);
+  }
+  .row.runningnow:hover {
+    background: color-mix(in srgb, var(--live) 16%, transparent);
+  }
   .head select {
     max-width: 150px;
   }
@@ -218,10 +228,6 @@
       grid-template-columns: auto minmax(0, 1fr);
       gap: 0.2rem 0.7rem;
     }
-    .started,
-    .dur {
-      font-size: 0.85rem;
-    }
   }
   .row:hover {
     background: var(--panel-2);
@@ -229,7 +235,10 @@
   .row.historical {
     opacity: 0.72;
   }
+  /* A workflow name is what the engine resolved to run this job */
   .name {
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
     font-weight: 600;
     display: inline-flex;
     align-items: center;
@@ -238,8 +247,15 @@
     min-width: 0;
     overflow-wrap: anywhere;
   }
+  .started,
+  .dur {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--t-xs);
+  }
   .qpos {
-    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
     color: var(--muted);
     border: 1px solid var(--line);
     border-radius: 4px;
@@ -247,7 +263,8 @@
     font-variant-numeric: tabular-nums;
   }
   .wschip {
-    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
     border: 1px solid var(--line);
     border-radius: 4px;
     padding: 0 0.3rem;

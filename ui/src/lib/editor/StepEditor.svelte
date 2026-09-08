@@ -624,8 +624,7 @@
   }
   h3 {
     font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    text-transform: none;
     color: var(--muted);
     margin: 1rem 0 0.5rem;
   }
@@ -637,8 +636,7 @@
   summary {
     cursor: pointer;
     font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    text-transform: none;
     color: var(--muted);
     font-weight: 600;
     user-select: none;
@@ -698,7 +696,7 @@
     margin-top: 0.8rem;
   }
   .raw textarea {
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.82rem;
   }
   .error {
@@ -758,8 +756,7 @@
   }
   .digestsection {
     font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    text-transform: none;
     flex: none;
     width: 90px;
   }
@@ -773,7 +770,7 @@
     z-index: 1;
   }
   .flowchip {
-    font-family: ui-monospace, 'Cascadia Code', monospace;
+    font-family: var(--font-mono);
     font-size: 0.72rem;
     padding: 0.05rem 0.5rem;
     border-radius: 999px;

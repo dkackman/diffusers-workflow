@@ -1,68 +1,115 @@
+/* Contact sheet.
+ *
+ * This app's whole output is pictures, so the chrome is achromatic on
+ * purpose: any chroma in the surfaces around an image biases how you read
+ * the colour the model actually produced. Greys here are equal-RGB rather
+ * than the usual blue-tinted slate, and the generated images are meant to
+ * be the only saturated thing on screen.
+ *
+ * Colour therefore means one thing: machine state. `--live` (a darkroom
+ * safelight amber) marks what is running, where focus is, and when VRAM is
+ * under pressure. It is never decoration. Interactive elements are ink -
+ * the primary button is a solid ink fill, links are ink with an underline -
+ * so nothing in the chrome competes with the work.
+ *
+ * Type carries the other rule: anything the ENGINE reads literally (a
+ * workflow name, a `variable:` reference, a path, a seed, a run id, a
+ * measurement) is set in --font-mono; anything written for a PERSON is set
+ * in --font-sans. That is why headings are mono - they name things the
+ * engine resolves - and descriptions are not.
+ *
+ * `--accent` is kept as the name for "interactive ink" because 50-odd rules
+ * across the app already reference it; `--live` is the state colour those
+ * rules must NOT use.
+ */
 :root {
-  --bg: #14181b;
-  --panel: #1c2226;
-  --panel-2: #232b30;
-  --line: #2e383e;
-  --ink: #e4eaed;
-  --muted: #8fa0a8;
-  --accent: #4cb8cc;
-  --accent-ink: #0b2b31;
-  --good: #63b784;
-  --bad: #e07a6a;
-  --warn: #d9a84e;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
-  color-scheme: dark;
+  /* the sheet: paper, neutral, so colour is judged honestly */
+  --bg: #f7f7f7;
+  --panel: #ffffff;
+  --panel-2: #ededed;
+  --line: #dcdcdc;
+  --ink: #1c1c1c;
+  --muted: #6b6b6b;
+  --accent: #1c1c1c;
+  --accent-ink: #ffffff;
+  --live: #a85b00;
+  --good: #2f6b3f;
+  --bad: #a33224;
+  --warn: #a85b00;
+  color-scheme: light;
 }
 
-:root[data-theme='dark'] {
-  --bg: #14181b;
-  --panel: #1c2226;
-  --panel-2: #232b30;
-  --line: #2e383e;
-  --ink: #e4eaed;
-  --muted: #8fa0a8;
-  --accent: #4cb8cc;
-  --accent-ink: #0b2b31;
-  --good: #63b784;
-  --bad: #e07a6a;
-  --warn: #d9a84e;
-  color-scheme: dark;
-}
-
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme='dark']) {
-    --bg: #f2f5f6;
-    --panel: #ffffff;
-    --panel-2: #eaeff1;
-    --line: #d5dde0;
-    --ink: #1c2428;
-    --muted: #5b6a72;
-    --accent: #0b7285;
-    --accent-ink: #ffffff;
-    --good: #2b7a4b;
-    --bad: #b34031;
-    --warn: #9a6a12;
-    color-scheme: light;
+/* the darkroom */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #131313;
+    --panel: #1b1b1b;
+    --panel-2: #242424;
+    --line: #333333;
+    --ink: #e8e8e8;
+    --muted: #9a9a9a;
+    --accent: #e8e8e8;
+    --accent-ink: #131313;
+    --live: #e8a33d;
+    --good: #6fbf87;
+    --bad: #e3796a;
+    --warn: #e8a33d;
+    color-scheme: dark;
   }
 }
 
+:root[data-theme='dark'] {
+  --bg: #131313;
+  --panel: #1b1b1b;
+  --panel-2: #242424;
+  --line: #333333;
+  --ink: #e8e8e8;
+  --muted: #9a9a9a;
+  --accent: #e8e8e8;
+  --accent-ink: #131313;
+  --live: #e8a33d;
+  --good: #6fbf87;
+  --bad: #e3796a;
+  --warn: #e8a33d;
+  color-scheme: dark;
+}
+
 :root[data-theme='light'] {
-  --bg: #f2f5f6;
+  --bg: #f7f7f7;
   --panel: #ffffff;
-  --panel-2: #eaeff1;
-  --line: #d5dde0;
-  --ink: #1c2428;
-  --muted: #5b6a72;
-  --accent: #0b7285;
+  --panel-2: #ededed;
+  --line: #dcdcdc;
+  --ink: #1c1c1c;
+  --muted: #6b6b6b;
+  --accent: #1c1c1c;
   --accent-ink: #ffffff;
-  --good: #2b7a4b;
-  --bad: #b34031;
-  --warn: #9a6a12;
+  --live: #a85b00;
+  --good: #2f6b3f;
+  --bad: #a33224;
+  --warn: #a85b00;
   color-scheme: light;
+}
+
+/* Two families, both from system stacks - the server runs on localhost and
+   may be offline, so a webfont CDN is not available to us. */
+:root {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI',
+    Inter, system-ui, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Roboto Mono',
+    monospace;
+
+  /* ~1.25 from a 15px base. Prose sits at --t-base; the old 14px body was
+     below comfortable reading size for the descriptions this app shows. */
+  --t-xs: 0.733rem;
+  --t-sm: 0.867rem;
+  --t-base: 1rem;
+  --t-md: 1.2rem;
+  --t-lg: 1.6rem;
+  --t-xl: 2.2rem;
+
+  font-family: var(--font-sans);
 }
 
 /* Layout tokens. Spacing steps and radii for all new CSS; existing rules
@@ -76,6 +123,11 @@
   --space-3: 0.7rem;
   --space-4: 1rem;
   --space-5: 1.5rem;
+
+  /* Radius says what kind of thing something is rather than being one
+     global value: a picture is nearly square-cornered, a surface is
+     rounded, a chip is a pill. */
+  --radius-frame: 3px;
   --radius-1: 6px;
   --radius-2: 8px;
 }
@@ -96,8 +148,11 @@ textarea,
     filter 0.15s ease,
     opacity 0.15s ease;
 }
+/* Focus is machine state - where the keyboard is - so it gets the signal
+   colour rather than the interactive ink, which would be invisible against
+   an ink button. */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--live);
   outline-offset: 1px;
 }
 
@@ -112,10 +167,10 @@ textarea,
 }
 .pulse-dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--live);
   animation: dw-pulse 1.6s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -127,29 +182,47 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 a {
   color: var(--accent);
   text-decoration: none;
 }
+/* Prose links keep an underline: with interactive elements set in ink
+   rather than a colour, the underline is what makes them links. Links that
+   are already unmistakably controls (nav items, cards, icon buttons) opt
+   out with .plain. */
+a:not(.plain):not(.chip):not(.panel):hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* One filled button per view: the thing you came to do. Everything else is
+   .quiet (outlined) or .bare (text). */
 button {
   background: var(--accent);
   color: var(--accent-ink);
-  border: 0;
-  border-radius: 6px;
-  padding: 0.45rem 0.9rem;
-  font-size: 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-1);
+  padding: 0.4rem 0.9rem;
+  font-family: inherit;
+  font-size: var(--t-sm);
   font-weight: 600;
   cursor: pointer;
 }
 button:hover {
-  filter: brightness(1.1);
+  filter: brightness(1.35);
+}
+:root[data-theme='dark'] button:hover,
+:root:not([data-theme='light']) button:hover {
+  filter: brightness(0.85);
 }
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
+  filter: none;
 }
 button.quiet {
   background: transparent;
@@ -157,43 +230,88 @@ button.quiet {
   border: 1px solid var(--line);
   font-weight: 500;
 }
+button.quiet:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+  filter: none;
+}
+button.bare {
+  background: transparent;
+  color: var(--muted);
+  border-color: transparent;
+  font-weight: 500;
+}
+button.bare:hover {
+  color: var(--ink);
+  background: var(--panel-2);
+  filter: none;
+}
 input,
 textarea,
 select {
   background: var(--panel-2);
   color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-1);
   padding: 0.4rem 0.6rem;
-  font-size: 0.9rem;
+  font-size: var(--t-sm);
   width: 100%;
   font-family: inherit;
 }
 input:focus,
 textarea:focus {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--live);
   outline-offset: -1px;
+}
+/* A checkbox or radio left alone paints in the browser's own blue, which is
+   exactly the chroma this design keeps off the screen - and it would be the
+   only blue in the app. Checked controls take the interactive ink instead;
+   the browser picks a contrasting mark. */
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
 }
 code,
 pre {
-  font-family: ui-monospace, 'Cascadia Code', monospace;
-  font-size: 0.85em;
+  font-family: var(--font-mono);
+  font-size: 0.87em;
 }
 pre {
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-1);
   padding: 0.8rem;
   overflow-x: auto;
   margin: 0;
 }
-h1 {
-  font-size: 1.25rem;
+
+/* Headings name things the engine resolves, so they are mono - sentence
+   case and tight, never tracked out or capitalised into a label. */
+h1,
+h2,
+h3 {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
   margin: 0;
 }
+h1 {
+  font-size: var(--t-lg);
+}
 h2 {
-  font-size: 1rem;
-  margin: 0 0 0.6rem;
+  font-size: var(--t-md);
+  margin: 0 0 var(--space-3);
+}
+h3 {
+  font-size: var(--t-base);
+}
+
+/* Machine values line up when they are figures in a column - measurements,
+   sizes, counts, durations. */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Every panel is a query container, so the label/field grids nested inside
@@ -205,28 +323,28 @@ h2 {
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 1rem;
+  border-radius: var(--radius-2);
+  padding: var(--space-4);
   container-type: inline-size;
 }
 .chip {
   display: inline-block;
   padding: 0.1rem 0.55rem;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: var(--t-xs);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 input.ref,
 textarea.ref {
-  color: var(--accent);
-  font-family: ui-monospace, 'Cascadia Code', monospace;
-  font-size: 0.85rem;
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
 }
 button.danger:hover,
 a.danger:hover {
   border-color: var(--bad);
   color: var(--bad);
+  background: transparent;
   filter: none;
 }
 .panel.error-edge {
@@ -243,15 +361,15 @@ a.danger:hover {
   color: var(--muted);
 }
 .chip.running {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--live);
+  color: var(--panel);
 }
 .chip.succeeded {
-  background: color-mix(in srgb, var(--good) 22%, transparent);
+  background: color-mix(in srgb, var(--good) 20%, transparent);
   color: var(--good);
 }
 .chip.failed {
-  background: color-mix(in srgb, var(--bad) 22%, transparent);
+  background: color-mix(in srgb, var(--bad) 20%, transparent);
   color: var(--bad);
 }
 .chip.cancelled {
@@ -260,4 +378,39 @@ a.danger:hover {
 }
 .muted {
   color: var(--muted);
+}
+
+/* Prose stays inside a comfortable measure wherever it runs long. */
+.prose {
+  max-width: 68ch;
+}
+
+/* A contact-sheet frame. Every place the app shows something a workflow
+   produced - a catalog card's proof, a workflow's recent outputs, a job's
+   results, a gallery tile - uses this, so a picture reads the same wherever
+   it turns up. The picture fills the frame edge to edge: no inner padding
+   and no rounding on the image itself, which is what makes it read as a
+   proof on a sheet rather than as another rounded card. Set the size on
+   the frame; the media inside always fills it. */
+.frame {
+  display: block;
+  position: relative;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-frame);
+  overflow: hidden;
+}
+.frame > img,
+.frame > video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* The frame is only ever the picture, so any interactive frame gets its
+   affordance from the border rather than from a colour wash over it */
+a.frame:hover,
+button.frame:hover {
+  border-color: var(--ink);
+  filter: none;
 }
