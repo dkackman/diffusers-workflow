@@ -63,7 +63,7 @@ not from here.
   several shots keeps one voice by passing the same clip as an audio
   reference in each (the `voice-timbre-reference` pattern); a repeated voice
   description alone drifts.
-- **Music alone**: `templates/minimax/music` (Music3).
+- **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3` skill.
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and
 read the `workflows` guide's authoring section first.
@@ -97,7 +97,8 @@ read the `workflows` guide's authoring section first.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in the order passed.
 - Music3 reads `audio_duration` as a ceiling, not a target: ask for more than
-  the song needs and trim with `templates/audio-trim-fade`. Cap: six minutes.
+  the song needs and trim with `templates/audio-trim-fade`. The `minimax-music3`
+  skill has the rest of that family.
 - Write the prompt for the length being generated: shot timestamps should span
   the duration, or a five-second script conditions a five-second story
   whatever the frame count.

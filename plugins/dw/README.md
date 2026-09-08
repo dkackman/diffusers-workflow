@@ -16,6 +16,7 @@ Install once, from Claude Code:
 | Skill | Teaches |
 | ----- | ------- |
 | `minimax-h3` | MiniMax H3 video with audio: one take, a longer take by chain, a piece with cuts, identity and voice references, music; the frame and canvas rules; what a run costs. Prompts come from MiniMax's own `h3-prompt-writing` skill or the guides on the model card. |
+| `minimax-music3` | MiniMax Music 3: a song, an instrumental, a score under a film, the soundtrack a music video is cut to; the ceiling semantics, the tag vocabulary, the caps and the 44.1 kHz output. Captions come from MiniMax's own `music-caption-rewriter` skill. |
 | `ltx-2.5` | LTX-2.5 video with a soundtrack: a single clip, first-frame and keyframe conditioning, the three-move two-stage flow, the IC-LoRA upscale, extend and chain; the distilled schedule and the frame and size rules. Prompts follow the trained-caption spec that ships inside diffusers. |
 
 Each skill quotes catalog names and numeric rules that `tests/test_plugin_skills.py`

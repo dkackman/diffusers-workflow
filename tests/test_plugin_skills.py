@@ -8,6 +8,7 @@ matched to the server it was written against by that number.
 """
 
 import glob
+import inspect
 import os
 import re
 
@@ -304,3 +305,66 @@ class TestLtx25Skill:
     def test_the_skill_starts_with_the_server(self):
         text = skill_text(LTX_SKILL)
         assert text.index("get_server_info") < text.index("templates/ltx2/")
+
+
+MUSIC_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-music3", "SKILL.md")
+
+
+class TestMiniMaxMusic3Skill:
+    """The Music 3 skill's numbers come from the diffusers modular pipeline
+    that enforces them, and the caption format is deferred to MiniMax."""
+
+    def test_the_ceiling_and_the_caps_are_the_encoder_s(self):
+        from diffusers.modular_pipelines.minimax_music3 import encoders
+
+        text = skill_text(MUSIC_SKILL)
+        source = inspect.getsource(encoders)
+        assert encoders._MAX_AUDIO_FRAMES == 9000 and "9000 frames" in text
+        assert encoders._MAX_PROMPT_TOKENS == 5000 and "5,000 tokens" in text
+        # the ceiling semantics: the language model may stop earlier
+        assert re.search(r'"audio_duration",\s*default=60.0', source)
+        assert "Default\n  60 seconds" in text or "Default 60 seconds" in text
+        assert "ceiling, not a target" in text
+        # a tag line keeps only its leading bracketed tags, lower-cased
+        assert "_LEADING_TAGS_RE" in source and hasattr(encoders, "_normalize_lyrics")
+        assert "dropped" in text and "lower-cased" in text
+
+    def test_the_frame_rate_and_the_output_rate_are_the_pipeline_s(self):
+        from diffusers.modular_pipelines.minimax_music3 import modular_pipeline
+        from diffusers.models.autoencoders import minimax_music3_vocoder
+
+        text = skill_text(MUSIC_SKILL)
+        assert "frame_rate = 25.0" in inspect.getsource(modular_pipeline)
+        assert "25 frames per second" in text and "360 seconds" in text
+        assert "sampling_rate: int = 44100" in inspect.getsource(minimax_music3_vocoder)
+        assert "44.1 kHz stereo" in text and "sample_rate: 44100" in text
+
+    def test_the_window_steps_and_guidance_are_the_denoiser_s(self):
+        from diffusers.modular_pipelines.minimax_music3 import before_denoise, denoise
+
+        text = skill_text(MUSIC_SKILL)
+        assert before_denoise._CHUNK_FRAMES == 200 and "200-frame windows" in text
+        source = inspect.getsource(denoise)
+        assert re.search(r'"num_inference_steps",\s*default=30', source)
+        assert "30 steps" in text
+        assert '"guidance_scale": 1.7' in source and "fixed at 1.7" in text
+
+    def test_the_skill_defers_caption_format_to_minimax(self):
+        text = skill_text(MUSIC_SKILL)
+        assert "music-caption-rewriter" in text
+        assert "https://github.com/MiniMax-AI/MiniMax-Music3" in text
+        assert "https://huggingface.co/MiniMaxAI/MiniMax-Music3" in text
+        for tag in ("[Intro]", "[Pre-Chorus]", "[Bridge]", "[Instrumental]", "[Outro]"):
+            assert tag in text, tag
+        assert "2026-09-08-minimax-music3-audit.md" in text
+
+    def test_the_music_video_ceiling_clears_its_slices(self):
+        """The sliced total is 496 frames at 24 fps; the ceiling must clear it
+        with margin, since the model may stop early (audit 2026-09-08)."""
+        import json
+
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "music-video.json"
+        )
+        spec = json.load(open(path, encoding="utf-8"))
+        assert spec["variables"]["audio_duration"] >= 496 / 24 + 5

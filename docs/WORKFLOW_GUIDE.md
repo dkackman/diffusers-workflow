@@ -815,7 +815,7 @@ and `load_components` pulls the weights:
                   "modules_to_not_convert": ["proj_in", "proj_out"]
               }
           },
-          "text_encoder": {
+          "language_model": {
               "configuration": { "config_type": "transformers.TorchAoConfig" },
               "arguments": { "quant_type": "torchao.quantization.Int8WeightOnlyConfig" }
           }

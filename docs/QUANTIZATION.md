@@ -192,7 +192,7 @@ through `from_pretrained_arguments`, so quantization is keyed by component name 
                 "configuration": { "config_type": "TorchAoConfig" },
                 "arguments": { "quant_type": "torchao.quantization.Int8WeightOnlyConfig" }
             },
-            "text_encoder": {
+            "language_model": {
                 "configuration": { "config_type": "transformers.TorchAoConfig" },
                 "arguments": { "quant_type": "torchao.quantization.Int8WeightOnlyConfig" }
             }

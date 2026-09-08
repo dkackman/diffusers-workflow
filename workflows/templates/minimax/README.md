@@ -15,10 +15,16 @@ and MiniMax publishes them as an agent skill, `skills/h3-prompt-writing`, in the
 for hand-written prompts, read them rather than reverse-engineering the examples.
 Audited against those sources on 2026-09-07
 ([the audit](../../../docs/proposals/audits/2026-09-07-minimax-h3-audit.md)).
+Music3 has the same kind of authority: the caption format is MiniMax's
+`skills/music-caption-rewriter` in the
+[MiniMax-Music3 GitHub repository](https://github.com/MiniMax-AI/MiniMax-Music3)
+(a genre router, 18 family indexes and 1,000 example captions) and the tag
+vocabulary is on its model card; audited 2026-09-08
+([the audit](../../../docs/proposals/audits/2026-09-08-minimax-music3-audit.md)).
 
-An agent driving this family from Claude Code has the `minimax-h3` skill of the
-[dw plugin](../../../plugins/dw/README.md), which chooses among these templates
-and points at the guides.
+An agent driving this family from Claude Code has the `minimax-h3` and
+`minimax-music3` skills of the [dw plugin](../../../plugins/dw/README.md), which
+choose among these templates and point at the guides.
 
 Read them in this order and each introduces one new idea on top of the last.
 
@@ -30,11 +36,15 @@ Read them in this order and each introduces one new idea on top of the last.
 | [video-with-audio.json](video-with-audio.json) | The baseline text-to-video-audio run: per-component SDNQ quantization, mixed offload, the turbo LoRA, and muxing video + audio into one file |
 
 A note on `audio_duration`: Music3 reads it as a ceiling rather than a target.
-The piece ends where the music ends, so a value set to the length the song
-*should* be will guillotine the outro mid-decay. Ask for more time than the
-song needs and trim the tail afterwards -
+The language model stops when the song ends, so the track is usually shorter
+than the ceiling, and a ceiling set to the length the song *should* be leaves
+no room for the outro before the hard stop. Ask for more time than the song
+needs and trim the tail afterwards -
 [templates/audio-trim-fade.json](../audio-trim-fade.json) slices a generated track
-to length and fades the cut into an ending.
+to length and fades the cut into an ending. Runtime follows the length actually
+generated, not the ceiling, so the margin is free. The output is 44.1 kHz stereo,
+the vocoder's native rate; the model card's 32 kHz is what MiniMax's reference
+server resamples to.
 
 A note on length: H3 accepts any `num_frames` of the form `17n + 5` between 124
 and 345 - at its fixed 24 fps, that is 5.17 to 14.4 seconds **in a single clip**.
