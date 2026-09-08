@@ -69,7 +69,7 @@
     gap: 0.4rem;
   }
   .ctype {
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
   }
 </style>

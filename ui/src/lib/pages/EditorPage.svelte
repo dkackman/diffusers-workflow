@@ -787,8 +787,7 @@
   .wfidlabel {
     color: var(--muted);
     font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    text-transform: none;
   }
   /* Reads as a title until you reach for it, rather than as an unexplained
      text box sitting next to a breadcrumb */
@@ -825,7 +824,7 @@
     min-width: 0;
   }
   .pathchip {
-    font-family: ui-monospace, 'Cascadia Code', monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     padding: 0.25rem 0.6rem;
     max-width: 100%;
@@ -882,7 +881,7 @@
     margin-top: 0.8rem;
   }
   .filefoot .path {
-    font-family: ui-monospace, 'Cascadia Code', monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     min-width: 0;
   }

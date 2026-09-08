@@ -10,6 +10,7 @@
   import {
     WORKFLOW_SHAPES,
     WORKFLOW_TRAITS,
+    type GalleryFile,
     type WorkflowCost,
     type WorkflowShape,
     type WorkflowTrait,
@@ -44,6 +45,11 @@
   let traits = $state<WorkflowTrait[]>([])
   let error = $state('')
   let loaded = $state(false)
+  /** The newest output each workflow has produced, by workflow identity.
+   * A run writes to <outputs>/<identity>/<run id>/, and the gallery listing
+   * reports that identity as an entry's `folder` already stripped of the
+   * run id - so a workflow's name matches its folder directly. */
+  let proofs = $state<Record<string, GalleryFile>>({})
 
   $effect(() => {
     // Read inside the effect so switching workspaces refetches the listing
@@ -57,6 +63,33 @@
         loaded = true
       })
       .catch((e) => (error = e.message))
+  })
+
+  $effect(() => {
+    void workspace.current
+    // Deliberately not awaited with the listing: the catalog is useful the
+    // moment names arrive, and the proofs fill in behind it. A workspace
+    // with no outputs yet simply never populates this.
+    api
+      .gallery()
+      .then((result) => {
+        // Entries arrive newest first, so the first one seen for a folder
+        // is that workflow's latest. Images win over video because only
+        // images have a thumbnail endpoint; a video-only workflow falls
+        // back to its video, which renders its first frame.
+        const latest: Record<string, GalleryFile> = {}
+        for (const file of result.files) {
+          if (!file.folder) continue
+          const held = latest[file.folder]
+          if (!held) latest[file.folder] = file
+          else if (held.kind !== 'image' && file.kind === 'image')
+            latest[file.folder] = file
+        }
+        proofs = latest
+      })
+      .catch(() => {
+        /* the catalog reads fine without proofs */
+      })
   })
 
   // Only the shapes and traits the listing actually has: the vocabulary is
@@ -94,6 +127,19 @@
     }),
   )
 
+  /** Within a folder, workflows that have produced something come first,
+   * then alphabetical as before. Two reasons, and both matter: the ones you
+   * have actually used are the ones you come back to, and only those carry
+   * a picture - so grouping them keeps the taller cards together instead of
+   * punching holes through an otherwise even grid. */
+  const ordered = $derived(
+    [...visible].sort((left, right) => {
+      const leftRun = proofs[left] ? 0 : 1
+      const rightRun = proofs[right] ? 0 : 1
+      return leftRun - rightRun || left.localeCompare(right)
+    }),
+  )
+
   const filterActive = $derived(
     filter !== '' || shape !== '' || traits.length > 0,
   )
@@ -104,15 +150,30 @@
     minutes < 1 ? '<1 min' : `~${Number(minutes.toFixed(2))} min`
 
   /** The one measurement a card shows: the first the maintainer recorded.
-   * '~3 min · 22 GB (RTX 4090)', with the accelerator dropped when the entry
-   * did not name one. */
+   * '~3 min · 22 GB', with the accelerator moved to the tooltip - the card
+   * has room for the numbers, not for the hardware they came from. */
   const formatCost = (cost?: WorkflowCost[] | null) => {
     const measured = cost?.[0]
     if (!measured) return ''
-    const where = measured.name ? ` (${measured.name})` : ''
     return `${formatMinutes(measured.minutes)} · ${Number(
-      measured.vram_gb.toFixed(2),
-    )} GB${where}`
+      measured.vram_gb.toFixed(1),
+    )} GB VRAM`
+  }
+
+  /** Everything the card does not have room to print, so hovering it still
+   * answers "what is this and what does it need". */
+  const cardTitle = (name: string, detail?: Detail) => {
+    const lines = [name]
+    if (detail?.description) lines.push(detail.description)
+    if (detail?.traits?.length) lines.push(detail.traits.join(', '))
+    if (detail?.cost?.[0]) {
+      const measured = detail.cost[0]
+      const where = measured.name ?? measured.device
+      lines.push(`measured on ${where}`)
+    }
+    if (detail?.writable === false)
+      lines.push(`read-only, from the ${detail.origin} directory`)
+    return lines.join('\n')
   }
 
   const href = (name: string) =>
@@ -121,29 +182,46 @@
 
 <div class="head">
   <h1>Workflows</h1>
+  <span class="count num muted">{workflows.length}</span>
   <WorkspacePicker />
-  <span class="muted">{workflowDir}</span>
-  <div class="filters">
-    <select bind:value={shape} class="shape" aria-label="shape">
-      <option value="">any shape</option>
-      {#each shapesPresent as value (value)}
-        <option {value}>{value}</option>
-      {/each}
-    </select>
-    <input placeholder="filter…" bind:value={filter} class="filter" />
-  </div>
-  <a class="newlink" href="#/edit" title="new workflow"><Plus size={15} /></a>
+  <span class="flex"></span>
+  <input placeholder="filter…" bind:value={filter} class="filter" />
+  <a class="newlink plain" href="#/edit" title="new workflow"
+    ><Plus size={15} /></a
+  >
 </div>
 
 {#if error}
   <p class="muted">Could not load workflows: {error}</p>
 {/if}
 
+<!-- Shape is what people choose by, so the vocabulary is visible rather
+     than folded into a select nobody opens -->
+{#if shapesPresent.length}
+  <div class="shapes" role="group" aria-label="filter by shape">
+    <button
+      class="shapebtn"
+      class:on={shape === ''}
+      aria-pressed={shape === ''}
+      onclick={() => (shape = '')}>all</button
+    >
+    {#each shapesPresent as value (value)}
+      <button
+        class="shapebtn"
+        class:on={shape === value}
+        aria-pressed={shape === value}
+        onclick={() => (shape = shape === value ? '' : value)}
+        title="show only workflows that make {value}">{value}</button
+      >
+    {/each}
+  </div>
+{/if}
+
 {#if traitsPresent.length}
   <div class="chips">
     {#each traitsPresent as trait (trait)}
       <button
-        class="chip"
+        class="traitchip"
         class:on={traits.includes(trait)}
         aria-pressed={traits.includes(trait)}
         onclick={() => toggleTrait(trait)}
@@ -161,66 +239,73 @@
 </HintBar>
 
 <FolderGroups
-  names={visible}
+  names={ordered}
   collapseKey="collapsed-folders"
   {filterActive}
   newHref="#/edit"
+  minColumn="200px"
   onnewingroup={(group) => sessionStorage.setItem('dw-editor-folder', group)}
 >
   {#snippet card(name)}
     {@const detail = details[name]}
-    <a
-      class="card panel"
-      href={href(name)}
-      title={detail?.description || undefined}
-    >
-      <span class="cardtop">
-        <span class="cardname">{leafOf(name)}</span>
-      </span>
-      {#if detail?.shape || detail?.traits?.length}
-        <span class="cardbadges muted">
-          {#if detail?.shape}<span
-              class="badge"
-              title="what this workflow makes">{detail.shape}</span
-            >{/if}
-          {#each detail?.traits ?? [] as trait (trait)}<span
-              class="badge trait"
-              title="trait: {trait}">{trait}</span
-            >{/each}
+    {@const proof = proofs[name]}
+    <a class="card" href={href(name)} title={cardTitle(name, detail)}>
+      <!-- The proof: what this workflow actually made last time. In a tool
+           whose entire output is pictures, the picture is the description.
+           A workflow that has never run gets no frame at all rather than a
+           grey placeholder - a fresh workspace would otherwise be a wall of
+           empty plates, and the extra height is worth spending only where
+           there is something to look at. Card height ends up saying which
+           workflows you have actually used. -->
+      {#if proof}
+        <span class="cardframe">
+          {#if proof.kind === 'image'}
+            <img
+              src={api.galleryThumbnailUrl(proof.name)}
+              alt=""
+              loading="lazy"
+              decoding="async"
+            />
+          {:else}
+            <video src={proof.url} muted playsinline preload="metadata"></video>
+          {/if}
         </span>
       {/if}
-      <span class="cardmeta muted">
-        {#if detail?.configures}<span
-            class="configures"
-            title="a tuned configuration of {detail.configures}"
-            >configures {leafOf(detail.configures)}</span
-          >{/if}
-        {#if detail?.writable === false}<span
-            title="read-only: from the {detail.origin} directory"
-            >{detail.origin}</span
-          >{/if}
-        {#if detail?.kinds.includes('image')}<Image size={13} />{/if}
-        {#if detail?.kinds.includes('video')}<Film size={13} />{/if}
-        {#if detail?.kinds.includes('audio')}<Music size={13} />{/if}
-        {#if (detail?.steps ?? 0) > 1}<span
-            title="{detail.steps} steps run in sequence"
-            >{detail.steps} steps</span
-          >{/if}
-        {#if detail?.variables}<span
-            title="{detail.variables} variables to tweak"
-            >{detail.variables} vars</span
-          >{/if}
-        {#if detail?.cost?.length}<span
-            class="cost"
-            title="measured on {detail.cost[0].name ?? detail.cost[0].device}"
-            >{formatCost(detail.cost)}</span
-          >{/if}
+      <span class="caption">
+        <span class="cardname">{leafOf(name)}</span>
+        <span class="cardmeta muted">
+          {#if detail?.shape}<span class="shape">{detail.shape}</span>{/if}
+          {#if detail?.kinds.includes('image')}<Image size={12} />{/if}
+          {#if detail?.kinds.includes('video')}<Film size={12} />{/if}
+          {#if detail?.kinds.includes('audio')}<Music size={12} />{/if}
+          <span class="flex"></span>
+          {#if (detail?.steps ?? 0) > 1}
+            <span class="num">{detail?.steps} steps</span>
+          {:else if detail?.variables}
+            <span class="num">{detail.variables} vars</span>
+          {/if}
+        </span>
+        <!-- A measured run is the most concrete thing on the card - what it
+             will cost you to press Run - so it gets its own line instead of
+             competing for the meta row's leftovers -->
+        {#if detail?.cost?.length}
+          <span class="cost num muted">{formatCost(detail.cost)}</span>
+        {/if}
+        {#if detail?.summary || detail?.description}
+          <span class="carddesc muted"
+            >{detail.summary || detail.description}</span
+          >
+        {/if}
+        {#if detail?.configures || detail?.writable === false}
+          <span class="cardfoot muted">
+            {#if detail?.configures}configures {leafOf(
+                detail.configures,
+              )}{/if}{#if detail?.configures && detail?.writable === false}
+              ·
+            {/if}{#if detail?.writable === false}{detail.origin}, read-only{/if}
+          </span>
+        {/if}
       </span>
-      {#if detail?.summary || detail?.description}
-        <span class="carddesc muted"
-          >{detail.summary || detail.description}</span
-        >
-      {/if}
     </a>
   {/snippet}
 </FolderGroups>
@@ -231,7 +316,15 @@
     No workflows yet — the + above creates the first one.
   </Empty>
 {:else if loaded && visible.length === 0}
-  <p class="muted">Nothing matches "{filter}".</p>
+  <p class="muted">Nothing matches those filters.</p>
+{/if}
+
+<!-- Where the files live is worth knowing and not worth the subtitle slot
+     beside the title, which is the best position on the page -->
+{#if workflowDir}
+  <p class="dir muted">
+    read from <span class="path">{workflowDir}</span>
+  </p>
 {/if}
 
 <style>
@@ -239,133 +332,183 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.4rem 1rem;
-    margin-bottom: 1rem;
+    gap: 0.4rem 0.8rem;
+    margin-bottom: var(--space-4);
   }
-  .filters {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin-left: auto;
+  .head .flex {
+    flex: 1;
+  }
+  .count {
+    font-size: var(--t-sm);
   }
   .filter {
     max-width: 220px;
-  }
-  .shape {
-    font-size: 0.8rem;
-  }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-    margin-bottom: 0.8rem;
-  }
-  /* A chip narrows the listing the page already holds - no refetch, so the
-     selected set reads as part of the filter row rather than a mode */
-  .chip {
-    background: none;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    color: var(--muted);
-    font-size: 0.72rem;
-    font-weight: 500;
-    padding: 0.1rem 0.5rem;
-    cursor: pointer;
-  }
-  .chip:hover {
-    color: var(--ink);
-    filter: none;
-  }
-  .chip.on {
-    border-color: var(--accent);
-    color: var(--accent);
   }
   .newlink {
     display: inline-flex;
     align-items: center;
     padding: 0.4rem;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: var(--radius-1);
     color: var(--muted);
   }
   .newlink:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .card {
+    border-color: var(--ink);
     color: var(--ink);
+  }
+
+  /* Shape: the primary cut through the catalog, so it reads as a row of
+     choices rather than a set of tags */
+  .shapes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem;
+    margin-bottom: var(--space-2);
+    border-bottom: 1px solid var(--line);
+    padding-bottom: var(--space-2);
+  }
+  .shapebtn {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius-1);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
+    font-weight: 500;
+    padding: 0.2rem 0.55rem;
+    cursor: pointer;
+  }
+  .shapebtn:hover {
+    color: var(--ink);
+    background: var(--panel-2);
+    filter: none;
+  }
+  .shapebtn.on {
+    background: var(--ink);
+    color: var(--panel);
+    border-color: var(--ink);
     font-weight: 600;
-    padding: 0.7rem 0.9rem;
+  }
+
+  /* Traits narrow further, so they are quieter than shape and read as a
+     second-order refinement */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-bottom: var(--space-4);
+  }
+  .traitchip {
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: var(--t-xs);
+    font-weight: 500;
+    padding: 0.05rem 0.5rem;
+    cursor: pointer;
+  }
+  .traitchip:hover {
+    color: var(--ink);
+    border-color: var(--muted);
+    filter: none;
+  }
+  .traitchip.on {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--panel);
+  }
+
+  /* A frame on a contact sheet: the picture bleeds to the top edge, the
+     caption is a separate strip below it */
+  .card {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-2);
+    overflow: hidden;
   }
   .card:hover {
-    border-color: var(--accent);
+    border-color: var(--ink);
   }
-  .cardtop {
-    display: flex;
-    align-items: center;
+  /* A banner across the top of a card rather than a free-standing frame:
+     the card's own border surrounds it, so it contributes only the rule
+     that separates the picture from its caption */
+  .cardframe {
+    display: block;
+    aspect-ratio: 4 / 3;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .cardframe img,
+  .cardframe video {
     width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .caption {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.55rem 0.7rem 0.65rem;
   }
   .cardname {
-    flex: 1;
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
+    font-weight: 600;
+    letter-spacing: -0.01em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.95rem;
+  }
+  .cardmeta {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: var(--t-xs);
+  }
+  .cardmeta .flex {
+    flex: 1;
+    min-width: 0.4rem;
+  }
+  .shape {
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cost {
+    font-size: var(--t-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .carddesc {
-    font-weight: 400;
-    font-size: 0.78rem;
-    line-height: 1.35;
+    font-size: var(--t-xs);
+    line-height: 1.4;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  /* Marks a model config as a tuned instance of a template rather than a
-     pattern to copy - the one distinction the two-tree catalog turns on */
-  .configures {
-    border: 1px solid currentColor;
-    border-radius: 3px;
-    padding: 0 0.25rem;
-    opacity: 0.75;
+  .cardfoot {
+    font-size: var(--t-xs);
+    opacity: 0.8;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
-
-  /* shape and traits: what the catalog is chosen by, so they sit with the
-     kind icons rather than in the description */
-  .badge {
-    border: 1px solid currentColor;
-    border-radius: 3px;
-    padding: 0 0.25rem;
-    opacity: 0.75;
-    white-space: nowrap;
+  .dir {
+    margin-top: 2.5rem;
+    font-size: var(--t-xs);
   }
-  .badge.trait {
-    opacity: 0.6;
-  }
-  .cost {
-    white-space: nowrap;
-  }
-
-  /* Shape and traits on a row of their own: sharing the meta line with the
-     origin, icons and counts wrapped at a different point on every card */
-  .cardbadges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-    font-size: 0.7rem;
-    font-weight: 500;
-  }
-  .cardmeta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.72rem;
-    font-weight: 500;
+  .path {
+    font-family: var(--font-mono);
+    word-break: break-all;
   }
 </style>

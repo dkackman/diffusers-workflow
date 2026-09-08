@@ -257,14 +257,21 @@
         <div class="media">
           {#each group.files as file (file)}
             {#if isImage(file)}
-              <a href={fileUrl(file)} target="_blank"
+              <a
+                class="frame plain"
+                href={fileUrl(file)}
+                target="_blank"
+                title={file.split('/').pop()}
                 ><img src={fileUrl(file)} alt={file.split('/').pop()} /></a
               >
             {:else if isVideo(file)}
-              <!-- svelte-ignore a11y_media_has_caption -->
-              <video src={fileUrl(file)} controls loop></video>
+              <span class="frame">
+                <!-- svelte-ignore a11y_media_has_caption -->
+                <video src={fileUrl(file)} controls loop></video>
+              </span>
             {:else}
-              <a href={fileUrl(file)} target="_blank">{file.split('/').pop()}</a
+              <a class="filelink" href={fileUrl(file)} target="_blank"
+                >{file.split('/').pop()}</a
               >
             {/if}
           {/each}
@@ -348,9 +355,11 @@
     background: var(--good);
     border-color: var(--good);
   }
+  /* The step the worker is on right now - machine state, so it takes the
+     signal colour rather than the interactive ink */
   .dot.active {
-    background: var(--accent);
-    border-color: var(--accent);
+    background: var(--live);
+    border-color: var(--live);
     animation: dw-pulse 1.6s ease-in-out infinite;
   }
   @media (prefers-reduced-motion: reduce) {
@@ -368,7 +377,7 @@
   }
   .fill {
     height: 100%;
-    background: var(--accent);
+    background: var(--live);
     transition: width 0.3s;
   }
   .count {
@@ -378,21 +387,27 @@
   .media {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.7rem;
+    gap: var(--space-2);
+    align-items: flex-start;
   }
-  .media img,
-  .media video {
+  /* What the run produced, framed the way the catalog and the gallery
+     frame it - the picture flush to its edges, no rounding of its own */
+  .media :global(.frame) {
     max-width: min(340px, 100%);
-    border-radius: 6px;
-    display: block;
+  }
+  .media :global(.frame > video) {
+    height: auto;
+  }
+  .media a.filelink {
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
   }
   .error {
     color: var(--bad);
   }
   .stephead {
     font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    text-transform: none;
     margin: var(--space-3) 0 var(--space-2);
   }
   .stephead:first-of-type {

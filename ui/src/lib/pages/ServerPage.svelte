@@ -467,8 +467,7 @@
     font-weight: 600;
     color: var(--muted);
     font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    text-transform: none;
   }
   dd {
     margin: 0;
@@ -511,8 +510,7 @@
   th {
     text-align: left;
     font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    text-transform: none;
     color: var(--muted);
     font-weight: 600;
     padding: 0.2rem 0.5rem 0.2rem 0;
