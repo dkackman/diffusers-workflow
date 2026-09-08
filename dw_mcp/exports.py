@@ -35,6 +35,10 @@ def export_job(client, job_id, overwrite=False):
         "workflow": body.get("workflow"),
         "manifest": body.get("manifest"),
         "job": body.get("job"),
-        "next": "Report the directory as a path on the server, and hand the "
-        "user the zip URL if they want the files locally.",
+        "next": "The directory is on the server. To give the user the files, "
+        "fetch zip_url and unpack it into exports/ under the session's "
+        "working directory - it is the user's deliverable, not a temporary "
+        "file, so not a scratch or temp directory. The archive already "
+        "unpacks into one folder named after the job id; do not create "
+        "that folder first or the id is doubled in the path.",
     }

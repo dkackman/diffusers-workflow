@@ -617,6 +617,15 @@ async def test_export_job_warns_the_copy_costs_disk_and_names_total_bytes():
 
 
 @pytest.mark.asyncio
+async def test_export_job_sends_the_zip_to_the_working_directory():
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["export_job"].description
+    assert "working directory" in description
+    assert "do not create that folder first" in description
+
+
+@pytest.mark.asyncio
 async def test_rerun_job_refuses_without_acknowledgement_and_sends_nothing():
     seen = []
 

@@ -100,3 +100,13 @@ def test_the_docstring_says_copying_costs_disk_and_names_total_bytes():
     # export copies files rather than linking them.
     assert "copies every output and input" in exports.export_job.__doc__
     assert "total_bytes" in exports.export_job.__doc__
+
+
+def test_the_next_hint_sends_the_zip_to_the_working_directory():
+    """The drill showed an agent unpacking the export into its scratchpad
+    and doubling the job id in the path; the hint is where that is steered."""
+    client, _ = exporting()
+    hint = exports.export_job(client, "job-1")["next"]
+    assert "working directory" in hint
+    assert "temp" in hint
+    assert "do not create that folder" in hint
