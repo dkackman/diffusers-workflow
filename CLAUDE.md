@@ -147,6 +147,12 @@ docs/WORKSPACES.md, and docs/proposals/server-workspaces.md for the later stages
   rooted at the library rather than the workflow file. The library is `DW_PROMPT_DIR` /
   `--prompt-dir`, else `./prompts` if it exists, else found by walking up from the
   workflow file's directory
+- Every run directory holds `workflow.json` beside its manifest: the *realized*
+  workflow, with the run's arguments folded into the variable defaults, the seed
+  it used, stored prompt text inlined and `output:.../latest/...` pinned to the
+  run it resolved to. Written by `realize_workflow` (`dw/realize.py`) at run
+  start, best effort. Over MCP, `get_job_workflow` reads it back and
+  `save_workflow` names it; `export_job` bundles the run
 
 The same conventions, written for an agent composing a workflow over MCP, are
 the `Authoring a workflow from an agent` section of docs/WORKFLOW_GUIDE.md;
@@ -202,7 +208,14 @@ All entry points use `dw/security.py`. When adding features:
   A sub-workflow inherits the parent's run directory and writes no manifest of its own.
   `--output-layout flat` / `DW_OUTPUT_LAYOUT` / the `output_layout` setting restores the
   old layout. The gallery groups a workflow's runs under one folder by stripping the run
-  id (`strip_run_id`)
+  id (`strip_run_id`). The realized workflow is written into the same directory as
+  `workflow.json` (`dw/realize.py`, `write_realized_workflow`), and the manifest's
+  `workflow` block carries `realized`, `prompts` (the stored prompts inlined) and
+  `sub_workflows` (path -> SHA-256). A job records the run it was
+  (`run_id`/`run_dir` on `Job` and in `jobs.sqlite`), which is how
+  `JobManager.realized` finds the file. `exports` is a reserved workspace name:
+  `POST /api/jobs/{id}/export` gathers one finished job into
+  `<workspace>/exports/<job id>/` and `GET /exports/<job id>.zip` streams it.
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it

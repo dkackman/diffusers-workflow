@@ -39,11 +39,13 @@ EXPECTED_TOOLS = {
     "delete_workflow",
     "run_workflow",
     "get_job",
+    "get_job_workflow",
     "get_job_events",
     "wait_for_job",
     "cancel_job",
     "rerun_job",
     "move_job",
+    "export_job",
     "download_model",
     "list_downloads",
     "cancel_download",
@@ -76,6 +78,7 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "cancel_job",
     "rerun_job",
     "move_job",
+    "export_job",
     "download_model",
     "cancel_download",
     "delete_model",
@@ -343,6 +346,7 @@ TOOL_WIRING = [
         "/api/jobs",
     ),
     ("get_job", {"job_id": "j1"}, "GET", "/api/jobs/j1"),
+    ("get_job_workflow", {"job_id": "j1"}, "GET", "/api/jobs/j1/workflow"),
     ("get_job_events", {"job_id": "j1"}, "GET", "/api/jobs/j1/event-log"),
     (
         # timeout_seconds=0 keeps this to the single poll the wiring test
@@ -363,6 +367,7 @@ TOOL_WIRING = [
         "/api/jobs/j1/rerun",
     ),
     ("move_job", {"job_id": "j1", "direction": "up"}, "POST", "/api/jobs/j1/move"),
+    ("export_job", {"job_id": "j1"}, "POST", "/api/jobs/j1/export"),
     (
         "download_model",
         {"repo_id": "org/model", "acknowledged_cost": True},
@@ -600,6 +605,24 @@ async def test_rerun_job_advertises_its_cost():
     description = tools["rerun_job"].description
     assert "COSTS GPU TIME" in description
     assert "acknowledged_cost" in description
+
+
+@pytest.mark.asyncio
+async def test_export_job_warns_the_copy_costs_disk_and_names_total_bytes():
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["export_job"].description
+    assert "copies every output and input" in description
+    assert "total_bytes" in description
+
+
+@pytest.mark.asyncio
+async def test_export_job_sends_the_zip_to_the_working_directory():
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["export_job"].description
+    assert "working directory" in description
+    assert "do not create that folder first" in description
 
 
 @pytest.mark.asyncio

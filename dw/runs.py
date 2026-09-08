@@ -40,6 +40,12 @@ OUTPUT_LAYOUT_ENV_VAR = "DW_OUTPUT_LAYOUT"
 
 MANIFEST_FILE_NAME = "manifest.json"
 
+# The workflow a run actually ran, written beside its manifest. Named
+# 'workflow.json' rather than something run-specific because the directory
+# already says which run it is, and 'python -m dw.run workflow.json' from
+# inside it is the whole reproduction story
+REALIZED_FILE_NAME = "workflow.json"
+
 # The prefix marking a value as a reference to a file an earlier run wrote.
 # Like 'asset:', it stands for a path - what a previous run made is an input
 # like any other, and multi-stage work is what a workflow engine is for
@@ -347,6 +353,25 @@ def write_manifest(run_dir, manifest):
         with open(path, "w") as file:
             json.dump(manifest, file, indent=2, default=str)
     except OSError as e:
+        logger.warning(f"Could not write {path}: {e}")
+        return None
+    return path
+
+
+def write_realized_workflow(run_dir, realized):
+    """Leave the workflow that produced a run beside what it produced.
+
+    The submitted definition says what was asked for; this says what ran -
+    arguments folded in, the seed pinned, stored prompts inlined,
+    'output:latest' resolved. Best effort, exactly like write_manifest: a run
+    that produced its files has succeeded whether or not this lands.
+    """
+    path = os.path.join(run_dir, REALIZED_FILE_NAME)
+    try:
+        os.makedirs(run_dir, exist_ok=True)
+        with open(path, "w") as file:
+            json.dump(realized, file, indent=2, default=str)
+    except (OSError, TypeError, ValueError) as e:
         logger.warning(f"Could not write {path}: {e}")
         return None
     return path

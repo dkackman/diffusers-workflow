@@ -126,8 +126,13 @@ class DwClient:
     def get_json(self, path, params=None):
         return self._json(self._request("GET", path, params=params), path)
 
-    def post_json(self, path, payload=None):
-        return self._json(self._request("POST", path, json=payload or {}), path)
+    def post_json(self, path, payload=None, params=None):
+        """`params` is for a route whose options are query parameters rather
+        than a body - the export route, which takes `overwrite` beside the
+        workspace selector `_scoped` adds."""
+        return self._json(
+            self._request("POST", path, json=payload or {}, params=params), path
+        )
 
     def put_json(self, path, payload):
         return self._json(self._request("PUT", path, json=payload), path)

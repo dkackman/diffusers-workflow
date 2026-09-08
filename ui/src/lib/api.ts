@@ -265,9 +265,12 @@ export const api = {
     ),
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   /** The definition a job ran, for the job page's read-only flow view.
-   * 404s when the job named a workflow file that is no longer readable. */
+   * `realized` true means `definition` is the realized copy the run itself
+   * wrote - every mutable input pinned - rather than the definition as
+   * submitted. 404s when the job named a workflow file that is no longer
+   * readable. */
   getJobWorkflow: (id: string) =>
-    request<{ id: string; definition: Record<string, any> }>(
+    request<{ id: string; definition: Record<string, any>; realized: boolean }>(
       `/api/jobs/${id}/workflow`,
     ),
   rerunJob: (id: string) =>

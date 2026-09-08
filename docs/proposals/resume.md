@@ -128,9 +128,13 @@ version is already scoped to a session where the user can see what happened.
 1. **Prerequisite (done): seed.** `seed` accepts a `variable:` reference, and
    the manifest records the seed actually used. Without both, a seedless
    workflow has nothing to resume against.
-2. **Manifest carries step identity.** Add a per-step digest of the resolved
-   `step_data` to the manifest. Inert on its own — nothing reads it yet — and
-   independently useful for answering "did this run actually run the same thing".
+2. **Manifest carries step identity.** *Satisfied by the realized workflow*
+   ([job-record-and-export.md](job-record-and-export.md)): every run now writes
+   `workflow.json` beside its manifest with every mutable input pinned, so each
+   step's definition as it actually ran is on disk to compare against, and the
+   manifest's per-step files say what it made. A per-step digest may still be
+   worth adding for a cheaper comparison, but the information is no longer
+   missing.
 3. **Rehydration.** A loader that turns manifests into `StepCache` entries, plus
    whatever `StepCache` needs to compare by digest. Behind `--resume`.
 4. **Reload saved media into results.** Widen resumability past files-only

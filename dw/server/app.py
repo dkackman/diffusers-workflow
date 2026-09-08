@@ -53,6 +53,7 @@ from ..schema import load_schema, validate_data, format_validation_errors
 from ..prompts import PROMPT_PREFIX, RESERVED_TEXT_PREFIXES
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
+from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..runs import strip_run_id
@@ -833,17 +834,26 @@ def create_app(
 
     @app.get("/api/jobs/{job_id}/workflow")
     def get_job_workflow(job_id: str):
-        """The workflow definition this job ran, for the read-only graph on
-        the job page. 404 when the job named a file that is no longer
-        readable - the job itself still is."""
+        """The workflow this job ran, for the read-only graph on the job page
+        and for `get_job_workflow` over MCP.
+
+        `realized: true` means every mutable input is pinned - the copy the
+        run itself wrote. `false` means the job predates run tracking (or its
+        run directory is gone) and this is the definition as submitted. 404
+        when neither is readable - the job itself still is."""
         if manager.get(job_id) is None:
             raise HTTPException(status_code=404, detail="Unknown job")
-        definition = manager.definition(job_id)
+        realized = manager.realized(job_id)
+        definition = realized if realized is not None else manager.definition(job_id)
         if definition is None:
             raise HTTPException(
                 status_code=404, detail="No workflow definition for this job"
             )
-        return {"id": job_id, "definition": definition}
+        return {
+            "id": job_id,
+            "definition": definition,
+            "realized": realized is not None,
+        }
 
     @app.post("/api/jobs/{job_id}/rerun", status_code=201)
     def rerun_job(job_id: str):
@@ -855,6 +865,50 @@ def create_app(
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         return manager.describe(job)
+
+    @app.post("/api/jobs/{job_id}/export", status_code=201)
+    def export_job_route(
+        job_id: str,
+        overwrite: bool = False,
+        ws: Workspace = Depends(selected_workspace),
+    ):
+        """Gather one finished job into '<workspace>/exports/<job id>/': the
+        workflow it ran, the run's manifest, the job row, the media it used
+        and the media it made, plus a README. 404 for an unknown job, 409 for
+        one still running or for an export that already exists without
+        `overwrite`.
+
+        The three JSON files come back inline as well as on disk - the
+        directory is on the server, and a client on another machine has no
+        other way to read them without fetching the zip."""
+        try:
+            summary = export_job(
+                manager,
+                job_id,
+                ws.root,
+                _asset_roots_for_job(job_id, ws),
+                overwrite=overwrite,
+            )
+        except FileExistsError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except ValueError as e:
+            message = str(e)
+            if message.startswith("Unknown job"):
+                raise HTTPException(status_code=404, detail=message)
+            raise HTTPException(status_code=409, detail=message)
+        body = summary.as_dict()
+        body["zip_url"] = _served_url(f"/exports/{quote(job_id)}.zip", ws)
+        for key, name in (
+            ("workflow", "workflow.json"),
+            ("manifest", "manifest.json"),
+            ("job", "job.json"),
+        ):
+            try:
+                with open(os.path.join(summary.directory, name), "r") as file:
+                    body[key] = json.load(file)
+            except (OSError, ValueError):
+                body[key] = None
+        return body
 
     class MoveRequest(BaseModel):
         direction: str = Field(description="up, down, front, or back")
@@ -1581,6 +1635,35 @@ def create_app(
                 roots.append(root)
         return roots
 
+    def _asset_roots_for_job(job_id, ws):
+        """The asset search path a job's own run used, for export: its spec's
+        `asset_dir` (or the historical row's), then the read-only example
+        libraries an --examples-dir tree brought with it - the same shape
+        `_asset_roots` builds for the selected workspace, but rooted at
+        wherever the job actually ran rather than at the workspace the
+        caller happens to be scoped to now. A job that ran in one workspace
+        while the caller exports it scoped to another must still find its
+        own 'asset:' files, not the other workspace's.
+
+        Falls back to `_asset_roots(ws)` when the job carries no asset_dir
+        of its own - an inline-workflow job, or one recorded before this
+        field existed."""
+        job = manager.get(job_id)
+        if job is None:
+            return _asset_roots(ws)
+        spec = (job.get("spec") or {}) if isinstance(job, dict) else job.spec
+        asset_dir = spec.get("asset_dir")
+        if not asset_dir:
+            return _asset_roots(ws)
+        roots = []
+        for root in [asset_dir, *app.state.example_asset_dirs]:
+            if not root:
+                continue
+            root = os.path.abspath(root)
+            if root not in roots and os.path.isdir(root):
+                roots.append(root)
+        return roots
+
     def _served_url(path, ws, version=None):
         """The URL a served file is reachable at: the default workspace's
         files keep the URL they have always had, a named one carries the
@@ -2280,6 +2363,47 @@ def create_app(
         # 404 (and its headers) come from StaticFiles as they always did
         files = _static_files_for(roots[0])
         return await files.get_response(name, request.scope)
+
+    # Ungated for the same reason the two above are: a download link cannot
+    # attach an Authorization header either
+    @app.get("/exports/{job_id}.zip")
+    def export_zip(job_id: str, ws: Workspace = Depends(selected_workspace)):
+        """One job's export as a zip, built on request from the directory
+        rather than kept as a second copy. Entries are named
+        '<job id>/<relative path>', so unzipping anywhere gives the same tree
+        the server holds."""
+        try:
+            directory = export_directory(ws.root, job_id)
+        except SecurityError:
+            raise HTTPException(status_code=404, detail="No export for this job")
+        if not os.path.isdir(directory):
+            raise HTTPException(status_code=404, detail="No export for this job")
+
+        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        try:
+            with handle:
+                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for current, _dirs, names in os.walk(directory):
+                        for name in sorted(names):
+                            path = os.path.join(current, name)
+                            entry = os.path.relpath(path, directory).replace(
+                                os.sep, "/"
+                            )
+                            archive.write(path, f"{job_id}/{entry}")
+        except BaseException:
+            # Nothing is going to attach the background unlink now, so the
+            # half-written archive has to go here
+            os.unlink(handle.name)
+            raise
+
+        return FileResponse(
+            handle.name,
+            media_type="application/zip",
+            filename=f"{job_id}.zip",
+            # The archive is a temp file, not a second permanent copy - it
+            # goes as soon as the response has been sent
+            background=BackgroundTask(os.unlink, handle.name),
+        )
 
     # ---------------------------------------------------------------- the UI
 

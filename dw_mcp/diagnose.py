@@ -71,6 +71,23 @@ def get_job(client, job_id):
     return client.get_json(api_path("api", "jobs", job_id))
 
 
+def get_job_workflow(client, job_id):
+    """The workflow a job ran. `realized: true` means every mutable input
+    is pinned (arguments, seed, prompts, output:latest); false means the
+    job predates run tracking and this is the definition as submitted.
+    Pass it to save_workflow to rerun it by name, or edit it and pass it
+    to run_workflow as inline_workflow."""
+    body = client.get_json(api_path("api", "jobs", job_id, "workflow"))
+    return {
+        "job_id": job_id,
+        "realized": bool(body.get("realized")),
+        "workflow": body.get("definition"),
+        "next": "Pass `workflow` to save_workflow to keep it in the catalog "
+        "under a name, or edit it and pass it to run_workflow as "
+        "inline_workflow.",
+    }
+
+
 def get_job_events(client, job_id, after=-1, limit=200):
     """One page of a job's progress events. `after` is exclusive - pass back
     the previous call's `last_seq` to continue."""

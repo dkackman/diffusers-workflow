@@ -119,6 +119,13 @@ Control" section.
    the tags (fewer sections, plainer directions).
 5. To use the track in a later workflow, `keep_output` makes it an `asset:`;
    to trim it in the same run, chain `templates/audio-trim-fade` on the output.
+6. After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
+   so the next run is by name rather than by pasting JSON; `export_job` bundles
+   the run — workflow, manifest, job row and media — for git. The bundle is on
+   the server: fetch its zip URL and unpack it into `exports/` under the
+   session's working directory, never a temp directory, and do not make a
+   folder named after the job id first, since the archive already unpacks
+   into one.
 
 ## Sources
 

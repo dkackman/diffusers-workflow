@@ -85,13 +85,14 @@ def test_progress_event_sequence():
     _run(_workflow_def(), context)
 
     names = [event["event"] for event in events]
-    assert names[0] == "workflow_start"
+    assert names[0] == "run_start"
+    assert names[1] == "workflow_start"
     assert names[-1] == "workflow_end"
     assert "step_start" in names and "step_end" in names
     assert "iteration_start" in names
     assert names.count("pipeline_step") == 3
 
-    start = events[0]
+    start = events[1]
     assert start["workflow"] == "events_test"
     assert start["total_steps"] == 1 and start["steps"] == ["gen0"]
     assert isinstance(start["seed"], int)

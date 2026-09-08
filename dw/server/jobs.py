@@ -23,8 +23,10 @@ from ..security import (
     SecurityError,
     validate_json_size,
     validate_output_path,
+    validate_path,
     validate_workflow_path,
 )
+from ..runs import REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 
@@ -110,6 +112,14 @@ class JobHistory:
             # unjoinable, new history is exact
             if "workflow_name" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN workflow_name TEXT")
+            # Which run of the workflow this job was - the directory under the
+            # output root that holds its manifest and its realized workflow.
+            # NULL for every row predating run tracking, and the manager
+            # refuses to guess one from file paths
+            if "run_id" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN run_id TEXT")
+            if "run_dir" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN run_dir TEXT")
 
     def _connect(self):
         return sqlite3.connect(self.db_path, timeout=5)
@@ -121,8 +131,8 @@ class JobHistory:
             connection.execute(
                 "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
                 " started_at, finished_at, arguments, spec, manifest, warnings,"
-                " error, events, workspace, workflow_name) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " error, events, workspace, workflow_name, run_id, run_dir) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -138,6 +148,8 @@ class JobHistory:
                     json.dumps(job.events[-MAX_PERSISTED_EVENTS:], default=str),
                     job.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
                     job.catalog_name,
+                    job.run_id,
+                    job.run_dir,
                 ),
             )
 
@@ -150,7 +162,7 @@ class JobHistory:
         """
         query = (
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
-            " workspace, workflow_name FROM jobs"
+            " workspace, workflow_name, run_id FROM jobs"
         )
         params = []
         if workspace:
@@ -170,6 +182,7 @@ class JobHistory:
                 "finished_at": row[5],
                 "workspace": row[6] or DEFAULT_WORKSPACE_NAME,
                 "workflow_name": row[7],
+                "run_id": row[8],
                 "historical": True,
             }
             for row in rows
@@ -179,8 +192,8 @@ class JobHistory:
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
-                " arguments, spec, manifest, warnings, error, workspace, workflow_name"
-                " FROM jobs WHERE id = ?",
+                " arguments, spec, manifest, warnings, error, workspace,"
+                " workflow_name, run_id, run_dir FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
@@ -294,6 +307,8 @@ class JobHistory:
             "error": row[10],
             "workspace": row[11] or DEFAULT_WORKSPACE_NAME,
             "workflow_name": row[12],
+            "run_id": row[13],
+            "run_dir": row[14],
             "traceback": None,
             "event_count": 0,
             "historical": True,
@@ -316,6 +331,11 @@ class Job:
         self.warnings = spec.get("warnings", [])
         self.error = None
         self.traceback = None
+        # Which run this job turned out to be - reported by the worker's
+        # run_start event, unknown until then and forever for a job that
+        # never got that far
+        self.run_id = None
+        self.run_dir = None
         self.events = []
         self.condition = threading.Condition()
 
@@ -359,6 +379,7 @@ class Job:
             # carry one yet (e.g. a caller that never named a workspace),
             # so it defaults the same way history's column does
             "workspace": self.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
+            "run_id": self.run_id,
         }
 
     def detail(self):
@@ -370,6 +391,7 @@ class Job:
             "error": self.error,
             "traceback": self.traceback,
             "event_count": len(self.events),
+            "run_dir": self.run_dir,
         }
 
 
@@ -547,6 +569,39 @@ class JobManager:
                 return json.load(file)
         except (SecurityError, OSError, ValueError):
             logger.debug(f"No workflow definition available for job {job_id}")
+            return None
+
+    def realized(self, job_id):
+        """The realized workflow a job ran, or None when the job predates
+        run tracking or its run directory no longer holds the file.
+
+        Read from the job's own output directory, not the manager's: one
+        server holds several workspaces, and a job carries the root it ran
+        against. The join is confined to that root, so a run_dir read back
+        out of the database cannot name anything outside it.
+        """
+        job = self.jobs.get(job_id)
+        if job is not None:
+            run_dir = job.run_dir
+            output_dir = job.spec.get("output_dir") or self.output_dir
+        else:
+            historical = self.history.get(job_id)
+            if historical is None:
+                return None
+            run_dir = historical.get("run_dir")
+            output_dir = (historical.get("spec") or {}).get(
+                "output_dir"
+            ) or self.output_dir
+        if not run_dir:
+            return None
+        try:
+            root = validate_output_path(output_dir, None)
+            path = validate_path(os.path.join(root, run_dir, REALIZED_FILE_NAME), root)
+            validate_json_size(path)
+            with open(path, "r") as file:
+                return json.load(file)
+        except (SecurityError, OSError, ValueError) as e:
+            logger.debug(f"No realized workflow for job {job_id}: {e}")
             return None
 
     def rerun(self, job_id):
@@ -809,6 +864,9 @@ class JobManager:
                     event["files"] = self._relative_output_names(
                         event["files"], job.spec.get("output_dir")
                     )
+                if event.get("event") == "run_start":
+                    job.run_id = event.get("run_id")
+                    job.run_dir = event.get("run_dir")
                 job.add_event(event)
             elif message_type in ("output", "workflow_loaded"):
                 text = message.get("message") or message.get("workflow_name", "")

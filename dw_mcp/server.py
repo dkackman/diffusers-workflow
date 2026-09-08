@@ -17,6 +17,7 @@ from dw_mcp import (
     authoring,
     catalog,
     diagnose,
+    exports,
     guides,
     media,
     models,
@@ -612,6 +613,17 @@ def build_server(client):
         are what to read before changing anything."""
         return diagnose.get_job(client, job_id)
 
+    def get_job_workflow(job_id: str) -> dict:
+        """Get the workflow a job actually ran. When `realized` is true every
+        mutable input is pinned - the caller's arguments folded into the
+        variables, the seed the run used, stored prompt text inlined, and any
+        `output:.../latest/...` rewritten to the run it resolved to - so the
+        definition reproduces that run however the library changes. When it is
+        false the job predates run tracking and this is the definition as
+        submitted. After a long inline run worth keeping, this then
+        `save_workflow` is how it gets a name."""
+        return diagnose.get_job_workflow(client, job_id)
+
     def get_job_events(job_id: str, after: int = -1, limit: int = 200) -> dict:
         """Get a page of a job's progress events - phase transitions, memory
         readings and log lines. `after` is exclusive: pass back the previous
@@ -648,10 +660,29 @@ def build_server(client):
         already running cannot."""
         return diagnose.move_job(client, job_id, direction)
 
+    def export_job(job_id: str, overwrite: bool = False) -> dict:
+        """Gather one finished job into a directory on the server: the
+        realized workflow, the run's manifest, the job row, a README, and
+        copies of every asset it used, every earlier run's file it read and
+        every file it made. The export copies every output and input file
+        rather than linking them, so a video job's export costs its size
+        again on the server's disk; `total_bytes` in the result reports
+        what was copied. Returns the directory, a zip URL, the file list
+        with sizes and the total, and the three JSON files inline. THE
+        DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours. To give
+        the user the files, fetch the zip URL and unpack it into exports/
+        under the session's working directory - it is the user's deliverable,
+        not a temp file; the archive already unpacks into one folder named
+        after the job id, so do not create that folder first. Refuses a job
+        that is still running; refuses an existing export unless
+        overwrite=true."""
+        return exports.export_job(client, job_id, overwrite=overwrite)
+
     tool(get_job, READ_ONLY)
+    tool(get_job_workflow, READ_ONLY)
     tool(get_job_events, READ_ONLY)
     tool(wait_for_job, READ_ONLY)
-    for fn in (run_workflow, cancel_job, rerun_job, move_job):
+    for fn in (run_workflow, cancel_job, rerun_job, move_job, export_job):
         tool(fn, WRITES)
 
     # -------------------------------------------------------------- models
