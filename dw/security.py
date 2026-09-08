@@ -16,7 +16,9 @@ MAX_PATH_LENGTH = 4096
 MAX_FILENAME_LENGTH = 255
 MAX_JSON_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_VARIABLE_NAME_LENGTH = 100
-MAX_VARIABLE_VALUE_LENGTH = 10000
+# A packaged builtin's system prompt (h3_context_ir) is a variable default and runs to
+# about 11k characters, so the guard sits above that with headroom.
+MAX_VARIABLE_VALUE_LENGTH = 20000
 MAX_CONSTANT_NAME_LENGTH = 200
 DEFAULT_MAX_STRING_LENGTH = 1000
 MAX_FILE_PATH_LENGTH = 1000

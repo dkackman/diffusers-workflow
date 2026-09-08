@@ -6,9 +6,11 @@ audit found three things it got wrong and one it left out; these tests keep
 the corrections in place and the unsourced lines out.
 """
 
+import glob
 import json
 import os
 
+from dw.security import MAX_VARIABLE_VALUE_LENGTH
 from tests.test_examples import BUILTIN_DIR
 
 
@@ -60,3 +62,18 @@ def test_the_unsourced_lines_are_gone():
     assert "artist names" not in prompt
     # The confirmed part of that line stays
     assert "no negative prompt" in prompt
+
+
+def test_every_builtin_variable_default_fits_the_variable_length_limit():
+    """A builtin's variable default passes through the same validation as a user's
+    argument, so one that exceeds the limit fails every workflow that runs it."""
+    for path in glob.glob(os.path.join(BUILTIN_DIR, "**", "*.json"), recursive=True):
+        with open(path, encoding="utf-8") as f:
+            spec = json.load(f)
+
+        for name, value in spec.get("variables", {}).items():
+            if isinstance(value, str):
+                assert len(value) <= MAX_VARIABLE_VALUE_LENGTH, (
+                    f"{path}: variable {name!r} is {len(value)} chars, "
+                    f"over the {MAX_VARIABLE_VALUE_LENGTH} limit"
+                )
