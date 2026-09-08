@@ -557,7 +557,7 @@ once, not twice.
 - **Ignored when the component's device is the CPU**, where there is nothing to move it
   off of.
 
-On a 24GB card, `MiniMaxH3Ref2VA.json` peaks at 18.9GiB of reserved VRAM with on-demand
+On a 24GB card, `templates/minimax/reference-to-video.json` peaks at 18.9GiB of reserved VRAM with on-demand
 VAEs against 23.2GiB resident, and the tighter resident fit costs 40 allocator retries -
 cache flushes forced by a failed allocation - where the on-demand run has none. The
 headroom is also what lets the chained variant run: its later segments carry an extra

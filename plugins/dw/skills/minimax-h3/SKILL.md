@@ -70,7 +70,7 @@ read the `workflows` guide's authoring section first.
 
 ## Hard rules
 
-- `num_frames` is `17n + 5`, from 124 to 345, at a fixed 24 fps: 5.2 to 14.4
+- `num_frames` is `17n + 5`, from 124 to 345, at a fixed 24 fps: 5.17 to 14.4
   seconds in one clip. Most templates default to 124 for fast iteration (storyboard uses 192); `num_frames=345`
   is the full length and fits the same 24 GB configuration. The 5-second floor
   is diffusers'; the model card says 4.

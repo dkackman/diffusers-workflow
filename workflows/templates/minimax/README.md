@@ -56,10 +56,16 @@ should span the full duration, since a prompt scripted for five seconds
 conditions a five-second story regardless of the frame count. Reach for chains
 and cuts when you need to go past 14 seconds.
 
-A note on the canvas: H3 draws on a 768-pixel short edge (960x544 in these
-examples is the speed choice, coupled to the 544p turbo LoRA and its nine steps -
-change one and change the others), dimensions are multiples of 32, and aspect ratios
-run from 1:4 to 4:1. The 5-second floor is diffusers' constraint; the model card and
+A note on the canvas: H3 draws on a 768-pixel short edge, dimensions are
+multiples of 32, and aspect ratios run from 1:4 to 4:1. Every example renders at
+960x544, the speed choice. The text- and frame-conditioned ones couple it to the
+544p turbo LoRA and its nine steps - change one and change the others. The six
+conditioned on references alone (`reference-to-video`, `composable-references`,
+`voice-timbre-reference`, `generated-subject-reference`, `chain-matched-to-audio`,
+`chain-video-continuity`) load no LoRA and run 20 steps, because the turbo LoRA is
+distilled against the base transformer and they load the reference one;
+`storyboard`, `dialogue-short`, `music-video` and `chain-matched-and-aligned` pass
+references and still keep the turbo LoRA at nine. The 5-second floor is diffusers' constraint; the model card and
 the hosted API accept 4. Output audio is 32 kHz stereo.
 
 ## Conditioning on frames
@@ -86,6 +92,10 @@ the hosted API accept 4. Output audio is 32 kHz stereo.
 | [composable-references.json](composable-references.json) | A video reference contributes framing, lighting and camera rather than appearance |
 | [generated-subject-reference.json](generated-subject-reference.json) | Drawing the subject with Z-Image first and referencing it with `from_previous_result` |
 | [storyboard.json](storyboard.json) | Several images in one request: a first frame plus storyboard anchors for later shots, so one generation cuts between three boards under an unbroken score |
+
+Ref2VA takes at most 9 images, 3 videos, 3 audio clips and 12 files in total, and
+audio can never be the only reference. Labels follow the order the request passes
+them, numbered independently per category.
 
 ## Going long: chains
 
