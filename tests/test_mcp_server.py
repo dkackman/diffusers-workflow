@@ -39,6 +39,7 @@ EXPECTED_TOOLS = {
     "delete_workflow",
     "run_workflow",
     "get_job",
+    "get_job_workflow",
     "get_job_events",
     "wait_for_job",
     "cancel_job",
@@ -343,6 +344,7 @@ TOOL_WIRING = [
         "/api/jobs",
     ),
     ("get_job", {"job_id": "j1"}, "GET", "/api/jobs/j1"),
+    ("get_job_workflow", {"job_id": "j1"}, "GET", "/api/jobs/j1/workflow"),
     ("get_job_events", {"job_id": "j1"}, "GET", "/api/jobs/j1/event-log"),
     (
         # timeout_seconds=0 keeps this to the single poll the wiring test

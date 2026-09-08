@@ -612,6 +612,17 @@ def build_server(client):
         are what to read before changing anything."""
         return diagnose.get_job(client, job_id)
 
+    def get_job_workflow(job_id: str) -> dict:
+        """Get the workflow a job actually ran. When `realized` is true every
+        mutable input is pinned - the caller's arguments folded into the
+        variables, the seed the run used, stored prompt text inlined, and any
+        `output:.../latest/...` rewritten to the run it resolved to - so the
+        definition reproduces that run however the library changes. When it is
+        false the job predates run tracking and this is the definition as
+        submitted. After a long inline run worth keeping, this then
+        `save_workflow` is how it gets a name."""
+        return diagnose.get_job_workflow(client, job_id)
+
     def get_job_events(job_id: str, after: int = -1, limit: int = 200) -> dict:
         """Get a page of a job's progress events - phase transitions, memory
         readings and log lines. `after` is exclusive: pass back the previous
@@ -649,6 +660,7 @@ def build_server(client):
         return diagnose.move_job(client, job_id, direction)
 
     tool(get_job, READ_ONLY)
+    tool(get_job_workflow, READ_ONLY)
     tool(get_job_events, READ_ONLY)
     tool(wait_for_job, READ_ONLY)
     for fn in (run_workflow, cancel_job, rerun_job, move_job):

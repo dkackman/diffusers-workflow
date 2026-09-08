@@ -332,3 +332,58 @@ def test_wait_for_job_does_not_require_acknowledged_cost():
     result = diagnose.wait_for_job(client, "job-1")
 
     assert result["status"] == "succeeded"
+
+
+class TestGetJobWorkflow:
+    def test_a_realized_workflow_comes_back_with_the_flag_set(self):
+        client, seen = scripted(
+            {
+                ("GET", "/api/jobs/job-1/workflow"): (
+                    200,
+                    {"id": "job-1", "definition": WORKFLOW, "realized": True},
+                )
+            }
+        )
+
+        result = diagnose.get_job_workflow(client, "job-1")
+
+        assert result["job_id"] == "job-1"
+        assert result["realized"] is True
+        assert result["workflow"] == WORKFLOW
+        assert len(seen) == 1
+
+    def test_a_pre_tracking_job_reports_the_submitted_definition(self):
+        client, _ = scripted(
+            {
+                ("GET", "/api/jobs/job-1/workflow"): (
+                    200,
+                    {"id": "job-1", "definition": WORKFLOW, "realized": False},
+                )
+            }
+        )
+
+        result = diagnose.get_job_workflow(client, "job-1")
+
+        assert result["realized"] is False
+        assert result["workflow"] == WORKFLOW
+
+    def test_next_names_the_two_tools_that_use_it(self):
+        client, _ = scripted(
+            {
+                ("GET", "/api/jobs/job-1/workflow"): (
+                    200,
+                    {"id": "job-1", "definition": WORKFLOW, "realized": True},
+                )
+            }
+        )
+
+        result = diagnose.get_job_workflow(client, "job-1")
+
+        assert "save_workflow" in result["next"]
+        assert "run_workflow" in result["next"]
+
+    def test_an_unknown_job_raises_the_client_error(self):
+        client, _ = scripted({})
+
+        with pytest.raises(DwApiError):
+            diagnose.get_job_workflow(client, "nope")
