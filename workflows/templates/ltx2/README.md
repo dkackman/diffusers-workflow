@@ -16,6 +16,10 @@ written to it. Settings come from the
 `ltx-pipelines` notes. Audited against those sources on 2026-09-07
 ([the audit](../../../docs/proposals/audits/2026-09-07-ltx-2.5-audit.md)).
 
+An agent driving this family from Claude Code has the `ltx-2.5` skill of the
+[dw plugin](../../../plugins/dw/README.md), which chooses among these templates
+and carries the caption spec.
+
 Read them in this order and each introduces one new idea on top of the last.
 
 ## The basics

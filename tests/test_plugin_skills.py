@@ -138,3 +138,54 @@ class TestMiniMaxH3Skill:
     def test_the_skill_starts_with_the_server(self):
         text = skill_text(H3_SKILL)
         assert text.index("get_server_info") < text.index("templates/minimax/")
+
+
+LTX_SKILL = os.path.join(PLUGIN_DIR, "skills", "ltx-2.5", "SKILL.md")
+
+
+def _fenced_block_after(text, heading):
+    """The first fenced code block after a markdown heading."""
+    start = text.index(heading)
+    open_fence = text.index("\n```", start)
+    open_end = text.index("\n", open_fence + 1)
+    close_fence = text.index("\n```", open_end)
+    return text[open_end + 1 : close_fence]
+
+
+class TestLtx25Skill:
+    """The LTX-2.5 skill's numbers come from the pipeline that enforces them,
+    and the one vendor text it quotes is the library's own constant."""
+
+    def test_the_schedule_is_the_library_s(self):
+        from diffusers.pipelines.ltx2.utils import DISTILLED_SIGMA_VALUES, STAGE_2_DISTILLED_SIGMA_VALUES
+
+        text = skill_text(LTX_SKILL)
+        assert len(DISTILLED_SIGMA_VALUES) == 8 and "eight" in text
+        assert len(STAGE_2_DISTILLED_SIGMA_VALUES) == 3 and "three" in text
+        assert str(STAGE_2_DISTILLED_SIGMA_VALUES[0]) in text
+
+    def test_the_size_and_frame_rules_are_the_pipeline_s(self):
+        import inspect
+
+        from diffusers.pipelines.ltx2 import pipeline_ltx2
+        from diffusers.pipelines.ltx2.utils import MAX_CONDITIONING_FPS
+
+        text = skill_text(LTX_SKILL)
+        source = inspect.getsource(pipeline_ltx2)
+        assert "height % 32 != 0 or width % 32 != 0" in source and "32" in text
+        assert "(num_frames - 1) // self.vae_temporal_compression_ratio + 1" in source
+        assert "8k + 1" in text or "8n + 1" in text
+        assert MAX_CONDITIONING_FPS == 60.0 and "60" in text
+
+    def test_the_quoted_caption_spec_is_the_library_constant(self):
+        """The one vendor text the plugin carries, tied to the library that
+        ships it so it cannot drift."""
+        from diffusers.pipelines.ltx2.utils import LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT
+
+        quoted = _fenced_block_after(skill_text(LTX_SKILL), "## The trained caption spec")
+
+        assert " ".join(quoted.split()) == " ".join(LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT.split())
+
+    def test_the_skill_starts_with_the_server(self):
+        text = skill_text(LTX_SKILL)
+        assert text.index("get_server_info") < text.index("templates/ltx2/")
