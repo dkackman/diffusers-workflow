@@ -136,7 +136,8 @@ Two things about the checkpoint are worth knowing before tuning anything:
   blocks tile - and the attention mask they build is quadratic in the output grid:
   70GiB at 1536x896x121, which no tile size reduces. Base resolution fits comfortably.
   And a step that returns latents returns *audio* latents too, which nothing outside a
-  pipeline call can vocode, so that path is silent. Nothing here ships it.
+  pipeline call can vocode - the two-stage template below feeds them back into one,
+  which is the only way they become sound. Nothing here ships the diffusion decoder.
 
 Spend headroom on the two-stage flow rather than on base resolution: render at 768x448
 on the eight distilled sigmas, double the video latents with the latent upsampler, then

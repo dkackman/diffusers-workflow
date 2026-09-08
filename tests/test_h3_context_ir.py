@@ -11,7 +11,7 @@ import json
 import os
 
 from dw.security import MAX_VARIABLE_VALUE_LENGTH
-from tests.test_examples import BUILTIN_DIR
+from tests.test_examples import BUILTIN_DIR, REPO_ROOT
 
 
 def _system_prompt():
@@ -64,16 +64,40 @@ def test_the_unsourced_lines_are_gone():
     assert "no negative prompt" in prompt
 
 
-def test_every_builtin_variable_default_fits_the_variable_length_limit():
-    """A builtin's variable default passes through the same validation as a user's
-    argument, so one that exceeds the limit fails every workflow that runs it."""
-    for path in glob.glob(os.path.join(BUILTIN_DIR, "**", "*.json"), recursive=True):
+def test_the_context_ir_system_prompt_fits_the_variable_length_limit():
+    """The prompt reaches set_variables as a sub-workflow argument whenever a template
+    passes it explicitly, so it must fit MAX_VARIABLE_VALUE_LENGTH."""
+    prompt = _system_prompt()
+
+    assert len(prompt) <= MAX_VARIABLE_VALUE_LENGTH, (
+        f"the Context-IR system prompt is {len(prompt)} chars, "
+        f"over the {MAX_VARIABLE_VALUE_LENGTH} limit"
+    )
+
+
+def _system_prompt_values(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "system_prompt":
+                yield value
+            yield from _system_prompt_values(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _system_prompt_values(item)
+
+
+def test_no_catalog_template_overrides_the_context_ir_system_prompt():
+    """The builtin carries the corrected prompt; a stored copy would go stale."""
+    pattern = os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "*.json")
+    paths = glob.glob(pattern)
+    assert paths
+
+    for path in paths:
         with open(path, encoding="utf-8") as f:
             spec = json.load(f)
 
-        for name, value in spec.get("variables", {}).items():
-            if isinstance(value, str):
-                assert len(value) <= MAX_VARIABLE_VALUE_LENGTH, (
-                    f"{path}: variable {name!r} is {len(value)} chars, "
-                    f"over the {MAX_VARIABLE_VALUE_LENGTH} limit"
-                )
+        for value in _system_prompt_values(spec):
+            assert not (
+                isinstance(value, str)
+                and value.startswith("prompt:prompt_enhancement/minimax_h3")
+            ), f"{path}: overrides the builtin's system prompt with a stored copy"
