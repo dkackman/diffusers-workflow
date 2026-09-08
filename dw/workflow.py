@@ -25,6 +25,7 @@ from .step_cache import (
 )
 from .runs import (
     FLAT_LAYOUT,
+    REALIZED_FILE_NAME,
     activate_output_root,
     deactivate_output_root,
     workflow_identity,
@@ -33,7 +34,9 @@ from .runs import (
     output_layout,
     run_directory,
     write_manifest,
+    write_realized_workflow,
 )
+from .realize import realize_workflow
 from .schema import validate_data_all, format_validation_errors, load_schema
 from .variables import replace_variables, set_variables
 from .pipeline_processors.pipeline import Pipeline
@@ -334,6 +337,11 @@ class Workflow:
         # manifest of every seedless run and lose the only record of what produced
         # its files - the seed is what makes a run repeatable
         resolved_seed = None
+        # What the run recorded about itself, read by _write_run_manifest in
+        # the finally below - initialized here so a failure before the run
+        # directory exists still writes a well-formed manifest
+        realized_name = None
+        annotations = {"prompts": [], "sub_workflows": {}}
         started_at = datetime.now(timezone.utc).isoformat()
         try:
             # CRITICAL: Work on a copy to avoid mutating the original workflow definition
@@ -421,6 +429,28 @@ class Workflow:
                         self.output_dir, self.file_spec, workflow_id, run_id
                     )
                     logger.debug(f"Run directory: {self._run_dir}")
+
+            # The record of what actually ran, written before the first step
+            # so a crash or a cancel still leaves it. A sub-workflow inherits
+            # the parent's directory and writes none of its own, as with the
+            # manifest, and the flat layout has no directory to write into
+            if self._run_dir and not self._run_dir_inherited:
+                try:
+                    realized, annotations = realize_workflow(
+                        self.workflow_definition,
+                        arguments,
+                        default_seed,
+                        base_dir=base_dir,
+                        output_root=self.output_dir,
+                        workflow_dir=self.workflow_dir,
+                    )
+                    if write_realized_workflow(self._run_dir, realized):
+                        realized_name = REALIZED_FILE_NAME
+                except Exception as e:
+                    # Never fatal: the record is worth less than the run
+                    logger.warning(
+                        f"Could not realize workflow {workflow_id}: {e}"
+                    )
 
             # Initialize collections for sharing state between steps
             results = {}  # Stores results from each step
@@ -660,12 +690,27 @@ class Workflow:
             # what a failed run needs to explain itself
             if self._run_dir and not self._run_dir_inherited:
                 self._write_run_manifest(
-                    run_id, status, started_at, arguments, resolved_seed
+                    run_id,
+                    status,
+                    started_at,
+                    arguments,
+                    resolved_seed,
+                    realized_name,
+                    annotations,
                 )
             deactivate_output_root(output_root_token)
             deactivate_context(context_token)
 
-    def _write_run_manifest(self, run_id, status, started_at, arguments, seed):
+    def _write_run_manifest(
+        self,
+        run_id,
+        status,
+        started_at,
+        arguments,
+        seed,
+        realized_name=None,
+        annotations=None,
+    ):
         """Leave a record of the run beside the files it wrote.
 
         A server run is in jobs.sqlite as well, but a CLI run has never been
@@ -688,6 +733,15 @@ class Workflow:
                     "id": self.name,
                     "file": self.file_spec,
                     "identity": workflow_identity(self.file_spec, self.name),
+                    # The realized copy beside this manifest, or null when
+                    # writing it did not land - the manifest is the only
+                    # place that difference is visible
+                    "realized": realized_name,
+                    # Annotations the schema has nowhere to put: which
+                    # stored prompts were inlined, and what each local
+                    # sub-workflow file held when it ran
+                    "prompts": (annotations or {}).get("prompts", []),
+                    "sub_workflows": (annotations or {}).get("sub_workflows", {}),
                 },
                 "seed": seed,
                 "arguments": arguments or {},

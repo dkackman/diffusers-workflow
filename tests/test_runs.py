@@ -340,3 +340,75 @@ class TestRunDirectories:
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["status"] == "completed"
         assert manifest["workflow"]["id"] == "empty_steps_test"
+
+
+class TestRealizedWorkflow:
+    def test_the_run_directory_holds_a_realized_copy(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        definition = _workflow_definition()
+        definition["variables"] = {"prompt": "a default"}
+        definition["steps"][0]["pipeline"]["arguments"]["prompt"] = "variable:prompt"
+        Workflow(definition, str(tmp_path), "/w/workflows/ltx2/Gyre.json").run(
+            {"prompt": "a cat"}
+        )
+
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        realized = json.loads((run_dir / "workflow.json").read_text())
+        assert realized["variables"] == {"prompt": "a cat"}
+        assert realized["seed"] == 7
+        # the reference stays, so the file is still runnable with overrides
+        assert realized["steps"][0]["pipeline"]["arguments"]["prompt"] == (
+            "variable:prompt"
+        )
+
+    def test_the_manifest_points_at_it(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        Workflow(
+            _workflow_definition(), str(tmp_path), "/w/workflows/ltx2/Gyre.json"
+        ).run({})
+
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        assert manifest["workflow"]["realized"] == "workflow.json"
+        assert manifest["workflow"]["prompts"] == []
+        assert manifest["workflow"]["sub_workflows"] == {}
+
+    def test_a_seedless_run_pins_the_seed_it_drew(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        definition = _workflow_definition()
+        del definition["seed"]
+        Workflow(definition, str(tmp_path), "/w/workflows/ltx2/Gyre.json").run({})
+
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        realized = json.loads((run_dir / "workflow.json").read_text())
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        assert isinstance(realized["seed"], int)
+        assert realized["seed"] == manifest["seed"]
+
+    def test_the_flat_layout_writes_none(self, tmp_path, fake_pipeline, monkeypatch):
+        from dw.workflow import Workflow
+
+        monkeypatch.setenv(OUTPUT_LAYOUT_ENV_VAR, FLAT_LAYOUT)
+        Workflow(
+            _workflow_definition(), str(tmp_path), "/w/workflows/ltx2/Gyre.json"
+        ).run({})
+
+        assert not list(tmp_path.rglob("workflow.json"))
+
+    def test_writing_it_is_best_effort(self, tmp_path):
+        from dw.runs import write_realized_workflow
+
+        # a run directory that cannot be made - the run still succeeded
+        blocker = tmp_path / "blocker"
+        blocker.write_text("not a directory")
+        assert write_realized_workflow(str(blocker / "run"), {"id": "x"}) is None
+
+    def test_writing_it_returns_the_path(self, tmp_path):
+        from dw.runs import write_realized_workflow
+
+        path = write_realized_workflow(str(tmp_path / "run"), {"id": "x"})
+        assert path == str(tmp_path / "run" / "workflow.json")
+        assert json.loads(open(path).read()) == {"id": "x"}
