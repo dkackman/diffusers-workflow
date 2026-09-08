@@ -12,8 +12,9 @@ Lightricks' own caption spec, quoted below from diffusers.
 
 ## Before anything
 
-1. `get_server_info`: the device (these templates quantize with SDNQ on CUDA)
-   and the workspace.
+1. `get_server_info`: the device and the workspace. These templates quantize
+   with SDNQ on CUDA; on an `mps` or `cpu` server say so and stop, because
+   none of them fit there.
 2. `list_workflows(shape="shot")`: all eight of the family's templates carry
    that shape. Take their current names, `summary`, `traits` and `cost` from
    the listing and trust it over the names quoted below.
@@ -31,15 +32,17 @@ Lightricks' own caption spec, quoted below from diffusers.
   flow - eight sigmas at 768x448, a 2x latent upsample, then renoise and three
   stage-two sigmas at 1536x896 with the audio latents carried through. The
   upsample alone is soft; the refine pass is where the detail comes from.
-- **A 2x upscale of an existing clip**: `templates/ltx2/generative-upscale`,
-  the IC-LoRA re-rendering at twice the size and inventing detail. For a clean
-  low-resolution render, not compressed footage. It runs the same eight
-  distilled sigmas at guidance 1.0 as everything else; `base_width` and
-  `base_height` are the source clip's size, `width` and `height` the doubled
-  target.
-- **Longer**: `templates/ltx2/extend-clip` continues a clip conditioned on all
-  of it; `templates/ltx2/chained-segments` re-runs per segment on the previous
-  last frame and stitches. Neither is a Lightricks recipe; both are dw's, and
+- **A generative 2x render**: `templates/ltx2/generative-upscale` draws its own
+  low-resolution pass and has the IC-LoRA re-render it at twice the size,
+  inventing detail rather than interpolating. `base_width` and `base_height`
+  are that first render's size, `width` and `height` the doubled target; both
+  passes run the same eight distilled sigmas at guidance 1.0. Nothing in this
+  family takes a user-supplied video, so a user's own footage is not a fit for
+  any of these templates.
+- **Longer**: `templates/ltx2/extend-clip` generates an opening and then
+  continues it conditioned on the whole opening, not on a single frame - a
+  supplied clip is not an input here either; `templates/ltx2/chained-segments`
+  re-runs per segment on the previous last frame and stitches. Neither is a Lightricks recipe; both are dw's, and
   a single 481-frame pass reaches 20 seconds before either is needed.
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and
@@ -48,8 +51,10 @@ read the `workflows` guide's authoring section first.
 ## Hard rules
 
 - `num_frames` is `8k + 1` (121, 241, 481); `width` and `height` are multiples
-  of 32; 24 fps. Higher frame rates: condition at 60 at most, never 120 - RoPE
-  time is `frame / fps`, and the model is trained around 24, 25, 30 and 60.
+  of 32. The templates generate at 24 fps. The 60 ceiling is a separate rule,
+  on the frame rate a conditioning video or a higher-fps request is expressed
+  at: at most 60, never 120 - RoPE time is `frame / fps`, and the model is
+  trained around 24, 25, 30 and 60.
 - The distilled transformer runs its eight trained sigmas (`DISTILLED_SIGMA_VALUES`)
   with `guidance_scale` 1.0 and STG and modality guidance off. No
   `num_inference_steps`. Those knobs mean something only against the dev
