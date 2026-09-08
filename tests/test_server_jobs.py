@@ -15,7 +15,6 @@ from dw.server.jobs import TERMINAL_STATES, JobHistory, JobManager
 
 from .test_server import ScriptedWorkerManager, valid_workflow
 
-
 RUN_ID = new_run_id({"workflow": "spec"})
 RUN_DIR = f"server_test/{RUN_ID}"
 

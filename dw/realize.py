@@ -79,9 +79,7 @@ def realize_workflow(
 
     realized["seed"] = seed
     realized = _pin(realized, annotations, base_dir, prompt_dir, output_root)
-    _record_sub_workflows(
-        realized.get("steps"), annotations, base_dir, workflow_dir
-    )
+    _record_sub_workflows(realized.get("steps"), annotations, base_dir, workflow_dir)
     return realized, annotations
 
 

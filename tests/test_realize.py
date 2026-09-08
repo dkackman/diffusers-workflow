@@ -56,9 +56,7 @@ def output_root(tmp_path):
 
 class TestVariablesAndSeed:
     def test_arguments_become_the_variable_defaults(self):
-        realized, _ = realize_workflow(
-            definition(), {"prompt": "a cat", "steps": 4}, 7
-        )
+        realized, _ = realize_workflow(definition(), {"prompt": "a cat", "steps": 4}, 7)
         assert realized["variables"] == {"prompt": "a cat", "steps": 4}
 
     def test_variable_references_are_left_alone(self):
@@ -93,9 +91,9 @@ class TestPrompts:
     def test_a_name_is_annotated_once_in_first_seen_order(self, prompt_library):
         source = definition()
         source["steps"][0]["pipeline"]["arguments"]["prompt"] = "prompt:scenic/dusk"
-        source["steps"][0]["pipeline"]["arguments"]["negative_prompt"] = (
-            "prompt:scenic/dusk"
-        )
+        source["steps"][0]["pipeline"]["arguments"][
+            "negative_prompt"
+        ] = "prompt:scenic/dusk"
 
         _, annotations = realize_workflow(source, {}, 7, prompt_dir=prompt_library)
 
@@ -119,9 +117,9 @@ class TestOutputReferences:
     def test_latest_is_pinned_to_the_run_it_resolved_to(self, output_root):
         root, run_id = output_root
         source = definition()
-        source["steps"][0]["pipeline"]["arguments"]["image"] = (
-            "output:ltx2/Gyre/latest/still.png"
-        )
+        source["steps"][0]["pipeline"]["arguments"][
+            "image"
+        ] = "output:ltx2/Gyre/latest/still.png"
 
         realized, _ = realize_workflow(source, {}, 7, output_root=root)
 
@@ -216,9 +214,7 @@ def test_the_realized_file_validates_against_the_schema(prompt_library):
     source = definition()
     source["steps"][0]["pipeline"]["arguments"]["prompt"] = "prompt:scenic/dusk"
 
-    realized, _ = realize_workflow(
-        source, {"steps": 4}, 991, prompt_dir=prompt_library
-    )
+    realized, _ = realize_workflow(source, {"steps": 4}, 991, prompt_dir=prompt_library)
 
     ok, message = validate_data(realized, load_schema("workflow"))
     assert ok, message

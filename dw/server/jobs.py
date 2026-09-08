@@ -589,16 +589,14 @@ class JobManager:
             if historical is None:
                 return None
             run_dir = historical.get("run_dir")
-            output_dir = (
-                historical.get("spec") or {}
-            ).get("output_dir") or self.output_dir
+            output_dir = (historical.get("spec") or {}).get(
+                "output_dir"
+            ) or self.output_dir
         if not run_dir:
             return None
         try:
             root = validate_output_path(output_dir, None)
-            path = validate_path(
-                os.path.join(root, run_dir, REALIZED_FILE_NAME), root
-            )
+            path = validate_path(os.path.join(root, run_dir, REALIZED_FILE_NAME), root)
             validate_json_size(path)
             with open(path, "r") as file:
                 return json.load(file)

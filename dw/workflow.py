@@ -448,9 +448,7 @@ class Workflow:
                         realized_name = REALIZED_FILE_NAME
                 except Exception as e:
                     # Never fatal: the record is worth less than the run
-                    logger.warning(
-                        f"Could not realize workflow {workflow_id}: {e}"
-                    )
+                    logger.warning(f"Could not realize workflow {workflow_id}: {e}")
 
                 # Which run this is, so a server job can find the directory
                 # it wrote. Emitted even when the realized file did not land:
@@ -459,9 +457,9 @@ class Workflow:
                     "run_start",
                     run_id=run_id,
                     identity=workflow_identity(self.file_spec, workflow_id),
-                    run_dir=os.path.relpath(
-                        self._run_dir, self.output_dir
-                    ).replace(os.sep, "/"),
+                    run_dir=os.path.relpath(self._run_dir, self.output_dir).replace(
+                        os.sep, "/"
+                    ),
                 )
 
             # Initialize collections for sharing state between steps
