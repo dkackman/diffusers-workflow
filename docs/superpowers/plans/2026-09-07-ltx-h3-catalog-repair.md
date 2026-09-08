@@ -188,7 +188,7 @@ Replace the whole of `workflows/templates/ltx2/two-stage.json` with the followin
 {
     "id": "LTX2TwoStage",
     "description": "LTX-2.5's distilled two-stage flow in its three moves: render at half size on the eight distilled sigmas, double the video latents with the latent upsampler, then renoise them and run the three stage-two sigmas at full size through the same pipeline. The soundtrack is generated in the base pass and its latents are carried through the refine pass unchanged, so the finished clip has the audio the base pass made. Latents pass between the steps directly - nothing is decoded to pixels and re-encoded. The renoise scale 0.909375 is the first value of the library's STAGE_2_DISTILLED_SIGMA_VALUES, which a reference cannot name, so it is written out and a test holds it to the constant. The base pass keeps its pipeline loaded for the refine pass (identical configurations load once); the refine pass releases it. The upsampler borrows the base pass's VAE.",
-    "summary": "LTX-2.5 video with audio at 1536x896 by the distilled two-stage flow: half-size render, 2x latent upsample, three-sigma refine.",
+    "summary": "LTX-2.5 video with audio at 1536x896: half-size render, 2x latent upsample, three-sigma refine.",
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
