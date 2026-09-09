@@ -82,6 +82,9 @@ def get_job_workflow(client, job_id):
         "job_id": job_id,
         "realized": bool(body.get("realized")),
         "workflow": body.get("definition"),
+        # Which variable rerun_job(new_seed=True) would draw into, null when
+        # the workflow has none - see rerun_job on why that matters
+        "seed_variable": body.get("seed_variable"),
         "next": "Pass `workflow` to save_workflow to keep it in the catalog "
         "under a name, or edit it and pass it to run_workflow as "
         "inline_workflow.",
@@ -139,14 +142,22 @@ def cancel_job(client, job_id):
     return client.post_json(api_path("api", "jobs", job_id, "cancel"))
 
 
-def rerun_job(client, job_id, acknowledged_cost=False):
+def rerun_job(client, job_id, acknowledged_cost=False, new_seed=False):
     """Queue a fresh job from a previous job's stored spec. This costs the
     same GPU time as `run_workflow` and passes through the same gate - a
     rerun is a run, and the gate would be worth nothing if a job id bought
-    a way around it."""
+    a way around it.
+
+    `new_seed` draws a fresh seed into the workflow's seed variable. Without
+    it the arguments repeat exactly, and a seeded workflow's rerun is served
+    whole from the step cache - the earlier run's files, republished in a
+    fraction of a second, with `reused: true`. Ask for a new seed when the
+    point is a different image rather than the same one again."""
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
-    return client.post_json(api_path("api", "jobs", job_id, "rerun"))
+    return client.post_json(
+        api_path("api", "jobs", job_id, "rerun"), {"new_seed": new_seed}
+    )
 
 
 def move_job(client, job_id, direction):

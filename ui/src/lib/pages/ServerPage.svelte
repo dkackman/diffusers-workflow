@@ -74,6 +74,15 @@
   let newWorkspace = $state('')
   let workspaceError = $state('')
 
+  // How much disk a workspace holds, rounded hard - the server's number is
+  // a cached walk, so more precision than this would be false precision
+  function size(bytes: number): string {
+    if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(1) + ' GB'
+    if (bytes >= 1024 ** 2) return Math.round(bytes / 1024 ** 2) + ' MB'
+    if (bytes > 0) return Math.max(1, Math.round(bytes / 1024)) + ' KB'
+    return 'empty'
+  }
+
   async function addWorkspace() {
     const name = newWorkspace.trim()
     if (!name) return
@@ -385,6 +394,14 @@
         {#each workspace.names as name (name)}
           <li>
             <code>{name}</code>
+            {#if workspace.usage[name]}
+              <span
+                class="muted size"
+                title="{workspace.usage[name].files} files"
+              >
+                {size(workspace.usage[name].bytes)}
+              </span>
+            {/if}
             {#if name === DEFAULT_WORKSPACE}
               <span class="muted">default</span>
             {:else}
@@ -435,6 +452,9 @@
     align-items: center;
     gap: 0.6em;
     padding: 0.15em 0;
+  }
+  .workspaces .size {
+    font-size: 0.85em;
   }
   .newworkspace {
     display: flex;

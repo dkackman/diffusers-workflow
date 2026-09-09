@@ -68,9 +68,11 @@ from ..workspace import (
     create_workspace,
     delete_workspace,
     example_libraries,
+    forget_workspace_usage,
     named_workspace,
     workspace_contents,
     workspace_names,
+    workspace_usage,
 )
 from ..workflow_sources import (
     EXAMPLES_ORIGIN,
@@ -863,13 +865,26 @@ def create_app(
             "id": job_id,
             "definition": definition,
             "realized": realized is not None,
+            # Which variable a new-seed rerun would draw into, or null when
+            # there is none - read from the workflow as written, since the
+            # realized copy above has its seed pinned to the integer it used
+            "seed_variable": manager.seed_variable(job_id),
         }
 
+    class RerunRequest(BaseModel):
+        new_seed: bool = Field(
+            default=False,
+            description="Draw a fresh seed into the workflow's seed variable. "
+            "Without it a rerun repeats the original arguments exactly, which "
+            "the step cache serves from the earlier run - the same seed and "
+            "inputs would produce the same files.",
+        )
+
     @app.post("/api/jobs/{job_id}/rerun", status_code=201)
-    def rerun_job(job_id: str):
+    def rerun_job(job_id: str, body: RerunRequest = RerunRequest()):
         """Queue a fresh job from a previous job's stored spec."""
         try:
-            job = manager.rerun(job_id)
+            job = manager.rerun(job_id, new_seed=body.new_seed)
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
         if job is None:
@@ -1197,9 +1212,17 @@ def create_app(
         # first entry (always the default, see its docstring) is a named
         # workspace to describe individually
         names = workspace_names(root)[1:] if root else []
-        described = [app.state.default_workspace.describe()]
+        listed = [app.state.default_workspace]
         for name in names:
-            described.append(named_workspace(root, name).describe())
+            listed.append(named_workspace(root, name))
+        described = []
+        for space in listed:
+            entry = space.describe()
+            # Roughly how much disk it holds, cached for a minute inside
+            # workspace_usage - a listing is a glance, and a job writing
+            # into outputs moves the number continuously anyway
+            entry["usage"] = workspace_usage(space)
+            described.append(entry)
         return {
             "workspace_root": root.root if root else None,
             "default": DEFAULT_WORKSPACE_NAME,
@@ -1217,6 +1240,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(e))
         except FileExistsError as e:
             raise HTTPException(status_code=409, detail=str(e))
+        forget_workspace_usage()
         logger.info(f"Created workspace {request.name} at {created.root}")
         return created.describe()
 
@@ -1271,6 +1295,7 @@ def create_app(
             )
         except (ValueError, FileNotFoundError) as e:
             raise HTTPException(status_code=400, detail=str(e))
+        forget_workspace_usage()
         logger.info(f"Deleted workspace {name}")
         return {"name": name, "deleted": True, "contents": contents}
 

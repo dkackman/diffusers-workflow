@@ -7,9 +7,12 @@ import type { JobEvent, ManifestEntry } from './types'
 export function groupResultFiles(
   manifest: ManifestEntry[] | undefined,
   events: JobEvent[],
-): Array<{ step: string; files: string[] }> {
+): Array<{ step: string; files: string[]; reused: boolean }> {
   const order: string[] = []
   const byStep = new Map<string, Set<string>>()
+  // Only the manifest knows a step was served from the step cache; the
+  // live step_end stream carries files but not that flag
+  const reused = new Set<string>()
   const add = (step: string, files: string[]) => {
     if (!byStep.has(step)) {
       byStep.set(step, new Set())
@@ -26,8 +29,15 @@ export function groupResultFiles(
       )
     }
   }
-  for (const entry of manifest ?? []) add(entry.step, entry.files)
+  for (const entry of manifest ?? []) {
+    add(entry.step, entry.files)
+    if (entry.reused) reused.add(entry.step)
+  }
   return order
-    .map((step) => ({ step, files: [...byStep.get(step)!] }))
+    .map((step) => ({
+      step,
+      files: [...byStep.get(step)!],
+      reused: reused.has(step),
+    }))
     .filter((group) => group.files.length > 0)
 }

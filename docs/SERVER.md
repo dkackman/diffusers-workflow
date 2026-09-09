@@ -135,13 +135,13 @@ from another machine:
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. |
 | `GET /api/jobs` | Queue + history summaries |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true` |
-| `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized}`. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is |
+| `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is |
 | `POST /api/jobs/{id}/export?workspace=&overwrite=` | Gather one finished job into `<workspace>/exports/<job id>/`: `workflow.json`, `manifest.json`, `job.json`, `README.md`, `assets/`, `inputs/`, `outputs/`. 201 with the file list, total bytes, anything it could not find, a `zip_url`, and the three JSON files inline. 404 unknown job, 409 for a job still running or an existing export without `overwrite` |
 | `GET /exports/{id}.zip?workspace=` | The same tree as one archive, built on request rather than kept as a second copy. Entries are named `<job id>/<relative path>`. Ungated exactly as `/outputs` is |
 | `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless |
 | `GET /api/jobs/{id}/event-log?after=-1&limit=200` | The same events as the SSE stream, as one JSON page: `{id, status, events, last_seq, truncated, note}`. `after` is exclusive; page by passing back the previous `last_seq`. A job restored from history serves the bounded event tail persisted with it; a job that finished before events were retained returns an empty list and a `note` saying so. |
 | `POST /api/jobs/{id}/cancel` | Cooperative cancel (takes effect at the next step boundary or denoise step) |
-| `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec |
+| `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing |
 | `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`. |
 
 One job runs at a time (it is one GPU); submissions queue in order, and
@@ -260,7 +260,11 @@ The editor's forms come from these; they are just as usable from scripts:
   `default` workspace and a named one is a subdirectory beside them, sharing
   the root's one prompt library. Delete answers with what it would remove and
   refuses until acknowledged, refuses the default, and refuses a workspace
-  with jobs still queued. A workspace is a namespace, **not** a security
+  with jobs still queued. Each listed workspace carries a `usage`
+  (`{files, bytes}`) — roughly how much disk its own folders hold, walked at
+  most once a minute per workspace and deliberately approximate; the shared
+  prompt library counts against the `default` workspace alone rather than
+  once per workspace. A workspace is a namespace, **not** a security
   boundary: the API token is all-or-nothing
 
   `exports/` sits beside the workspace's own folders, holding one directory per

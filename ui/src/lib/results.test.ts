@@ -12,8 +12,8 @@ describe('groupResultFiles', () => {
       stepEnd('upscale', ['a_big.png']),
     ])
     expect(groups).toEqual([
-      { step: 'generate', files: ['a.png', 'b.png'] },
-      { step: 'upscale', files: ['a_big.png'] },
+      { step: 'generate', files: ['a.png', 'b.png'], reused: false },
+      { step: 'upscale', files: ['a_big.png'], reused: false },
     ])
   })
 
@@ -22,7 +22,9 @@ describe('groupResultFiles', () => {
       [{ step: 'generate', files: ['a.png', 'c.png'] }],
       [stepEnd('generate', ['a.png'])],
     )
-    expect(groups).toEqual([{ step: 'generate', files: ['a.png', 'c.png'] }])
+    expect(groups).toEqual([
+      { step: 'generate', files: ['a.png', 'c.png'], reused: false },
+    ])
   })
 
   it('drops steps with no files and handles a historical job (manifest only)', () => {
@@ -33,6 +35,19 @@ describe('groupResultFiles', () => {
       ],
       [],
     )
-    expect(groups).toEqual([{ step: 'generate', files: ['a.png'] }])
+    expect(groups).toEqual([
+      { step: 'generate', files: ['a.png'], reused: false },
+    ])
+  })
+
+  it('marks a step the manifest says was served from the step cache', () => {
+    const groups = groupResultFiles(
+      [
+        { step: 'generate', files: ['a.png'], reused: true },
+        { step: 'upscale', files: ['a_big.png'] },
+      ],
+      [],
+    )
+    expect(groups.map((g) => g.reused)).toEqual([true, false])
   })
 })

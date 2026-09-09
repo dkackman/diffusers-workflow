@@ -270,11 +270,23 @@ export const api = {
    * submitted. 404s when the job named a workflow file that is no longer
    * readable. */
   getJobWorkflow: (id: string) =>
-    request<{ id: string; definition: Record<string, any>; realized: boolean }>(
-      `/api/jobs/${id}/workflow`,
-    ),
-  rerunJob: (id: string) =>
-    request<JobDetail>(`/api/jobs/${id}/rerun`, { method: 'POST' }),
+    request<{
+      id: string
+      definition: Record<string, any>
+      realized: boolean
+      /** The variable a new-seed rerun would draw into, null when the
+       * workflow has none - the cue for whether to offer that at all. */
+      seed_variable: string | null
+    }>(`/api/jobs/${id}/workflow`),
+  /** Queue the job again. `newSeed` draws a fresh seed into the workflow's
+   * seed variable; without it the arguments repeat exactly, which the step
+   * cache serves from the earlier run rather than generating anything. */
+  rerunJob: (id: string, newSeed = false) =>
+    request<JobDetail>(`/api/jobs/${id}/rerun`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_seed: newSeed }),
+    }),
   listTasks: () =>
     request<{
       commands: string[]
@@ -376,6 +388,7 @@ export const api = {
         assets: string | null
         outputs: string
         prompts: string | null
+        usage?: { files: number; bytes: number }
       }[]
     }>('/api/workspaces'),
   createWorkspace: (name: string) =>

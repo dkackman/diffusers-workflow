@@ -646,12 +646,24 @@ def build_server(client):
         Deliberately not gated - it ends a cost rather than starting one."""
         return diagnose.cancel_job(client, job_id)
 
-    def rerun_job(job_id: str, acknowledged_cost: bool = False) -> dict:
+    def rerun_job(
+        job_id: str, acknowledged_cost: bool = False, new_seed: bool = False
+    ) -> dict:
         """Queue a fresh job from a previous job's stored specification. THIS
         COSTS GPU TIME: a rerun is a run - it occupies the machine for
         minutes and the engine runs one job at a time. Tell the user what
-        will run and get their go-ahead, then pass acknowledged_cost=true."""
-        return diagnose.rerun_job(client, job_id, acknowledged_cost=acknowledged_cost)
+        will run and get their go-ahead, then pass acknowledged_cost=true.
+
+        Pass new_seed=true for a different image: a workflow that pins its
+        seed reruns to the same pixels, and the step cache serves that whole
+        run from the earlier one's files (marked `reused`) in a fraction of a
+        second rather than generating anything."""
+        return diagnose.rerun_job(
+            client,
+            job_id,
+            acknowledged_cost=acknowledged_cost,
+            new_seed=new_seed,
+        )
 
     def move_job(
         job_id: str, direction: Literal["up", "down", "front", "back"]

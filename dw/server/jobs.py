@@ -10,6 +10,7 @@ import os
 import copy
 import json
 import queue
+import random
 import sqlite3
 import time
 import uuid
@@ -26,6 +27,7 @@ from ..security import (
     validate_path,
     validate_workflow_path,
 )
+from ..realize import VARIABLE_PREFIX
 from ..runs import REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
@@ -604,13 +606,40 @@ class JobManager:
             logger.debug(f"No realized workflow for job {job_id}: {e}")
             return None
 
-    def rerun(self, job_id):
+    def seed_variable(self, job_id):
+        """The variable this job's workflow draws its seed from, or None.
+
+        Read from the workflow as written, never from the realized copy the
+        run wrote: realization pins the top-level seed to the integer the run
+        used, so a realized workflow always looks like it names a literal.
+
+        None means a new-seed rerun has nowhere to put one - either the seed
+        is a literal (an argument cannot override it) or the workflow names
+        no seed at all, in which case every run already draws a fresh one and
+        the step cache is off.
+        """
+        definition = self.definition(job_id)
+        seed = (definition or {}).get("seed")
+        if not isinstance(seed, str) or not seed.startswith(VARIABLE_PREFIX):
+            return None
+        name = seed.removeprefix(VARIABLE_PREFIX)
+        return name if name in (definition.get("variables") or {}) else None
+
+    def rerun(self, job_id, new_seed=False):
         """Queue a fresh job from a previous job's spec.
 
         Every root the original ran against (workflow_dir/output_dir/
         asset_dir/workspace) rides along, not just the workflow identity -
         otherwise a rerun of a job from a named workspace would fall back to
         the manager's process-wide default and silently run somewhere else.
+
+        `new_seed` draws a fresh seed into the workflow's seed variable. A
+        plain rerun of a seeded workflow repeats its arguments exactly, which
+        makes every step a step-cache hit: it republishes the earlier run's
+        files in a fraction of a second and generates nothing. That is the
+        cache doing its job - the same seed and the same inputs would produce
+        the same pixels - so the way to actually get another image is to
+        change the seed, and this is that.
         """
         job = self.jobs.get(job_id)
         if job is not None:
@@ -626,6 +655,20 @@ class JobManager:
                 if key in historical["spec"]
             }
             arguments = historical["arguments"]
+
+        if new_seed:
+            variable = self.seed_variable(job_id)
+            if variable is None:
+                raise ValueError(
+                    "This workflow does not draw its seed from a variable, so "
+                    "a rerun cannot change it. A workflow with no seed at all "
+                    "already draws a fresh one every run."
+                )
+            # Bounded to 53 bits rather than the 64 torch allows: this number
+            # goes out as JSON and comes back through a browser, where every
+            # integer is a double, and a seed that changed on the way through
+            # would be a seed nobody can reproduce
+            arguments = {**arguments, variable: random.getrandbits(53)}
 
         workspace = spec.get("workspace")
         if (

@@ -14,6 +14,9 @@ export interface JobSummary {
 export interface ManifestEntry {
   step: string
   files: string[]
+  /** The step was served from the step cache: these files are an earlier
+   * run's, republished, and nothing was generated for them this time. */
+  reused?: boolean
 }
 
 export interface JobDetail extends JobSummary {
