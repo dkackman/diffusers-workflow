@@ -1,0 +1,8 @@
+# A one-query pack whose only job is to teach CodeQL about the path
+# validators in dw/security.py. See DwPathSanitizers.qll for why the
+# built-in py/path-injection cannot recognize them on its own.
+name: dw/security-queries
+version: 0.0.1
+library: false
+dependencies:
+  codeql/python-all: "*"

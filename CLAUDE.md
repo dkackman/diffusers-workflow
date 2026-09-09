@@ -191,6 +191,19 @@ All entry points use `dw/security.py`. When adding features:
 - **Never** use `eval()`, `exec()`, or `shell=True`
 - Path traversal (`../`) is blocked
 
+CodeQL knows about these validators, which is why the scan is quiet: the local
+query pack in `.github/codeql/dw-security/` models them as sanitizers for
+`py/path-injection`, because the built-in query recognizes a
+normalize-then-check only as a local barrier guard and so cannot see one that
+lives in another module and returns the safe value. This is what makes code
+scanning useful here rather than 26 identical false positives - but it only
+holds while new filesystem access goes through a validator. Reaching the disk
+some other way is a real alert, so treat one as a finding rather than as more
+of the old noise. `validate_path(path, base)` is modeled as a barrier only when
+`base` is not `None`; with `None` it is normalization only, and the path stays
+reportable. Scanning is advanced setup (`.github/workflows/codeql.yml`) for the
+same reason - default setup cannot load a pack.
+
 ## Critical Gotchas
 
 - **Schema validation runs before variable substitution** — variable defaults must match expected JSON types (use `25` not `"25"` for numbers)
