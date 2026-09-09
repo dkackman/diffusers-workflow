@@ -1,0 +1,14 @@
+# Python analysis only - see the matrix in .github/workflows/codeql.yml.
+# The other languages run with the default configuration.
+name: "diffusers-workflow (python)"
+
+# The default suite, plus the local pack that models dw/security.py's
+# validators. Both queries are the same analysis; the built-in one is
+# excluded below so a sanitized path is not reported by it after the
+# modeled query has cleared it.
+queries:
+  - uses: ./.github/codeql/dw-security
+
+query-filters:
+  - exclude:
+      id: py/path-injection

@@ -345,9 +345,19 @@ def resolve_workflow_reference(workflow_path, sources):
     if path is not None:
         return path, source
     candidate = os.path.abspath(workflow_path)
-    source = source_for_path(sources, candidate) if os.path.isfile(candidate) else None
+    source = source_for_path(sources, candidate)
     if source is not None:
-        return candidate, source
+        # The containment check re-applied to the path this returns, rather
+        # than trusted from source_for_path's answer about it - and applied
+        # before anything asks the filesystem about the path, so a
+        # workflow_path outside every source cannot be used to find out
+        # whether a file exists there
+        try:
+            confined = validate_path(candidate, source.root, allow_create=False)
+        except SecurityError:
+            confined = None
+        if confined is not None and os.path.isfile(confined):
+            return confined, source
     raise HTTPException(
         status_code=400,
         detail=f"workflow_path must name a workflow the server can reach: "
@@ -1139,11 +1149,20 @@ def create_app(
             )
         try:
             errors = candidate.validation_errors()
-        except Exception as e:
+        except Exception:
+            # An error here is not the schema's verdict on the workflow -
+            # validation_errors() reports that by returning it. It is the
+            # validator itself failing, and its message could carry
+            # internals, so the log keeps the detail and the client is told
+            # the category, as above
+            logger.exception("Workflow could not be validated")
+            detail = (
+                "The workflow could not be validated - the server log has the detail"
+            )
             return {
                 "valid": False,
-                "error": f"Validation error: {e}",
-                "errors": [{"path": None, "message": str(e)}],
+                "error": detail,
+                "errors": [{"path": None, "message": detail}],
                 "warnings": [],
             }
         if errors:

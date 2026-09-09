@@ -3,6 +3,7 @@ request validation, and workflow browsing confinement."""
 
 import asyncio
 import json
+import logging
 import os
 import queue
 import time
@@ -552,7 +553,10 @@ def test_validate_endpoint_lists_every_schema_error(server):
         assert result["valid"] is True and result["errors"] == []
 
 
-def test_validate_endpoint_reports_non_schema_exception(server, monkeypatch):
+def test_validate_endpoint_reports_non_schema_exception(server, monkeypatch, caplog):
+    """A validator that fails, rather than reporting a verdict, is still an
+    invalid answer to the client - but the exception's own message stays in
+    the log, since it is internal detail and not the schema's complaint."""
     import dw.workflow
 
     def raise_boom(self):
@@ -561,12 +565,16 @@ def test_validate_endpoint_reports_non_schema_exception(server, monkeypatch):
     monkeypatch.setattr(dw.workflow.Workflow, "validation_errors", raise_boom)
 
     with server(success_script) as client:
-        result = client.post("/api/validate", json={"workflow": valid_workflow()})
+        with caplog.at_level(logging.ERROR):
+            result = client.post("/api/validate", json={"workflow": valid_workflow()})
 
         assert result.status_code == 200
         body = result.json()
         assert body["valid"] is False
-        assert "boom" in body["error"]
+        assert "could not be validated" in body["error"]
+        assert body["errors"] == [{"path": None, "message": body["error"]}]
+        assert "boom" not in json.dumps(body)
+        assert "boom" in caplog.text
 
 
 def test_workflow_browsing_and_confinement(server):
