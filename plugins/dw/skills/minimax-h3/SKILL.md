@@ -38,6 +38,9 @@ not from here.
 - **Several boards in one generation, one unbroken score**:
   `templates/minimax/storyboard` - H3 cuts between the boards inside a single
   generation, which no concat of separate clips can match for continuous audio.
+  It is one beat with fixed cut points, not a building block: four of them
+  concatenated give twelve equal-length shots and a cast redrawn four times.
+  Past one beat with a recurring cast, use the cuts pattern below.
 - **Longer than 14.4 seconds**: decide first whether the seam is a cut or a
   continuation. Chain when the same action or line of speech has to cross the
   seam; cut when the scene changes, and treat each cut as its own generation.
@@ -62,7 +65,11 @@ not from here.
   author the concat and score steps the same way). A character who speaks in
   several shots keeps one voice by passing the same clip as an audio
   reference in each (the `voice-timbre-reference` pattern); a repeated voice
-  description alone drifts.
+  description alone drifts. Each shot's `num_frames` is its own, so pace the
+  cut - a trailer builds by varying shot length. The reference carries
+  delivery as well as timbre: a flat read gives a flat performance. Bark's
+  presets are conversational; for a narrator with gravitas, `upload_asset` a
+  recorded read in that register and reference the same file in every shot.
 - **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3` skill.
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and
@@ -94,6 +101,10 @@ read the `workflows` guide's authoring section first.
   cuts is laid under the concat afterwards.
 - H3 is guidance-distilled: no `guidance_scale`, no negative prompt. Say what is
   there, never what is not.
+- When deriving a variant, keep `release_pipeline` on the step the template
+  puts it on: it frees the Z-Image boards before H3 loads. A run killed by
+  SIGKILL near the end, in a worker warm from a previous job, that succeeds
+  on a retry in a fresh worker is host memory, not the prompt.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in the order passed.
 - Music3 reads `audio_duration` as a ceiling, not a target: ask for more than
@@ -119,7 +130,9 @@ paraphrase it from examples:
    built-in enhancer writes the format from those guides. Its `idea` is
    framed as `Task: T2VA. Duration: 5.17 seconds. Idea: ...`.
 
-Whichever route: repeat a speaker's voice description verbatim across shots,
+Whichever route: write the whole script before the first shot - the lines in
+order, read once, should carry the piece on their own - then place them.
+Repeat a speaker's voice description verbatim across shots,
 and when a reference picture should fix identity but not framing, say so in
 the prompt itself - in a reference-conditioned request, in the lines that
 define the subject and state what each reference keeps - or every shot
@@ -149,7 +162,10 @@ inherits the portrait's composition.
    `templates/minimax/music-video`. Ask the user to look for the family's
    failure modes: a character that changes between shots (reference the same
    portraits in every shot), a reference portrait imposing its framing on every
-   shot, a storyboard skipped, drift sharpening into noise late in a chain.
+   shot, a storyboard skipped, drift sharpening into noise late in a chain,
+   a voice-over without affect (the reference's delivery came through), every
+   shot the same length, a look word repeated on every board (shallow depth
+   of field) softening every shot.
 5. After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
    so the next run is by name rather than by pasting JSON; `export_job` bundles
    the run — workflow, manifest, job row and media — for git. The bundle is on

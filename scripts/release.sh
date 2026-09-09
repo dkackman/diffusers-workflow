@@ -69,11 +69,19 @@ with open(path, "w", encoding="utf-8") as f:
     f.write(text)
 EOF
     echo "pyproject.toml: $current -> $version"
+fi
 
-    python3 - "$version" <<'EOF'
+# The plugin's version is the engine's (tests/test_plugin_skills.py holds
+# them equal), and it is the key the plugin cache is stored under. Written
+# unconditionally so a plugin.json that drifted while pyproject.toml already
+# sat at the target version is still brought into line
+plugin_path="plugins/dw/.claude-plugin/plugin.json"
+plugin_current=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$plugin_path")
+if [ "$plugin_current" != "$version" ]; then
+    python3 - "$version" "$plugin_path" <<'EOF'
 import json, sys
 
-path = "plugins/dw/.claude-plugin/plugin.json"
+path = sys.argv[2]
 with open(path, encoding="utf-8") as f:
     plugin = json.load(f)
 plugin["version"] = sys.argv[1]
@@ -81,13 +89,13 @@ with open(path, "w", encoding="utf-8") as f:
     json.dump(plugin, f, indent=4, ensure_ascii=False)
     f.write("\n")
 EOF
-    echo "plugins/dw/.claude-plugin/plugin.json: -> $version"
+    echo "$plugin_path: $plugin_current -> $version"
 fi
 
-if ! git diff --quiet -- pyproject.toml plugins/dw/.claude-plugin/plugin.json; then
-    git commit -m "release $version" -- pyproject.toml plugins/dw/.claude-plugin/plugin.json
+if ! git diff --quiet -- pyproject.toml "$plugin_path"; then
+    git commit -m "release $version" -- pyproject.toml "$plugin_path"
 else
-    echo "pyproject.toml already at $version and committed - tagging HEAD"
+    echo "pyproject.toml and $plugin_path already at $version and committed - tagging HEAD"
 fi
 
 git push origin master
