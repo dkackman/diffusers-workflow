@@ -22,6 +22,7 @@
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
   import StatusPopover from './lib/StatusPopover.svelte'
   import TokenPopover from './lib/TokenPopover.svelte'
+  import ConfirmDialog from './lib/ConfirmDialog.svelte'
   import WorkflowsPage from './lib/pages/WorkflowsPage.svelte'
   import WorkflowPage from './lib/pages/WorkflowPage.svelte'
   import JobsPage from './lib/pages/JobsPage.svelte'
@@ -298,6 +299,7 @@
 </header>
 
 <Toaster position="bottom-right" closeButton {theme} duration={4000} />
+<ConfirmDialog />
 
 <KeyboardHelp bind:open={helpOpen} />
 

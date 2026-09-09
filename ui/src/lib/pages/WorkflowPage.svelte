@@ -8,6 +8,7 @@
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
   import { PROMPT_LIST_ID } from '../prompts'
   import { notify } from '../toast'
+  import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile, WorkflowDefinition } from '../types'
 
   let { name }: { name: string } = $props()
@@ -77,7 +78,14 @@
   }
 
   async function remove() {
-    if (!window.confirm(`Delete ${name}.json? This removes the file on disk.`))
+    if (
+      !(await confirmDialog(
+        `Delete ${name}.json? This removes the file on disk.`,
+        {
+          confirmLabel: 'Delete',
+        },
+      ))
+    )
       return
     try {
       await api.deleteWorkflow(name)

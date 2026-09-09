@@ -1,9 +1,16 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the imports so the static import of the component below -
 // itself hoisted - sees an initialized mock. Importing the component inside
 // the test instead would charge its (multi-second) compile to the test timeout
 import GalleryPage from './GalleryPage.svelte'
+import ConfirmDialog from '../ConfirmDialog.svelte'
 import type { GalleryFile } from '../types'
 
 const file = (name: string): GalleryFile => ({
@@ -68,10 +75,24 @@ const checkbox = (name: string) =>
   screen.getByRole('checkbox', { name: `select ${name}` })
 
 async function renderGallery(first = 'a.png') {
+  // ConfirmDialog is normally mounted once in App.svelte and driven through
+  // the shared confirm.svelte.ts state - render it alongside so a test can
+  // answer the dialogs GalleryPage's delete/replace flows open.
+  render(ConfirmDialog)
   render(GalleryPage)
   await waitFor(() =>
     expect(screen.getByLabelText(`select ${first}`)).toBeTruthy(),
   )
+}
+
+/** Answers the confirm dialog opened by a delete/replace action - scoped to
+ * the dialog itself, since its "Delete" button shares a name with whatever
+ * trigger button opened it. */
+async function answerConfirm(accept: boolean) {
+  const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  within(dialog)
+    .getByRole('button', { name: accept ? /^delete$/i : /^cancel$/i })
+    .click()
 }
 
 it('fetches the gallery listing exactly once on mount', async () => {
@@ -130,13 +151,13 @@ it('archives every selected file in one request', async () => {
 })
 
 it('drops deleted files from the grid and the selection', async () => {
-  vi.stubGlobal('confirm', () => true)
   await renderGallery()
 
   checkbox('a.png').click()
   checkbox('b.png').click()
   await waitFor(() => expect(screen.getByText('2 selected')).toBeTruthy())
   screen.getByRole('button', { name: /^delete/i }).click()
+  await answerConfirm(true)
 
   await waitFor(() =>
     expect(screen.queryByLabelText('select a.png')).toBeNull(),
@@ -147,7 +168,6 @@ it('drops deleted files from the grid and the selection', async () => {
 })
 
 it('keeps a file that failed to delete selected and reports it', async () => {
-  vi.stubGlobal('confirm', () => true)
   deleteOutput.mockImplementation((name: string) =>
     name === 'b.png' ? Promise.reject(new Error('busy')) : Promise.resolve(),
   )
@@ -157,6 +177,7 @@ it('keeps a file that failed to delete selected and reports it', async () => {
   checkbox('b.png').click()
   await waitFor(() => expect(screen.getByText('2 selected')).toBeTruthy())
   screen.getByRole('button', { name: /^delete/i }).click()
+  await answerConfirm(true)
 
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
   expect(screen.queryByLabelText('select a.png')).toBeNull()
@@ -165,19 +186,18 @@ it('keeps a file that failed to delete selected and reports it', async () => {
 })
 
 it('does not delete anything when the confirmation is declined', async () => {
-  vi.stubGlobal('confirm', () => false)
   await renderGallery()
 
   checkbox('a.png').click()
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
   screen.getByRole('button', { name: /^delete/i }).click()
+  await answerConfirm(false)
 
   await new Promise((r) => setTimeout(r, 10))
   expect(deleteOutput).not.toHaveBeenCalled()
 })
 
 it('drops a file deleted from the detail panel out of the selection', async () => {
-  vi.stubGlobal('confirm', () => true)
   await renderGallery()
 
   checkbox('a.png').click()
@@ -196,6 +216,7 @@ it('drops a file deleted from the detail panel out of the selection', async () =
   screen
     .getByRole('button', { name: 'delete this file from the output directory' })
     .click()
+  await answerConfirm(true)
 
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
   expect(screen.getByLabelText('select b.png')).toBeTruthy()

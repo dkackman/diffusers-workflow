@@ -15,6 +15,7 @@
   } from '@lucide/svelte'
   import { api } from '../api'
   import { notify } from '../toast'
+  import { confirmDialog } from '../confirm.svelte'
   import { go } from '../router.svelte'
   import {
     emptyWorkflow,
@@ -132,10 +133,16 @@
     '#/workflows/' + name.split('/').map(encodeURIComponent).join('/'),
   )
 
-  // Leaving with unsaved edits used to drop them without a word
-  function confirmLeave(event: MouseEvent) {
-    if (dirty && !window.confirm('Discard unsaved changes?'))
-      event.preventDefault()
+  // Leaving with unsaved edits used to drop them without a word. The
+  // confirm is async, so the default navigation is always prevented first
+  // and replayed by hand once the answer comes back.
+  async function confirmLeave(event: MouseEvent) {
+    if (!dirty) return
+    event.preventDefault()
+    const target = (event.currentTarget as HTMLAnchorElement).href
+    if (await confirmDialog('Discard unsaved changes?')) {
+      window.location.href = target
+    }
   }
 
   const savePreview = $derived.by(() => {

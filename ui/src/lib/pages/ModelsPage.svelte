@@ -11,6 +11,7 @@
   } from '@lucide/svelte'
   import { api } from '../api'
   import { notify } from '../toast'
+  import { confirmDialog } from '../confirm.svelte'
   import CopyButton from '../CopyButton.svelte'
   import type {
     DiffusersStatus,
@@ -120,10 +121,11 @@
 
   async function remove(repo: ModelRepo) {
     if (
-      !window.confirm(
+      !(await confirmDialog(
         `Delete ${repo.repo_id} (${gb(repo.size_on_disk)} GB) from the hub cache?\n` +
           'The next workflow that needs it will download it again.',
-      )
+        { confirmLabel: 'Delete' },
+      ))
     )
       return
     deleting = repo.repo_id

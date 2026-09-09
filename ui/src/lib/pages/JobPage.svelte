@@ -5,6 +5,7 @@
   import { groupResultFiles } from '../results'
   import { stepProgress } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
+  import CopyButton from '../CopyButton.svelte'
   import type { JobDetail, JobEvent } from '../types'
 
   let { jobId }: { jobId: string } = $props()
@@ -139,6 +140,8 @@
   {#if job}
     <h1>{job.workflow}</h1>
     <span class="chip {job.status}">{job.status}</span>
+    <code class="muted seed" title="this job's id">{job.id}</code>
+    <CopyButton text={job.id} title="copy job id" />
     {#if cancelPending}
       <span
         class="muted"

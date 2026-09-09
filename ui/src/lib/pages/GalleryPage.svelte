@@ -14,6 +14,7 @@
   import { go } from '../router.svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { notify } from '../toast'
+  import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile } from '../types'
   import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
@@ -29,6 +30,7 @@
   let anchor = $state<string | null>(null)
   let busy = $state(false)
   let metadata = $state<Record<string, unknown> | null>(null)
+  let metadataLoading = $state(false)
   let sourceJob = $state<{ id: string; status: string } | null>(null)
 
   $effect(() => {
@@ -64,7 +66,9 @@
       // choice to replace belongs to the person, not the button
       if (
         message.includes('already exists') &&
-        window.confirm(`${message}\n\nReplace it?`)
+        (await confirmDialog(`${message}\n\nReplace it?`, {
+          confirmLabel: 'Replace',
+        }))
       ) {
         try {
           const result = await api.keepOutput(selected.name, assetName, true)
@@ -145,9 +149,10 @@
   async function removePicked() {
     const names = pickedNames
     if (
-      !window.confirm(
+      !(await confirmDialog(
         `Delete ${names.length} file${names.length === 1 ? '' : 's'}? This removes them on disk.`,
-      )
+        { confirmLabel: 'Delete' },
+      ))
     )
       return
     busy = true
@@ -179,19 +184,29 @@
   function select(file: GalleryFile) {
     selected = file
     metadata = null
+    metadataLoading = true
     sourceJob = null
-    api.galleryMetadata(file.name).then((r) => {
-      if (selected?.name === file.name) {
-        metadata = r.metadata
-        sourceJob = r.job
-      }
-    })
+    api
+      .galleryMetadata(file.name)
+      .then((r) => {
+        if (selected?.name === file.name) {
+          metadata = r.metadata
+          sourceJob = r.job
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (selected?.name === file.name) metadataLoading = false
+      })
   }
 
   async function removeFile() {
     if (!selected) return
     if (
-      !window.confirm(`Delete ${selected.name}? This removes the file on disk.`)
+      !(await confirmDialog(
+        `Delete ${selected.name}? This removes the file on disk.`,
+        { confirmLabel: 'Delete' },
+      ))
     )
       return
     const name = selected.name
@@ -346,7 +361,6 @@
   <div class="detail panel">
     <div class="bar">
       <strong class="selname">{selected.name}</strong>
-      <span class="num muted">{mb(selected.size)} · {day(selected.mtime)}</span>
       <span class="flex"></span>
       {#if embeddedWorkflow}
         <button
@@ -370,6 +384,7 @@
         class="muted"
         title="open the file itself in a new tab">open file</a
       >
+      <span class="num muted">{mb(selected.size)} · {day(selected.mtime)}</span>
       <DownloadLink href={api.outputDownloadUrl(selected.name)} />
       <button
         class="quiet icon danger"
@@ -379,6 +394,7 @@
       >
         <Trash2 size={14} />
       </button>
+      <span class="flex"></span>
       <button
         class="quiet icon"
         onclick={() => (selected = null)}
@@ -441,8 +457,12 @@
             </div>
           {/if}
         </div>
-      {:else if selected.kind === 'image'}
+      {:else if selected.kind === 'image' && metadataLoading}
         <div class="meta muted">reading metadata…</div>
+      {:else if selected.kind === 'image'}
+        <div class="meta muted">
+          no embedded metadata - enable embed_metadata in the step's result
+        </div>
       {/if}
     </div>
   </div>
