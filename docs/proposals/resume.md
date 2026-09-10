@@ -129,7 +129,9 @@ version is already scoped to a session where the user can see what happened.
    the manifest records the seed actually used. Without both, a seedless
    workflow has nothing to resume against.
 2. **Manifest carries step identity.** *Satisfied by the realized workflow*
-   ([job-record-and-export.md](job-record-and-export.md)): every run now writes
+   (shipped 2026-09-08; see CLAUDE.md's run-directory notes, and
+   `docs/superpowers/specs/2026-09-08-job-record-and-export-design.md` for the
+   design): every run now writes
    `workflow.json` beside its manifest with every mutable input pinned, so each
    step's definition as it actually ran is on disk to compare against, and the
    manifest's per-step files say what it made. A per-step digest may still be

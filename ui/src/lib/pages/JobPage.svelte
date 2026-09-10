@@ -1,11 +1,19 @@
 <script lang="ts">
-  import { RotateCw, TriangleAlert, X } from '@lucide/svelte'
-  import { api, outputUrl, streamJobEvents } from '../api'
+  import {
+    Dices,
+    PackageOpen,
+    RotateCw,
+    TriangleAlert,
+    X,
+  } from '@lucide/svelte'
+  import { ApiError, api, outputUrl, streamJobEvents } from '../api'
+  import { confirmDialog } from '../confirm.svelte'
   import { go } from '../router.svelte'
   import { groupResultFiles } from '../results'
   import { stepProgress } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
   import CopyButton from '../CopyButton.svelte'
+  import { notify } from '../toast'
   import type { JobDetail, JobEvent } from '../types'
 
   let { jobId }: { jobId: string } = $props()
@@ -15,6 +23,10 @@
   // loads and when the job named a file that is no longer readable - the
   // graph is a nicety, so it simply stays absent rather than erroring.
   let definition = $state<Record<string, any> | null>(null)
+  // The variable a new-seed rerun would draw into, per the server. Null for
+  // a workflow that pins its seed to a literal or names none at all -
+  // neither can be handed a different one, so the button stays away.
+  let seedVariable = $state<string | null>(null)
   let events = $state<JobEvent[]>([])
   let error = $state('')
   // arrival clocks for pipeline_step events, for the ETA estimate
@@ -26,6 +38,7 @@
     job = null
     events = []
     definition = null
+    seedVariable = null
     // stopped guards the async gap: navigating away mid-fetch must not let
     // a late-resolving getJob open a stream nothing will ever stop
     let stopped = false
@@ -33,7 +46,9 @@
     api
       .getJobWorkflow(jobId)
       .then((result) => {
-        if (!stopped) definition = result.definition
+        if (stopped) return
+        definition = result.definition
+        seedVariable = result.seed_variable
       })
       .catch(() => {
         /* no definition on file - the graph just does not appear */
@@ -81,6 +96,59 @@
     }
   }
 
+  async function rerun(newSeed: boolean) {
+    try {
+      go('jobs', (await api.rerunJob(jobId, newSeed)).id)
+    } catch (e) {
+      // Without this the button silently does nothing - the failure mode
+      // that made a cache-served rerun so hard to read in the first place
+      notify.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  // Export is a copy on the server before it is a download here: the
+  // bundle is gathered into the workspace's exports/, then the zip the
+  // server builds from it is fetched. The flag keeps a second click from
+  // gathering it twice while the first is still copying media.
+  let exporting = $state(false)
+
+  async function exportJob() {
+    if (!job || exporting) return
+    exporting = true
+    try {
+      let result
+      try {
+        result = await api.exportJob(jobId, job.workspace)
+      } catch (e) {
+        // The server keeps one export per job. An existing one is not a
+        // failure but a question, and only a 409 asks it - anything else
+        // is reported as the error it is.
+        if (!(e instanceof ApiError) || e.status !== 409) throw e
+        const replace = await confirmDialog(
+          'This job has already been exported on the server. Replace that export with a fresh one?',
+          { confirmLabel: 'Replace' },
+        )
+        if (!replace) return
+        result = await api.exportJob(jobId, job.workspace, true)
+      }
+      const anchor = document.createElement('a')
+      anchor.href = api.exportZipUrl(result.zip_url)
+      anchor.download = `${jobId}.zip`
+      anchor.click()
+      const mb = (result.total_bytes / (1024 * 1024)).toFixed(1)
+      notify.success(
+        `Exported ${result.files.length} file${result.files.length === 1 ? '' : 's'} (${mb} MB) to ${result.directory}` +
+          (result.missing.length
+            ? ` - ${result.missing.length} referenced file${result.missing.length === 1 ? '' : 's'} no longer on disk`
+            : ''),
+      )
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      exporting = false
+    }
+  }
+
   const steps = $derived(
     (events.find((e) => e.event === 'workflow_start')?.steps as string[]) ?? [],
   )
@@ -115,6 +183,12 @@
   // Files grouped by producing step, streamed first, then confirmed by manifest
   const fileGroups = $derived(
     groupResultFiles(job?.manifest, events as JobEvent[]),
+  )
+  // Nothing at all was generated: every step the manifest lists was served
+  // from the step cache. Worth saying outright - the page otherwise shows a
+  // succeeded job full of images that are not this run's
+  const allReused = $derived(
+    fileGroups.length > 0 && fileGroups.every((group) => group.reused),
   )
   const running = $derived(job !== null && !TERMINAL.includes(job.status))
   // A cancel requested while loading a model or running a task step has no
@@ -176,10 +250,29 @@
     {:else}
       <button
         class="quiet withicon"
-        onclick={() => api.rerunJob(jobId).then((j) => go('jobs', j.id))}
-        title="queue this job again with the same arguments"
+        onclick={() => rerun(false)}
+        title={seedVariable
+          ? 'queue this job again with the same arguments - with the same seed, the step cache serves the files this run already made'
+          : 'queue this job again with the same arguments'}
       >
         <RotateCw size={14} />Run again
+      </button>
+      {#if seedVariable}
+        <button
+          class="quiet withicon"
+          onclick={() => rerun(true)}
+          title="queue it again with a fresh {seedVariable} - a different image, rather than the one this run already made"
+        >
+          <Dices size={14} />New seed
+        </button>
+      {/if}
+      <button
+        class="quiet withicon"
+        onclick={exportJob}
+        disabled={exporting}
+        title="bundle this run - its realized workflow, manifest, the media it used and made - into the workspace's exports/ on the server, and download it as a zip"
+      >
+        <PackageOpen size={14} />{exporting ? 'Exporting…' : 'Export'}
       </button>
     {/if}
   {/if}
@@ -253,9 +346,27 @@
   {#if fileGroups.length}
     <div class="panel">
       <h2>Results</h2>
+      {#if allReused}
+        <p class="muted reusednote">
+          Served from the step cache: every step matched an earlier run with the
+          same seed and inputs, so these are that run's files and nothing was
+          generated.{#if seedVariable}
+            Use <strong>New seed</strong> for a different image.{/if}
+        </p>
+      {/if}
       {#each fileGroups as group (group.step)}
         {#if fileGroups.length > 1}
-          <h3 class="stephead muted">{group.step}</h3>
+          <h3 class="stephead muted">
+            {group.step}
+            {#if group.reused && !allReused}
+              <span
+                class="muted"
+                title="served from the step cache - an
+                     earlier run's files, nothing generated for this step"
+                >· reused</span
+              >
+            {/if}
+          </h3>
         {/if}
         <div class="media">
           {#each group.files as file (file)}
@@ -300,6 +411,10 @@
 {/if}
 
 <style>
+  .reusednote {
+    margin: 0 0 0.6rem;
+  }
+
   .head {
     display: flex;
     flex-wrap: wrap;

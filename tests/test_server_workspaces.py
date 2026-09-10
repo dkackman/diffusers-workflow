@@ -738,3 +738,33 @@ def test_history_migrates_rows_that_predate_workspaces(tmp_path):
         ).fetchone()
     assert "workspace" in columns
     assert stored[0] == "default"
+
+
+def test_the_listing_reports_each_workspace_s_disk_usage(server, workspace_root):
+    """Every workspace in the listing carries roughly how much disk it holds.
+
+    The shared prompt library counts once - against the default workspace,
+    whose folder it is - rather than once per workspace, and a named
+    workspace counts only what is under its own root.
+    """
+    from dw.workspace import forget_workspace_usage
+
+    with server() as client:
+        assert client.post("/api/workspaces", json={"name": "shots"}).status_code == 201
+        with open(os.path.join(workspace_root.prompts, "scenic.json"), "w") as f:
+            f.write("x" * 500)
+        shots_assets = os.path.join(workspace_root.root, "shots", "assets")
+        with open(os.path.join(shots_assets, "big.bin"), "wb") as f:
+            f.write(b"0" * 4096)
+
+        # the listing caches its walk for a minute, and the writes above
+        # landed after the create already primed it
+        forget_workspace_usage()
+        spaces = {
+            w["name"]: w["usage"]
+            for w in client.get("/api/workspaces").json()["workspaces"]
+        }
+
+    assert spaces["shots"] == {"files": 1, "bytes": 4096}
+    assert spaces["default"]["files"] == 1
+    assert spaces["default"]["bytes"] == 500

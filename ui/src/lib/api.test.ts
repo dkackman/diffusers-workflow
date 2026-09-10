@@ -191,3 +191,52 @@ describe('output URLs', () => {
     )
   })
 })
+
+describe('job export', () => {
+  it("posts to the job's own workspace, not the selected one", async () => {
+    const calls = stubFetch({
+      ok: true,
+      status: 201,
+      body: {
+        directory: '/ws/shots/exports/j1',
+        zip_url: '/exports/j1.zip?workspace=shots',
+        files: [],
+        total_bytes: 0,
+        missing: [],
+      },
+    })
+    await api.exportJob('j1', 'shots')
+    expect(calls[0][0]).toBe(
+      '/api/jobs/j1/export?workspace=shots&overwrite=false',
+    )
+    expect(calls[0][1]?.method).toBe('POST')
+  })
+
+  it('sends no selector for the default workspace and passes overwrite through', async () => {
+    const calls = stubFetch({ ok: true, status: 201, body: {} })
+    await api.exportJob('j1', 'default', true)
+    expect(calls[0][0]).toBe('/api/jobs/j1/export?overwrite=true')
+  })
+
+  it('surfaces the 409 status so the page can offer to replace', async () => {
+    const { ApiError } = await import('./api')
+    stubFetch({ ok: false, status: 409, body: { detail: 'already exists' } })
+    const error = await api.exportJob('j1', 'default').catch((e) => e)
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error.status).toBe(409)
+    expect(error.message).toBe('already exists')
+  })
+
+  it("adds the token to the server's zip URL without scoping it again", async () => {
+    const { setApiToken } = await import('./token')
+    setApiToken('s3cr3t')
+    try {
+      expect(api.exportZipUrl('/exports/j1.zip?workspace=shots')).toBe(
+        '/exports/j1.zip?workspace=shots&token=s3cr3t',
+      )
+    } finally {
+      setApiToken('')
+    }
+    expect(api.exportZipUrl('/exports/j1.zip')).toBe('/exports/j1.zip')
+  })
+})

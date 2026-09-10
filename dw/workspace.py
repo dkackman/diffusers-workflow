@@ -34,6 +34,7 @@ an entry point that is about to write calls ensure() once it knows it needs to.
 """
 
 import os
+import time
 from pathlib import Path
 
 # Set by an entry point that resolved a workspace, so a spawned worker
@@ -453,24 +454,125 @@ def create_workspace(workspace, name):
     return named_workspace(workspace, name).ensure()
 
 
+def _tree_usage(directory):
+    """Files and bytes under one directory, as (files, bytes).
+
+    Walks with scandir and stats through the DirEntry, which reuses the stat
+    the directory read already did - the difference matters on an outputs
+    tree of thousands of generated files. Symlinks are counted as neither
+    file nor directory, so a link into a model cache cannot inflate the
+    number or send the walk outside the workspace. Anything unreadable is
+    skipped: this is a size to glance at, not an audit.
+    """
+    files = 0
+    total = 0
+    stack = [directory]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(os.scandir(current))
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    stack.append(entry.path)
+                elif entry.is_file(follow_symlinks=False):
+                    total += entry.stat(follow_symlinks=False).st_size
+                    files += 1
+            except OSError:
+                continue
+    return files, total
+
+
 def workspace_contents(workspace):
     """How much a workspace holds, for a client about to offer to delete it:
     file counts and total bytes per folder. Counting is the point - the
     number is what makes 'delete this workspace' an informed choice."""
     summary = {}
     for folder in NAMED_SUBDIRS:
-        directory = os.path.join(workspace.root, folder)
-        files = 0
-        total = 0
-        for current, _dirs, names in os.walk(directory):
-            for entry in names:
-                try:
-                    total += os.path.getsize(os.path.join(current, entry))
-                except OSError:
-                    continue
-                files += 1
+        files, total = _tree_usage(os.path.join(workspace.root, folder))
         summary[folder] = {"files": files, "bytes": total}
     return summary
+
+
+# How long a computed workspace size stays good enough to answer with. The
+# number is a glance at how much a workspace holds, not an accounting
+# figure, and re-walking a large outputs tree for every listing would cost
+# more than the precision is worth - a running job moves it continuously
+# anyway
+USAGE_CACHE_SECONDS = 60
+
+# the folders counted (a tuple of paths) -> (monotonic time, usage)
+_usage_cache = {}
+
+
+def _own_folders(workspace):
+    """The folders whose bytes count as this workspace's own.
+
+    A workspace's four folder properties are the candidates, deduplicated,
+    minus any that is not actually inside its root: a named workspace's
+    prompt library belongs to the root and is shared by every workspace, so
+    counting it here would count it once per workspace. A workspace with no
+    root of its own (a server configured folder by folder, where each can
+    point anywhere) has nothing to exclude, and every folder it names is its
+    own by definition.
+    """
+    folders = []
+    for path in (
+        workspace.workflows,
+        workspace.prompts,
+        workspace.assets,
+        workspace.outputs,
+    ):
+        if not path or path in folders:
+            continue
+        if workspace.root and not _is_within(path, workspace.root):
+            continue
+        folders.append(path)
+    return folders
+
+
+def _is_within(path, root):
+    """Whether a path is the root or sits under it."""
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:  # different drives on Windows
+        return False
+
+
+def workspace_usage(workspace, max_age=USAGE_CACHE_SECONDS):
+    """Roughly how much disk a workspace occupies: files and total bytes.
+
+    Only the folders that are the workspace's own are counted, per
+    _own_folders - which is what keeps the shared prompt library from being
+    added to every workspace's total, and named workspaces from being
+    counted inside the default one (they sit beside its folders, not in
+    them).
+    """
+    folders = _own_folders(workspace)
+    key = tuple(folders)
+    now = time.monotonic()
+    cached = _usage_cache.get(key)
+    if cached and now - cached[0] < max_age:
+        return cached[1]
+    files = 0
+    total = 0
+    for directory in folders:
+        if not os.path.isdir(directory):
+            continue
+        count, size = _tree_usage(directory)
+        files += count
+        total += size
+    usage = {"files": files, "bytes": total}
+    _usage_cache[key] = (now, usage)
+    return usage
+
+
+def forget_workspace_usage():
+    """Drop every cached size - after creating or deleting a workspace,
+    where a stale answer would be visibly wrong rather than merely old."""
+    _usage_cache.clear()
 
 
 def delete_workspace(workspace, name):

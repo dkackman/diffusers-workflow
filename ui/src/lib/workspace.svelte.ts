@@ -14,7 +14,11 @@ export const workspace = $state<{
   current: string
   names: string[] | undefined
   root: string | null
-}>({ current: DEFAULT_WORKSPACE, names: undefined, root: null })
+  /** Roughly how much disk each workspace holds, by name - the server
+   * computes it per listing and caches it briefly, so it is a glance
+   * rather than a live figure. Absent for a server that does not send it. */
+  usage: Record<string, { files: number; bytes: number }>
+}>({ current: DEFAULT_WORKSPACE, names: undefined, root: null, usage: {} })
 
 /** Restore the last selection before the first request goes out, so a
  * reload lands back in the workspace the user was working in. */
@@ -39,6 +43,11 @@ export function loadWorkspaces(): Promise<void> {
         const result = await api.listWorkspaces()
         workspace.names = result.workspaces.map((entry) => entry.name)
         workspace.root = result.workspace_root
+        workspace.usage = Object.fromEntries(
+          result.workspaces
+            .filter((entry) => entry.usage)
+            .map((entry) => [entry.name, entry.usage!]),
+        )
         // A workspace that has gone away (deleted elsewhere, or a stale
         // selection restored from storage) would scope every request to a 404
         if (!workspace.names.includes(workspace.current)) {

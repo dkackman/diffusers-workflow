@@ -285,7 +285,7 @@ references written in the same session.
 | `get_job_events(job_id, after=-1, limit=200)` | `job_id`, `after`, `limit` | Get a page of a job's progress events |
 | `wait_for_job(job_id, timeout_seconds=20)` | `job_id`, `timeout_seconds` | Block until a job reaches a terminal status, or `timeout_seconds` elapses (capped well under a generation's real runtime). Use instead of hand-polling `get_job`/`get_job_events` in a loop; if it returns `still_running: true`, call it again |
 | `cancel_job(job_id)` | `job_id` | Ask a queued or running job to stop |
-| `rerun_job(job_id, acknowledged_cost=False)` | `job_id`, `acknowledged_cost` | Queue a fresh job from a previous job's stored specification. Costs GPU time, so it passes the same gate as `run_workflow` |
+| `rerun_job(job_id, acknowledged_cost=False, new_seed=False)` | `job_id`, `acknowledged_cost`, `new_seed` | Queue a fresh job from a previous job's stored specification. Costs GPU time, so it passes the same gate as `run_workflow`. `new_seed=true` draws a fresh seed into the workflow's seed variable — without it a seeded workflow's rerun repeats its arguments exactly and the step cache serves the whole run from the earlier one's files (`reused: true`), generating nothing. `get_job_workflow`'s `seed_variable` says whether there is one |
 | `move_job(job_id, direction)` | `job_id`, `direction` (`up`\|`down`\|`front`\|`back`) | Reorder a queued job |
 
 ### Models
