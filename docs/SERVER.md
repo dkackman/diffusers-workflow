@@ -54,7 +54,11 @@ load entirely.
   progress, per-step denoising ticks, what each step is doing when it is not
   denoising (loading a model, decoding, saving), and its result files as
   they land.
-  Jobs can be cancelled mid-denoise and re-run with one click.
+  Jobs can be cancelled mid-denoise and re-run with one click. A finished
+  job's **Export** button gathers the run into the workspace's `exports/`
+  on the server (`POST /api/jobs/{id}/export`) and downloads it as one zip -
+  the same bundle MCP's `export_job` makes; an export that already exists
+  asks before it is replaced.
 - **Editor** — build or modify workflows without writing JSON by hand.
   Forms are generated from the live pipeline signatures (see
   [introspection](#introspection)), references

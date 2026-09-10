@@ -1,6 +1,13 @@
 <script lang="ts">
-  import { Dices, RotateCw, TriangleAlert, X } from '@lucide/svelte'
-  import { api, outputUrl, streamJobEvents } from '../api'
+  import {
+    Dices,
+    PackageOpen,
+    RotateCw,
+    TriangleAlert,
+    X,
+  } from '@lucide/svelte'
+  import { ApiError, api, outputUrl, streamJobEvents } from '../api'
+  import { confirmDialog } from '../confirm.svelte'
   import { go } from '../router.svelte'
   import { groupResultFiles } from '../results'
   import { stepProgress } from '../progress'
@@ -96,6 +103,49 @@
       // Without this the button silently does nothing - the failure mode
       // that made a cache-served rerun so hard to read in the first place
       notify.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  // Export is a copy on the server before it is a download here: the
+  // bundle is gathered into the workspace's exports/, then the zip the
+  // server builds from it is fetched. The flag keeps a second click from
+  // gathering it twice while the first is still copying media.
+  let exporting = $state(false)
+
+  async function exportJob() {
+    if (!job || exporting) return
+    exporting = true
+    try {
+      let result
+      try {
+        result = await api.exportJob(jobId, job.workspace)
+      } catch (e) {
+        // The server keeps one export per job. An existing one is not a
+        // failure but a question, and only a 409 asks it - anything else
+        // is reported as the error it is.
+        if (!(e instanceof ApiError) || e.status !== 409) throw e
+        const replace = await confirmDialog(
+          'This job has already been exported on the server. Replace that export with a fresh one?',
+          { confirmLabel: 'Replace' },
+        )
+        if (!replace) return
+        result = await api.exportJob(jobId, job.workspace, true)
+      }
+      const anchor = document.createElement('a')
+      anchor.href = api.exportZipUrl(result.zip_url)
+      anchor.download = `${jobId}.zip`
+      anchor.click()
+      const mb = (result.total_bytes / (1024 * 1024)).toFixed(1)
+      notify.success(
+        `Exported ${result.files.length} file${result.files.length === 1 ? '' : 's'} (${mb} MB) to ${result.directory}` +
+          (result.missing.length
+            ? ` - ${result.missing.length} referenced file${result.missing.length === 1 ? '' : 's'} no longer on disk`
+            : ''),
+      )
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      exporting = false
     }
   }
 
@@ -216,6 +266,14 @@
           <Dices size={14} />New seed
         </button>
       {/if}
+      <button
+        class="quiet withicon"
+        onclick={exportJob}
+        disabled={exporting}
+        title="bundle this run - its realized workflow, manifest, the media it used and made - into the workspace's exports/ on the server, and download it as a zip"
+      >
+        <PackageOpen size={14} />{exporting ? 'Exporting…' : 'Export'}
+      </button>
     {/if}
   {/if}
 </div>

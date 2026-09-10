@@ -136,6 +136,18 @@ export function errorDetail(payload: unknown, fallback: string): string {
   return fallback
 }
 
+/** An error response, with the status a caller may need to branch on -
+ * the export's 409 is "already exported, overwrite?" rather than a
+ * failure, and the message alone cannot say which. */
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 /** A JSON response together with its headers, for the rare endpoint whose
  * result depends on both - `getWorkflow` reads its origin/writable from
  * headers rather than the body. */
@@ -156,7 +168,7 @@ async function fetchJson<T>(
     } catch {
       /* not json */
     }
-    throw new Error(detail)
+    throw new ApiError(detail, response.status)
   }
   return { body: await response.json(), response }
 }
@@ -301,6 +313,38 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ direction }),
     }),
+  /** Gather a finished job into '<workspace>/exports/<job id>/' on the
+   * server - the realized workflow, manifest, job row, the media it used
+   * and made - and get back the zip URL it is fetched from. Scoped to the
+   * job's own workspace rather than the picker's, as the job page's media
+   * is: the export belongs beside the run, wherever the user has since
+   * navigated. 409 (an `ApiError`) when the export exists and `overwrite`
+   * was not asked for. */
+  exportJob: (id: string, workspace: string, overwrite = false) =>
+    request<{
+      directory: string
+      zip_url: string
+      files: { path: string; bytes: number }[]
+      total_bytes: number
+      missing: string[]
+    }>(
+      appendQuery(
+        workspace === DEFAULT_WORKSPACE
+          ? `/api/jobs/${id}/export`
+          : `/api/jobs/${id}/export?workspace=${encodeURIComponent(workspace)}`,
+        'overwrite',
+        overwrite ? 'true' : 'false',
+      ),
+      { method: 'POST' },
+      { scope: false },
+    ),
+  /** The `zip_url` an export answered with, ready for an <a download>. The
+   * server already put the job's workspace selector on it, so only the
+   * token is added - `withToken` would scope it a second time. */
+  exportZipUrl: (zipUrl: string) => {
+    const token = getApiToken()
+    return token ? appendQuery(zipUrl, 'token', token) : zipUrl
+  },
   cancelJob: (id: string) =>
     request<{ id: string; status: string }>(`/api/jobs/${id}/cancel`, {
       method: 'POST',
