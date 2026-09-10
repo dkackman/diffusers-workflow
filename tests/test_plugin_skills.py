@@ -229,6 +229,7 @@ class TestMiniMaxH3Skill:
     def test_the_skill_defers_prompt_format_to_minimax(self):
         text = skill_text(H3_SKILL)
         assert "h3-prompt-writing" in text
+        assert "npx skills add MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing" in text
         assert "VIDEO_PROMPT_WRITING_GUIDE_base_en.md" in text
         assert "VIDEO_PROMPT_WRITING_GUIDE_ref_en.md" in text
         assert "`templates/minimax/enhance-prompt`" in text
@@ -352,6 +353,10 @@ class TestMiniMaxMusic3Skill:
     def test_the_skill_defers_caption_format_to_minimax(self):
         text = skill_text(MUSIC_SKILL)
         assert "music-caption-rewriter" in text
+        assert (
+            "npx skills add MiniMax-AI/MiniMax-Music3 --skill music-caption-rewriter"
+            in text
+        )
         assert "https://github.com/MiniMax-AI/MiniMax-Music3" in text
         assert "https://huggingface.co/MiniMaxAI/MiniMax-Music3" in text
         for tag in ("[Intro]", "[Pre-Chorus]", "[Bridge]", "[Instrumental]", "[Outro]"):

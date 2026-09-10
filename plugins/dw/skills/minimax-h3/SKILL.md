@@ -120,7 +120,11 @@ H3 wants Context-IR, MiniMax's own format. Do not invent it and do not
 paraphrase it from examples:
 
 1. If the `h3-prompt-writing` skill is installed (MiniMax ships it in
-   https://github.com/MiniMax-AI/MiniMax-H3 under `skills/`), use it.
+   https://github.com/MiniMax-AI/MiniMax-H3 under `skills/`), use it. If it
+   is not, tell the user once that
+   `npx skills add MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing` installs
+   it - only that skill; the repo's other eight are style packs - and go on
+   without it.
 2. Else read the guides on the model card:
    https://huggingface.co/MiniMaxAI/MiniMax-H3/raw/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md
    for text- and frame-conditioned generation, and
