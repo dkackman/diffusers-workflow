@@ -335,7 +335,14 @@ signal to restructure the workflow, not to add another reference.
    once, each with the JSON path it sits at, plus warnings for argument names
    that do not appear in the real pipeline signature. It also catches a
    `previous_result:` (or `from_previous_result`) that names no earlier step,
-   which is what renaming a step half way through leaves behind.
+   which is what renaming a step half way through leaves behind. Pass the
+   `arguments` you are going to run with as well: a name the workflow no
+   longer declares, a value that will not coerce to the declared type, and an
+   `asset:`, `prompt:` or `output:` reference that names nothing in this
+   workspace each come back at `arguments.<name>`, for free, instead of after
+   the model has loaded. Without them the verdict is about the stored
+   definition and its stock defaults - `checked_arguments` in the answer says
+   which it was.
 2. Fix everything reported, including the warnings: a passing validation does
    not mean the pipeline accepts the arguments, and a typo against a real
    `__call__` shows up only as one of those warnings. The server only computes

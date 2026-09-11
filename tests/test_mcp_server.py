@@ -735,6 +735,7 @@ WRAPPER_HANDLER_MAP = {
     "get_output_image": (media, "get_output_image"),
     "get_class": (catalog, "get_class"),
     "list_gallery": (catalog, "list_gallery"),
+    "list_jobs": (catalog, "list_jobs"),
     "download_model": (models, "download_model"),
     "delete_model": (models, "delete_model"),
     "update_diffusers": (models, "update_diffusers"),

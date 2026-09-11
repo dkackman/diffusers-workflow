@@ -20,6 +20,7 @@ import threading
 from ..repl_worker import WorkerManager
 from ..workflow import workflow_from_file, workflow_from_definition
 from ..introspection import workflow_argument_warnings
+from ..variables import argument_errors
 from ..security import (
     SecurityError,
     validate_json_size,
@@ -155,21 +156,32 @@ class JobHistory:
                 ),
             )
 
-    def recent_summaries(self, limit=200, workspace=None):
+    def recent_summaries(self, limit=200, workspace=None, statuses=None):
         """Summary rows only - the jobs list is polled, and parsing four JSON
         blobs per row just to show six scalars was pure waste.
 
         `workspace` filters to one workspace's rows; omitted, history spans
         all of them the way the list already did before workspaces existed.
+        `statuses` filters to a set of terminal states - in SQL rather than
+        over the returned rows, or the newest-first cap above would be
+        spent on rows the filter then drops.
         """
         query = (
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
             " workspace, workflow_name, run_id FROM jobs"
         )
         params = []
+        clauses = []
         if workspace:
-            query += " WHERE workspace = ?"
+            clauses.append("workspace = ?")
             params.append(workspace)
+        if statuses:
+            statuses = list(statuses)
+            placeholders = ", ".join("?" for _ in statuses)
+            clauses.append(f"status IN ({placeholders})")
+            params.extend(statuses)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
         with self._lock, self._connect() as connection:
@@ -517,6 +529,19 @@ class JobManager:
         if asset_dir:
             spec["asset_dir"] = asset_dir
 
+        # The caller's own arguments, checked against the variables this
+        # workflow declares. set_variables makes the same check at the top of
+        # the run, so a bad name failed a job that had already been queued -
+        # and a workflow declaring no variables dropped every argument in
+        # silence. Refused here instead, while it is still a 400
+        problems = argument_errors(loaded.workflow_definition, arguments)
+        if problems:
+            raise ValueError(
+                "; ".join(
+                    f"{problem['path']}: {problem['message']}" for problem in problems
+                )
+            )
+
         # Signature-level check of pipeline arguments - the typo that would
         # otherwise be a TypeError after the model loads becomes a warning
         # the client sees at submission
@@ -706,10 +731,13 @@ class JobManager:
             detail["queue_position"] = position
         return detail
 
-    def list(self, workspace=None):
+    def list(self, workspace=None, statuses=None):
         """All jobs, live and historical, sorted by creation. `workspace` filters to one workspace; omitted, the list
         spans every workspace the server holds, unchanged from before
-        workspaces existed."""
+        workspaces existed. `statuses` filters to a set of job states
+        ('queued', 'running', 'succeeded', 'failed', 'cancelled'); omitted,
+        every state is listed."""
+        statuses = set(statuses) if statuses else None
         with self._lock:
             live = sorted(self.jobs.values(), key=lambda j: j.created_at)
             positions = {job_id: i for i, job_id in enumerate(self._pending)}
@@ -719,10 +747,14 @@ class JobManager:
             summary = job.summary()
             if workspace and summary["workspace"] != workspace:
                 continue
+            if statuses and summary["status"] not in statuses:
+                continue
             if job.id in positions:
                 summary["queue_position"] = positions[job.id]
             summaries.append(summary)
-        for historical in self.history.recent_summaries(workspace=workspace):
+        for historical in self.history.recent_summaries(
+            workspace=workspace, statuses=statuses
+        ):
             if historical["id"] not in live_ids:
                 summaries.append(historical)
         summaries.sort(key=lambda summary: summary["created_at"] or 0)

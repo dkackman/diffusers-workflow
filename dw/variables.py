@@ -237,3 +237,51 @@ def get_value(v, desired_type, name=None):
         )
         logger.error(message)
         raise ValueError(message) from e
+
+
+def argument_errors(definition, arguments):
+    """What is wrong with a caller's `arguments` for this workflow, before
+    anything is queued.
+
+    Exactly the check `set_variables` makes at the top of a run - an
+    undeclared name, a value that will not coerce to the type the default
+    declares - made against a copy, so nothing is mutated and the answer
+    costs no GPU time. A workflow that declares no variables at all takes no
+    arguments: today those are dropped in silence (`Workflow.run` only
+    substitutes when a `variables` block exists), which is the one case the
+    run itself does not report.
+
+    Args:
+        definition: A workflow definition
+        arguments: The caller's argument dict; empty or None means no errors
+
+    Returns:
+        [{"path": "arguments.<name>", "message": str}, ...], one per bad
+        argument, in the order they were given
+    """
+    if not arguments:
+        return []
+    if not isinstance(arguments, dict):
+        return [{"path": "arguments", "message": "arguments must be an object"}]
+
+    declared = definition.get("variables") if isinstance(definition, dict) else None
+    if not isinstance(declared, dict) or not declared:
+        return [
+            {
+                "path": f"arguments.{name}",
+                "message": f"This workflow declares no variables, so '{name}' "
+                "has nowhere to land - it would be ignored by the run",
+            }
+            for name in arguments
+        ]
+
+    errors = []
+    for name, value in arguments.items():
+        # One at a time against a fresh copy, so each bad argument is
+        # reported with its own name rather than the first one stopping the
+        # rest from being checked
+        try:
+            set_variables({name: value}, copy.deepcopy(declared))
+        except (ValueError, TypeError, SecurityError) as e:
+            errors.append({"path": f"arguments.{name}", "message": str(e)})
+    return errors

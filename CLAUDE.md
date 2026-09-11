@@ -228,6 +228,16 @@ same reason - default setup cannot load a pack.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
 - **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `asset:`, `output:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
+- **A caller's `arguments` are checked before anything is queued** -
+  `argument_errors` (`dw/variables.py`) folds them into the declared variables
+  exactly as `set_variables` does at the top of a run, so an undeclared name or
+  a value that will not coerce is a 400 from `POST /api/jobs` rather than a
+  job that fails on its first step, and `POST /api/validate` takes the same
+  `arguments` (plus an `asset:`/`prompt:`/`output:` existence check against
+  the workspace) so the free pre-flight covers the part the caller wrote.
+  A workflow that declares no variables takes no arguments at all - those were
+  dropped in silence, since `Workflow.run` only substitutes when a `variables`
+  block exists
 - **A failed run still reports what it wrote** — the worker carries its partial
   manifest on the error and cancelled messages as well as on success, and the
   "Previous result not found" error names the steps that ran even after
