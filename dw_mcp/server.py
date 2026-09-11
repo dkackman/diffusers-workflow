@@ -457,13 +457,14 @@ def build_server(client):
         another agent's namespace, rather than sharing the default one."""
         return workspaces.use_workspace(client, name)
 
-    def create_workspace(name: str) -> dict:
+    def create_workspace(name: str, use: bool = False) -> dict:
         """Create a workspace on the server. It gets its own workflows,
         assets and outputs and shares the one prompt library. The name is a
         single path segment and cannot be one of the reserved folder names
-        (workflows, prompts, assets, outputs). Creating does not switch to
-        it: call use_workspace after."""
-        return workspaces.create_workspace(client, name)
+        (workflows, prompts, assets, outputs). Pass use=true to switch this
+        session to it as well; otherwise the session stays where it was and
+        the result says so."""
+        return workspaces.create_workspace(client, name, use=use)
 
     def delete_workspace(name: str, acknowledged_cost: bool = False) -> dict:
         """Permanently delete a workspace and every workflow, asset and
