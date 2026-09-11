@@ -290,3 +290,30 @@ mechanical once it exists.
   flag was the first idea and cannot produce a references list whose length
   varies by shot. The template question stage 2 has to get right is how much
   of that list the entry writes and how much the template fixes.
+
+## Notes for stage 2
+
+Observations from the stage-1 review, recorded so the template rewrite does
+not have to rediscover them:
+
+- **`pipeline_reference.reference_name` naming a `for_each` group gets no
+  directed error.** Both templates use `pipeline_reference` on their shot
+  steps, and a reference to a group's name resolves to nothing helpful - the
+  expansion only rewrites `previous_result:` and `from_previous_result`.
+  Rewriting a shot step onto `for_each` means either pointing every member's
+  `pipeline_reference` at a step outside the group, or giving that key the
+  same treatment.
+- **An entry field named `image`/`*_image`/`*_video` is realized before
+  expansion.** `realize_args` runs over the variables, so such a field is a
+  loaded PIL image or a decoded frame list by the time `item:image` splices
+  it into a member. It works, it is untested, and it is why the expansion
+  copies a leaf only inside a member and falls back to the object itself
+  when it cannot be copied.
+- **A `for_each` over an empty list expands to zero steps.** A workflow whose
+  only step is that one returns before `workflow_start`, so the run produces
+  no events and no manifest entries. Whether that is an error or an empty
+  success is a stage-2 decision.
+- **`expanded_definition` skips `realize_constants`.** A list defaulted to a
+  `constant:` name fails validation (the list arrives as the `constant:`
+  string) and then runs fine, since `Workflow.run` does realize constants. A
+  template that wants a constant default needs that pass in the validator.

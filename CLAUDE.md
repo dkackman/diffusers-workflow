@@ -230,14 +230,19 @@ same reason - default setup cannot load a pack.
   literal `previous_result:` or `from_previous_result` naming no *earlier* step, with
   the JSON path it sits at. References otherwise resolve lazily per step, so a step
   renamed in one place and not another failed only when the run reached it, after
-  every step before it had generated. A reference spelled by a `variable:` is left
-  alone - what it names is not knowable before substitution
+  every step before it had generated. The definition is substituted before the check,
+  so a reference spelled by a *declared* variable is checked by its value; one spelled
+  by an undeclared variable is itself a validation error (below)
 - **`for_each` expands before the reference check** — `validation_errors` substitutes
   (the caller's `arguments` when they are all good, else the defaults) and expands
   first, so `gather:` and `item:` errors carry the path of the template step
-  (`steps[0].for_each[1].name`) while a bad reference inside a member carries the
-  member's. Since substitution now precedes the check, a `from_previous_result`
-  spelled by a *declared* variable is checked by its value
+  (`steps[0].for_each[1].name`). Expansion records each expanded step's *source* index
+  (`expand_for_each(definition, source_indices)`), so a reference error always carries a
+  path in the file the author wrote, and one inside a member names the member in its
+  message. An undeclared `variable:` is a validation error at the path it sits at, not a
+  warning and not a complaint about the `for_each` list that did substitute: once a
+  `variables` block exists, `replace_variables` refuses an undeclared reference, so it is
+  a run that cannot start
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`

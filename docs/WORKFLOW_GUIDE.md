@@ -391,9 +391,10 @@ differs by shot, with `from_previous_result` and `asset:` strings inside
 it. Nothing is interpolated: `"item:prompt"` is the field, `"shot: item:prompt"`
 is a literal string.
 
-Two `for_each` steps over the *same* list are paired by name: inside
-`shot@closeup`, a reference to another `for_each` step `slice` over the same
-`shots` list resolves to `slice@closeup`. That is how a shot reads the audio
+Two `for_each` steps over the *same* list are paired by key — the entry's
+`name`, or its index for an entry without one: inside `shot@closeup`, a
+reference to another `for_each` step `slice` over the same `shots` list
+resolves to `slice@closeup`. That is how a shot reads the audio
 slice cut for it when slicing and generating are two steps. It is the one
 pairing the engine has; `for_each` runs over exactly one list, and there is
 no zip and no loop index.
@@ -404,6 +405,10 @@ quote `cost × len(list)` before running a list-driven workflow, and
 `validate_workflow` with the `arguments` you will run with: it expands your
 list, not the template's default, and reports a duplicate name or a missing
 field at the entry's path.
+
+Every error carries a path in the file you wrote, not in the expanded step
+list: a bad reference inside a member is reported at the `for_each` step's
+own path, with the member it failed in named in the message.
 
 ### The loop
 
