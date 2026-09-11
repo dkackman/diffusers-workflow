@@ -273,6 +273,80 @@ class TestItemSubstitution:
         assert second["pipeline"]["arguments"]["references"][0]["k"] == 1
 
 
+class TestSourceIndices:
+    """The expansion records where each step came from in the source file.
+
+    A parallel list rather than a key on the step: step_data is what the
+    step cache keys on and what the schema validates, so nothing new may
+    appear in it.
+    """
+
+    def test_every_expanded_step_records_its_source_index(self):
+        source_indices = []
+        expanded = expand_for_each(
+            definition(
+                {"name": "draw", "task": {}},
+                {"name": "shot", "for_each": ["a", "b", "c"], "task": {}},
+                {"name": "edit", "task": {}},
+            ),
+            source_indices,
+        )
+        assert [s["name"] for s in expanded["steps"]] == [
+            "draw",
+            "shot@0",
+            "shot@1",
+            "shot@2",
+            "edit",
+        ]
+        assert source_indices == [0, 1, 1, 1, 2]
+
+    def test_the_list_is_optional(self):
+        expanded = expand_for_each(
+            definition({"name": "shot", "for_each": ["a"], "task": {}})
+        )
+        assert [s["name"] for s in expanded["steps"]] == ["shot@0"]
+
+
+class TestLeafCopying:
+    """A leaf is copied only where the copy is needed - inside a member.
+
+    expand_for_each runs on every run of every workflow, after realize_args
+    has turned 'asset:' and '*_image' arguments into loaded PIL images and
+    decoded frame lists. Copying every leaf of every step would multiply
+    that media, and a leaf that cannot be copied at all would fail a run
+    that has always worked.
+    """
+
+    class Uncopyable:
+        def __deepcopy__(self, memo):
+            raise TypeError("cannot copy this")
+
+    def test_a_leaf_outside_a_member_is_passed_through_by_identity(self):
+        leaf = self.Uncopyable()
+        expanded = expand_for_each(
+            definition({"name": "plain", "task": {"arguments": {"model": leaf}}})
+        )
+        assert expanded["steps"][0]["task"]["arguments"]["model"] is leaf
+
+    def test_a_leaf_inside_a_member_that_cannot_be_copied_is_the_object_itself(self):
+        # The step cache makes the same choice for a realized argument it
+        # cannot deep-copy: the run goes on, with the object as it is
+        leaf = self.Uncopyable()
+        expanded = expand_for_each(
+            definition(
+                {
+                    "name": "shot",
+                    "for_each": ["a", "b"],
+                    "task": {"arguments": {"model": leaf}},
+                }
+            )
+        )
+        assert [s["task"]["arguments"]["model"] for s in expanded["steps"]] == [
+            leaf,
+            leaf,
+        ]
+
+
 class TestRelease:
     def test_release_flags_survive_on_the_last_member_only(self):
         expanded = expand_for_each(
@@ -369,7 +443,10 @@ class TestGather:
             self.group(
                 {
                     "name": "score",
-                    "workflow": {"path": "builtin:x.json", "arguments": {"clips": "gather:shot"}},
+                    "workflow": {
+                        "path": "builtin:x.json",
+                        "arguments": {"clips": "gather:shot"},
+                    },
                 }
             )
         )
@@ -446,7 +523,9 @@ class TestGroupReferences:
             definition(
                 {
                     "name": "edit",
-                    "task": {"arguments": {"r": [{"from_previous_result": "variable:x"}]}},
+                    "task": {
+                        "arguments": {"r": [{"from_previous_result": "variable:x"}]}
+                    },
                 }
             )
         )
@@ -557,8 +636,16 @@ class TestMusicVideoTemplate:
         template = load_template("music-video.json")
         today = steps_by_name(template)
         shots = [
-            {"name": "wide_open", "prompt": "variable:shot_1_wide_open", "start_frame": 0},
-            {"name": "closeup", "prompt": "variable:shot_2_closeup", "start_frame": 124},
+            {
+                "name": "wide_open",
+                "prompt": "variable:shot_1_wide_open",
+                "start_frame": 0,
+            },
+            {
+                "name": "closeup",
+                "prompt": "variable:shot_2_closeup",
+                "start_frame": 124,
+            },
             {"name": "room", "prompt": "variable:shot_3_room", "start_frame": 248},
             {"name": "finale", "prompt": "variable:shot_4_finale", "start_frame": 372},
         ]
@@ -580,8 +667,13 @@ class TestMusicVideoTemplate:
 
         expanded = expand_for_each(
             definition(
-                today["draw_singer"], today["write_song"], slice_template,
-                today["soundtrack"], shot_template, edit, today["music_video"],
+                today["draw_singer"],
+                today["write_song"],
+                slice_template,
+                today["soundtrack"],
+                shot_template,
+                edit,
+                today["music_video"],
             )
         )
         got = steps_by_name(expanded)
@@ -594,8 +686,15 @@ class TestMusicVideoTemplate:
 
         # Each expanded shot is today's shot (as a full pipeline block) with
         # the new name and its slice renamed
-        hand_written = ["shot_1_wide_open", "shot_2_closeup", "shot_3_room", "shot_4_finale"]
-        for key, old, index in zip(["wide_open", "closeup", "room", "finale"], hand_written, range(1, 5)):
+        hand_written = [
+            "shot_1_wide_open",
+            "shot_2_closeup",
+            "shot_3_room",
+            "shot_4_finale",
+        ]
+        for key, old, index in zip(
+            ["wide_open", "closeup", "room", "finale"], hand_written, range(1, 5)
+        ):
             step = today[old]
             if "pipeline_reference" in step:
                 step = without_pipeline_reference(step, today["shot_1_wide_open"])
@@ -607,7 +706,8 @@ class TestMusicVideoTemplate:
             assert got[f"shot@{key}"] == expected
 
         assert got["edit"]["task"]["arguments"]["videos"] == [
-            f"previous_result:shot@{k}" for k in ["wide_open", "closeup", "room", "finale"]
+            f"previous_result:shot@{k}"
+            for k in ["wide_open", "closeup", "room", "finale"]
         ]
 
 
@@ -628,7 +728,11 @@ class TestDialogueShortTemplate:
         ]
         first = today["shot_1_cold_open"]
         full = {
-            old: (step if "pipeline_reference" not in step else without_pipeline_reference(step, first))
+            old: (
+                step
+                if "pipeline_reference" not in step
+                else without_pipeline_reference(step, first)
+            )
             for old, step in today.items()
             if old.startswith("shot_")
         }
@@ -653,7 +757,9 @@ class TestDialogueShortTemplate:
         shot_template["pipeline"]["arguments"]["num_frames"] = "item:num_frames"
 
         expanded = expand_for_each(
-            definition(today["draw_character_a"], today["draw_character_b"], shot_template)
+            definition(
+                today["draw_character_a"], today["draw_character_b"], shot_template
+            )
         )
         got = steps_by_name(expanded)
         for key, old in hand_written:

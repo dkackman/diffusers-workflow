@@ -126,17 +126,25 @@ def _for_each_workflow(**overrides):
     not imported across test modules, per that task's convention."""
     definition = {
         "id": "fe",
-        "variables": {"shots": [{"name": "a", "text": "A"}, {"name": "b", "text": "B"}]},
+        "variables": {
+            "shots": [{"name": "a", "text": "A"}, {"name": "b", "text": "B"}]
+        },
         "steps": [
             {
                 "name": "shot",
                 "for_each": "variable:shots",
-                "task": {"command": "compose_text", "arguments": {"parts": ["item:text"]}},
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": ["item:text"]},
+                },
                 "result": {"content_type": "text/plain"},
             },
             {
                 "name": "edit",
-                "task": {"command": "compose_text", "arguments": {"parts": "gather:shot"}},
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": "gather:shot"},
+                },
                 "result": {"content_type": "text/plain"},
             },
         ],

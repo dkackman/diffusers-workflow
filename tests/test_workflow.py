@@ -622,17 +622,25 @@ def _workflow_from(definition, tmp_path):
 def _for_each_workflow(**overrides):
     definition = {
         "id": "fe",
-        "variables": {"shots": [{"name": "a", "text": "A"}, {"name": "b", "text": "B"}]},
+        "variables": {
+            "shots": [{"name": "a", "text": "A"}, {"name": "b", "text": "B"}]
+        },
         "steps": [
             {
                 "name": "shot",
                 "for_each": "variable:shots",
-                "task": {"command": "compose_text", "arguments": {"parts": ["item:text"]}},
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": ["item:text"]},
+                },
                 "result": {"content_type": "text/plain"},
             },
             {
                 "name": "edit",
-                "task": {"command": "compose_text", "arguments": {"parts": "gather:shot"}},
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": "gather:shot"},
+                },
                 "result": {"content_type": "text/plain"},
             },
         ],
@@ -677,6 +685,62 @@ def test_validation_of_an_undeclared_variable_still_does_not_raise(tmp_path):
     workflow = _workflow_from(definition, tmp_path)
     errors = workflow.validation_errors()
     assert errors and "variable:missing" in errors[0]["message"]
+    assert errors[0]["path"] == "steps[0].for_each"
+
+
+def test_an_unrelated_undeclared_variable_is_not_blamed_on_for_each(tmp_path):
+    """A typo in one step used to leave the whole definition unsubstituted,
+    so a perfectly good for_each list arrived as the literal
+    'variable:shots' and the error blamed the list the author got right."""
+    definition = _for_each_workflow()
+    definition["steps"][0]["task"]["arguments"]["parts"] = [
+        "item:text",
+        "variable:promt",
+    ]
+    errors = _workflow_from(definition, tmp_path).validation_errors()
+    assert len(errors) == 1
+    assert errors[0]["path"] == "steps[0].task.arguments.parts[1]"
+    assert "promt" in errors[0]["message"] and "shots" in errors[0]["message"]
+    assert "for_each" not in errors[0]["message"]
+
+
+def test_a_reference_error_after_a_group_names_the_step_in_the_file(tmp_path):
+    """The expansion moves the later steps along; the path the author reads
+    has to be the one in the file they wrote, not the expanded index."""
+    definition = _for_each_workflow()
+    definition["variables"]["shots"] = [
+        {"name": "a", "text": "A"},
+        {"name": "b", "text": "B"},
+        {"name": "c", "text": "C"},
+    ]
+    definition["steps"].insert(
+        0,
+        {
+            "name": "draw",
+            "task": {"command": "compose_text", "arguments": {"parts": ["x"]}},
+            "result": {"content_type": "text/plain"},
+        },
+    )
+    definition["steps"][2]["task"]["arguments"]["parts"] = ["previous_result:nope"]
+    errors = _workflow_from(definition, tmp_path).validation_errors()
+    assert len(errors) == 1
+    assert errors[0]["path"] == "steps[2].task.arguments.parts[0]"
+
+
+def test_a_reference_error_inside_a_member_names_the_member(tmp_path):
+    definition = _for_each_workflow()
+    definition["steps"][0]["task"]["arguments"]["parts"] = [
+        "item:text",
+        {"from_previous_result": "nope"},
+    ]
+    errors = _workflow_from(definition, tmp_path).validation_errors()
+    # One per member, each at the source step's path
+    assert [e["path"] for e in errors] == [
+        "steps[0].task.arguments.parts[1].from_previous_result",
+        "steps[0].task.arguments.parts[1].from_previous_result",
+    ]
+    assert "in member 'shot@a'" in errors[0]["message"]
+    assert "in member 'shot@b'" in errors[1]["message"]
 
 
 def test_run_expands_for_each_and_names_the_members(tmp_path):

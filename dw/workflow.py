@@ -47,6 +47,7 @@ from .variables import (
     argument_errors,
     replace_variables,
     set_variables,
+    undeclared_variable_references,
     VariableNotFoundError,
 )
 from .pipeline_processors.pipeline import Pipeline
@@ -288,26 +289,27 @@ class Workflow:
             os.path.join(self.output_dir, subfolder) if subfolder else self.output_dir
         )
 
-    def expanded_definition(self, arguments=None):
+    def expanded_definition(self, arguments=None, source_indices=None):
         """The definition as the run will see it: variables substituted -
         the caller's `arguments` folded in when they are all good, else the
         declared defaults - and every for_each step expanded.
 
-        Raises ForEachError for a for_each that cannot be expanded. A
-        'variable:' that names nothing is left in place rather than raised:
-        validate_workflow already reports that as a warning, and the
-        reference check is happy to skip a reference it cannot read.
+        Raises ForEachError for a for_each that cannot be expanded, and
+        VariableNotFoundError for a 'variable:' that names nothing - which
+        is exactly what the run itself would raise, since a definition that
+        declares variables is always substituted before it runs.
+
+        `source_indices`, when a list is passed, comes back holding the
+        index in *this* definition's steps of every expanded step, so an
+        error can be reported at a path in the file the author wrote.
         """
         definition = copy.deepcopy(self.workflow_definition)
         variables = definition.get("variables")
         if isinstance(variables, dict):
             if arguments and not argument_errors(definition, arguments):
                 set_variables(arguments, variables)
-            try:
-                definition = replace_variables(definition, variables)
-            except VariableNotFoundError:
-                pass
-        return expand_for_each(definition)
+            definition = replace_variables(definition, variables)
+        return expand_for_each(definition, source_indices)
 
     def validation_errors(self, arguments=None):
         """Every schema violation in the definition, as [{path, message}];
@@ -319,11 +321,37 @@ class Workflow:
         # such array to walk
         if errors:
             return errors
+        source_indices = []
         try:
-            expanded = self.expanded_definition(arguments)
+            expanded = self.expanded_definition(arguments, source_indices)
         except ForEachError as e:
             return [{"path": e.path, "message": str(e)}]
-        return previous_result_reference_errors(expanded)
+        except VariableNotFoundError:
+            # Every undeclared reference, not just the first one substitution
+            # tripped over - and reported where each sits rather than as a
+            # for_each whose list arrived unsubstituted, which is what a
+            # half-substituted definition used to look like from here
+            return self._undeclared_variable_errors()
+        return previous_result_reference_errors(expanded, source_indices)
+
+    def _undeclared_variable_errors(self):
+        """Every 'variable:' reference naming nothing the workflow declares.
+
+        Fatal rather than a warning: once a workflow has a 'variables'
+        block, replace_variables refuses an undeclared reference, so this is
+        a run that cannot start.
+        """
+        declared = sorted(self.workflow_definition.get("variables") or {})
+        return [
+            {
+                "path": path,
+                "message": (
+                    f"'variable:{name}' names no declared variable; "
+                    f"declared: {', '.join(declared) or '<none>'}"
+                ),
+            }
+            for path, name in undeclared_variable_references(self.workflow_definition)
+        ]
 
     def validate(self):
         """Validates workflow definition against JSON schema.

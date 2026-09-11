@@ -1,6 +1,6 @@
 {
     "variables": {
-        "mage": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup.png",
+        "image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup.png",
         "mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png"
     },
     "id": "FluxFill",

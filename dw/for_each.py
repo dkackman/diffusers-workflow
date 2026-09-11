@@ -57,11 +57,18 @@ def member_name(group, key):
     return f"{group}{MEMBER_SEPARATOR}{key}"
 
 
-def expand_for_each(definition):
+def expand_for_each(definition, source_indices=None):
     """The definition with every 'for_each' step replaced by its members.
 
     Returns a new structure; `definition` is left as it was passed in.
     Raises ForEachError for anything that cannot be expanded.
+
+    `source_indices`, when a list is passed, has the index of the step each
+    expanded step was written as appended to it, so a later check can report
+    an error at a path in the file the author wrote rather than at an
+    expanded index that exists nowhere. A parallel list rather than a key on
+    the step: step_data is what the step cache keys on and what the schema
+    validates, and neither may learn a new field.
     """
     steps = definition.get("steps") if isinstance(definition, dict) else None
     if not isinstance(steps, list):
@@ -75,6 +82,7 @@ def expand_for_each(definition):
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             expanded.append(copy.deepcopy(step))
+            _record(source_indices, index)
             continue
         path = ("steps", index)
         name = step.get("name")
@@ -86,6 +94,7 @@ def expand_for_each(definition):
             )
         if FOR_EACH_KEY not in step:
             expanded.append(_rewrite(step, path, groups, member=None))
+            _record(source_indices, index)
             continue
 
         entries = step[FOR_EACH_KEY]
@@ -106,11 +115,17 @@ def expand_for_each(definition):
                 for flag in _LAST_MEMBER_ONLY:
                     expanded_step.pop(flag, None)
             expanded.append(expanded_step)
+            _record(source_indices, index)
         groups[name] = {"keys": keys, "entries": entries}
 
     result = {k: v for k, v in definition.items() if k != "steps"}
     result["steps"] = expanded
     return result
+
+
+def _record(source_indices, index):
+    if source_indices is not None:
+        source_indices.append(index)
 
 
 def _entry_keys(entries, path):
@@ -122,7 +137,8 @@ def _entry_keys(entries, path):
         else:
             hint = ""
         raise ForEachError(
-            render_path(path), f"for_each must be a list, got {type(entries).__name__}{hint}"
+            render_path(path),
+            f"for_each must be a list, got {type(entries).__name__}{hint}",
         )
     if len(entries) > MAX_FOR_EACH_ENTRIES:
         raise ForEachError(
@@ -181,7 +197,27 @@ def _rewrite(value, path, groups, member):
                 reference, path, groups, member
             )
         return value
-    return copy.deepcopy(value)
+    # A leaf is only copied where the copy is needed: inside a member, where
+    # the same template value is about to appear in every one of them.
+    # Outside, the leaf is handed back as it is - this pass runs on every run
+    # of every workflow, after realize_args has turned 'asset:' arguments
+    # into loaded images and decoded frame lists, and copying all of that
+    # would multiply the media a run holds. The 'input untouched' contract
+    # still holds because nothing here ever mutates a leaf
+    return _copy_leaf(value) if member is not None else value
+
+
+def _copy_leaf(value):
+    """A copy of a leaf, or the leaf itself when it cannot be copied.
+
+    An open handle or a live model object reaching a member is not a reason
+    to fail a run - the step cache makes the same choice for a realized
+    argument it cannot deep-copy (dw/workflow.py).
+    """
+    try:
+        return copy.deepcopy(value)
+    except Exception:
+        return value
 
 
 def _item(value, path, member):
@@ -192,7 +228,7 @@ def _item(value, path, member):
     field = value[len(ITEM_PREFIX) :]
     entry = member["entry"]
     if field == "":
-        return copy.deepcopy(entry)
+        return _copy_leaf(entry)
     if not isinstance(entry, dict):
         raise ForEachError(
             render_path(path),
@@ -205,7 +241,7 @@ def _item(value, path, member):
             f"'{value}' names no field of entry '{member['key']}' of for_each "
             f"step '{member['group']}'; it has: {sorted(entry)}",
         )
-    return copy.deepcopy(entry[field])
+    return _copy_leaf(entry[field])
 
 
 def _gather(value, path, groups):

@@ -170,12 +170,18 @@ class TestValidateRoute:
                 {
                     "name": "shot",
                     "for_each": "variable:shots",
-                    "task": {"command": "compose_text", "arguments": {"parts": ["item:text"]}},
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["item:text"]},
+                    },
                     "result": {"content_type": "text/plain"},
                 },
                 {
                     "name": "edit",
-                    "task": {"command": "compose_text", "arguments": {"parts": "gather:shot"}},
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": "gather:shot"},
+                    },
                     "result": {"content_type": "text/plain"},
                 },
             ],
