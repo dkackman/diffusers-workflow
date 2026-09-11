@@ -88,6 +88,32 @@ def test_a_video_reports_its_picture_and_its_soundtrack(tmp_path):
     assert info["peak_dbfs"] == pytest.approx(-12.0, abs=1.5)
 
 
+def test_a_container_with_no_upfront_frame_count_still_reads_both_passes(
+    tmp_path,
+):
+    """Matroska doesn't write a frame count into the stream header the way
+    mp4 does, so `video.frames` comes back 0 and probe_media must count
+    frames by decoding - in the same pass that measures the soundtrack, since
+    a second decode pass over an already-exhausted demuxer reads nothing."""
+    import av
+
+    path = tmp_path / "shot.mkv"
+    write_mp4(path, frames=12, fps=6, width=32, height=16)
+
+    with av.open(str(path)) as container:
+        assert container.streams.video[0].frames == 0, (
+            "fixture assumption broken: this container format now writes "
+            "a frame count up front, so it no longer exercises the "
+            "fallback-counting path probe_media relies on"
+        )
+
+    info = probe_media(str(path))
+
+    assert info["kind"] == "video"
+    assert info["frame_count"] == 12
+    assert info["peak_dbfs"] == pytest.approx(-12.0, abs=1.5)
+
+
 def test_a_silent_video_has_no_audio_fields(tmp_path):
     write_mp4(tmp_path / "mute.mp4", with_audio=False)
 

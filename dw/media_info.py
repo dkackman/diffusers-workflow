@@ -23,23 +23,6 @@ def _dbfs(value):
     return max(SILENCE_DBFS, 20.0 * math.log10(float(value)))
 
 
-def _audio_levels(container, stream):
-    """Peak and rms of the whole decoded track, in dBFS."""
-    peak = 0.0
-    total = 0.0
-    count = 0
-    for frame in container.decode(stream):
-        samples = frame.to_ndarray()
-        if samples.dtype.kind in "iu":
-            samples = samples.astype(numpy.float32) / numpy.iinfo(samples.dtype).max
-        samples = samples.astype(numpy.float32)
-        peak = max(peak, float(numpy.abs(samples).max(initial=0.0)))
-        total += float(numpy.square(samples).sum())
-        count += samples.size
-    rms = math.sqrt(total / count) if count else 0.0
-    return _dbfs(peak), _dbfs(rms)
-
-
 def probe_media(path):
     """Duration, format and level of an audio or video file, or None.
 
@@ -47,6 +30,12 @@ def probe_media(path):
     sample_rate, channels, peak_dbfs and mean_dbfs when it carries one;
     audio answers the soundtrack fields. Levels come from decoding the
     whole track, which is cheap next to generating it.
+
+    When a frame count still needs counting and/or a soundtrack still needs
+    its levels measured, both are gathered from a single decode pass over
+    whichever streams are involved - `container.decode()` demuxes to EOF, so
+    two separate passes (count video, then decode audio) would leave the
+    second one nothing to read.
     """
     try:
         container = av.open(path)
@@ -62,10 +51,6 @@ def probe_media(path):
         if video is not None:
             info["kind"] = "video"
             info["fps"] = float(video.average_rate) if video.average_rate else None
-            if video.frames:
-                info["frame_count"] = int(video.frames)
-            else:
-                info["frame_count"] = sum(1 for _ in container.decode(video))
             info["width"] = int(video.width)
             info["height"] = int(video.height)
         else:
@@ -75,5 +60,38 @@ def probe_media(path):
         if audio is not None:
             info["sample_rate"] = int(audio.rate)
             info["channels"] = int(audio.channels)
-            info["peak_dbfs"], info["mean_dbfs"] = _audio_levels(container, audio)
+
+        # Some muxers don't write a frame count up front (0 means "count
+        # them"); a soundtrack always needs decoding to measure its level.
+        # Do both together, since decoding is a one-way trip through the file.
+        need_frame_count = video is not None and not video.frames
+        if video is not None and not need_frame_count:
+            info["frame_count"] = int(video.frames)
+
+        if need_frame_count or audio is not None:
+            frame_count = 0
+            peak = 0.0
+            total = 0.0
+            count = 0
+            streams = [s for s in (video, audio) if s is not None]
+            for frame in container.decode(*streams):
+                if isinstance(frame, av.VideoFrame):
+                    frame_count += 1
+                elif isinstance(frame, av.AudioFrame):
+                    samples = frame.to_ndarray()
+                    if samples.dtype.kind in "iu":
+                        samples = (
+                            samples.astype(numpy.float32)
+                            / numpy.iinfo(samples.dtype).max
+                        )
+                    samples = samples.astype(numpy.float32)
+                    peak = max(peak, float(numpy.abs(samples).max(initial=0.0)))
+                    total += float(numpy.square(samples).sum())
+                    count += samples.size
+            if need_frame_count:
+                info["frame_count"] = frame_count
+            if audio is not None:
+                rms = math.sqrt(total / count) if count else 0.0
+                info["peak_dbfs"] = _dbfs(peak)
+                info["mean_dbfs"] = _dbfs(rms)
         return info
