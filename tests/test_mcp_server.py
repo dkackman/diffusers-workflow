@@ -612,6 +612,18 @@ async def test_rerun_job_advertises_its_cost():
 
 
 @pytest.mark.asyncio
+async def test_wait_for_job_names_the_cap_it_applies():
+    """A caller paces its polling against a number, so the description
+    carries the real one rather than "well under a generation's runtime"."""
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["wait_for_job"].description
+    assert str(diagnose.MAX_WAIT_SECONDS) in description
+    assert "{cap}" not in description, "the placeholder must be formatted away"
+    assert "timeout_capped" in description
+
+
+@pytest.mark.asyncio
 async def test_export_job_warns_the_copy_costs_disk_and_names_total_bytes():
     tools = await tools_of(server_over(ok({})))
 
