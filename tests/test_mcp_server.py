@@ -65,6 +65,7 @@ EXPECTED_TOOLS = {
     "list_assets",
     "upload_asset",
     "keep_output",
+    "delete_asset",
     "list_workspaces",
     "use_workspace",
     "create_workspace",
@@ -90,6 +91,7 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "delete_output",
     "upload_asset",
     "keep_output",
+    "delete_asset",
     "use_workspace",
     "create_workspace",
     "delete_workspace",
@@ -103,6 +105,7 @@ DESTRUCTIVE_TOOLS = {
     "delete_prompt",
     "download_output",
     "delete_output",
+    "delete_asset",
 }
 
 # Tools that refuse until the caller passes acknowledged_cost=true. The
@@ -429,6 +432,7 @@ TOOL_WIRING = [
         "POST",
         "/api/assets/keep",
     ),
+    ("delete_asset", {"name": "hero.png"}, "DELETE", "/api/assets/hero.png"),
     ("list_workspaces", {}, "GET", "/api/workspaces"),
     ("use_workspace", {"name": "default"}, "GET", "/api/workspaces"),
     ("create_workspace", {"name": "shots"}, "POST", "/api/workspaces"),

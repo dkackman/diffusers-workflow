@@ -253,7 +253,9 @@ not validation.
   JSON type the field expects: `25`, not `"25"`.
 - `previous_result:` — `previous_result:step_name` is the outputs of an earlier
   step, named by that step's `name`. It iterates; see the cartesian rule
-  below. A `.field` suffix
+  below. Validation checks it: a literal reference naming no earlier step is
+  an error with the JSON path it sits at, rather than a run-time failure
+  reached after everything before it has generated. A `.field` suffix
   (`previous_result:invert.inverted_latents`) picks one field of a result that
   is a dict, or a data attribute of a result object.
 - `constant:` — `constant:module.path.NAME` is a value declared in Python,
@@ -331,7 +333,9 @@ signal to restructure the workflow, not to add another reference.
 
 1. `validate_workflow` — free and instant. It reports every schema error at
    once, each with the JSON path it sits at, plus warnings for argument names
-   that do not appear in the real pipeline signature.
+   that do not appear in the real pipeline signature. It also catches a
+   `previous_result:` (or `from_previous_result`) that names no earlier step,
+   which is what renaming a step half way through leaves behind.
 2. Fix everything reported, including the warnings: a passing validation does
    not mean the pipeline accepts the arguments, and a typo against a real
    `__call__` shows up only as one of those warnings. The server only computes

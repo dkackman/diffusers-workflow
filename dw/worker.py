@@ -173,6 +173,10 @@ class WorkflowWorker:
         arguments = command["arguments"]
         output_dir = command["output_dir"]
         log_level = command.get("log_level", "INFO")
+        # Bound before the load, so a failure or a cancellation still reports
+        # whatever the run had written by then - the steps that did complete
+        # are the first thing a failed long run is asked about
+        workflow = None
 
         try:
             set_log_level(log_level)
@@ -256,7 +260,11 @@ class WorkflowWorker:
         except WorkflowCancelled:
             self._cleanup_between_runs()
             self.result_queue.put(
-                {"type": "cancelled", "message": "Workflow run cancelled"}
+                {
+                    "type": "cancelled",
+                    "message": "Workflow run cancelled",
+                    "manifest": getattr(workflow, "manifest", []),
+                }
             )
         except Exception as e:
             logger.error(f"Error executing workflow: {e}", exc_info=True)
@@ -265,6 +273,10 @@ class WorkflowWorker:
                     "type": "error",
                     "message": f"Workflow execution error: {str(e)}",
                     "traceback": traceback.format_exc(),
+                    # The files the steps before the failure wrote are on
+                    # disk; reporting them is what keeps a run that died at
+                    # step five from looking like one that produced nothing
+                    "manifest": getattr(workflow, "manifest", []),
                 }
             )
 

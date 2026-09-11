@@ -376,9 +376,9 @@
                 "arguments": {
                     "videos": [
                         "previous_result:shot_1_cold_open",
-                        "previous_result:shot_2_pat_deflects",
-                        "previous_result:shot_3_howie_incredulous",
-                        "previous_result:shot_4_pat_button",
+                        "previous_result:shot_2_deflect",
+                        "previous_result:shot_3_react",
+                        "previous_result:shot_4_button",
                         "previous_result:shot_5_tag"
                     ],
                     "trim_frames": 0,

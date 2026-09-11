@@ -532,6 +532,116 @@ class TestKeepingOutputs:
         assert [entry["reference"] for entry in listed] == ["asset:gyre/hero.png"]
 
 
+class TestKeepingUnderAnExtensionlessName:
+    """T014: a kept asset written without an extension is invisible to the
+    library listing, which reads by kind - so the call reported success and
+    the asset could never be found again."""
+
+    def written(self, root, name, content=b"wav-bytes"):
+        path = os.path.join(root, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.write(content)
+        return path
+
+    def test_the_kept_files_extension_is_assumed(self, server, workspace_root):
+        self.written(workspace_root.outputs, "Ep/run/speak_a.wav")
+        with server() as client:
+            body = client.post(
+                "/api/assets/keep",
+                json={"name": "Ep/run/speak_a.wav", "asset_name": "cast/priya-voice"},
+            ).json()
+            listed = client.get("/api/assets").json()["assets"]
+        assert body["reference"] == "asset:cast/priya-voice.wav"
+        assert os.path.exists(
+            os.path.join(workspace_root.assets, "cast", "priya-voice.wav")
+        )
+        # the whole point: what the call handed back is what the library shows
+        assert [entry["reference"] for entry in listed] == [
+            "asset:cast/priya-voice.wav"
+        ]
+
+    def test_a_contradicting_extension_is_refused(self, server, workspace_root):
+        self.written(workspace_root.outputs, "Ep/run/speak_a.wav")
+        with server() as client:
+            response = client.post(
+                "/api/assets/keep",
+                json={"name": "Ep/run/speak_a.wav", "asset_name": "cast/priya.png"},
+            )
+        assert response.status_code == 400
+        assert "does not match" in response.json()["detail"]
+
+
+class TestDeletingAssets:
+    """Uploads and keeps had no counterpart: a mistaken name could only be
+    cleaned up on the box (T014)."""
+
+    def written(self, root, name, content=b"png-bytes"):
+        path = os.path.join(root, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.write(content)
+        return path
+
+    def test_an_asset_is_deleted_and_gone_from_the_listing(
+        self, server, workspace_root
+    ):
+        self.written(workspace_root.assets, "cast/hero.png")
+        with server() as client:
+            response = client.delete("/api/assets/cast/hero.png")
+            listed = client.get("/api/assets").json()["assets"]
+        assert response.status_code == 200
+        assert response.json() == {
+            "name": "cast/hero.png",
+            "deleted": True,
+            "origin": "workspace",
+        }
+        assert listed == []
+        assert not os.path.exists(
+            os.path.join(workspace_root.assets, "cast", "hero.png")
+        )
+
+    def test_a_shared_asset_is_deleted_from_the_shared_library(
+        self, server, workspace_root
+    ):
+        common = os.path.join(workspace_root.root, "common", "assets")
+        self.written(common, "cast/priya-voice.wav")
+        with server() as client:
+            response = client.delete("/api/assets/cast/priya-voice.wav")
+        assert response.status_code == 200
+        assert response.json()["origin"] == "common"
+        assert not os.path.exists(os.path.join(common, "cast", "priya-voice.wav"))
+
+    def test_a_workspace_asset_shadows_the_shared_one_it_deletes(
+        self, server, workspace_root
+    ):
+        """Deletion follows the search path, so the name deleted is the name
+        'asset:' would have resolved to."""
+        common = os.path.join(workspace_root.root, "common", "assets")
+        self.written(common, "hero.png", b"shared")
+        self.written(workspace_root.assets, "hero.png", b"mine")
+        with server() as client:
+            body = client.delete("/api/assets/hero.png").json()
+        assert body["origin"] == "workspace"
+        assert open(os.path.join(common, "hero.png"), "rb").read() == b"shared"
+
+    def test_an_unknown_name_is_a_404(self, server, workspace_root):
+        with server() as client:
+            assert client.delete("/api/assets/nothing.png").status_code == 404
+
+    @pytest.mark.parametrize("name", ["../escape.png", "%2e%2e/escape.png"])
+    def test_a_name_cannot_leave_the_library(self, server, workspace_root, name):
+        """405 is in the list because the client normalizes a literal '..'
+        out of the URL before it is sent - the server never sees that one.
+        The encoded form is the one that reaches the validator."""
+        self.written(os.path.dirname(workspace_root.assets), "escape.png")
+        with server() as client:
+            assert client.delete(f"/api/assets/{name}").status_code in (400, 404, 405)
+        assert os.path.exists(
+            os.path.join(os.path.dirname(workspace_root.assets), "escape.png")
+        )
+
+
 class TestRunning:
     def test_a_job_runs_in_the_workspace_it_named(self, server, workspace_root):
         with server() as client:

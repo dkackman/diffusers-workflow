@@ -214,6 +214,13 @@ same reason - default setup cannot load a pack.
 ## Critical Gotchas
 
 - **Schema validation runs before variable substitution** — variable defaults must match expected JSON types (use `25` not `"25"` for numbers)
+- **`previous_result:` references are checked statically too** — once the schema
+  passes, `previous_result_reference_errors` (`dw/previous_results.py`) reports any
+  literal `previous_result:` or `from_previous_result` naming no *earlier* step, with
+  the JSON path it sits at. References otherwise resolve lazily per step, so a step
+  renamed in one place and not another failed only when the run reached it, after
+  every step before it had generated. A reference spelled by a `variable:` is left
+  alone - what it names is not knowable before substitution
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
@@ -221,6 +228,10 @@ same reason - default setup cannot load a pack.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
 - **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `asset:`, `output:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
+- **A failed run still reports what it wrote** — the worker carries its partial
+  manifest on the error and cancelled messages as well as on success, and the
+  "Previous result not found" error names the steps that ran even after
+  `release_unreferenced_results` has dropped their results
 - **Run directories**: each execution writes `<output_dir>/<workflow identity>/<run id>/`
   with a `manifest.json` beside its files (`dw/runs.py`, `Workflow.effective_output_dir`).
   Identity is the workflow's path under a `workflows/` tree, else its file name, else its

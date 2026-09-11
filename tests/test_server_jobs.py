@@ -119,3 +119,45 @@ def test_a_database_without_the_columns_is_migrated(tmp_path):
     history = JobHistory(path)
     row = history.get("old-1")
     assert row["run_id"] is None and row["run_dir"] is None
+
+
+def failing_script(command):
+    """A run that writes a file, then dies on the next step - the shape of a
+    dialogue-short whose last step names a renamed one (T015)."""
+    output_dir = command["output_dir"]
+    yield {
+        "type": "progress",
+        "event": "step_end",
+        "step": "first",
+        "files": [f"{output_dir}/QaDanglingRef/run/first.txt"],
+    }
+    yield {
+        "type": "error",
+        "message": "Workflow execution error: Previous result 'x' not found",
+        "traceback": "...",
+        "manifest": [
+            {"step": "first", "files": [f"{output_dir}/QaDanglingRef/run/first.txt"]}
+        ],
+    }
+
+
+def test_a_failed_job_reports_the_steps_that_completed(tmp_path):
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(failing_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        job = manager.submit(workflow=valid_workflow(), base_dir=None)
+        deadline = time.time() + 5
+        while job.status not in TERMINAL_STATES and time.time() < deadline:
+            time.sleep(0.01)
+        assert job.status == "failed"
+        # named the way clients address outputs, exactly as a success is
+        assert job.manifest == [
+            {"step": "first", "files": ["QaDanglingRef/run/first.txt"]}
+        ]
+        assert manager.history.get(job.id)["manifest"] == job.manifest
+    finally:
+        manager.shutdown()

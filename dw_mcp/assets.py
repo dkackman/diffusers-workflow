@@ -11,7 +11,7 @@ workflow carries and the path means nothing on the machine the agent is on.
 
 import os
 
-from dw_mcp.client import DwApiError
+from dw_mcp.client import DwApiError, api_path
 
 # Twin of the server's own limit (dw/server/app.py). Checked here as well so
 # a 200MB file fails before it is read and pushed, not after
@@ -50,6 +50,16 @@ def list_assets(client):
     ('common'), or one a read-only examples tree brought with it.
     """
     return client.get_json("/api/assets")
+
+
+def delete_asset(client, name):
+    """Remove one file from the asset library.
+
+    Deletes from whichever library holds it - the workspace's own before
+    the shared one, the order 'asset:' resolves in. An asset from a
+    read-only examples library answers 403.
+    """
+    return client.delete_json(api_path("api", "assets", name))
 
 
 def keep_output(client, name, asset_name=None, overwrite=False, shared=False):
