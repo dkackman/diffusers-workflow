@@ -89,6 +89,8 @@ If `dw.serve` runs on another machine with `--mcp` (see
     claude mcp add --transport http dw http://<box>:8765/mcp \
       --header "Authorization: Bearer <token>"
 
+The same token fetches generated files: see step 7 of `The loop` in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#the-loop).
+
 Nothing from this repository is installed on the client. The stdio setup
 below is for a machine that has its own `dw` install, and also works
 against a remote `--url` with `--token`.
