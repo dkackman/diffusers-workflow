@@ -1,6 +1,7 @@
 {
     "id": "assemble-and-score",
     "description": "Cuts shots that already exist into one film with a score under them, generating nothing in the run. It is the pass you re-run while cutting, when re-generating the footage each time would cost GPU hours to change a fade. The shots go straight into concat_videos as hard cuts - nothing is stabilized or rescaled on the way, so a deliberate camera move survives the edit; they must already share one size and frame rate, and the task refuses a set that does not. 'shots' is a list, so a diptych is two entries and a reel is however many the cut needs. The shots' own recorded sound is carried up to the score's sample rate and mixed underneath it, so the room tone of each world survives the edit instead of being replaced by music. Supply the shots and the score as asset: references - 'shot_1.mp4' and friends, uploaded with upload_asset or promoted from a generated run with keep_output.",
+    "cost": [{"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 0.2}],
     "variables": {
         "shots": [
             "asset:shot_1.mp4",

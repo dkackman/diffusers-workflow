@@ -424,3 +424,21 @@ def test_every_readme_link_resolves(path):
         assert os.path.exists(
             os.path.join(base, target)
         ), f"{path} links to {target}, which does not exist"
+
+
+COSTED = {
+    "workflows/templates/minimax/music-video.json": 35,
+    "workflows/templates/minimax/dialogue-short.json": 42,
+    "workflows/templates/assemble-and-score.json": 0.2,
+    "workflows/templates/dissolve-between-shots.json": 0.2,
+}
+
+
+@pytest.mark.parametrize("path,minutes", sorted(COSTED.items()))
+def test_the_cut_templates_quote_a_measured_cost(path, minutes):
+    """Measured on an RTX 3090, 2026-09-10; without a figure an agent
+    cannot quote a price before spending 40 minutes of GPU."""
+    definition = json.load(open(os.path.join(REPO_ROOT, path), encoding="utf-8"))
+    entry = definition["cost"][0]
+    assert entry["name"] == "RTX 3090"
+    assert entry["minutes"] == minutes
