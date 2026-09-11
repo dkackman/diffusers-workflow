@@ -343,6 +343,17 @@ signal to restructure the workflow, not to add another reference.
    `still_running: true`.
 6. `get_output_image` to look at what was actually made, and say whether it
    answers the request. Nothing before this step establishes that it does.
+7. Getting the files to the user's machine. `download_output` and `export_job`
+   write on the machine running `dw.serve`, which over a remote `--mcp`
+   endpoint is the GPU box. The last mile of every deliverable is the `url`
+   each `list_gallery` entry carries (or `export_job`'s `zip_url`), fetched
+   with the same bearer token the MCP connection uses:
+
+       curl -H "Authorization: Bearer $DW_API_TOKEN" \
+            -o exports/still.png "http://<box>:8765/outputs/ltx2/Gyre/20260910-.../still.png"
+
+   Put the result under `exports/` in the session's working directory - it is
+   the user's deliverable, not a temporary file.
 
 ### Keeping a set consistent
 

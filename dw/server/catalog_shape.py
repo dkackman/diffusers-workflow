@@ -175,8 +175,7 @@ def _cuts_together(steps):
                 sources |= {
                     item
                     for item in videos
-                    if isinstance(item, str)
-                    and not item.startswith("previous_result:")
+                    if isinstance(item, str) and not item.startswith("previous_result:")
                 }
             if len(sources) >= 2:
                 return True

@@ -187,17 +187,20 @@ def test_a_crossfade_with_nothing_trimmed_is_warned_about():
     assert "crossfade_ms" in warnings[0] and "trim_frames" in warnings[0]
     assert "audio_bleed_ms" in warnings[0]
 
-    warnings = workflow_argument_warnings(
-        _concat_step(crossfade_ms=200, trim_frames=0)
-    )
+    warnings = workflow_argument_warnings(_concat_step(crossfade_ms=200, trim_frames=0))
     assert len(warnings) == 1
 
 
 def test_a_crossfade_over_a_trim_is_not_warned_about():
-    assert workflow_argument_warnings(_concat_step(crossfade_ms=200, trim_frames=1)) == []
+    assert (
+        workflow_argument_warnings(_concat_step(crossfade_ms=200, trim_frames=1)) == []
+    )
     assert workflow_argument_warnings(_concat_step(trim_frames=0)) == []
     assert workflow_argument_warnings(_concat_step(crossfade_ms=0)) == []
     # A referenced trim is unknown until the run - do not guess
-    assert workflow_argument_warnings(
-        _concat_step(crossfade_ms=200, trim_frames="variable:trim")
-    ) == []
+    assert (
+        workflow_argument_warnings(
+            _concat_step(crossfade_ms=200, trim_frames="variable:trim")
+        )
+        == []
+    )

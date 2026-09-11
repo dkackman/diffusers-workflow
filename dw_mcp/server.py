@@ -459,13 +459,14 @@ def build_server(client):
         another agent's namespace, rather than sharing the default one."""
         return workspaces.use_workspace(client, name)
 
-    def create_workspace(name: str) -> dict:
+    def create_workspace(name: str, use: bool = False) -> dict:
         """Create a workspace on the server. It gets its own workflows,
         assets and outputs and shares the one prompt library. The name is a
         single path segment and cannot be one of the reserved folder names
-        (workflows, prompts, assets, outputs). Creating does not switch to
-        it: call use_workspace after."""
-        return workspaces.create_workspace(client, name)
+        (workflows, prompts, assets, outputs). Pass use=true to switch this
+        session to it as well; otherwise the session stays where it was and
+        the result says so."""
+        return workspaces.create_workspace(client, name, use=use)
 
     def delete_workspace(name: str, acknowledged_cost: bool = False) -> dict:
         """Permanently delete a workspace and every workflow, asset and
@@ -483,14 +484,21 @@ def build_server(client):
     # ----------------------------------------------------------- authoring
 
     def validate_workflow(
-        workflow: dict | None = None, name: str | None = None
+        workflow: dict | None = None,
+        name: str | None = None,
+        workspace: str | None = None,
     ) -> dict:
         """Check a workflow against the schema and against real pipeline
         signatures. Free and instant - always run this before run_workflow.
         Give exactly one of `workflow` or `name` - `name` being a stored
         workflow as `list_workflows` reports it. Every schema error comes
-        back at once, each with its JSON path."""
-        return authoring.validate_workflow(client, workflow=workflow, name=name)
+        back at once, each with its JSON path. `workspace` names the
+        workspace for this one call without switching the session to it -
+        use it to pin a job whose `output:` or `asset:` references live in a
+        workspace other than the session's."""
+        return authoring.validate_workflow(
+            client, workflow=workflow, name=name, workspace=workspace
+        )
 
     def save_workflow(name: str, workflow: dict) -> dict:
         """Save a workflow to the server's writable workflow directory,
@@ -586,6 +594,7 @@ def build_server(client):
         inline_workflow: dict | None = None,
         arguments: dict | None = None,
         acknowledged_cost: bool = False,
+        workspace: str | None = None,
     ) -> dict:
         """Queue a workflow for generation. THIS COSTS GPU TIME: a run
         occupies the machine for minutes and the engine runs one job at a
@@ -597,13 +606,17 @@ def build_server(client):
         without .json, or a path on the server - or `inline_workflow`, a
         full definition for a request nothing stored covers. `arguments`
         overrides the workflow's variables by name, which is how one stored
-        workflow serves many requests without being edited or copied."""
+        workflow serves many requests without being edited or copied.
+        `workspace` names the workspace for this one call without switching
+        the session to it - use it to pin a job whose `output:` or `asset:`
+        references live in a workspace other than the session's."""
         return diagnose.run_workflow(
             client,
             workflow_path=workflow_path,
             inline_workflow=inline_workflow,
             arguments=arguments,
             acknowledged_cost=acknowledged_cost,
+            workspace=workspace,
         )
 
     def get_job(job_id: str) -> dict:
@@ -639,7 +652,9 @@ def build_server(client):
         first - returns its current status with still_running: true so you
         can call again. Does not queue anything, so no acknowledged_cost.
         timeout_seconds is capped well under a generation's real runtime;
-        call it repeatedly for a long job."""
+        call it repeatedly for a long job. Returns a slim job - status,
+        warnings, error, and the manifest once finished - without the
+        arguments; get_job has those."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     def cancel_job(job_id: str) -> dict:
@@ -682,14 +697,15 @@ def build_server(client):
         rather than linking them, so a video job's export costs its size
         again on the server's disk; `total_bytes` in the result reports
         what was copied. Returns the directory, a zip URL, the file list
-        with sizes and the total, and the three JSON files inline. THE
-        DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours. To give
-        the user the files, fetch the zip URL and unpack it into exports/
-        under the session's working directory - it is the user's deliverable,
-        not a temp file; the archive already unpacks into one folder named
-        after the job id, so do not create that folder first. Refuses a job
-        that is still running; refuses an existing export unless
-        overwrite=true."""
+        with sizes and the total. The three JSON files are in the zip, not
+        repeated here - get_job_workflow and get_job serve them individually.
+        THE DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours. To
+        give the user the files, fetch the zip URL and unpack it into
+        exports/ under the session's working directory - it is the user's
+        deliverable, not a temp file; the archive already unpacks into one
+        folder named after the job id, so do not create that folder first.
+        Refuses a job that is still running; refuses an existing export
+        unless overwrite=true."""
         return exports.export_job(client, job_id, overwrite=overwrite)
 
     tool(get_job, READ_ONLY)

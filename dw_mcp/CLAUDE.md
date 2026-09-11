@@ -17,6 +17,10 @@ means something else to the engine), `use_workspace` to switch, and
 `DwClient._scoped` adds the selector to every request's query string so no
 handler carries a workspace parameter. The default sends nothing, so a
 session that never chooses looks exactly like one from before workspaces.
+`run_workflow` and `validate_workflow` are the two exceptions: each takes an
+optional per-call `workspace` that `_scoped`'s `setdefault` lets win over the
+session's, so one call can be pinned to a workspace other than the session's
+without switching it.
 `get_server_info`
 (`/api/server`) is the capability call: the device a run will use, the dw
 version, the workspace and the workflow/output/prompt/asset directories, which is what tells an

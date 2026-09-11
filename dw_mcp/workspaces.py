@@ -46,11 +46,26 @@ def use_workspace(client, name):
     return {"current": name, "workspaces": known or [name]}
 
 
-def create_workspace(client, name):
+def create_workspace(client, name, use=False):
     """Make a new workspace on the server. It gets its own workflows, assets
-    and outputs, and shares the server's one prompt library. Creating it does
-    not switch to it - call use_workspace for that."""
-    return client.post_json("/api/workspaces", {"name": name})
+    and outputs, and shares the server's one prompt library. Creating it
+    does not switch to it unless `use` is true - the natural
+    create-then-run sequence otherwise runs in the workspace the session
+    was already in, and the result says which that is."""
+    body = client.post_json("/api/workspaces", {"name": name})
+    if use:
+        use_workspace(client, name)
+    return {
+        **body,
+        "current": client.workspace,
+        "next": (
+            f"This session now works in '{client.workspace}'."
+            if use
+            else f"This session still works in '{client.workspace}' - call "
+            f"use_workspace('{name}') or pass workspace='{name}' to "
+            f"run_workflow before running anything meant for it."
+        ),
+    }
 
 
 def delete_workspace(client, name, acknowledged_cost=False):

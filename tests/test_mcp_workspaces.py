@@ -90,6 +90,20 @@ class TestLifecycle:
         assert seen[-1].method == "POST"
         assert client.workspace == DEFAULT_WORKSPACE
 
+    def test_creating_one_says_it_did_not_switch(self):
+        """A create-then-run sequence landed a five-shot job in the wrong
+        workspace; the result now says where the session still is."""
+        client, _ = recording({"name": "shots"})
+        result = create_workspace(client, "shots")
+        assert result["current"] == DEFAULT_WORKSPACE
+        assert "use_workspace" in result["next"]
+
+    def test_creating_with_use_switches_to_it(self):
+        client, _seen = recording(listing("default", "shots"))
+        result = create_workspace(client, "shots", use=True)
+        assert client.workspace == "shots"
+        assert result["current"] == "shots"
+
     def test_deleting_refuses_until_the_cost_is_acknowledged(self):
         client, seen = recording({"detail": "would remove 12 files"}, status=409)
         with pytest.raises(DwApiError) as refusal:

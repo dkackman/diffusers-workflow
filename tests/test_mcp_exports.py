@@ -57,14 +57,19 @@ def test_it_returns_the_directory_the_zip_and_the_file_list():
     assert len(seen) == 1
 
 
-def test_the_three_json_files_come_back_inline():
+def test_the_three_json_files_stay_in_the_zip():
+    """A music-video export inlined 55 KB of workflow, manifest and job row
+    that the zip already carries and get_job_workflow / get_job already
+    serve - it blew past the tool output limit. The listing says they are
+    there; the bytes are not repeated."""
     client, _ = exporting()
 
     result = exports.export_job(client, "job-1")
 
-    assert result["workflow"] == {"id": "w", "steps": []}
-    assert result["manifest"]["run_id"] == "20260908-120000-abcdef01"
-    assert result["job"]["status"] == "succeeded"
+    assert "workflow" not in result
+    assert "manifest" not in result
+    assert "job" not in result
+    assert "get_job_workflow" in result["next"]
 
 
 def test_it_says_where_the_directory_is():

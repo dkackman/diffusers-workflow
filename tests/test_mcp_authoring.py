@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from dw_mcp import authoring
-from dw_mcp.client import DwApiError, DwClient
+from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, DwClient
 
 WORKFLOW = {"id": "w", "steps": []}
 
@@ -22,6 +22,18 @@ def scripted(routes):
         if key not in routes:
             return httpx.Response(404, json={"detail": f"unrouted {key}"})
         status, body = routes[key]
+        return httpx.Response(status, json=body)
+
+    return DwClient(transport=httpx.MockTransport(handler)), seen
+
+
+def scripted_with_params(routes):
+    seen = []
+
+    def handler(request):
+        key = (request.method, request.url.path)
+        seen.append({"key": key, "params": dict(request.url.params)})
+        status, body = routes.get(key, (404, {"detail": f"unrouted {key}"}))
         return httpx.Response(status, json=body)
 
     return DwClient(transport=httpx.MockTransport(handler)), seen
@@ -97,6 +109,17 @@ def test_validate_returns_an_invalid_verdict_rather_than_raising():
 
     assert result["valid"] is False
     assert "steps" in result["error"]
+
+
+def test_validate_can_name_a_workspace_for_one_request():
+    client, seen = scripted_with_params(
+        {("POST", "/api/validate"): (200, {"valid": True})}
+    )
+
+    authoring.validate_workflow(client, name="w", workspace="dialogue-short")
+
+    assert seen[0]["params"]["workspace"] == "dialogue-short"
+    assert client.workspace == DEFAULT_WORKSPACE
 
 
 def test_save_puts_the_definition_under_its_name():
