@@ -1819,12 +1819,22 @@ def create_app(
         }
 
     @app.get("/api/gallery/{name:path}/metadata")
-    def gallery_metadata(name: str, ws: Workspace = Depends(selected_workspace)):
+    def gallery_metadata(
+        name: str,
+        envelope: bool = False,
+        ws: Workspace = Depends(selected_workspace),
+    ):
         """Generation metadata embedded in a saved image ('workflow' inside
         it is the full definition the editor can reopen), plus the job that
         produced the file when history remembers one, plus - for audio and
         video - what the file itself holds: duration, format and level,
-        which is how an agent that cannot listen checks a track."""
+        which is how an agent that cannot listen checks a track.
+
+        `envelope=true` adds the soundtrack's level second by second, which
+        is what says *where* in a track something is - whether a shot is
+        still voiced at its last frame, how deep the hole at a seam goes.
+        Opt-in: a ten-minute track is 600 numbers, and the default call has
+        to stay small."""
         path = _output_file(name, ws.outputs)
         metadata = read_embedded_metadata(path)
         try:
@@ -1836,7 +1846,7 @@ def create_app(
             job = None
         extension = os.path.splitext(path)[1].lower()
         media = (
-            probe_media(path)
+            probe_media(path, envelope=envelope)
             if MEDIA_KINDS.get(extension) in ("audio", "video")
             else None
         )

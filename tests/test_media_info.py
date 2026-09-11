@@ -179,3 +179,77 @@ def test_a_damaged_track_still_reports_header_fields(tmp_path):
     assert info["kind"] == "video"
     assert "peak_dbfs" not in info
     assert "frame_count" not in info
+
+
+class TestEnvelope:
+    """The per-second level: what says *where* in a track something is,
+    rather than only how loud the whole of it was."""
+
+    def write_gapped_wav(self, path, seconds=4.0, sample_rate=8000, silent_second=2):
+        """A tone with one second of silence punched out of the middle of it."""
+        import wave
+
+        t = numpy.arange(int(seconds * sample_rate)) / sample_rate
+        samples = (numpy.sin(2 * numpy.pi * 220 * t) * 0.5 * 32767).astype("<i2")
+        samples[silent_second * sample_rate : (silent_second + 1) * sample_rate] = 0
+        with wave.open(str(path), "w") as handle:
+            handle.setnchannels(2)
+            handle.setsampwidth(2)
+            handle.setframerate(sample_rate)
+            handle.writeframes(numpy.stack([samples, samples], 1).tobytes())
+
+    def test_it_is_off_unless_asked_for(self, tmp_path):
+        write_wav(tmp_path / "score.wav", seconds=2.0)
+
+        assert "envelope" not in probe_media(str(tmp_path / "score.wav"))
+
+    def test_one_entry_per_second_of_the_track(self, tmp_path):
+        self.write_gapped_wav(tmp_path / "score.wav", seconds=4.0)
+
+        envelope = probe_media(str(tmp_path / "score.wav"), envelope=True)["envelope"]
+
+        assert envelope["interval_seconds"] == 1.0
+        assert len(envelope["rms_dbfs"]) == 4
+        assert len(envelope["peak_dbfs"]) == 4
+
+    def test_it_finds_the_second_the_sound_stops_in(self, tmp_path):
+        self.write_gapped_wav(tmp_path / "score.wav", seconds=4.0, silent_second=2)
+
+        envelope = probe_media(str(tmp_path / "score.wav"), envelope=True)["envelope"]
+
+        assert envelope["rms_dbfs"][2] == pytest.approx(-120.0)
+        assert envelope["peak_dbfs"][2] == pytest.approx(-120.0)
+        for second in (0, 1, 3):
+            assert envelope["rms_dbfs"][second] > -20.0
+
+    def test_a_video_soundtrack_gets_one_too(self, tmp_path):
+        write_mp4(tmp_path / "shot.mp4", frames=12, fps=6)
+
+        info = probe_media(str(tmp_path / "shot.mp4"), envelope=True)
+
+        assert info["kind"] == "video"
+        assert info["frame_count"] == 12
+        # 2 s of soundtrack - and a third, near-silent bin is allowed: a
+        # lossy codec decodes its own priming and padding past the nominal
+        # duration, and the envelope reports what actually decoded
+        assert len(info["envelope"]["rms_dbfs"]) in (2, 3)
+        assert info["envelope"]["rms_dbfs"][0] > -30.0
+        assert info["peak_dbfs"] < 0.0
+
+    def test_a_silent_video_has_no_envelope_to_report(self, tmp_path):
+        write_mp4(tmp_path / "mute.mp4", frames=12, fps=6, with_audio=False)
+
+        assert "envelope" not in probe_media(str(tmp_path / "mute.mp4"), envelope=True)
+
+    def test_the_seconds_sum_back_to_the_whole_track(self, tmp_path):
+        """A bin holds the same sums the whole-track level is made of, so
+        recombining them has to land on the level the track reports."""
+        self.write_gapped_wav(tmp_path / "score.wav", seconds=4.0)
+
+        info = probe_media(str(tmp_path / "score.wav"), envelope=True)
+
+        assert max(info["envelope"]["peak_dbfs"]) == pytest.approx(
+            info["peak_dbfs"], abs=0.01
+        )
+        power = numpy.mean([10 ** (db / 10) for db in info["envelope"]["rms_dbfs"]])
+        assert 10 * math.log10(power) == pytest.approx(info["mean_dbfs"], abs=0.1)

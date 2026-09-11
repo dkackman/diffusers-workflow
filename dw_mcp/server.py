@@ -284,15 +284,21 @@ def build_server(client):
         name."""
         return catalog.list_gallery(client, limit=limit)
 
-    def get_gallery_metadata(name: str) -> dict:
+    def get_gallery_metadata(name: str, envelope: bool = False) -> dict:
         """Get the metadata embedded in a generated file: the exact
         workflow, arguments and seed that produced it. Use this to
         reproduce a result, or to see what a run that went wrong actually
         ran - it is the definition, not a summary, so it can be edited and
         re-run. For audio and video the `media` block carries duration,
         sample rate, channels, fps, size and level - the checks an agent
-        that cannot listen makes on a deliverable."""
-        return catalog.get_gallery_metadata(client, name)
+        that cannot listen makes on a deliverable. `envelope=true` adds
+        that level second by second (`media.envelope.rms_dbfs` /
+        `peak_dbfs`, one entry per second), which is what says *where* in a
+        track something is: whether a shot is still sounding at its last
+        frame, how deep the hole at a seam goes, where a score goes quiet.
+        Leave it off unless you are asking a question about a position in
+        the track - a long track is a long list."""
+        return catalog.get_gallery_metadata(client, name, envelope=envelope)
 
     def list_guides() -> dict:
         """List the documentation the engine serves: each guide's

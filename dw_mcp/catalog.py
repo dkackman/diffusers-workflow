@@ -101,12 +101,20 @@ def list_gallery(client, limit=50):
     return client.get_json("/api/gallery", params={"limit": limit})
 
 
-def get_gallery_metadata(client, name):
+def get_gallery_metadata(client, name, envelope=False):
     """Metadata embedded in a saved file: the full workflow that made it,
     plus the job that produced it when history remembers one, plus for
     audio and video what the file holds - duration, sample rate, channels,
-    fps, size, peak and mean level in dBFS."""
-    body = client.get_json(api_path("api", "gallery", name, "metadata"))
+    fps, size, peak and mean level in dBFS.
+
+    With envelope=True the soundtrack's level is reported second by second
+    as well, which is what locates something in a track rather than only
+    measuring the whole of it. Opt-in: it is one number per second per
+    measure, and the default answer has to stay small."""
+    body = client.get_json(
+        api_path("api", "gallery", name, "metadata"),
+        params={"envelope": "true"} if envelope else None,
+    )
     media = body.get("media")
     if media and media.get("kind") in ("audio", "video"):
         body["next"] = (

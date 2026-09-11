@@ -227,7 +227,7 @@ when no single workflow covers it.
 | `get_server_info()` | — | What this installation can do and where it keeps things: `device` (the accelerator a run will use), `version`, the `workspace` this session is working in and the workflow/asset/output/prompt `directories` of *that* workspace, the bind address and port, whether a token is required, and whether MCP is mounted. Check the device before authoring - a CUDA-only choice (bitsandbytes, `torch.compile`, flash attention) is not available on an `mps` or `cpu` server |
 | `list_jobs()` | — | List queued, running and recent jobs. In a named workspace, that workspace's jobs; in the default one, every job the server holds |
 | `list_gallery(limit=50)` | `limit` | List generated output files, newest first. A name is `<workflow>/<run id>/<file>`; each entry also carries a ready-made `url`, already scoped to the workspace that made it - a hand-built `/outputs/<name>` URL 404s for anything but the default workspace |
-| `get_gallery_metadata(name)` | `name` | Get the metadata embedded in a generated file: the exact workflow and arguments that produced it, and, for audio/video, a `media` block (duration, rate, channels, fps, size, peak/mean dBFS) |
+| `get_gallery_metadata(name, envelope=False)` | `name` | Get the metadata embedded in a generated file: the exact workflow and arguments that produced it, and, for audio/video, a `media` block (duration, rate, channels, fps, size, peak/mean dBFS). `envelope=true` adds `media.envelope` — `rms_dbfs` and `peak_dbfs` one entry per second — which is what locates something in a track rather than measuring the whole of it |
 
 ### Media
 

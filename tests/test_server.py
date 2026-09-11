@@ -1136,6 +1136,29 @@ def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
         assert still["media"] is None
 
 
+def test_gallery_metadata_reports_a_level_envelope_on_request(server, tmp_path):
+    """Per-second level is opt-in: the default answer stays small, and
+    `envelope=true` says where in the track the level sits."""
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=3.0)
+
+        plain = client.get("/api/gallery/score-gen.0-0.0.wav/metadata").json()
+        assert "envelope" not in plain["media"]
+
+        detailed = client.get(
+            "/api/gallery/score-gen.0-0.0.wav/metadata", params={"envelope": "true"}
+        ).json()
+        envelope = detailed["media"]["envelope"]
+        assert envelope["interval_seconds"] == 1.0
+        assert len(envelope["rms_dbfs"]) == 3
+        assert max(envelope["peak_dbfs"]) == pytest.approx(
+            detailed["media"]["peak_dbfs"], abs=0.01
+        )
+
+
 def test_gallery_metadata_survives_a_damaged_track(server, tmp_path):
     """A track that opens fine but fails partway through decode (damage
     past the header) must not 500 the metadata route - it should fall back
