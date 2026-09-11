@@ -200,9 +200,9 @@ video generation" in the workflow guide):
 | -------- | -------- | ----------- |
 | `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it |
 | `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
-| `crossfade_ms` | No | Equal-power crossfade at each audio seam (default: 75) |
+| `crossfade_ms` | No | Equal-power crossfade at each audio seam, drawn from the trimmed material - no effect when `trim_frames` is 0, and validation warns when one is written there (default: 75) |
 | `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
-| `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed (default: 3, just enough not to click) |
+| `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed - for tonal material, not for a continuous bed (default: 3, just enough not to click) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming |
 
 A video may also be named by path or URL, which is how shots an earlier run
@@ -242,7 +242,11 @@ open on near-silence and end mid-sound, leaving a butt-join that drops a running
 laugh track or a ringing room into a hole. `audio_bleed_ms` fills it the way an
 audience carries across a picture cut: a decaying copy of the outgoing tail is laid
 over the incoming head, added to whatever is already there, shortening neither side.
-Reach for a few hundred milliseconds - the MiniMaxH3SitcomShort example uses 700:
+Reach for more than the gap looks like it needs: a shot's head is silent for
+longer than the picture suggests, and the bleed has to outlast it. Measured on
+a five-shot H3 sitcom cut, 700 ms still left a 44 dB hole at the worst seam;
+1800 ms brought it to 32 dB and 2500 ms gained almost nothing more, so the
+`dialogue-short` template defaults to 1800 and exposes it as `audio_bleed_ms`:
 
 ```json
 {
@@ -251,7 +255,7 @@ Reach for a few hundred milliseconds - the MiniMaxH3SitcomShort example uses 700
         "arguments": {
             "videos": ["previous_result:shot_1", "previous_result:shot_2"],
             "trim_frames": 0,
-            "audio_bleed_ms": 700,
+            "audio_bleed_ms": 1800,
             "fps": 24
         }
     },
@@ -265,7 +269,12 @@ phrase or half-spoken word reads as a stutter whichever direction it runs. When 
 shot ends on something tonal, either give the cut a continuous bed with
 `slice_audio` + `pair_audio`, which leaves no seam to treat at all, or fade the
 seam gracefully with `seam_fade_ms` (a hundred or so milliseconds) and accept the
-cut. `audio_bleed_ms` wins where both are set and there is material to bleed.
+cut. That advice inverts on a continuous bed - a laugh track, room tone - where a
+longer fade only digs the hole deeper (the same sitcom cut measured 54-59 dB
+holes with a 250-500 ms fade and no bleed). `audio_bleed_ms` wins where both are
+set and there is material to bleed. A bleed covers the gap but cannot fill it:
+the silence is inside the incoming shot's own head, and the only complete fix is
+a continuous bed under the whole cut with `slice_audio` + `pair_audio`.
 
 ### dissolve_videos
 
@@ -335,7 +344,14 @@ before the task ever saw it. Frames are shifted back and the result is cropped
 to the region every frame covers, then resized to the original size; a
 soundtrack passes through untouched.
 
-**Example:** [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json)
+It is a stabilization pass, not a format pass. `smooth: 0` on a shot with a
+deliberate camera move fights the move - every frame is shifted back toward
+the first, cropped and rescaled - and nothing downstream will notice, since
+the duration, size and sample rate all survive. Run it on a shot that drifts,
+as its own step; do not run it on every shot before a cut, which is what the
+assembly templates once did and what made their output visibly wider than
+the source. The join tasks refuse shots of different sizes, so no
+normalization step is needed before them.
 
 ### video_frames
 
@@ -1206,4 +1222,4 @@ Canny edge detection followed by ControlNet generation:
 - [audio-trim-fade.json](../workflows/templates/audio-trim-fade.json) — Trim a generated track and fade its tail
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line with a local text-to-speech model
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
-- [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Stabilize generated shots, dissolve between them, and mix a score under their own audio
+- [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio

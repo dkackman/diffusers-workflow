@@ -1,10 +1,12 @@
 {
     "id": "dissolve-between-shots",
-    "description": "assemble-and-score.json with the cuts softened into cross-dissolves. dissolve_videos overlaps each pair by 'dissolve_frames' rather than butting them together, which suits shots that share a composition - registered on the same centre at the same size, an overlap reads as one thing becoming another rather than as a fade between two pictures. Shots whose framing disagrees will read as a plain cross-fade, so use hard cuts there. The audio bed is mixed the same way as in assemble-and-score.",
+    "description": "assemble-and-score.json with the cuts softened into cross-dissolves. dissolve_videos overlaps each pair by 'dissolve_frames' rather than butting them together, which suits shots that share a composition - registered on the same centre at the same size, an overlap reads as one thing becoming another rather than as a fade between two pictures. Shots whose framing disagrees will read as a plain cross-fade, so use hard cuts there. As in assemble-and-score the shots are a list and go in untouched - a shot that drifts wants stabilize_video run on it first, as its own step, not on every shot by default. The audio bed is mixed the same way as in assemble-and-score.",
     "variables": {
-        "shot_1": "asset:shot_1.mp4",
-        "shot_2": "asset:shot_2.mp4",
-        "shot_3": "asset:shot_3.mp4",
+        "shots": [
+            "asset:shot_1.mp4",
+            "asset:shot_2.mp4",
+            "asset:shot_3.mp4"
+        ],
         "dissolve_frames": 12,
         "score": "asset:score.wav",
         "sample_rate": 44100,
@@ -16,45 +18,11 @@
     },
     "steps": [
         {
-            "name": "hold_1",
-            "task": {
-                "command": "stabilize_video",
-                "arguments": {
-                    "smooth": 0,
-                    "clip": "variable:shot_1"
-                }
-            }
-        },
-        {
-            "name": "hold_2",
-            "task": {
-                "command": "stabilize_video",
-                "arguments": {
-                    "smooth": 0,
-                    "clip": "variable:shot_2"
-                }
-            }
-        },
-        {
-            "name": "hold_3",
-            "task": {
-                "command": "stabilize_video",
-                "arguments": {
-                    "smooth": 0,
-                    "clip": "variable:shot_3"
-                }
-            }
-        },
-        {
             "name": "edit",
             "task": {
                 "command": "dissolve_videos",
                 "arguments": {
-                    "videos": [
-                        "previous_result:hold_1",
-                        "previous_result:hold_2",
-                        "previous_result:hold_3"
-                    ],
+                    "videos": "variable:shots",
                     "dissolve_frames": "variable:dissolve_frames",
                     "fps": "variable:fps"
                 }

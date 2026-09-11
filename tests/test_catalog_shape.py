@@ -527,6 +527,25 @@ def test_a_cut_of_supplied_shots_is_a_sequence_not_a_utility():
     assert meta["shape"] == "sequence"
 
 
+def test_a_cut_of_a_supplied_shot_list_is_a_sequence_that_needs_media():
+    """The assembly templates take their shots as one list variable, so the
+    cut task is fed by a single `variable:` reference rather than by two
+    steps - which is still an edit of supplied footage."""
+    meta = derive_catalog_metadata(
+        definition(
+            task_step(
+                "edit",
+                "concat_videos",
+                {"videos": "variable:shots"},
+                content_type="video/mp4",
+            ),
+            variables={"shots": ["asset:shot_1.mp4", "asset:shot_2.mp4"]},
+        )
+    )
+    assert meta["shape"] == "sequence"
+    assert "needs-input-media" in meta["traits"]
+
+
 def test_one_supplied_clip_reprocessed_is_still_a_utility():
     """The sequence rule needs two distinct sources; one clip through a
     filter is processing, not an edit."""
