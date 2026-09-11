@@ -21,6 +21,20 @@ def recording_client(body=None, status=200):
     return DwClient(transport=httpx.MockTransport(handler)), seen
 
 
+def scripted(routes):
+    """A client whose transport answers a fixed map of (method, path) ->
+    (status, body), for a route the recording_client above can't."""
+
+    def handler(request):
+        key = (request.method, request.url.path)
+        if key not in routes:
+            return httpx.Response(404, json={"detail": f"unrouted {key}"})
+        status, body = routes[key]
+        return httpx.Response(status, json=body)
+
+    return DwClient(transport=httpx.MockTransport(handler)), None
+
+
 @pytest.mark.parametrize(
     "call, path",
     [
@@ -146,3 +160,18 @@ def test_get_workflow_sends_the_name_percent_encoded_on_the_wire():
     catalog.get_workflow(client, "../escape")
 
     assert seen["raw_path"] == b"/api/workflows/..%2Fescape"
+
+
+def test_gallery_metadata_passes_the_media_block_through_and_says_how_to_read_it():
+    body = {
+        "name": "score.mp3",
+        "metadata": None,
+        "job": {"id": "job-1", "status": "succeeded"},
+        "media": {"kind": "audio", "duration_seconds": 45.05, "peak_dbfs": -1.0},
+    }
+    client, _ = scripted({("GET", "/api/gallery/score.mp3/metadata"): (200, body)})
+
+    result = catalog.get_gallery_metadata(client, "score.mp3")
+
+    assert result["media"]["duration_seconds"] == 45.05
+    assert "audio_duration" in result["next"]

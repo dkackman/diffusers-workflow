@@ -1109,6 +1109,58 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
         assert read_embedded_metadata(str(outputs / "meta.jpg"))["step_name"] == "gen"
 
 
+def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
+    """A generated mp3 answered metadata: null and nothing else, so every
+    duration and level check was ffprobe by hand. The route now says what
+    the server knows."""
+    from PIL import Image
+    from tests.test_media_info import write_mp4, write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=2.0)
+        write_mp4(outputs / "shot-gen.0-0.0.mp4", frames=12, fps=6)
+        Image.new("RGB", (4, 4)).save(outputs / "still-gen.0-0.0.png")
+
+        score = client.get("/api/gallery/score-gen.0-0.0.wav/metadata").json()
+        assert score["metadata"] is None
+        assert score["media"]["kind"] == "audio"
+        assert score["media"]["duration_seconds"] == pytest.approx(2.0, abs=0.01)
+        assert score["media"]["channels"] == 2
+
+        shot = client.get("/api/gallery/shot-gen.0-0.0.mp4/metadata").json()
+        assert shot["media"]["kind"] == "video"
+        assert shot["media"]["frame_count"] == 12
+
+        still = client.get("/api/gallery/still-gen.0-0.0.png/metadata").json()
+        assert still["media"] is None
+
+
+def test_gallery_metadata_survives_a_damaged_track(server, tmp_path):
+    """A track that opens fine but fails partway through decode (damage
+    past the header) must not 500 the metadata route - it should fall back
+    to the header-level fields probe_media could still gather."""
+    from tests.test_media_info import write_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        path = outputs / "broken-gen.0-0.0.mkv"
+        write_mp4(path, frames=12, fps=6)
+
+        raw = bytearray(path.read_bytes())
+        mid = len(raw) // 2
+        for i in range(mid, len(raw), 64):
+            raw[i] = (raw[i] + 137) % 256
+        path.write_bytes(bytes(raw))
+
+        response = client.get("/api/gallery/broken-gen.0-0.0.mkv/metadata")
+        assert response.status_code == 200
+        body = response.json()
+        assert "job" in body
+        assert body["media"]["kind"] == "video"
+        assert "peak_dbfs" not in body["media"]
+
+
 def test_gallery_paginates_and_groups_by_workflow_folder(server, tmp_path):
     """Outputs nested under a workflow subfolder (dw/workflow.py's
     effective_output_dir) still show up in the gallery, tagged with their
