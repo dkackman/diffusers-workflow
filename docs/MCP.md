@@ -51,8 +51,9 @@ Claude Code users can add the composition skills as well:
 `/plugin install dw@diffusers-workflow`. The plugin ships one skill per model
 family (MiniMax H3, MiniMax Music 3, LTX-2.5) that picks a template for a
 request's shape and states the family's rules - see
-[plugins/dw/README.md](../plugins/dw/README.md). It is optional; every tool
-below works without it.
+[plugins/dw/README.md](../plugins/dw/README.md), which also gives the
+optional `npx skills add` lines for MiniMax's own prompt skills. It is
+optional; every tool below works without it.
 
 ### Use the absolute path to `dw-mcp`
 

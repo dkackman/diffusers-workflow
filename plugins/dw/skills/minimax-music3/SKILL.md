@@ -82,7 +82,11 @@ from the templates' examples:
 
 1. If the `music-caption-rewriter` skill is installed (MiniMax ships it in
    https://github.com/MiniMax-AI/MiniMax-Music3 under `skills/`, with a genre
-   router, 18 family indexes and 1,000 example captions), use it.
+   router, 18 family indexes and 1,000 example captions), use it. If it is
+   not, tell the user once that
+   `npx skills add MiniMax-AI/MiniMax-Music3 --skill music-caption-rewriter`
+   installs it; this is the family where the local skill pays off, since the
+   templates are what a fetch of `SKILL.md` alone does not reach.
 2. Else read its `SKILL.md` and `references/genre-router.md` at that path. The
    contract is three headings in order - Global Metadata, Vocal Details,
    Arrangement - in 250-450 English words, with no title, no reasoning, and
