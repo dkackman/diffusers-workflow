@@ -22,7 +22,7 @@ from dw.workspace import (
     set_library_fallbacks,
 )
 
-from .test_server import ScriptedWorkerManager, success_script
+from .test_server import ScriptedWorkerManager, success_script, valid_workflow
 
 
 def write_prompt(directory, name, text):
@@ -222,3 +222,28 @@ class TestServer:
         assert api.get("/inputs/iris.png").content == b"example-png"
         assert api.get("/inputs/mine.png").content == b"mine-png"
         assert api.get("/inputs/nothing.png").status_code == 404
+
+    def test_validated_arguments_reach_the_whole_asset_path(self, client, tmp_path):
+        """An argument may name an example asset or the workspace's own, and
+        a miss has to name the workspace's library rather than whichever root
+        happened to be searched last - a message that leaves out the library
+        the caller works in reads as though it was never looked in."""
+        api, workspace, checkout = client
+        definition = valid_workflow("refs")
+        definition["variables"] = {"image": "asset:mine.png"}
+
+        for name in ("asset:mine.png", "asset:iris.png"):
+            answer = api.post(
+                "/api/validate",
+                json={"workflow": definition, "arguments": {"image": name}},
+            ).json()
+            assert answer["valid"] is True, answer
+
+        missing = api.post(
+            "/api/validate",
+            json={"workflow": definition, "arguments": {"image": "asset:nope.png"}},
+        ).json()
+
+        assert missing["valid"] is False
+        assert missing["errors"][0]["path"] == "arguments.image"
+        assert os.path.abspath(workspace.assets) in missing["errors"][0]["message"]

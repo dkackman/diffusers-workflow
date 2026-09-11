@@ -1167,6 +1167,25 @@ def create_app(
         the same reason it would be a miss there. Only the reference is
         resolved, never loaded: the point is to answer before any bytes move.
         """
+
+        def over_roots(roots, resolve):
+            """Resolve against each root in turn, and on a total miss raise
+            the *first* root's error rather than the last.
+
+            The resolvers name the path they searched in their message, and
+            the first root is the workspace's own library plus the read-only
+            fallbacks the environment pins - which is the path a run would
+            report. The last root's message would name an examples directory
+            and leave out the workspace, reading as though the library the
+            caller works in was never looked in."""
+            first = None
+            for root in roots:
+                try:
+                    return resolve(root)
+                except Exception as e:
+                    first = first or e
+            raise first
+
         if not isinstance(arguments, dict):
             return []
         errors = []
@@ -1176,26 +1195,15 @@ def create_app(
             path = f"arguments.{name}"
             try:
                 if is_asset_reference(value):
-                    roots = _asset_roots(ws) or [ws.assets]
-                    last = None
-                    for root in roots:
-                        try:
-                            resolve_asset_reference(value, asset_dir=root)
-                            break
-                        except Exception as e:
-                            last = e
-                    else:
-                        raise last
+                    over_roots(
+                        _asset_roots(ws) or [ws.assets],
+                        lambda root: resolve_asset_reference(value, asset_dir=root),
+                    )
                 elif value.startswith(PROMPT_PREFIX):
-                    last = None
-                    for root in _prompt_roots():
-                        try:
-                            resolve_prompt_reference(value, prompt_dir=root)
-                            break
-                        except Exception as e:
-                            last = e
-                    else:
-                        raise last
+                    over_roots(
+                        _prompt_roots(),
+                        lambda root: resolve_prompt_reference(value, prompt_dir=root),
+                    )
                 elif is_output_reference(value):
                     resolve_output_reference(value, root=ws.outputs)
             except Exception as e:
