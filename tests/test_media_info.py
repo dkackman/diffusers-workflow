@@ -39,7 +39,9 @@ def write_mp4(path, frames=12, fps=6, width=32, height=16, with_audio=True):
             container.mux(packet)
     if audio is not None:
         total = 8000 * frames // fps
-        tone = numpy.stack([numpy.full(total, 0.25, numpy.float32)] * 2)
+        t = numpy.arange(total) / 8000
+        sine = (numpy.sin(2 * numpy.pi * 220 * t) * 0.25).astype(numpy.float32)
+        tone = numpy.stack([sine, sine])
         for start in range(0, total, 1024):
             chunk = av.AudioFrame.from_ndarray(
                 numpy.ascontiguousarray(tone[:, start : start + 1024]),
@@ -85,7 +87,7 @@ def test_a_video_reports_its_picture_and_its_soundtrack(tmp_path):
     assert info["channels"] == 2
     # AAC's lossy encode shifts the peak beyond the raw -12 dBFS the tone was
     # written at; widen the tolerance rather than the wav assertions above.
-    assert info["peak_dbfs"] == pytest.approx(-12.0, abs=1.5)
+    assert info["peak_dbfs"] == pytest.approx(-12.0, abs=1.0)
 
 
 def test_a_container_with_no_upfront_frame_count_still_reads_both_passes(
@@ -111,7 +113,7 @@ def test_a_container_with_no_upfront_frame_count_still_reads_both_passes(
 
     assert info["kind"] == "video"
     assert info["frame_count"] == 12
-    assert info["peak_dbfs"] == pytest.approx(-12.0, abs=1.5)
+    assert info["peak_dbfs"] == pytest.approx(-12.0, abs=1.0)
 
 
 def test_a_silent_video_has_no_audio_fields(tmp_path):
@@ -137,3 +139,43 @@ def test_a_file_that_is_not_media_answers_none(tmp_path):
     (tmp_path / "notes.txt").write_text("not media")
 
     assert probe_media(str(tmp_path / "notes.txt")) is None
+
+
+def test_unsigned_8bit_silence_is_not_reported_as_loud(tmp_path):
+    """u8 PCM is offset-binary - silence is the byte 128, not 0 - so dividing
+    raw samples by iinfo.max without recentering reports silence around
+    -6 dBFS instead of the floor."""
+    import wave
+
+    path = tmp_path / "quiet-u8.wav"
+    with wave.open(str(path), "w") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(1)
+        handle.setframerate(8000)
+        handle.writeframes(bytes([128]) * 8000)
+
+    info = probe_media(str(path))
+
+    assert info["peak_dbfs"] == -120.0
+
+
+def test_a_damaged_track_still_reports_header_fields(tmp_path):
+    """A file that opens fine but fails mid-decode (a track damaged after
+    the header was written) must not 500 the metadata route - it should
+    fall back to the header-level fields and drop the fields that require
+    a full decode."""
+    path = tmp_path / "shot.mkv"
+    write_mp4(path, frames=12, fps=6, width=32, height=16)
+
+    raw = bytearray(path.read_bytes())
+    mid = len(raw) // 2
+    for i in range(mid, len(raw), 64):
+        raw[i] = (raw[i] + 137) % 256
+    path.write_bytes(bytes(raw))
+
+    info = probe_media(str(path))
+
+    assert info is not None
+    assert info["kind"] == "video"
+    assert "peak_dbfs" not in info
+    assert "frame_count" not in info

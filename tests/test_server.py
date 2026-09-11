@@ -1136,6 +1136,31 @@ def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
         assert still["media"] is None
 
 
+def test_gallery_metadata_survives_a_damaged_track(server, tmp_path):
+    """A track that opens fine but fails partway through decode (damage
+    past the header) must not 500 the metadata route - it should fall back
+    to the header-level fields probe_media could still gather."""
+    from tests.test_media_info import write_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        path = outputs / "broken-gen.0-0.0.mkv"
+        write_mp4(path, frames=12, fps=6)
+
+        raw = bytearray(path.read_bytes())
+        mid = len(raw) // 2
+        for i in range(mid, len(raw), 64):
+            raw[i] = (raw[i] + 137) % 256
+        path.write_bytes(bytes(raw))
+
+        response = client.get("/api/gallery/broken-gen.0-0.0.mkv/metadata")
+        assert response.status_code == 200
+        body = response.json()
+        assert "job" in body
+        assert body["media"]["kind"] == "video"
+        assert "peak_dbfs" not in body["media"]
+
+
 def test_gallery_paginates_and_groups_by_workflow_folder(server, tmp_path):
     """Outputs nested under a workflow subfolder (dw/workflow.py's
     effective_output_dir) still show up in the gallery, tagged with their
