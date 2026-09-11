@@ -693,11 +693,25 @@ def build_server(client):
         succeeded, failed or cancelled, or - if timeout_seconds elapses
         first - returns its current status with still_running: true so you
         can call again. Does not queue anything, so no acknowledged_cost.
-        timeout_seconds is capped well under a generation's real runtime;
-        call it repeatedly for a long job. Returns a slim job - status,
-        warnings, error, and the manifest once finished - without the
-        arguments; get_job has those."""
+
+        One call blocks for at most {cap} seconds, no matter what
+        timeout_seconds asks for - an MCP client will not hold a tool call
+        open for a generation's real runtime, which is minutes. A larger
+        value is not honoured, it is clamped, so budget roughly one call per
+        {cap}s of the job. Every reply says which happened: waited_seconds,
+        timeout_requested_seconds, timeout_applied_seconds and
+        timeout_capped.
+
+        Returns a slim job - status, warnings, error, and the manifest once
+        finished - without the arguments; get_job has those."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
+
+    # The cap is a number a caller paces against, so the description states
+    # it rather than saying "well under a generation's runtime".
+    if wait_for_job.__doc__:  # absent under python -OO
+        wait_for_job.__doc__ = wait_for_job.__doc__.format(
+            cap=diagnose.MAX_WAIT_SECONDS
+        )
 
     def cancel_job(job_id: str) -> dict:
         """Ask a queued or running job to stop. Cooperative: a running job

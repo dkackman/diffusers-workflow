@@ -142,35 +142,63 @@ def wait_for_job(client, job_id, timeout_seconds=20):
 
     `timeout_seconds` is clamped to [0, MAX_WAIT_SECONDS]: a generation can
     run for minutes, far longer than an MCP client holds a tool call open,
-    so this never blocks past a budget kept well under that. Returns as
-    soon as the job's status is succeeded, failed or cancelled. If the
-    timeout elapses first, returns the job's last-seen status with
-    `still_running: true` instead of hanging - call again to keep waiting.
-    Returns a slim job - status, warnings, error, and the manifest once
-    finished - without the arguments; get_job has those."""
-    timeout_seconds = max(0.0, min(float(timeout_seconds), MAX_WAIT_SECONDS))
-    deadline = time.monotonic() + timeout_seconds
+    so this never blocks past a budget kept well under that. Every reply
+    says what was applied - `timeout_applied_seconds` is the budget the
+    call actually ran under, `timeout_requested_seconds` what was asked
+    for, and `waited_seconds` how long this call blocked - so a caller
+    asking for 600 can tell a capped return from an elapsed one rather
+    than inferring it from wall clock. Returns as soon as the job's status
+    is succeeded, failed or cancelled. If the timeout elapses first,
+    returns the job's last-seen status with `still_running: true` instead
+    of hanging - call again to keep waiting. Returns a slim job - status,
+    warnings, error, and the manifest once finished - without the
+    arguments; get_job has those."""
+    requested = max(0.0, float(timeout_seconds))
+    applied = min(requested, float(MAX_WAIT_SECONDS))
+    capped = applied < requested
+    started = time.monotonic()
+    deadline = started + applied
     while True:
         job = client.get_json(api_path("api", "jobs", job_id))
         status = job.get("status")
+        budget = {
+            "waited_seconds": round(time.monotonic() - started, 1),
+            "timeout_requested_seconds": round(requested, 1),
+            "timeout_applied_seconds": round(applied, 1),
+            "timeout_capped": capped,
+        }
         if status in TERMINAL_STATUSES:
             return {
                 "job_id": job_id,
                 "status": status,
                 "still_running": False,
+                **budget,
                 "job": slim_job(job),
                 "next": "get_job(job_id) for the arguments and traceback, "
                 "get_job_workflow(job_id) for the realized workflow.",
             }
         remaining = deadline - time.monotonic()
         if remaining <= 0:
+            next_step = (
+                "Call wait_for_job again, or get_job_events for incremental "
+                "progress."
+            )
+            if capped:
+                next_step = (
+                    f"You asked to wait {round(requested, 1)}s but one call "
+                    f"blocks for at most {MAX_WAIT_SECONDS}s, so this "
+                    "returned early rather than timing out. The job is still "
+                    "running: call wait_for_job again (each call covers "
+                    f"~{MAX_WAIT_SECONDS}s of it), or get_job_events for "
+                    "incremental progress."
+                )
             return {
                 "job_id": job_id,
                 "status": status,
                 "still_running": True,
+                **budget,
                 "job": slim_job(job),
-                "next": "Call wait_for_job again, or get_job_events for "
-                "incremental progress.",
+                "next": next_step,
             }
         time.sleep(min(WAIT_POLL_SECONDS, remaining))
 

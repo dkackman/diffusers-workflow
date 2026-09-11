@@ -322,6 +322,42 @@ def test_wait_for_job_caps_the_timeout_it_is_given():
     assert len(seen) == 1, "a terminal status on the first poll returns immediately"
 
 
+def test_wait_for_job_says_when_it_capped_the_timeout(monkeypatch):
+    """Asking for ten minutes gets a minute. The reply has to say so - a
+    caller cannot otherwise tell a capped return from an elapsed one, and
+    would read "still running after 600s" into a job that had 59s of wait."""
+    monkeypatch.setattr(diagnose, "WAIT_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(diagnose, "MAX_WAIT_SECONDS", 0.03)
+    client, _seen = sequenced(
+        ("GET", "/api/jobs/job-1"), [{"id": "job-1", "status": "running"}]
+    )
+
+    result = diagnose.wait_for_job(client, "job-1", timeout_seconds=600)
+
+    assert result["still_running"] is True
+    assert result["timeout_capped"] is True
+    assert result["timeout_requested_seconds"] == 600
+    assert result["timeout_applied_seconds"] == 0.0
+    assert result["waited_seconds"] >= 0
+    assert "600" in result["next"], "the reply names what was asked for"
+
+
+def test_wait_for_job_reports_an_uncapped_budget_honestly(monkeypatch):
+    """Under the cap, nothing was capped - and the same fields are present
+    on a terminal return, so a caller reads them without branching."""
+    monkeypatch.setattr(diagnose, "WAIT_POLL_SECONDS", 0.01)
+    client, _seen = sequenced(
+        ("GET", "/api/jobs/job-1"), [{"id": "job-1", "status": "succeeded"}]
+    )
+
+    result = diagnose.wait_for_job(client, "job-1", timeout_seconds=5)
+
+    assert result["timeout_capped"] is False
+    assert result["timeout_applied_seconds"] == 5.0
+    assert result["timeout_requested_seconds"] == 5.0
+    assert "waited_seconds" in result
+
+
 def test_wait_for_job_does_not_require_acknowledged_cost():
     """It reads an already-queued job rather than starting anything, so the
     cost gate other job-queuing tools carry does not apply here."""

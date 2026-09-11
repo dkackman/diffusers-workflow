@@ -352,7 +352,9 @@ signal to restructure the workflow, not to add another reference.
    images is the number to quote. Say "a few minutes" only when no entry with
    that pipeline has been measured.
 5. `wait_for_job` rather than a polling loop; call it again if it returns
-   `still_running: true`.
+   `still_running: true`. One call blocks for at most 55 seconds whatever
+   `timeout_seconds` says, so a minutes-long render takes several - the
+   reply's `timeout_capped` and `waited_seconds` say which happened.
 6. `get_output_image` to look at what was actually made, and say whether it
    answers the request. Nothing before this step establishes that it does.
 7. Getting the files to the user's machine. `download_output` and `export_job`
