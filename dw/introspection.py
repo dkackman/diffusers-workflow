@@ -480,6 +480,24 @@ def unknown_task_arguments(command, argument_names):
     return sorted(set(argument_names) - known)
 
 
+def _inert_crossfade_warnings(step, command, arguments):
+    """concat_videos draws its crossfade from the trimmed-off material, so
+    with nothing trimmed a `crossfade_ms` the author wrote does nothing. A
+    referenced trim is unknown until the run and is left alone."""
+    if command != "concat_videos":
+        return []
+    crossfade = arguments.get("crossfade_ms")
+    trim = arguments.get("trim_frames", 0)
+    if not isinstance(crossfade, (int, float)) or crossfade <= 0 or trim != 0:
+        return []
+    return [
+        f"Step '{step.get('name')}': 'crossfade_ms' has no effect when "
+        f"'trim_frames' is 0 - the crossfade is drawn from the trimmed "
+        f"material. At a hard cut, 'audio_bleed_ms' or 'seam_fade_ms' is "
+        f"what shapes the seam"
+    ]
+
+
 def workflow_argument_warnings(workflow_definition):
     """Best-effort pre-load check of a workflow's arguments.
 
@@ -513,6 +531,7 @@ def workflow_argument_warnings(workflow_definition):
                         f"Step '{step.get('name')}': task '{command}' does not "
                         f"accept argument '{argument_name}'"
                     )
+            warnings.extend(_inert_crossfade_warnings(step, command, task["arguments"]))
         pipeline = step.get("pipeline")
         if not pipeline:
             continue

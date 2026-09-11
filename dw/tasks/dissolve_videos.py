@@ -19,7 +19,7 @@ from PIL import Image
 
 from ..result import AudioVideo
 from .audio_utils import as_channels_samples, crossfade_concat
-from .video_utils import frames_as_array, load_audio_video
+from .video_utils import check_same_frame_size, frames_as_array, load_audio_video
 
 logger = logging.getLogger("dw")
 
@@ -59,6 +59,7 @@ def dissolve_videos(
 
     loaded = [load_audio_video(v) if isinstance(v, str) else v for v in videos]
     clips = [frames_as_array(v).astype(numpy.float32) for v in loaded]
+    check_same_frame_size(clips, "dissolve_videos")
 
     for index, clip in enumerate(clips):
         seams = (index > 0) + (index < len(clips) - 1)

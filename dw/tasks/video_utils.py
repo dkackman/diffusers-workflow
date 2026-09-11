@@ -61,6 +61,34 @@ def frame_count(video):
     return len(_frames_of(video))
 
 
+def check_same_frame_size(clips, task_name):
+    """Refuse to join clips whose frames disagree in size.
+
+    Args:
+        clips: The clips about to be joined, each a PIL frame list or a
+            (frames, height, width, channels) array
+        task_name: Named in the error
+
+    Joining is frame-by-frame concatenation, which either fails deep in numpy
+    or, for a PIL list, produces a film that changes size mid-cut. Naming the
+    two sizes points at the shot that was rendered differently rather than at
+    the join.
+    """
+    sizes = []
+    for clip in clips:
+        if isinstance(clip, numpy.ndarray):
+            sizes.append((int(clip.shape[2]), int(clip.shape[1])))
+        else:
+            sizes.append(tuple(clip[0].size) if len(clip) else None)
+    first = next((size for size in sizes if size is not None), None)
+    for index, size in enumerate(sizes):
+        if size is not None and size != first:
+            raise ValueError(
+                f"{task_name} needs every video at one size: video 0 is "
+                f"{first[0]}x{first[1]}, video {index} is {size[0]}x{size[1]}"
+            )
+
+
 def frames_as_pil_list(video):
     """The video's frames as a list of PIL images.
 

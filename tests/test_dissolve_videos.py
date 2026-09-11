@@ -66,6 +66,12 @@ class TestDissolveVideos:
         with pytest.raises(ValueError, match="negative"):
             dissolve_videos([frames(4, 0)], dissolve_frames=-1)
 
+    def test_mismatched_frame_sizes_are_refused(self):
+        wide = [Image.new("RGB", (16, 8)) for _ in range(3)]
+
+        with pytest.raises(ValueError, match="4x4.*16x8"):
+            dissolve_videos([frames(3, 0), wide], 0)
+
     def test_an_empty_list_is_refused(self):
         with pytest.raises(ValueError):
             dissolve_videos([])

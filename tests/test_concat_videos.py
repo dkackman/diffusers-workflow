@@ -86,6 +86,15 @@ class TestConcatVideos:
         with pytest.raises(ValueError, match="non-empty"):
             concat_videos([])
 
+    def test_mismatched_frame_sizes_raise(self):
+        # Shots of different sizes were once "normalized" by a stabilize pass
+        # that actually rescaled every frame; refusing them names the real
+        # problem instead of quietly producing a film that jumps size mid-cut
+        wide = [Image.new("RGB", (16, 8)) for _ in range(3)]
+
+        with pytest.raises(ValueError, match="8x8.*16x8"):
+            concat_videos([frames(3), wide])
+
     def test_the_result_is_a_single_artifact(self):
         # add_result flattens lists - the joined video must never be one
         result = concat_videos([frames(3), frames(3)])

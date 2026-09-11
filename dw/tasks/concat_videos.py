@@ -17,7 +17,7 @@ from .audio_utils import (
     equal_power_crossfade_join,
     frames_to_samples,
 )
-from .video_utils import frames_as_pil_list, load_audio_video
+from .video_utils import check_same_frame_size, frames_as_pil_list, load_audio_video
 
 logger = logging.getLogger("dw")
 
@@ -42,8 +42,10 @@ def concat_videos(
         trim_frames: Frames dropped from the head of every video after the
             first - the trim used when each video was generated from the
             previous one's last frame
-        crossfade_ms: Equal-power crossfade at each audio seam, clamped to
-            the trimmed material
+        crossfade_ms: Equal-power crossfade at each audio seam, drawn from
+            the trimmed material - so it has no effect when trim_frames is 0,
+            which is where every cut-based workflow sits. A hard cut's seam is
+            shaped by audio_bleed_ms or seam_fade_ms instead
         audio_bleed_ms: How long the outgoing video's tail rings on over the head
             of the next one, at seams with nothing trimmed to crossfade. For
             cut-based workflows, where every shot is generated independently and
@@ -52,7 +54,9 @@ def concat_videos(
         seam_fade_ms: Fade applied on each side of a seam that gets neither a
             crossfade nor a bleed. Defaults to the few milliseconds that keep a
             butt-join from clicking; raise it to a hundred or so for a graceful
-            hard cut on tonal material, which a bleed would only stutter
+            hard cut on tonal material, which a bleed would only stutter. It is
+            the wrong tool for a continuous bed such as a laugh track or room
+            tone: a fade only deepens the hole a bleed is there to cover
         fps: Frame rate of the videos - required to join audio when trimming
 
     Returns:
@@ -61,17 +65,19 @@ def concat_videos(
     if not isinstance(videos, list) or not videos:
         raise ValueError("concat_videos needs a non-empty list of videos")
 
+    # A shot an earlier run already wrote is loaded here rather than by
+    # gather_videos, which reads frames only and would join it silent
+    videos = [load_audio_video(v) if isinstance(v, str) else v for v in videos]
+    clips = [frames_as_pil_list(v) for v in videos]
+    check_same_frame_size(clips, "concat_videos")
+
     frames = []
     audio = None
     sample_rate = None
 
-    for index, video in enumerate(videos):
-        if isinstance(video, str):
-            # A shot an earlier run already wrote - loaded here rather than by
-            # gather_videos, which reads frames only and would join it silent
-            video = load_audio_video(video)
+    for index, (video, clip) in enumerate(zip(videos, clips)):
         head_trim = trim_frames if index > 0 else 0
-        frames.extend(frames_as_pil_list(video)[head_trim:])
+        frames.extend(clip[head_trim:])
 
         if not isinstance(video, AudioVideo) or video.audio is None:
             continue

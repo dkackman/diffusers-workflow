@@ -51,7 +51,9 @@ _EDIT_PIPELINE = re.compile(r"inpaint|img2img|edit|upscale|outpaint", re.I)
 _CHAIN_ARGUMENTS = frozenset(
     {"last_frame", "last_segment", "last_image", "match_audio"}
 )
-_MEDIA_ARGUMENTS = frozenset({"image", "video", "audio", "mask_image", "urls"})
+_MEDIA_ARGUMENTS = frozenset(
+    {"image", "video", "audio", "mask_image", "urls", "videos", "clip"}
+)
 _CUT_TASKS = frozenset({"concat_videos", "dissolve_videos"})
 # Components that exist only to synthesise a waveform. A video pipeline
 # carrying one emits an audio track whether or not it says so in `output`.
@@ -156,11 +158,27 @@ def _needs_input_media(steps):
 
 
 def _cuts_together(steps):
-    """A concat or dissolve fed by two or more distinct steps."""
+    """A concat or dissolve fed by two or more distinct steps, or by a list
+    of shots handed in whole - one `variable:` reference is a supplied list
+    whose length only the caller knows, and a cut over supplied footage is
+    still an edit."""
     for step in steps:
         key, body = _block(step)
         if key == "task" and body.get("command") in _CUT_TASKS:
-            if len(_fed_by(_arguments(step).get("videos"))) >= 2:
+            videos = _arguments(step).get("videos")
+            if isinstance(videos, str) and videos.startswith("variable:"):
+                return True
+            sources = _fed_by(videos)
+            if isinstance(videos, list):
+                # Each supplied shot - a variable, an asset, a path - is its
+                # own source; two previous_result entries naming one step are not
+                sources |= {
+                    item
+                    for item in videos
+                    if isinstance(item, str)
+                    and not item.startswith("previous_result:")
+                }
+            if len(sources) >= 2:
                 return True
     return False
 
