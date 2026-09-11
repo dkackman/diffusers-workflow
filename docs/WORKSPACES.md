@@ -220,6 +220,7 @@ several, and a client picks which one it is working in.
 <workspace root>/
   workflows/  assets/  outputs/    <- the 'default' workspace
   prompts/                         <- shared by all of them
+  common/assets/                   <- shared by all of them
   studio/
     workflows/  assets/  outputs/  <- the 'studio' workspace
   scratch/
@@ -234,9 +235,31 @@ reference, and a prompt duplicated per workspace would resolve to different
 text depending on where a workflow happened to be saved. `workflows`,
 `prompts`, `assets` and `outputs` are reserved names for that reason.
 
-A fifth name is reserved beside `workflows`, `prompts`, `assets` and `outputs`:
-`exports`. `POST /api/jobs/{id}/export` gathers one finished job into
-`<root>/exports/<job id>/`, and that folder is never mistaken for a workspace.
+Two more names are reserved beside `workflows`, `prompts`, `assets` and
+`outputs`: `exports` and `common`. `POST /api/jobs/{id}/export` gathers one
+finished job into `<root>/exports/<job id>/`, and that folder is never mistaken
+for a workspace.
+
+**The shared asset library.** `common/assets/` is the one place an asset can
+live that belongs to no single workspace. Assets are otherwise per workspace,
+which is right for the inputs of one piece of work and wrong for a recurring
+cast: a character's portrait and voice clip uploaded while making episode one
+were invisible from the workspace episode four was made in, and the only way
+through was to copy the files in. It sits on every workspace's asset search
+path behind that workspace's own library, so:
+
+- `asset:cast/priya.png` resolves in the workspace first, then in the shared
+  library, then in any read-only examples library — a workspace's own name
+  still shadows a shared one
+- `GET /api/assets` spans all of them and tags each entry's `origin`:
+  `workspace`, `common`, or `examples`
+- writes still land in the workspace unless they say otherwise:
+  `POST /api/uploads?shared=true`, `POST /api/assets/keep` with
+  `"shared": true`, and over MCP `upload_asset(..., shared=True)` /
+  `keep_output(..., shared=True)`
+
+It holds assets only. A prompt is already shared, and workflows and outputs
+belong to the work that made them.
 
 This is what lets two agents share one GPU without sharing a namespace: each
 takes a workspace, and neither can save over the other's workflows or delete

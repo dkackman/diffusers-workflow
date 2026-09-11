@@ -196,7 +196,18 @@ def main():
 
     example_dirs = example_libraries(args.examples_dirs)
     set_library_fallbacks(PROMPTS_SUBDIR, example_dirs[PROMPTS_SUBDIR])
-    set_library_fallbacks(ASSETS_SUBDIR, example_dirs[ASSETS_SUBDIR])
+    # The shared library goes ahead of the examples and behind the
+    # workspace's own, which is the order 'asset:' resolves in: a workspace
+    # name shadows a shared one, and a shared one shadows an example's.
+    # Created here rather than on first use so it is on the path the worker
+    # inherited at startup, whenever the first shared asset lands
+    common_assets = workspace.common_assets
+    if common_assets:
+        os.makedirs(common_assets, exist_ok=True)
+    set_library_fallbacks(
+        ASSETS_SUBDIR,
+        ([common_assets] if common_assets else []) + example_dirs[ASSETS_SUBDIR],
+    )
 
     try:
         import uvicorn

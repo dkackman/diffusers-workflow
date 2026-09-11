@@ -532,6 +532,116 @@ class TestKeepingOutputs:
         assert [entry["reference"] for entry in listed] == ["asset:gyre/hero.png"]
 
 
+class TestKeepingUnderAnExtensionlessName:
+    """T014: a kept asset written without an extension is invisible to the
+    library listing, which reads by kind - so the call reported success and
+    the asset could never be found again."""
+
+    def written(self, root, name, content=b"wav-bytes"):
+        path = os.path.join(root, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.write(content)
+        return path
+
+    def test_the_kept_files_extension_is_assumed(self, server, workspace_root):
+        self.written(workspace_root.outputs, "Ep/run/speak_a.wav")
+        with server() as client:
+            body = client.post(
+                "/api/assets/keep",
+                json={"name": "Ep/run/speak_a.wav", "asset_name": "cast/priya-voice"},
+            ).json()
+            listed = client.get("/api/assets").json()["assets"]
+        assert body["reference"] == "asset:cast/priya-voice.wav"
+        assert os.path.exists(
+            os.path.join(workspace_root.assets, "cast", "priya-voice.wav")
+        )
+        # the whole point: what the call handed back is what the library shows
+        assert [entry["reference"] for entry in listed] == [
+            "asset:cast/priya-voice.wav"
+        ]
+
+    def test_a_contradicting_extension_is_refused(self, server, workspace_root):
+        self.written(workspace_root.outputs, "Ep/run/speak_a.wav")
+        with server() as client:
+            response = client.post(
+                "/api/assets/keep",
+                json={"name": "Ep/run/speak_a.wav", "asset_name": "cast/priya.png"},
+            )
+        assert response.status_code == 400
+        assert "does not match" in response.json()["detail"]
+
+
+class TestDeletingAssets:
+    """Uploads and keeps had no counterpart: a mistaken name could only be
+    cleaned up on the box (T014)."""
+
+    def written(self, root, name, content=b"png-bytes"):
+        path = os.path.join(root, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.write(content)
+        return path
+
+    def test_an_asset_is_deleted_and_gone_from_the_listing(
+        self, server, workspace_root
+    ):
+        self.written(workspace_root.assets, "cast/hero.png")
+        with server() as client:
+            response = client.delete("/api/assets/cast/hero.png")
+            listed = client.get("/api/assets").json()["assets"]
+        assert response.status_code == 200
+        assert response.json() == {
+            "name": "cast/hero.png",
+            "deleted": True,
+            "origin": "workspace",
+        }
+        assert listed == []
+        assert not os.path.exists(
+            os.path.join(workspace_root.assets, "cast", "hero.png")
+        )
+
+    def test_a_shared_asset_is_deleted_from_the_shared_library(
+        self, server, workspace_root
+    ):
+        common = os.path.join(workspace_root.root, "common", "assets")
+        self.written(common, "cast/priya-voice.wav")
+        with server() as client:
+            response = client.delete("/api/assets/cast/priya-voice.wav")
+        assert response.status_code == 200
+        assert response.json()["origin"] == "common"
+        assert not os.path.exists(os.path.join(common, "cast", "priya-voice.wav"))
+
+    def test_a_workspace_asset_shadows_the_shared_one_it_deletes(
+        self, server, workspace_root
+    ):
+        """Deletion follows the search path, so the name deleted is the name
+        'asset:' would have resolved to."""
+        common = os.path.join(workspace_root.root, "common", "assets")
+        self.written(common, "hero.png", b"shared")
+        self.written(workspace_root.assets, "hero.png", b"mine")
+        with server() as client:
+            body = client.delete("/api/assets/hero.png").json()
+        assert body["origin"] == "workspace"
+        assert open(os.path.join(common, "hero.png"), "rb").read() == b"shared"
+
+    def test_an_unknown_name_is_a_404(self, server, workspace_root):
+        with server() as client:
+            assert client.delete("/api/assets/nothing.png").status_code == 404
+
+    @pytest.mark.parametrize("name", ["../escape.png", "%2e%2e/escape.png"])
+    def test_a_name_cannot_leave_the_library(self, server, workspace_root, name):
+        """405 is in the list because the client normalizes a literal '..'
+        out of the URL before it is sent - the server never sees that one.
+        The encoded form is the one that reaches the validator."""
+        self.written(os.path.dirname(workspace_root.assets), "escape.png")
+        with server() as client:
+            assert client.delete(f"/api/assets/{name}").status_code in (400, 404, 405)
+        assert os.path.exists(
+            os.path.join(os.path.dirname(workspace_root.assets), "escape.png")
+        )
+
+
 class TestRunning:
     def test_a_job_runs_in_the_workspace_it_named(self, server, workspace_root):
         with server() as client:
@@ -768,3 +878,129 @@ def test_the_listing_reports_each_workspace_s_disk_usage(server, workspace_root)
     assert spaces["shots"] == {"files": 1, "bytes": 4096}
     assert spaces["default"]["files"] == 1
     assert spaces["default"]["bytes"] == 500
+
+
+class TestSharedAssets:
+    """Assets are per workspace, which is right for the work that made them
+    and wrong for a recurring cast: episode four, started in a fresh
+    workspace, could not see the character portraits episode one uploaded
+    (2026-09-11). The shared library is the prompt library's treatment
+    applied to assets - one copy, reachable from every workspace."""
+
+    def test_a_shared_upload_is_visible_from_every_workspace(
+        self, server, workspace_root
+    ):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "episode-four"})
+            uploaded = client.post(
+                "/api/uploads",
+                params={
+                    "filename": "priya.png",
+                    "asset_name": "cast/priya",
+                    "shared": "true",
+                },
+                content=b"png",
+            )
+            assert uploaded.status_code == 201
+            body = uploaded.json()
+            assert body["path"] == "asset:uploads/cast/priya.png"
+            assert body["shared"] is True
+
+            for workspace in ("", "?workspace=episode-four"):
+                listed = client.get(f"/api/assets{workspace}").json()
+                names = {asset["name"]: asset for asset in listed["assets"]}
+                assert "uploads/cast/priya.png" in names, workspace
+                assert names["uploads/cast/priya.png"]["origin"] == "common"
+
+    def test_it_is_stored_once_at_the_root(self, server, workspace_root):
+        with server() as client:
+            client.post(
+                "/api/uploads",
+                params={"filename": "hal.png", "shared": "true"},
+                content=b"png",
+            )
+
+        shared = os.path.join(workspace_root.root, "common", "assets", "uploads")
+        assert len(os.listdir(shared)) == 1
+        assert not os.path.exists(os.path.join(workspace_root.assets, "uploads"))
+
+    def test_a_workspace_asset_shadows_a_shared_one_of_the_same_name(
+        self, server, workspace_root
+    ):
+        """The same order 'asset:' resolves in - the workspace's own first."""
+        with server() as client:
+            client.post(
+                "/api/uploads",
+                params={
+                    "filename": "hal.png",
+                    "asset_name": "cast/hal",
+                    "shared": "true",
+                },
+                content=b"shared-bytes",
+            )
+            client.post(
+                "/api/uploads",
+                params={"filename": "hal.png", "asset_name": "cast/hal"},
+                content=b"workspace-bytes",
+            )
+
+            listed = client.get("/api/assets").json()["assets"]
+            entries = [a for a in listed if a["name"] == "uploads/cast/hal.png"]
+            assert len(entries) == 1
+            assert entries[0]["origin"] == "workspace"
+
+            served = client.get("/inputs/uploads/cast/hal.png")
+            assert served.content == b"workspace-bytes"
+
+    def test_a_shared_asset_previews_like_any_other(self, server, workspace_root):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "episode-four"})
+            client.post(
+                "/api/uploads",
+                params={
+                    "filename": "priya.png",
+                    "asset_name": "cast/priya",
+                    "shared": "true",
+                },
+                content=b"png-bytes",
+            )
+            listed = client.get("/api/assets?workspace=episode-four").json()
+            url = listed["assets"][0]["url"]
+
+            assert client.get(url).content == b"png-bytes"
+
+    def test_an_output_can_be_kept_as_a_shared_asset(self, server, workspace_root):
+        generated = os.path.join(workspace_root.outputs, "still-gen.0-0.0.png")
+        with open(generated, "wb") as file:
+            file.write(b"generated")
+
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "episode-four"})
+            kept = client.post(
+                "/api/assets/keep",
+                json={
+                    "name": "still-gen.0-0.0.png",
+                    "asset_name": "cast/priya.png",
+                    "shared": True,
+                },
+            )
+            assert kept.status_code == 201
+            assert kept.json()["shared"] is True
+            assert kept.json()["reference"] == "asset:cast/priya.png"
+
+            listed = client.get("/api/assets?workspace=episode-four").json()
+            assert [a["origin"] for a in listed["assets"]] == ["common"]
+
+        assert os.path.isfile(
+            os.path.join(workspace_root.root, "common", "assets", "cast", "priya.png")
+        )
+
+    def test_the_shared_library_is_not_a_workspace(self, server):
+        """'common' holds one library, not workflows and outputs - naming it
+        as a workspace has to be refused rather than making a folder."""
+        with server() as client:
+            refused = client.post("/api/workspaces", json={"name": "common"})
+            assert refused.status_code == 400
+            assert [
+                w["name"] for w in client.get("/api/workspaces").json()["workspaces"]
+            ] == ["default"]

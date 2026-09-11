@@ -19,6 +19,15 @@ from dw.tasks.audio_utils import (
 )
 
 
+def samples(track):
+    """The (samples, channels) waveform an audio task's AudioTrack carries.
+
+    The tasks return an AudioTrack so the rate travels with the waveform;
+    these shape assertions are written in the save layout, so they unwrap it.
+    """
+    return numpy.asarray(track.audio).T
+
+
 class TestAsChannelsSamples:
     def test_a_mono_vector_gains_a_channel_axis(self):
         assert as_channels_samples(numpy.zeros(100)).shape == (1, 100)
@@ -244,12 +253,15 @@ class TestLoadAudio:
 
         path = self._write_video(tmp_path / "cut.mp4")
 
-        assert resample_audio(path, 4000).shape[1] == 2
-        assert slice_audio(path, start_seconds=0, duration_seconds=1).shape[0] == 8000
-        assert fade_audio(path, fade_out_ms=100).shape[1] == 2
-        assert normalize_audio(path).shape[1] == 2
-        assert mix_audio([path, path]).shape[1] == 2
-        assert crossfade_audio([path, path], crossfade_ms=10).shape[1] == 2
+        assert samples(resample_audio(path, 4000)).shape[1] == 2
+        assert (
+            samples(slice_audio(path, start_seconds=0, duration_seconds=1)).shape[0]
+            == 8000
+        )
+        assert samples(fade_audio(path, fade_out_ms=100)).shape[1] == 2
+        assert samples(normalize_audio(path)).shape[1] == 2
+        assert samples(mix_audio([path, path])).shape[1] == 2
+        assert samples(crossfade_audio([path, path], crossfade_ms=10)).shape[1] == 2
 
 
 class TestBleedJoin:
@@ -319,27 +331,32 @@ class TestResampleAudio:
 
         result = resample_audio(waveform, 32000, sample_rate=44100)
 
-        assert result.shape == (32000, 2)
+        assert samples(result).shape == (32000, 2)
+        assert result.sample_rate == 32000
 
     def test_it_returns_samples_by_channels(self):
         waveform = numpy.zeros((1, 44100), dtype=numpy.float32)
 
-        assert resample_audio(waveform, 22050, sample_rate=44100).shape == (22050, 1)
+        assert samples(resample_audio(waveform, 22050, sample_rate=44100)).shape == (
+            22050,
+            1,
+        )
 
     def test_matching_rates_pass_through_untouched(self):
         waveform = numpy.linspace(-1, 1, 1000, dtype=numpy.float32)[None, :]
 
         result = resample_audio(waveform, 8000, sample_rate=8000)
 
-        assert result.shape == (1000, 1)
-        assert numpy.allclose(result[:, 0], waveform[0])
+        assert samples(result).shape == (1000, 1)
+        assert result.sample_rate == 8000
+        assert numpy.allclose(samples(result)[:, 0], waveform[0])
 
     def test_a_tone_keeps_its_level_and_duration(self):
         rate, seconds = 44100, 0.5
         t = numpy.arange(int(rate * seconds)) / rate
         tone = numpy.sin(2 * numpy.pi * 440 * t).astype(numpy.float32)[None, :]
 
-        result = resample_audio(tone, 32000, sample_rate=44100)
+        result = samples(resample_audio(tone, 32000, sample_rate=44100))
 
         assert result.shape[0] == pytest.approx(32000 * seconds, rel=0.01)
         level = float(numpy.sqrt((result[:, 0] ** 2).mean()))
@@ -354,7 +371,10 @@ class TestResampleAudio:
     def test_it_accepts_a_torch_waveform(self):
         waveform = torch.zeros(2, 44100)
 
-        assert resample_audio(waveform, 32000, sample_rate=44100).shape == (32000, 2)
+        assert samples(resample_audio(waveform, 32000, sample_rate=44100)).shape == (
+            32000,
+            2,
+        )
 
 
 class TestFadeAudio:
@@ -363,7 +383,9 @@ class TestFadeAudio:
 
         track = numpy.ones((2, 1000), dtype=numpy.float32)
 
-        faded = fade_audio(track, fade_in_ms=100, fade_out_ms=200, sample_rate=1000)
+        faded = samples(
+            fade_audio(track, fade_in_ms=100, fade_out_ms=200, sample_rate=1000)
+        )
 
         assert faded.shape == (1000, 2)
         assert faded[0, 0] == pytest.approx(0.0, abs=1e-6)
@@ -385,7 +407,9 @@ class TestFadeAudio:
     def test_a_fade_longer_than_the_track_is_clamped(self):
         from dw.tasks.audio_utils import fade_audio
 
-        faded = fade_audio(numpy.ones((1, 10)), fade_in_ms=5000, sample_rate=100)
+        faded = samples(
+            fade_audio(numpy.ones((1, 10)), fade_in_ms=5000, sample_rate=100)
+        )
 
         assert faded.shape == (10, 1)
 
@@ -408,7 +432,7 @@ class TestNormalizeAudio:
 
         track = numpy.array([[0.1, -0.25, 0.05]], dtype=numpy.float32)
 
-        scaled = normalize_audio(track, peak_dbfs=-6.0, sample_rate=100)
+        scaled = samples(normalize_audio(track, peak_dbfs=-6.0, sample_rate=100))
 
         assert scaled.shape == (3, 1)
         assert numpy.abs(scaled).max() == pytest.approx(10 ** (-6 / 20), abs=1e-6)
@@ -420,7 +444,9 @@ class TestNormalizeAudio:
     def test_silence_is_left_alone(self):
         from dw.tasks.audio_utils import normalize_audio
 
-        assert numpy.all(normalize_audio(numpy.zeros((1, 10)), sample_rate=100) == 0)
+        assert numpy.all(
+            samples(normalize_audio(numpy.zeros((1, 10)), sample_rate=100)) == 0
+        )
 
     def test_a_target_above_full_scale_is_refused(self):
         from dw.tasks.audio_utils import normalize_audio
@@ -445,22 +471,34 @@ class TestAudioTasksTakeAnAudioVideo:
 
         sliced = slice_audio(self.video(), start_seconds=1.0, duration_seconds=2.0)
 
-        assert sliced.shape == (200, 2)
+        assert samples(sliced).shape == (200, 2)
+        # The rate it read travels with the slice, so a resample chained off it
+        # does not have to be told the rate again
+        assert sliced.sample_rate == 100
 
     def test_no_duration_slices_to_the_end_of_the_track(self):
         """A workflow that trims only when given a length still yields the
         track - the missing half of the pair means 'to the end', not an error."""
         from dw.tasks.audio_utils import slice_audio
 
-        assert slice_audio(self.video(), start_seconds=1.0).shape == (300, 2)
-        assert slice_audio(self.video(), start_seconds=0).shape == (400, 2)
+        assert samples(slice_audio(self.video(), start_seconds=1.0)).shape == (300, 2)
+        assert samples(slice_audio(self.video(), start_seconds=0)).shape == (400, 2)
 
     def test_no_start_slices_from_the_head_of_the_track(self):
         from dw.tasks.audio_utils import slice_audio
 
-        assert slice_audio(self.video(), duration_seconds=2.0).shape == (200, 2)
-        assert slice_audio(self.video(), start_frame=12, fps=24).shape == (350, 2)
-        assert slice_audio(self.video(), num_frames=24, fps=24).shape == (100, 2)
+        assert samples(slice_audio(self.video(), duration_seconds=2.0)).shape == (
+            200,
+            2,
+        )
+        assert samples(slice_audio(self.video(), start_frame=12, fps=24)).shape == (
+            350,
+            2,
+        )
+        assert samples(slice_audio(self.video(), num_frames=24, fps=24)).shape == (
+            100,
+            2,
+        )
 
     def test_a_slice_in_frames_still_needs_the_frame_rate(self):
         from dw.tasks.audio_utils import slice_audio
@@ -481,20 +519,24 @@ class TestAudioTasksTakeAnAudioVideo:
             self.video(), start_seconds=0.0, duration_seconds=1.0, sample_rate=50
         )
 
-        assert sliced.shape == (50, 2)
+        assert samples(sliced).shape == (50, 2)
+        assert sliced.sample_rate == 50
 
     def test_resample_audio_takes_the_rate_from_the_video(self):
         from dw.tasks.audio_utils import resample_audio
 
-        assert resample_audio(self.video(), target_sample_rate=100).shape == (400, 2)
+        assert samples(resample_audio(self.video(), target_sample_rate=100)).shape == (
+            400,
+            2,
+        )
 
     def test_fade_and_normalize_take_a_video(self):
         from dw.tasks.audio_utils import fade_audio, normalize_audio
 
-        faded = fade_audio(self.video(), fade_out_ms=1000)
+        faded = samples(fade_audio(self.video(), fade_out_ms=1000))
         assert faded.shape == (400, 2) and faded[-1, 0] == pytest.approx(0.0, abs=1e-6)
 
-        scaled = normalize_audio(self.video(level=0.5), peak_dbfs=0.0)
+        scaled = samples(normalize_audio(self.video(level=0.5), peak_dbfs=0.0))
         assert numpy.abs(scaled).max() == pytest.approx(1.0)
 
     def test_crossfade_audio_joins_videos_at_their_own_rate(self):
@@ -503,7 +545,8 @@ class TestAudioTasksTakeAnAudioVideo:
         joined = crossfade_audio([self.video(), self.video()], crossfade_ms=1000)
 
         # 4 s + 4 s - 1 s overlap = 7 s at 100 Hz
-        assert joined.shape == (700, 2)
+        assert samples(joined).shape == (700, 2)
+        assert joined.sample_rate == 100
 
     def test_crossfade_audio_refuses_mixed_rates(self):
         from dw.tasks.audio_utils import crossfade_audio
@@ -523,3 +566,79 @@ class TestAudioTasksTakeAnAudioVideo:
 
         with pytest.raises(ValueError, match="carries none"):
             fade_audio(AudioVideo([], None, None), fade_in_ms=10)
+
+
+class TestLoopAudio:
+    """A bed made from a short recording - the room tone laid under a cut so
+    the seam between two independently generated shots is not a hole."""
+
+    def tone(self, samples=100, rate=100, level=0.5, channels=1):
+        return numpy.full((channels, samples), level, dtype=numpy.float32)
+
+    def test_it_makes_a_bed_of_the_requested_seconds(self):
+        from dw.tasks.audio_utils import loop_audio
+
+        bed = loop_audio(self.tone(), duration_seconds=3.5, sample_rate=100)
+
+        assert samples(bed).shape == (350, 1)
+        assert bed.sample_rate == 100
+
+    def test_a_length_in_frames_matches_a_cut_exactly(self):
+        from dw.tasks.audio_utils import loop_audio
+
+        bed = loop_audio(self.tone(), target_frames=48, fps=24, sample_rate=100)
+
+        assert samples(bed).shape == (200, 1)
+
+    def test_a_source_longer_than_the_bed_is_trimmed(self):
+        from dw.tasks.audio_utils import loop_audio
+
+        bed = loop_audio(self.tone(samples=400), duration_seconds=1.0, sample_rate=100)
+
+        assert samples(bed).shape == (100, 1)
+
+    def test_the_loop_point_is_crossfaded_rather_than_butted(self):
+        from dw.tasks.audio_utils import loop_audio
+
+        # A ramp ends far from where it starts, so a butt join would step;
+        # the crossfade has to leave the seam continuous
+        ramp = numpy.linspace(-1, 1, 200, dtype=numpy.float32)[None, :]
+        bed = samples(
+            loop_audio(ramp, duration_seconds=4.0, crossfade_ms=500, sample_rate=100)
+        )
+
+        steps = numpy.abs(numpy.diff(bed[:, 0]))
+        assert steps.max() < 0.1
+
+    def test_it_takes_the_rate_from_a_generated_video(self):
+        from dw.result import AudioVideo
+        from dw.tasks.audio_utils import loop_audio
+
+        video = AudioVideo([], numpy.zeros((2, 400), dtype=numpy.float32), 100)
+
+        bed = loop_audio(video, duration_seconds=10.0)
+
+        assert samples(bed).shape == (1000, 2)
+        assert bed.sample_rate == 100
+
+    def test_it_needs_to_be_told_how_long_a_bed_to_make(self):
+        from dw.tasks.audio_utils import loop_audio
+
+        with pytest.raises(ValueError, match="how long a bed"):
+            loop_audio(self.tone(), sample_rate=100)
+
+    def test_a_length_in_frames_still_needs_the_frame_rate(self):
+        from dw.tasks.audio_utils import loop_audio
+
+        with pytest.raises(ValueError, match="fps"):
+            loop_audio(self.tone(), target_frames=48, sample_rate=100)
+
+    def test_an_empty_source_is_refused(self):
+        from dw.tasks.audio_utils import loop_audio
+
+        with pytest.raises(ValueError, match="samples in it"):
+            loop_audio(
+                numpy.zeros((1, 0), dtype=numpy.float32),
+                duration_seconds=1.0,
+                sample_rate=100,
+            )

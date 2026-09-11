@@ -11,7 +11,7 @@ workflow carries and the path means nothing on the machine the agent is on.
 
 import os
 
-from dw_mcp.client import DwApiError
+from dw_mcp.client import DwApiError, api_path
 
 # Twin of the server's own limit (dw/server/app.py). Checked here as well so
 # a 200MB file fails before it is read and pushed, not after
@@ -43,11 +43,26 @@ ALLOWED_UPLOAD_EXTENSIONS = frozenset(
 
 def list_assets(client):
     """The input media on the server, each with the 'asset:' reference a
-    workflow argument carries."""
+    workflow argument carries.
+
+    Spans the whole search path: each entry's 'origin' says whether it is
+    this workspace's own ('workspace'), the library every workspace shares
+    ('common'), or one a read-only examples tree brought with it.
+    """
     return client.get_json("/api/assets")
 
 
-def keep_output(client, name, asset_name=None, overwrite=False):
+def delete_asset(client, name):
+    """Remove one file from the asset library.
+
+    Deletes from whichever library holds it - the workspace's own before
+    the shared one, the order 'asset:' resolves in. An asset from a
+    read-only examples library answers 403.
+    """
+    return client.delete_json(api_path("api", "assets", name))
+
+
+def keep_output(client, name, asset_name=None, overwrite=False, shared=False):
     """Keep a generated file as an input asset, under a stable name.
 
     A run's files are named by the run that made them, which is the wrong
@@ -58,20 +73,41 @@ def keep_output(client, name, asset_name=None, overwrite=False):
     The copy happens on the server, inside the workspace - downloading a
     render here only to upload it back would move the bytes twice for
     nothing.
+
+    `shared` keeps it in the library every workspace under the server's
+    root shares instead, which is where something a later episode in its
+    own workspace has to reach belongs.
     """
     return client.post_json(
         "/api/assets/keep",
-        {"name": name, "asset_name": asset_name, "overwrite": overwrite},
+        {
+            "name": name,
+            "asset_name": asset_name,
+            "overwrite": overwrite,
+            "shared": shared,
+        },
     )
 
 
-def upload_asset(client, file_path):
+def upload_asset(client, file_path, asset_name=None, shared=False):
     """Put a local image, video or audio file into the server's asset
     library and get back the reference a workflow can use.
 
     The file is read from the machine this MCP server runs on, which is not
     necessarily the machine dw.serve runs on - that is the point of the
     tool.
+
+    `asset_name` is the name it is stored under - 'cast/priya-voice.wav'
+    rather than the random one an upload gets by default. A recurring cast
+    referenced as 'asset:uploads/084eaecc....wav' in every workflow cannot
+    be told apart without opening each file, which is the whole reason to
+    name one (2026-09-11). The extension comes from the uploaded file when
+    the name has none.
+
+    `shared` puts it in the library every workspace shares rather than in
+    the session's own, which is what a recurring cast needs: assets are
+    per workspace, so a cast uploaded while making episode one was
+    invisible from the workspace episode four was made in.
     """
     path = os.path.abspath(os.path.expanduser(str(file_path)))
     if not os.path.isfile(path):
@@ -97,9 +133,12 @@ def upload_asset(client, file_path):
     except OSError as e:
         raise DwApiError(f"Could not read {file_path}: {e}")
 
-    result = client.post_bytes(
-        "/api/uploads", body, params={"filename": os.path.basename(path)}
-    )
+    params = {"filename": os.path.basename(path)}
+    if asset_name:
+        params["asset_name"] = asset_name
+    if shared:
+        params["shared"] = "true"
+    result = client.post_bytes("/api/uploads", body, params=params)
     # 'path' from a server with no asset library is an absolute path on that
     # machine; from one with a library it is already the reference. Report
     # whichever it gave, named for what it is

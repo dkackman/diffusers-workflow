@@ -5,10 +5,13 @@ Tests cartesian product generation and result reference handling
 
 import pytest
 from dw.previous_results import (
+    StepResults,
     get_iterations,
     get_previous_results,
     find_previous_result_refs,
+    previous_result_reference_errors,
 )
+from dw.workflow import release_unreferenced_results
 from dw.result import Result
 from PIL import Image
 
@@ -435,3 +438,190 @@ class TestNestedReferences:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestTheErrorNamesWhatRan:
+    """T015: release_unreferenced_results drops a result as soon as no
+    remaining step references it, so the error a misspelled reference raised
+    printed 'Available results: []' on a run where several steps had
+    completed - the one line that would have named the misspelling."""
+
+    def test_a_released_step_is_still_named(self):
+        results = StepResults()
+        results["first"] = Result({})
+        release_unreferenced_results(results, set())
+
+        with pytest.raises(KeyError) as exc_info:
+            get_previous_results(results, "first_renamed")
+
+        message = str(exc_info.value)
+        assert "first_renamed" in message
+        assert "Earlier steps that ran: ['first']" in message
+
+    def test_a_property_reference_says_the_same(self):
+        results = StepResults()
+        results["first"] = Result({})
+        release_unreferenced_results(results, set())
+
+        with pytest.raises(KeyError) as exc_info:
+            get_previous_results(results, "first_renamed.text")
+
+        assert "Earlier steps that ran: ['first']" in str(exc_info.value)
+
+    def test_nothing_extra_when_nothing_was_released(self):
+        results = StepResults()
+        results["first"] = Result({})
+
+        with pytest.raises(KeyError) as exc_info:
+            get_previous_results(results, "second")
+
+        message = str(exc_info.value)
+        assert "Available results: ['first']" in message
+        assert "Earlier steps" not in message
+
+    def test_a_plain_dict_still_works(self):
+        """Every other caller passes an ordinary dict."""
+        with pytest.raises(KeyError) as exc_info:
+            get_previous_results({"first": Result({})}, "second")
+        assert "Available results: ['first']" in str(exc_info.value)
+
+
+class TestStaticReferenceChecking:
+    """T005: references resolve lazily, so a step naming one that does not
+    exist is only found when execution reaches it - after 40 minutes of
+    generation, in the case that prompted this. The names are all in the
+    definition."""
+
+    def definition(self, *steps):
+        return {"id": "test", "steps": list(steps)}
+
+    def test_a_reference_to_a_missing_step_is_an_error(self):
+        errors = previous_result_reference_errors(
+            self.definition(
+                {"name": "first", "task": {"command": "compose_text"}},
+                {
+                    "name": "second",
+                    "task": {"arguments": {"parts": ["previous_result:first_renamed"]}},
+                },
+            )
+        )
+        assert len(errors) == 1
+        assert errors[0]["path"] == "steps[1].task.arguments.parts[0]"
+        assert "first_renamed" in errors[0]["message"]
+        assert "['first']" in errors[0]["message"]
+
+    def test_a_reference_to_an_earlier_step_is_fine(self):
+        assert (
+            previous_result_reference_errors(
+                self.definition(
+                    {"name": "first", "task": {}},
+                    {
+                        "name": "second",
+                        "task": {"arguments": {"parts": ["previous_result:first"]}},
+                    },
+                )
+            )
+            == []
+        )
+
+    def test_a_property_reference_resolves_to_its_step(self):
+        assert (
+            previous_result_reference_errors(
+                self.definition(
+                    {"name": "segment", "task": {}},
+                    {
+                        "name": "later",
+                        "task": {"arguments": {"m": "previous_result:segment.mask"}},
+                    },
+                )
+            )
+            == []
+        )
+
+    def test_a_step_cannot_reference_itself_or_a_later_one(self):
+        errors = previous_result_reference_errors(
+            self.definition(
+                {
+                    "name": "first",
+                    "task": {"arguments": {"x": "previous_result:second"}},
+                },
+                {"name": "second", "task": {}},
+            )
+        )
+        assert len(errors) == 1
+        assert "names no earlier step" in errors[0]["message"]
+
+    def test_a_constructed_objects_source_step_is_checked_too(self):
+        errors = previous_result_reference_errors(
+            self.definition(
+                {"name": "draw", "pipeline": {}},
+                {
+                    "name": "shot",
+                    "pipeline": {
+                        "arguments": {
+                            "references": [
+                                {
+                                    "reference_type": "pkg.ImageReference",
+                                    "from_previous_result": "draw_subject",
+                                }
+                            ]
+                        }
+                    },
+                },
+            )
+        )
+        assert len(errors) == 1
+        assert (
+            errors[0]["path"]
+            == "steps[1].pipeline.arguments.references[0].from_previous_result"
+        )
+
+    def test_a_null_source_is_not_a_reference(self):
+        """An optional reference the run was given nothing for - the list
+        entry is left out rather than built."""
+        assert (
+            previous_result_reference_errors(
+                self.definition(
+                    {
+                        "name": "shot",
+                        "pipeline": {
+                            "arguments": {
+                                "references": [
+                                    {
+                                        "reference_type": "pkg.AudioReference",
+                                        "from_previous_result": None,
+                                    }
+                                ]
+                            }
+                        },
+                    },
+                )
+            )
+            == []
+        )
+
+    def test_a_variable_spelled_reference_is_left_alone(self):
+        """What it names is not knowable before substitution."""
+        assert (
+            previous_result_reference_errors(
+                self.definition(
+                    {
+                        "name": "shot",
+                        "pipeline": {
+                            "arguments": {
+                                "references": [
+                                    {
+                                        "reference_type": "pkg.ImageReference",
+                                        "from_previous_result": "variable:source_step",
+                                    }
+                                ]
+                            }
+                        },
+                    },
+                )
+            )
+            == []
+        )
+
+    def test_a_definition_with_no_steps_is_not_an_error(self):
+        assert previous_result_reference_errors({"id": "test"}) == []

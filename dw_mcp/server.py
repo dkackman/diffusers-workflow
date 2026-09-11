@@ -178,11 +178,16 @@ def build_server(client):
             include_models=include_models,
         )
 
-    def get_workflow(name: str) -> dict:
+    def get_workflow(name: str, variables_only: bool = False) -> dict:
         """Get one stored workflow's full JSON definition, by a name from
         `list_workflows`. Read one before editing it, and to learn the
-        idioms this installation actually uses."""
-        return catalog.get_workflow(client, name)
+        idioms this installation actually uses. Pass
+        `variables_only=true` when the question is only what a variable
+        defaults to - it answers with the variables and their values and
+        nothing else, which is a fraction of the definition; long defaults
+        (a shot's prompt) come back cut to 200 characters with the cut ones
+        named in `truncated`."""
+        return catalog.get_workflow(client, name, variables_only=variables_only)
 
     def get_schema() -> dict:
         """Get the JSON schema every workflow definition must satisfy - the
@@ -263,15 +268,25 @@ def build_server(client):
         workspace."""
         return workspaces.server_info(client)
 
-    def list_jobs() -> dict:
-        """List queued, running and recent jobs, with their status and queue
-        position. The ids here are what `get_job`, `wait_for_job`,
-        `get_job_events`, `cancel_job`, `rerun_job` and `move_job` take -
-        including jobs from before this session, so a run someone started in
-        the browser can be picked up here. In a named workspace this lists
-        that workspace's jobs; in the default workspace it lists every job
-        the server holds, whichever workspace ran it."""
-        return catalog.list_jobs(client)
+    def list_jobs(
+        limit: int = 20, status: str | None = None, workspace: str | None = None
+    ) -> dict:
+        """List queued, running and recent jobs, newest first, with their
+        status and queue position. The ids here are what `get_job`,
+        `wait_for_job`, `get_job_events`, `cancel_job`, `rerun_job` and
+        `move_job` take - including jobs from before this session, so a run
+        someone started in the browser can be picked up here.
+
+        `limit` is the newest N (20 by default); `total` reports how many
+        matched, so a truncated answer says so rather than looking
+        complete. `status` narrows to one state or a comma-separated set of
+        them - queued, running, succeeded, failed, cancelled. `workspace`
+        lists one workspace's jobs; without it, a named workspace lists its
+        own and the default workspace lists every job the server holds,
+        whichever workspace ran it."""
+        return catalog.list_jobs(
+            client, limit=limit, status=status, workspace=workspace
+        )
 
     def list_gallery(limit: int = 50) -> dict:
         """List generated output files, newest first. A name is
@@ -284,15 +299,21 @@ def build_server(client):
         name."""
         return catalog.list_gallery(client, limit=limit)
 
-    def get_gallery_metadata(name: str) -> dict:
+    def get_gallery_metadata(name: str, envelope: bool = False) -> dict:
         """Get the metadata embedded in a generated file: the exact
         workflow, arguments and seed that produced it. Use this to
         reproduce a result, or to see what a run that went wrong actually
         ran - it is the definition, not a summary, so it can be edited and
         re-run. For audio and video the `media` block carries duration,
         sample rate, channels, fps, size and level - the checks an agent
-        that cannot listen makes on a deliverable."""
-        return catalog.get_gallery_metadata(client, name)
+        that cannot listen makes on a deliverable. `envelope=true` adds
+        that level second by second (`media.envelope.rms_dbfs` /
+        `peak_dbfs`, one entry per second), which is what says *where* in a
+        track something is: whether a shot is still sounding at its last
+        frame, how deep the hole at a seam goes, where a score goes quiet.
+        Leave it off unless you are asking a question about a position in
+        the track - a long track is a long list."""
+        return catalog.get_gallery_metadata(client, name, envelope=envelope)
 
     def list_guides() -> dict:
         """List the documentation the engine serves: each guide's
@@ -417,18 +438,32 @@ def build_server(client):
         a file: what a workflow needs may already be there."""
         return assets.list_assets(client)
 
-    def upload_asset(file_path: str) -> dict:
+    def upload_asset(
+        file_path: str, asset_name: str | None = None, shared: bool = False
+    ) -> dict:
         """Put a local image, video or audio file into the server's asset
         library and get back the "asset:" reference to use in a workflow.
         The file is read from the machine this MCP server runs on and
         pushed to the engine, so it is how an input reaches a dw.serve
         running somewhere else. Accepts the usual image, video and audio
         extensions, up to 200MB. Reference the result rather than a path: a
-        path on this machine means nothing to the server."""
-        return assets.upload_asset(client, file_path)
+        path on this machine means nothing to the server. Pass `asset_name`
+        to store it under a readable name ("cast/priya-voice.wav", folders
+        allowed, the file's extension assumed) - without one the stored
+        name is random, and a set of related inputs cannot be told apart in
+        the workflows that carry them. Pass `shared=true` to put it in the
+        library every workspace shares rather than this session's own -
+        where a recurring cast belongs, since a workspace's own assets are
+        invisible from the next workspace."""
+        return assets.upload_asset(
+            client, file_path, asset_name=asset_name, shared=shared
+        )
 
     def keep_output(
-        name: str, asset_name: str | None = None, overwrite: bool = False
+        name: str,
+        asset_name: str | None = None,
+        overwrite: bool = False,
+        shared: bool = False,
     ) -> dict:
         """Keep a generated file as an input asset under a stable "asset:"
         name, so later workflows can rely on it - a run's own name moves
@@ -436,21 +471,38 @@ def build_server(client):
         between a render you liked and the next stage that conditions on
         it. `name` is a gallery name; `asset_name` defaults to the file's
         own. The copy happens on the server, inside the workspace: nothing
-        is downloaded or re-uploaded."""
+        is downloaded or re-uploaded. Pass `shared=true` to keep it in the
+        library every workspace shares instead - where something a later
+        piece in its own workspace has to reach belongs."""
         return assets.keep_output(
-            client, name, asset_name=asset_name, overwrite=overwrite
+            client, name, asset_name=asset_name, overwrite=overwrite, shared=shared
         )
+
+    def delete_asset(name: str) -> dict:
+        """Permanently remove one file from the asset library, by the name
+        `list_assets` reports (without the "asset:" prefix). Not
+        recoverable, and any workflow still carrying that reference stops
+        loading. Deletes from whichever library holds it - this
+        workspace's own before the shared one, the order an "asset:"
+        reference resolves in; one from a read-only examples library is
+        refused."""
+        return assets.delete_asset(client, name)
 
     tool(list_assets, READ_ONLY)
     tool(upload_asset, WRITES)
     tool(keep_output, WRITES)
+    tool(delete_asset, DELETES)
 
     # ------------------------------------------------------------ workspaces
 
     def list_workspaces() -> dict:
         """List the server's workspaces and say which one this session is
         working in. Each has its own workflows, assets and outputs; the
-        stored prompt library is shared by all of them."""
+        stored prompt library is shared by all of them, and so is the
+        shared asset library that `upload_asset(shared=true)` and
+        `keep_output(shared=true)` write into - which is how a recurring
+        cast stays reachable from the workspace the next piece is made
+        in."""
         return workspaces.list_workspaces(client)
 
     def use_workspace(name: str) -> dict:
@@ -487,6 +539,7 @@ def build_server(client):
         workflow: dict | None = None,
         name: str | None = None,
         workspace: str | None = None,
+        arguments: dict | None = None,
     ) -> dict:
         """Check a workflow against the schema and against real pipeline
         signatures. Free and instant - always run this before run_workflow.
@@ -495,9 +548,21 @@ def build_server(client):
         back at once, each with its JSON path. `workspace` names the
         workspace for this one call without switching the session to it -
         use it to pin a job whose `output:` or `asset:` references live in a
-        workspace other than the session's."""
+        workspace other than the session's.
+
+        Pass the same `arguments` you will pass to `run_workflow` and they
+        are checked too: a name the workflow no longer declares, a value
+        that will not coerce to the declared type, and an `asset:`,
+        `prompt:` or `output:` reference that names nothing this workspace
+        can reach - each with `arguments.<name>` as its path.
+        `checked_arguments` lists what was checked, so a valid answer says
+        whether it covered your values or only the stored defaults."""
         return authoring.validate_workflow(
-            client, workflow=workflow, name=name, workspace=workspace
+            client,
+            workflow=workflow,
+            name=name,
+            workspace=workspace,
+            arguments=arguments,
         )
 
     def save_workflow(name: str, workflow: dict) -> dict:
@@ -651,11 +716,25 @@ def build_server(client):
         succeeded, failed or cancelled, or - if timeout_seconds elapses
         first - returns its current status with still_running: true so you
         can call again. Does not queue anything, so no acknowledged_cost.
-        timeout_seconds is capped well under a generation's real runtime;
-        call it repeatedly for a long job. Returns a slim job - status,
-        warnings, error, and the manifest once finished - without the
-        arguments; get_job has those."""
+
+        One call blocks for at most {cap} seconds, no matter what
+        timeout_seconds asks for - an MCP client will not hold a tool call
+        open for a generation's real runtime, which is minutes. A larger
+        value is not honoured, it is clamped, so budget roughly one call per
+        {cap}s of the job. Every reply says which happened: waited_seconds,
+        timeout_requested_seconds, timeout_applied_seconds and
+        timeout_capped.
+
+        Returns a slim job - status, warnings, error, and the manifest once
+        finished - without the arguments; get_job has those."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
+
+    # The cap is a number a caller paces against, so the description states
+    # it rather than saying "well under a generation's runtime".
+    if wait_for_job.__doc__:  # absent under python -OO
+        wait_for_job.__doc__ = wait_for_job.__doc__.format(
+            cap=diagnose.MAX_WAIT_SECONDS
+        )
 
     def cancel_job(job_id: str) -> dict:
         """Ask a queued or running job to stop. Cooperative: a running job

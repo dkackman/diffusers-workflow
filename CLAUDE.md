@@ -73,8 +73,15 @@ unchanged. A job carries its own `output_dir`, `asset_dir` and `workflow_dir`
 (`JobManager.submit`), so it stays in its workspace whatever the manager serves
 next; the worker activates the asset root per job (`activate_asset_dir`), which
 is the one root that could not stay process-wide. `jobs.sqlite` has a
-`workspace` column, backfilled to `default`. Reserved names: `workflows`,
-`prompts`, `assets`, `outputs`.
+`workspace` column, backfilled to `default`. `common/assets` at the root is
+the one asset library every workspace shares - assets are otherwise per
+workspace, which is wrong for a recurring cast a later workspace still has to
+reach. It sits on every workspace's asset search path behind that workspace's
+own library (so a workspace name shadows a shared one), is tagged `origin:
+common` by `GET /api/assets`, and is written to only when a call says so
+(`?shared=true` on uploads, `"shared": true` on keep, `shared=True` over MCP).
+Reserved names: `workflows`, `prompts`, `assets`, `outputs`, `exports`,
+`common`.
 
 ### Workflow sources
 
@@ -207,6 +214,13 @@ same reason - default setup cannot load a pack.
 ## Critical Gotchas
 
 - **Schema validation runs before variable substitution** — variable defaults must match expected JSON types (use `25` not `"25"` for numbers)
+- **`previous_result:` references are checked statically too** — once the schema
+  passes, `previous_result_reference_errors` (`dw/previous_results.py`) reports any
+  literal `previous_result:` or `from_previous_result` naming no *earlier* step, with
+  the JSON path it sits at. References otherwise resolve lazily per step, so a step
+  renamed in one place and not another failed only when the run reached it, after
+  every step before it had generated. A reference spelled by a `variable:` is left
+  alone - what it names is not knowable before substitution
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
@@ -214,6 +228,20 @@ same reason - default setup cannot load a pack.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
 - **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `asset:`, `output:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
+- **A caller's `arguments` are checked before anything is queued** -
+  `argument_errors` (`dw/variables.py`) folds them into the declared variables
+  exactly as `set_variables` does at the top of a run, so an undeclared name or
+  a value that will not coerce is a 400 from `POST /api/jobs` rather than a
+  job that fails on its first step, and `POST /api/validate` takes the same
+  `arguments` (plus an `asset:`/`prompt:`/`output:` existence check against
+  the workspace) so the free pre-flight covers the part the caller wrote.
+  A workflow that declares no variables takes no arguments at all - those were
+  dropped in silence, since `Workflow.run` only substitutes when a `variables`
+  block exists
+- **A failed run still reports what it wrote** — the worker carries its partial
+  manifest on the error and cancelled messages as well as on success, and the
+  "Previous result not found" error names the steps that ran even after
+  `release_unreferenced_results` has dropped their results
 - **Run directories**: each execution writes `<output_dir>/<workflow identity>/<run id>/`
   with a `manifest.json` beside its files (`dw/runs.py`, `Workflow.effective_output_dir`).
   Identity is the workflow's path under a `workflows/` tree, else its file name, else its

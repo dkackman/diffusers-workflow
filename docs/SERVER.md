@@ -137,7 +137,7 @@ from another machine:
 | Route | What it does |
 | --- | --- |
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. |
-| `GET /api/jobs` | Queue + history summaries |
+| `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. No parameters means every job, which is what the web UI polls |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true` |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is |
 | `POST /api/jobs/{id}/export?workspace=&overwrite=` | Gather one finished job into `<workspace>/exports/<job id>/`: `workflow.json`, `manifest.json`, `job.json`, `README.md`, `assets/`, `inputs/`, `outputs/`. 201 with the file list, total bytes, anything it could not find, a `zip_url`, and the three JSON files inline. 404 unknown job, 409 for a job still running or an existing export without `overwrite` |
@@ -203,7 +203,15 @@ The editor's forms come from these; they are just as usable from scripts:
   `/api/jobs`, above) as an alternative to inline `workflow` - exactly one
   of the two, or a 400. Every schema violation is returned in `errors`
   (`[{path, message}]`, sorted by path, capped at 25), and joined one per
-  line in `error`.
+  line in `error`. It also takes the `arguments` a caller is about to run
+  with, and checks them the way the run would: a name the workflow does not
+  declare, a value that will not coerce to the declared type, and an
+  `asset:`, `prompt:` or `output:` reference that names nothing this
+  workspace can reach - each reported at `arguments.<name>`. `POST /api/jobs`
+  makes the same check and answers 400 rather than queuing a job that would
+  fail on its first step; `checked_arguments` on a valid answer names what
+  was covered, since without arguments the verdict is about the stored
+  defaults only.
 
 ## Files and models
 
@@ -240,6 +248,9 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`)
 - `GET /api/workflows/{name:path}/download` — download a workflow file as JSON
+- `GET /api/workflows/{name:path}/variables` — a workflow's variables and what
+  they default to, without the definition around them. Long string defaults are
+  cut to 200 characters and named in `truncated`; `full=true` returns them whole
 - `GET /api/prompts`, `GET/PUT/DELETE /api/prompts/{name}` — the prompt
   library (confined to `--prompt-dir`, names held to what a `prompt:`
   reference can load); saves are validated against the prompt schema,
@@ -278,18 +289,33 @@ The editor's forms come from these; they are just as usable from scripts:
   `asset:` reference a workflow carries rather than a path, since a path
   only means something on the server's own machine. Empty rather than an
   error when no library is configured
-- `POST /api/assets/keep` (`{"name": ..., "asset_name": ..., "overwrite": false}`)
+- `POST /api/assets/keep` (`{"name": ..., "asset_name": ..., "overwrite": false, "shared": false}`)
   — keep a generated file as an input asset under a stable name, returning
   its `asset:` reference. A run's files are named by the run that made them,
   which is the wrong thing for a later workflow to depend on: `latest` moves
   and a pinned run id breaks when outputs are pruned. The copy happens inside
   the workspace and is a hard link where the filesystem allows one, so
   keeping one frame of a large render costs no second copy of it. Refuses an
-  existing name unless `overwrite`
+  existing name unless `overwrite`. `asset_name` may name a folder and takes
+  the kept file's extension when it carries none (a contradicting one is a
+  400) — the same rule the upload route follows, and what keeps a kept asset
+  from landing under an extensionless name the library listing never shows.
+  `"shared": true` keeps it in
+  `<root>/common/assets` instead — the library every workspace under the root
+  shares, which is where a recurring cast belongs
+- `DELETE /api/assets/{name}` — remove one file from the asset library,
+  deleting from whichever library on the search path holds it (the
+  workspace's own before the shared one, the order `asset:` resolves in).
+  An asset from a read-only examples library answers 403, the same as a
+  read-only prompt or workflow; a name nothing holds answers 404
 - `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
   again on the body; extension held to the allowed image/video list), saved
-  into the asset library's `uploads/` subfolder under a generated name.
+  into the asset library's `uploads/` subfolder - the shared library at
+  `<root>/common/assets` when `shared=true`, this workspace's own otherwise -
+  under a generated name, or under `asset_name` when one is given (`cast/priya-voice.wav`, folders allowed,
+  the uploaded file's extension assumed, confined to the library the way
+  `keep_output`'s name is).
   Answers 201 with `path` - `asset:uploads/<name>`, the reference a saved
   workflow can carry and still resolve on a later run - and `url`, the same
   file under the `/inputs` mount, for the editor's preview. A server started

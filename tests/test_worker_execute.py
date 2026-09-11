@@ -163,3 +163,35 @@ def test_full_cleanup_clears_step_cache():
         )
         is None
     )
+
+
+def test_failure_carries_the_manifest_of_the_steps_that_ran():
+    """T015: the steps before the failure wrote real files, and a report
+    that omits them reads as 'this run produced nothing'."""
+
+    class FailingWorkflow(StubWorkflow):
+        def run(self, arguments, previous_pipelines=None, context=None):
+            raise KeyError("Previous result 'first_renamed' not found")
+
+    worker = _make_worker()
+    messages = _execute(worker, FailingWorkflow())
+    error = next(m for m in messages if m["type"] == "error")
+    assert error["manifest"] == [{"step": "s", "files": ["/out/a.png"]}]
+
+
+def test_cancellation_carries_the_manifest_too():
+    worker = _make_worker()
+    worker.command_queue.put({"type": "cancel"})
+    messages = _execute(worker, StubWorkflow("wait_for_cancel"))
+    cancelled = next(m for m in messages if m["type"] == "cancelled")
+    assert cancelled["manifest"] == [{"step": "s", "files": ["/out/a.png"]}]
+
+
+def test_a_failure_before_the_workflow_loads_reports_no_manifest():
+    worker = _make_worker()
+    with patch("dw.worker.workflow_from_file", side_effect=OSError("no such file")):
+        worker._handle_execute(
+            {"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}
+        )
+    error = next(m for m in _drain(worker.result_queue) if m["type"] == "error")
+    assert error["manifest"] == []

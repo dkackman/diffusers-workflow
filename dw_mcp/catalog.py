@@ -28,8 +28,17 @@ def list_workflows(
     return client.get_json("/api/workflows", params=params)
 
 
-def get_workflow(client, name):
-    """One workflow's full JSON definition."""
+def get_workflow(client, name, variables_only=False):
+    """One workflow's full JSON definition.
+
+    With variables_only=True, just its variables and what they default to -
+    confirming that a stored workflow's audio_bleed_ms is 1800 otherwise
+    means pulling the whole definition, quantization blocks and all, to
+    read one integer (2026-09-11). Long defaults come back cut to their
+    first 200 characters, with the names of the cut ones in `truncated`.
+    """
+    if variables_only:
+        return client.get_json(api_path("api", "workflows", name, "variables"))
     return client.get_json(api_path("api", "workflows", name))
 
 
@@ -91,9 +100,40 @@ def get_server_info(client):
     return client.get_json("/api/server")
 
 
-def list_jobs(client):
-    """The live queue plus recent history, oldest first."""
-    return client.get_json("/api/jobs")
+def list_jobs(client, limit=20, status=None, workspace=None):
+    """The live queue plus recent history, newest first and bounded.
+
+    Bounded because the unbounded answer was a dead tool: a server with a
+    few months of history spilled 176 entries past the client's tool-result
+    limit, and the call failed before a single id could be read
+    (2026-09-11). Newest first for the same reason the limit exists - the
+    job worth looking at is almost always the last one.
+
+    `total` is what matched before the cut, so a caller can tell a bounded
+    answer from a complete one; raise `limit` or narrow with `status` /
+    `workspace` to see the rest."""
+    params = {}
+    if limit is not None:
+        params["limit"] = limit
+    if status:
+        params["status"] = (
+            ",".join(status) if isinstance(status, (list, tuple)) else status
+        )
+    if workspace:
+        params["workspace"] = workspace
+    body = client.get_json("/api/jobs", params=params or None)
+    # The API answers oldest first - the order the web UI's list renders in.
+    # An agent reads the top of a tool result, so the newest job belongs there
+    jobs = list(reversed(body.get("jobs") or []))
+    total = body.get("total", len(jobs))
+    answer = {"jobs": jobs, "returned": len(jobs), "total": total}
+    if total > len(jobs):
+        answer["truncated"] = True
+        answer["next"] = (
+            f"{total - len(jobs)} older jobs were not listed - raise `limit`, "
+            "or narrow with `status` or `workspace`."
+        )
+    return answer
 
 
 def list_gallery(client, limit=50):
@@ -101,12 +141,20 @@ def list_gallery(client, limit=50):
     return client.get_json("/api/gallery", params={"limit": limit})
 
 
-def get_gallery_metadata(client, name):
+def get_gallery_metadata(client, name, envelope=False):
     """Metadata embedded in a saved file: the full workflow that made it,
     plus the job that produced it when history remembers one, plus for
     audio and video what the file holds - duration, sample rate, channels,
-    fps, size, peak and mean level in dBFS."""
-    body = client.get_json(api_path("api", "gallery", name, "metadata"))
+    fps, size, peak and mean level in dBFS.
+
+    With envelope=True the soundtrack's level is reported second by second
+    as well, which is what locates something in a track rather than only
+    measuring the whole of it. Opt-in: it is one number per second per
+    measure, and the default answer has to stay small."""
+    body = client.get_json(
+        api_path("api", "gallery", name, "metadata"),
+        params={"envelope": "true"} if envelope else None,
+    )
     media = body.get("media")
     if media and media.get("kind") in ("audio", "video"):
         body["next"] = (

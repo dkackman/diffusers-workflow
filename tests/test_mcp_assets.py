@@ -9,7 +9,13 @@ import json
 import httpx
 import pytest
 
-from dw_mcp.assets import MAX_UPLOAD_BYTES, keep_output, list_assets, upload_asset
+from dw_mcp.assets import (
+    MAX_UPLOAD_BYTES,
+    delete_asset,
+    keep_output,
+    list_assets,
+    upload_asset,
+)
 from dw_mcp.client import DwApiError, DwClient
 
 
@@ -72,6 +78,24 @@ class TestUpload:
         assert result["reference"] == "asset:uploads/deadbeef.png"
         assert result["uploaded"] == "iris.png"
         assert result["size"] == len(b"png-bytes")
+
+    def test_a_name_is_passed_through_when_one_is_given(self, tmp_path):
+        source = tmp_path / "clip-01.wav"
+        source.write_bytes(b"wav-bytes")
+        client, seen = recording()
+
+        upload_asset(client, str(source), asset_name="cast/priya-voice")
+
+        assert "asset_name=cast" in seen["url"].replace("%2F", "/")
+
+    def test_no_name_leaves_the_server_to_choose_one(self, tmp_path):
+        source = tmp_path / "clip-01.wav"
+        source.write_bytes(b"wav-bytes")
+        client, seen = recording()
+
+        upload_asset(client, str(source))
+
+        assert "asset_name" not in seen["url"]
 
     def test_only_the_base_name_is_sent(self, tmp_path):
         # The server generates the stored name; the directory this file sits
@@ -167,3 +191,35 @@ class TestKeeping:
 
         with pytest.raises(DwApiError, match="already exists"):
             keep_output(client_over(handler), "Gyre/run/still.png")
+
+
+class TestDeleting:
+    """The counterpart to upload and keep: without it a mistaken name could
+    only be cleaned up on the box (T014)."""
+
+    def test_the_name_travels_as_a_path_segment(self):
+        seen = {}
+
+        def handler(request):
+            seen["url"] = str(request.url)
+            seen["method"] = request.method
+            return httpx.Response(
+                200,
+                json={
+                    "name": "qa-cast/priya-voice",
+                    "deleted": True,
+                    "origin": "common",
+                },
+            )
+
+        result = delete_asset(client_over(handler), "qa-cast/priya-voice")
+        assert result["deleted"] is True
+        assert seen["method"] == "DELETE"
+        assert "/api/assets/" in seen["url"]
+
+    def test_a_read_only_asset_refusal_reaches_the_caller(self):
+        def handler(request):
+            return httpx.Response(403, json={"detail": "asset:iris.png is read-only"})
+
+        with pytest.raises(DwApiError, match="read-only"):
+            delete_asset(client_over(handler), "iris.png")

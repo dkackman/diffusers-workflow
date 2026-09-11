@@ -253,7 +253,9 @@ not validation.
   JSON type the field expects: `25`, not `"25"`.
 - `previous_result:` — `previous_result:step_name` is the outputs of an earlier
   step, named by that step's `name`. It iterates; see the cartesian rule
-  below. A `.field` suffix
+  below. Validation checks it: a literal reference naming no earlier step is
+  an error with the JSON path it sits at, rather than a run-time failure
+  reached after everything before it has generated. A `.field` suffix
   (`previous_result:invert.inverted_latents`) picks one field of a result that
   is a dict, or a data attribute of a result object.
 - `constant:` — `constant:module.path.NAME` is a value declared in Python,
@@ -286,6 +288,14 @@ interpolated around a reference. To vary a fixed prompt across steps, write
 each full prompt out, or put the shared text in a variable and let a step's
 argument override it whole. `validate_workflow` warns about a `variable:`
 reference that names nothing the workflow declares.
+
+When several steps share a block of text — a character's description and voice
+repeated in every shot of a dialogue short — the answer is composition rather
+than interpolation: write the shared text once as a variable and assemble each
+step's prompt with a [`compose_text`](TASKS.md#compose_text) task, whose parts
+are whole references joined in order. The shot then references the composed
+result (`"prompt": "previous_result:shot_1_prompt"`), so changing the voice
+changes it in every shot instead of in however many copies were made by hand.
 
 ### Types and escaping
 
@@ -323,7 +333,16 @@ signal to restructure the workflow, not to add another reference.
 
 1. `validate_workflow` — free and instant. It reports every schema error at
    once, each with the JSON path it sits at, plus warnings for argument names
-   that do not appear in the real pipeline signature.
+   that do not appear in the real pipeline signature. It also catches a
+   `previous_result:` (or `from_previous_result`) that names no earlier step,
+   which is what renaming a step half way through leaves behind. Pass the
+   `arguments` you are going to run with as well: a name the workflow no
+   longer declares, a value that will not coerce to the declared type, and an
+   `asset:`, `prompt:` or `output:` reference that names nothing in this
+   workspace each come back at `arguments.<name>`, for free, instead of after
+   the model has loaded. Without them the verdict is about the stored
+   definition and its stock defaults - `checked_arguments` in the answer says
+   which it was.
 2. Fix everything reported, including the warnings: a passing validation does
    not mean the pipeline accepts the arguments, and a typo against a real
    `__call__` shows up only as one of those warnings. The server only computes
@@ -340,7 +359,9 @@ signal to restructure the workflow, not to add another reference.
    images is the number to quote. Say "a few minutes" only when no entry with
    that pipeline has been measured.
 5. `wait_for_job` rather than a polling loop; call it again if it returns
-   `still_running: true`.
+   `still_running: true`. One call blocks for at most 55 seconds whatever
+   `timeout_seconds` says, so a minutes-long render takes several - the
+   reply's `timeout_capped` and `waited_seconds` say which happened.
 6. `get_output_image` to look at what was actually made, and say whether it
    answers the request. Nothing before this step establishes that it does.
 7. Getting the files to the user's machine. `download_output` and `export_job`
@@ -1253,6 +1274,14 @@ the workflow loads — use
 [`from_previous_result`](#objects-built-from-an-earlier-step) for that. A dict that
 merely contains a `from_file` key without a `*_type` key is not an object description
 and is passed through untouched.
+
+An entry in a list whose source is `null` is **left out** of that list. That is what
+makes a reference optional: write it as an ordinary entry whose `from_file` (or
+`from_previous_result`) is a variable, declare the variable `null`, and a run that is
+given nothing for it generates exactly as it did before the reference existed — one
+workflow serving both, instead of two spellings of the same steps. It applies to
+`from_file`, `from_previous_result` and `from_arguments` alike. On its own rather than
+in a list there is nothing to leave it out of, so a null source there is an error.
 
 Any other key goes wherever the type can take it: to `from_file()` where its signature
 names it, and onto the object it returns where it does not. That is what corrects a

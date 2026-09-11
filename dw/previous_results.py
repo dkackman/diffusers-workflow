@@ -123,9 +123,7 @@ def get_previous_results(previous_results, previous_result_name):
         return previous_results[previous_result_name].get_artifacts()
 
     if "." not in previous_result_name:
-        raise KeyError(
-            f"Previous result '{previous_result_name}' not found. Available results: {list(previous_results.keys())}"
-        )
+        raise _not_found(previous_results, previous_result_name)
 
     # Find the longest known step name the reference resolves to, and treat
     # the remainder as the property name. The exact-match case returned
@@ -141,9 +139,7 @@ def get_previous_results(previous_results, previous_result_name):
     )
 
     if result_name is None:
-        raise KeyError(
-            f"Previous result '{previous_result_name}' not found. Available results: {list(previous_results.keys())}"
-        )
+        raise _not_found(previous_results, previous_result_name)
 
     property_name = previous_result_name[len(result_name) + 1 :]
     logger.debug(f"Getting property {property_name} from result {result_name}")
@@ -264,3 +260,126 @@ def substitute_at_path(container, path, value):
     copied = dict(container)
     copied[key] = replacement
     return copied
+
+
+class StepResults(dict):
+    """The run's results, which also remembers every step that produced one.
+
+    `release_unreferenced_results` deletes a result the moment no remaining
+    step references it, so by the time a misspelled reference fails, the
+    steps that ran are gone from the dict and the error printed
+    'Available results: []' on a run where several steps had completed
+    (T015). Keeping the names - not the results, which is the whole point of
+    releasing them - costs nothing and is the one thing that diagnostic
+    needed.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.completed_steps = list(self.keys())
+
+    def __setitem__(self, key, value):
+        if key not in self.completed_steps:
+            self.completed_steps.append(key)
+        super().__setitem__(key, value)
+
+
+def _not_found(previous_results, previous_result_name):
+    """The error a reference that names nothing raises.
+
+    Names what is there as well as what was asked for: the gap between them
+    is the fix, and on a long run it is the only thing standing between a
+    typo and another 40 minutes of GPU.
+    """
+    message = (
+        f"Previous result '{previous_result_name}' not found. "
+        f"Available results: {list(previous_results.keys())}"
+    )
+    released = [
+        name
+        for name in getattr(previous_results, "completed_steps", ())
+        if name not in previous_results
+    ]
+    if released:
+        message += (
+            f". Earlier steps that ran: {released} - their results were "
+            f"released because no remaining step references them"
+        )
+    return KeyError(message)
+
+
+def previous_result_reference_errors(workflow_definition):
+    """Every 'previous_result:' reference that names no earlier step.
+
+    References resolve lazily, one step at a time, so a reference naming a
+    step that does not exist is only discovered when execution reaches it -
+    after everything before it has run. On a workflow whose steps are
+    generation steps that is 40 minutes of GPU spent to learn about a typo
+    a read of the file would have caught (T005). The names are all in the
+    definition, so this is answerable before anything runs.
+
+    Only literal references are checked: one spelled by a 'variable:' the
+    caller supplies is not knowable here and is left alone.
+    """
+    steps = workflow_definition.get("steps")
+    if not isinstance(steps, list):
+        return []
+
+    errors = []
+    seen = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        found = {}
+        _collect_reference_paths(step, (), found)
+        for path, reference in sorted(found.items(), key=lambda item: str(item[0])):
+            if any(reference_resolves_to(reference, name) for name in seen):
+                continue
+            location = _render_path(("steps", index) + path)
+            errors.append(
+                {
+                    "path": location,
+                    "message": (
+                        f"previous_result '{reference}' names no earlier step. "
+                        f"Steps available here: {seen}"
+                    ),
+                }
+            )
+        name = step.get("name")
+        if isinstance(name, str):
+            seen.append(name)
+    return errors
+
+
+def _collect_reference_paths(value, path, found):
+    """Every literal previous-result reference under `value`, by JSON path.
+
+    Both spellings: the 'previous_result:' prefix on a string, and the
+    'from_previous_result' key of a constructed object, which names a step
+    without the prefix.
+    """
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == FROM_PREVIOUS_RESULT_KEY and isinstance(item, str):
+                if not item.startswith("variable:"):
+                    found[path + (key,)] = item
+                continue
+            _collect_reference_paths(item, path + (key,), found)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _collect_reference_paths(item, path + (index,), found)
+    elif isinstance(value, str) and value.startswith(PREVIOUS_RESULT_PREFIX):
+        found[path] = value[len(PREVIOUS_RESULT_PREFIX) :]
+
+
+def _render_path(path):
+    """'steps[3].task.arguments.videos[1]' - the same shape schema errors use."""
+    rendered = ""
+    for part in path:
+        if isinstance(part, int):
+            rendered += f"[{part}]"
+        elif rendered:
+            rendered += f".{part}"
+        else:
+            rendered = str(part)
+    return rendered
