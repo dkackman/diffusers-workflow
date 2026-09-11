@@ -61,6 +61,16 @@ OUTPUTS_SUBDIR = "outputs"
 
 SUBDIRS = (WORKFLOWS_SUBDIR, PROMPTS_SUBDIR, ASSETS_SUBDIR, OUTPUTS_SUBDIR)
 
+# The library shared by every workspace under one root:
+# '<root>/common/assets'. The prompt library is shared because a 'prompt:'
+# reference is shared by reference; assets are per workspace because an
+# upload belongs to the work that made it - but a recurring cast is neither,
+# and reaching it from a fresh workspace meant copying the files in
+# (2026-09-11). A shared library sits on every workspace's asset search
+# path, behind its own, so a workspace name still shadows a shared one and
+# a write still lands in the workspace unless it says otherwise
+COMMON_SUBDIR = "common"
+
 # Where a job export lands: '<root>/exports/<job id>/'. Not a workspace
 # folder - it is beside them, holding gathered copies rather than working
 # content - but it is a name a workspace may not take, and workspace_names
@@ -82,7 +92,7 @@ DEFAULT_WORKSPACE_NAME = "default"
 
 # Names a workspace cannot take, because the root's own folders already
 # use them - its four content folders, and the exports gathered beside them
-RESERVED_WORKSPACE_NAMES = SUBDIRS + (EXPORTS_SUBDIR,)
+RESERVED_WORKSPACE_NAMES = SUBDIRS + (EXPORTS_SUBDIR, COMMON_SUBDIR)
 
 # What a named workspace holds - prompts excluded, per above
 NAMED_SUBDIRS = (WORKFLOWS_SUBDIR, ASSETS_SUBDIR, OUTPUTS_SUBDIR)
@@ -108,13 +118,27 @@ class Workspace:
     the default has four.
     """
 
-    def __init__(self, root, source, name=DEFAULT_WORKSPACE_NAME, prompts_root=None):
+    def __init__(
+        self,
+        root,
+        source,
+        name=DEFAULT_WORKSPACE_NAME,
+        prompts_root=None,
+        common_root=None,
+    ):
         self.root = os.path.abspath(os.path.expanduser(str(root)))
         self.source = source
         self.name = name
         self._prompts_root = (
             os.path.abspath(os.path.expanduser(str(prompts_root)))
             if prompts_root
+            else None
+        )
+        # Like the prompt library, the shared one belongs to the root rather
+        # than to this workspace - a named workspace is handed the root's
+        self._common_root = (
+            os.path.abspath(os.path.expanduser(str(common_root)))
+            if common_root
             else None
         )
 
@@ -152,6 +176,12 @@ class Workspace:
     def outputs(self):
         return os.path.join(self.root, OUTPUTS_SUBDIR)
 
+    @property
+    def common_assets(self):
+        """The asset library every workspace under this root shares."""
+        root = self._common_root or os.path.join(self.root, COMMON_SUBDIR)
+        return os.path.join(root, ASSETS_SUBDIR)
+
     def ensure(self):
         """Create the workspace and its subdirectories if they are missing.
 
@@ -174,6 +204,7 @@ class Workspace:
             "assets": self.assets,
             "outputs": self.outputs,
             "prompts": self.prompts,
+            "common_assets": self.common_assets,
         }
 
     def __repr__(self):
@@ -436,6 +467,7 @@ def named_workspace(workspace, name):
         workspace.source,
         name=name,
         prompts_root=os.path.join(workspace.root, PROMPTS_SUBDIR),
+        common_root=os.path.join(workspace.root, COMMON_SUBDIR),
     )
 
 
@@ -652,6 +684,15 @@ class ConfiguredWorkspace(Workspace):
     @property
     def prompts(self):
         return self._prompts
+
+    @property
+    def common_assets(self):
+        """The shared library, when there is a root to hang it off. A server
+        configured from three loose directories has no root and so no shared
+        library - there is nothing for it to be common to."""
+        return (
+            os.path.join(self.root, COMMON_SUBDIR, ASSETS_SUBDIR) if self.root else None
+        )
 
     def ensure(self):
         """Not implemented here: a ConfiguredWorkspace's folders were each

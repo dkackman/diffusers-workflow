@@ -428,7 +428,9 @@ def build_server(client):
         a file: what a workflow needs may already be there."""
         return assets.list_assets(client)
 
-    def upload_asset(file_path: str, asset_name: str | None = None) -> dict:
+    def upload_asset(
+        file_path: str, asset_name: str | None = None, shared: bool = False
+    ) -> dict:
         """Put a local image, video or audio file into the server's asset
         library and get back the "asset:" reference to use in a workflow.
         The file is read from the machine this MCP server runs on and
@@ -439,11 +441,19 @@ def build_server(client):
         to store it under a readable name ("cast/priya-voice.wav", folders
         allowed, the file's extension assumed) - without one the stored
         name is random, and a set of related inputs cannot be told apart in
-        the workflows that carry them."""
-        return assets.upload_asset(client, file_path, asset_name=asset_name)
+        the workflows that carry them. Pass `shared=true` to put it in the
+        library every workspace shares rather than this session's own -
+        where a recurring cast belongs, since a workspace's own assets are
+        invisible from the next workspace."""
+        return assets.upload_asset(
+            client, file_path, asset_name=asset_name, shared=shared
+        )
 
     def keep_output(
-        name: str, asset_name: str | None = None, overwrite: bool = False
+        name: str,
+        asset_name: str | None = None,
+        overwrite: bool = False,
+        shared: bool = False,
     ) -> dict:
         """Keep a generated file as an input asset under a stable "asset:"
         name, so later workflows can rely on it - a run's own name moves
@@ -451,9 +461,11 @@ def build_server(client):
         between a render you liked and the next stage that conditions on
         it. `name` is a gallery name; `asset_name` defaults to the file's
         own. The copy happens on the server, inside the workspace: nothing
-        is downloaded or re-uploaded."""
+        is downloaded or re-uploaded. Pass `shared=true` to keep it in the
+        library every workspace shares instead - where something a later
+        piece in its own workspace has to reach belongs."""
         return assets.keep_output(
-            client, name, asset_name=asset_name, overwrite=overwrite
+            client, name, asset_name=asset_name, overwrite=overwrite, shared=shared
         )
 
     tool(list_assets, READ_ONLY)
@@ -465,7 +477,11 @@ def build_server(client):
     def list_workspaces() -> dict:
         """List the server's workspaces and say which one this session is
         working in. Each has its own workflows, assets and outputs; the
-        stored prompt library is shared by all of them."""
+        stored prompt library is shared by all of them, and so is the
+        shared asset library that `upload_asset(shared=true)` and
+        `keep_output(shared=true)` write into - which is how a recurring
+        cast stays reachable from the workspace the next piece is made
+        in."""
         return workspaces.list_workspaces(client)
 
     def use_workspace(name: str) -> dict:

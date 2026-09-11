@@ -76,6 +76,7 @@ from ..workspace import (
     workspace_usage,
 )
 from ..workflow_sources import (
+    COMMON_ORIGIN,
     EXAMPLES_ORIGIN,
     WORKSPACE_ORIGIN,
     find_workflow,
@@ -1716,13 +1717,23 @@ def create_app(
             cache[root] = files
         return files
 
+    def _common_assets(ws):
+        """The library every workspace under this root shares, or None.
+
+        A recurring cast is not the property of the workspace that first
+        uploaded it, and a fresh workspace could not see it at all - the
+        prompt library has been shared from the start for the same reason.
+        """
+        return getattr(ws, "common_assets", None)
+
     def _asset_roots(ws):
         """The asset search path of one workspace: its own library, then the
-        read-only ones an --examples-dir tree brought with it. The same order
-        'asset:' resolves in (dw/assets.asset_search_path), so what the
-        browser lists is what a job would load."""
+        one shared by every workspace under this root, then the read-only
+        ones an --examples-dir tree brought with it. The same order 'asset:'
+        resolves in (dw/assets.asset_search_path), so what the browser lists
+        is what a job would load."""
         roots = []
-        for root in [ws.assets, *app.state.example_asset_dirs]:
+        for root in [ws.assets, _common_assets(ws), *app.state.example_asset_dirs]:
             if not root:
                 continue
             root = os.path.abspath(root)
@@ -1751,7 +1762,7 @@ def create_app(
         if not asset_dir:
             return _asset_roots(ws)
         roots = []
-        for root in [asset_dir, *app.state.example_asset_dirs]:
+        for root in [asset_dir, _common_assets(ws), *app.state.example_asset_dirs]:
             if not root:
                 continue
             root = os.path.abspath(root)
@@ -2020,6 +2031,7 @@ def create_app(
         request: Request,
         filename: str,
         asset_name: Optional[str] = None,
+        shared: bool = False,
         ws: Workspace = Depends(selected_workspace),
     ):
         """Save a browser-picked image, video or audio file into the asset library's
@@ -2042,6 +2054,10 @@ def create_app(
         uploaded file's extension when it has none of its own. Without it
         the name stays random, so two uploads of the same file never
         collide.
+
+        `shared` puts it in the library every workspace under this root
+        shares rather than in this workspace's own - a recurring cast that
+        episode four, in a workspace of its own, still has to reach.
         """
         extension = os.path.splitext(os.path.basename(filename))[1].lower()
         if extension not in ALLOWED_UPLOAD_EXTENSIONS:
@@ -2067,6 +2083,15 @@ def create_app(
             )
 
         library = ws.assets or ws.outputs
+        if shared:
+            library = _common_assets(ws)
+            if not library:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This server has no shared asset library - it was "
+                    "configured from loose directories rather than a workspace "
+                    "root, so there is nothing for an asset to be common to",
+                )
         uploads_dir = os.path.join(library, UPLOADS_SUBDIR)
         name = f"{uuid.uuid4().hex}{extension}"
         if asset_name:
@@ -2096,15 +2121,28 @@ def create_app(
         # stream and poll for its duration
         await run_in_threadpool(_write_bytes, dest, body)
         logger.info(f"Saved upload {filename!r} -> {dest}")
-        if ws.assets:
+        if shared or ws.assets:
             return {
                 "path": f"asset:{UPLOADS_SUBDIR}/{name}",
                 "url": _served_url(f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
+                "shared": shared,
             }
         return {
             "path": dest,
             "url": _served_url(f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
         }
+
+    def _asset_origin(ws, index, root):
+        """Which library an asset came from: this workspace's own, the one
+        shared by every workspace under the root, or a read-only examples
+        tree. A client that cannot tell them apart cannot say why deleting
+        one answers 403."""
+        if index == 0:
+            return WORKSPACE_ORIGIN
+        common = _common_assets(ws)
+        if common and os.path.abspath(common) == root:
+            return COMMON_ORIGIN
+        return EXAMPLES_ORIGIN
 
     @app.get("/api/assets")
     def list_assets(ws: Workspace = Depends(selected_workspace)):
@@ -2147,7 +2185,7 @@ def create_app(
                         "kind": kind,
                         "size": stat.st_size,
                         "mtime": stat.st_mtime,
-                        "origin": WORKSPACE_ORIGIN if index == 0 else EXAMPLES_ORIGIN,
+                        "origin": _asset_origin(ws, index, root),
                         # For the editor's own preview - fetchable the same
                         # way an upload's URL is
                         "url": _served_url(f"/inputs/{quote(relative)}", ws),
@@ -2174,6 +2212,11 @@ def create_app(
         overwrite: bool = Field(
             default=False, description="Replace an asset already under that name"
         )
+        shared: bool = Field(
+            default=False,
+            description="Keep it in the library every workspace under this "
+            "root shares, rather than in this workspace's own",
+        )
 
     @app.post("/api/assets/keep", status_code=201)
     def keep_output_as_asset(
@@ -2193,10 +2236,15 @@ def create_app(
         multi-gigabyte video to reuse one frame would be paying for the
         round trip twice.
         """
-        library = ws.assets
+        library = _common_assets(ws) if request.shared else ws.assets
         if not library:
             raise HTTPException(
-                status_code=409, detail="This workspace has no asset library"
+                status_code=409,
+                detail=(
+                    "This server has no shared asset library"
+                    if request.shared
+                    else "This workspace has no asset library"
+                ),
             )
 
         source = _output_file(request.name, ws.outputs)
@@ -2234,6 +2282,7 @@ def create_app(
             "name": asset_name,
             "path": destination,
             "linked": linked,
+            "shared": bool(request.shared),
         }
 
     # ----------------------------------------------------------------- models
