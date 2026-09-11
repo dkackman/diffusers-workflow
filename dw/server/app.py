@@ -2207,7 +2207,8 @@ def create_app(
         asset_name: Optional[str] = Field(
             default=None,
             description="Name to keep it under in the asset library; its own "
-            "file name when omitted",
+            "file name when omitted. May name a folder; the kept file's "
+            "extension is assumed when the name has none",
         )
         overwrite: bool = Field(
             default=False, description="Replace an asset already under that name"
@@ -2249,6 +2250,21 @@ def create_app(
 
         source = _output_file(request.name, ws.outputs)
         asset_name = request.asset_name or os.path.basename(request.name)
+        # The kept file's own extension when the name carries none, and a
+        # refusal when it carries a contradicting one - exactly what the
+        # upload route does with its `asset_name`. Without this a kept asset
+        # could be written under an extensionless name, which the library
+        # listing (which reads by kind) never shows again: the call reported
+        # success and the asset was invisible (T014)
+        extension = os.path.splitext(os.path.basename(request.name))[1].lower()
+        if not os.path.splitext(asset_name)[1]:
+            asset_name = f"{asset_name}{extension}"
+        elif os.path.splitext(asset_name)[1].lower() != extension:
+            raise HTTPException(
+                status_code=400,
+                detail=f"asset_name {request.asset_name!r} does not match the "
+                f"kept file's kind ({extension or 'no extension'})",
+            )
         try:
             asset_name = validate_asset_reference(asset_name)
             destination = validate_path(os.path.join(library, asset_name), library)
@@ -2284,6 +2300,51 @@ def create_app(
             "linked": linked,
             "shared": bool(request.shared),
         }
+
+    @app.delete("/api/assets/{name:path}")
+    def delete_asset(name: str, ws: Workspace = Depends(selected_workspace)):
+        """Permanently remove one file from the asset library.
+
+        Deletes from whichever library on the search path holds it, the
+        workspace's own first, so the name deleted is the name 'asset:'
+        would have resolved to. An asset a read-only examples tree brought
+        with it is not this server's to delete - the same 403 a read-only
+        prompt or workflow answers with.
+
+        Not recoverable, and any workflow still carrying that 'asset:'
+        reference stops loading. Without this, everything else that writes
+        the library (uploads, keep) had no counterpart and a mistake could
+        only be cleaned up on the box (T014).
+        """
+        roots = _asset_roots(ws)
+        if not roots:
+            raise HTTPException(
+                status_code=409, detail="This server has no asset library"
+            )
+        try:
+            relative = validate_asset_reference(name)
+        except SecurityError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        for index, root in enumerate(roots):
+            try:
+                path = validate_path(os.path.join(root, relative), root)
+            except SecurityError:
+                continue
+            if not os.path.isfile(path):
+                continue
+            origin = _asset_origin(ws, index, root)
+            if origin == EXAMPLES_ORIGIN:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"asset:{relative} is read-only: it comes from an "
+                    f"examples library, not a library this server writes",
+                )
+            os.remove(path)
+            logger.info(f"Deleted asset:{relative} ({path})")
+            return {"name": relative, "deleted": True, "origin": origin}
+
+        raise HTTPException(status_code=404, detail=f"No such asset: {relative}")
 
     # ----------------------------------------------------------------- models
 

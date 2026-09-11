@@ -288,9 +288,18 @@ The editor's forms come from these; they are just as usable from scripts:
   and a pinned run id breaks when outputs are pruned. The copy happens inside
   the workspace and is a hard link where the filesystem allows one, so
   keeping one frame of a large render costs no second copy of it. Refuses an
-  existing name unless `overwrite`. `"shared": true` keeps it in
+  existing name unless `overwrite`. `asset_name` may name a folder and takes
+  the kept file's extension when it carries none (a contradicting one is a
+  400) — the same rule the upload route follows, and what keeps a kept asset
+  from landing under an extensionless name the library listing never shows.
+  `"shared": true` keeps it in
   `<root>/common/assets` instead — the library every workspace under the root
   shares, which is where a recurring cast belongs
+- `DELETE /api/assets/{name}` — remove one file from the asset library,
+  deleting from whichever library on the search path holds it (the
+  workspace's own before the shared one, the order `asset:` resolves in).
+  An asset from a read-only examples library answers 403, the same as a
+  read-only prompt or workflow; a name nothing holds answers 404
 - `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
   again on the body; extension held to the allowed image/video list), saved

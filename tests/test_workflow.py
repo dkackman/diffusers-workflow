@@ -578,3 +578,38 @@ def test_validate_reports_every_schema_error_at_once(tmp_path):
     assert "  at steps[0].seed:" in message
     assert "  at variables:" in message
     assert message.count("Validation error") == 1
+
+
+def test_validate_catches_a_reference_to_a_step_that_does_not_exist(tmp_path):
+    """T005: a dangling 'previous_result:' used to validate clean and fail
+    at run time, after every step before it had run - 42 minutes of
+    generation, in the case that prompted this."""
+    from dw.workflow import Workflow
+
+    definition = {
+        "id": "renamed",
+        "steps": [
+            {
+                "name": "shot_1",
+                "task": {"command": "compose_text", "arguments": {"parts": ["a"]}},
+            },
+            {
+                "name": "episode",
+                "task": {
+                    "command": "concat_videos",
+                    "arguments": {
+                        "videos": [
+                            "previous_result:shot_1",
+                            "previous_result:shot_2_pat_deflects",
+                        ]
+                    },
+                },
+            },
+        ],
+    }
+    with pytest.raises(Exception) as exc_info:
+        Workflow(definition, str(tmp_path), "").validate()
+    message = str(exc_info.value)
+    assert "steps[1].task.arguments.videos[1]" in message
+    assert "shot_2_pat_deflects" in message
+    assert message.count("Validation error") == 1

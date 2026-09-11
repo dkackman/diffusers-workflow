@@ -17,6 +17,10 @@ from .events import (
     activate_context,
     deactivate_context,
 )
+from .previous_results import (
+    StepResults,
+    previous_result_reference_errors,
+)
 from .step import Step
 from .step_cache import (
     step_cache,
@@ -281,7 +285,13 @@ class Workflow:
     def validation_errors(self):
         """Every schema violation in the definition, as [{path, message}];
         empty when it validates."""
-        return validate_data_all(self.workflow_definition, load_schema("workflow"))
+        errors = validate_data_all(self.workflow_definition, load_schema("workflow"))
+        # Only once the shape is known good: the reference pass walks the
+        # steps array and a definition that fails the schema may have no
+        # such array to walk
+        if errors:
+            return errors
+        return previous_result_reference_errors(self.workflow_definition)
 
     def validate(self):
         """Validates workflow definition against JSON schema.
@@ -463,7 +473,9 @@ class Workflow:
                 )
 
             # Initialize collections for sharing state between steps
-            results = {}  # Stores results from each step
+            # Stores results from each step, and remembers the names of
+            # steps whose results have since been released
+            results = StepResults()
             shared_components = {}  # Shared resources between steps
 
             # Use provided pipelines cache or create new dict

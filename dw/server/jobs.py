@@ -856,6 +856,28 @@ class JobManager:
                 status, error, traceback_text = outcome
                 self._finish(job, status, error=error, traceback_text=traceback_text)
 
+    def _record_manifest(self, job, message):
+        """What the run wrote, named the way clients address outputs.
+
+        Recorded for a failed or cancelled run as well as a successful one -
+        the files the steps before the stop wrote are on disk either way,
+        and a manifest that omits them is the difference between "this run
+        produced nothing" and "this run produced four of five shots"
+        (T015)."""
+        job.manifest = [
+            (
+                {
+                    **entry,
+                    "files": self._relative_output_names(
+                        entry["files"], job.spec.get("output_dir")
+                    ),
+                }
+                if "files" in entry
+                else entry
+            )
+            for entry in message.get("manifest", [])
+        ]
+
     def _relative_output_names(self, paths, output_dir=None):
         """The worker reports absolute paths; clients build '/outputs/<name>'
         URLs, and a run writes under '<output_dir>/<identity>/<run id>/'
@@ -918,23 +940,16 @@ class JobManager:
                 self.last_memory = message.get("info")
                 job.add_event({"event": "memory", "info": self.last_memory})
             elif message_type == "success":
-                job.manifest = [
-                    (
-                        {
-                            **entry,
-                            "files": self._relative_output_names(
-                                entry["files"], job.spec.get("output_dir")
-                            ),
-                        }
-                        if "files" in entry
-                        else entry
-                    )
-                    for entry in message.get("manifest", [])
-                ]
+                self._record_manifest(job, message)
                 return (SUCCEEDED, None, None)
             elif message_type == "cancelled":
+                self._record_manifest(job, message)
                 return (CANCELLED, None, None)
             elif message_type == "error":
+                # A failed run's steps too: the ones before the failure wrote
+                # real files, and a job that reports an empty manifest hides
+                # them behind the error that stopped the run
+                self._record_manifest(job, message)
                 return (
                     FAILED,
                     message.get("message"),

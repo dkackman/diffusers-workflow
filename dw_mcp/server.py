@@ -468,9 +468,20 @@ def build_server(client):
             client, name, asset_name=asset_name, overwrite=overwrite, shared=shared
         )
 
+    def delete_asset(name: str) -> dict:
+        """Permanently remove one file from the asset library, by the name
+        `list_assets` reports (without the "asset:" prefix). Not
+        recoverable, and any workflow still carrying that reference stops
+        loading. Deletes from whichever library holds it - this
+        workspace's own before the shared one, the order an "asset:"
+        reference resolves in; one from a read-only examples library is
+        refused."""
+        return assets.delete_asset(client, name)
+
     tool(list_assets, READ_ONLY)
     tool(upload_asset, WRITES)
     tool(keep_output, WRITES)
+    tool(delete_asset, DELETES)
 
     # ------------------------------------------------------------ workspaces
 
