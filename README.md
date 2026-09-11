@@ -4,12 +4,11 @@
 
 Your GPU, as something an agent can drive.
 
-diffusers-workflow turns the [Hugging Face Diffusers library](https://github.com/huggingface/diffusers)
-into a declarative engine — image and video pipelines described as data rather
-than as Python — and then puts three front ends on it: an **MCP server** so
-Claude Code (or any MCP client) can author, run and inspect generations; a
-**web UI**; and a **CLI/REPL**. The JSON is the wire format underneath. Most
-days you don't write it by hand.
+diffusers-workflow wraps the [Hugging Face Diffusers library](https://github.com/huggingface/diffusers)
+in an engine that runs image, video and audio generation as jobs, and puts
+two front ends on it: an **MCP server**, so Claude Code (or any MCP client)
+can author, run and inspect generations; and a **web UI** for doing the same
+by hand. A CLI and REPL sit underneath for when you want neither.
 
 **Python 3.10-3.14 | CUDA (NVIDIA) | MPS (Apple Silicon) | CPU**
 
@@ -18,51 +17,71 @@ days you don't write it by hand.
   <img alt="The workflow browser: every workflow as a card with its description, output kinds, and variables" src="docs/img/ui-workflows.png">
 </picture>
 
-A workflow file is portable and easy to hand off — but that same flexibility
-means loading one can execute arbitrary Python (dynamic imports are how it
-reaches any diffusers pipeline or quantization backend without a bespoke
-adapter for each). Treat a workflow file from someone else the way you'd treat
-a `.py` script: see [Trust model](docs/SECURITY.md#trust-model) before running
-one you didn't write.
+## Getting started
 
-## Drive it from Claude Code
-
-Two processes: the engine, and the agent that talks to it.
+**1. Install.** The script picks the right torch build for your platform,
+creates a virtual environment and installs everything, MCP server included.
 
 ```bash
-# 1. the engine, holding your workspace. Leave it running.
-python -m dw.serve --workspace ~/studio --examples-dir ~/src/diffusers-workflow/workflows
+# Linux / macOS
+bash ./install.sh
+source ./activate
 
-# 2. register the MCP server with Claude Code (absolute path - see docs/MCP.md)
+# Windows
+.\install.ps1
+.\venv\scripts\activate
+```
+
+`python -m dw.test` confirms torch and diffusers import and shows which
+accelerator was found.
+
+**2. Start the engine.** Leave it running; everything else talks to it.
+
+```bash
+dw-serve
+# diffusers-workflow server on http://127.0.0.1:8765
+```
+
+That address is the web UI. Open it and run `templates/text-to-image` — a
+small, ungated model, so the first generation needs no Hugging Face login and
+downloads only a few GB.
+
+**3. Connect Claude Code.** Register the MCP server with the absolute path to
+`dw-mcp` in the venv you just made (the relative path is the one setup detail
+that reliably goes wrong):
+
+```bash
 claude mcp add dw -- "$(pwd)/venv/bin/dw-mcp"
 ```
 
-If the GPU is a different machine, start it with `--mcp` and skip the local
-install entirely — Claude Code connects over HTTP:
-
-```bash
-# on the GPU box
-python -m dw.serve --host 0.0.0.0 --token "$DW_API_TOKEN" --mcp --workspace ~/studio
-
-# on your laptop
-claude mcp add --transport http dw http://gpu-box:8765/mcp \
-  --header "Authorization: Bearer $DW_API_TOKEN"
-```
-
-The [dw plugin](plugins/dw/README.md) adds one skill per model family - what
-to run for a given shape, the rules that bite, what it costs - and points at
-the vendors' own prompt guides rather than restating them:
+Then, optionally, the [dw plugin](plugins/dw/README.md) — one skill per model
+family that knows which workflow fits a request and the rules that bite:
 
 ```
 /plugin marketplace add dkackman/diffusers-workflow
 /plugin install dw@diffusers-workflow
 ```
 
-You don't have to compose that command by hand — the server's own **Server**
-page builds it from the address you pick, alongside the directories it
-resolved and the workspaces it holds:
+Most of the shipped workflows (Flux, LTX-2, MiniMax...) use **gated** models.
+Request access on the model's Hugging Face page, then `huggingface-cli login`
+once; without it the run fails partway through with a 401/403 from the Hub.
 
-![The Server page: the address picker, the generated claude mcp add line, the resolved directories, and the workspace list](docs/img/ui-server-dark.png)
+> **GPU on another machine?** Start the engine there with `--mcp` and connect
+> over HTTP — nothing to install on the laptop:
+>
+> ```bash
+> # on the GPU box
+> dw-serve --host 0.0.0.0 --token "$DW_API_TOKEN" --mcp --workspace ~/studio
+>
+> # on your laptop
+> claude mcp add --transport http dw http://gpu-box:8765/mcp \
+>   --header "Authorization: Bearer $DW_API_TOKEN"
+> ```
+>
+> The server's own **Server** page composes that line for the address you
+> pick. End to end: [Remote GPU server](docs/REMOTE.md).
+
+## Drive it from an agent
 
 Then just ask. The agent has 50 tools covering the whole surface — the
 workflow catalog, the real diffusers pipeline signatures, the job queue, the
@@ -75,241 +94,105 @@ waiting it out, and reporting what came back:
 
 ![The same session hours later: shots rendering one at a time, roughly 30 minutes each, with the agent reporting progress between them](docs/img/claude-generating.png)
 
-> **What can this box actually run, and what workflows do I already have?**
->
-> Claude calls `get_server_info` (device, version, workspace), `list_workflows`
-> (each with its description, variables and output kinds), and `list_models`
-> (what's already in the hub cache). It tells you the accelerator before it
-> proposes anything CUDA-only.
+What a session looks like:
 
-> **Take my Flux workflow, swap in the portrait LoRA, and render four at 1024
-> square.**
->
-> `get_workflow` to read it, `get_pipeline_signature` to check the arguments
-> actually exist, `validate_workflow` (free — schema *and* signature checking,
-> no model loads), `save_workflow` into your workspace, then `run_workflow`.
-> That last one refuses unless it passes `acknowledged_cost=true`, so the agent
-> has to tell you it's about to spend GPU minutes before it spends them.
+- **"What can this box run, and what do I already have?"** — `get_server_info`
+  for the accelerator and workspace, `list_workflows` for the catalog with each
+  entry's shape, cost and variables, `list_models` for what is already in the
+  hub cache. The agent knows the device before it proposes anything CUDA-only.
+- **"Take my Flux workflow, swap in the portrait LoRA, render four at 1024."**
+  — `get_workflow`, `get_pipeline_signature` to check the arguments exist,
+  `validate_workflow` (free: schema *and* signature checking, no model loads),
+  `save_workflow`, `run_workflow`. That last one refuses until the agent passes
+  `acknowledged_cost=true`, so it has to tell you what it is about to spend.
+- **"How's it going?"** — `wait_for_job` blocks for a bounded interval instead
+  of polling; `get_output_image` brings the result back into the conversation
+  so the agent can look at what it made.
+- **"That third frame is the one — keep it and seed the video pass from it."**
+  — `keep_output` promotes the file into the asset library under a name you
+  pick, and the next workflow references `asset:hero-frame.png`.
 
-> **How's it going?**
->
-> `wait_for_job` blocks for a bounded interval instead of hand-polling;
-> `get_job_events` pages through per-step and per-denoise-step progress.
-> `get_output_image` brings the result back into the conversation, downscaled,
-> so the agent can look at what it made and say whether it matches what you
-> asked for.
+Everything that costs real GPU time or real disk (`run_workflow`, `rerun_job`,
+`enhance_prompt`, `download_model`, `delete_model`, `update_diffusers`,
+`delete_workspace`) refuses until it is explicitly acknowledged, so an agent
+cannot quietly burn an hour of GPU or delete 40GB of weights.
 
-> **That third frame is the one. Keep it, and use it to seed the video pass.**
->
-> `keep_output` promotes the file into the asset library under a name you pick
-> — the agent then writes `asset:hero-frame.png` into the next workflow, rather
-> than a run id that pruning would break.
+One server holds several **workspaces** — each with its own workflows, assets
+and outputs — so two agents, or an agent and you in the browser, share the GPU
+without saving over each other. An agent calls `use_workspace` once and the
+rest of the session lands there.
 
-Nothing above needs a shell on the GPU box or a checkout of this repository.
-Six tools that cost real money or real disk (`run_workflow`, `rerun_job`,
-`enhance_prompt`, `download_model`, `delete_model`, `update_diffusers`) plus
-`delete_workspace` refuse until they're explicitly acknowledged, so an agent
-cannot quietly burn an hour of GPU time or delete 40GB of weights.
+The complete tool reference, client configuration for other MCP hosts, and the
+troubleshooting table: [MCP Server](docs/MCP.md). Workspaces in depth:
+[Workspaces](docs/WORKSPACES.md).
 
-Full setup, the complete tool reference, and the troubleshooting table:
-[MCP Server](docs/MCP.md). Running it on another machine end to end:
-[Remote GPU server](docs/REMOTE.md).
+## The web UI
 
-### Several agents, one GPU
-
-A server holds several **workspaces** — each with its own workflows, assets
-and outputs, sharing one prompt library. An agent calls `use_workspace` once
-and everything it reads and writes for the rest of the session lands there, so
-two agents (or an agent and you, in the browser) share the GPU without saving
-over each other. See [Workspaces](docs/WORKSPACES.md).
-
-## The Web UI
-
-```bash
-python -m dw.serve
-# diffusers-workflow server on http://127.0.0.1:8765
-```
-
-Everything the engine does, in a browser backed by the same persistent GPU
+Everything the engine does, in a browser, backed by the same persistent GPU
 worker — models stay loaded between runs.
 
-**A form-based editor with the real pipeline signatures.** Forms and argument
+**An editor built from the real pipeline signatures.** Forms and argument
 autocomplete are generated by introspecting diffusers itself, so every knob a
-pipeline exposes is available — with its documentation — without leaving the
-browser. A split view puts the JSON beside the form, both editable; validation
-catches schema errors *and* argument typos (by checking the pipeline's actual
-call signature) before any model loads. A flow view draws the workflow's
-data-flow graph.
+pipeline exposes is there with its documentation. Validation catches schema
+errors *and* argument typos before any model loads.
 
 ![The editor: introspection-driven forms beside live JSON in Monaco](docs/img/ui-editor.png)
 
-**A gallery where every image is a recipe.** Each run gets its own directory
-with a `manifest.json` beside its files, and images carry their full workflow
-definition and seed; *open as workflow* drops the definition into the editor
-with the seed pinned, ready to reproduce or riff on. *Keep as asset* promotes a
-generated file into the asset library so later workflows can rely on it.
+**A gallery where every image is a recipe.** Outputs carry their full workflow
+and seed; *open as workflow* drops any image back into the editor, ready to
+reproduce or riff on. *Keep as asset* promotes a generated file into the asset
+library for later workflows to build on.
 
 ![The gallery with generated images and videos](docs/img/ui-gallery.jpg)
 
-**A prompt library shared by every workflow.** Store a prompt once, reference
-it anywhere as `prompt:name` — the Prompts page browses, edits, and filters the
-library, and an *Enhance with AI* panel expands an idea into a full prompt with
-a local language model.
-
-**A model manager for the disk your models actually consume.** The Hugging Face
-hub cache, inventoried: sizes, revisions, last-used dates, free space — download
-new models by id with live progress, delete with one click.
+**A prompt library** stores a prompt once and lets any workflow reference it,
+with an *Enhance with AI* panel that expands an idea into a full prompt using
+a local language model. **A model manager** inventories the Hugging Face hub
+cache — sizes, last use, free space — and downloads or deletes models with
+live progress.
 
 ![The model manager listing cached models with sizes](docs/img/ui-models.png)
 
-Jobs queue, stream progress live (per denoising step), cancel cooperatively,
-and persist to a searchable history. See [Server & Web UI](docs/SERVER.md) for
-the pages and the HTTP API.
+Jobs queue, stream progress live per denoising step, cancel cooperatively and
+persist to a searchable history. See [Server & Web UI](docs/SERVER.md) for the
+pages and the HTTP API.
 
 ## The command line
 
-The engine runs standalone, with no server involved.
-`workflows/templates/text-to-image.json` is the smallest starting point — a small, ungated model
-and a literal prompt, so the first run needs no Hugging Face login and
-downloads only a few GB:
+The engine also runs standalone, with no server involved:
 
 ```bash
 python -m dw.run workflows/templates/text-to-image.json
 python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
-python -m dw.validate workflows/templates/text-to-image.json
+python -m dw.validate workflows/models/flux-dev.json
 ```
 
-Most of the workflows under `workflows/` (Flux, LTX-2, MiniMax...) use **gated**
-Hugging Face models — the repo owner has to approve your account first. Request
-access on the model's page (e.g. [black-forest-labs/FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev)),
-then:
+An interactive REPL (`python -m dw.repl`) keeps models resident between runs
+for 2-4x faster iteration. See [REPL Commands](docs/REPL_COMMANDS.md).
 
-```bash
-huggingface-cli login
-python -m dw.run workflows/models/flux-dev.json
-```
+## What's underneath
 
-Without this, the run fails partway through with an HTTP 401/403 from the Hub.
+Every front end reads and writes the same thing: a JSON document of named
+steps, each a diffusers pipeline or a utility task, whose arguments reference
+variables, earlier steps' outputs, stored prompts and assets rather than
+hard-coded values. That is what makes text-to-image chain into image-to-video,
+and what makes a generated image reopen as the exact recipe that produced it.
+[workflows/](workflows/) is a corpus of runnable examples across model
+families; the [Workflow Guide](docs/WORKFLOW_GUIDE.md) is the reference when
+you do want to write one.
 
-An interactive REPL keeps models resident between runs for 2-4x faster
-iteration:
+Because a workflow reaches any diffusers pipeline or quantization backend by
+dynamic import, loading one can execute arbitrary Python. Treat a workflow
+file from someone else the way you'd treat a `.py` script — see
+[Trust model](docs/SECURITY.md#trust-model).
 
-```text
-dw> workflow load models/flux-dev
-dw> arg set prompt="a beautiful sunset"
-dw> workflow run
-[... models load once ...]
-
-dw> arg set prompt="a starry night"
-dw> workflow run
-Reusing loaded models from cache
-[... 2-4x faster ...]
-```
-
-See [REPL Commands](docs/REPL_COMMANDS.md) and [Worker Guide](docs/REPL_WORKER_GUIDE.md).
-
-## Installation
-
-### Linux / macOS
-
-```bash
-bash ./install.sh
-source ./activate
-python -m dw.test
-```
-
-### Windows
-
-```powershell
-.\install.ps1
-.\venv\scripts\activate
-python -m dw.test
-```
-
-The install scripts detect your Python version, create a virtual environment,
-and install all dependencies including platform-specific packages (bitsandbytes
-on CUDA, fp4-fp8-for-torch-mps on macOS).
-
-## What a workflow is
-
-Underneath every front end is one JSON document: named steps, each a diffusers
-pipeline or a utility task, with arguments that can reference variables,
-earlier steps' outputs, stored prompts, assets, and files an earlier run wrote.
-
-```json
-{
-    "id": "flux_example",
-    "variables": { "prompt": "an apple" },
-    "steps": [
-        {
-            "name": "main",
-            "pipeline": {
-                "configuration": { "component_type": "FluxPipeline", "offload": "sequential" },
-                "from_pretrained_arguments": {
-                    "model_name": "black-forest-labs/FLUX.1-dev",
-                    "torch_dtype": "torch.bfloat16"
-                },
-                "arguments": {
-                    "prompt": "variable:prompt",
-                    "num_inference_steps": 25,
-                    "guidance_scale": 3.5
-                }
-            },
-            "result": { "content_type": "image/jpeg" }
-        }
-    ]
-}
-```
-
-Arguments carry references rather than paths, which is what makes multi-stage
-work composable:
-
-| Reference | Resolves to |
-| --- | --- |
-| `variable:prompt` | A workflow variable, overridable from the CLI, the UI form, or a tool call |
-| `previous_result:step_name` | An earlier step's output — this is how text-to-image chains into image-to-video |
-| `prompt:folder/name` | The text of a stored prompt in the shared prompt library |
-| `asset:iris.png` | A file in the workspace's input-media library |
-| `output:ltx2/Gyre/latest/still.png` | A file an earlier run wrote, `latest` picking the newest run that holds it |
-| `constant:...` | A value declared in Python rather than copied into JSON |
-
-The full structure — steps, tasks, offloading, quantization, LoRAs,
-schedulers, chained video — is in the [Workflow Guide](docs/WORKFLOW_GUIDE.md).
-The schema the server validates against is browsable
-[here](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdkackman%2Fdiffusers-workflow%2Frefs%2Fheads%2Fmaster%2Fdw%2Fworkflow_schema.json),
-and [workflows/](workflows/) is a corpus of runnable examples.
-
-## Features
-
-- **MCP server** — 50 tools letting an agent author, validate, save, run,
-  watch and inspect generations against a running server, locally or over the
-  network, with a cost gate on everything that spends GPU time or disk
-- **Web UI** — browse and run workflows, edit them in introspection-driven
-  forms, watch jobs stream live progress, manage output and models
-- **Workspaces** — your workflows, prompts, assets and outputs live outside the
-  checkout; one server can hold several, so several agents don't collide
-- **Reproducible by construction** — each run writes its own directory with a
-  manifest; outputs embed their full workflow definition and seed, and any
-  image in the gallery reopens as the exact workflow that made it
-- **Step-output caching** — a step whose resolved arguments and seed are
-  unchanged reuses its cached result instead of re-executing, so re-running a
-  fixed-seed workflow finishes instantly and writes no new files
-- **Multi-step pipelines** — chain text-to-image, image-to-video, inpainting,
-  ControlNet; compose workflows from other workflows with `builtin:`
-- **Long-video chaining** — run a video pipeline once per segment and stitch
-  the segments into one clip, with audio-driven length and frame-to-frame
-  continuity
-- **Quantization** — BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto
-- **Inference acceleration** — TeaCache, FirstBlockCache, FasterCache,
-  MagCache, TaylorSeerCache
-- **Prompt weighting** — A1111-style `(word:1.5)` syntax with long prompt support
-- **Prompt library** — store a prompt once, reference it from any workflow,
-  with a UI for browsing, editing and AI-enhancing
-- **LoRA and IP-Adapter** support
-- **Utility tasks** — upscaling, face restoration, segmentation, captioning,
-  frame interpolation, QR codes, and more
-- **Interactive REPL** with persistent GPU model caching
-- **Cross-platform** — CUDA, MPS (Apple Silicon), and CPU
+Under the hood the engine also handles: quantization (BitsAndBytes, TorchAO,
+GGUF, SDNQ, optimum-quanto); inference acceleration (TeaCache,
+FirstBlockCache, FasterCache, MagCache, TaylorSeerCache); LoRA and IP-Adapter;
+A1111-style prompt weighting; long-video chaining with audio-driven length;
+step-output caching, so re-running a fixed-seed workflow finishes instantly;
+and utility tasks for upscaling, face restoration, segmentation, captioning,
+frame interpolation and more.
 
 ## Documentation
 
