@@ -264,3 +264,258 @@ class TestRelease:
             for s in expanded["steps"]
         ]
         assert flags == [(None, None), (None, None), (True, True)]
+
+
+class TestGather:
+    def group(self, *extra):
+        return definition(
+            {
+                "name": "shot",
+                "for_each": [{"name": "open"}, {"name": "close"}],
+                "pipeline": {"arguments": {}},
+            },
+            *extra,
+        )
+
+    def test_a_scalar_gather_becomes_the_member_list(self):
+        expanded = expand_for_each(
+            self.group(
+                {"name": "edit", "task": {"arguments": {"videos": "gather:shot"}}}
+            )
+        )
+        assert expanded["steps"][-1]["task"]["arguments"]["videos"] == [
+            "previous_result:shot@open",
+            "previous_result:shot@close",
+        ]
+
+    def test_a_gather_inside_a_list_splices(self):
+        expanded = expand_for_each(
+            self.group(
+                {"name": "intro", "task": {}},
+                {
+                    "name": "edit",
+                    "task": {
+                        "arguments": {
+                            "videos": ["previous_result:intro", "gather:shot"]
+                        }
+                    },
+                },
+            )
+        )
+        assert expanded["steps"][-1]["task"]["arguments"]["videos"] == [
+            "previous_result:intro",
+            "previous_result:shot@open",
+            "previous_result:shot@close",
+        ]
+
+    def test_gather_of_an_empty_group_is_an_empty_list(self):
+        expanded = expand_for_each(
+            definition(
+                {"name": "shot", "for_each": [], "task": {}},
+                {"name": "edit", "task": {"arguments": {"videos": "gather:shot"}}},
+            )
+        )
+        assert expanded["steps"][-1]["task"]["arguments"]["videos"] == []
+
+    def test_gather_of_a_plain_step_is_an_error(self):
+        with pytest.raises(ForEachError) as e:
+            expand_for_each(
+                definition(
+                    {"name": "one", "task": {}},
+                    {"name": "edit", "task": {"arguments": {"videos": "gather:one"}}},
+                )
+            )
+        assert e.value.path == "steps[1].task.arguments.videos"
+        assert "no earlier for_each step" in str(e.value)
+
+    def test_gather_of_a_later_group_is_an_error(self):
+        with pytest.raises(ForEachError):
+            expand_for_each(
+                definition(
+                    {"name": "edit", "task": {"arguments": {"videos": "gather:shot"}}},
+                    {"name": "shot", "for_each": ["a"], "task": {}},
+                )
+            )
+
+    def test_gather_in_a_sub_workflow_argument_map(self):
+        expanded = expand_for_each(
+            self.group(
+                {
+                    "name": "score",
+                    "workflow": {"path": "builtin:x.json", "arguments": {"clips": "gather:shot"}},
+                }
+            )
+        )
+        assert expanded["steps"][-1]["workflow"]["arguments"]["clips"] == [
+            "previous_result:shot@open",
+            "previous_result:shot@close",
+        ]
+
+
+class TestGroupReferences:
+    def test_previous_result_naming_a_group_says_to_gather(self):
+        with pytest.raises(ForEachError) as e:
+            expand_for_each(
+                definition(
+                    {"name": "shot", "for_each": ["a"], "task": {}},
+                    {
+                        "name": "edit",
+                        "task": {"arguments": {"video": "previous_result:shot"}},
+                    },
+                )
+            )
+        assert e.value.path == "steps[1].task.arguments.video"
+        assert "gather:shot" in str(e.value)
+
+    def test_from_previous_result_naming_a_group_says_to_gather(self):
+        with pytest.raises(ForEachError) as e:
+            expand_for_each(
+                definition(
+                    {"name": "shot", "for_each": ["a"], "task": {}},
+                    {
+                        "name": "edit",
+                        "task": {
+                            "arguments": {"refs": [{"from_previous_result": "shot"}]}
+                        },
+                    },
+                )
+            )
+        assert e.value.path == "steps[1].task.arguments.refs[0].from_previous_result"
+
+    def test_a_property_reference_to_a_group_is_also_refused(self):
+        with pytest.raises(ForEachError):
+            expand_for_each(
+                definition(
+                    {"name": "shot", "for_each": ["a"], "task": {}},
+                    {
+                        "name": "edit",
+                        "task": {"arguments": {"v": "previous_result:shot.frames"}},
+                    },
+                )
+            )
+
+    def test_a_reference_to_an_ordinary_step_is_untouched(self):
+        expanded = expand_for_each(
+            definition(
+                {"name": "draw", "task": {}},
+                {
+                    "name": "shot",
+                    "for_each": ["a"],
+                    "pipeline": {
+                        "arguments": {
+                            "references": [{"from_previous_result": "draw"}],
+                            "still": "previous_result:draw.image",
+                        }
+                    },
+                },
+            )
+        )
+        arguments = expanded["steps"][1]["pipeline"]["arguments"]
+        assert arguments["references"] == [{"from_previous_result": "draw"}]
+        assert arguments["still"] == "previous_result:draw.image"
+
+    def test_a_variable_spelled_from_previous_result_is_untouched(self):
+        expanded = expand_for_each(
+            definition(
+                {
+                    "name": "edit",
+                    "task": {"arguments": {"r": [{"from_previous_result": "variable:x"}]}},
+                }
+            )
+        )
+        assert expanded["steps"][0]["task"]["arguments"]["r"] == [
+            {"from_previous_result": "variable:x"}
+        ]
+
+
+class TestSameKeySiblings:
+    def shots(self):
+        return [
+            {"name": "open", "start_frame": 0},
+            {"name": "close", "start_frame": 124},
+        ]
+
+    def test_a_sibling_over_the_same_list_resolves_to_the_same_key(self):
+        shots = self.shots()
+        expanded = expand_for_each(
+            definition(
+                {
+                    "name": "slice",
+                    "for_each": shots,
+                    "task": {"arguments": {"start_frame": "item:start_frame"}},
+                },
+                {
+                    "name": "shot",
+                    "for_each": shots,
+                    "pipeline": {
+                        "arguments": {
+                            "references": [{"from_previous_result": "slice"}],
+                            "audio": "previous_result:slice.audio",
+                        }
+                    },
+                },
+            )
+        )
+        names = [s["name"] for s in expanded["steps"]]
+        assert names == ["slice@open", "slice@close", "shot@open", "shot@close"]
+        close = expanded["steps"][3]["pipeline"]["arguments"]
+        assert close["references"] == [{"from_previous_result": "slice@close"}]
+        assert close["audio"] == "previous_result:slice@close.audio"
+
+    def test_the_same_list_means_equal_not_identical(self):
+        expanded = expand_for_each(
+            definition(
+                {"name": "slice", "for_each": self.shots(), "task": {}},
+                {
+                    "name": "shot",
+                    "for_each": self.shots(),
+                    "task": {"arguments": {"a": "previous_result:slice"}},
+                },
+            )
+        )
+        assert expanded["steps"][2]["task"]["arguments"]["a"] == (
+            "previous_result:slice@open"
+        )
+
+    def test_a_sibling_over_a_different_list_is_an_error(self):
+        with pytest.raises(ForEachError) as e:
+            expand_for_each(
+                definition(
+                    {"name": "slice", "for_each": ["a", "b"], "task": {}},
+                    {
+                        "name": "shot",
+                        "for_each": ["a"],
+                        "task": {"arguments": {"x": "previous_result:slice"}},
+                    },
+                )
+            )
+        assert "different list" in str(e.value)
+
+    def test_a_step_referencing_its_own_group_is_an_error(self):
+        with pytest.raises(ForEachError) as e:
+            expand_for_each(
+                definition(
+                    {
+                        "name": "shot",
+                        "for_each": ["a", "b"],
+                        "task": {"arguments": {"x": "previous_result:shot"}},
+                    }
+                )
+            )
+        assert "its own" in str(e.value)
+
+    def test_a_gather_inside_a_member_still_gathers(self):
+        expanded = expand_for_each(
+            definition(
+                {"name": "slice", "for_each": ["a", "b"], "task": {}},
+                {
+                    "name": "shot",
+                    "for_each": ["x"],
+                    "task": {"arguments": {"all": "gather:slice"}},
+                },
+            )
+        )
+        assert expanded["steps"][2]["task"]["arguments"]["all"] == [
+            "previous_result:slice@0",
+            "previous_result:slice@1",
+        ]
