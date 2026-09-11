@@ -178,11 +178,16 @@ def build_server(client):
             include_models=include_models,
         )
 
-    def get_workflow(name: str) -> dict:
+    def get_workflow(name: str, variables_only: bool = False) -> dict:
         """Get one stored workflow's full JSON definition, by a name from
         `list_workflows`. Read one before editing it, and to learn the
-        idioms this installation actually uses."""
-        return catalog.get_workflow(client, name)
+        idioms this installation actually uses. Pass
+        `variables_only=true` when the question is only what a variable
+        defaults to - it answers with the variables and their values and
+        nothing else, which is a fraction of the definition; long defaults
+        (a shot's prompt) come back cut to 200 characters with the cut ones
+        named in `truncated`."""
+        return catalog.get_workflow(client, name, variables_only=variables_only)
 
     def get_schema() -> dict:
         """Get the JSON schema every workflow definition must satisfy - the
@@ -423,15 +428,19 @@ def build_server(client):
         a file: what a workflow needs may already be there."""
         return assets.list_assets(client)
 
-    def upload_asset(file_path: str) -> dict:
+    def upload_asset(file_path: str, asset_name: str | None = None) -> dict:
         """Put a local image, video or audio file into the server's asset
         library and get back the "asset:" reference to use in a workflow.
         The file is read from the machine this MCP server runs on and
         pushed to the engine, so it is how an input reaches a dw.serve
         running somewhere else. Accepts the usual image, video and audio
         extensions, up to 200MB. Reference the result rather than a path: a
-        path on this machine means nothing to the server."""
-        return assets.upload_asset(client, file_path)
+        path on this machine means nothing to the server. Pass `asset_name`
+        to store it under a readable name ("cast/priya-voice.wav", folders
+        allowed, the file's extension assumed) - without one the stored
+        name is random, and a set of related inputs cannot be told apart in
+        the workflows that carry them."""
+        return assets.upload_asset(client, file_path, asset_name=asset_name)
 
     def keep_output(
         name: str, asset_name: str | None = None, overwrite: bool = False

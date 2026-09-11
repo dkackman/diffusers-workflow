@@ -240,6 +240,9 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`)
 - `GET /api/workflows/{name:path}/download` — download a workflow file as JSON
+- `GET /api/workflows/{name:path}/variables` — a workflow's variables and what
+  they default to, without the definition around them. Long string defaults are
+  cut to 200 characters and named in `truncated`; `full=true` returns them whole
 - `GET /api/prompts`, `GET/PUT/DELETE /api/prompts/{name}` — the prompt
   library (confined to `--prompt-dir`, names held to what a `prompt:`
   reference can load); saves are validated against the prompt schema,
@@ -289,7 +292,10 @@ The editor's forms come from these; they are just as usable from scripts:
 - `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
   again on the body; extension held to the allowed image/video list), saved
-  into the asset library's `uploads/` subfolder under a generated name.
+  into the asset library's `uploads/` subfolder under a generated name, or
+  under `asset_name` when one is given (`cast/priya-voice.wav`, folders allowed,
+  the uploaded file's extension assumed, confined to the library the way
+  `keep_output`'s name is).
   Answers 201 with `path` - `asset:uploads/<name>`, the reference a saved
   workflow can carry and still resolve on a later run - and `url`, the same
   file under the `/inputs` mount, for the editor's preview. A server started

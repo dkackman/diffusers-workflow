@@ -728,6 +728,8 @@ WRAPPER_HANDLER_MAP = {
     "get_output_text": (media, "get_output_text"),
     "enhance_prompt": (prompts, "enhance_prompt"),
     "download_output": (media, "download_output"),
+    "get_gallery_metadata": (catalog, "get_gallery_metadata"),
+    "get_workflow": (catalog, "get_workflow"),
 }
 
 

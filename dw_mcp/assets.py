@@ -65,13 +65,20 @@ def keep_output(client, name, asset_name=None, overwrite=False):
     )
 
 
-def upload_asset(client, file_path):
+def upload_asset(client, file_path, asset_name=None):
     """Put a local image, video or audio file into the server's asset
     library and get back the reference a workflow can use.
 
     The file is read from the machine this MCP server runs on, which is not
     necessarily the machine dw.serve runs on - that is the point of the
     tool.
+
+    `asset_name` is the name it is stored under - 'cast/priya-voice.wav'
+    rather than the random one an upload gets by default. A recurring cast
+    referenced as 'asset:uploads/084eaecc....wav' in every workflow cannot
+    be told apart without opening each file, which is the whole reason to
+    name one (2026-09-11). The extension comes from the uploaded file when
+    the name has none.
     """
     path = os.path.abspath(os.path.expanduser(str(file_path)))
     if not os.path.isfile(path):
@@ -97,9 +104,10 @@ def upload_asset(client, file_path):
     except OSError as e:
         raise DwApiError(f"Could not read {file_path}: {e}")
 
-    result = client.post_bytes(
-        "/api/uploads", body, params={"filename": os.path.basename(path)}
-    )
+    params = {"filename": os.path.basename(path)}
+    if asset_name:
+        params["asset_name"] = asset_name
+    result = client.post_bytes("/api/uploads", body, params=params)
     # 'path' from a server with no asset library is an absolute path on that
     # machine; from one with a library it is already the reference. Report
     # whichever it gave, named for what it is

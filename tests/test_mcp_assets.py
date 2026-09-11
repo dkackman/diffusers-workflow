@@ -73,6 +73,24 @@ class TestUpload:
         assert result["uploaded"] == "iris.png"
         assert result["size"] == len(b"png-bytes")
 
+    def test_a_name_is_passed_through_when_one_is_given(self, tmp_path):
+        source = tmp_path / "clip-01.wav"
+        source.write_bytes(b"wav-bytes")
+        client, seen = recording()
+
+        upload_asset(client, str(source), asset_name="cast/priya-voice")
+
+        assert "asset_name=cast" in seen["url"].replace("%2F", "/")
+
+    def test_no_name_leaves_the_server_to_choose_one(self, tmp_path):
+        source = tmp_path / "clip-01.wav"
+        source.write_bytes(b"wav-bytes")
+        client, seen = recording()
+
+        upload_asset(client, str(source))
+
+        assert "asset_name" not in seen["url"]
+
     def test_only_the_base_name_is_sent(self, tmp_path):
         # The server generates the stored name; the directory this file sits
         # in is this machine's business and means nothing over there

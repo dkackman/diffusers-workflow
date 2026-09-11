@@ -28,8 +28,17 @@ def list_workflows(
     return client.get_json("/api/workflows", params=params)
 
 
-def get_workflow(client, name):
-    """One workflow's full JSON definition."""
+def get_workflow(client, name, variables_only=False):
+    """One workflow's full JSON definition.
+
+    With variables_only=True, just its variables and what they default to -
+    confirming that a stored workflow's audio_bleed_ms is 1800 otherwise
+    means pulling the whole definition, quantization blocks and all, to
+    read one integer (2026-09-11). Long defaults come back cut to their
+    first 200 characters, with the names of the cut ones in `truncated`.
+    """
+    if variables_only:
+        return client.get_json(api_path("api", "workflows", name, "variables"))
     return client.get_json(api_path("api", "workflows", name))
 
 
