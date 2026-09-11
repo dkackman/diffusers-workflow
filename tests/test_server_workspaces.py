@@ -768,3 +768,129 @@ def test_the_listing_reports_each_workspace_s_disk_usage(server, workspace_root)
     assert spaces["shots"] == {"files": 1, "bytes": 4096}
     assert spaces["default"]["files"] == 1
     assert spaces["default"]["bytes"] == 500
+
+
+class TestSharedAssets:
+    """Assets are per workspace, which is right for the work that made them
+    and wrong for a recurring cast: episode four, started in a fresh
+    workspace, could not see the character portraits episode one uploaded
+    (2026-09-11). The shared library is the prompt library's treatment
+    applied to assets - one copy, reachable from every workspace."""
+
+    def test_a_shared_upload_is_visible_from_every_workspace(
+        self, server, workspace_root
+    ):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "episode-four"})
+            uploaded = client.post(
+                "/api/uploads",
+                params={
+                    "filename": "priya.png",
+                    "asset_name": "cast/priya",
+                    "shared": "true",
+                },
+                content=b"png",
+            )
+            assert uploaded.status_code == 201
+            body = uploaded.json()
+            assert body["path"] == "asset:uploads/cast/priya.png"
+            assert body["shared"] is True
+
+            for workspace in ("", "?workspace=episode-four"):
+                listed = client.get(f"/api/assets{workspace}").json()
+                names = {asset["name"]: asset for asset in listed["assets"]}
+                assert "uploads/cast/priya.png" in names, workspace
+                assert names["uploads/cast/priya.png"]["origin"] == "common"
+
+    def test_it_is_stored_once_at_the_root(self, server, workspace_root):
+        with server() as client:
+            client.post(
+                "/api/uploads",
+                params={"filename": "hal.png", "shared": "true"},
+                content=b"png",
+            )
+
+        shared = os.path.join(workspace_root.root, "common", "assets", "uploads")
+        assert len(os.listdir(shared)) == 1
+        assert not os.path.exists(os.path.join(workspace_root.assets, "uploads"))
+
+    def test_a_workspace_asset_shadows_a_shared_one_of_the_same_name(
+        self, server, workspace_root
+    ):
+        """The same order 'asset:' resolves in - the workspace's own first."""
+        with server() as client:
+            client.post(
+                "/api/uploads",
+                params={
+                    "filename": "hal.png",
+                    "asset_name": "cast/hal",
+                    "shared": "true",
+                },
+                content=b"shared-bytes",
+            )
+            client.post(
+                "/api/uploads",
+                params={"filename": "hal.png", "asset_name": "cast/hal"},
+                content=b"workspace-bytes",
+            )
+
+            listed = client.get("/api/assets").json()["assets"]
+            entries = [a for a in listed if a["name"] == "uploads/cast/hal.png"]
+            assert len(entries) == 1
+            assert entries[0]["origin"] == "workspace"
+
+            served = client.get("/inputs/uploads/cast/hal.png")
+            assert served.content == b"workspace-bytes"
+
+    def test_a_shared_asset_previews_like_any_other(self, server, workspace_root):
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "episode-four"})
+            client.post(
+                "/api/uploads",
+                params={
+                    "filename": "priya.png",
+                    "asset_name": "cast/priya",
+                    "shared": "true",
+                },
+                content=b"png-bytes",
+            )
+            listed = client.get("/api/assets?workspace=episode-four").json()
+            url = listed["assets"][0]["url"]
+
+            assert client.get(url).content == b"png-bytes"
+
+    def test_an_output_can_be_kept_as_a_shared_asset(self, server, workspace_root):
+        generated = os.path.join(workspace_root.outputs, "still-gen.0-0.0.png")
+        with open(generated, "wb") as file:
+            file.write(b"generated")
+
+        with server() as client:
+            client.post("/api/workspaces", json={"name": "episode-four"})
+            kept = client.post(
+                "/api/assets/keep",
+                json={
+                    "name": "still-gen.0-0.0.png",
+                    "asset_name": "cast/priya.png",
+                    "shared": True,
+                },
+            )
+            assert kept.status_code == 201
+            assert kept.json()["shared"] is True
+            assert kept.json()["reference"] == "asset:cast/priya.png"
+
+            listed = client.get("/api/assets?workspace=episode-four").json()
+            assert [a["origin"] for a in listed["assets"]] == ["common"]
+
+        assert os.path.isfile(
+            os.path.join(workspace_root.root, "common", "assets", "cast", "priya.png")
+        )
+
+    def test_the_shared_library_is_not_a_workspace(self, server):
+        """'common' holds one library, not workflows and outputs - naming it
+        as a workspace has to be refused rather than making a folder."""
+        with server() as client:
+            refused = client.post("/api/workspaces", json={"name": "common"})
+            assert refused.status_code == 400
+            assert [
+                w["name"] for w in client.get("/api/workspaces").json()["workspaces"]
+            ] == ["default"]

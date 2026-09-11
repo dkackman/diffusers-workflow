@@ -287,6 +287,14 @@ each full prompt out, or put the shared text in a variable and let a step's
 argument override it whole. `validate_workflow` warns about a `variable:`
 reference that names nothing the workflow declares.
 
+When several steps share a block of text — a character's description and voice
+repeated in every shot of a dialogue short — the answer is composition rather
+than interpolation: write the shared text once as a variable and assemble each
+step's prompt with a [`compose_text`](TASKS.md#compose_text) task, whose parts
+are whole references joined in order. The shot then references the composed
+result (`"prompt": "previous_result:shot_1_prompt"`), so changing the voice
+changes it in every shot instead of in however many copies were made by hand.
+
 ### Types and escaping
 
 Any key ending in `_type` or `_dtype`, or named `dtype`, has its string value
@@ -1253,6 +1261,14 @@ the workflow loads — use
 [`from_previous_result`](#objects-built-from-an-earlier-step) for that. A dict that
 merely contains a `from_file` key without a `*_type` key is not an object description
 and is passed through untouched.
+
+An entry in a list whose source is `null` is **left out** of that list. That is what
+makes a reference optional: write it as an ordinary entry whose `from_file` (or
+`from_previous_result`) is a variable, declare the variable `null`, and a run that is
+given nothing for it generates exactly as it did before the reference existed — one
+workflow serving both, instead of two spellings of the same steps. It applies to
+`from_file`, `from_previous_result` and `from_arguments` alike. On its own rather than
+in a list there is nothing to leave it out of, so a null source there is an error.
 
 Any other key goes wherever the type can take it: to `from_file()` where its signature
 names it, and onto the object it returns where it does not. That is what corrects a

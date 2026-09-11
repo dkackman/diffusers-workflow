@@ -123,7 +123,8 @@ class TestTaskDispatch:
             }
         )
 
-        assert result.shape == (200, 2)
+        assert result.audio.shape == (2, 200)
+        assert result.sample_rate == 100
 
     def test_crossfade_audio_runs_through_task(self):
         task = Task({"command": "crossfade_audio", "arguments": {}}, "cpu")
@@ -139,7 +140,7 @@ class TestTaskDispatch:
             }
         )
 
-        assert result.shape == (390, 2)
+        assert result.audio.shape == (2, 390)
 
 
 class TestAudioBleed:
@@ -275,7 +276,8 @@ class TestResampleAudioTask:
             }
         )
 
-        assert result.shape == (32000, 2)
+        assert result.audio.shape == (2, 32000)
+        assert result.sample_rate == 32000
 
 
 class TestVideoFiles:

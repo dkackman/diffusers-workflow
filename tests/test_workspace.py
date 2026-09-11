@@ -184,6 +184,42 @@ class TestNamedWorkspaces:
         assert not os.path.exists(created.root)
 
 
+class TestSharedAssetLibrary:
+    """One asset library under the root, reachable from every workspace -
+    the prompt library's treatment applied to a recurring cast, which
+    belongs to no one workspace."""
+
+    def test_it_hangs_off_the_root(self, tmp_path):
+        root = Workspace(tmp_path / "studio", FLAG)
+
+        assert root.common_assets == os.path.join(root.root, "common", "assets")
+
+    def test_a_named_workspace_points_back_at_the_root_s(self, tmp_path):
+        from dw.workspace import named_workspace
+
+        root = Workspace(tmp_path / "studio", FLAG)
+        named = named_workspace(root, "episode-four")
+
+        assert named.assets == os.path.join(named.root, "assets")
+        assert named.common_assets == root.common_assets
+
+    def test_it_is_not_a_name_a_workspace_can_take(self, tmp_path):
+        from dw.workspace import create_workspace, workspace_names
+        from dw.security import InvalidInputError
+
+        root = Workspace(tmp_path / "studio", FLAG).ensure()
+        os.makedirs(root.common_assets)
+
+        with pytest.raises(InvalidInputError):
+            create_workspace(root, "common")
+        assert workspace_names(root) == ["default"]
+
+    def test_it_is_named_in_the_description_a_client_reads(self, tmp_path):
+        root = Workspace(tmp_path / "studio", FLAG)
+
+        assert root.describe()["common_assets"] == root.common_assets
+
+
 class TestPromptLibraryPrecedence:
     """get_prompt_dir's older rules stay ahead of an inferred workspace and
     behind a named one."""

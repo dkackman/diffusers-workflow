@@ -73,8 +73,15 @@ unchanged. A job carries its own `output_dir`, `asset_dir` and `workflow_dir`
 (`JobManager.submit`), so it stays in its workspace whatever the manager serves
 next; the worker activates the asset root per job (`activate_asset_dir`), which
 is the one root that could not stay process-wide. `jobs.sqlite` has a
-`workspace` column, backfilled to `default`. Reserved names: `workflows`,
-`prompts`, `assets`, `outputs`.
+`workspace` column, backfilled to `default`. `common/assets` at the root is
+the one asset library every workspace shares - assets are otherwise per
+workspace, which is wrong for a recurring cast a later workspace still has to
+reach. It sits on every workspace's asset search path behind that workspace's
+own library (so a workspace name shadows a shared one), is tagged `origin:
+common` by `GET /api/assets`, and is written to only when a call says so
+(`?shared=true` on uploads, `"shared": true` on keep, `shared=True` over MCP).
+Reserved names: `workflows`, `prompts`, `assets`, `outputs`, `exports`,
+`common`.
 
 ### Workflow sources
 

@@ -1136,6 +1136,61 @@ def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
         assert still["media"] is None
 
 
+def test_workflow_variables_answer_without_the_whole_definition(server, tmp_path):
+    """Confirming what a variable defaults to meant fetching the entire
+    workflow - quantization blocks and all - to read one integer."""
+    workflow = {
+        "id": "Variables",
+        "variables": {
+            "audio_bleed_ms": 1800,
+            "seam_fade_ms": None,
+            "prompt": "x" * 500,
+        },
+        "seed": 42,
+        "steps": [],
+    }
+    (tmp_path / "workflows" / "cut.json").write_text(json.dumps(workflow))
+
+    with server(success_script) as client:
+        body = client.get("/api/workflows/cut/variables").json()
+
+        assert body["variables"]["audio_bleed_ms"] == 1800
+        assert body["variables"]["seam_fade_ms"] is None
+        assert body["seed"] == 42
+        # a kilobyte of prompt is not what the question was about
+        assert body["truncated"] == ["prompt"]
+        assert len(body["variables"]["prompt"]) == 200
+
+        whole = client.get("/api/workflows/cut/variables?full=true").json()
+        assert whole["truncated"] == []
+        assert len(whole["variables"]["prompt"]) == 500
+
+        assert client.get("/api/workflows/ghost/variables").status_code == 404
+
+
+def test_gallery_metadata_reports_a_level_envelope_on_request(server, tmp_path):
+    """Per-second level is opt-in: the default answer stays small, and
+    `envelope=true` says where in the track the level sits."""
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=3.0)
+
+        plain = client.get("/api/gallery/score-gen.0-0.0.wav/metadata").json()
+        assert "envelope" not in plain["media"]
+
+        detailed = client.get(
+            "/api/gallery/score-gen.0-0.0.wav/metadata", params={"envelope": "true"}
+        ).json()
+        envelope = detailed["media"]["envelope"]
+        assert envelope["interval_seconds"] == 1.0
+        assert len(envelope["rms_dbfs"]) == 3
+        assert max(envelope["peak_dbfs"]) == pytest.approx(
+            detailed["media"]["peak_dbfs"], abs=0.01
+        )
+
+
 def test_gallery_metadata_survives_a_damaged_track(server, tmp_path):
     """A track that opens fine but fails partway through decode (damage
     past the header) must not 500 the metadata route - it should fall back
@@ -1435,6 +1490,48 @@ def test_upload_media_lands_in_the_asset_library(asset_server, tmp_path):
         fetched = client.get(body["url"])
         assert fetched.status_code == 200
         assert fetched.content == b"not-really-png-bytes"
+
+
+def test_an_upload_can_be_given_a_readable_name(asset_server, tmp_path):
+    """A recurring cast stored as 'uploads/084eaecc....wav' cannot be told
+    apart in the workflows that carry it - asset_name is what makes the
+    reference say who it is."""
+    with asset_server(success_script) as client:
+        response = client.post(
+            "/api/uploads",
+            params={"filename": "clip-01.wav", "asset_name": "cast/priya-voice"},
+            content=b"not-really-wav-bytes",
+        )
+        assert response.status_code == 201
+        assert response.json()["path"] == "asset:uploads/cast/priya-voice.wav"
+        stored = tmp_path / "assets" / "uploads" / "cast" / "priya-voice.wav"
+        assert stored.read_bytes() == b"not-really-wav-bytes"
+
+        # the extension may be spelled out, and must match what was uploaded
+        named = client.post(
+            "/api/uploads",
+            params={"filename": "clip-02.wav", "asset_name": "cast/hal-voice.wav"},
+            content=b"more-bytes",
+        )
+        assert named.json()["path"] == "asset:uploads/cast/hal-voice.wav"
+
+        mismatched = client.post(
+            "/api/uploads",
+            params={"filename": "clip-03.wav", "asset_name": "cast/hal.png"},
+            content=b"more-bytes",
+        )
+        assert mismatched.status_code == 400
+
+
+def test_an_upload_name_cannot_climb_out_of_the_library(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        response = client.post(
+            "/api/uploads",
+            params={"filename": "clip.wav", "asset_name": "../../escaped.wav"},
+            content=b"bytes",
+        )
+        assert response.status_code == 400
+        assert not (tmp_path / "escaped.wav").exists()
 
 
 def test_the_asset_library_does_not_shadow_the_spa(tmp_path):

@@ -28,6 +28,10 @@ logger = logging.getLogger("dw")
 WORKSPACE_ORIGIN = "workspace"
 EXAMPLES_ORIGIN = "examples"
 BUILTIN_ORIGIN = "builtin"
+# Not a workflow source - the asset library shared by every workspace under
+# one root reports itself this way, so a client can tell a shared asset from
+# one of its own
+COMMON_ORIGIN = "common"
 
 
 def builtin_root():

@@ -198,6 +198,15 @@ def _handle_crossfade_audio(task, arguments, previous_pipelines):
     return crossfade_audio(**arguments)
 
 
+@register_command("loop_audio", implementation="dw.tasks.audio_utils.loop_audio")
+def _handle_loop_audio(task, arguments, previous_pipelines):
+    """Loop a short recording into a bed of a given length"""
+    logger.debug("Looping audio")
+    from .audio_utils import loop_audio
+
+    return loop_audio(**arguments)
+
+
 @register_command(
     "stabilize_video", implementation="dw.tasks.stabilize.stabilize_video"
 )
@@ -216,6 +225,15 @@ def _handle_mix_audio(task, arguments, previous_pipelines):
     from .audio_utils import mix_audio
 
     return mix_audio(**arguments)
+
+
+@register_command("compose_text", implementation="dw.tasks.compose_text.compose_text")
+def _handle_compose_text(task, arguments, previous_pipelines):
+    """Join parts written once into one block of text"""
+    logger.debug("Composing text")
+    from .compose_text import compose_text
+
+    return compose_text(**arguments)
 
 
 @register_command(

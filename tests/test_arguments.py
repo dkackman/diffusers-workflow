@@ -485,6 +485,57 @@ class TestRealizeObject:
 
             assert isinstance(args["reference"], Reference)
 
+    def test_an_optional_reference_with_no_media_leaves_the_list(self):
+        """A voice a workflow was given nothing for is a null variable. The
+        entry drops out rather than reaching the pipeline as a reference
+        with no media in it - which is what lets one workflow serve a run
+        with the voice and a run without, instead of two spellings of it."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = os.path.join(temp_dir, "subject.png")
+            Image.new("RGB", (10, 10)).save(image_path)
+
+            args = {
+                "references": [
+                    self.reference_argument(image_path),
+                    self.reference_argument(None),
+                ]
+            }
+            realize_args(args)
+
+            assert len(args["references"]) == 1
+            assert isinstance(args["references"][0], Reference)
+
+    def test_an_optional_reference_can_be_the_only_one(self):
+        args = {"references": [self.reference_argument(None)]}
+        realize_args(args)
+
+        assert args["references"] == []
+
+    def test_a_deferred_reference_with_no_step_leaves_the_list_too(self):
+        args = {
+            "references": [
+                {"reference_type": Reference, "from_previous_result": None},
+            ]
+        }
+        realize_args(args)
+
+        assert args["references"] == []
+
+    def test_an_object_argument_on_its_own_cannot_be_left_out(self):
+        """There is nothing to leave it out of - and silently passing None
+        where an object was named would fail later, somewhere less clear."""
+        args = {"reference": self.reference_argument(None)}
+
+        with pytest.raises(ValueError, match="null"):
+            realize_args(args)
+
+    def test_a_dict_with_no_source_key_is_not_an_omission(self):
+        # Only a source key that is present *and* null means omitted
+        args = {"reference": {"reference_type": Reference, "location": None}}
+        realize_args(args)
+
+        assert args["reference"] == {"reference_type": Reference, "location": None}
+
     def test_without_a_type_the_dict_is_left_untouched(self):
         # A dict that merely contains a 'from_file' key is not an object
         # description - it belongs to whatever consumes it

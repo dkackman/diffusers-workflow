@@ -76,6 +76,7 @@ from ..workspace import (
     workspace_usage,
 )
 from ..workflow_sources import (
+    COMMON_ORIGIN,
     EXAMPLES_ORIGIN,
     WORKSPACE_ORIGIN,
     find_workflow,
@@ -1302,6 +1303,10 @@ def create_app(
 
     # ------------------------------------------------------------- workflows
 
+    # How much of a long variable default the variables route shows before
+    # cutting it: enough to recognize a prompt by, far short of carrying one
+    VARIABLE_VALUE_PREVIEW = 200
+
     @app.get("/api/workflows")
     def list_workflows(
         ws: Workspace = Depends(selected_workspace),
@@ -1420,6 +1425,52 @@ def create_app(
         return FileResponse(
             path, filename=os.path.basename(path), media_type="application/json"
         )
+
+    # Declared before the catch-all below, which would otherwise swallow
+    # '<name>/variables' as a workflow called that
+    @app.get("/api/workflows/{name:path}/variables")
+    def get_workflow_variables(
+        name: str, full: bool = False, ws: Workspace = Depends(selected_workspace)
+    ):
+        """A workflow's variables and the values they default to.
+
+        The listing says which variables a workflow has; confirming what one
+        of them defaults to meant fetching the whole definition, quantization
+        blocks and all, to read a single integer. This answers that question
+        by itself.
+
+        Long defaults - a shot's prompt runs to kilobytes - are cut to their
+        first 200 characters and named in `truncated`, so the answer stays
+        small for the numbers and names it is usually asked about; `full=true`
+        returns them whole, and `GET /api/workflows/{name}` is still the
+        definition itself.
+        """
+        path, source = resolve_readable_workflow(_sources_for(ws), name)
+        try:
+            with open(path, "r") as file:
+                definition = json.load(file)
+        except (OSError, json.JSONDecodeError) as e:
+            raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
+
+        variables = definition.get("variables") or {}
+        values, truncated = {}, []
+        for variable, value in variables.items():
+            if (
+                not full
+                and isinstance(value, str)
+                and len(value) > VARIABLE_VALUE_PREVIEW
+            ):
+                values[variable] = value[:VARIABLE_VALUE_PREVIEW]
+                truncated.append(variable)
+            else:
+                values[variable] = value
+        return {
+            "name": name,
+            "variables": values,
+            "truncated": truncated,
+            "seed": definition.get("seed"),
+            "origin": source.origin,
+        }
 
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str, ws: Workspace = Depends(selected_workspace)):
@@ -1666,13 +1717,23 @@ def create_app(
             cache[root] = files
         return files
 
+    def _common_assets(ws):
+        """The library every workspace under this root shares, or None.
+
+        A recurring cast is not the property of the workspace that first
+        uploaded it, and a fresh workspace could not see it at all - the
+        prompt library has been shared from the start for the same reason.
+        """
+        return getattr(ws, "common_assets", None)
+
     def _asset_roots(ws):
         """The asset search path of one workspace: its own library, then the
-        read-only ones an --examples-dir tree brought with it. The same order
-        'asset:' resolves in (dw/assets.asset_search_path), so what the
-        browser lists is what a job would load."""
+        one shared by every workspace under this root, then the read-only
+        ones an --examples-dir tree brought with it. The same order 'asset:'
+        resolves in (dw/assets.asset_search_path), so what the browser lists
+        is what a job would load."""
         roots = []
-        for root in [ws.assets, *app.state.example_asset_dirs]:
+        for root in [ws.assets, _common_assets(ws), *app.state.example_asset_dirs]:
             if not root:
                 continue
             root = os.path.abspath(root)
@@ -1701,7 +1762,7 @@ def create_app(
         if not asset_dir:
             return _asset_roots(ws)
         roots = []
-        for root in [asset_dir, *app.state.example_asset_dirs]:
+        for root in [asset_dir, _common_assets(ws), *app.state.example_asset_dirs]:
             if not root:
                 continue
             root = os.path.abspath(root)
@@ -1819,12 +1880,22 @@ def create_app(
         }
 
     @app.get("/api/gallery/{name:path}/metadata")
-    def gallery_metadata(name: str, ws: Workspace = Depends(selected_workspace)):
+    def gallery_metadata(
+        name: str,
+        envelope: bool = False,
+        ws: Workspace = Depends(selected_workspace),
+    ):
         """Generation metadata embedded in a saved image ('workflow' inside
         it is the full definition the editor can reopen), plus the job that
         produced the file when history remembers one, plus - for audio and
         video - what the file itself holds: duration, format and level,
-        which is how an agent that cannot listen checks a track."""
+        which is how an agent that cannot listen checks a track.
+
+        `envelope=true` adds the soundtrack's level second by second, which
+        is what says *where* in a track something is - whether a shot is
+        still voiced at its last frame, how deep the hole at a seam goes.
+        Opt-in: a ten-minute track is 600 numbers, and the default call has
+        to stay small."""
         path = _output_file(name, ws.outputs)
         metadata = read_embedded_metadata(path)
         try:
@@ -1836,7 +1907,7 @@ def create_app(
             job = None
         extension = os.path.splitext(path)[1].lower()
         media = (
-            probe_media(path)
+            probe_media(path, envelope=envelope)
             if MEDIA_KINDS.get(extension) in ("audio", "video")
             else None
         )
@@ -1957,7 +2028,11 @@ def create_app(
 
     @app.post("/api/uploads", status_code=201)
     async def upload_media(
-        request: Request, filename: str, ws: Workspace = Depends(selected_workspace)
+        request: Request,
+        filename: str,
+        asset_name: Optional[str] = None,
+        shared: bool = False,
+        ws: Workspace = Depends(selected_workspace),
     ):
         """Save a browser-picked image, video or audio file into the asset library's
         uploads/ subfolder and hand back the reference a workflow argument
@@ -1970,6 +2045,19 @@ def create_app(
         keeps the old behavior, writing to the output directory's uploads/
         and returning an absolute path. The body is the raw file bytes: no
         multipart parser dependency needed for a single-file upload.
+
+        `asset_name` stores it under a name of the caller's choosing -
+        'cast/priya-voice.wav' rather than the random one a browser upload
+        gets - which is what makes a recurring cast's references readable
+        in every workflow that carries them. It may name a folder, is
+        confined to the library the way `keep_output`'s is, and takes the
+        uploaded file's extension when it has none of its own. Without it
+        the name stays random, so two uploads of the same file never
+        collide.
+
+        `shared` puts it in the library every workspace under this root
+        shares rather than in this workspace's own - a recurring cast that
+        episode four, in a workspace of its own, still has to reach.
         """
         extension = os.path.splitext(os.path.basename(filename))[1].lower()
         if extension not in ALLOWED_UPLOAD_EXTENSIONS:
@@ -1995,27 +2083,66 @@ def create_app(
             )
 
         library = ws.assets or ws.outputs
+        if shared:
+            library = _common_assets(ws)
+            if not library:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This server has no shared asset library - it was "
+                    "configured from loose directories rather than a workspace "
+                    "root, so there is nothing for an asset to be common to",
+                )
         uploads_dir = os.path.join(library, UPLOADS_SUBDIR)
-        os.makedirs(uploads_dir, exist_ok=True)
         name = f"{uuid.uuid4().hex}{extension}"
+        if asset_name:
+            name = asset_name
+            if not os.path.splitext(name)[1]:
+                name = f"{name}{extension}"
+            try:
+                # The same check the keep route makes: a name, possibly with
+                # folders in it, that cannot climb out of the library
+                name = validate_asset_reference(name)
+            except SecurityError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            if os.path.splitext(name)[1].lower() != extension:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"asset_name {asset_name!r} does not match the "
+                    f"uploaded file's kind ({extension})",
+                )
+        os.makedirs(uploads_dir, exist_ok=True)
         try:
             dest = validate_output_path(os.path.join(uploads_dir, name), uploads_dir)
         except SecurityError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
 
         # Off the event loop: a 200 MB write would otherwise stall every SSE
         # stream and poll for its duration
         await run_in_threadpool(_write_bytes, dest, body)
         logger.info(f"Saved upload {filename!r} -> {dest}")
-        if ws.assets:
+        if shared or ws.assets:
             return {
                 "path": f"asset:{UPLOADS_SUBDIR}/{name}",
                 "url": _served_url(f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
+                "shared": shared,
             }
         return {
             "path": dest,
             "url": _served_url(f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
         }
+
+    def _asset_origin(ws, index, root):
+        """Which library an asset came from: this workspace's own, the one
+        shared by every workspace under the root, or a read-only examples
+        tree. A client that cannot tell them apart cannot say why deleting
+        one answers 403."""
+        if index == 0:
+            return WORKSPACE_ORIGIN
+        common = _common_assets(ws)
+        if common and os.path.abspath(common) == root:
+            return COMMON_ORIGIN
+        return EXAMPLES_ORIGIN
 
     @app.get("/api/assets")
     def list_assets(ws: Workspace = Depends(selected_workspace)):
@@ -2058,7 +2185,7 @@ def create_app(
                         "kind": kind,
                         "size": stat.st_size,
                         "mtime": stat.st_mtime,
-                        "origin": WORKSPACE_ORIGIN if index == 0 else EXAMPLES_ORIGIN,
+                        "origin": _asset_origin(ws, index, root),
                         # For the editor's own preview - fetchable the same
                         # way an upload's URL is
                         "url": _served_url(f"/inputs/{quote(relative)}", ws),
@@ -2085,6 +2212,11 @@ def create_app(
         overwrite: bool = Field(
             default=False, description="Replace an asset already under that name"
         )
+        shared: bool = Field(
+            default=False,
+            description="Keep it in the library every workspace under this "
+            "root shares, rather than in this workspace's own",
+        )
 
     @app.post("/api/assets/keep", status_code=201)
     def keep_output_as_asset(
@@ -2104,10 +2236,15 @@ def create_app(
         multi-gigabyte video to reuse one frame would be paying for the
         round trip twice.
         """
-        library = ws.assets
+        library = _common_assets(ws) if request.shared else ws.assets
         if not library:
             raise HTTPException(
-                status_code=409, detail="This workspace has no asset library"
+                status_code=409,
+                detail=(
+                    "This server has no shared asset library"
+                    if request.shared
+                    else "This workspace has no asset library"
+                ),
             )
 
         source = _output_file(request.name, ws.outputs)
@@ -2145,6 +2282,7 @@ def create_app(
             "name": asset_name,
             "path": destination,
             "linked": linked,
+            "shared": bool(request.shared),
         }
 
     # ----------------------------------------------------------------- models

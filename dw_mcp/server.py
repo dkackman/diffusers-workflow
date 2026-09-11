@@ -178,11 +178,16 @@ def build_server(client):
             include_models=include_models,
         )
 
-    def get_workflow(name: str) -> dict:
+    def get_workflow(name: str, variables_only: bool = False) -> dict:
         """Get one stored workflow's full JSON definition, by a name from
         `list_workflows`. Read one before editing it, and to learn the
-        idioms this installation actually uses."""
-        return catalog.get_workflow(client, name)
+        idioms this installation actually uses. Pass
+        `variables_only=true` when the question is only what a variable
+        defaults to - it answers with the variables and their values and
+        nothing else, which is a fraction of the definition; long defaults
+        (a shot's prompt) come back cut to 200 characters with the cut ones
+        named in `truncated`."""
+        return catalog.get_workflow(client, name, variables_only=variables_only)
 
     def get_schema() -> dict:
         """Get the JSON schema every workflow definition must satisfy - the
@@ -284,15 +289,21 @@ def build_server(client):
         name."""
         return catalog.list_gallery(client, limit=limit)
 
-    def get_gallery_metadata(name: str) -> dict:
+    def get_gallery_metadata(name: str, envelope: bool = False) -> dict:
         """Get the metadata embedded in a generated file: the exact
         workflow, arguments and seed that produced it. Use this to
         reproduce a result, or to see what a run that went wrong actually
         ran - it is the definition, not a summary, so it can be edited and
         re-run. For audio and video the `media` block carries duration,
         sample rate, channels, fps, size and level - the checks an agent
-        that cannot listen makes on a deliverable."""
-        return catalog.get_gallery_metadata(client, name)
+        that cannot listen makes on a deliverable. `envelope=true` adds
+        that level second by second (`media.envelope.rms_dbfs` /
+        `peak_dbfs`, one entry per second), which is what says *where* in a
+        track something is: whether a shot is still sounding at its last
+        frame, how deep the hole at a seam goes, where a score goes quiet.
+        Leave it off unless you are asking a question about a position in
+        the track - a long track is a long list."""
+        return catalog.get_gallery_metadata(client, name, envelope=envelope)
 
     def list_guides() -> dict:
         """List the documentation the engine serves: each guide's
@@ -417,18 +428,32 @@ def build_server(client):
         a file: what a workflow needs may already be there."""
         return assets.list_assets(client)
 
-    def upload_asset(file_path: str) -> dict:
+    def upload_asset(
+        file_path: str, asset_name: str | None = None, shared: bool = False
+    ) -> dict:
         """Put a local image, video or audio file into the server's asset
         library and get back the "asset:" reference to use in a workflow.
         The file is read from the machine this MCP server runs on and
         pushed to the engine, so it is how an input reaches a dw.serve
         running somewhere else. Accepts the usual image, video and audio
         extensions, up to 200MB. Reference the result rather than a path: a
-        path on this machine means nothing to the server."""
-        return assets.upload_asset(client, file_path)
+        path on this machine means nothing to the server. Pass `asset_name`
+        to store it under a readable name ("cast/priya-voice.wav", folders
+        allowed, the file's extension assumed) - without one the stored
+        name is random, and a set of related inputs cannot be told apart in
+        the workflows that carry them. Pass `shared=true` to put it in the
+        library every workspace shares rather than this session's own -
+        where a recurring cast belongs, since a workspace's own assets are
+        invisible from the next workspace."""
+        return assets.upload_asset(
+            client, file_path, asset_name=asset_name, shared=shared
+        )
 
     def keep_output(
-        name: str, asset_name: str | None = None, overwrite: bool = False
+        name: str,
+        asset_name: str | None = None,
+        overwrite: bool = False,
+        shared: bool = False,
     ) -> dict:
         """Keep a generated file as an input asset under a stable "asset:"
         name, so later workflows can rely on it - a run's own name moves
@@ -436,9 +461,11 @@ def build_server(client):
         between a render you liked and the next stage that conditions on
         it. `name` is a gallery name; `asset_name` defaults to the file's
         own. The copy happens on the server, inside the workspace: nothing
-        is downloaded or re-uploaded."""
+        is downloaded or re-uploaded. Pass `shared=true` to keep it in the
+        library every workspace shares instead - where something a later
+        piece in its own workspace has to reach belongs."""
         return assets.keep_output(
-            client, name, asset_name=asset_name, overwrite=overwrite
+            client, name, asset_name=asset_name, overwrite=overwrite, shared=shared
         )
 
     tool(list_assets, READ_ONLY)
@@ -450,7 +477,11 @@ def build_server(client):
     def list_workspaces() -> dict:
         """List the server's workspaces and say which one this session is
         working in. Each has its own workflows, assets and outputs; the
-        stored prompt library is shared by all of them."""
+        stored prompt library is shared by all of them, and so is the
+        shared asset library that `upload_asset(shared=true)` and
+        `keep_output(shared=true)` write into - which is how a recurring
+        cast stays reachable from the workspace the next piece is made
+        in."""
         return workspaces.list_workspaces(client)
 
     def use_workspace(name: str) -> dict:

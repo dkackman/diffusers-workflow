@@ -40,6 +40,10 @@ def scripted(routes):
     [
         (lambda c: catalog.list_workflows(c), "/api/workflows"),
         (lambda c: catalog.get_workflow(c, "folder/w"), "/api/workflows/folder/w"),
+        (
+            lambda c: catalog.get_workflow(c, "folder/w", variables_only=True),
+            "/api/workflows/folder/w/variables",
+        ),
         (lambda c: catalog.get_schema(c), "/api/schema"),
         (lambda c: catalog.list_pipelines(c), "/api/pipelines"),
         (
