@@ -23,9 +23,7 @@ def validate_workflow(client, workflow=None, name=None, workspace=None):
     if workflow is None:
         # The server resolves the name against its own workflow directory,
         # so validation sees the same base directory a run would
-        return client.post_json(
-            "/api/validate", {"workflow_path": name}, params=params
-        )
+        return client.post_json("/api/validate", {"workflow_path": name}, params=params)
     return client.post_json("/api/validate", {"workflow": workflow}, params=params)
 
 

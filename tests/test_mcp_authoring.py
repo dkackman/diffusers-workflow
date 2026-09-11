@@ -112,7 +112,9 @@ def test_validate_returns_an_invalid_verdict_rather_than_raising():
 
 
 def test_validate_can_name_a_workspace_for_one_request():
-    client, seen = scripted_with_params({("POST", "/api/validate"): (200, {"valid": True})})
+    client, seen = scripted_with_params(
+        {("POST", "/api/validate"): (200, {"valid": True})}
+    )
 
     authoring.validate_workflow(client, name="w", workspace="dialogue-short")
 
