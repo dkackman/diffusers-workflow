@@ -100,6 +100,34 @@ def get_job_events(client, job_id, after=-1, limit=200):
     )
 
 
+_SLIM_KEYS = (
+    "id",
+    "workflow_name",
+    "status",
+    "created_at",
+    "started_at",
+    "finished_at",
+    "workspace",
+    "run_id",
+    "warnings",
+    "error",
+    "event_count",
+)
+
+
+def slim_job(job):
+    """A job row without its arguments and traceback - what a poll needs.
+
+    The arguments of an H3 workflow are thousands of tokens of prompt text,
+    repeated on every poll of a long render; get_job serves them once. The
+    manifest is kept only once the job is terminal, when it names files.
+    """
+    slim = {key: job.get(key) for key in _SLIM_KEYS if key in job}
+    if job.get("status") in TERMINAL_STATUSES:
+        slim["manifest"] = job.get("manifest")
+    return slim
+
+
 def wait_for_job(client, job_id, timeout_seconds=20):
     """Block until a job reaches a terminal status, or `timeout_seconds`
     elapses - a bounded alternative to polling `get_job`/`get_job_events` by
@@ -111,7 +139,9 @@ def wait_for_job(client, job_id, timeout_seconds=20):
     so this never blocks past a budget kept well under that. Returns as
     soon as the job's status is succeeded, failed or cancelled. If the
     timeout elapses first, returns the job's last-seen status with
-    `still_running: true` instead of hanging - call again to keep waiting."""
+    `still_running: true` instead of hanging - call again to keep waiting.
+    Returns a slim job - status, warnings, error, and the manifest once
+    finished - without the arguments; get_job has those."""
     timeout_seconds = max(0.0, min(float(timeout_seconds), MAX_WAIT_SECONDS))
     deadline = time.monotonic() + timeout_seconds
     while True:
@@ -122,7 +152,9 @@ def wait_for_job(client, job_id, timeout_seconds=20):
                 "job_id": job_id,
                 "status": status,
                 "still_running": False,
-                "job": job,
+                "job": slim_job(job),
+                "next": "get_job(job_id) for the arguments and traceback, "
+                "get_job_workflow(job_id) for the realized workflow.",
             }
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -130,7 +162,7 @@ def wait_for_job(client, job_id, timeout_seconds=20):
                 "job_id": job_id,
                 "status": status,
                 "still_running": True,
-                "job": job,
+                "job": slim_job(job),
                 "next": "Call wait_for_job again, or get_job_events for "
                 "incremental progress.",
             }

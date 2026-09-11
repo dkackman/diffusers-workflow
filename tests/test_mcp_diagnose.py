@@ -334,6 +334,52 @@ def test_wait_for_job_does_not_require_acknowledged_cost():
     assert result["status"] == "succeeded"
 
 
+FAT_JOB = {
+    "id": "job-1",
+    "workflow_name": "minimax/dialogue-short",
+    "status": "running",
+    "created_at": 1.0,
+    "started_at": 2.0,
+    "finished_at": None,
+    "workspace": "default",
+    "run_id": None,
+    "arguments": {"shot_1_cold_open": "x" * 6000},
+    "warnings": [],
+    "manifest": None,
+    "error": None,
+    "traceback": None,
+    "event_count": 12,
+    "run_dir": None,
+}
+
+
+def test_wait_for_job_does_not_echo_the_arguments_on_every_poll(monkeypatch):
+    """An H3 workflow's arguments are 4-6k tokens of prompt text; a
+    45-minute render is polled many times. They are get_job's to serve,
+    once."""
+    monkeypatch.setattr(diagnose, "MAX_WAIT_SECONDS", 0)
+    client, _ = scripted({("GET", "/api/jobs/job-1"): (200, FAT_JOB)})
+
+    result = diagnose.wait_for_job(client, "job-1", timeout_seconds=0)
+
+    assert result["still_running"] is True
+    assert "arguments" not in result["job"]
+    assert "traceback" not in result["job"]
+    assert result["job"]["status"] == "running"
+    assert result["job"]["event_count"] == 12
+
+
+def test_wait_for_job_keeps_the_manifest_and_error_once_terminal(monkeypatch):
+    done = {**FAT_JOB, "status": "failed", "manifest": {"steps": []}, "error": "boom"}
+    client, _ = scripted({("GET", "/api/jobs/job-1"): (200, done)})
+
+    result = diagnose.wait_for_job(client, "job-1")
+
+    assert result["job"]["manifest"] == {"steps": []}
+    assert result["job"]["error"] == "boom"
+    assert "arguments" not in result["job"]
+
+
 class TestGetJobWorkflow:
     def test_a_realized_workflow_comes_back_with_the_flag_set(self):
         client, seen = scripted(

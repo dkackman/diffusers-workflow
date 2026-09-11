@@ -637,7 +637,9 @@ def build_server(client):
         first - returns its current status with still_running: true so you
         can call again. Does not queue anything, so no acknowledged_cost.
         timeout_seconds is capped well under a generation's real runtime;
-        call it repeatedly for a long job."""
+        call it repeatedly for a long job. Returns a slim job - status,
+        warnings, error, and the manifest once finished - without the
+        arguments; get_job has those."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     def cancel_job(job_id: str) -> dict:
