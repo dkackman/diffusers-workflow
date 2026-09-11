@@ -121,6 +121,94 @@ def test_a_database_without_the_columns_is_migrated(tmp_path):
     assert row["run_id"] is None and row["run_dir"] is None
 
 
+def _for_each_workflow(**overrides):
+    """Copied from tests/test_workflow.py's helper of the same name (Task 5) -
+    not imported across test modules, per that task's convention."""
+    definition = {
+        "id": "fe",
+        "variables": {"shots": [{"name": "a", "text": "A"}, {"name": "b", "text": "B"}]},
+        "steps": [
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "task": {"command": "compose_text", "arguments": {"parts": ["item:text"]}},
+                "result": {"content_type": "text/plain"},
+            },
+            {
+                "name": "edit",
+                "task": {"command": "compose_text", "arguments": {"parts": "gather:shot"}},
+                "result": {"content_type": "text/plain"},
+            },
+        ],
+    }
+    definition.update(overrides)
+    return definition
+
+
+def for_each_script(command):
+    """Runs the real Workflow.run() in-process - the actual for_each
+    expansion and compose_text execution, not a canned response - standing
+    in for the spawned worker process the way this file's other scripts do
+    (ScriptedWorkerManager replaces the process, not the workflow code)."""
+    from dw.workflow import workflow_from_definition
+
+    workflow = workflow_from_definition(
+        command["workflow"],
+        command["output_dir"],
+        command["base_dir"],
+        command.get("workflow_dir"),
+    )
+    # Mirrors dw/worker.py's _handle_execute: validated against the
+    # defaults first, then run() substitutes and expands the real arguments.
+    workflow.validate()
+    workflow.run(command["arguments"], {})
+    yield {
+        "type": "success",
+        "message": "ok",
+        "run_count": 1,
+        "manifest": workflow.manifest,
+    }
+
+
+def test_a_for_each_job_expands_and_runs_through_the_server_job_path(tmp_path):
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(for_each_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        job = manager.submit(
+            workflow=_for_each_workflow(),
+            base_dir=None,
+            arguments={
+                "shots": [
+                    {"name": "one", "text": "1"},
+                    {"name": "two", "text": "2"},
+                    {"name": "three", "text": "3"},
+                ]
+            },
+        )
+        deadline = time.time() + 5
+        while job.status not in TERMINAL_STATES and time.time() < deadline:
+            time.sleep(0.01)
+        assert job.status == "succeeded", job.error
+        assert [entry["step"] for entry in job.manifest] == [
+            "shot@one",
+            "shot@two",
+            "shot@three",
+            "edit",
+        ]
+
+        edit_files = job.manifest[-1]["files"]
+        assert len(edit_files) == 1
+        edit_path = tmp_path / "outputs" / edit_files[0]
+        # compose_text's default separator is a blank line
+        assert edit_path.read_text() == "1\n\n2\n\n3"
+    finally:
+        manager.shutdown()
+
+
 def failing_script(command):
     """A run that writes a file, then dies on the next step - the shape of a
     dialogue-short whose last step names a renamed one (T015)."""

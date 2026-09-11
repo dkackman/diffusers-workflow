@@ -1,10 +1,8 @@
 # Proposal: list-driven steps (`for_each`)
 
-Status: **needs approval**, revised 2026-09-11 after review. Written for MCP
-feedback ticket T003; nothing here is implemented. The review found that the
-first draft could not express either target template - `music-video` pairs a
-slice step with a shot step per entry, and `dialogue-short`'s per-shot
-reference lists vary in length - and the shape below is amended for both.
+Status: **stage 1 implemented** (expansion pass, validation, schema, docs -
+`dw/for_each.py`); stages 2 and 3 (templates, catalog cost and entry shape)
+not started. Written for MCP feedback ticket T003.
 
 ## The ask, as filed
 
