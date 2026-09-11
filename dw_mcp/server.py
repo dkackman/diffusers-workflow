@@ -680,14 +680,15 @@ def build_server(client):
         rather than linking them, so a video job's export costs its size
         again on the server's disk; `total_bytes` in the result reports
         what was copied. Returns the directory, a zip URL, the file list
-        with sizes and the total, and the three JSON files inline. THE
-        DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours. To give
-        the user the files, fetch the zip URL and unpack it into exports/
-        under the session's working directory - it is the user's deliverable,
-        not a temp file; the archive already unpacks into one folder named
-        after the job id, so do not create that folder first. Refuses a job
-        that is still running; refuses an existing export unless
-        overwrite=true."""
+        with sizes and the total. The three JSON files are in the zip, not
+        repeated here - get_job_workflow and get_job serve them individually.
+        THE DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours. To
+        give the user the files, fetch the zip URL and unpack it into
+        exports/ under the session's working directory - it is the user's
+        deliverable, not a temp file; the archive already unpacks into one
+        folder named after the job id, so do not create that folder first.
+        Refuses a job that is still running; refuses an existing export
+        unless overwrite=true."""
         return exports.export_job(client, job_id, overwrite=overwrite)
 
     tool(get_job, READ_ONLY)
