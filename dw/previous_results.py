@@ -6,6 +6,7 @@ from .arguments import (
     PREVIOUS_RESULT_PREFIX,
     build_objects,
 )
+from .for_each import render_path
 from .step_cache import reference_resolves_to
 
 logger = logging.getLogger("dw")
@@ -335,7 +336,7 @@ def previous_result_reference_errors(workflow_definition):
         for path, reference in sorted(found.items(), key=lambda item: str(item[0])):
             if any(reference_resolves_to(reference, name) for name in seen):
                 continue
-            location = _render_path(("steps", index) + path)
+            location = render_path(("steps", index) + path)
             errors.append(
                 {
                     "path": location,
@@ -370,16 +371,3 @@ def _collect_reference_paths(value, path, found):
             _collect_reference_paths(item, path + (index,), found)
     elif isinstance(value, str) and value.startswith(PREVIOUS_RESULT_PREFIX):
         found[path] = value[len(PREVIOUS_RESULT_PREFIX) :]
-
-
-def _render_path(path):
-    """'steps[3].task.arguments.videos[1]' - the same shape schema errors use."""
-    rendered = ""
-    for part in path:
-        if isinstance(part, int):
-            rendered += f"[{part}]"
-        elif rendered:
-            rendered += f".{part}"
-        else:
-            rendered = str(part)
-    return rendered
