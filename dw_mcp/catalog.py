@@ -100,9 +100,40 @@ def get_server_info(client):
     return client.get_json("/api/server")
 
 
-def list_jobs(client):
-    """The live queue plus recent history, oldest first."""
-    return client.get_json("/api/jobs")
+def list_jobs(client, limit=20, status=None, workspace=None):
+    """The live queue plus recent history, newest first and bounded.
+
+    Bounded because the unbounded answer was a dead tool: a server with a
+    few months of history spilled 176 entries past the client's tool-result
+    limit, and the call failed before a single id could be read
+    (2026-09-11). Newest first for the same reason the limit exists - the
+    job worth looking at is almost always the last one.
+
+    `total` is what matched before the cut, so a caller can tell a bounded
+    answer from a complete one; raise `limit` or narrow with `status` /
+    `workspace` to see the rest."""
+    params = {}
+    if limit is not None:
+        params["limit"] = limit
+    if status:
+        params["status"] = (
+            ",".join(status) if isinstance(status, (list, tuple)) else status
+        )
+    if workspace:
+        params["workspace"] = workspace
+    body = client.get_json("/api/jobs", params=params or None)
+    # The API answers oldest first - the order the web UI's list renders in.
+    # An agent reads the top of a tool result, so the newest job belongs there
+    jobs = list(reversed(body.get("jobs") or []))
+    total = body.get("total", len(jobs))
+    answer = {"jobs": jobs, "returned": len(jobs), "total": total}
+    if total > len(jobs):
+        answer["truncated"] = True
+        answer["next"] = (
+            f"{total - len(jobs)} older jobs were not listed - raise `limit`, "
+            "or narrow with `status` or `workspace`."
+        )
+    return answer
 
 
 def list_gallery(client, limit=50):

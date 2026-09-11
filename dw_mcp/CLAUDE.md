@@ -17,7 +17,13 @@ means something else to the engine), `use_workspace` to switch, and
 `DwClient._scoped` adds the selector to every request's query string so no
 handler carries a workspace parameter. The default sends nothing, so a
 session that never chooses looks exactly like one from before workspaces.
-`run_workflow` and `validate_workflow` are the two exceptions: each takes an
+`list_jobs` is bounded (newest 20) rather than complete: the unbounded
+listing spilled 176 entries past a client's tool-result limit and could not
+be called at all, so the tool asks the API for `limit`/`status`, reverses the
+oldest-first list the web UI polls, and reports `total` so a cut answer says
+it was cut, and it takes a `workspace` of its own to narrow by.
+`run_workflow` and `validate_workflow` are the other two handlers that carry
+one: each takes an
 optional per-call `workspace` that `_scoped`'s `setdefault` lets win over the
 session's, so one call can be pinned to a workspace other than the session's
 without switching it.

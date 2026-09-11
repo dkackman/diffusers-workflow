@@ -50,14 +50,20 @@ from ..introspection import (
     workflow_argument_warnings,
 )
 from ..schema import load_schema, validate_data, format_validation_errors
-from ..prompts import PROMPT_PREFIX, RESERVED_TEXT_PREFIXES
+from ..prompts import (
+    PROMPT_PREFIX,
+    RESERVED_TEXT_PREFIXES,
+    resolve_prompt_reference,
+)
+from ..assets import is_asset_reference, resolve_asset_reference
+from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
 from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..hub_cache import scan_models, delete_model, DownloadManager
-from ..runs import strip_run_id
+from ..runs import is_output_reference, resolve_output_reference, strip_run_id
 from ..workspace import (
     ASSETS_SUBDIR,
     DEFAULT_WORKSPACE_NAME,
@@ -87,7 +93,13 @@ from ..workflow_sources import (
     workflow_sources,
     writable_source,
 )
-from .jobs import JobManager, MAX_PERSISTED_EVENTS, TERMINAL_STATES
+from .jobs import (
+    JobManager,
+    MAX_PERSISTED_EVENTS,
+    QUEUED,
+    RUNNING,
+    TERMINAL_STATES,
+)
 from .netinfo import local_addresses
 from .updater import DiffusersUpdater
 from .catalog_shape import derive_catalog_metadata, project_listing
@@ -832,11 +844,45 @@ def create_app(
         return manager.describe(job)
 
     @app.get("/api/jobs")
-    def list_jobs(workspace: Optional[str] = None):
+    def list_jobs(
+        workspace: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: Optional[int] = None,
+    ):
         """All jobs by default - a plain filter, not `selected_workspace`,
         since the jobs list spans every workspace the server holds unless a
-        caller asks to narrow it."""
-        return {"jobs": manager.list(workspace=workspace)}
+        caller asks to narrow it.
+
+        `status` narrows to one state or a comma-separated set of them.
+        `limit` keeps the newest N, and `total` always reports how many
+        matched before the cut, so a caller can tell a bounded answer from a
+        complete one. The default is still every matching job, oldest first -
+        what the web UI polls."""
+        statuses = [part.strip() for part in status.split(",")] if status else None
+        statuses = [part for part in statuses if part] if statuses else None
+        if statuses:
+            unknown = [
+                state
+                for state in statuses
+                if state not in (QUEUED, RUNNING, *TERMINAL_STATES)
+            ]
+            if unknown:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown job status {', '.join(unknown)} - one of "
+                    f"{', '.join((QUEUED, RUNNING, *TERMINAL_STATES))}",
+                )
+        jobs = manager.list(workspace=workspace, statuses=statuses)
+        total = len(jobs)
+        if limit is not None:
+            if limit < 0:
+                raise HTTPException(
+                    status_code=400, detail="limit must not be negative"
+                )
+            # the newest are the interesting ones, and the list is oldest
+            # first - so the cut comes off the front, not the back
+            jobs = jobs[len(jobs) - limit :] if limit else []
+        return {"jobs": jobs, "total": total}
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str):
@@ -1111,6 +1157,54 @@ def create_app(
         except GuideError as e:
             raise HTTPException(status_code=404, detail=str(e))
 
+    def _argument_reference_errors(arguments, ws):
+        """The 'asset:', 'prompt:' and 'output:' references in a caller's
+        arguments that name nothing this workspace can reach.
+
+        Resolved through the engine's own resolvers over the roots this
+        workspace searches, so validation agrees with what the run would
+        find - an asset that exists in another workspace is a miss here for
+        the same reason it would be a miss there. Only the reference is
+        resolved, never loaded: the point is to answer before any bytes move.
+        """
+        if not isinstance(arguments, dict):
+            return []
+        errors = []
+        for name, value in arguments.items():
+            if not isinstance(value, str):
+                continue
+            path = f"arguments.{name}"
+            try:
+                if is_asset_reference(value):
+                    roots = _asset_roots(ws) or [ws.assets]
+                    last = None
+                    for root in roots:
+                        try:
+                            resolve_asset_reference(value, asset_dir=root)
+                            break
+                        except Exception as e:
+                            last = e
+                    else:
+                        raise last
+                elif value.startswith(PROMPT_PREFIX):
+                    last = None
+                    for root in _prompt_roots():
+                        try:
+                            resolve_prompt_reference(value, prompt_dir=root)
+                            break
+                        except Exception as e:
+                            last = e
+                    else:
+                        raise last
+                elif is_output_reference(value):
+                    resolve_output_reference(value, root=ws.outputs)
+            except Exception as e:
+                # Every resolver here raises with a message written for the
+                # person who wrote the reference - a traversal refusal from
+                # the security layer included
+                errors.append({"path": path, "message": str(e)})
+        return errors
+
     @app.post("/api/validate")
     def validate_workflow(
         request: JobRequest, ws: Workspace = Depends(selected_workspace)
@@ -1189,12 +1283,32 @@ def create_app(
                 "errors": errors,
                 "warnings": [],
             }
-        return {
+        # The arguments a caller is about to run with, checked the way the
+        # run itself would check them: an undeclared name, a value that will
+        # not coerce, an 'asset:'/'prompt:'/'output:' reference that names
+        # nothing in this workspace. Without this the free pre-flight covers
+        # every part of a run except the part the caller actually wrote
+        argument_problems = argument_errors(definition, request.arguments)
+        argument_problems += _argument_reference_errors(request.arguments, workspace)
+        if argument_problems:
+            return {
+                "valid": False,
+                "error": format_validation_errors(argument_problems),
+                "errors": argument_problems,
+                "warnings": [],
+                "checked_arguments": sorted(request.arguments or {}),
+            }
+        answer = {
             "valid": True,
             "error": None,
             "errors": [],
             "warnings": workflow_argument_warnings(definition),
         }
+        if request.arguments:
+            # Naming what was checked is the difference between 'the stored
+            # definition is valid' and 'the values you are about to pass are'
+            answer["checked_arguments"] = sorted(request.arguments)
+        return answer
 
     # ------------------------------------------------------------ workspaces
 

@@ -268,15 +268,25 @@ def build_server(client):
         workspace."""
         return workspaces.server_info(client)
 
-    def list_jobs() -> dict:
-        """List queued, running and recent jobs, with their status and queue
-        position. The ids here are what `get_job`, `wait_for_job`,
-        `get_job_events`, `cancel_job`, `rerun_job` and `move_job` take -
-        including jobs from before this session, so a run someone started in
-        the browser can be picked up here. In a named workspace this lists
-        that workspace's jobs; in the default workspace it lists every job
-        the server holds, whichever workspace ran it."""
-        return catalog.list_jobs(client)
+    def list_jobs(
+        limit: int = 20, status: str | None = None, workspace: str | None = None
+    ) -> dict:
+        """List queued, running and recent jobs, newest first, with their
+        status and queue position. The ids here are what `get_job`,
+        `wait_for_job`, `get_job_events`, `cancel_job`, `rerun_job` and
+        `move_job` take - including jobs from before this session, so a run
+        someone started in the browser can be picked up here.
+
+        `limit` is the newest N (20 by default); `total` reports how many
+        matched, so a truncated answer says so rather than looking
+        complete. `status` narrows to one state or a comma-separated set of
+        them - queued, running, succeeded, failed, cancelled. `workspace`
+        lists one workspace's jobs; without it, a named workspace lists its
+        own and the default workspace lists every job the server holds,
+        whichever workspace ran it."""
+        return catalog.list_jobs(
+            client, limit=limit, status=status, workspace=workspace
+        )
 
     def list_gallery(limit: int = 50) -> dict:
         """List generated output files, newest first. A name is
@@ -529,6 +539,7 @@ def build_server(client):
         workflow: dict | None = None,
         name: str | None = None,
         workspace: str | None = None,
+        arguments: dict | None = None,
     ) -> dict:
         """Check a workflow against the schema and against real pipeline
         signatures. Free and instant - always run this before run_workflow.
@@ -537,9 +548,21 @@ def build_server(client):
         back at once, each with its JSON path. `workspace` names the
         workspace for this one call without switching the session to it -
         use it to pin a job whose `output:` or `asset:` references live in a
-        workspace other than the session's."""
+        workspace other than the session's.
+
+        Pass the same `arguments` you will pass to `run_workflow` and they
+        are checked too: a name the workflow no longer declares, a value
+        that will not coerce to the declared type, and an `asset:`,
+        `prompt:` or `output:` reference that names nothing this workspace
+        can reach - each with `arguments.<name>` as its path.
+        `checked_arguments` lists what was checked, so a valid answer says
+        whether it covered your values or only the stored defaults."""
         return authoring.validate_workflow(
-            client, workflow=workflow, name=name, workspace=workspace
+            client,
+            workflow=workflow,
+            name=name,
+            workspace=workspace,
+            arguments=arguments,
         )
 
     def save_workflow(name: str, workflow: dict) -> dict:

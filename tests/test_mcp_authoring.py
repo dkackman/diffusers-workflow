@@ -182,3 +182,38 @@ def test_delete_surfaces_a_missing_workflow():
 
     with pytest.raises(DwApiError, match="No such workflow"):
         authoring.delete_workflow(client, "ghost")
+
+
+def body_recording_client():
+    """A client that keeps the request body, for the parts of a payload the
+    (method, path) recorders above cannot see."""
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"valid": True, "errors": [], "warnings": []})
+
+    return DwClient(transport=httpx.MockTransport(handler)), seen
+
+
+def test_validate_sends_the_arguments_it_is_given():
+    """The pre-flight has to cover the values the caller wrote, or it only
+    ever checks the stored defaults."""
+    client, seen = body_recording_client()
+
+    authoring.validate_workflow(
+        client, name="templates/shot", arguments={"prompt": "a cat"}
+    )
+
+    assert seen["body"] == {
+        "workflow_path": "templates/shot",
+        "arguments": {"prompt": "a cat"},
+    }
+
+
+def test_validate_without_arguments_sends_no_arguments_key():
+    client, seen = body_recording_client()
+
+    authoring.validate_workflow(client, name="templates/shot")
+
+    assert seen["body"] == {"workflow_path": "templates/shot"}

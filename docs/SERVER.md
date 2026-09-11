@@ -137,7 +137,7 @@ from another machine:
 | Route | What it does |
 | --- | --- |
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. |
-| `GET /api/jobs` | Queue + history summaries |
+| `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. No parameters means every job, which is what the web UI polls |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true` |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is |
 | `POST /api/jobs/{id}/export?workspace=&overwrite=` | Gather one finished job into `<workspace>/exports/<job id>/`: `workflow.json`, `manifest.json`, `job.json`, `README.md`, `assets/`, `inputs/`, `outputs/`. 201 with the file list, total bytes, anything it could not find, a `zip_url`, and the three JSON files inline. 404 unknown job, 409 for a job still running or an existing export without `overwrite` |
@@ -203,7 +203,15 @@ The editor's forms come from these; they are just as usable from scripts:
   `/api/jobs`, above) as an alternative to inline `workflow` - exactly one
   of the two, or a 400. Every schema violation is returned in `errors`
   (`[{path, message}]`, sorted by path, capped at 25), and joined one per
-  line in `error`.
+  line in `error`. It also takes the `arguments` a caller is about to run
+  with, and checks them the way the run would: a name the workflow does not
+  declare, a value that will not coerce to the declared type, and an
+  `asset:`, `prompt:` or `output:` reference that names nothing this
+  workspace can reach - each reported at `arguments.<name>`. `POST /api/jobs`
+  makes the same check and answers 400 rather than queuing a job that would
+  fail on its first step; `checked_arguments` on a valid answer names what
+  was covered, since without arguments the verdict is about the stored
+  defaults only.
 
 ## Files and models
 
