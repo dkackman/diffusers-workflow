@@ -1,4 +1,6 @@
 import copy
+import json
+import os
 
 import pytest
 
@@ -12,6 +14,31 @@ from dw.for_each import (
 
 def definition(*steps, **extra):
     return {"id": "test", "steps": list(steps), **extra}
+
+
+TEMPLATES = os.path.join(
+    os.path.dirname(__file__), "..", "workflows", "templates", "minimax"
+)
+
+
+def load_template(name):
+    with open(os.path.join(TEMPLATES, name)) as f:
+        return json.load(f)
+
+
+def steps_by_name(definition):
+    return {s["name"]: s for s in definition["steps"]}
+
+
+def without_pipeline_reference(step, pipeline_step):
+    """A hand-written 'pipeline_reference' shot as the full pipeline block
+    the expansion produces: the reference's arguments over the referenced
+    step's pipeline."""
+    rebuilt = {k: v for k, v in step.items() if k != "pipeline_reference"}
+    pipeline = copy.deepcopy(pipeline_step["pipeline"])
+    pipeline["arguments"] = step["pipeline_reference"]["arguments"]
+    rebuilt["pipeline"] = pipeline
+    return rebuilt
 
 
 class TestNaming:
@@ -519,3 +546,117 @@ class TestSameKeySiblings:
             "previous_result:slice@0",
             "previous_result:slice@1",
         ]
+
+
+class TestMusicVideoTemplate:
+    """music-video's four slices and four shots, written as two for_each
+    groups over one 'shots' list, expand to the steps the template holds
+    by hand today."""
+
+    def test_the_hand_written_shots_are_what_the_list_expands_to(self):
+        template = load_template("music-video.json")
+        today = steps_by_name(template)
+        shots = [
+            {"name": "wide_open", "prompt": "variable:shot_1_wide_open", "start_frame": 0},
+            {"name": "closeup", "prompt": "variable:shot_2_closeup", "start_frame": 124},
+            {"name": "room", "prompt": "variable:shot_3_room", "start_frame": 248},
+            {"name": "finale", "prompt": "variable:shot_4_finale", "start_frame": 372},
+        ]
+        slice_template = copy.deepcopy(today["slice_1"])
+        slice_template["name"] = "slice"
+        slice_template["for_each"] = shots
+        slice_template["task"]["arguments"]["start_frame"] = "item:start_frame"
+
+        shot_template = copy.deepcopy(today["shot_1_wide_open"])
+        shot_template["name"] = "shot"
+        shot_template["for_each"] = shots
+        shot_template["pipeline"]["arguments"]["prompt"] = "item:prompt"
+        for reference in shot_template["pipeline"]["arguments"]["references"]:
+            if reference.get("from_previous_result") == "slice_1":
+                reference["from_previous_result"] = "slice"
+
+        edit = copy.deepcopy(today["edit"])
+        edit["task"]["arguments"]["videos"] = "gather:shot"
+
+        expanded = expand_for_each(
+            definition(
+                today["draw_singer"], today["write_song"], slice_template,
+                today["soundtrack"], shot_template, edit, today["music_video"],
+            )
+        )
+        got = steps_by_name(expanded)
+
+        # Each expanded slice is today's slice with the new name
+        for key, old in zip(["wide_open", "closeup", "room", "finale"], range(1, 5)):
+            expected = copy.deepcopy(today[f"slice_{old}"])
+            expected["name"] = f"slice@{key}"
+            assert got[f"slice@{key}"] == expected
+
+        # Each expanded shot is today's shot (as a full pipeline block) with
+        # the new name and its slice renamed
+        hand_written = ["shot_1_wide_open", "shot_2_closeup", "shot_3_room", "shot_4_finale"]
+        for key, old, index in zip(["wide_open", "closeup", "room", "finale"], hand_written, range(1, 5)):
+            step = today[old]
+            if "pipeline_reference" in step:
+                step = without_pipeline_reference(step, today["shot_1_wide_open"])
+            expected = copy.deepcopy(step)
+            expected["name"] = f"shot@{key}"
+            for reference in expected["pipeline"]["arguments"]["references"]:
+                if reference.get("from_previous_result") == f"slice_{index}":
+                    reference["from_previous_result"] = f"slice@{key}"
+            assert got[f"shot@{key}"] == expected
+
+        assert got["edit"]["task"]["arguments"]["videos"] == [
+            f"previous_result:shot@{k}" for k in ["wide_open", "closeup", "room", "finale"]
+        ]
+
+
+class TestDialogueShortTemplate:
+    """dialogue-short's five shots, whose reference lists and frame counts
+    differ by shot, written as one for_each group whose entries carry every
+    argument that differs between shots."""
+
+    def test_the_hand_written_shots_are_what_the_list_expands_to(self):
+        template = load_template("dialogue-short.json")
+        today = steps_by_name(template)
+        hand_written = [
+            ("cold_open", "shot_1_cold_open"),
+            ("deflect", "shot_2_deflect"),
+            ("react", "shot_3_react"),
+            ("button", "shot_4_button"),
+            ("tag", "shot_5_tag"),
+        ]
+        first = today["shot_1_cold_open"]
+        full = {
+            old: (step if "pipeline_reference" not in step else without_pipeline_reference(step, first))
+            for old, step in today.items()
+            if old.startswith("shot_")
+        }
+
+        shots = []
+        for key, old in hand_written:
+            arguments = full[old]["pipeline"]["arguments"]
+            shots.append(
+                {
+                    "name": key,
+                    "prompt": arguments["prompt"],
+                    "references": arguments["references"],
+                    "num_frames": arguments["num_frames"],
+                }
+            )
+
+        shot_template = copy.deepcopy(full["shot_1_cold_open"])
+        shot_template["name"] = "shot"
+        shot_template["for_each"] = shots
+        shot_template["pipeline"]["arguments"]["prompt"] = "item:prompt"
+        shot_template["pipeline"]["arguments"]["references"] = "item:references"
+        shot_template["pipeline"]["arguments"]["num_frames"] = "item:num_frames"
+
+        expanded = expand_for_each(
+            definition(today["draw_character_a"], today["draw_character_b"], shot_template)
+        )
+        got = steps_by_name(expanded)
+        for key, old in hand_written:
+            expected = copy.deepcopy(full[old])
+            expected["name"] = f"shot@{key}"
+            assert got[f"shot@{key}"] == expected
