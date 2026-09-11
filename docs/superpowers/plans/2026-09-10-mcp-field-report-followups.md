@@ -254,7 +254,22 @@ def test_validate_can_name_a_workspace_for_one_request():
     assert client.workspace == DEFAULT_WORKSPACE
 ```
 
-(Import `DEFAULT_WORKSPACE` from `dw_mcp.client`; check the helper records `params` - the diagnose one does, the authoring one may need the same `"params": dict(request.url.params)` line added.)
+`tests/test_mcp_authoring.py`'s `scripted` records only `(method, path)` keys in `seen`. Add a second helper beside it rather than changing the existing one's shape:
+
+```python
+def scripted_with_params(routes):
+    seen = []
+
+    def handler(request):
+        key = (request.method, request.url.path)
+        seen.append({"key": key, "params": dict(request.url.params)})
+        status, body = routes.get(key, (404, {"detail": f"unrouted {key}"}))
+        return httpx.Response(status, json=body)
+
+    return DwClient(transport=httpx.MockTransport(handler)), seen
+```
+
+and use it in the new test (`client, seen = scripted_with_params(...)`). Import `DEFAULT_WORKSPACE` from `dw_mcp.client`.
 
 - [ ] **Step 2: Run them to verify they fail**
 
