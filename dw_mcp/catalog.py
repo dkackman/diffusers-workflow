@@ -103,5 +103,17 @@ def list_gallery(client, limit=50):
 
 def get_gallery_metadata(client, name):
     """Metadata embedded in a saved file: the full workflow that made it,
-    plus the job that produced it when history remembers one."""
-    return client.get_json(api_path("api", "gallery", name, "metadata"))
+    plus the job that produced it when history remembers one, plus for
+    audio and video what the file holds - duration, sample rate, channels,
+    fps, size, peak and mean level in dBFS."""
+    body = client.get_json(api_path("api", "gallery", name, "metadata"))
+    media = body.get("media")
+    if media and media.get("kind") in ("audio", "video"):
+        body["next"] = (
+            "Check duration_seconds against what was asked for: a Music 3 "
+            "track that lands within 0.2 s of its audio_duration ceiling was "
+            "cut off, one well short of it finished naturally. peak_dbfs is "
+            "the level normalize_audio would be given; mean_dbfs below -40 "
+            "on a track that should be full is a near-silent render."
+        )
+    return body

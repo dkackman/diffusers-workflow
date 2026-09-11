@@ -116,8 +116,10 @@ Control" section.
 4. You cannot listen: no tool returns audio inline. Hand the user the gallery
    `url` (`list_gallery`, or the manifest's file name) and check what you can
    yourself - `get_gallery_metadata` for the file's duration against the
-   ceiling (a track well short of it stopped on its own; one exactly at it was
-   cut) and the sample rate. Ask the user to listen for the family's failure
+   ceiling: `media.duration_seconds` within 0.2 s of `audio_duration` means
+   the ceiling cut the track (raise it and rerun); well short of it means the
+   song finished on its own. Also check the sample rate. Ask the user to
+   listen for the family's failure
    modes: a song that went instrumental (name the vocals in the caption), an
    ending cut mid-note (raise the ceiling, then trim), a structure that ignored
    the tags (fewer sections, plainer directions).

@@ -289,7 +289,9 @@ def build_server(client):
         workflow, arguments and seed that produced it. Use this to
         reproduce a result, or to see what a run that went wrong actually
         ran - it is the definition, not a summary, so it can be edited and
-        re-run."""
+        re-run. For audio and video the `media` block carries duration,
+        sample rate, channels, fps, size and level - the checks an agent
+        that cannot listen makes on a deliverable."""
         return catalog.get_gallery_metadata(client, name)
 
     def list_guides() -> dict:
