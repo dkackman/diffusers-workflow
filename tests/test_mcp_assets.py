@@ -205,7 +205,11 @@ class TestDeleting:
             seen["method"] = request.method
             return httpx.Response(
                 200,
-                json={"name": "qa-cast/priya-voice", "deleted": True, "origin": "common"},
+                json={
+                    "name": "qa-cast/priya-voice",
+                    "deleted": True,
+                    "origin": "common",
+                },
             )
 
         result = delete_asset(client_over(handler), "qa-cast/priya-voice")
