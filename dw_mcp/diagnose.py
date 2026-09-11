@@ -36,6 +36,7 @@ def run_workflow(
     inline_workflow=None,
     arguments=None,
     acknowledged_cost=False,
+    workspace=None,
 ):
     """Queue a workflow. `workflow_path` is either a catalog name from
     `list_workflows` or a path to a workflow file on the server. Returns as
@@ -56,7 +57,11 @@ def run_workflow(
         payload["workflow"] = inline_workflow
     # base_dir is deliberately absent: it decides where an inline workflow's
     # relative paths resolve, and the MCP surface does not hand that out
-    job = client.post_json("/api/jobs", payload)
+    # A named workspace pins this one job rather than the session: a
+    # restarted session forgets use_workspace, and a job that resolves
+    # output: references in the wrong root fails after it was queued
+    params = {"workspace": workspace} if workspace else None
+    job = client.post_json("/api/jobs", payload, params=params)
     return {
         "job_id": job.get("id"),
         "status": job.get("status"),

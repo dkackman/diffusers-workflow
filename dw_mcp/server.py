@@ -481,14 +481,21 @@ def build_server(client):
     # ----------------------------------------------------------- authoring
 
     def validate_workflow(
-        workflow: dict | None = None, name: str | None = None
+        workflow: dict | None = None,
+        name: str | None = None,
+        workspace: str | None = None,
     ) -> dict:
         """Check a workflow against the schema and against real pipeline
         signatures. Free and instant - always run this before run_workflow.
         Give exactly one of `workflow` or `name` - `name` being a stored
         workflow as `list_workflows` reports it. Every schema error comes
-        back at once, each with its JSON path."""
-        return authoring.validate_workflow(client, workflow=workflow, name=name)
+        back at once, each with its JSON path. `workspace` names the
+        workspace for this one call without switching the session to it -
+        use it to pin a job whose `output:` or `asset:` references live in a
+        workspace other than the session's."""
+        return authoring.validate_workflow(
+            client, workflow=workflow, name=name, workspace=workspace
+        )
 
     def save_workflow(name: str, workflow: dict) -> dict:
         """Save a workflow to the server's writable workflow directory,
@@ -584,6 +591,7 @@ def build_server(client):
         inline_workflow: dict | None = None,
         arguments: dict | None = None,
         acknowledged_cost: bool = False,
+        workspace: str | None = None,
     ) -> dict:
         """Queue a workflow for generation. THIS COSTS GPU TIME: a run
         occupies the machine for minutes and the engine runs one job at a
@@ -595,13 +603,17 @@ def build_server(client):
         without .json, or a path on the server - or `inline_workflow`, a
         full definition for a request nothing stored covers. `arguments`
         overrides the workflow's variables by name, which is how one stored
-        workflow serves many requests without being edited or copied."""
+        workflow serves many requests without being edited or copied.
+        `workspace` names the workspace for this one call without switching
+        the session to it - use it to pin a job whose `output:` or `asset:`
+        references live in a workspace other than the session's."""
         return diagnose.run_workflow(
             client,
             workflow_path=workflow_path,
             inline_workflow=inline_workflow,
             arguments=arguments,
             acknowledged_cost=acknowledged_cost,
+            workspace=workspace,
         )
 
     def get_job(job_id: str) -> dict:

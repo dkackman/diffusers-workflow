@@ -9,7 +9,7 @@ re-implements it - a second, subtly different check is how the two drift.
 from dw_mcp.client import DwApiError, api_path
 
 
-def validate_workflow(client, workflow=None, name=None):
+def validate_workflow(client, workflow=None, name=None, workspace=None):
     """Schema- and signature-check a workflow without queuing anything. This
     is free (no GPU work) and should be called before any run or save. Give
     either an inline definition or the name of a stored one, as
@@ -19,11 +19,14 @@ def validate_workflow(client, workflow=None, name=None):
             "Provide exactly one of `workflow` (an inline definition) or "
             "`name` (a stored workflow)."
         )
+    params = {"workspace": workspace} if workspace else None
     if workflow is None:
         # The server resolves the name against its own workflow directory,
         # so validation sees the same base directory a run would
-        return client.post_json("/api/validate", {"workflow_path": name})
-    return client.post_json("/api/validate", {"workflow": workflow})
+        return client.post_json(
+            "/api/validate", {"workflow_path": name}, params=params
+        )
+    return client.post_json("/api/validate", {"workflow": workflow}, params=params)
 
 
 def save_workflow(client, name, workflow):

@@ -433,3 +433,27 @@ class TestGetJobWorkflow:
 
         with pytest.raises(DwApiError):
             diagnose.get_job_workflow(client, "nope")
+
+
+def test_run_pins_a_job_to_a_named_workspace_without_switching():
+    """A session restart resets the session workspace to default, and a
+    concat job then resolved output: references against the wrong root.
+    A run can name its workspace itself, for that one request."""
+    client, seen = submitting()
+    client.workspace = "music-video"
+
+    diagnose.run_workflow(
+        client, workflow_path="w", acknowledged_cost=True, workspace="dialogue-short"
+    )
+
+    assert seen[0]["params"]["workspace"] == "dialogue-short"
+    assert client.workspace == "music-video"
+
+
+def test_run_sends_the_session_workspace_when_none_is_named():
+    client, seen = submitting()
+    client.workspace = "music-video"
+
+    diagnose.run_workflow(client, workflow_path="w", acknowledged_cost=True)
+
+    assert seen[0]["params"]["workspace"] == "music-video"
