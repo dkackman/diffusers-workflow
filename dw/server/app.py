@@ -55,6 +55,7 @@ from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
 from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
+from ..media_info import probe_media
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..runs import strip_run_id
 from ..workspace import (
@@ -1821,7 +1822,9 @@ def create_app(
     def gallery_metadata(name: str, ws: Workspace = Depends(selected_workspace)):
         """Generation metadata embedded in a saved image ('workflow' inside
         it is the full definition the editor can reopen), plus the job that
-        produced the file when history remembers one."""
+        produced the file when history remembers one, plus - for audio and
+        video - what the file itself holds: duration, format and level,
+        which is how an agent that cannot listen checks a track."""
         path = _output_file(name, ws.outputs)
         metadata = read_embedded_metadata(path)
         try:
@@ -1831,7 +1834,13 @@ def create_app(
             job = manager.history.job_for_file(name, workspace=ws.name)
         except Exception:
             job = None
-        return {"name": name, "metadata": metadata, "job": job}
+        extension = os.path.splitext(path)[1].lower()
+        media = (
+            probe_media(path)
+            if MEDIA_KINDS.get(extension) in ("audio", "video")
+            else None
+        )
+        return {"name": name, "metadata": metadata, "job": job, "media": media}
 
     @app.get("/api/gallery/{name:path}/thumbnail")
     @query_token_ok
