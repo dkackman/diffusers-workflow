@@ -62,6 +62,26 @@ PREVIOUS_RESULT_PREFIX = "previous_result:"
 # Copying those into a workflow is how they go stale when the library moves on
 CONSTANT_PREFIX = "constant:"
 
+
+class _Omitted:
+    """An object description whose media is null - it is left out entirely.
+
+    An optional reference (a character's voice, a style image) is written as
+    a normal entry in a 'references' list with its source a variable, and the
+    variable declared null means "this run has none". Dropping the entry is
+    the only thing that can mean, since there is no object to build: a
+    pipeline handed a reference with no media in it fails, and a workflow
+    that had to carry two spellings of its references - one with the entry,
+    one without - is the copy a variable exists to avoid.
+    """
+
+    def __repr__(self):
+        return "<omitted>"
+
+
+OMITTED = _Omitted()
+
+
 # The media such an object may be built from - it opens the file itself, so the
 # extension is all that is checked here
 ALLOWED_FROM_FILE_EXTENSIONS = (
@@ -145,7 +165,15 @@ def realize_args(arg, base_dir=None):
             # describe - the type reference it names is realized by the recursion
             else:
                 realize_args(v, base_dir)
-                arg[k] = realize_object(v, base_dir)
+                realized = realize_object(v, base_dir)
+                if realized is OMITTED:
+                    raise ValueError(
+                        f"'{k}' names an object to build but the media it "
+                        f"would be built from is null. An optional one belongs "
+                        f"in a list, where it can be left out; on its own "
+                        f"there is nothing to leave it out of"
+                    )
+                arg[k] = realized
 
     # Recursively process lists
     elif isinstance(arg, list):
@@ -164,6 +192,11 @@ def realize_args(arg, base_dir=None):
                 continue
             realize_args(item, base_dir)
             arg[i] = realize_object(item, base_dir)
+        # An optional entry whose media is null leaves the list rather than
+        # reaching the pipeline as a reference with nothing in it
+        if any(item is OMITTED for item in arg):
+            kept = [item for item in arg if item is not OMITTED]
+            arg[:] = kept
 
 
 def is_path_reference(value):
@@ -333,6 +366,21 @@ def object_type_key(value, from_key):
     return type_keys[0]
 
 
+def _names_no_media(value):
+    """Whether a dict is an object description whose media came out null.
+
+    It has to name a type, the way every object description does, and the
+    key saying where its media comes from has to be there and be null -
+    which is what a "variable:" source resolves to when the variable is
+    declared null. A dict missing the source key altogether is not this: it
+    is whatever it always was, and is left alone.
+    """
+    for from_key in (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, FROM_ARGUMENTS_KEY):
+        if value.get(from_key, False) is None:
+            return object_type_key(value, from_key) is not None
+    return False
+
+
 def realize_object(value, base_dir=None):
     """Construct an argument that names a type and the media to build it from.
 
@@ -377,6 +425,10 @@ def realize_object(value, base_dir=None):
             from a file, or a file location that cannot be resolved
         SecurityError: If the file it names fails validation
     """
+    if isinstance(value, dict) and _names_no_media(value):
+        # An optional reference this run was given nothing for
+        return OMITTED
+
     if isinstance(value, dict) and FROM_PREVIOUS_RESULT_KEY in value:
         # Validated now and built later - a type that cannot hold the step's output
         # is a workflow error worth raising before any of it runs
