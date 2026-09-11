@@ -925,6 +925,50 @@ For a detailed caption, hand the image to [`text_generation`](#text-generation) 
 - [image-to-text.json](../workflows/templates/image-to-text.json) — Larger VLM answering a specific question
 - [describe-and-regenerate.json](../workflows/templates/describe-and-regenerate.json) — Describe an image, expand the caption, then regenerate it
 
+## Composing Text
+
+Assemble one block of text out of parts written once. A multi-shot workflow
+says the same things about its characters in every shot — who they are, what
+they are wearing, what their voice sounds like — and the engine deliberately
+has no string interpolation to splice them in with (see the no-interpolation
+rule in [the workflow guide](WORKFLOW_GUIDE.md)). Composition is the way
+round it: a part is a *whole* value, and `compose_text` joins parts in order.
+
+```json
+{
+    "name": "shot_1_prompt",
+    "task": {
+        "command": "compose_text",
+        "arguments": {
+            "parts": [
+                "variable:character_a_bible",
+                "variable:character_a_voice",
+                "variable:shot_1_action"
+            ],
+            "separator": "\n\n"
+        }
+    }
+},
+{
+    "name": "shot_1",
+    "pipeline": { "arguments": { "prompt": "previous_result:shot_1_prompt" } }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `parts` | Yes | The parts to join, in order — each a whole value, usually a `variable:`, `prompt:` or `previous_result:` reference. Numbers are written out; `null` is dropped, so an optional part can be a variable left null |
+| `separator` | No | What goes between the parts (default: a blank line, the paragraph break the prompt formats use) |
+| `skip_empty` | No | Drop parts that are null or blank (default `true`). With it off, an empty part still contributes its separator |
+
+A part that is neither text nor a number is an error, not a coercion: it means
+the reference in that position resolved to something other than the text meant.
+
+The parts are positional. A named form (`"{bible} says {line}"`) would be the
+interpolation the engine does not have, one layer down — so a character bible
+is a variable named by every shot that needs it, and a voice string written
+once is checked by being the same value rather than by being compared.
+
 ## Extracting Sections
 
 Reduce generated text to a known set of labelled sections, dropping anything else:

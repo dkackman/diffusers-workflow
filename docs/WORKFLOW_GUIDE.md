@@ -287,6 +287,14 @@ each full prompt out, or put the shared text in a variable and let a step's
 argument override it whole. `validate_workflow` warns about a `variable:`
 reference that names nothing the workflow declares.
 
+When several steps share a block of text — a character's description and voice
+repeated in every shot of a dialogue short — the answer is composition rather
+than interpolation: write the shared text once as a variable and assemble each
+step's prompt with a [`compose_text`](TASKS.md#compose_text) task, whose parts
+are whole references joined in order. The shot then references the composed
+result (`"prompt": "previous_result:shot_1_prompt"`), so changing the voice
+changes it in every shot instead of in however many copies were made by hand.
+
 ### Types and escaping
 
 Any key ending in `_type` or `_dtype`, or named `dtype`, has its string value

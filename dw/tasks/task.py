@@ -227,6 +227,15 @@ def _handle_mix_audio(task, arguments, previous_pipelines):
     return mix_audio(**arguments)
 
 
+@register_command("compose_text", implementation="dw.tasks.compose_text.compose_text")
+def _handle_compose_text(task, arguments, previous_pipelines):
+    """Join parts written once into one block of text"""
+    logger.debug("Composing text")
+    from .compose_text import compose_text
+
+    return compose_text(**arguments)
+
+
 @register_command(
     "format_chat_message", implementation="dw.tasks.format_messages.format_chat_message"
 )
