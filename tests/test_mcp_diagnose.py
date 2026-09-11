@@ -378,6 +378,17 @@ def test_wait_for_job_keeps_the_manifest_and_error_once_terminal(monkeypatch):
     assert result["job"]["manifest"] == {"steps": []}
     assert result["job"]["error"] == "boom"
     assert "arguments" not in result["job"]
+    assert "get_job" in result["next"]
+
+
+def test_wait_for_job_reports_queue_position_for_a_still_queued_job(monkeypatch):
+    monkeypatch.setattr(diagnose, "MAX_WAIT_SECONDS", 0)
+    queued = {**FAT_JOB, "status": "queued", "queue_position": 2}
+    client, _ = scripted({("GET", "/api/jobs/job-1"): (200, queued)})
+
+    result = diagnose.wait_for_job(client, "job-1", timeout_seconds=0)
+
+    assert result["job"]["queue_position"] == 2
 
 
 class TestGetJobWorkflow:

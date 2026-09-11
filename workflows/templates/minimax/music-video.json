@@ -1,7 +1,9 @@
 {
     "id": "MiniMaxH3MusicVideo",
     "description": "A music video built from cuts, sung to a soundtrack that never touches a chain. The long-take way to film a song - one chained generation lip-synced end to end - degrades with every carried segment and can let the sync slip. This builds the video the way music television does instead: MiniMax-Music3 writes the song, 'slice_audio' cuts it into frame-exact pieces (124 frames at 24 fps each), and every shot is generated fresh from the same Z-Image portrait plus its own slice, lip-synced to just those five seconds. No shot conditions on another shot's output, so the last cut is as clean as the first. 'concat_videos' splices the shots, and because each one covered exactly its slice's frames, the edit is sample-accurate by construction: 'pair_audio' drops the original, unbroken song over the whole cut and the mouths line up in every shot. The generation models pass through one at a time - each is released before the next loads - so the workflow peaks no higher than its largest single model.",
-    "cost": [{"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 35}],
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 35}
+    ],
     "variables": {
         "singer_portrait_prompt": "prompt:zimage/otter_singer_portrait",
         "song_prompt": "prompt:minimax/otter_soul_song",

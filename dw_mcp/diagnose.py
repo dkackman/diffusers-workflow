@@ -114,6 +114,7 @@ _SLIM_KEYS = (
     "finished_at",
     "workspace",
     "run_id",
+    "queue_position",
     "warnings",
     "error",
     "event_count",

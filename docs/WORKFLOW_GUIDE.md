@@ -349,8 +349,8 @@ signal to restructure the workflow, not to add another reference.
    each `list_gallery` entry carries (or `export_job`'s `zip_url`), fetched
    with the same bearer token the MCP connection uses:
 
-       curl -H "Authorization: Bearer $DW_TOKEN" \
-            -o exports/still.png "$DW_SERVER/outputs/ltx2/Gyre/20260910-.../still.png"
+       curl -H "Authorization: Bearer $DW_API_TOKEN" \
+            -o exports/still.png "http://<box>:8765/outputs/ltx2/Gyre/20260910-.../still.png"
 
    Put the result under `exports/` in the session's working directory - it is
    the user's deliverable, not a temporary file.
