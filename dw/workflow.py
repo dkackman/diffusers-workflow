@@ -42,7 +42,13 @@ from .runs import (
 )
 from .realize import realize_workflow
 from .schema import validate_data_all, format_validation_errors, load_schema
-from .variables import replace_variables, set_variables
+from .for_each import expand_for_each, ForEachError
+from .variables import (
+    argument_errors,
+    replace_variables,
+    set_variables,
+    VariableNotFoundError,
+)
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
@@ -282,16 +288,42 @@ class Workflow:
             os.path.join(self.output_dir, subfolder) if subfolder else self.output_dir
         )
 
-    def validation_errors(self):
+    def expanded_definition(self, arguments=None):
+        """The definition as the run will see it: variables substituted -
+        the caller's `arguments` folded in when they are all good, else the
+        declared defaults - and every for_each step expanded.
+
+        Raises ForEachError for a for_each that cannot be expanded. A
+        'variable:' that names nothing is left in place rather than raised:
+        validate_workflow already reports that as a warning, and the
+        reference check is happy to skip a reference it cannot read.
+        """
+        definition = copy.deepcopy(self.workflow_definition)
+        variables = definition.get("variables")
+        if isinstance(variables, dict):
+            if arguments and not argument_errors(definition, arguments):
+                set_variables(arguments, variables)
+            try:
+                definition = replace_variables(definition, variables)
+            except VariableNotFoundError:
+                pass
+        return expand_for_each(definition)
+
+    def validation_errors(self, arguments=None):
         """Every schema violation in the definition, as [{path, message}];
-        empty when it validates."""
+        empty when it validates. `arguments` are the caller's, so a
+        for_each over a list the caller supplies is checked as it will run."""
         errors = validate_data_all(self.workflow_definition, load_schema("workflow"))
-        # Only once the shape is known good: the reference pass walks the
+        # Only once the shape is known good: the passes below walk the
         # steps array and a definition that fails the schema may have no
         # such array to walk
         if errors:
             return errors
-        return previous_result_reference_errors(self.workflow_definition)
+        try:
+            expanded = self.expanded_definition(arguments)
+        except ForEachError as e:
+            return [{"path": e.path, "message": str(e)}]
+        return previous_result_reference_errors(expanded)
 
     def validate(self):
         """Validates workflow definition against JSON schema.
@@ -384,6 +416,12 @@ class Workflow:
                 # replace_variables returns a new structure rather than mutating in
                 # place, so the result must be captured here
                 workflow_def = replace_variables(workflow_def, variables)
+
+            # One ordinary step per entry of every for_each list, before the
+            # seed, the run id and the realized workflow are computed, so
+            # each covers what actually runs. A ForEachError here fails the
+            # run before anything loads
+            workflow_def = expand_for_each(workflow_def)
 
             # Set up random seed for reproducibility. Resolved lazily - as a
             # dict.get default, torch.seed() would run on every call and reseed

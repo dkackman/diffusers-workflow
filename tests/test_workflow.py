@@ -613,3 +613,81 @@ def test_validate_catches_a_reference_to_a_step_that_does_not_exist(tmp_path):
     assert "steps[1].task.arguments.videos[1]" in message
     assert "shot_2_pat_deflects" in message
     assert message.count("Validation error") == 1
+
+
+def _workflow_from(definition, tmp_path):
+    return Workflow(definition, str(tmp_path), "")
+
+
+def _for_each_workflow(**overrides):
+    definition = {
+        "id": "fe",
+        "variables": {"shots": [{"name": "a", "text": "A"}, {"name": "b", "text": "B"}]},
+        "steps": [
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "task": {"command": "compose_text", "arguments": {"parts": ["item:text"]}},
+                "result": {"content_type": "text/plain"},
+            },
+            {
+                "name": "edit",
+                "task": {"command": "compose_text", "arguments": {"parts": "gather:shot"}},
+                "result": {"content_type": "text/plain"},
+            },
+        ],
+    }
+    definition.update(overrides)
+    return definition
+
+
+def test_validation_expands_for_each_before_the_reference_check(tmp_path):
+    workflow = _workflow_from(_for_each_workflow(), tmp_path)  # the file's helper
+    assert workflow.validation_errors() == []
+
+
+def test_validation_reports_a_for_each_error_at_its_path(tmp_path):
+    definition = _for_each_workflow()
+    definition["steps"][1]["task"]["arguments"]["parts"] = "previous_result:shot"
+    workflow = _workflow_from(definition, tmp_path)
+    errors = workflow.validation_errors()
+    assert len(errors) == 1
+    assert errors[0]["path"] == "steps[1].task.arguments.parts"
+    assert "gather:shot" in errors[0]["message"]
+
+
+def test_validation_expands_the_callers_list_not_the_default(tmp_path):
+    workflow = _workflow_from(_for_each_workflow(), tmp_path)
+    # Two entries share a name only in the caller's list
+    errors = workflow.validation_errors(
+        arguments={"shots": [{"name": "a"}, {"name": "a"}]}
+    )
+    assert errors and "Duplicate entry name 'a'" in errors[0]["message"]
+
+
+def test_validation_falls_back_to_the_default_when_the_arguments_are_bad(tmp_path):
+    workflow = _workflow_from(_for_each_workflow(), tmp_path)
+    # An undeclared argument is argument_errors' finding, not validation's
+    assert workflow.validation_errors(arguments={"nope": 1}) == []
+
+
+def test_validation_of_an_undeclared_variable_still_does_not_raise(tmp_path):
+    definition = _for_each_workflow()
+    definition["steps"][0]["for_each"] = "variable:missing"
+    workflow = _workflow_from(definition, tmp_path)
+    errors = workflow.validation_errors()
+    assert errors and "variable:missing" in errors[0]["message"]
+
+
+def test_run_expands_for_each_and_names_the_members(tmp_path):
+    workflow = _workflow_from(_for_each_workflow(seed=1), tmp_path)
+    workflow.run({})
+    names = [entry["step"] for entry in workflow.manifest]
+    assert names == ["shot@a", "shot@b", "edit"]
+
+
+def test_run_substitutes_the_callers_list(tmp_path):
+    workflow = _workflow_from(_for_each_workflow(seed=1), tmp_path)
+    workflow.run({"shots": [{"name": "only", "text": "X"}]})
+    names = [entry["step"] for entry in workflow.manifest]
+    assert names == ["shot@only", "edit"]
