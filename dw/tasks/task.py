@@ -198,6 +198,15 @@ def _handle_crossfade_audio(task, arguments, previous_pipelines):
     return crossfade_audio(**arguments)
 
 
+@register_command("loop_audio", implementation="dw.tasks.audio_utils.loop_audio")
+def _handle_loop_audio(task, arguments, previous_pipelines):
+    """Loop a short recording into a bed of a given length"""
+    logger.debug("Looping audio")
+    from .audio_utils import loop_audio
+
+    return loop_audio(**arguments)
+
+
 @register_command(
     "stabilize_video", implementation="dw.tasks.stabilize.stabilize_video"
 )

@@ -235,6 +235,22 @@ def load_audio(location, base_dir=None):
     return as_channels_samples(data), sample_rate
 
 
+def _as_track(waveform, sample_rate):
+    """An audio task's return value: the waveform with the rate it is at.
+
+    Every one of these commands already knows the rate - it was given, or it
+    came off the file or the video the track was taken from - and dropping it
+    on the way out made the next command in the chain ask for it again. A
+    resample fed straight from a slice failed for want of a number the slice
+    had read and thrown away (2026-09-11). An AudioTrack carries it, and
+    everything downstream of audio reads '.audio'/'.sample_rate' already; a
+    'sample_rate' the workflow declares on the result still wins at save.
+    """
+    from ..result import AudioTrack
+
+    return AudioTrack(numpy.ascontiguousarray(waveform), int(sample_rate))
+
+
 def _as_number(value, kind, name):
     """Coerce a numeric slice argument given as a string, leaving None alone."""
     if not isinstance(value, str):
@@ -276,8 +292,8 @@ def slice_audio(
             file or a video it overrides the rate they carry
 
     Returns:
-        The slice as a (samples, channels) float32 array - the layout audio
-        results are saved in
+        An AudioTrack holding the slice and the rate it is at, so the next
+        audio command in the chain does not have to be told the rate again
     """
     # A variable a workflow declares null carries no type, so a value given for
     # it on the command line arrives as a string - the same coercion the upscale
@@ -313,7 +329,7 @@ def slice_audio(
             "'start_frame'/'num_frames'/'fps'"
         )
 
-    return slice_samples(waveform, start, length).T
+    return _as_track(slice_samples(waveform, start, length), sample_rate)
 
 
 def resample_audio(audio, target_sample_rate, sample_rate=None):
@@ -335,12 +351,12 @@ def resample_audio(audio, target_sample_rate, sample_rate=None):
             file or a video it overrides the rate they carry
 
     Returns:
-        The resampled track as a (samples, channels) float32 array
+        An AudioTrack holding the resampled waveform and its new rate
     """
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "resample_audio")
 
     if sample_rate == target_sample_rate:
-        return waveform.T
+        return _as_track(waveform, sample_rate)
 
     import av
     from av.audio.resampler import AudioResampler
@@ -363,7 +379,9 @@ def resample_audio(audio, target_sample_rate, sample_rate=None):
         f"Resampled {waveform.shape[1]} samples at {sample_rate}Hz "
         f"to {target_sample_rate}Hz"
     )
-    return numpy.concatenate(converted, axis=1).astype(numpy.float32).T
+    return _as_track(
+        numpy.concatenate(converted, axis=1).astype(numpy.float32), target_sample_rate
+    )
 
 
 def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
@@ -380,7 +398,7 @@ def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
             brings its own; given here it wins
 
     Returns:
-        The joined track as a (samples, channels) float32 array
+        An AudioTrack holding the joined waveform and its rate
     """
     if not isinstance(audios, list) or not audios:
         raise ValueError("crossfade_audio needs a non-empty list of audio tracks")
@@ -400,7 +418,9 @@ def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
                 f"crossfade_audio needs one sample rate, got {sorted(rates)}"
             )
         sample_rate = rates.pop()
-    return crossfade_concat(waveforms, sample_rate, crossfade_ms).T
+    return _as_track(
+        crossfade_concat(waveforms, sample_rate, crossfade_ms), sample_rate
+    )
 
 
 def mix_audio(audios, gains=None, sample_rate=None):
@@ -427,7 +447,7 @@ def mix_audio(audios, gains=None, sample_rate=None):
             brings its own; given here it wins
 
     Returns:
-        The mixed track as a (samples, channels) float32 array
+        An AudioTrack holding the mixed waveform and its rate
     """
     if not isinstance(audios, list) or not audios:
         raise ValueError("mix_audio needs a non-empty list of audio tracks")
@@ -460,7 +480,86 @@ def mix_audio(audios, gains=None, sample_rate=None):
     for index, waveform in enumerate(waveforms):
         gain = 1.0 if gains is None else float(gains[index])
         mixed[:, : waveform.shape[1]] += waveform * gain
-    return mixed.T
+    return _as_track(mixed, sample_rate)
+
+
+def loop_audio(
+    audio,
+    duration_seconds=None,
+    target_frames=None,
+    fps=None,
+    crossfade_ms=250,
+    sample_rate=None,
+):
+    """Task command: make a bed of a given length out of a short recording.
+
+    A cut between two independently generated shots has a hole in it: each
+    shot carries its own room, and nothing runs underneath the seam. A
+    continuous bed laid under the whole cut is what fills it - the way a
+    location's room tone is laid under a dialogue scene so the edits stop
+    being audible - and a bed is made by looping a few seconds of tone to
+    the length of the picture.
+
+    Laps are joined with an equal-power crossfade rather than butted
+    together, so the loop point is not a click and a tone with any movement
+    in it does not tick once a second. The source is used whole every lap;
+    only the last one is trimmed, to land exactly on the requested length. A
+    source longer than the request is trimmed to it.
+
+    Args:
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a video generated with a soundtrack, or a
+            waveform (which needs sample_rate alongside it)
+        duration_seconds: How long the bed should be, in seconds
+        target_frames: How long the bed should be, in video frames - needs
+            'fps', and is how a bed is matched to a cut exactly
+        fps: Frame rate 'target_frames' is counted at
+        crossfade_ms: Length of the crossfade at each loop point, clamped to
+            the material available
+        sample_rate: Sample rate of a waveform passed directly; given for a
+            file or a video it overrides the rate they carry
+
+    Returns:
+        An AudioTrack holding the bed and the rate it is at
+    """
+    duration_seconds = _as_number(duration_seconds, float, "duration_seconds")
+    target_frames = _as_number(target_frames, int, "target_frames")
+    fps = _as_number(fps, Fraction, "fps")
+    crossfade_ms = _as_number(crossfade_ms, float, "crossfade_ms")
+
+    waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "loop_audio")
+    if waveform.size == 0:
+        raise ValueError("loop_audio needs a source with samples in it")
+
+    if duration_seconds is not None:
+        length = int(round(duration_seconds * sample_rate))
+    elif target_frames is not None:
+        if fps is None:
+            raise ValueError("loop_audio needs 'fps' to count a length in frames")
+        length = frames_to_samples(target_frames, fps, sample_rate)
+    else:
+        raise ValueError(
+            "loop_audio needs either 'duration_seconds' or 'target_frames'/'fps' "
+            "to know how long a bed to make"
+        )
+    if length <= 0:
+        raise ValueError(f"loop_audio needs a length above zero, got {length} samples")
+    if crossfade_ms < 0:
+        raise ValueError("loop_audio 'crossfade_ms' cannot be negative")
+
+    window = min(int(crossfade_ms / 1000.0 * sample_rate), waveform.shape[1] // 2)
+    bed = waveform
+    # Each lap after the first overlaps the one before it by the crossfade, so
+    # a lap adds (source - window) samples rather than a whole source
+    while bed.shape[1] < length:
+        bed = crossfade_concat(
+            [bed, waveform], sample_rate, window / sample_rate * 1000.0
+        )
+    logger.debug(
+        f"loop_audio: {waveform.shape[1]} samples at {sample_rate}Hz looped to "
+        f"{length} ({bed.shape[1]} before trimming)"
+    )
+    return _as_track(bed[:, :length], sample_rate)
 
 
 def _equal_power_ramps(window):
@@ -517,7 +616,7 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
         sample_rate: Sample rate of a waveform passed directly
 
     Returns:
-        The faded track as a (samples, channels) float32 array
+        An AudioTrack holding the faded waveform and its rate
     """
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "fade_audio")
     if fade_in_ms < 0 or fade_out_ms < 0:
@@ -531,7 +630,7 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
     fade_out = min(int(round(fade_out_ms / 1000 * sample_rate)), length)
     if fade_out:
         faded[:, length - fade_out :] *= _fade_curve(fade_out)
-    return faded.T
+    return _as_track(faded, sample_rate)
 
 
 def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
@@ -551,21 +650,21 @@ def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
         sample_rate: Sample rate of a waveform passed directly
 
     Returns:
-        The scaled track as a (samples, channels) float32 array; a silent
+        An AudioTrack holding the scaled waveform and its rate; a silent
         track is returned unchanged
     """
-    waveform, _ = _waveform_and_rate(audio, sample_rate, "normalize_audio")
+    waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "normalize_audio")
     if peak_dbfs > 0:
         raise ValueError("normalize_audio 'peak_dbfs' cannot be above full scale (0)")
     peak = float(numpy.abs(waveform).max()) if waveform.size else 0.0
     if peak == 0.0:
         logger.warning("normalize_audio: the track is silent - left unchanged")
-        return waveform.T
+        return _as_track(waveform, sample_rate)
     gain = 10 ** (peak_dbfs / 20) / peak
     logger.debug(
         f"normalize_audio: peak {peak:.3f}, gain {20 * numpy.log10(gain):+.1f} dB"
     )
-    return (waveform * gain).astype(numpy.float32).T
+    return _as_track((waveform * gain).astype(numpy.float32), sample_rate)
 
 
 def _fade_curve(window):

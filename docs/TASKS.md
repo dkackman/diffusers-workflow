@@ -267,14 +267,17 @@ A bleed works because it copies ambience, which has no pitch and no attacks to
 give the copy away. It is the wrong tool for anything tonal - a copied musical
 phrase or half-spoken word reads as a stutter whichever direction it runs. When a
 shot ends on something tonal, either give the cut a continuous bed with
-`slice_audio` + `pair_audio`, which leaves no seam to treat at all, or fade the
+`slice_audio` + `loop_audio` + `mix_audio` + `pair_audio`, which leaves no seam
+to treat at all, or fade the
 seam gracefully with `seam_fade_ms` (a hundred or so milliseconds) and accept the
 cut. That advice inverts on a continuous bed - a laugh track, room tone - where a
 longer fade only digs the hole deeper (the same sitcom cut measured 54-59 dB
 holes with a 250-500 ms fade and no bleed). `audio_bleed_ms` wins where both are
 set and there is material to bleed. A bleed covers the gap but cannot fill it:
 the silence is inside the incoming shot's own head, and the only complete fix is
-a continuous bed under the whole cut with `slice_audio` + `pair_audio`.
+a continuous bed under the whole cut: `slice_audio` a few seconds of tone out of
+a shot, [`loop_audio`](#loop_audio) it to the length of the cut, `mix_audio` it
+under the episode and `pair_audio` it back onto the picture.
 
 ### dissolve_videos
 
@@ -552,6 +555,64 @@ rescaled - follow it with `normalize_audio` to bring the peak back down.
 **Example:** [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — a
 generated score mixed under the shots' own audio.
 
+### loop_audio
+
+Make a bed of a given length out of a short recording — the room tone laid
+under a whole cut, which is the only complete fix for the hole at a seam. Each
+shot in a cut carries its own room and nothing runs underneath the join;
+a continuous bed does, the way a location's room tone is laid under a dialogue
+scene so the edits stop being audible:
+
+```json
+{
+    "task": {
+        "command": "loop_audio",
+        "arguments": {
+            "audio": "previous_result:room_tone",
+            "target_frames": 620,
+            "fps": 24,
+            "crossfade_ms": 250
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio or video file, a video generated with a soundtrack (which brings its sample rate along), or a waveform |
+| `duration_seconds` | One of | How long the bed should be, in seconds |
+| `target_frames` / `fps` | One of | How long the bed should be, in video frames — how a bed is matched to a cut exactly |
+| `crossfade_ms` | No | Crossfade at each loop point, clamped to the material available (default 250) |
+| `sample_rate` | With a waveform | Sample rate of a waveform passed directly; given for a file or a video it overrides the rate they carry |
+
+Laps are joined with an equal-power crossfade rather than butted together, so
+the loop point is not a click and a tone with movement in it does not tick once
+a second. The source is used whole every lap and only the last one is trimmed,
+so the bed lands exactly on the requested length; a source longer than the
+request is trimmed to it.
+
+The bed is laid under the cut with `mix_audio` and attached to the picture with
+`pair_audio`:
+
+```json
+{ "name": "bed",   "task": { "command": "loop_audio",
+                             "arguments": { "audio": "previous_result:room_tone",
+                                            "target_frames": 620, "fps": 24 } } },
+{ "name": "mixed", "task": { "command": "mix_audio",
+                             "arguments": { "audios": ["previous_result:episode",
+                                                       "previous_result:bed"],
+                                            "gains": [1.0, 0.25] } } },
+{ "name": "cut",   "task": { "command": "pair_audio",
+                             "arguments": { "video": "previous_result:episode",
+                                            "audio": "previous_result:mixed" } },
+  "result": { "content_type": "video/mp4", "fps": 24 } }
+```
+
+Where the bed itself comes from is the open question: a few seconds of a
+generated shot's own ambience, cut out with `slice_audio` from a stretch with
+nothing tonal in it, is the material that matches — the room the shots were
+generated in.
+
 ### resample_audio
 
 Convert a track to a different sample rate. A pipeline that conditions on audio
@@ -578,6 +639,12 @@ supplied recording once, up front, feeds it what it already wants:
 
 A track already at the target rate is returned untouched. The conversion is
 PyAV's, which dw already needs for video - no torchaudio dependency.
+
+Every audio task returns the waveform *and* the rate it is at, so one chains
+into the next without the rate being restated: a `resample_audio` fed
+`previous_result:` from a `slice_audio` takes the source rate from the slice. A
+`sample_rate` given on the step still wins, and one declared on the step's
+`result` still decides what is written to disk.
 
 **Example:** [assemble-and-score.json](../workflows/templates/assemble-and-score.json)
 
