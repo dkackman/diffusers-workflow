@@ -82,9 +82,20 @@ are written into:
   unchanged, and a workflow that never sets `subfolder` writes
   byte-identical paths to one written before this existed.**
 - A relative path of any depth (*decided*; see the first open question,
-  now closed). Validated through `validate_output_path` against the run
-  directory, so `../`, absolute paths and symlink escapes are refused
-  rather than reaching another run. `\` is refused like `/../`.
+  now closed). Its *shape* is checked by a segment pattern,
+  `^[\w][\w.-]*(/[\w][\w.-]*)*\Z` - the same rule a segment of an
+  `output:` reference obeys (`OUTPUT_REFERENCE_PATTERN`), so every
+  subfolder the engine writes is one a later workflow can name. That
+  refuses `..`, a leading or trailing `/`, an empty segment, a segment
+  beginning with `.` or `-`, and `\` - which matters because
+  `DANGEROUS_PATTERNS` (`dw/security.py`) does not list a backslash, so
+  `"final\\x"` would otherwise be one directory on POSIX and two on
+  Windows. Its *containment* is then checked by `validate_output_path`
+  against the run directory, which is what guards symlinks. One ceiling
+  follows from the alignment: `OUTPUT_REFERENCE_PATTERN` allows seven
+  segments in total, so a subfolder deep enough to push
+  `<identity>/<run>/<subfolder>/<file>` past seven is writable but not
+  `output:`-addressable. Documented, not enforced.
 - Substitution applies as it does to the rest of the step: `variable:` so a
   caller can route a run's outputs without editing the workflow, and
   `item:` inside a `for_each` template so members can land in their own
@@ -102,38 +113,75 @@ The convention the tooling steers toward is two names, `final` and
 does not know those names or treat them specially; a workflow that wants
 `shots/` and `audio/` gets them.
 
+### Where the checks live
+
+Schema validation runs *before* substitution, so a schema `pattern` on
+`subfolder` would reject the `"variable:dest"` and `"item:subfolder"` this
+design wants. The schema therefore gets a `description` only. The shape
+check runs in two places:
+
+- **Statically**, as a post-expansion pass in `validation_errors`
+  (`dw/workflow.py`), beside `previous_result_reference_errors` - a new
+  `subfolder_errors` in a small module of its own, reporting the JSON path
+  of the offending `result` block, so `dw.validate` and `POST /api/validate`
+  name it before anything is queued. It runs on the substituted, expanded
+  definition, so an `item:`-driven subfolder is checked per member.
+- **At run time**, where the step's target directory is computed (below),
+  for a definition that reached the engine without validation.
+
 ### `file_base_name` may no longer contain a separator
 
 `"file_base_name": "final/"` passes `validate_string_input` and
 `validate_output_path` today and then fails at `open()` because the
 directory does not exist - a latent crash, not a feature. With a real
-placement field it becomes a validation error naming `subfolder` as the way
-to do it. No shipped workflow (`workflows/`, `dw/workflows/`, `plugins/`)
-uses a separator there.
+placement field it becomes an error naming `subfolder` as the way to do
+it, checked in the same two places. No shipped workflow (`workflows/`,
+`dw/workflows/`, `plugins/`) uses a separator there.
 
 ## What each surface does with it
 
 ### The engine (`dw/result.py`, `dw/workflow.py`, `dw/runs.py`)
 
-- `Result.save(output_dir, base_name)` reads `subfolder` from the result
-  definition, joins it onto `output_dir`, validates the joined directory
-  with `validate_output_path(joined, output_dir)`, creates it, and saves
-  into it. Nothing else in `save` changes: names stay
+- **The step's target directory is computed once, in `workflow.py`**, not
+  inside `Result.save`. A new `Workflow.step_output_dir(step_definition)`
+  returns `effective_output_dir` joined with the step's `subfolder`
+  (shape-checked, then `validate_output_path(joined, effective_output_dir)`,
+  then created), or `effective_output_dir` itself when there is none. It is
+  handed to *both* `Result.save` as its `output_dir` and to
+  `create_step_action` as the pipeline's `output_dir` (`workflow.py`
+  ~1003/1032/962). The second matters: a chain pipeline's `save_segments`
+  spill (`dw/pipeline_processors/chain.py`, `SegmentSpill`) writes through
+  the pipeline's `output_dir`, so without this a `keep_segments: true`
+  step's segments would land at the run root while its video landed in
+  `final/`. `Result.save` itself is unchanged apart from refusing a
+  separator in `file_base_name`: names stay
   `{workflow}-{step}.{i}-{j}.{k}.ext`, deduplication stays per path.
 - The manifest entry `workflow.py` appends per step gains
-  `"subfolder": <value or "">`. A step-cache hit keeps the *definition's*
-  subfolder while its files stay the earlier run's absolute paths, exactly
-  as `reused` entries work now. Sub-workflow entries roll up as they do
-  now; a sub-workflow's subfolder is relative to the run directory it
-  inherits, which is the right reading.
+  `"subfolder": <value or "">`, and so does the `step_end` event it emits
+  - the job page groups from `step_end` events while a job runs and
+  confirms from the manifest at the end (`ui/src/lib/results.ts`), so a
+  field only on the manifest would appear only once the job finished. A
+  step-cache hit keeps the *definition's* subfolder while its files stay
+  the earlier run's absolute paths, exactly as `reused` entries work now;
+  the cache compares the whole step snapshot including `result`, so a
+  changed subfolder misses.
+- **Sub-workflows.** A `workflow` step's own `result` block governs only
+  what the *parent* saves from the child's return value (`dw/step.py`); the
+  child's steps save through their own `result` blocks into the inherited
+  run directory, and the parent rolls their entries up verbatim. So a
+  parent's `subfolder` never prefixes the child's steps - each step places
+  its own files. This is the right reading (a child is a step list, not a
+  folder) and needs no code, but it is stated because the alternative is
+  plausible.
 - `dw/runs.py` gains `split_run_path(relative) -> (identity, run_id,
   subfolder)`: locate the first directory segment matching
-  `RUN_ID_PATTERN` (`^\d{8}-\d{6}-[0-9a-f]{8}(-\d+)?$`, specific enough
-  that no identity segment matches it); identity is everything before,
-  subfolder everything after. `strip_run_id` becomes a thin wrapper
-  returning the identity, so its callers and tests hold. A path with no
-  run id (flat layout) returns its directory as identity and `""` as
-  subfolder, as today.
+  `RUN_ID_PATTERN` (`^\d{8}-\d{6}-[0-9a-f]{8}(-\d+)?$`); identity is
+  everything before, subfolder everything after. A workflow *file* named
+  in that shape would produce a matching identity segment - unsupported,
+  not impossible. `strip_run_id` becomes a thin wrapper returning the
+  identity, so its callers and tests hold. A path with no run id (flat
+  layout) returns its directory as identity and `""` as subfolder, as
+  today.
 
 ### The two manifests
 
@@ -246,19 +294,34 @@ of run directories. Three things a consumer should know:
    cache key, so the first run of a marked-up seeded template regenerates
    rather than hitting the step cache. Both go in the release note beside
    the `shots` list change.
+4. `$defs/result` accepts additional properties, so a workflow that already
+   carries a stray `subfolder` key validates today and is ignored; after
+   stage 1 it moves files. One line in the release note.
 
 ## Steering consumers toward it
 
 The ticket is explicit that this only pays off if the MCP consumer uses it.
 Four places, in the order an agent meets them:
 
-1. **The templates** (*decided*: `workflows/templates/**` with more than
-   one saving step, and the templates the plugin skills name). The
-   deliverable step gets `"subfolder": "final"`, scratch steps
-   `"subfolder": "intermediate"`. Agents compose by copying a template, so
-   the convention propagates whether or not anyone reads a description. A
-   test asserts every multi-step template's saving steps all carry a
-   subfolder, so the convention cannot drift.
+1. **The templates** (*decided*: `workflows/templates/**`, and the
+   templates the plugin skills name). A *saving step* is one whose
+   `result` sets `content_type` and does not set `save: false`; a template
+   is in scope when it has **two or more** saving steps. The deliverable
+   step gets `"subfolder": "final"`, scratch steps
+   `"subfolder": "intermediate"`; a template whose saving steps are all
+   deliverables (`image-processors`, `lora-styles` - a set of variants,
+   each final) marks them all `final`. A template whose saving steps are
+   all `workflow` steps over `builtin:` children (`compose-workflows`,
+   `sub-workflow`) is exempt: the files come from the child's steps, and
+   marking a builtin's step `final` would presume a role it does not have
+   - the builtins in `dw/workflows/` stay unmarked. Agents compose by
+   copying a template, so the convention propagates whether or not anyone
+   reads a description. A test asserts the rule as stated here - every
+   in-scope, non-exempt template's saving steps all carry a subfolder - so
+   the convention cannot drift. `workflows/models/**` is out of scope for
+   this pass, though `list_workflows` returns those beside the templates;
+   marking them up is a follow-up once the convention has held in the
+   templates.
 2. **The authoring guide** (`docs/WORKFLOW_GUIDE.md`, `Authoring a workflow
    from an agent`, and its CLAUDE.md mirror - the two change together)
    states the rule: a step whose output the user will be shown is `final`,
@@ -289,33 +352,47 @@ whose outputs are all legitimately final.
 ## Tests
 
 - **Engine.** An unfoldered workflow writes the same paths as today; a
-  foldered one lands in `<run>/final/`; `../final`, an absolute path and a
-  symlink escape are refused; a separator in `file_base_name` is refused;
-  a `for_each` member with an `item:` subfolder lands per member;
-  `manifest.json` and the job manifest both carry the segment and the
-  `subfolder` field; a reused entry carries the definition's subfolder;
-  `output:.../latest/final/x` resolves; `split_run_path` on
-  `a/b/<run>/final/x`, on a `-2` counter run id, and on a flat path.
+  foldered one lands in `<run>/final/`; `../final`, `/final`, `final/`,
+  `final//x`, `.hidden`, `final\x` and an absolute path are refused by
+  the shape check, a symlink escape by containment; `subfolder_errors`
+  reports the JSON path for a bad literal and for a bad `item:`-driven
+  member; a separator in `file_base_name` is refused statically and at
+  run time; a `for_each` member with an `item:` subfolder lands per
+  member; a chain step with `keep_segments` puts its segments in the
+  subfolder; `manifest.json`, the job manifest and the `step_end` event
+  all carry the `subfolder` field; a reused entry carries the definition's
+  subfolder; a parent's subfolder on a `workflow` step does not move the
+  child's files; `output:.../latest/final/x` resolves; `split_run_path`
+  on `a/b/<run>/final/x`, on a `-2` counter run id, and on a flat path.
 - **Server.** Gallery entries carry `subfolder`; `?subfolder=` filters;
   `subfolders` lists distinct values; `job_for_file` attributes a foldered
   file; MCP `list_gallery` passes the parameter through.
 - **UI.** Gallery subfolder filter and job-page grouping (vitest).
-- **Templates.** Every multi-step template's saving steps carry a
-  subfolder.
+- **Templates.** Every template with two or more saving steps, not exempt
+  as a `builtin:` composition, has a subfolder on each saving step.
 
 ## Phasing
 
 Four stages, each its own PR to `develop`:
 
-1. **Engine.** Schema, `Result.save`, `file_base_name` check, manifest
-   field, `split_run_path`/`strip_run_id`, engine tests.
+1. **Engine.** Schema description, `subfolder_errors` in
+   `validation_errors`, `step_output_dir` feeding `Result.save` and
+   `create_step_action`, `file_base_name` check, `subfolder` on the
+   manifest entry and the `step_end` event, `split_run_path`/`strip_run_id`,
+   engine tests. `get_job` entries carry the field from this stage on -
+   the server spreads the entry as recorded.
 2. **Server and MCP.** Gallery `subfolder`/`?subfolder=`/`subfolders`,
-   `get_job` entries, MCP parameter and descriptions, SERVER/MCP/GUIDE
-   docs and the CLAUDE.md mirror.
+   MCP `list_gallery` parameter, `get_job`/`save_workflow`/`list_gallery`
+   descriptions, SERVER/MCP/GUIDE docs and the CLAUDE.md mirror.
 3. **Steering.** Templates marked up with the drift test, skills updated,
-   catalog re-audited so `list_workflows` traits still hold, release note.
-4. **UI.** Gallery control, job-page grouping, editor picks the field up
-   from the schema.
+   release note. Nothing in the catalog derivation reads `subfolder`
+   (`catalog_shape.py` reads `result.content_type` only), so shapes and
+   traits cannot move; one side effect is welcome - an `item:subfolder`
+   reference makes `subfolder` a derived entry field in a list-driven
+   workflow's `lists`.
+4. **UI.** `subfolder` on the `ManifestEntry` and `JobEvent` types,
+   gallery control, job-page grouping (live from `step_end`, confirmed
+   from the manifest), editor picks the field up from the schema.
 
 Stages 1 and 2 are the ticket; 3 is what makes it used; 4 is what makes it
 visible to a person rather than an agent.
