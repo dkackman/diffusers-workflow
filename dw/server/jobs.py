@@ -342,7 +342,9 @@ class Job:
         self.started_at = None
         self.finished_at = None
         self.manifest = []
-        self.warnings = spec.get("warnings", [])
+        # A copy: run-time warnings are appended to this list (see
+        # _note_progress) and the spec is what a rerun is built from
+        self.warnings = list(spec.get("warnings", []))
         self.error = None
         self.traceback = None
         # Which run this job turned out to be - reported by the worker's
@@ -400,6 +402,18 @@ class Job:
         elif kind == "pipeline_step":
             self.denoise_step = event.get("step")
             self.denoise_total_steps = event.get("total_steps")
+        elif kind == "warning":
+            # Both channels, on purpose: the event log keeps the moment it
+            # happened, `warnings` keeps it where a caller who polled the
+            # finished job will actually look, since a warning about the
+            # artifact outlives the run that noticed it (#82). The step it
+            # fired in is the run's, not the warning's - the engine warns
+            # from inside a step without knowing which one it is
+            message = event.get("message")
+            if message:
+                named = f"{self.step_name}: {message}" if self.step_name else message
+                if named not in self.warnings:
+                    self.warnings.append(named)
         elif kind == "step_start":
             self.step_name = event.get("step")
             self.step_index = event.get("index")

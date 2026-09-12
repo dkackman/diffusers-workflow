@@ -95,3 +95,29 @@ def test_the_repl_prints_host_memory_either_way(capsys, gpu_available):
     out = capsys.readouterr().out
     assert "Worker RSS: 1234.5 MB" in out
     assert "32000.0 MB of 64000.0 MB" in out
+
+
+def test_the_peak_is_never_below_the_resident_figure(monkeypatch):
+    """peak - rss is what the pair exists to answer; a small negative there
+    reads as 'these fields are not comparable' - see issue #83."""
+    monkeypatch.setattr(host_memory, "_peak_rss_mb", lambda: 764.1484375)
+    monkeypatch.setattr(
+        host_memory,
+        "_psutil_stats",
+        lambda: {"rss_mb": 764.79296875, "total_mb": 64000.0, "available_mb": 32000.0},
+    )
+
+    stats = host_memory.host_memory_stats()
+
+    assert stats["peak_rss_mb"] == stats["rss_mb"] == 764.79296875
+
+
+def test_a_genuine_peak_is_left_alone(monkeypatch):
+    monkeypatch.setattr(host_memory, "_peak_rss_mb", lambda: 33044.98)
+    monkeypatch.setattr(
+        host_memory,
+        "_psutil_stats",
+        lambda: {"rss_mb": 2561.69, "total_mb": 64000.0, "available_mb": 32000.0},
+    )
+
+    assert host_memory.host_memory_stats()["peak_rss_mb"] == 33044.98

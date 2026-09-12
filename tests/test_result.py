@@ -1093,3 +1093,86 @@ class TestSegmentBackedSave:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestVideoFrameRate:
+    """`result.fps` and a task's own `fps` are separate knobs, and the one an
+    author sets is the task's - so the rate the frames carry decides when the
+    result declares none. See issue #84."""
+
+    def save(self, result_definition, artifact):
+        result = Result(result_definition)
+        result.add_result(artifact)
+        with (
+            patch("dw.result.encode_video") as encode,
+            patch("dw.result.export_to_video") as export,
+            patch("dw.result.is_av_available", return_value=True),
+        ):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                result.save(temp_dir, "test")
+        return encode, export
+
+    def test_the_carried_rate_is_used_when_the_result_declares_none(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000, fps=24)
+
+        encode, _ = self.save({"content_type": "video/mp4"}, artifact)
+
+        assert encode.call_args.kwargs["fps"] == 24
+
+    def test_a_declared_rate_still_wins(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000, fps=24)
+
+        encode, _ = self.save({"content_type": "video/mp4", "fps": 12}, artifact)
+
+        assert encode.call_args.kwargs["fps"] == 12
+
+    def test_the_old_default_holds_when_nothing_knows_the_rate(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+
+        encode, _ = self.save({"content_type": "video/mp4"}, artifact)
+
+        assert encode.call_args.kwargs["fps"] == 8
+
+    def test_a_plain_frame_list_still_defaults_to_eight(self):
+        result = Result({"content_type": "video/mp4"})
+        result.add_result([Image.new("RGB", (8, 8))])
+        with (
+            patch("dw.result.export_to_video") as export,
+            tempfile.TemporaryDirectory() as temp_dir,
+        ):
+            result.save(temp_dir, "test")
+
+        assert export.call_args.kwargs["fps"] == 8
+
+    def test_declaring_a_rate_the_frames_contradict_warns(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            self.save(
+                {"content_type": "video/mp4", "fps": 8},
+                AudioVideo("frames", torch.zeros((2, 100)), 48000, fps=24),
+            )
+        finally:
+            deactivate_context(token)
+
+        warning = next(e for e in events if e["event"] == "warning")
+        assert warning["kind"] == "fps_mismatch"
+        assert warning["declared_fps"] == 8
+        assert warning["source_fps"] == 24
+
+    def test_declaring_the_rate_the_frames_carry_warns_about_nothing(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            self.save(
+                {"content_type": "video/mp4", "fps": 24},
+                AudioVideo("frames", torch.zeros((2, 100)), 48000, fps=24),
+            )
+        finally:
+            deactivate_context(token)
+
+        assert [e for e in events if e["event"] == "warning"] == []

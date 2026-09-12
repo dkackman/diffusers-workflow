@@ -204,7 +204,7 @@ video generation" in the workflow guide):
 | `crossfade_ms` | No | Equal-power crossfade at each audio seam, drawn from the trimmed material - no effect when `trim_frames` is 0, and validation warns when one is written there (default: 75) |
 | `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
 | `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed - for tonal material, not for a continuous bed (default: 3, just enough not to click) |
-| `fps` | No | Frame rate of the videos - required to join audio when trimming |
+| `fps` | No | Frame rate of the videos - required to join audio when trimming, and the rate the joined file is written at unless `result.fps` overrides it |
 | `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample. Off by default |
 | `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`) |
 
@@ -294,8 +294,10 @@ same" means, and `"peak"` matches the loudest sample, which is the safer
 choice on material with big transients. A shot whose gain would clip at the
 target is held just below full scale and the log says so. Left off - the
 default, so nothing existing changes - a spread of 6 dB or more across the
-tracks being joined is logged as a warning rather than passing in silence.
-`dissolve_videos` takes the same pair.
+tracks being joined is reported as a warning rather than passing in silence:
+on the job's `warnings` and as a `warning` event in its stream, not only in
+the server's log, since the caller who can act on it is the one who asked for
+the run. `dissolve_videos` takes the same pair.
 
 ### dissolve_videos
 
@@ -327,7 +329,7 @@ montage cut to a score wants:
 | `fade_in_frames` | No | Frames over which the first video rises out of `fade_color` (default: 0) |
 | `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
 | `fade_color` | No | The RGB colour the fades come from and go to (default: black) |
-| `fps` | No | Frame rate of the videos - required to crossfade audio at a dissolve |
+| `fps` | No | Frame rate of the videos - required to crossfade audio at a dissolve, and the rate the dissolved file is written at unless `result.fps` overrides it |
 | `match_levels` | No | Even the shots' loudness out before joining - `"rms"` or `"peak"`, as with [`concat_videos`](#concat_videos). Off by default |
 | `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`) |
 

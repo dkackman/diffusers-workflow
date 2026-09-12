@@ -173,6 +173,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | `pipeline_step` | each denoise step | `step`, `total_steps`. Emitted for a pipeline that takes a `callback_on_step_end`, and for a `ModularPipeline` (H3, LTX-2, Qwen-Image), which takes none - there the denoise block's own progress bar is what reports |
 | `phase` | the step changes what it is doing | `phase`, `detail` |
 | `pipeline_released` | a step with `release_pipeline` drops its pipeline | `step`, `index`, `gpu_memory_allocated_mb` and `gpu_memory_allocated_before_mb` (both `null` where the backend cannot say). Emitted between the step's generation and its files being written, which is where the release happens - so the ordering is readable off the event stream rather than by trying to poll memory through a sub-second write |
+| `warning` | a step finds something wrong with what it is about to write | `message`, plus a `kind` and the figures behind it (`level_spread`: `spread_db`, `measure`, `command`; `fps_mismatch`: `declared_fps`, `source_fps`). Also appended to the job's `warnings`, prefixed with the step it fired in - the event keeps the moment, `warnings` keeps it where a caller polling the finished job will look, since a warning about the artifact outlives the run that noticed it |
 | `workflow_end` | the run finishes | `manifest` |
 
 A step spends most of its wall clock outside the denoise loop, and

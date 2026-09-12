@@ -1119,7 +1119,7 @@
                     "type": "string"
                 },
                 "fps": {
-                    "description": "Frames per second - only used when output is video",
+                    "description": "Frames per second - only used when output is video. Defaults to the rate the frames themselves carry (a chain's 'fps', a join's own rate, the rate of the file a task read) and to 8 only when nothing knows better. Set it to write at a rate other than the source's - a deliberate slow motion - which the run then warns about.",
                     "type": "integer",
                     "default": 8
                 },

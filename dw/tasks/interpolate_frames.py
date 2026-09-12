@@ -49,6 +49,7 @@ def interpolate_frames(video, device="cpu", **kwargs):
     # An AudioVideo or a frame array unwraps to its frames; a PIL list passes
     # through by identity. The soundtrack does not survive - the frame count
     # changes, so pair_audio is how it comes back
+    source_fps = getattr(video, "fps", None)
     video = frames_as_pil_list(video)
     if len(video) < 2:
         raise ValueError(f"Need at least 2 frames to interpolate, got {len(video)}")
@@ -69,7 +70,13 @@ def interpolate_frames(video, device="cpu", **kwargs):
         frames = _interpolate_2x(frames, model)
 
     logger.info(f"Interpolation complete: {len(video)} -> {len(frames)} frames")
-    return AudioVideo(frames, None, None)
+    # Multiplied, not carried: interpolation adds frames between the ones it
+    # was given, so playing them back at the source rate would run the clip
+    # `multiplier` times long. The rate that keeps the source's duration is
+    # the source's times the multiplier (#84)
+    return AudioVideo(
+        frames, None, None, fps=source_fps * multiplier if source_fps else None
+    )
 
 
 def _interpolate_2x(frames, model):

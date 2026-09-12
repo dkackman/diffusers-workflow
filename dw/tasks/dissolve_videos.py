@@ -108,7 +108,11 @@ def dissolve_videos(
         f"Dissolved {len(clips)} videos into {len(frames)} frames "
         f"({dissolve_frames}-frame seams)"
     )
-    return AudioVideo(frames, audio, sample_rate)
+    written_fps = fps or next(
+        (v.fps for v in loaded if getattr(v, "fps", None)),
+        None,
+    )
+    return AudioVideo(frames, audio, sample_rate, fps=written_fps)
 
 
 def _dissolve_join(previous, following, overlap):

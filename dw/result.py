@@ -12,7 +12,7 @@ from diffusers.utils import (
     is_av_available,
 )
 from collections.abc import Mapping
-from .events import emit_phase
+from .events import emit_phase, emit_warning
 from .security import (
     SecurityError,
     validate_file_base_name,
@@ -25,6 +25,10 @@ logger = logging.getLogger("dw")
 # Result saving constants
 MAX_BASE_NAME_LENGTH = 200
 DEFAULT_AUDIO_SAMPLE_RATE = 44100
+# The rate a video is written at when neither the workflow nor the artifact
+# says - a diffusers convention old enough that changing it would restate
+# every existing workflow's output
+DEFAULT_VIDEO_FPS = 8
 
 
 def output_file_path(output_dir, file_name):
@@ -109,16 +113,24 @@ class AudioVideo:
     the result mux them into one file instead of dropping the audio on the floor.
     """
 
-    def __init__(self, frames, audio, sample_rate):
+    def __init__(self, frames, audio, sample_rate, fps=None):
         """
         Args:
             frames: The video, as PIL images or an array of frames
             audio: Waveform for this video, shaped (channels, samples)
             sample_rate: Sample rate of the waveform, or None if the pipeline did not report one
+            fps: Frame rate these frames are meant to play at, when something
+                knows it - a joined video's own rate, or the rate of the file
+                a task read. Carried for the same reason AudioTrack carries
+                its sample rate: `result.fps` defaults to 8, and a step that
+                joins 24 fps shots writing them at 8 is three times slow with
+                its audio still the right length (#84). A declared
+                `result.fps` still wins over this
         """
         self.frames = frames
         self.audio = audio
         self.sample_rate = sample_rate
+        self.fps = fps
 
 
 class AudioTrack:
@@ -402,13 +414,9 @@ class Result:
                 if isinstance(artifact, AudioVideo):
                     self.save_audio_video(artifact, output_path, content_type)
                 else:
-                    export_to_video(
-                        artifact, output_path, fps=self.result_definition.get("fps", 8)
-                    )
+                    export_to_video(artifact, output_path, fps=self.video_fps(artifact))
             elif content_type == "image/gif":
-                export_to_gif(
-                    artifact, output_path, fps=self.result_definition.get("fps", 8)
-                )
+                export_to_gif(artifact, output_path, fps=self.video_fps(artifact))
             elif content_type.startswith("audio"):
                 waveforms = normalize_audio(artifact)
                 # Declared rate > the rate a generated track carries > default
@@ -472,6 +480,37 @@ class Result:
 
         return [output_path]
 
+    def video_fps(self, artifact):
+        """The frame rate this video is written at.
+
+        Declared `result.fps` first, then the rate the artifact carries (a
+        join's own rate, or the rate of the files it read), then 8.
+
+        The order matters more than it looks: `result.fps` and a task's own
+        `fps` argument are separate knobs, and the one an author thinks to
+        set is the task's. A step that told `concat_videos` its shots are 24
+        fps and said nothing on `result` used to write them at 8 - the
+        picture three times long against an audio track still the right
+        length, with nothing said about it (#84). A workflow that does
+        declare `result.fps` still wins, so writing at a rate other than the
+        source's - a deliberate slow motion - stays available, and says so.
+        """
+        declared = self.result_definition.get("fps")
+        carried = getattr(artifact, "fps", None)
+        if declared is None:
+            return carried or DEFAULT_VIDEO_FPS
+        if carried and abs(declared - carried) > 0.01:
+            emit_warning(
+                f"Writing video at {declared} fps, but the frames it was "
+                f"given run at {carried} fps - the file will play "
+                f"{carried / declared:.2g}x speed. Drop 'fps' from the step's "
+                f"result to keep the source rate",
+                kind="fps_mismatch",
+                declared_fps=declared,
+                source_fps=carried,
+            )
+        return declared
+
     def save_audio_video(self, artifact, output_path, content_type):
         """Write a video and the audio generated with it into a single file.
 
@@ -484,7 +523,7 @@ class Result:
             output_path: Path of the file to write
             content_type: MIME type of the video being written
         """
-        fps = self.result_definition.get("fps", 8)
+        fps = self.video_fps(artifact)
         # The pipeline reports the sample rate of what it generated - the result
         # definition can still override it
         sample_rate = self.result_definition.get(
