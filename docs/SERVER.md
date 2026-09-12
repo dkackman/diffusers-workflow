@@ -222,7 +222,10 @@ The editor's forms come from these; they are just as usable from scripts:
   `build_dist.sh` puts under `dw/docs/`
 - `POST /api/validate` — schema validation plus signature-level argument
   warnings for pipeline and task steps (catches the typo before the model
-  loads). Accepts `workflow_path` (same resolution and confinement as
+  loads); `warnings` also names an entry key of a list-driven variable that
+  no step reads, at the entry's path (`variables.shots[0]` or, when the
+  caller's own `arguments` supplied the list, `arguments.shots[0]`).
+  Accepts `workflow_path` (same resolution and confinement as
   `/api/jobs`, above) as an alternative to inline `workflow` - exactly one
   of the two, or a 400. Every schema violation is returned in `errors`
   (`[{path, message}]`, sorted by path, capped at 25), and joined one per
@@ -252,11 +255,16 @@ The editor's forms come from these; they are just as usable from scripts:
   `identity-referenced`, `needs-input-media`, `composes-workflows`; `summary`,
   the first sentence of the description, capped at 120 characters; and `cost`,
   the maintainer-measured `{device, name, vram_gb, minutes}` runs, or `null`
-  when nobody has measured it. A `models/` entry takes its `shape` and
-  `traits` from the template it configures and keeps its own `cost`. Enough
-  to choose a workflow and know what to pass it without reading each one; the
-  variable defaults are deliberately left out, being an order of magnitude more
-  payload on a listing the UI reloads. Cached by file mtime
+  when nobody has measured it - a list-driven workflow's `cost` entry may
+  also carry a measured `per_entry` (`{variable, minutes, entries}`), the
+  cost of one entry of the list it was measured against. A `models/` entry
+  takes its `shape` and `traits` from the template it configures and keeps
+  its own `cost`. A list-driven workflow (one with a `for_each` step) also
+  carries `lists`: per list variable, the fields an entry takes, the steps
+  run over it and the default's length. Enough to choose a workflow and know
+  what to pass it without reading each one; the variable defaults are
+  deliberately left out, being an order of magnitude more payload on a
+  listing the UI reloads. Cached by file mtime
 
   Optional query params narrow and shrink it:
   `?shape=&traits=&configures=&include_models=&view=compact`. `shape` keeps
@@ -268,8 +276,8 @@ The editor's forms come from these; they are just as usable from scripts:
   `shape`, `traits`, `cost`, `kinds`, `variable_names` and `lists` (carried
   only when the workflow has a list-driven step, like `configures`), and
   lists templates only unless `include_models=true` or a `configures` asks
-  otherwise. With no params the response is what it always was, plus the four
-  new fields
+  otherwise. With no params the response is what it always was, plus the new
+  fields
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`)
 - `GET /api/workflows/{name:path}/download` — download a workflow file as JSON

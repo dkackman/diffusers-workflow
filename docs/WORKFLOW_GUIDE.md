@@ -409,7 +409,10 @@ slice cut for it when slicing and generating are two steps. It is the one
 pairing the engine has; `for_each` runs over exactly one list, and there is
 no zip and no loop index.
 
-Limits: a list has at most 32 entries. `release_pipeline` on a `for_each`
+Limits: a list has at most 32 entries, and an empty list is a validation
+error — the step would run nothing. Validation realizes a `constant:`
+default before checking it, so a list defaulted to a constant validates the
+same way it will run. `release_pipeline` on a `for_each`
 step releases after the *last* member. Each entry is a full generation, so
 quote the cost before running a list-driven workflow: the listing's `lists`
 block names the fields an entry takes and the steps over it, and its `cost`
