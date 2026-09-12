@@ -205,6 +205,8 @@ video generation" in the workflow guide):
 | `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
 | `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed - for tonal material, not for a continuous bed (default: 3, just enough not to click) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming |
+| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample. Off by default |
+| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`) |
 
 A video may also be named by path or URL, which is how shots an earlier run
 already wrote are joined without regenerating them - the file is read with the
@@ -280,6 +282,21 @@ a continuous bed under the whole cut: `slice_audio` a few seconds of tone out of
 a shot, [`loop_audio`](#loop_audio) it to the length of the cut, `mix_audio` it
 under the episode and `pair_audio` it back onto the picture.
 
+Levels are the other thing a cut has to reconcile, and no fade control can
+touch it. Shots generated independently land wherever the model put them - two
+shots of one scene, same template, same cast, measured `peak_dbfs` -2.65 and
+-12.56 - and each reads as fine on its own, because a shot is only wrong
+*relative to what it is cut against*. Butt-joined, that is a 10 dB drop at the
+cut, and it is not an artifact *at* the seam that a fade could smooth: it is
+either side of it. `match_levels` scales each track before the join -
+`"rms"` matches perceived level, which is usually what "make these sound the
+same" means, and `"peak"` matches the loudest sample, which is the safer
+choice on material with big transients. A shot whose gain would clip at the
+target is held just below full scale and the log says so. Left off - the
+default, so nothing existing changes - a spread of 6 dB or more across the
+tracks being joined is logged as a warning rather than passing in silence.
+`dissolve_videos` takes the same pair.
+
 ### dissolve_videos
 
 Join videos with a cross-dissolve at every seam, and fade the whole piece in
@@ -311,6 +328,8 @@ montage cut to a score wants:
 | `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
 | `fade_color` | No | The RGB colour the fades come from and go to (default: black) |
 | `fps` | No | Frame rate of the videos - required to crossfade audio at a dissolve |
+| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` or `"peak"`, as with [`concat_videos`](#concat_videos). Off by default |
+| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`) |
 
 Every seam shortens the result by one overlap, so eight 124-frame shots joined
 with 12-frame dissolves run 908 frames, not 992 - size a soundtrack slice to

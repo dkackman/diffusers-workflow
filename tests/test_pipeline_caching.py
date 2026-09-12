@@ -444,3 +444,44 @@ def test_redefined_step_evicts_prior_pipeline_before_loading():
     assert (
         seen_at_load["old_still_cached"] is False
     ), "the redefined step's previous model must be evicted before load"
+
+
+def test_pipeline_released_is_reported_on_the_event_stream():
+    """The release is announced, and before the step's files are written.
+
+    A consumer cannot time the release by polling memory: it happens inside
+    the window between generation ending and the files appearing, which is
+    sub-second for an image step. The event is the ordered record that makes
+    it readable - see issue #75.
+    """
+    from dw.events import RunContext
+
+    events = []
+    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(
+            Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+        ):
+            with patch("dw.workflow.empty_device_cache"):
+                workflow.run(
+                    {},
+                    previous_pipelines={},
+                    context=RunContext(on_event=events.append),
+                )
+
+    names = [e["event"] for e in events]
+    released = [e for e in events if e["event"] == "pipeline_released"]
+    assert len(released) == 1, "only the step that asked for it reports a release"
+    assert released[0]["step"] == "generate"
+    assert "gpu_memory_allocated_mb" in released[0]
+    assert "gpu_memory_allocated_before_mb" in released[0]
+
+    ends = [i for i, e in enumerate(events) if e["event"] == "step_end"]
+    assert names.index("pipeline_released") < ends[0], (
+        "the release is reported before the step reports its files - which is "
+        "the ordering the event exists to make visible"
+    )

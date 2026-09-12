@@ -256,7 +256,28 @@ def build_server(client):
 
     def get_memory() -> dict:
         """Get the worker's VRAM and RAM statistics. Check this first when a
-        job fails with an out-of-memory error."""
+        job fails with an out-of-memory error.
+
+        `gpu_*` is the card, `host_memory_*` the machine:
+        `host_memory_rss_mb` is what the worker process holds and
+        `host_memory_peak_rss_mb` the most it has ever held, beside the
+        machine's `host_memory_total_mb` / `host_memory_available_mb`. Read
+        both - a workflow that offloads (`offload: "sequential"`,
+        `group_offload`) keeps its weights in host memory by design, so the
+        card can sit near-empty through a generation and VRAM alone will not
+        show what a run is holding or failing to release. A host field is
+        absent, rather than null, on a platform that cannot measure it.
+
+        `live: true` means `info` was measured now and is the worker's own
+        memory - only these readings are comparable with each other.
+        `live: false` means it was not: `info: null` (with `stale: false`)
+        means nothing has been measured because nothing is resident, and a
+        populated `info` is a cached earlier reading - `reason` says why
+        (`job_running`, `worker_stopped`, `worker_busy`, `worker_unreachable`)
+        and `age_seconds` how old it is. A cached reading is not this
+        moment's: one taken while a job is loading a model understates what
+        is resident by however much has loaded since, so ask again when the
+        server is idle rather than comparing it against a live figure."""
         return catalog.get_memory(client)
 
     def get_health() -> dict:

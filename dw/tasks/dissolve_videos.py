@@ -18,7 +18,12 @@ import numpy
 from PIL import Image
 
 from ..result import AudioVideo
-from .audio_utils import as_channels_samples, crossfade_concat
+from .audio_utils import (
+    as_channels_samples,
+    crossfade_concat,
+    match_levels as match_track_levels,
+    warn_on_level_spread,
+)
 from .video_utils import check_same_frame_size, frames_as_array, load_audio_video
 
 logger = logging.getLogger("dw")
@@ -31,6 +36,8 @@ def dissolve_videos(
     fade_out_frames=0,
     fade_color=(0, 0, 0),
     fps=None,
+    match_levels=None,
+    match_levels_dbfs=None,
 ):
     """Task command: join videos with cross-dissolves at every seam.
 
@@ -45,6 +52,12 @@ def dissolve_videos(
         fade_color: The RGB colour the fades come from and go to
         fps: Frame rate of the videos - required to crossfade audio at a
             dissolve, and ignored when no video carries any
+        match_levels: Even the shots' loudness out before joining - "rms"
+            for perceived level, "peak" for the loudest sample. Off by
+            default; see concat_videos, which has the same pair. Left off, a
+            spread wide enough to hear is logged as a warning
+        match_levels_dbfs: The level match_levels moves every shot to -
+            defaults to -1 dBFS for "peak" and -20 dBFS for "rms"
 
     Returns:
         One AudioVideo; its audio is None unless every input carries a track
@@ -88,7 +101,9 @@ def dissolve_videos(
             )
 
     frames = [Image.fromarray(frame) for frame in joined.round().astype(numpy.uint8)]
-    audio, sample_rate = _dissolve_audio(loaded, dissolve_frames, fps)
+    audio, sample_rate = _dissolve_audio(
+        loaded, dissolve_frames, fps, match_levels, match_levels_dbfs
+    )
     logger.info(
         f"Dissolved {len(clips)} videos into {len(frames)} frames "
         f"({dissolve_frames}-frame seams)"
@@ -118,7 +133,9 @@ def _blend(from_frames, to_frames, weights):
     return from_frames * (1 - weights) + to_frames * weights
 
 
-def _dissolve_audio(videos, dissolve_frames, fps):
+def _dissolve_audio(
+    videos, dissolve_frames, fps, match_levels=None, match_levels_dbfs=None
+):
     """Crossfade every video's track over the seams' own span."""
     tracks = [v for v in videos if isinstance(v, AudioVideo) and v.audio is not None]
     if len(tracks) != len(videos):
@@ -136,4 +153,10 @@ def _dissolve_audio(videos, dissolve_frames, fps):
     sample_rate = rates.pop()
     crossfade_ms = dissolve_frames / fps * 1000 if dissolve_frames else 0
     waveforms = [as_channels_samples(v.audio) for v in tracks]
+    if match_levels:
+        waveforms = match_track_levels(
+            waveforms, match_levels, match_levels_dbfs, "dissolve_videos"
+        )
+    else:
+        warn_on_level_spread(waveforms, "dissolve_videos")
     return crossfade_concat(waveforms, sample_rate, crossfade_ms), sample_rate

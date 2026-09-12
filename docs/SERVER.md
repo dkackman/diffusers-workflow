@@ -172,6 +172,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | `iteration_start` | each argument combination in a step | `step`, `iteration`, `total_iterations` |
 | `pipeline_step` | each denoise step | `step`, `total_steps`. Emitted for a pipeline that takes a `callback_on_step_end`, and for a `ModularPipeline` (H3, LTX-2, Qwen-Image), which takes none - there the denoise block's own progress bar is what reports |
 | `phase` | the step changes what it is doing | `phase`, `detail` |
+| `pipeline_released` | a step with `release_pipeline` drops its pipeline | `step`, `index`, `gpu_memory_allocated_mb` and `gpu_memory_allocated_before_mb` (both `null` where the backend cannot say). Emitted between the step's generation and its files being written, which is where the release happens - so the ordering is readable off the event stream rather than by trying to poll memory through a sub-second write |
 | `workflow_end` | the run finishes | `manifest` |
 
 A step spends most of its wall clock outside the denoise loop, and
@@ -388,8 +389,13 @@ The editor's forms come from these; they are just as usable from scripts:
   started) alongside the live `version`/`commit`, so a revert has a
   concrete before/after to compare
 - `GET /api/memory`, `GET /api/health` — worker VRAM/RAM stats and liveness;
-  health also reports `hostname`, `device` and whether `mcp` is mounted, so a
-  remote client can tell which machine answered
+  memory answers `live` (whether `info` was measured by this call), `stale`,
+  `reason` (`job_running`, `worker_stopped`, `worker_busy`,
+  `worker_unreachable`) and `age_seconds`, so a cached reading is never
+  mistaken for the worker's memory now - `info: null` means nothing has been
+  measured because nothing is resident. health also reports `hostname`,
+  `device` and whether `mcp` is mounted, so a remote client can tell which
+  machine answered
 - `GET /api/server` — connection details for the Server page: `hostname`,
   `version`, `device`, the `bind_host`/`port`/`wildcard_bind` the server was
   started with, `auth_required` (whether a token is configured - never the

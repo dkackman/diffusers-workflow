@@ -20,11 +20,15 @@ Lightricks' own caption spec, quoted below from diffusers.
    the listing and trust it over the names quoted below.
 3. `get_workflow` on the one chosen, for its variables and their defaults.
 4. Before anything near the card's ceiling - a full-size refine, 481 frames, a
-   2x upscale - `get_memory` on an idle server and read
-   `gpu_memory_allocated_mb`. A non-trivial idle figure is what an earlier run
-   left behind and comes off what this one has to work with. Nothing over MCP
-   clears it: ask the operator to restart the worker rather than retrying into
-   it, since a failed attempt is itself what leaves weight resident.
+   2x upscale - `get_memory` on an idle server and read a `live: true`
+   reading's `gpu_memory_allocated_mb`. Only those are the worker's own and
+   only those compare: `info: null` means nothing is resident, go ahead, and a
+   `live: false` reading with an `info` is cached from another moment - it
+   reads low mid-load, so ask again when the server is idle. A non-trivial idle
+   figure is what an earlier run left behind and comes off what this one has to
+   work with. Nothing over MCP clears it: ask the operator to restart the
+   worker rather than retrying into it, since a failed attempt is itself what
+   leaves weight resident.
 
 ## Which shape is the request
 
@@ -82,9 +86,7 @@ type, a camera motion (say static when there is none) and a viewpoint, with
 the soundscape interleaved with the action rather than appended, in plain
 observable words. For an image-conditioned clip describe only what changes
 from the image; restating it invites a scene cut. The stored prompts under
-`prompts/ltx2/` are written to it, and for a one-line idea
-`templates/ltx2/enhance-prompt` runs the model's own enhancer with it. The
-spec itself, from `diffusers.pipelines.ltx2.utils.LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT`
+`prompts/ltx2/` are written to it. The spec itself, from `diffusers.pipelines.ltx2.utils.LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT`
 (the image-to-video variant, `LTX2_5_I2V_DEFAULT_SYSTEM_PROMPT`, adds the
 describe-only-changes rule):
 
@@ -138,8 +140,7 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
 4. Every step that writes pays that, so only the ones worth writing should:
    `"result": {"save": false}` on the rest, as `two-stage` does for `base` and
    `upscale`. On a long chain it is the largest saving there is, and missing
-   it is silent - an unnecessary write looks like a slow render. What does
-   write carries a `subfolder` in the manifest: the step the user will be
+   it is silent. What does write carries a `subfolder` in the manifest: the step the user will be
    shown is `final` and every other saving step `intermediate`, the way
    `generative-upscale` keeps `upscaled` in `final` and its low-resolution
    pass in `intermediate` so the two sizes can be compared.
@@ -166,6 +167,4 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
 Lightricks/LTX-2.5-Diffusers model card, the `ltx-pipelines` docs and
 CHANGELOG (github.com/Lightricks/LTX-2), the diffusers LTX-2 pipelines and
 `utils.py`. Read 2026-09-07; the audit is
-`docs/proposals/audits/2026-09-07-ltx-2.5-audit.md`. Since 2026-08 Lightricks
-route production quality through their DFR pipeline, which diffusers ships and
-no template here uses yet.
+`docs/proposals/audits/2026-09-07-ltx-2.5-audit.md`.

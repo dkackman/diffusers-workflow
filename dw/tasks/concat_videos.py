@@ -16,6 +16,8 @@ from .audio_utils import (
     bleed_join,
     equal_power_crossfade_join,
     frames_to_samples,
+    match_levels as match_track_levels,
+    warn_on_level_spread,
 )
 from .video_utils import check_same_frame_size, frames_as_pil_list, load_audio_video
 
@@ -29,6 +31,8 @@ def concat_videos(
     audio_bleed_ms=0,
     seam_fade_ms=None,
     fps=None,
+    match_levels=None,
+    match_levels_dbfs=None,
 ):
     """Concatenate a list of videos into a single AudioVideo.
 
@@ -58,6 +62,18 @@ def concat_videos(
             the wrong tool for a continuous bed such as a laugh track or room
             tone: a fade only deepens the hole a bleed is there to cover
         fps: Frame rate of the videos - required to join audio when trimming
+        match_levels: Even the shots' loudness out before joining -
+            "rms" matches perceived level (the measurement
+            get_gallery_metadata reports as mean_dbfs), "peak" matches the
+            loudest sample. Off by default. Shots generated independently
+            land 10 dB apart routinely, and that jump is the one seam
+            artifact none of the fade controls can hide, because it is not
+            at the seam but either side of it. Left off, a spread wide
+            enough to hear is logged as a warning
+        match_levels_dbfs: The level match_levels moves every shot to -
+            defaults to -1 dBFS for "peak" and -20 dBFS for "rms". A shot
+            that would clip at the target is held just below full scale
+            instead
 
     Returns:
         One AudioVideo; its audio is None when no input video carries any
@@ -71,6 +87,20 @@ def concat_videos(
     clips = [frames_as_pil_list(v) for v in videos]
     check_same_frame_size(clips, "concat_videos")
 
+    # Every track up front rather than one at a time: levels are matched
+    # across the whole set, so the last shot's loudness has to be known
+    # before the first one is scaled
+    waveforms = [
+        as_channels_samples(video.audio)
+        if isinstance(video, AudioVideo) and video.audio is not None
+        else None
+        for video in videos
+    ]
+    if match_levels:
+        waveforms = match_track_levels(waveforms, match_levels, match_levels_dbfs)
+    else:
+        warn_on_level_spread(waveforms)
+
     frames = []
     audio = None
     sample_rate = None
@@ -79,10 +109,10 @@ def concat_videos(
         head_trim = trim_frames if index > 0 else 0
         frames.extend(clip[head_trim:])
 
-        if not isinstance(video, AudioVideo) or video.audio is None:
+        if waveforms[index] is None:
             continue
 
-        waveform = as_channels_samples(video.audio)
+        waveform = waveforms[index]
         if audio is None:
             audio, sample_rate = waveform, video.sample_rate
             continue
