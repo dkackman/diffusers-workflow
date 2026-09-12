@@ -222,3 +222,59 @@ class TestSubmission:
             )
 
         assert response.status_code == 201
+
+    def test_a_bad_reference_is_refused_before_the_job_is_queued(self, server):
+        """The name half of the check was refused at submission and the
+        reference half was not, so a typo'd asset came back as a job id and
+        died on the first step - a success-shaped answer to a question
+        validate could answer for free."""
+        with server() as client:
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow_path": "Typed",
+                    "arguments": {"image": "asset:iirs.png"},
+                },
+            )
+
+            assert response.status_code == 400
+            detail = response.json()["detail"]
+            assert "arguments.image" in detail and "iirs.png" in detail
+            assert client.get("/api/jobs").json()["jobs"] == []
+
+    def test_a_reference_that_resolves_still_queues(self, server):
+        with server() as client:
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow_path": "Typed",
+                    "arguments": {"image": "asset:iris.png"},
+                },
+            )
+
+        assert response.status_code == 201
+
+    def test_an_inline_workflow_is_checked_the_same_way(self, server):
+        with server() as client:
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": typed_workflow(),
+                    "arguments": {"image": "asset:nowhere.png"},
+                },
+            )
+
+        assert response.status_code == 400
+        assert "arguments.image" in response.json()["detail"]
+
+    def test_submission_and_validation_give_the_same_message(self, server):
+        """The ticket was a consistency gap, not a missing check: what the
+        free pre-flight says is what submission says."""
+        arguments = {"image": "asset:iirs.png"}
+        with server() as client:
+            validated = validate(client, arguments=arguments)
+            refused = client.post(
+                "/api/jobs", json={"workflow_path": "Typed", "arguments": arguments}
+            )
+
+        assert validated["errors"][0]["message"] in refused.json()["detail"]

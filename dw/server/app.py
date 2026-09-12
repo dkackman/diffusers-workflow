@@ -813,6 +813,23 @@ def create_app(
             resolved, source = resolve_workflow_reference(
                 request.workflow_path, sources
             )
+            # The same reference check POST /api/validate makes, because a
+            # caller who skipped the free pre-flight should still not get a
+            # job id for an argument that cannot resolve. The name half of
+            # this check lives in JobManager.submit, where the definition is
+            # loaded; this half needs the workspace's search path, which is
+            # here - which is why a bad 'asset:' used to queue and die on the
+            # first step while a bad variable name was refused outright
+            reference_problems = _argument_reference_errors(
+                request.arguments, workspace
+            )
+            if reference_problems:
+                raise ValueError(
+                    "; ".join(
+                        f"{problem['path']}: {problem['message']}"
+                        for problem in reference_problems
+                    )
+                )
             job = manager.submit(
                 workflow_path=resolved,
                 workflow=request.workflow,

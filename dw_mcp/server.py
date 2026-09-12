@@ -705,9 +705,11 @@ def build_server(client):
         return diagnose.get_job_workflow(client, job_id)
 
     def get_job_events(job_id: str, after: int = -1, limit: int = 200) -> dict:
-        """Get a page of a job's progress events - phase transitions, memory
-        readings and log lines. `after` is exclusive: pass back the previous
-        call's `last_seq` to continue."""
+        """Get a page of a job's progress events - phase transitions, denoise
+        steps, memory readings and log lines. `after` is exclusive: pass back
+        the previous call's `last_seq` to continue. For 'is it still moving?'
+        the `progress` block on get_job/wait_for_job is cheaper than a page
+        of events."""
         return diagnose.get_job_events(client, job_id, after=after, limit=limit)
 
     def wait_for_job(job_id: str, timeout_seconds: int = 20) -> dict:
@@ -726,7 +728,13 @@ def build_server(client):
         timeout_capped.
 
         Returns a slim job - status, warnings, error, and the manifest once
-        finished - without the arguments; get_job has those."""
+        finished - without the arguments; get_job has those. A running job
+        also carries `progress`: the step it is on, the phase (`loading`,
+        `generating`, `decoding`, `saving`) with the model named in
+        `phase_detail`, `seconds_in_phase`, `seconds_since_event`, and
+        `denoise_step`/`denoise_total_steps` once the denoise loop starts -
+        which is how a slow run and a stuck one tell apart between two
+        otherwise identical polls."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states

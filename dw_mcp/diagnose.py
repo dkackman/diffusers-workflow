@@ -72,7 +72,9 @@ def run_workflow(
 
 
 def get_job(client, job_id):
-    """A job's status, arguments, warnings, manifest, error and traceback."""
+    """A job's status, arguments, warnings, manifest, error and traceback.
+    A running job also carries `progress` - the step, the phase and how long
+    it has been in it, with the denoise counter once that loop starts."""
     return client.get_json(api_path("api", "jobs", job_id))
 
 
@@ -118,6 +120,12 @@ _SLIM_KEYS = (
     "warnings",
     "error",
     "event_count",
+    # Where a running job has got to: the step, the phase and how long it
+    # has been in it, plus the denoise counter when one is running. A
+    # single-step generation emits nothing for minutes at a time, so this
+    # is what separates a slow job from a hung one on a poll that would
+    # otherwise come back byte-identical
+    "progress",
 )
 
 
@@ -152,7 +160,15 @@ def wait_for_job(client, job_id, timeout_seconds=20):
     returns the job's last-seen status with `still_running: true` instead
     of hanging - call again to keep waiting. Returns a slim job - status,
     warnings, error, and the manifest once finished - without the
-    arguments; get_job has those."""
+    arguments; get_job has those.
+
+    A running job carries `progress`: the step it is on, the phase
+    (`loading`, `generating`, `decoding`, `saving`) with the model or step
+    named in `phase_detail`, `seconds_in_phase`, `seconds_since_event`, and
+    `denoise_step`/`denoise_total_steps` once the denoise loop is running.
+    Two calls with the same phase and a growing `seconds_in_phase` but a
+    moving `denoise_step` is a slow run; one where nothing moves and
+    `seconds_since_event` keeps climbing is a stuck one."""
     requested = max(0.0, float(timeout_seconds))
     applied = min(requested, float(MAX_WAIT_SECONDS))
     capped = applied < requested

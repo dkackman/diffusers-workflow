@@ -164,7 +164,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | `workflow_start` | the run begins | `workflow`, `total_steps`, `steps`, `seed` |
 | `step_start` / `step_end` | each step | `step`, `index`, `total_steps`; `files` at the end. A step served from the step cache adds `reused: true` to `step_end`, and its `files` are the earlier run's files rather than newly written ones |
 | `iteration_start` | each argument combination in a step | `step`, `iteration`, `total_iterations` |
-| `pipeline_step` | each denoise step | `step`, `total_steps` |
+| `pipeline_step` | each denoise step | `step`, `total_steps`. Emitted for a pipeline that takes a `callback_on_step_end`, and for a `ModularPipeline` (H3, LTX-2, Qwen-Image), which takes none - there the denoise block's own progress bar is what reports |
 | `phase` | the step changes what it is doing | `phase`, `detail` |
 | `workflow_end` | the run finishes | `manifest` |
 
@@ -176,6 +176,22 @@ pipeline as a previous run - milliseconds, not minutes), `generating`
 restarts), `decoding` (latents, after the last denoise step), `saving`
 (writing files, including video encode) and `task` (a task step, named in
 `detail`). Emits are a handful per step, not per denoise tick.
+
+### Progress on a running job
+
+`GET /api/jobs/{id}` carries a `progress` block while a job is running
+(`null` before it starts and once it is terminal, where the manifest is the
+better answer). It is the same information the event log holds, kept as the
+events arrive so a caller does not have to page back through a trimmed log
+to learn where a long render is:
+
+| field | |
+| --- | --- |
+| `step`, `step_index`, `total_steps` | the workflow step being run |
+| `phase`, `phase_detail` | the latest phase and what it named |
+| `seconds_in_phase` | how long it has been in it |
+| `seconds_since_event` | how long since anything at all happened - the number that separates a slow run from a stuck one |
+| `denoise_step`, `denoise_total_steps` | present once the denoise loop is running |
 
 ## Introspection API
 
