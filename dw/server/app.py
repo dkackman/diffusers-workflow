@@ -1999,10 +1999,14 @@ def create_app(
                 stat = os.stat(path)
             except OSError:
                 continue
-            # File names look like '{workflow}-{step}.{i}-{j}.{k}.ext'; the
-            # part before the first dot is a readable label and embedded
-            # metadata carries the precise identity
-            label = os.path.basename(relative_name).split(".")[0]
+            # File names look like '{workflow}-{step}-{i}.{j}.{k}.ext'; every
+            # artifact from one step shares the '{workflow}-{step}' prefix, so
+            # the label keeps the full name including the extension rather
+            # than truncating at the first dot - otherwise sibling outputs of
+            # the same step would show identical, indistinguishable labels,
+            # and a step that writes more than one kind of file (e.g. a still
+            # plus a video) would lose the extension that tells them apart
+            label = os.path.basename(relative_name)
             entries.append(
                 {
                     "name": relative_name,

@@ -627,8 +627,17 @@
     padding: 0.35rem 0.5rem 0.4rem;
     border-top: 1px solid var(--line);
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    /* Sibling outputs of one step share a long common prefix and differ only
+       near the end (the i.j.k index, or a dedupe counter right before the
+       extension) - a single nowrap+ellipsis line would hide exactly the part
+       that tells them apart, so wrap onto two lines and break mid-token
+       instead of clipping. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    word-break: break-all;
   }
   .detail {
     position: sticky;
