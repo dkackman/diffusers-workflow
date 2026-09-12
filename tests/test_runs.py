@@ -637,3 +637,54 @@ class TestSubfolders:
         first = new_run_id({"id": "x"})
         second = new_run_id({"id": "y"})
         assert split_run_path(f"Gyre/{first}/{second}/x.png") == ("Gyre", first, second)
+
+    def test_a_parents_subfolder_does_not_move_a_childs_files(
+        self, tmp_path, fake_pipeline
+    ):
+        # A 'workflow' step's own result block governs what the parent saves
+        # from the child's return value; the child's steps place their own
+        # files, into the run directory they inherit
+        from dw.workflow import Workflow
+
+        tree = tmp_path / "workflows"
+        tree.mkdir()
+        (tree / "child.json").write_text(json.dumps(_workflow_definition()))
+        parent = {
+            "id": "parent",
+            "seed": 7,
+            "steps": [
+                {
+                    "name": "child",
+                    "workflow": {"path": "child.json"},
+                    "result": {"subfolder": "final"},
+                }
+            ],
+        }
+        Workflow(parent, str(tmp_path / "out"), str(tree / "Parent.json")).run({})
+        (run,) = (tmp_path / "out" / "Parent").iterdir()
+        assert (run / "runs_test-gen0.0-0.0.png").is_file()
+        assert not (run / "final" / "runs_test-gen0.0-0.0.png").exists()
+
+    def test_a_chain_spill_lands_in_the_steps_subfolder(self, tmp_path, fake_pipeline):
+        # save_segments writes through the pipeline wrapper's output_dir,
+        # which create_step_action points at the step's subfolder
+        from dw.pipeline_processors.chain import run_chain
+        from dw.workflow import Workflow
+        from tests.test_chain import FakePipeline, video_output
+
+        workflow = Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json")
+        workflow._run_dir = str(tmp_path / "Gyre" / "run")
+        action = workflow.create_step_action(
+            workflow.workflow_definition["steps"][0], {}, {}, 7, "cpu"
+        )
+        spilling = FakePipeline(
+            video_output, output_dir=action.output_dir, file_prefix=action.file_prefix
+        )
+        run_chain(
+            spilling,
+            {"segments": 2, "trim_frames": 1, "fps": 4, "save_segments": True,
+             "keep_segments": True},
+            {},
+        )
+        segments = sorted((tmp_path / "Gyre" / "run" / "final").glob("*.segment-*.mp4"))
+        assert len(segments) == 2
