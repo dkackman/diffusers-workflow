@@ -1,6 +1,6 @@
 # Design: subfolders for a run's outputs
 
-Status: **stages 1-3 (engine, server/MCP, steering) implemented; stage 4 (UI) pending**. Written for MCP feedback ticket T016;
+Status: **all four stages (engine, server/MCP, steering, UI) implemented**. Written for MCP feedback ticket T016;
 reviewed against the code on 2026-09-12. Decisions taken in that review are
 marked *decided*.
 
@@ -265,11 +265,19 @@ Verified against the code:
 
 ### The web UI
 
-- Gallery: a second, smaller filter for `subfolder` beside the folder
-  filter, fed by `subfolders`, defaulting to everything. `grouping.ts` is
-  unchanged - the server still supplies `folder`.
+- Gallery: a second, smaller filter for `subfolder` beside the text filter,
+  a `<select>` fed by the distinct `subfolder` values of the loaded entries
+  (the same set the server's `subfolders` lists - the page already holds
+  the whole listing and filters client-side, so no second request), shown
+  only once some output landed in one, defaulting to everything. The two
+  filters intersect. `grouping.ts` is unchanged - the server still supplies
+  `folder`.
 - Job page: the manifest it already renders is grouped under headings by
-  `subfolder` when any entry has a non-empty one; unchanged otherwise.
+  `subfolder` when any entry has a non-empty one - `final/` first, then in
+  order of appearance, `(run root)` for the empty value - with the step
+  headings one level down; unchanged otherwise. The grouping is live from
+  `step_end` and confirmed by the manifest (`sectionBySubfolder` in
+  `ui/src/lib/results.ts`).
 - Editor: `result.subfolder` appears from the schema, no editor work.
 
 ### Breaking changes
@@ -399,9 +407,10 @@ Four stages, each its own PR to `develop`:
    traits cannot move; one side effect is welcome - an `item:subfolder`
    reference makes `subfolder` a derived entry field in a list-driven
    workflow's `lists`.
-4. **UI.** `subfolder` on the `ManifestEntry` and `JobEvent` types,
-   gallery control, job-page grouping (live from `step_end`, confirmed
-   from the manifest), editor picks the field up from the schema.
+4. **UI.** `subfolder` on the `ManifestEntry` and `GalleryFile` types and a
+   `StepEndEvent` subtype of `JobEvent`, gallery control, job-page grouping
+   (live from `step_end`, confirmed from the manifest), editor picks the
+   field up from the schema.
 
 Stages 1 and 2 are the ticket; 3 is what makes it used; 4 is what makes it
 visible to a person rather than an agent.

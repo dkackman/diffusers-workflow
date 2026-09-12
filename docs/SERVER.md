@@ -54,6 +54,9 @@ load entirely.
   progress, per-step denoising ticks, what each step is doing when it is not
   denoising (loading a model, decoding, saving), and its result files as
   they land.
+  A run whose steps chose a `result.subfolder` shows its results under
+  `final/` and `intermediate/` headings, the deliverable first; one that
+  chose none shows them as before.
   Jobs can be cancelled mid-denoise and re-run with one click. A finished
   job's **Export** button gathers the run into the workspace's `exports/`
   on the server (`POST /api/jobs/{id}/export`) and downloads it as one zip -
@@ -78,7 +81,10 @@ load entirely.
   the form view.
 - **Gallery** — everything in the selected workspace's output directory,
   which the engine lays out as `<workflow>/<run id>/`. The folder filter groups a workflow's runs
-  together rather than listing each run separately, and each run directory
+  together rather than listing each run separately, and a **subfolder** pick
+  beside the text filter - offered once any output landed in one - narrows
+  the grid to `final/`, `intermediate/` or whatever a step's
+  `result.subfolder` named; each run directory
   also holds a `manifest.json` describing what produced it (see
   [Workspaces](WORKSPACES.md#runs)). Images generated with
   `embed_metadata` carry their full workflow definition and seed; **open as
