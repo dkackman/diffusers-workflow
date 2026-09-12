@@ -160,3 +160,42 @@ def test_mcp_list_jobs_passes_its_filters():
         "status": "failed,cancelled",
         "workspace": "qa",
     }
+
+
+def test_limit_larger_than_the_match_returns_every_match(server):
+    """A limit above the number of matching jobs is not a cut at all.
+
+    The slice used to be taken from `len(jobs) - limit`, which goes negative
+    once the limit exceeds what matched and then counts back from the end -
+    so a limit just above what matched answered with only the difference -
+    `limit=12` against 9 matching jobs returned 3 of them and called
+    the other 6 "not listed".
+    """
+    with server(success_script) as client:
+        ids = []
+        for _ in range(3):
+            job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+            wait_for_status(client, job["id"], {"succeeded"})
+            ids.append(job["id"])
+
+        body = client.get("/api/jobs", params={"limit": 4}).json()
+
+        assert body["total"] == 3
+        assert [job["id"] for job in body["jobs"]] == ids
+
+
+def test_limit_larger_than_the_match_under_a_status_filter(server):
+    """The shape the report came in: limit above the count, plus `status`."""
+    with server(success_script) as client:
+        ids = []
+        for _ in range(2):
+            job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+            wait_for_status(client, job["id"], {"succeeded"})
+            ids.append(job["id"])
+
+        body = client.get(
+            "/api/jobs", params={"limit": 3, "status": "succeeded"}
+        ).json()
+
+        assert body["total"] == 2
+        assert [entry["id"] for entry in body["jobs"]] == ids
