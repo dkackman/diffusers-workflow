@@ -17,6 +17,14 @@ shapes; do not author a new workflow until the shape decision below fails.
 2. `list_workflows(shape="audio")`, and `shape="sequence"` for the music video.
    Trust the names quoted below only after the listing confirms them.
 3. `get_workflow` on the one chosen, for its variables and their defaults.
+4. Before a long track or the music video - anything that will sit near the
+   card's ceiling - `get_memory` with the server idle and read
+   `gpu_memory_allocated_mb`. A non-trivial idle figure is what an earlier run
+   left behind, and it comes off the ~22 GB these templates need. Nothing over
+   MCP clears it, so say so and ask the operator to restart the worker rather
+   than retrying into it - a failed attempt is itself what leaves weight
+   resident, so an immediate retry starts from less than the attempt that just
+   failed had.
 
 ## Which shape is the request
 
@@ -48,6 +56,15 @@ If none fits, compose from `list_tasks` (`slice_audio`, `fade_audio`,
   the song ends, and generation is cut at the ceiling if it has not. Default
   60 seconds. Ask for more than the piece needs and trim; the run's time
   follows the length actually generated, so the margin is free.
+  The consequence to size by: the arc the caption describes stretches to fill
+  the budget it is given, so a ceiling set at the intended length is not a
+  piece that ends early with room to spare - it is the same piece pulled out
+  to the ceiling and then cut off at it. A caption written for about 20
+  seconds under a 22-second ceiling comes back stretched and truncated. Set
+  the ceiling to at least 1.5x the length wanted and trim with
+  `templates/audio-trim-fade`. This is also why a track whose
+  `duration_seconds` lands within 0.2 s of its ceiling should be read as cut
+  off rather than finished.
 - The engine caps a track at 9000 frames at 25 frames per second, 360 seconds.
   MiniMax supports five minutes; stay at or under 300.
 - The caption is capped at 5,000 tokens and a longer one is an error, not a
