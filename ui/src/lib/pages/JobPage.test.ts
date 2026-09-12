@@ -52,7 +52,11 @@ afterEach(() => {
 
 it('groups a foldered run under final/ and intermediate/ headings, final first', async () => {
   detail.job = job([
-    { step: 'board_1', files: ['intermediate/b1.png'], subfolder: 'intermediate' },
+    {
+      step: 'board_1',
+      files: ['intermediate/b1.png'],
+      subfolder: 'intermediate',
+    },
     { step: 'voyage', files: ['final/voyage.mp4'], subfolder: 'final' },
   ])
   render(JobPage, { jobId: 'j1' })
@@ -61,10 +65,15 @@ it('groups a foldered run under final/ and intermediate/ headings, final first',
     expect(found.length).toBeGreaterThanOrEqual(2)
     return found
   })
-  expect(headings.map((h) => h.textContent?.trim())).toEqual(['final/', 'intermediate/'])
+  expect(headings.map((h) => h.textContent?.trim())).toEqual([
+    'final/',
+    'intermediate/',
+  ])
   // Step names drop to h4 under a subfolder heading
   expect(
-    screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent?.trim()),
+    screen
+      .getAllByRole('heading', { level: 4 })
+      .map((h) => h.textContent?.trim()),
   ).toEqual(['voyage', 'board_1'])
 })
 
@@ -76,7 +85,9 @@ it('renders an unfoldered run exactly as before: step headings, no subfolder hea
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('upscale')).toBeTruthy())
   expect(
-    screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.trim()),
+    screen
+      .getAllByRole('heading', { level: 3 })
+      .map((h) => h.textContent?.trim()),
   ).toEqual(['generate', 'upscale'])
   expect(screen.queryByRole('heading', { level: 4 })).toBeNull()
   expect(screen.queryByText('(run root)')).toBeNull()
@@ -94,6 +105,8 @@ it('places a live step_end under its subfolder before the manifest arrives', asy
     subfolder: 'final',
   })
   await waitFor(() =>
-    expect(screen.getByRole('heading', { level: 3, name: 'final/' })).toBeTruthy(),
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'final/' }),
+    ).toBeTruthy(),
   )
 })

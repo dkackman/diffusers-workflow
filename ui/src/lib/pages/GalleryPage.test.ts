@@ -240,7 +240,9 @@ it('lists the subfolders the outputs landed in and filters the grid by one', asy
   ]
   await renderGallery('wf/run-1/final/deliverable.png')
 
-  const pick = screen.getByRole('combobox', { name: 'subfolder' }) as HTMLSelectElement
+  const pick = screen.getByRole('combobox', {
+    name: 'subfolder',
+  }) as HTMLSelectElement
   expect([...pick.options].map((o) => o.textContent?.trim())).toEqual([
     'all subfolders',
     '(run root)',
@@ -251,9 +253,13 @@ it('lists the subfolders the outputs landed in and filters the grid by one', asy
   pick.value = 'final'
   pick.dispatchEvent(new Event('change', { bubbles: true }))
   await waitFor(() =>
-    expect(screen.queryByLabelText('select wf/run-1/intermediate/scratch.png')).toBeNull(),
+    expect(
+      screen.queryByLabelText('select wf/run-1/intermediate/scratch.png'),
+    ).toBeNull(),
   )
-  expect(screen.getByLabelText('select wf/run-1/final/deliverable.png')).toBeTruthy()
+  expect(
+    screen.getByLabelText('select wf/run-1/final/deliverable.png'),
+  ).toBeTruthy()
   expect(screen.queryByLabelText('select wf/run-1/root.png')).toBeNull()
   // Select all takes what the subfolder filter leaves showing
   screen.getByRole('button', { name: /select all matching \(1\)/i }).click()
@@ -268,7 +274,9 @@ it('intersects the subfolder pick with the text filter', async () => {
   ]
   await renderGallery('wf/run-1/final/a.png')
 
-  const pick = screen.getByRole('combobox', { name: 'subfolder' }) as HTMLSelectElement
+  const pick = screen.getByRole('combobox', {
+    name: 'subfolder',
+  }) as HTMLSelectElement
   pick.value = 'final'
   pick.dispatchEvent(new Event('change', { bubbles: true }))
   const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
@@ -279,7 +287,9 @@ it('intersects the subfolder pick with the text filter', async () => {
     expect(screen.queryByLabelText('select wf/run-1/final/b.png')).toBeNull(),
   )
   expect(screen.getByLabelText('select wf/run-1/final/a.png')).toBeTruthy()
-  expect(screen.queryByLabelText('select wf/run-1/intermediate/a.png')).toBeNull()
+  expect(
+    screen.queryByLabelText('select wf/run-1/intermediate/a.png'),
+  ).toBeNull()
 })
 
 it('falls back to every subfolder when the picked one empties out', async () => {
@@ -288,7 +298,9 @@ it('falls back to every subfolder when the picked one empties out', async () => 
     file('wf/run-1/root.png', ''),
   ]
   await renderGallery('wf/run-1/final/only.png')
-  const pick = screen.getByRole('combobox', { name: 'subfolder' }) as HTMLSelectElement
+  const pick = screen.getByRole('combobox', {
+    name: 'subfolder',
+  }) as HTMLSelectElement
   pick.value = 'final'
   pick.dispatchEvent(new Event('change', { bubbles: true }))
   await waitFor(() =>
@@ -315,7 +327,9 @@ it('resets a run-root pick when the control it depends on disappears', async () 
     file('wf/run-1/root.png', ''),
   ]
   await renderGallery('wf/run-1/final/only.png')
-  const pick = screen.getByRole('combobox', { name: 'subfolder' }) as HTMLSelectElement
+  const pick = screen.getByRole('combobox', {
+    name: 'subfolder',
+  }) as HTMLSelectElement
   // "all subfolders" and "(run root)" both carry the native value "" -
   // Svelte tells them apart by each option's bound __value - so picking by
   // index is what actually lands on "(run root)" rather than falling back
@@ -323,7 +337,9 @@ it('resets a run-root pick when the control it depends on disappears', async () 
   pick.selectedIndex = 1
   pick.dispatchEvent(new Event('change', { bubbles: true }))
   await waitFor(() =>
-    expect(screen.queryByLabelText('select wf/run-1/final/only.png')).toBeNull(),
+    expect(
+      screen.queryByLabelText('select wf/run-1/final/only.png'),
+    ).toBeNull(),
   )
   expect(screen.getByLabelText('select wf/run-1/root.png')).toBeTruthy()
 

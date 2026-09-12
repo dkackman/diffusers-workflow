@@ -1981,7 +1981,9 @@ def create_app(
                     folder, _run_id, subfolder = split_run_path(relative_name)
                 else:
                     folder, subfolder = directory, ""
-                yield relative_name, folder, subfolder, kind, os.path.join(current, name)
+                yield relative_name, folder, subfolder, kind, os.path.join(
+                    current, name
+                )
 
     def _gallery_entries(root, ws):
         entries = []

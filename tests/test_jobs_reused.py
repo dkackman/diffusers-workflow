@@ -59,6 +59,11 @@ def test_job_for_file_attributes_a_file_in_a_subfolder(tmp_path):
     history = JobHistory(str(tmp_path / "jobs.sqlite"))
     name = "dialogue/20260912-120000-abcdef01/final/dialogue-assemble.0-0.0.png"
 
-    _record(history, "writer", 1.0, [{"step": "assemble", "files": [name], "subfolder": "final"}])
+    _record(
+        history,
+        "writer",
+        1.0,
+        [{"step": "assemble", "files": [name], "subfolder": "final"}],
+    )
 
     assert history.job_for_file(name)["id"] == "writer"

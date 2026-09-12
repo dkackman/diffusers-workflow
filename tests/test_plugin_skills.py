@@ -412,9 +412,9 @@ def test_a_skill_states_the_subfolder_convention(path):
     composing a new workflow needs to keep it."""
     text = skill_text(path)
     assert "`subfolder`" in text, f"{path} does not name the subfolder field"
-    assert "`final`" in text and "`intermediate`" in text, (
-        f"{path} does not state the final/intermediate convention"
-    )
+    assert (
+        "`final`" in text and "`intermediate`" in text
+    ), f"{path} does not state the final/intermediate convention"
     # the convention is stated where the manifest is read
     assert text.index("`subfolder`") > text.index("## Run and judge")
 
@@ -425,7 +425,9 @@ def test_the_h3_skill_names_each_cut_templates_final_step():
     with it."""
     text = skill_text(H3_SKILL)
     for name in ("dialogue-short", "music-video", "storyboard"):
-        path = os.path.join(REPO_ROOT, "workflows", "templates", "minimax", name + ".json")
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", name + ".json"
+        )
         with open(path, encoding="utf-8") as f:
             spec = json.load(f)
         finals = [
@@ -434,4 +436,6 @@ def test_the_h3_skill_names_each_cut_templates_final_step():
             if (step.get("result") or {}).get("subfolder") == "final"
         ]
         assert len(finals) == 1, (name, finals)
-        assert f"`{finals[0]}`" in text, f"the skill does not name {name}'s final step {finals[0]}"
+        assert (
+            f"`{finals[0]}`" in text
+        ), f"the skill does not name {name}'s final step {finals[0]}"

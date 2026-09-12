@@ -449,7 +449,10 @@ class TestResultSubfolder:
                 {
                     "name": "a",
                     "task": {"command": "noop", "arguments": {}},
-                    "result": {"content_type": "image/png", "subfolder": "variable:dest"},
+                    "result": {
+                        "content_type": "image/png",
+                        "subfolder": "variable:dest",
+                    },
                 }
             ],
         }

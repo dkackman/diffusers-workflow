@@ -44,7 +44,9 @@ class TestSubfolderErrors:
         errors = subfolder_errors(definition)
         assert len(errors) == 1
         assert errors[0]["path"] == "steps[0].result.subfolder"
-        assert "Subfolder" in errors[0]["message"] or "subfolder" in errors[0]["message"]
+        assert (
+            "Subfolder" in errors[0]["message"] or "subfolder" in errors[0]["message"]
+        )
 
     def test_a_separator_in_file_base_name_is_reported_at_its_path(self):
         definition = {"steps": [_step("a", {"file_base_name": "final/"})]}
@@ -106,7 +108,10 @@ class TestValidationErrorsIntegration:
                 {
                     "name": "a",
                     "task": {"command": "noop", "arguments": {}},
-                    "result": {"content_type": "image/png", "subfolder": "variable:dest"},
+                    "result": {
+                        "content_type": "image/png",
+                        "subfolder": "variable:dest",
+                    },
                 }
             ],
         }

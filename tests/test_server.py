@@ -1332,7 +1332,9 @@ def test_gallery_reports_and_filters_by_subfolder(server, tmp_path):
         final = by_name[f"dialogue/{run_id}/final/dialogue-assemble.0-0.0.png"]
         assert final["folder"] == "dialogue"
         assert final["subfolder"] == "final"
-        nested = by_name[f"dialogue/{run_id}/intermediate/shots/dialogue-slice.0-0.0.png"]
+        nested = by_name[
+            f"dialogue/{run_id}/intermediate/shots/dialogue-slice.0-0.0.png"
+        ]
         assert nested["subfolder"] == "intermediate/shots"
         assert by_name[f"dialogue/{run_id}/dialogue-still.0-0.0.png"]["subfolder"] == ""
         assert by_name["ltx/flat.png"]["folder"] == "ltx"

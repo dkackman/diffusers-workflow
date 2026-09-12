@@ -360,7 +360,7 @@
   names={visible.map((f) => f.name)}
   groupOf={(name) => folderByName.get(name) ?? ''}
   collapseKey="collapsed-gallery-folders"
-  filterActive={filterActive}
+  {filterActive}
   minColumn="150px"
 >
   {#snippet card(name)}

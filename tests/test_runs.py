@@ -493,7 +493,9 @@ class TestSubfolders:
     def test_step_output_dir_is_the_run_directory_without_a_subfolder(self, tmp_path):
         from dw.workflow import Workflow
 
-        workflow = Workflow(_workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json")
+        workflow = Workflow(
+            _workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json"
+        )
         workflow._run_dir = str(tmp_path / "Gyre" / "run")
         step = workflow.workflow_definition["steps"][0]
         assert workflow.step_output_dir(step) == workflow.effective_output_dir
@@ -509,12 +511,16 @@ class TestSubfolders:
         with pytest.raises(SecurityError):
             workflow.step_output_dir(workflow.workflow_definition["steps"][0])
 
-    def test_the_pipeline_wrapper_is_pointed_at_the_subfolder(self, tmp_path, fake_pipeline):
+    def test_the_pipeline_wrapper_is_pointed_at_the_subfolder(
+        self, tmp_path, fake_pipeline
+    ):
         # A chain step's save_segments spill writes through the pipeline's
         # output_dir, so it has to be the step's directory, not the run's
         from dw.workflow import Workflow
 
-        workflow = Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json")
+        workflow = Workflow(
+            _foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json"
+        )
         workflow._run_dir = str(tmp_path / "Gyre" / "run")
         step = workflow.workflow_definition["steps"][0]
         action = workflow.create_step_action(step, {}, {}, 7, "cpu")
@@ -540,7 +546,9 @@ class TestSubfolders:
         assert entry["subfolder"] == "final"
         assert entry["files"] == ["final/runs_test-gen0.0-0.0.png"]
 
-    def test_an_unfoldered_entry_carries_the_empty_string(self, tmp_path, fake_pipeline):
+    def test_an_unfoldered_entry_carries_the_empty_string(
+        self, tmp_path, fake_pipeline
+    ):
         from dw.workflow import Workflow
 
         Workflow(_workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
@@ -581,7 +589,9 @@ class TestSubfolders:
         step_ends = [event for event in seen if event.get("event") == "step_end"]
         assert step_ends and step_ends[0]["subfolder"] == "final"
 
-    def test_an_output_reference_reaches_into_a_subfolder(self, tmp_path, fake_pipeline):
+    def test_an_output_reference_reaches_into_a_subfolder(
+        self, tmp_path, fake_pipeline
+    ):
         from dw.workflow import Workflow
 
         Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
@@ -592,11 +602,17 @@ class TestSubfolders:
             "output:Gyre/latest/final/runs_test-gen0.0-0.0.png", root=str(tmp_path)
         )
         assert resolved == str(run / "final" / "runs_test-gen0.0-0.0.png")
-        assert resolve_output_reference(
-            f"output:Gyre/{run.name}/final/runs_test-gen0.0-0.0.png", root=str(tmp_path)
-        ) == resolved
+        assert (
+            resolve_output_reference(
+                f"output:Gyre/{run.name}/final/runs_test-gen0.0-0.0.png",
+                root=str(tmp_path),
+            )
+            == resolved
+        )
 
-    def test_a_for_each_member_lands_in_its_own_subfolder(self, tmp_path, fake_pipeline):
+    def test_a_for_each_member_lands_in_its_own_subfolder(
+        self, tmp_path, fake_pipeline
+    ):
         # The design's showcase case: 'item:' routes each member, and an entry
         # may spell its value through a variable
         from dw.workflow import Workflow
@@ -623,7 +639,9 @@ class TestSubfolders:
         from dw.security import SecurityError
         from dw.workflow import Workflow
 
-        workflow = Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json")
+        workflow = Workflow(
+            _foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json"
+        )
         run_dir = tmp_path / "Gyre" / "run"
         run_dir.mkdir(parents=True)
         elsewhere = tmp_path / "elsewhere"
@@ -672,7 +690,9 @@ class TestSubfolders:
         from dw.workflow import Workflow
         from tests.test_chain import FakePipeline, video_output
 
-        workflow = Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json")
+        workflow = Workflow(
+            _foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json"
+        )
         workflow._run_dir = str(tmp_path / "Gyre" / "run")
         action = workflow.create_step_action(
             workflow.workflow_definition["steps"][0], {}, {}, 7, "cpu"
@@ -682,8 +702,13 @@ class TestSubfolders:
         )
         run_chain(
             spilling,
-            {"segments": 2, "trim_frames": 1, "fps": 4, "save_segments": True,
-             "keep_segments": True},
+            {
+                "segments": 2,
+                "trim_frames": 1,
+                "fps": 4,
+                "save_segments": True,
+                "keep_segments": True,
+            },
             {},
         )
         segments = sorted((tmp_path / "Gyre" / "run" / "final").glob("*.segment-*.mp4"))
