@@ -120,7 +120,7 @@ read an inferred workspace back as one the user named - `get_prompt_dir` yields
 to its older discovery (`./prompts`, then the walk up from the workflow file)
 for an inferred workspace but not for an explicit one. `--workflow-dir`,
 `--output-dir` and `--prompt-dir` each still override one folder. See
-docs/WORKSPACES.md, and docs/proposals/server-workspaces.md for the later stages
+docs/WORKSPACES.md, and docs/proposals/server-workspaces-complete.md for the later stages
 (workflow search path, run directories, `asset:`/`output:` references).
 
 ### Type System

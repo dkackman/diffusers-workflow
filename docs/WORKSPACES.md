@@ -295,11 +295,11 @@ it. Use them to keep work apart, not to keep it private.
 ## Where this is going
 
 Workspaces were the first stage of the design in
-[proposals/server-workspaces.md](proposals/server-workspaces.md). The resolver, the workflow
+[proposals/server-workspaces-complete.md](proposals/server-workspaces-complete.md). The resolver, the workflow
 search path with writes confined to the writable root, run directories with an
 on-disk manifest, `asset:` and `output:` references, and server-side named
 workspaces are all implemented. What remains from the proposal is an MCP
 client that keeps its workspace on its own machine and mirrors it to the
 server — see
-[proposals/server-workspaces.md](proposals/server-workspaces.md) for why
+[proposals/server-workspaces-complete.md](proposals/server-workspaces-complete.md) for why
 mirroring is not currently planned.

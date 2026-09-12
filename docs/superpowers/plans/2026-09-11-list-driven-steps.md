@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3, pytest. No new dependencies.
 
-**Spec:** `docs/proposals/list-driven-steps.md` (revised 2026-09-11). This plan is stage 1 of that proposal plus the agent-facing documentation; the template rewrite (stage 2) and catalog cost/entry-shape reporting (stage 3) are a later plan.
+**Spec:** `docs/proposals/list-driven-steps-complete.md` (revised 2026-09-11). This plan is stage 1 of that proposal plus the agent-facing documentation; the template rewrite (stage 2) and catalog cost/entry-shape reporting (stage 3) are a later plan.
 
 ## Global Constraints
 
@@ -1582,7 +1582,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 8: End-to-end on the server, then mark the proposal
 
 **Files:**
-- Modify: `docs/proposals/list-driven-steps.md` (status line)
+- Modify: `docs/proposals/list-driven-steps-complete.md` (status line)
 - Test: `tests/test_server_jobs.py`
 
 **Interfaces:**
@@ -1604,7 +1604,7 @@ Expected: PASS, no skips added.
 
 - [ ] **Step 4: Update the proposal status**
 
-In `docs/proposals/list-driven-steps.md`, change the status line to:
+In `docs/proposals/list-driven-steps-complete.md`, change the status line to:
 
 ```markdown
 Status: **stage 1 implemented** (expansion pass, validation, schema, docs -
@@ -1615,7 +1615,7 @@ not started. Written for MCP feedback ticket T003.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/test_server_jobs.py docs/proposals/list-driven-steps.md
+git add tests/test_server_jobs.py docs/proposals/list-driven-steps-complete.md
 git commit -m "test(for_each): a list-driven job end to end; proposal marks stage 1 done
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"

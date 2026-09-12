@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10, pytest, JSON workflow templates, markdown skill/docs.
 
-**Spec:** `docs/proposals/list-driven-steps.md` — "Phasing" item 2, "Decided at review", and "Notes for stage 2".
+**Spec:** `docs/proposals/list-driven-steps-complete.md` — "Phasing" item 2, "Decided at review", and "Notes for stage 2".
 
 ## Global Constraints
 
@@ -930,7 +930,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `tests/test_plugin_skills.py` (`TestMiniMaxH3Skill`)
 - Modify: `docs/WORKFLOW_GUIDE.md` (the `### One step per entry: for_each` section, ~line 340-410)
 - Modify: `CLAUDE.md` (the `for_each` bullet in Type System, ~line 157; the `for_each` gotcha in Critical Gotchas)
-- Modify: `docs/proposals/list-driven-steps.md` (status line, lines 3-5; "Notes for stage 2")
+- Modify: `docs/proposals/list-driven-steps-complete.md` (status line, lines 3-5; "Notes for stage 2")
 
 **Interfaces:**
 - Consumes: the templates' new `shots` entry shapes from Tasks 3 and 4.
@@ -1058,7 +1058,7 @@ In Critical Gotchas, add a bullet after the `for_each` one:
 
 - [ ] **Step 7: The proposal**
 
-`docs/proposals/list-driven-steps.md` lines 3-5 become:
+`docs/proposals/list-driven-steps-complete.md` lines 3-5 become:
 
 ```
 Status: **stages 1 and 2 implemented** (expansion pass, validation, schema,
@@ -1087,7 +1087,7 @@ catalog work.
 Run: `pytest -q -x tests/`
 
 ```bash
-git add plugins/dw/skills/minimax-h3/SKILL.md tests/test_plugin_skills.py docs/WORKFLOW_GUIDE.md CLAUDE.md docs/proposals/list-driven-steps.md
+git add plugins/dw/skills/minimax-h3/SKILL.md tests/test_plugin_skills.py docs/WORKFLOW_GUIDE.md CLAUDE.md docs/proposals/list-driven-steps-complete.md
 git commit -m "docs(for_each): the cut templates take one shots list; entries may name variables
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"

@@ -2,7 +2,7 @@
 
 Date: 2026-09-06. Status: approved for planning. Grew out of the MCP capability
 discovery discussion that followed
-[docs/proposals/scripted-dialogue-and-tts.md](../../proposals/scripted-dialogue-and-tts.md),
+[docs/proposals/scripted-dialogue-and-tts-complete.md](../../proposals/scripted-dialogue-and-tts-complete.md),
 whose `generate_speech` half is already implemented.
 
 ## Goal

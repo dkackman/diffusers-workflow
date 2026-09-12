@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10, pytest, JSON schema, FastAPI routes, TypeScript + vitest for `ui/`.
 
-**Spec:** `docs/proposals/list-driven-steps.md` — "Stage 3: cost and entry shape (design)".
+**Spec:** `docs/proposals/list-driven-steps-complete.md` — "Stage 3: cost and entry shape (design)".
 
 ## Global Constraints
 
@@ -689,12 +689,12 @@ with `CONSTANT_SHOTS = [{"name": "a", "text": "1"}, {"name": "b", "text": "2"}]`
 
 - [ ] **Step 4: Update the prose that quoted the old numbers**
 
-`docs/proposals/list-driven-steps.md`: in "Limits and cost" (~line 216-224) the sentence about `DEFAULT_MAX_ENTRIES = 50` and "leaves the cache alone" — append "(raised to 128 in stage 3)". In the stage 3 section's "Decisions carried" bullet, change "Raise the bound to 128, or make eviction skip…" to state that it was raised to 128. `CLAUDE.md` gotcha about the step cache needs no number. The stage-2 "Notes" paragraph that says the empty-list question "is a stage-2 decision" — leave; the stage 3 section rules it.
+`docs/proposals/list-driven-steps-complete.md`: in "Limits and cost" (~line 216-224) the sentence about `DEFAULT_MAX_ENTRIES = 50` and "leaves the cache alone" — append "(raised to 128 in stage 3)". In the stage 3 section's "Decisions carried" bullet, change "Raise the bound to 128, or make eviction skip…" to state that it was raised to 128. `CLAUDE.md` gotcha about the step cache needs no number. The stage-2 "Notes" paragraph that says the empty-list question "is a stage-2 decision" — leave; the stage 3 section rules it.
 
 - [ ] **Step 5: Run tests, full suite, commit**
 
 ```bash
-git add dw/for_each.py dw/workflow_schema.json dw/workflow.py dw/step_cache.py tests/test_for_each.py tests/test_schema.py tests/test_workflow.py tests/test_step_cache.py docs/proposals/list-driven-steps.md
+git add dw/for_each.py dw/workflow_schema.json dw/workflow.py dw/step_cache.py tests/test_for_each.py tests/test_schema.py tests/test_workflow.py tests/test_step_cache.py docs/proposals/list-driven-steps-complete.md
 git commit -m "fix(for_each): an empty list is an error; validation realizes constants; step cache holds a maximal run
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -710,7 +710,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `docs/WORKFLOW_GUIDE.md` ("Limits:" paragraph of `### One step per entry: for_each`, ~line 412-420)
 - Modify: `dw_mcp/server.py` (the instructions string, ~line 75-80: "summary, shape, traits, cost and variable names")
 - Modify: `CLAUDE.md` (Type System `for_each` bullet, ~line 157-170)
-- Modify: `docs/proposals/list-driven-steps.md` (status line, lines 3-6)
+- Modify: `docs/proposals/list-driven-steps-complete.md` (status line, lines 3-6)
 
 - [ ] **Step 1: Extend the skill test**
 
@@ -747,14 +747,14 @@ Keep the two entry-shape sentences before it. Measure with `wc -c`; stay ≤ 122
 
 `CLAUDE.md` Type System `for_each` bullet: append "The catalog derives `lists` (`list_fields`, `dw/for_each.py`): the fields an entry takes are the `item:` references the steps make, `name` first; an entry key no step reads is a validation warning (`entry_field_warnings`). A `cost` entry may carry `per_entry` (`{variable, minutes, entries}`), measured, never derived. An empty `for_each` list is an error; `expanded_definition` realizes constants first."
 
-`docs/proposals/list-driven-steps.md` status: "**stages 1, 2 and 3 implemented** (…; catalog `lists`, `per_entry` cost schema, entry-key warning, rulings, flow-view edges, 2026-09-11). `per_entry` figures for the two templates await a measured run."
+`docs/proposals/list-driven-steps-complete.md` status: "**stages 1, 2 and 3 implemented** (…; catalog `lists`, `per_entry` cost schema, entry-key warning, rulings, flow-view edges, 2026-09-11). `per_entry` figures for the two templates await a measured run."
 
 - [ ] **Step 5: Tests, suite, commit**
 
 Run: `python -m pytest -q tests/test_plugin_skills.py tests/test_server_guides.py tests/test_mcp_catalog.py` then the full suite.
 
 ```bash
-git add plugins/dw/skills/minimax-h3/SKILL.md tests/test_plugin_skills.py docs/WORKFLOW_GUIDE.md dw_mcp/server.py CLAUDE.md docs/proposals/list-driven-steps.md
+git add plugins/dw/skills/minimax-h3/SKILL.md tests/test_plugin_skills.py docs/WORKFLOW_GUIDE.md dw_mcp/server.py CLAUDE.md docs/proposals/list-driven-steps-complete.md
 git commit -m "docs(for_each): the listing's lists block and per_entry cost, quoted by the skill and the guide
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"

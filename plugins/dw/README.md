@@ -3,7 +3,7 @@
 Skills for Claude Code that teach an agent to compose a model family's
 workflows on a [diffusers-workflow](https://github.com/dkackman/diffusers-workflow)
 server. They assume the `dw` MCP server is already registered
-(see the repo README, "Drive it from Claude Code"); a skill's first move is
+(see the repo README, "Drive it from an agent"); a skill's first move is
 `get_server_info`.
 
 Install once, from Claude Code:

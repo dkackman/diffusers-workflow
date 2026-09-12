@@ -244,8 +244,13 @@ document, which is where a draft that validates still fails.
 ### References
 
 An argument value is a reference when it begins with one of these prefixes.
-Each resolves before the step runs; a name that does not resolve fails the run,
-not validation.
+Each resolves before the step runs. `variable:` and `previous_result:` names
+are checked statically, so a bad one is a validation error at the path it
+sits at; a `constant:`, `asset:`, `prompt:` or `output:` name in the
+definition body resolves only when the step runs, and one that is missing
+fails the run - unless it arrives in the `arguments` passed to
+`validate_workflow`, which checks an `asset:`, `prompt:` or `output:` there
+for existence.
 
 - `variable:` — `variable:name` is the workflow's own `variables` entry,
   overridden by the caller's `arguments`. A variable declared `null` is optional and untyped.
@@ -294,8 +299,10 @@ value: `"variable:base_prompt"` resolves, `"variable:base_prompt, in fog"` asks
 for a variable named `base_prompt, in fog` and fails the run. Nothing is
 interpolated around a reference. To vary a fixed prompt across steps, write
 each full prompt out, or put the shared text in a variable and let a step's
-argument override it whole. `validate_workflow` warns about a `variable:`
-reference that names nothing the workflow declares.
+argument override it whole. A `variable:` reference that names nothing the
+workflow declares is a validation error, not a warning: once a `variables`
+block exists the engine refuses an undeclared reference, so it is a run that
+cannot start.
 
 When several steps share a block of text — a character's description and voice
 repeated in every shot of a dialogue short — the answer is composition rather
@@ -1121,9 +1128,11 @@ Override the default scheduler:
 }
 ```
 
-A pipeline that carries a second scheduler takes an `audio_scheduler` block with the
-same shape - MiniMax H3 steps video and audio latents down two schedules whose shifts
-are set independently.
+A scheduler block may also carry `shift`, the exponential sigma shift for
+schedulers that take one (MiniMax H3's released checkpoint: 12.0 for video,
+3.0 for audio). A pipeline that carries a second scheduler takes an
+`audio_scheduler` block with the same shape - MiniMax H3 steps video and audio
+latents down two schedules whose shifts are set independently.
 
 ## Seeds
 

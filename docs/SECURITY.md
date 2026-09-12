@@ -71,8 +71,8 @@ loading (`sdnq`, `torchao`, `optimum` for optimum-quanto, `gguf`,
 `bitsandbytes`), plus `dw` itself (a workflow's `component_type` can name a
 pipeline under `dw.community_pipelines`, which ships in this repo, not a
 third party one). The refusal names exactly what triggered it and points
-back at `--trust-workflows`. The bundled examples under `workflows/` (not
-`workflows/archive/`) all stay inside this set and load untrusted; a
+back at `--trust-workflows`. The bundled examples under `workflows/` all
+stay inside this set and load untrusted; a
 workflow that needs to reach outside it - a community pipeline module from
 somewhere else, a custom scheduler package - needs `--trust-workflows`.
 

@@ -103,7 +103,7 @@ Failed fetches: `https://github.com/huggingface/diffusers/blob/minimax-music3-in
 
 ### Claims the task asked about that the repository does **not** make
 
-- **Maximum duration**: unstated anywhere in the templates. Vendor: **five minutes** (model card, blog 2026-08-13). Engine: `_MAX_AUDIO_FRAMES = 9_000` at 25 fps = **360 s / six minutes** (`encoders.py`, and the docstring's "Capped at 9000 frames (six minutes)"). These disagree by a minute; the engine cap is the hard stop, the vendor's five minutes is the supported/trained range. Only the internal planning docs (`docs/proposals/agent-catalog-legibility.md:649`, `docs/superpowers/plans/2026-09-07-ltx-h3-catalog-repair.md:1062`) carry the 9000/six-minute figure, and they carry it without the five-minute caveat.
+- **Maximum duration**: unstated anywhere in the templates. Vendor: **five minutes** (model card, blog 2026-08-13). Engine: `_MAX_AUDIO_FRAMES = 9_000` at 25 fps = **360 s / six minutes** (`encoders.py`, and the docstring's "Capped at 9000 frames (six minutes)"). These disagree by a minute; the engine cap is the hard stop, the vendor's five minutes is the supported/trained range. Only the internal planning docs (`docs/proposals/agent-catalog-legibility-complete.md:649`, `docs/superpowers/plans/2026-09-07-ltx-h3-catalog-repair.md:1062`) carry the 9000/six-minute figure, and they carry it without the five-minute caveat.
 - **Full structure-tag vocabulary**: UNSOURCED in the repo — it only ever shows `[verse]`/`[chorus]`.
 - **Instrumental-only**: not addressed anywhere in the repo. Vendor position (see below).
 - **Language support**: not addressed. Vendor: blog demos are Mandarin and English; the caption skill says write the *caption* in English by default; no published language list.

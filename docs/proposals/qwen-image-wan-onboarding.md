@@ -97,7 +97,7 @@ plugin skill:
 5. **Cold drill** — for whichever family gets a skill, the same
    plugin-installed-vs-not comparison the H3/LTX-2.5 drill used.
 6. **Ledger** — a row per family in the Part 4 ledger
-   (`docs/proposals/agent-catalog-legibility.md`), since this extends that
+   (`docs/proposals/agent-catalog-legibility-complete.md`), since this extends that
    proposal's catalog rather than opening a new one.
 
 ## What this is not

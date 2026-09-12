@@ -12,7 +12,7 @@
 
 **Agent assignment:** each task is tagged `[model: haiku|sonnet|opus]`. Haiku for mechanical edits with exact code given, sonnet for integration work with judgement about existing code, opus for tasks that require reading real templates and deciding. The orchestrator passes the tag as the `model` parameter when dispatching.
 
-**Ledger:** `docs/proposals/agent-catalog-legibility.md` ends with a `## Ledger` table. The last step of every task updates the row(s) it lands, changing `designed` to `done (task N)` and adding anything learned to the notes column. Keep the row on one line.
+**Ledger:** `docs/proposals/agent-catalog-legibility-complete.md` ends with a `## Ledger` table. The last step of every task updates the row(s) it lands, changing `designed` to `done (task N)` and adding anything learned to the notes column. Keep the row on one line.
 
 ## Global Constraints
 
@@ -1069,7 +1069,7 @@ git commit -m "Filter /api/workflows by shape, traits and configures; add the co
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 10: Ledger** — in `docs/proposals/agent-catalog-legibility.md`, row `1 shape vocabulary`: change `designed` to `done (tasks 1–4)`. Row `2 \`summary\``: change to `done (tasks 1, 3)`. Commit: `git commit -am "Ledger: shape and summary landed"` with the co-author trailer.
+- [ ] **Step 10: Ledger** — in `docs/proposals/agent-catalog-legibility-complete.md`, row `1 shape vocabulary`: change `designed` to `done (tasks 1–4)`. Row `2 \`summary\``: change to `done (tasks 1, 3)`. Commit: `git commit -am "Ledger: shape and summary landed"` with the co-author trailer.
 
 ---
 

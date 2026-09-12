@@ -1,7 +1,7 @@
 # dw plugin: model-family composition skills — design
 
 Package B of the Part 4 work in
-[agent-catalog-legibility.md](../../proposals/agent-catalog-legibility.md).
+[agent-catalog-legibility-complete.md](../../proposals/agent-catalog-legibility-complete.md).
 It answers the open question of how model-specific knowledge reaches an
 agent: as a Claude Code plugin of small composition skills that defer the
 prompt format to the vendors' own published text. It depends on Package A
