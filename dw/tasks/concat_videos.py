@@ -91,9 +91,11 @@ def concat_videos(
     # across the whole set, so the last shot's loudness has to be known
     # before the first one is scaled
     waveforms = [
-        as_channels_samples(video.audio)
-        if isinstance(video, AudioVideo) and video.audio is not None
-        else None
+        (
+            as_channels_samples(video.audio)
+            if isinstance(video, AudioVideo) and video.audio is not None
+            else None
+        )
         for video in videos
     ]
     if match_levels:
