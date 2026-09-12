@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import tempfile
 
 import pytest
 
@@ -16,8 +17,8 @@ def definition(*steps, **extra):
     return {"id": "test", "steps": list(steps), **extra}
 
 
-TEMPLATES = os.path.join(
-    os.path.dirname(__file__), "..", "workflows", "templates", "minimax"
+TEMPLATES = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "workflows", "templates", "minimax")
 )
 
 
@@ -26,10 +27,12 @@ def load_template(name):
         return json.load(f)
 
 
-def load_workflow(name):
+def load_workflow(name, output_dir=None):
     from dw.workflow import workflow_from_file
 
-    return workflow_from_file(os.path.normpath(os.path.join(TEMPLATES, name)), ".")
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp()
+    return workflow_from_file(os.path.join(TEMPLATES, name), output_dir)
 
 
 def steps_by_name(definition):
@@ -683,15 +686,30 @@ class TestMusicVideoTemplate:
             f"previous_result:shot@{k}" for k in self.KEYS
         ]
 
-    def test_the_realized_file_keeps_the_list(self):
-        """workflow.json beside a run is the source form: 'for_each' and the
-        'shots' variable, not the expanded members."""
+    def test_the_template_keeps_the_list(self):
+        """The template on disk keeps 'for_each' and the 'shots' variable
+        rather than expanded members - the realized workflow.json a run
+        writes is built from this same definition, but that is not what
+        this test reads."""
         template = load_template("music-video.json")
         assert "shots" in template["variables"]
         assert [s["name"] for s in template["steps"] if "for_each" in s] == [
             "slice",
             "shot",
         ]
+
+    def test_each_shot_keeps_the_generation_settings(self):
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            arguments = got[f"shot@{key}"]["pipeline"]["arguments"]
+            assert arguments["num_frames"] == 124
+            assert arguments["width"] == 960
+            assert arguments["height"] == 544
+            assert arguments["num_inference_steps"] == 9
+            assert arguments["output"] == ["videos", "audio", "sampling_rate"]
+            loras = got[f"shot@{key}"]["pipeline"]["loras"]
+            assert len(loras) == 1
+            assert loras[0]["model_name"] == "lightx2v/Minimax-h3-Turbo"
 
 
 class TestDialogueShortTemplate:
@@ -762,3 +780,55 @@ class TestDialogueShortTemplate:
         assert got["episode"]["task"]["arguments"]["videos"] == [
             f"previous_result:shot@{k}" for k in self.KEYS
         ]
+
+    def test_each_shot_keeps_the_generation_settings(self):
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            arguments = got[f"shot@{key}"]["pipeline"]["arguments"]
+            assert arguments["width"] == 960
+            assert arguments["height"] == 544
+            assert arguments["num_inference_steps"] == 9
+            assert arguments["output"] == ["videos", "audio", "sampling_rate"]
+            loras = got[f"shot@{key}"]["pipeline"]["loras"]
+            assert len(loras) == 1
+            assert loras[0]["model_name"] == "lightx2v/Minimax-h3-Turbo"
+
+
+class TestRunTimeRealizationOrder:
+    """Workflow.run resolves in a fixed order: realize_constants ->
+    set_variables -> resolve_variable_values -> realize_args(variables,
+    base_dir) -> replace_variables -> expand_for_each. realize_args walks
+    into the 'shots' variable and loads every 'reference_type' there, so
+    resolve_variable_values must already have turned
+    'variable:subject_reference_type' into a dotted name before realize_args
+    runs - reordering those two would fail exactly what this test checks."""
+
+    KEYS = {
+        "cold_open": 2,
+        "deflect": 1,
+        "react": 1,
+        "button": 1,
+        "tag": 2,
+    }
+
+    def test_the_run_s_own_resolution_order_produces_loaded_types(self):
+        from dw.arguments import realize_args, realize_constants
+        from dw.for_each import expand_for_each
+        from dw.variables import replace_variables, resolve_variable_values
+
+        definition = load_template("dialogue-short.json")
+        variables = definition["variables"]
+        realize_constants(variables)
+        variables = resolve_variable_values(variables)
+        realize_args(variables, TEMPLATES)
+        expanded = expand_for_each(replace_variables(definition, variables))
+
+        got = steps_by_name(expanded)
+        for key, count in self.KEYS.items():
+            references = got[f"shot@{key}"]["pipeline"]["arguments"]["references"]
+            assert len(references) == count, key
+            for reference in references:
+                assert isinstance(reference, dict)
+                assert isinstance(reference["reference_type"], type)
+                assert "from_previous_result" in reference
+                assert "from_file" not in reference

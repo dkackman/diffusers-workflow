@@ -13,6 +13,7 @@ variable still sets the voice everywhere.
 
 import json
 import os
+import tempfile
 
 import pytest
 
@@ -43,20 +44,22 @@ def definition():
         return json.load(file)
 
 
-def shot_references(definition, arguments):
+def shot_references(arguments):
     """Every shot member's references, as the engine realizes them for a
     run: the caller's arguments folded, entries resolved, the list expanded,
     then each member's arguments realized as its step would."""
     from dw.workflow import workflow_from_file
 
-    expanded = workflow_from_file(TEMPLATE, ".").expanded_definition(arguments)
+    expanded = workflow_from_file(TEMPLATE, tempfile.mkdtemp()).expanded_definition(
+        arguments
+    )
     references = {}
     for step in expanded["steps"]:
         if step["name"] not in SPEAKERS:
             continue
-        arguments = step["pipeline"]["arguments"]
-        realize_args(arguments)
-        references[step["name"]] = arguments["references"]
+        step_arguments = step["pipeline"]["arguments"]
+        realize_args(step_arguments)
+        references[step["name"]] = step_arguments["references"]
     assert set(references) == set(SPEAKERS)
     return references
 
@@ -76,7 +79,7 @@ class TestOptionalVoices:
             ]
 
     def test_no_voice_named_leaves_only_the_portraits(self, definition):
-        for name, references in shot_references(definition, {}).items():
+        for name, references in shot_references({}).items():
             assert len(references) == len(set(SPEAKERS[name])), name
             assert all(
                 reference["from_previous_result"].startswith("draw_character")
@@ -92,7 +95,7 @@ class TestOptionalVoices:
         write_wav(voice, seconds=1.0)
 
         for name, references in shot_references(
-            definition, {"character_a_voice": str(voice)}
+            {"character_a_voice": str(voice)}
         ).items():
             built = [r for r in references if not isinstance(r, dict)]
             assert len(built) == (1 if "a" in SPEAKERS[name] else 0), name

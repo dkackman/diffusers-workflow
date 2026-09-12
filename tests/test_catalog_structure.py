@@ -219,12 +219,12 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/image-to-text.json": {"model_name", "prompt"},
     # a field of the step's 'chain' block
     "workflows/templates/minimax/chained-segments.json": {"trim_frames"},
+    # fields of a 'shots' list entry, not this workflow's own variables
+    "workflows/templates/minimax/dialogue-short.json": {"prompt", "num_frames"},
     # the fl2va sub-workflow's argument, named to say this one leaves it unset
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared
     "workflows/templates/minimax/music.json": {"sample_rate"},
-    # fields of a 'shots' list entry, not this workflow's own variables
-    "workflows/templates/minimax/dialogue-short.json": {"prompt", "num_frames"},
 }
 
 
