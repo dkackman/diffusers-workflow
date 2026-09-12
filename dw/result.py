@@ -13,7 +13,12 @@ from diffusers.utils import (
 )
 from collections.abc import Mapping
 from .events import emit_phase
-from .security import validate_output_path, validate_string_input, SecurityError
+from .security import (
+    SecurityError,
+    validate_file_base_name,
+    validate_output_path,
+    validate_string_input,
+)
 
 logger = logging.getLogger("dw")
 
@@ -306,9 +311,11 @@ class Result:
         # Determine base filename with validation
         file_base_name = validated_base_name
         if "file_base_name" in self.result_definition:
-            custom_base = validate_string_input(
-                self.result_definition["file_base_name"],
-                max_length=MAX_BASE_NAME_LENGTH,
+            custom_base = validate_file_base_name(
+                validate_string_input(
+                    self.result_definition["file_base_name"],
+                    max_length=MAX_BASE_NAME_LENGTH,
+                )
             )
             file_base_name = custom_base + validated_base_name
 
