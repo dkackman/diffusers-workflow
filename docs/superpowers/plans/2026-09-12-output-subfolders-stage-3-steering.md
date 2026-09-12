@@ -29,7 +29,7 @@
 | File | Responsibility in this plan |
 |---|---|
 | `tests/test_template_subfolders.py` (new) | The drift test: every in-scope template's saving steps all carry `final`/`intermediate`, at least one `final`; builtins unmarked |
-| `workflows/templates/**/*.json` (19 files, listed in Task 1) | Gain `"subfolder"` on each saving step's `result` |
+| `workflows/templates/**/*.json` (18 files, listed in Task 1) | Gain `"subfolder"` on each saving step's `result` |
 | `plugins/dw/skills/minimax-h3/SKILL.md`, `.../ltx-2.5/SKILL.md`, `.../minimax-music3/SKILL.md` | One paragraph each stating the convention for the family's templates |
 | `tests/test_plugin_skills.py` | Pins that each skill states the convention and that the H3 skill's named roles match the templates |
 | `docs/WORKFLOW_GUIDE.md` | *Saying which output is the deliverable*: says the shipped templates follow the convention |
@@ -42,7 +42,7 @@
 
 **Files:**
 - Create: `tests/test_template_subfolders.py`
-- Modify: the 19 templates in the table below (only their `result` blocks)
+- Modify: the 18 templates in the table below (only their `result` blocks)
 
 **Interfaces:**
 - Consumes: `get_example_files()` from `tests/test_examples.py` (returns repo-relative paths of every workflow JSON under `workflows/`, sorted); `REPO_ROOT` from the same module.
@@ -101,12 +101,12 @@ IN_SCOPE = [f for f in TEMPLATES if len(list(saving_steps(load(f)))) >= 2]
 
 
 def test_the_scope_is_what_the_design_counted():
-    """Nineteen templates had two or more saving steps when the convention
+    """Eighteen templates had two or more saving steps when the convention
     landed. A template added later with several saving steps joins the
     parametrized test below on its own; this pins that none has quietly
     left it (a step that stopped saving would drop a template from scope
     without failing anything else)."""
-    assert len(IN_SCOPE) >= 19, IN_SCOPE
+    assert len(IN_SCOPE) >= 18, IN_SCOPE
 
 
 @pytest.mark.parametrize("template", IN_SCOPE)
@@ -147,7 +147,7 @@ def test_the_packaged_builtins_stay_unmarked(builtin):
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `source ./activate && python -m pytest tests/test_template_subfolders.py -q`
-Expected: the 19 `test_every_saving_step_of_a_multi_step_template_names_its_role` cases FAIL with "saving steps without a final/intermediate subfolder"; the 19 last-key cases FAIL; scope and builtin cases PASS. If `test_the_scope_is_what_the_design_counted` fails, stop and report - the inventory below is wrong.
+Expected: the 18 `test_every_saving_step_of_a_multi_step_template_names_its_role` cases FAIL with "saving steps without a final/intermediate subfolder"; the 18 last-key cases FAIL; scope and builtin cases PASS. If `test_the_scope_is_what_the_design_counted` fails, stop and report - the inventory below is wrong.
 
 - [ ] **Step 3: Mark up the templates**
 
@@ -194,7 +194,7 @@ For each row, add `"subfolder": "<role>"` as the **last** key of that step's `re
 | `minimax/storyboard.json` | `board_1_launch`, `board_2_gutter`, `board_3_shore` | `intermediate` | boards |
 | | `voyage` | `final` | |
 
-Steps not in the table (e.g. `slice`, `soundtrack`, `edit` in `music-video.json`, which have no `content_type`) are not saving steps and get nothing.
+Steps not in the table (e.g. `slice`, `soundtrack`, `edit` in `music-video.json`, which have no `content_type`) are not saving steps and get nothing. Three templates already contain a `"subfolder"` key under a component's `from_pretrained_arguments` (`community-pipeline.json`, `ltx2/generative-upscale.json`, `multi-image-reference.json`) - that is a Hugging Face repo subfolder, unrelated; leave it alone. Only `result` blocks change.
 
 Example, `restore-faces.json` `restore` step, before:
 
@@ -249,7 +249,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Test: `tests/test_plugin_skills.py`
 
 **Interfaces:**
-- Consumes: `skill_text(path)`, `SKILLS` (the sorted list of every `SKILL.md`), `H3_SKILL`, `PLUGIN_DIR`, `REPO_ROOT`, already defined at module level in `tests/test_plugin_skills.py`; `pytest`, `os` and `json`-free helpers are already imported there.
+- Consumes: `skill_text(path)`, `SKILLS` (the sorted list of every `SKILL.md`), `H3_SKILL`, `PLUGIN_DIR`, `REPO_ROOT`, already defined at module level in `tests/test_plugin_skills.py`; `pytest` and `os` are already imported there; add `import json` beside them (the role test uses it) rather than importing inline.
 - Produces: nothing later tasks consume.
 
 - [ ] **Step 1: Write the failing tests**
@@ -277,8 +277,6 @@ def test_the_h3_skill_names_the_intermediate_steps_the_templates_mark():
     """The skill says what the family's templates put in intermediate -
     portraits, boards, the song; if a template's roles change the skill
     must change with it."""
-    import json
-
     text = skill_text(H3_SKILL)
     for name in ("dialogue-short", "music-video", "storyboard"):
         path = os.path.join(REPO_ROOT, "workflows", "templates", "minimax", name + ".json")
@@ -302,18 +300,15 @@ Expected: 4 FAIL (three skills lack `` `subfolder` ``; the H3 role test fails on
 
 In each `SKILL.md`, the *Run and judge* list has an item 3 that begins with `` 3. `wait_for_job`, then `get_job` for the manifest. `` Extend **that item** (keep it item 3; append sentences to it, indented to the list's continuation indent of three spaces) with the family-specific text below. Wrap at the file's existing line width (about 80 columns).
 
-`plugins/dw/skills/minimax-h3/SKILL.md`, appended to item 3:
+`plugins/dw/skills/minimax-h3/SKILL.md`, appended to item 3. **This skill has ~199 bytes of headroom under `SKILL_SIZE_LIMIT` (12288; check `wc -c` before and after)**, so the paragraph is short and item 4's existing list of the four portrait/board templates is left as is:
 
 ```
-   Each manifest entry carries `subfolder`: the family's templates put the
-   deliverable in `final` and the scratch in `intermediate` - the portraits
-   and boards, each cut of `shot`, and the song. `episode`, `music_video` and
-   `voyage` are the `final` steps of `templates/minimax/dialogue-short`,
-   `templates/minimax/music-video` and `templates/minimax/storyboard`;
-   `list_gallery(subfolder="final")` lists only deliverables. Keep the
-   convention in anything you compose from a template: the step whose output
-   the user will be shown is `final`, every other saving step `intermediate`.
+   Each entry carries `subfolder`: `final` is the deliverable (`episode`,
+   `music_video`, `voyage`), `intermediate` the scratch; keep that split in
+   anything you compose.
 ```
+
+If the file still exceeds the cap, trim words from this paragraph only (the six backticked literals must stay); do not touch other sections.
 
 `plugins/dw/skills/ltx-2.5/SKILL.md`, appended to item 3:
 
@@ -379,10 +374,10 @@ roles in place.
 
 - [ ] **Step 2: CLAUDE.md carries the release note**
 
-In `CLAUDE.md`, the `**Result subfolders**` bullet currently ends `` `file_base_name` may not contain a separator - it is a name, not a path ``. Append to the bullet (same indentation, continuing the sentence flow):
+In `CLAUDE.md`, the `**Result subfolders**` bullet currently ends `` `file_base_name` may not contain a separator - it is a name, not a path ``. Change that line to end `it is a name, not a path.` (period on the same line - a period at the start of the next line renders as "path . Every") and append to the bullet (same indentation):
 
 ```
-. Every `workflows/templates/**` file with two or more saving steps
+  Every `workflows/templates/**` file with two or more saving steps
   marks each one `final`/`intermediate` (`tests/test_template_subfolders.py` pins the rule;
   `dw/workflows/` builtins stay unmarked - a role is the parent's to assign). That moved
   the templates' outputs into `<run>/final/` and `<run>/intermediate/`: an
@@ -393,7 +388,7 @@ In `CLAUDE.md`, the `**Result subfolders**` bullet currently ends `` `file_base_
   items beside the `shots` list change
 ```
 
-(Result: the bullet's last sentence before the addition ends with `path`, then `. Every ...` continues - check the rendered bullet reads as prose.)
+(Check the rendered bullet reads as prose; the other gotcha bullets end without a period, this one now ends its last sentence `...the `shots` list change` without one too.)
 
 - [ ] **Step 3: Check the mirror rule**
 
@@ -454,7 +449,28 @@ A `workflow` step is marked
    list a parent composes, and the role is the parent's to assign
    (*implemented*: the drift test pins both halves; the earlier draft
    exempted `compose-workflows` and `sub-workflow`, neither of which is a
-   `builtin:` composition).
+   `builtin:` composition). One consequence: a `workflow` step's
+   deliverable exists twice - the child's copy at the run root, the
+   parent's in `final/` - so `list_gallery(subfolder="final")` shows only
+   the parent's. The duplication is older than this design; it is now
+   distinguishable.
+```
+
+- [ ] **Step 2b: The *Tests* bullet matches the ruling**
+
+In the *Tests* section, the *Templates* bullet reads
+
+```
+- **Templates.** Every template with two or more saving steps, not exempt
+  as a `builtin:` composition, has a subfolder on each saving step.
+```
+
+Replace it with
+
+```
+- **Templates.** Every template with two or more saving steps has `final`
+  or `intermediate` on each saving step and at least one `final`; the
+  packaged builtins in `dw/workflows/` carry none.
 ```
 
 Keep the paragraph's three-space continuation indent and wrap at the file's line width.
