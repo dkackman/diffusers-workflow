@@ -16,6 +16,7 @@ from dw.runs import (
     manifest_relative_files,
     new_run_id,
     output_layout,
+    split_run_path,
     strip_run_id,
     workflow_identity,
 )
@@ -73,6 +74,40 @@ class TestRunIds:
     def test_a_path_with_no_run_id_keeps_its_folder(self):
         assert strip_run_id("ltx2/still.png") == "ltx2"
         assert strip_run_id("still.png") == ""
+
+    def test_splitting_a_run_path_names_its_three_parts(self):
+        run_id = new_run_id({"id": "x"})
+        assert split_run_path(f"ltx2/Gyre/{run_id}/still.png") == (
+            "ltx2/Gyre",
+            run_id,
+            "",
+        )
+        assert split_run_path(f"ltx2/Gyre/{run_id}/final/still.png") == (
+            "ltx2/Gyre",
+            run_id,
+            "final",
+        )
+        assert split_run_path(f"ltx2/Gyre/{run_id}/shots/act-1/x.mp4") == (
+            "ltx2/Gyre",
+            run_id,
+            "shots/act-1",
+        )
+        # A counter suffix is still a run id
+        assert split_run_path(f"Gyre/{run_id}-2/final/x.mp4") == (
+            "Gyre",
+            f"{run_id}-2",
+            "final",
+        )
+
+    def test_a_path_with_no_run_id_splits_to_its_directory(self):
+        # Flat layout: nothing to anchor on, so the directory is the identity
+        assert split_run_path("ltx2/final/still.png") == ("ltx2/final", "", "")
+        assert split_run_path("still.png") == ("", "", "")
+
+    def test_stripping_a_run_id_ignores_what_follows_it(self):
+        run_id = new_run_id({"id": "x"})
+        assert strip_run_id(f"ltx2/Gyre/{run_id}/final/still.png") == "ltx2/Gyre"
+        assert strip_run_id(f"{run_id}/final/still.png") == ""
 
     def test_a_run_id_with_tz_aware_utc_now_has_correct_stamp(self):
         # Verify that a tz-aware UTC now produces the correct timestamp prefix
