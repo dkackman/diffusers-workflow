@@ -16,6 +16,7 @@ from dw.runs import (
     manifest_relative_files,
     new_run_id,
     output_layout,
+    resolve_output_reference,
     split_run_path,
     strip_run_id,
     workflow_identity,
@@ -579,3 +580,18 @@ class TestSubfolders:
         )
         step_ends = [event for event in seen if event.get("event") == "step_end"]
         assert step_ends and step_ends[0]["subfolder"] == "final"
+
+    def test_an_output_reference_reaches_into_a_subfolder(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        (run,) = (tmp_path / "Gyre").iterdir()
+        resolved = resolve_output_reference(
+            "output:Gyre/latest/final/runs_test-gen0.0-0.0.png", root=str(tmp_path)
+        )
+        assert resolved == str(run / "final" / "runs_test-gen0.0-0.0.png")
+        assert resolve_output_reference(
+            f"output:Gyre/{run.name}/final/runs_test-gen0.0-0.0.png", root=str(tmp_path)
+        ) == resolved
