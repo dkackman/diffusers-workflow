@@ -18,7 +18,7 @@ import logging
 import threading
 
 from ..repl_worker import WorkerManager
-from ..workflow import workflow_from_file, workflow_from_definition
+from ..workflow import SEED_BITS, workflow_from_file, workflow_from_definition
 from ..introspection import workflow_argument_warnings
 from ..variables import argument_errors
 from ..security import (
@@ -773,11 +773,9 @@ class JobManager:
                     "a rerun cannot change it. A workflow with no seed at all "
                     "already draws a fresh one every run."
                 )
-            # Bounded to 53 bits rather than the 64 torch allows: this number
-            # goes out as JSON and comes back through a browser, where every
-            # integer is a double, and a seed that changed on the way through
-            # would be a seed nobody can reproduce
-            arguments = {**arguments, variable: random.getrandbits(53)}
+            # Bounded so the number survives its trip through a browser as
+            # JSON - see SEED_BITS
+            arguments = {**arguments, variable: random.getrandbits(SEED_BITS)}
 
         workspace = spec.get("workspace")
         if (

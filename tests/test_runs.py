@@ -315,6 +315,23 @@ class TestRunDirectories:
         # draws its own seed rather than inheriting this one
         assert "seed" not in definition
 
+    def test_a_drawn_seed_survives_a_trip_through_a_browser(
+        self, tmp_path, fake_pipeline
+    ):
+        """The seed reaches the web UI as JSON, where every integer is a
+        double: a 64-bit draw would be rounded on arrival, and the number
+        shown beside the image could not reproduce it."""
+        from dw.workflow import Workflow
+
+        definition = _workflow_definition()
+        del definition["seed"]
+        workflow = Workflow(definition, str(tmp_path), "/w/workflows/ltx2/Gyre.json")
+        workflow.run({"prompt": "a cat"})
+
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        assert 0 <= manifest["seed"] < 2**53
+
     def test_a_seed_can_come_from_a_variable(self, tmp_path, fake_pipeline):
         """'seed' accepts a 'variable:' reference, so a caller can re-run a
         workflow at the seed a previous run's manifest reported."""

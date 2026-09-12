@@ -6,6 +6,7 @@ import copy
 import gc
 import hashlib
 import logging
+import secrets
 from datetime import datetime, timezone
 from .arguments import (
     realize_args,
@@ -74,6 +75,10 @@ from .security import (
 )
 
 logger = logging.getLogger("dw")
+
+# The widest integer JavaScript's double represents exactly - the ceiling on
+# any seed the engine draws, since seeds travel as JSON through a browser
+SEED_BITS = 53
 
 
 class ConstantError(ValueError):
@@ -573,9 +578,14 @@ class Workflow:
             # while its seed still changes every run
             self._cache_enabled_this_run = cache_enabled_this_run
             if default_seed is None:
-                # A fresh generator draws a random seed without touching the
-                # global RNG the process may have seeded for reproducibility
-                default_seed = torch.Generator().seed()
+                # OS entropy rather than torch or random, so a process that
+                # seeded either for reproducibility is not disturbed. Bounded
+                # to 53 bits rather than the 64 torch allows: the seed is
+                # embedded in the image, the manifest and the realized
+                # workflow as JSON, and a browser reads every integer as a
+                # double - a seed that changed on the way through would be a
+                # seed nobody can reproduce
+                default_seed = secrets.randbits(SEED_BITS)
             workflow_def["seed"] = default_seed
             resolved_seed = default_seed
 
