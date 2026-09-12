@@ -223,6 +223,8 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared
     "workflows/templates/minimax/music.json": {"sample_rate"},
+    # fields of a 'shots' list entry, not this workflow's own variables
+    "workflows/templates/minimax/dialogue-short.json": {"prompt", "num_frames"},
 }
 
 

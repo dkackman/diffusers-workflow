@@ -36,17 +36,6 @@ def steps_by_name(definition):
     return {s["name"]: s for s in definition["steps"]}
 
 
-def without_pipeline_reference(step, pipeline_step):
-    """A hand-written 'pipeline_reference' shot as the full pipeline block
-    the expansion produces: the reference's arguments over the referenced
-    step's pipeline."""
-    rebuilt = {k: v for k, v in step.items() if k != "pipeline_reference"}
-    pipeline = copy.deepcopy(pipeline_step["pipeline"])
-    pipeline["arguments"] = step["pipeline_reference"]["arguments"]
-    rebuilt["pipeline"] = pipeline
-    return rebuilt
-
-
 class TestNaming:
     def test_member_name_joins_with_at(self):
         assert member_name("shot", "wide_open") == "shot@wide_open"
@@ -706,57 +695,70 @@ class TestMusicVideoTemplate:
 
 
 class TestDialogueShortTemplate:
-    """dialogue-short's five shots, whose reference lists and frame counts
-    differ by shot, written as one for_each group whose entries carry every
-    argument that differs between shots."""
+    """dialogue-short's five shots are one for_each group whose entries
+    carry everything that differs between shots: prompt, references and
+    length."""
 
-    def test_the_hand_written_shots_are_what_the_list_expands_to(self):
-        template = load_template("dialogue-short.json")
-        today = steps_by_name(template)
-        hand_written = [
-            ("cold_open", "shot_1_cold_open"),
-            ("deflect", "shot_2_deflect"),
-            ("react", "shot_3_react"),
-            ("button", "shot_4_button"),
-            ("tag", "shot_5_tag"),
-        ]
-        first = today["shot_1_cold_open"]
-        full = {
-            old: (
-                step
-                if "pipeline_reference" not in step
-                else without_pipeline_reference(step, first)
-            )
-            for old, step in today.items()
-            if old.startswith("shot_")
+    KEYS = ["cold_open", "deflect", "react", "button", "tag"]
+
+    def expanded(self):
+        return load_workflow("dialogue-short.json").expanded_definition()
+
+    def test_the_template_validates_as_it_will_run(self):
+        assert load_workflow("dialogue-short.json").validation_errors() == []
+
+    def test_one_shot_per_entry_between_the_cast_and_the_edit(self):
+        names = [s["name"] for s in self.expanded()["steps"]]
+        assert names == (
+            ["draw_character_a", "draw_character_b"]
+            + [f"shot@{k}" for k in self.KEYS]
+            + ["episode"]
+        )
+
+    def test_each_shot_references_the_portraits_its_entry_lists(self):
+        got = steps_by_name(self.expanded())
+        portraits = {
+            key: [
+                r["from_previous_result"]
+                for r in got[f"shot@{key}"]["pipeline"]["arguments"]["references"]
+                if "from_previous_result" in r
+            ]
+            for key in self.KEYS
+        }
+        assert portraits == {
+            "cold_open": ["draw_character_a", "draw_character_b"],
+            "deflect": ["draw_character_b"],
+            "react": ["draw_character_a"],
+            "button": ["draw_character_b"],
+            "tag": ["draw_character_a", "draw_character_b"],
         }
 
-        shots = []
-        for key, old in hand_written:
-            arguments = full[old]["pipeline"]["arguments"]
-            shots.append(
-                {
-                    "name": key,
-                    "prompt": arguments["prompt"],
-                    "references": arguments["references"],
-                    "num_frames": arguments["num_frames"],
-                }
-            )
+    def test_the_reference_types_are_resolved_inside_the_entries(self):
+        """An entry's "variable:subject_reference_type" is the dotted type
+        name by the time the member exists - never the literal reference."""
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            for r in got[f"shot@{key}"]["pipeline"]["arguments"]["references"]:
+                assert r["reference_type"].startswith("diffusers.modular_pipelines")
 
-        shot_template = copy.deepcopy(full["shot_1_cold_open"])
-        shot_template["name"] = "shot"
-        shot_template["for_each"] = shots
-        shot_template["pipeline"]["arguments"]["prompt"] = "item:prompt"
-        shot_template["pipeline"]["arguments"]["references"] = "item:references"
-        shot_template["pipeline"]["arguments"]["num_frames"] = "item:num_frames"
+    def test_the_tag_runs_longer(self):
+        got = steps_by_name(self.expanded())
+        frames = [
+            got[f"shot@{k}"]["pipeline"]["arguments"]["num_frames"] for k in self.KEYS
+        ]
+        assert frames == [124, 124, 124, 124, 141]
 
-        expanded = expand_for_each(
-            definition(
-                today["draw_character_a"], today["draw_character_b"], shot_template
-            )
+    def test_every_shot_is_the_same_pipeline(self):
+        from dw.workflow import pipeline_cache_key
+
+        got = steps_by_name(self.expanded())
+        assert (
+            len({pipeline_cache_key(got[f"shot@{k}"]["pipeline"]) for k in self.KEYS})
+            == 1
         )
-        got = steps_by_name(expanded)
-        for key, old in hand_written:
-            expected = copy.deepcopy(full[old])
-            expected["name"] = f"shot@{key}"
-            assert got[f"shot@{key}"] == expected
+
+    def test_the_episode_gathers_the_shots_in_order(self):
+        got = steps_by_name(self.expanded())
+        assert got["episode"]["task"]["arguments"]["videos"] == [
+            f"previous_result:shot@{k}" for k in self.KEYS
+        ]
