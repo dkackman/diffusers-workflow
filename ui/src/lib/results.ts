@@ -19,8 +19,8 @@ export function groupResultFiles(
 ): StepGroup[] {
   const order: string[] = []
   const byStep = new Map<string, Set<string>>()
-  // Only the manifest knows a step was served from the step cache; the
-  // live step_end stream carries files but not that flag
+  // The engine reports a step served from the step cache on the live
+  // step_end stream, and again on the manifest
   const reused = new Set<string>()
   // Placed by the live step_end, confirmed by the manifest - the manifest
   // is written last, so its value is the one that stands
@@ -38,6 +38,7 @@ export function groupResultFiles(
     if (event.event === 'step_end') {
       const end = event as StepEndEvent
       add(end.step || '(unnamed)', end.files ?? [], end.subfolder)
+      if (end.reused) reused.add(end.step || '(unnamed)')
     }
   }
   for (const entry of manifest ?? []) {

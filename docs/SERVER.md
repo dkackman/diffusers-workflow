@@ -55,8 +55,8 @@ load entirely.
   denoising (loading a model, decoding, saving), and its result files as
   they land.
   A run whose steps chose a `result.subfolder` shows its results under
-  `final/` and `intermediate/` headings, the deliverable first; one that
-  chose none shows them as before.
+  `final/` and `intermediate/` headings (or whatever the step named), the
+  deliverable first; one that chose none shows them as before.
   Jobs can be cancelled mid-denoise and re-run with one click. A finished
   job's **Export** button gathers the run into the workspace's `exports/`
   on the server (`POST /api/jobs/{id}/export`) and downloads it as one zip -

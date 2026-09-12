@@ -316,9 +316,10 @@ same reason - default setup cannot load a pack.
   workflow's runs. Gallery entries carry it too; `GET /api/gallery?subfolder=` and MCP
   `list_gallery(subfolder=)` filter on it. The web UI reads the field only:
   the gallery page offers a subfolder pick once any entry has one, and the
-  job page sections results under `final/` / `intermediate/` headings
-  (`sectionBySubfolder`, `ui/src/lib/results.ts`), unchanged for a run
-  that chose none. `file_base_name` may not contain a separator -
+  job page sections results under `final/` / `intermediate/` headings (or
+  whatever the step named) (`sectionBySubfolder`, `ui/src/lib/results.ts`),
+  unchanged for a run that chose none. `file_base_name` may not contain a
+  separator -
   it is a name, not a path.
   Every `workflows/templates/**` file with two or more saving steps
   marks each one `final`/`intermediate` (`tests/test_template_subfolders.py` pins the rule;

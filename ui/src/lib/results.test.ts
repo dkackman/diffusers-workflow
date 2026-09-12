@@ -2,8 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { groupResultFiles, sectionBySubfolder } from './results'
 import type { JobEvent } from './types'
 
-const stepEnd = (step: string, files: string[], subfolder?: string): JobEvent =>
-  ({ seq: 0, event: 'step_end', step, files, subfolder }) as unknown as JobEvent
+const stepEnd = (
+  step: string,
+  files: string[],
+  subfolder?: string,
+  reused?: boolean,
+): JobEvent =>
+  ({
+    seq: 0,
+    event: 'step_end',
+    step,
+    files,
+    subfolder,
+    reused,
+  }) as unknown as JobEvent
 
 describe('groupResultFiles', () => {
   it('groups streamed files by producing step, in completion order', () => {
@@ -59,6 +71,13 @@ describe('groupResultFiles', () => {
       [],
     )
     expect(groups.map((g) => g.reused)).toEqual([true, false])
+  })
+
+  it('reads reused live from step_end before any manifest arrives', () => {
+    const groups = groupResultFiles(undefined, [
+      stepEnd('generate', ['a.png'], undefined, true),
+    ])
+    expect(groups[0].reused).toBe(true)
   })
 })
 

@@ -79,7 +79,7 @@ it('renders an unfoldered run exactly as before: step headings, no subfolder hea
     screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.trim()),
   ).toEqual(['generate', 'upscale'])
   expect(screen.queryByRole('heading', { level: 4 })).toBeNull()
-  expect(screen.queryByText(/\/$/)).toBeNull()
+  expect(screen.queryByText('(run root)')).toBeNull()
 })
 
 it('places a live step_end under its subfolder before the manifest arrives', async () => {

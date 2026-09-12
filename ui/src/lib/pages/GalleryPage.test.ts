@@ -12,6 +12,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import GalleryPage from './GalleryPage.svelte'
 import ConfirmDialog from '../ConfirmDialog.svelte'
 import type { GalleryFile } from '../types'
+import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 
 const file = (name: string, subfolder = ''): GalleryFile => ({
   name,
@@ -69,6 +70,7 @@ afterEach(() => {
   archiveOutputs.mockClear()
   notifyError.mockClear()
   vi.unstubAllGlobals()
+  workspace.current = DEFAULT_WORKSPACE
 })
 
 /** The grid's per-file selection checkbox. */
@@ -305,4 +307,40 @@ it('falls back to every subfolder when the picked one empties out', async () => 
     expect(screen.getByLabelText('select wf/run-1/root.png')).toBeTruthy(),
   )
   expect(screen.queryByRole('combobox', { name: 'subfolder' })).toBeNull()
+})
+
+it('resets a run-root pick when the control it depends on disappears', async () => {
+  listing.files = [
+    file('wf/run-1/final/only.png', 'final'),
+    file('wf/run-1/root.png', ''),
+  ]
+  await renderGallery('wf/run-1/final/only.png')
+  const pick = screen.getByRole('combobox', { name: 'subfolder' }) as HTMLSelectElement
+  // "all subfolders" and "(run root)" both carry the native value "" -
+  // Svelte tells them apart by each option's bound __value - so picking by
+  // index is what actually lands on "(run root)" rather than falling back
+  // to "all subfolders"
+  pick.selectedIndex = 1
+  pick.dispatchEvent(new Event('change', { bubbles: true }))
+  await waitFor(() =>
+    expect(screen.queryByLabelText('select wf/run-1/final/only.png')).toBeNull(),
+  )
+  expect(screen.getByLabelText('select wf/run-1/root.png')).toBeTruthy()
+
+  // The run-root pick has just hidden the only other file, so nothing in
+  // this grid's own checkboxes can reach it to delete it - a workspace
+  // switch stands in for that (or the same file being deleted from
+  // elsewhere): the listing comes back with no subfolder at all, the same
+  // shape the last foldered file's own deletion would leave behind
+  listing.files = [file('wf/run-1/root.png', '')]
+  workspace.current = 'other'
+  await waitFor(() => expect(gallery).toHaveBeenCalledTimes(2))
+
+  // The control goes with the pick it can no longer offer, and "Select
+  // all" reads as unfiltered again rather than sticking on a filter
+  // nothing can now clear
+  expect(screen.queryByRole('combobox', { name: 'subfolder' })).toBeNull()
+  expect(
+    screen.getByRole('button', { name: /^select all \(1\)$/i }),
+  ).toBeTruthy()
 })

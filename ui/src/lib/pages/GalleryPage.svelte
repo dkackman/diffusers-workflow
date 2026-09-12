@@ -88,9 +88,9 @@
     }
   }
 
-  // Every distinct subfolder in the listing, '' (the run root) included
-  // once anything is nested - the same set the server's `subfolders`
-  // reports, read off the entries so a delete updates it without a refetch
+  // Every distinct subfolder in the listing - read off the entries so a
+  // delete updates it without a refetch. '' (the run root) appears only
+  // when some file sits there, so the pick never offers an empty option
   const subfolders = $derived(
     [...new Set(files.map((f) => f.subfolder))].sort((a, b) =>
       a.localeCompare(b),
@@ -107,9 +107,17 @@
   )
   // A pick that no longer exists (its last file deleted) means everything,
   // not an empty grid pinned to a vanished value - and the control itself
-  // is reset, since a <select> whose value matches no option shows blank
+  // is reset, since a <select> whose value matches no option shows blank.
+  // A pick of '' (the run root) never appears in `subfolders` on its own,
+  // so it is only cleared once the control itself stops being offered -
+  // otherwise it would survive the control unmounting and leave
+  // `filterActive` stuck true with nothing to reset it
   $effect(() => {
-    if (subfolder !== null && !subfolders.includes(subfolder)) subfolder = null
+    if (
+      subfolder !== null &&
+      (!subfolderOffered || !subfolders.includes(subfolder))
+    )
+      subfolder = null
   })
   const byName = $derived(new Map(visible.map((f) => [f.name, f])))
   // The server folds each run id into `folder`; group by that, since the
