@@ -13,6 +13,7 @@
   import { stepProgress } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
   import CopyButton from '../CopyButton.svelte'
+  import DownloadLink from '../DownloadLink.svelte'
   import { notify } from '../toast'
   import type { JobDetail, JobEvent } from '../types'
 
@@ -184,6 +185,46 @@
   const fileGroups = $derived(
     groupResultFiles(job?.manifest, events as JobEvent[]),
   )
+
+  /** A prompt argument as displayable text - pipelines accept a list too. */
+  function promptText(value: unknown): string {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value))
+      return value.filter((v) => typeof v === 'string').join('\n')
+    return ''
+  }
+
+  // The generation metadata embedded in each output, keyed by file - per
+  // file rather than per step, since each image of a batch carries its own
+  // seed. A key present with null is a lookup already in flight or failed
+  let fileMeta = $state<Record<string, Record<string, unknown> | null>>({})
+  $effect(() => {
+    const workspace = job?.workspace
+    for (const group of fileGroups) {
+      for (const file of group.files) {
+        if (file in fileMeta) continue
+        fileMeta[file] = null
+        api
+          .galleryMetadata(file, workspace)
+          .then((r) => {
+            fileMeta[file] = r.metadata
+          })
+          .catch(() => {})
+      }
+    }
+  })
+
+  /** The gallery detail's fields for one output's embedded metadata. */
+  function describe(meta: Record<string, unknown> | null | undefined) {
+    const args =
+      (meta?.arguments as Record<string, unknown> | undefined) ?? null
+    return {
+      model: typeof meta?.model_name === 'string' ? meta.model_name : '',
+      seed: typeof meta?.seed === 'number' ? meta.seed : args?.seed,
+      prompt: promptText(args?.prompt),
+      negativePrompt: promptText(args?.negative_prompt),
+    }
+  }
   // Nothing at all was generated: every step the manifest lists was served
   // from the step cache. Worth saying outright - the page otherwise shows a
   // succeeded job full of images that are not this run's
@@ -383,8 +424,11 @@
               {/if}
             </svelte:element>
           {/if}
-          <div class="media">
-            {#each group.files as file (file)}
+          {#each group.files as file (file)}
+            {@const info = describe(fileMeta[file])}
+            <!-- Laid out as the gallery detail is: the media on the left,
+                 what made it on the right -->
+            <div class="output">
               {#if isImage(file)}
                 <a
                   class="frame plain"
@@ -403,8 +447,34 @@
                   >{file.split('/').pop()}</a
                 >
               {/if}
-            {/each}
-          </div>
+              <div class="meta">
+                <div class="metabar">
+                  <span class="filename">{file.split('/').pop()}</span>
+                  <DownloadLink
+                    href={api.outputDownloadUrl(file, job.workspace)}
+                  />
+                </div>
+                {#if info.model}
+                  <div><span class="muted">model</span> {info.model}</div>
+                {/if}
+                {#if info.seed !== undefined}
+                  <div><span class="muted">seed</span> <code>{info.seed}</code></div>
+                {/if}
+                {#if info.prompt}
+                  <div class="prompt">
+                    <span class="muted">prompt</span>
+                    <p>{info.prompt}</p>
+                  </div>
+                {/if}
+                {#if info.negativePrompt}
+                  <div class="prompt">
+                    <span class="muted">negative prompt</span>
+                    <p>{info.negativePrompt}</p>
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/each}
         {/each}
       {/each}
     </div>
@@ -518,23 +588,59 @@
     font-variant-numeric: tabular-nums;
     font-size: 0.8rem;
   }
-  .media {
+  /* One output per row, the gallery detail's shape: the proof on the left,
+     the recipe that made it on the right */
+  .output {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
+    gap: 1rem;
     align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .output + .output {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
   }
   /* What the run produced, framed the way the catalog and the gallery
      frame it - the picture flush to its edges, no rounding of its own */
-  .media :global(.frame) {
-    max-width: min(340px, 100%);
+  .output :global(.frame) {
+    max-width: min(480px, 100%);
   }
-  .media :global(.frame > video) {
+  .output :global(.frame > video) {
     height: auto;
   }
-  .media a.filelink {
+  .output a.filelink {
     font-family: var(--font-mono);
     font-size: var(--t-sm);
+  }
+  .meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.85rem;
+    max-width: 46ch;
+    min-width: 0;
+  }
+  .meta .muted {
+    margin-right: 0.4rem;
+  }
+  .metabar {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-bottom: 0.3rem;
+  }
+  /* The name the engine wrote, and what you would type to reference it */
+  .filename {
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
+    overflow-wrap: anywhere;
+    flex: 1;
+  }
+  .prompt p {
+    margin: 0.15rem 0 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .error {
     color: var(--bad);
