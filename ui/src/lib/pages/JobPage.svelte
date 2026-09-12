@@ -6,6 +6,7 @@
     TriangleAlert,
     X,
   } from '@lucide/svelte'
+  import { untrack } from 'svelte'
   import { ApiError, api, outputUrl, streamJobEvents } from '../api'
   import { confirmDialog } from '../confirm.svelte'
   import { go } from '../router.svelte'
@@ -40,6 +41,9 @@
     events = []
     definition = null
     seedVariable = null
+    // Under the flat output layout two runs write the same file names, so
+    // a map keyed by name would show the last job's recipe for this one
+    fileMeta = {}
     // stopped guards the async gap: navigating away mid-fetch must not let
     // a late-resolving getJob open a stream nothing will ever stop
     let stopped = false
@@ -194,15 +198,20 @@
     return ''
   }
 
-  // The generation metadata embedded in each output, keyed by file - per
+  // The generation metadata embedded in each image, keyed by file - per
   // file rather than per step, since each image of a batch carries its own
-  // seed. A key present with null is a lookup already in flight or failed
+  // seed. Images only: the metadata route decodes an audio or video file
+  // whole to probe it, and nothing it would report is shown here. A key
+  // present with null is a lookup already in flight or failed
   let fileMeta = $state<Record<string, Record<string, unknown> | null>>({})
   $effect(() => {
     const workspace = job?.workspace
-    for (const group of fileGroups) {
-      for (const file of group.files) {
-        if (file in fileMeta) continue
+    const pending = fileGroups
+      .flatMap((group) => group.files)
+      .filter((file) => isImage(file) && !(file in untrack(() => fileMeta)))
+    if (!pending.length) return
+    untrack(() => {
+      for (const file of pending) {
         fileMeta[file] = null
         api
           .galleryMetadata(file, workspace)
@@ -211,7 +220,7 @@
           })
           .catch(() => {})
       }
-    }
+    })
   })
 
   /** The gallery detail's fields for one output's embedded metadata. */
@@ -455,7 +464,10 @@
                   />
                 </div>
                 {#if info.model}
-                  <div><span class="muted">model</span> {info.model}</div>
+                  <div>
+                    <span class="muted">model</span>
+                    <code>{info.model}</code>
+                  </div>
                 {/if}
                 {#if info.seed !== undefined}
                   <div><span class="muted">seed</span> <code>{info.seed}</code></div>
@@ -592,7 +604,7 @@
      the recipe that made it on the right */
   .output {
     display: flex;
-    gap: 1rem;
+    gap: var(--space-4);
     align-items: flex-start;
     flex-wrap: wrap;
   }

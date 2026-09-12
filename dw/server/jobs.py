@@ -10,7 +10,7 @@ import os
 import copy
 import json
 import queue
-import random
+import secrets
 import sqlite3
 import time
 import uuid
@@ -775,7 +775,7 @@ class JobManager:
                 )
             # Bounded so the number survives its trip through a browser as
             # JSON - see SEED_BITS
-            arguments = {**arguments, variable: random.getrandbits(SEED_BITS)}
+            arguments = {**arguments, variable: secrets.randbits(SEED_BITS)}
 
         workspace = spec.get("workspace")
         if (

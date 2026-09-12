@@ -464,7 +464,7 @@
             </div>{/if}
           {#if metadata.model_name}<div>
               <span class="muted">model</span>
-              {metadata.model_name}
+              <code>{metadata.model_name}</code>
             </div>{/if}
           {#if seed !== undefined}
             <div>
@@ -630,7 +630,7 @@
     /* Sibling outputs of one step share a long common prefix and differ only
        near the end (the i.j.k index, or a dedupe counter right before the
        extension) - a single nowrap+ellipsis line would hide exactly the part
-       that tells them apart, so wrap onto two lines and break mid-token
+       that tells them apart, so wrap onto a few lines and break mid-token
        instead of clipping. */
     display: -webkit-box;
     -webkit-line-clamp: 4;
