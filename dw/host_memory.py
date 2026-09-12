@@ -58,6 +58,23 @@ def host_memory_stats():
         if all(stats[key] is not None for key in ("rss_mb", "total_mb")):
             break
 
+    return _hold_the_high_water_mark(stats)
+
+
+def _hold_the_high_water_mark(stats):
+    """Keep peak_rss_mb >= rss_mb, which is what a high-water mark means.
+
+    The two readings come from different places - getrusage's ru_maxrss,
+    quantized to whole pages and taken first, against psutil's rss taken a
+    moment later - so a process that has never peaked meaningfully above its
+    current size reports them within a megabyte of each other in either
+    order. `peak - rss` is the whole point of the pair (what a run took and
+    did not give back), and a small negative there reads as "these fields
+    are not comparable" rather than "nothing leaked" (#83).
+    """
+    peak, rss = stats["peak_rss_mb"], stats["rss_mb"]
+    if peak is not None and rss is not None and peak < rss:
+        stats["peak_rss_mb"] = rss
     return stats
 
 

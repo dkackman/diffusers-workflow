@@ -68,4 +68,6 @@ def pair_audio(video, audio, sample_rate=None):
     # cost a copy of the whole thing for nothing
     frames = video.frames if isinstance(video, AudioVideo) else video
     logger.debug(f"Pairing frames with audio at {rate} Hz")
-    return AudioVideo(frames, as_channels_samples(waveform), rate)
+    return AudioVideo(
+        frames, as_channels_samples(waveform), rate, fps=getattr(video, "fps", None)
+    )

@@ -381,9 +381,11 @@ def run_chain(pipeline, chain_definition, arguments):
         # is muxed in so the soundtrack has no seams
         if spill is None:
             frames = frames[: config.total_frames]
-        return AudioVideo(frames, config.source_audio, config.source_rate)
+        return AudioVideo(
+            frames, config.source_audio, config.source_rate, fps=config.fps
+        )
 
-    return AudioVideo(frames, audio, audio_rate)
+    return AudioVideo(frames, audio, audio_rate, fps=config.fps)
 
 
 class ChainConfig:

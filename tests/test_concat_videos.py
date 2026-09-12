@@ -398,3 +398,68 @@ class TestLevelMatching:
         concat_videos([audio_video(4, 0.5), audio_video(4, 0.45)])
 
         assert "level jump" not in caplog.text
+
+
+class TestWarningsReachTheCaller:
+    """A warning that only reaches the server's log does not exist from
+    outside it - see issue #82, where match_levels verified but the spread
+    warning was invisible over MCP."""
+
+    def test_the_level_spread_warning_is_emitted_as_an_event(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([audio_video(4, 0.5), audio_video(4, 0.05)])
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e["event"] == "warning"]
+        assert len(warnings) == 1
+        assert warnings[0]["kind"] == "level_spread"
+        assert warnings[0]["command"] == "concat_videos"
+        assert warnings[0]["spread_db"] == pytest.approx(20.0, abs=0.2)
+        assert "match_levels" in warnings[0]["message"]
+
+    def test_matched_shots_emit_nothing(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [audio_video(4, 0.5), audio_video(4, 0.05)], match_levels="rms"
+            )
+        finally:
+            deactivate_context(token)
+
+        assert [e for e in events if e["event"] == "warning"] == []
+
+
+class TestFrameRateTravelsWithTheJoin:
+    """result.fps defaults to 8, so a 24 fps cut that says nothing there
+    used to be written three times slow against audio of the right length -
+    see issue #84."""
+
+    def test_the_tasks_fps_is_carried_to_the_result(self):
+        result = concat_videos([frames(4), frames(4)], fps=24)
+
+        assert result.fps == 24
+
+    def test_an_input_videos_rate_is_carried_when_the_task_is_told_nothing(self):
+        first = AudioVideo(frames(4), None, None, fps=30)
+
+        result = concat_videos([first, frames(4)])
+
+        assert result.fps == 30
+
+    def test_the_tasks_own_fps_wins_over_its_inputs(self):
+        first = AudioVideo(frames(4), None, None, fps=30)
+
+        result = concat_videos([first, frames(4)], fps=24)
+
+        assert result.fps == 24
+
+    def test_nothing_is_carried_when_nothing_knows(self):
+        assert concat_videos([frames(4), frames(4)]).fps is None

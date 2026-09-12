@@ -147,4 +147,10 @@ def concat_videos(
             )
 
     logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
-    return AudioVideo(frames, audio, sample_rate)
+    # The rate the caller declared, else the rate the first input carries -
+    # either beats the result's 8 fps default (#84)
+    written_fps = fps or next(
+        (v.fps for v in videos if getattr(v, "fps", None)),
+        None,
+    )
+    return AudioVideo(frames, audio, sample_rate, fps=written_fps)

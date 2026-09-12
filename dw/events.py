@@ -102,6 +102,23 @@ PHASES = ("loading", "cached", "generating", "decoding", "saving", "task")
 NON_INTERRUPTIBLE_PHASES = ("loading", "task")
 
 
+def emit_warning(message, **data):
+    """Report something the run's result carries but its status will not.
+
+    A warning a step discovers at run time - shots being cut together 10 dB
+    apart, a video about to be written at a frame rate nothing chose - is
+    only useful where whoever asked for the run can read it. The server's
+    own log is not that place: a consumer over the API or MCP sees the event
+    stream and the job's `warnings` list and nothing else, so a diagnostic
+    that only reaches the log does not exist out there (#82).
+
+    Logged as well as emitted, because the CLI and the REPL have no event
+    sink and the log is the whole of their surface.
+    """
+    logger.warning(message)
+    get_context().emit("warning", message=message, **data)
+
+
 def emit_phase(phase, detail=None):
     """Report a coarse phase change on the active run.
 

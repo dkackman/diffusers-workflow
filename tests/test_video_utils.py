@@ -307,6 +307,15 @@ class TestLoadAudioVideo:
         assert video.sample_rate == 8000
         assert video.audio.shape[0] == 2
 
+    def test_the_files_own_frame_rate_comes_back_with_it(self, tmp_path):
+        """A step that joins videos read from disk knows what to write them
+        back at without being told - see issue #84."""
+        from dw.tasks.video_utils import load_audio_video
+
+        path = self.write_video(tmp_path / "shot.mp4", fps=24, num_frames=24)
+
+        assert load_audio_video(path).fps == 24
+
     def test_audio_is_fitted_to_the_frames_own_duration(self, tmp_path):
         """The codec pads the last block; joined shot after shot that padding
         would walk the sound off the picture."""

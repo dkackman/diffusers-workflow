@@ -170,3 +170,46 @@ def test_a_queued_event_is_stamped_against_creation_until_the_job_starts():
     job.add_event({"event": "job_status", "status": "queued"})
 
     assert job.events_after(-1)[0]["at"] >= 0
+
+
+class TestRuntimeWarnings:
+    """A warning a step raises about what it is writing has to reach the
+    caller, not just the server's log - see issue #82, where `match_levels`
+    verified over MCP but the spread warning it replaces did not exist out
+    there at all."""
+
+    def test_a_warning_event_lands_on_the_jobs_warnings(self):
+        job = running_job(
+            {"event": "step_start", "step": "join", "index": 0, "total_steps": 1},
+            {"event": "warning", "message": "the tracks span 9.9 dB", "kind": "x"},
+        )
+
+        assert job.warnings == ["join: the tracks span 9.9 dB"]
+        assert slim_job(job.detail())["warnings"] == ["join: the tracks span 9.9 dB"]
+
+    def test_it_keeps_its_place_in_the_event_stream_too(self):
+        job = running_job({"event": "warning", "message": "a spread"})
+
+        assert [e["event"] for e in job.events_after(-1)] == ["warning"]
+
+    def test_a_warning_before_any_step_is_carried_unnamed(self):
+        job = running_job({"event": "warning", "message": "a spread"})
+
+        assert job.warnings == ["a spread"]
+
+    def test_the_same_warning_twice_is_carried_once(self):
+        job = running_job(
+            {"event": "step_start", "step": "join", "index": 0, "total_steps": 1},
+            {"event": "warning", "message": "a spread"},
+            {"event": "warning", "message": "a spread"},
+        )
+
+        assert job.warnings == ["join: a spread"]
+
+    def test_the_argument_warnings_a_job_was_queued_with_survive(self):
+        job = Job({"workflow_name": "shot", "warnings": ["unknown argument 'fsp'"]})
+        job.add_event({"event": "warning", "message": "a spread"})
+
+        assert job.warnings == ["unknown argument 'fsp'", "a spread"]
+        # the spec is what a rerun is built from - appending must not edit it
+        assert job.spec["warnings"] == ["unknown argument 'fsp'"]

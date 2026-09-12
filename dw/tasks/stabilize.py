@@ -117,5 +117,5 @@ def stabilize_video(clip, smooth=0):
         )
 
     if isinstance(clip, AudioVideo):
-        return AudioVideo(held, clip.audio, clip.sample_rate)
+        return AudioVideo(held, clip.audio, clip.sample_rate, fps=clip.fps)
     return held
