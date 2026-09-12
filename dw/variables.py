@@ -121,14 +121,9 @@ def resolve_variable_values(variables):
         return value
 
     def walk(node, chain):
-        if isinstance(node, str) and node.startswith("variable:"):
-            target = node.removeprefix("variable:")
-            if target not in variables:
-                available = ", ".join(sorted(variables.keys())) or "<none>"
-                raise VariableNotFoundError(
-                    f"Variable <{target}> not found; available variables: {available}"
-                )
-            return resolve(target, chain)
+        matched, _ = _resolve_variable_reference(node, variables)
+        if matched:
+            return resolve(node.removeprefix("variable:"), chain)
         if isinstance(node, list):
             return [walk(item, chain) for item in node]
         if isinstance(node, dict):

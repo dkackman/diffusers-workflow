@@ -334,6 +334,13 @@ class Workflow:
             # for_each whose list arrived unsubstituted, which is what a
             # half-substituted definition used to look like from here
             return self._undeclared_variable_errors(arguments)
+        except ValueError as e:
+            # resolve_variable_values raises a bare ValueError for a variable
+            # that references itself, directly or through others - there is
+            # no single path inside the definition to blame, so it is
+            # reported against 'variables' as a whole rather than escaping
+            # as an unhandled exception
+            return [{"path": "variables", "message": str(e)}]
         return previous_result_reference_errors(expanded, source_indices)
 
     def _undeclared_variable_errors(self, arguments=None):

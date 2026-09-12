@@ -252,7 +252,9 @@ class TestResolveVariableValues:
 class TestUndeclaredReferencesInsideVariableValues:
     def test_a_reference_inside_a_list_value_is_found_with_its_path(self):
         definition = {
-            "variables": {"shots": [{"references": [{}, {"from_file": "variable:nope"}]}]},
+            "variables": {
+                "shots": [{"references": [{}, {"from_file": "variable:nope"}]}]
+            },
             "steps": [],
         }
         assert undeclared_variable_references(definition) == [

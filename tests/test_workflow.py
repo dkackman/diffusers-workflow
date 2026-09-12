@@ -808,3 +808,17 @@ def test_a_caller_s_entry_may_reference_a_declared_variable(tmp_path):
     )
 
     assert errors == []
+
+
+def test_a_variable_cycle_is_a_validation_error_at_variables(tmp_path):
+    definition = _for_each_workflow()
+    definition["variables"] = {
+        "a": [{"x": "variable:b"}],
+        "b": [{"y": "variable:a"}],
+    }
+    workflow = _workflow_from(definition, tmp_path)
+
+    errors = workflow.validation_errors()
+
+    assert [e["path"] for e in errors] == ["variables"]
+    assert "a -> b -> a" in errors[0]["message"]
