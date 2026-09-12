@@ -707,9 +707,11 @@ def build_server(client):
     def get_job_events(job_id: str, after: int = -1, limit: int = 200) -> dict:
         """Get a page of a job's progress events - phase transitions, denoise
         steps, memory readings and log lines. `after` is exclusive: pass back
-        the previous call's `last_seq` to continue. For 'is it still moving?'
-        the `progress` block on get_job/wait_for_job is cheaper than a page
-        of events."""
+        the previous call's `last_seq` to continue. Each event's `at` is
+        seconds since the job started, so where a step's time went is the
+        difference between two events. For 'is it still moving?' the
+        `progress` block on get_job/wait_for_job is cheaper than a page of
+        events."""
         return diagnose.get_job_events(client, job_id, after=after, limit=limit)
 
     def wait_for_job(job_id: str, timeout_seconds: int = 20) -> dict:

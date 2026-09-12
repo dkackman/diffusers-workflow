@@ -369,7 +369,15 @@ class Job:
 
     def add_event(self, event):
         with self.condition:
-            self.events.append({"seq": len(self.events), **event})
+            # `at` is seconds since the job started (since it was created,
+            # for the events before that). Phases say what a step is waiting
+            # on; only a clock on each event says what it cost - the
+            # lead-in from `step_start` to the first `pipeline_step` on a
+            # reused pipeline is the number a "slow start" report needs
+            since = self.started_at if self.started_at is not None else self.created_at
+            self.events.append(
+                {"seq": len(self.events), "at": round(time.time() - since, 1), **event}
+            )
             self._note_progress(event)
             self.condition.notify_all()
 

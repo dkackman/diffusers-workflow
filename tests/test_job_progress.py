@@ -8,6 +8,8 @@ progress block is what a caller reads instead: the step, the phase, how long
 it has been in it, and the denoise counter once that loop is running.
 """
 
+import time
+
 from dw.server.jobs import Job, RUNNING, QUEUED, SUCCEEDED
 from dw_mcp.diagnose import slim_job
 
@@ -15,6 +17,7 @@ from dw_mcp.diagnose import slim_job
 def running_job(*events):
     job = Job({"workflow_name": "shot"})
     job.status = RUNNING
+    job.started_at = time.time()
     for event in events:
         job.add_event(event)
     return job
@@ -142,3 +145,28 @@ def test_the_generating_lead_in_is_distinguishable_from_a_stalled_loop():
     stuck = stalled.progress()
     assert stuck["seconds_since_event"] >= 90
     assert stuck["denoise_step"] == 4
+
+
+def test_every_event_is_stamped_with_seconds_since_the_job_started():
+    """The gap between `generating` and the first `pipeline_step` is a
+    pipeline's pre-loop encoding, and between `step_start` and `generating`
+    on a reused pipeline is what 'slow start' actually costs - neither is a
+    number without a clock on the events themselves."""
+    job = running_job()
+    job.started_at -= 100
+    job.add_event(
+        {"event": "step_start", "step": "shot_a", "index": 0, "total_steps": 1}
+    )
+    job.add_event({"event": "phase", "phase": "generating", "detail": "h3"})
+
+    step_start, generating = job.events_after(-1)
+    assert 100 <= step_start["at"] < 101
+    assert generating["at"] >= step_start["at"]
+    assert job.events_after(-1)[0]["seq"] == 0
+
+
+def test_a_queued_event_is_stamped_against_creation_until_the_job_starts():
+    job = Job({"workflow_name": "shot"})
+    job.add_event({"event": "job_status", "status": "queued"})
+
+    assert job.events_after(-1)[0]["at"] >= 0

@@ -247,6 +247,7 @@ def test_failed_job_surfaces_the_error_and_traceback(server):
                     events.append(json.loads(line[len("data: ") :]))
         assert events[-1] == {
             "seq": events[-1]["seq"],
+            "at": events[-1]["at"],
             "event": "job_status",
             "status": "failed",
         }

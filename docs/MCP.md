@@ -353,7 +353,10 @@ The intended loop:
    again if it comes back `still_running: true` — or
    `get_job_events(job_id)` repeatedly, passing back the previous call's
    `last_seq` as `after`, for incremental progress instead of just a
-   terminal/not-terminal status
+   terminal/not-terminal status. Each event carries `at`, seconds since the
+   job started, so where a step's time went is a subtraction between two
+   events - `step_start` to `generating` is the lead-in a reused pipeline
+   still pays, `generating` to the first `pipeline_step` the encoding
 4. `get_job(job_id)` for the finished manifest (or the error and traceback,
    if it failed)
 5. `get_output_image(name)` to look at a result image
