@@ -32,7 +32,7 @@
 | `dw_mcp/catalog.py` | `list_gallery(client, limit=50, subfolder=None)` |
 | `dw_mcp/server.py` | `list_gallery` signature + docstring; `get_job`, `save_workflow`, `validate_workflow` docstrings |
 | `docs/SERVER.md`, `docs/MCP.md`, `docs/WORKFLOW_GUIDE.md`, `CLAUDE.md` | The field, the convention, the filter |
-| `tests/test_server.py`, `tests/test_mcp_catalog.py`, `tests/test_runs.py` | Tests |
+| `tests/test_server.py`, `tests/test_jobs_reused.py`, `tests/test_mcp_catalog.py`, `tests/test_runs.py` | Tests |
 
 ---
 
@@ -106,10 +106,24 @@ def test_gallery_reports_and_filters_by_subfolder(server, tmp_path):
         assert finals["subfolders"] == full["subfolders"]
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+Also append to `tests/test_jobs_reused.py` (the design lists attribution of a foldered file as a server test; it is expected to PASS already — `_manifest_wrote` matches on the tail — and pins that):
 
-Run: `python -m pytest tests/test_server.py -q -k reports_and_filters_by_subfolder`
-Expected: FAIL — `KeyError: 'subfolder'`.
+```python
+def test_job_for_file_attributes_a_file_in_a_subfolder(tmp_path):
+    # A step's result.subfolder puts a segment between the run id and the
+    # file; the recorded name and the gallery's name both carry it
+    history = JobHistory(str(tmp_path / "jobs.sqlite"))
+    name = "dialogue/20260912-120000-abcdef01/final/dialogue-assemble.0-0.0.png"
+
+    _record(history, "writer", 1.0, [{"step": "assemble", "files": [name], "subfolder": "final"}])
+
+    assert history.job_for_file(name)["id"] == "writer"
+```
+
+- [ ] **Step 2: Run the tests to verify the state**
+
+Run: `python -m pytest tests/test_server.py -q -k reports_and_filters_by_subfolder` — Expected: FAIL, `KeyError: 'subfolder'`.
+Run: `python -m pytest tests/test_jobs_reused.py -q` — Expected: PASS (pinning test; if it fails, stop and report rather than patching `jobs.py`).
 
 - [ ] **Step 3: Implement**
 
@@ -226,7 +240,7 @@ Expected: all PASS. If a test asserts the exact key set of a gallery entry or re
 - [ ] **Step 5: Commit**
 
 ```bash
-git add dw/server/app.py tests/test_server.py
+git add dw/server/app.py tests/test_server.py tests/test_jobs_reused.py
 git commit -m "feat(server): gallery entries carry subfolder; ?subfolder= filter and subfolders list
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -371,7 +385,8 @@ Extend the `GET /api/gallery` bullet (~297) so it reads:
   and `subfolder` (what followed the run id - the `final`/`intermediate` a
   step's `result.subfolder` chose, `''` when it chose none); `?folder=` and
   `?subfolder=` filter independently, and the reply's `folders` and
-  `subfolders` list every distinct value over the whole tree
+  `subfolders` list every distinct value over the whole tree, `''` always a
+  member of each so root-level files stay selectable
 ```
 
 In the `GET /api/jobs/{id}` row (~141), after "carries `reused: true`.", insert: "Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none."
@@ -390,9 +405,9 @@ In the `get_job` row (~286), after "output manifest," insert "(each entry's `sub
 
 - [ ] **Step 3: `docs/WORKFLOW_GUIDE.md`**
 
-Insert before `### Being found next time` (in *Authoring a workflow from an agent*):
+Insert before `### Being found next time` (in *Authoring a workflow from an agent*). The block below is fenced with four backticks because it contains a three-backtick fence of its own:
 
-```markdown
+````markdown
 ### Saying which output is the deliverable
 
 A run writes everything into one directory, so a finished episode sits
@@ -419,7 +434,7 @@ subfolder written is one a later workflow can name:
 `output:dialogue-short/latest/final/episode.mp4`. A bad value is a
 validation error at its JSON path. `file_base_name` is a name, not a path:
 a separator there is refused, and `subfolder` is the way to place a file.
-```
+````
 
 In *Result Configuration* (~533), change the JSON example to:
 
@@ -436,16 +451,23 @@ and add after the content-types paragraph: "`subfolder` places the step's files 
 
 - [ ] **Step 4: `CLAUDE.md` mirror**
 
-In the *Type System* bullet list (the one beginning "`arguments.py` + `type_helpers.py` handle dynamic type conversion"), add a bullet after the `prompt:` bullet:
+Stage 1 already wrote a `**Result subfolders**` bullet under *Critical Gotchas* holding the mechanics (`dw/subfolders.py`, `step_output_dir`, `SUBFOLDER_PATTERN`, containment, manifest/`step_end`). Do not repeat those. Two edits:
+
+(a) In the *Type System* bullet list (the one beginning "`arguments.py` + `type_helpers.py` handle dynamic type conversion"), add a bullet after the `prompt:` bullet carrying the *convention* only:
 
 ```markdown
 - A step's `result.subfolder` names a subfolder of the run directory for that step's
-  files (`final`, `intermediate`, `shots/act-1`; `variable:`/`item:` allowed; no
-  default). Shape follows the `output:` segment rule and is checked by
-  `subfolder_errors` (`dw/subfolders.py`) after `for_each` expansion; containment by
-  `validate_output_path` in `Workflow.step_output_dir`. Gallery entries, manifest
-  entries and `step_end` carry it; `GET /api/gallery?subfolder=` and MCP
-  `list_gallery(subfolder=)` filter on it. `file_base_name` may not contain a separator
+  files - by convention `final` for the deliverable and `intermediate` for the rest; any
+  relative path (`shots/act-1`); `variable:`/`item:` allowed; no default. Mechanics under
+  *Result subfolders* in Critical Gotchas
+```
+
+(b) In the existing `**Result subfolders**` gotcha, change its last sentence "`file_base_name` may not contain a separator - it is a name, not a path" to:
+
+```markdown
+  Gallery entries carry it too; `GET /api/gallery?subfolder=` and MCP
+  `list_gallery(subfolder=)` filter on it. `file_base_name` may not contain a separator -
+  it is a name, not a path
 ```
 
 - [ ] **Step 5: Check the guides still load and the suite is green**
@@ -571,7 +593,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ## Self-review
 
-**Spec coverage (stage 2 phasing):** gallery `subfolder`/`?subfolder=`/`subfolders` → Task 1; MCP `list_gallery` parameter → Task 2; `get_job`/`save_workflow`/`list_gallery` descriptions → Task 2 (plus `validate_workflow`, which the design's *Where the checks live* implies); SERVER/MCP/GUIDE docs and the CLAUDE.md mirror → Task 3; the design's *Tests* items for the server → Task 1 (entries, filter, list; `job_for_file` attribution of a foldered file is already covered by the tail match and stage 1's manifest test — not re-tested here, noted); stage-1 deferred tests → Task 4. Not in scope: the UI (`GalleryFile` type, filter control, job-page grouping — stage 4), templates and skills (stage 3), the `step_subfolder` double evaluation (Fable: harmless; left).
+**Spec coverage (stage 2 phasing):** gallery `subfolder`/`?subfolder=`/`subfolders` → Task 1; MCP `list_gallery` parameter → Task 2; `get_job`/`save_workflow`/`list_gallery` descriptions → Task 2 (plus `validate_workflow` — an addition beyond the design's list, because *Where the checks live* makes it the surface that reports a bad value); SERVER/MCP/GUIDE docs and the CLAUDE.md mirror → Task 3; the design's *Tests* items for the server → Task 1 (entries, filter, list, `job_for_file` attribution of a foldered file); stage-1 deferred tests → Task 4. Not in scope: the UI (`GalleryFile` type, filter control, job-page grouping — stage 4), templates and skills (stage 3), the `step_subfolder` double evaluation (Fable: harmless; left).
 
 **Placeholders:** none. Task 4 names four things to confirm before running and says what to keep constant.
 
