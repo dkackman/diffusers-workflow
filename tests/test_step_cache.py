@@ -1,5 +1,6 @@
 import pytest
 
+from dw.for_each import MAX_FOR_EACH_ENTRIES
 from dw.step_cache import StepCache, deep_equal, reference_resolves_to
 
 
@@ -215,6 +216,12 @@ def test_step_cache_has_a_default_entry_cap():
         )
         is not None
     )
+
+
+def test_the_default_cap_fits_a_maximal_for_each_run():
+    # A maximal for_each run over two groups plus fixed steps must fit, or a
+    # run evicts its own earlier members before it finishes.
+    assert StepCache.DEFAULT_MAX_ENTRIES >= 2 * MAX_FOR_EACH_ENTRIES + 8
 
 
 def test_step_cache_clear():

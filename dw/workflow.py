@@ -292,9 +292,10 @@ class Workflow:
         )
 
     def expanded_definition(self, arguments=None, source_indices=None):
-        """The definition as the run will see it: variables substituted -
-        the caller's `arguments` folded in when they are all good, else the
-        declared defaults - and every for_each step expanded.
+        """The definition as the run will see it: constants realized,
+        variables substituted - the caller's `arguments` folded in when they
+        are all good, else the declared defaults - and every for_each step
+        expanded.
 
         Raises ForEachError for a for_each that cannot be expanded, and
         VariableNotFoundError for a 'variable:' that names nothing - which
@@ -308,6 +309,10 @@ class Workflow:
         definition = copy.deepcopy(self.workflow_definition)
         variables = definition.get("variables")
         if isinstance(variables, dict):
+            # the run realizes constants before folding arguments, and a
+            # list defaulted to a 'constant:' name must expand here as it
+            # does there - a name lookup, no download
+            realize_constants(variables)
             if arguments and not argument_errors(definition, arguments):
                 set_variables(arguments, variables)
             variables = resolve_variable_values(variables)

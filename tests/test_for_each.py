@@ -126,14 +126,11 @@ class TestNaming:
             )
         assert "variable:shots" in str(e.value)
 
-    def test_an_empty_list_expands_to_no_steps(self):
-        expanded = expand_for_each(
-            definition(
-                {"name": "shot", "for_each": [], "task": {}},
-                {"name": "after", "task": {}},
-            )
-        )
-        assert [s["name"] for s in expanded["steps"]] == ["after"]
+    def test_an_empty_list_is_an_error_at_the_step(self):
+        with pytest.raises(ForEachError) as e:
+            expand_for_each(definition({"name": "shot", "for_each": [], "task": {}}))
+        assert e.value.path == "steps[0].for_each"
+        assert "would run no steps" in str(e.value)
 
     def test_the_ceiling_is_enforced(self):
         entries = [{"name": f"s{i}"} for i in range(MAX_FOR_EACH_ENTRIES + 1)]
@@ -409,14 +406,10 @@ class TestGather:
             "previous_result:shot@close",
         ]
 
-    def test_gather_of_an_empty_group_is_an_empty_list(self):
-        expanded = expand_for_each(
-            definition(
-                {"name": "shot", "for_each": [], "task": {}},
-                {"name": "edit", "task": {"arguments": {"videos": "gather:shot"}}},
-            )
-        )
-        assert expanded["steps"][-1]["task"]["arguments"]["videos"] == []
+    # test_gather_of_an_empty_group_is_an_empty_list deleted: an empty
+    # for_each list is now a directed error at the step itself (see
+    # test_an_empty_list_is_an_error_at_the_step), so expansion never
+    # reaches a gather: of that group.
 
     def test_gather_of_a_plain_step_is_an_error(self):
         with pytest.raises(ForEachError) as e:

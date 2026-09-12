@@ -414,3 +414,20 @@ def test_for_each_is_a_list_or_a_variable_reference():
     for bad in (4, "shots", {"a": 1}):
         base["steps"][0]["for_each"] = bad
         assert validate_data_all(base, schema) != []
+
+
+def test_an_empty_for_each_list_fails_schema_validation():
+    schema = load_schema("workflow")
+    base = {
+        "id": "t",
+        "steps": [
+            {
+                "name": "shot",
+                "task": {"command": "x", "arguments": {}},
+                "for_each": [],
+            }
+        ],
+    }
+    errors = validate_data_all(base, schema)
+    assert errors != []
+    assert any("for_each" in e["path"] for e in errors)

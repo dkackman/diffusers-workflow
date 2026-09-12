@@ -119,6 +119,7 @@
                     "description": "Run this step once per entry of a list. A list, or a 'variable:' reference to one. Inside the step, 'item:' is the entry and 'item:field' one of its fields; a later step reads every member's result with 'gather:<step name>'. Members are named '<step name>@<entry name>' (or '@<index>' for an entry without a name), so '@' is reserved in step names.",
                     "type": ["array", "string"],
                     "pattern": "^variable:",
+                    "minItems": 1,
                     "maxItems": 32
                 },
                 "seed": {

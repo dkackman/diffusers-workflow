@@ -38,7 +38,7 @@ ITEM_PREFIX = "item:"
 GATHER_PREFIX = "gather:"
 MEMBER_SEPARATOR = "@"
 # Each entry is a full generation. Stated against the step cache's bound
-# (DEFAULT_MAX_ENTRIES = 50): a run whose expanded steps exceed the cache
+# (DEFAULT_MAX_ENTRIES = 128): a run whose expanded steps exceed the cache
 # evicts its own earlier members, so this is kept well under it
 MAX_FOR_EACH_ENTRIES = 32
 # release_pipeline / release_models would drop the model after the first
@@ -145,6 +145,12 @@ def _entry_keys(entries, path):
         raise ForEachError(
             render_path(path),
             f"for_each has {len(entries)} entries; the limit is {MAX_FOR_EACH_ENTRIES}",
+        )
+    if not entries:
+        raise ForEachError(
+            render_path(path),
+            "for_each over an empty list would run no steps - a workflow that "
+            "generates nothing is never what was asked for",
         )
     keys = []
     for index, entry in enumerate(entries):

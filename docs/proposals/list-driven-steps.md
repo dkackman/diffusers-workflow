@@ -222,7 +222,7 @@ to shots + slices + five fixed steps, so the cache is full at about twenty
 shots. Either the ceiling is set so a maximal run fits (32 entries, under
 any of the templates) or the cache bound is raised alongside it; the
 proposal picks **32 and leaves the cache alone** unless a real template
-needs more.
+needs more (raised to 128 in stage 3).
 
 The larger consequence is that a list-driven template's cost is set by the
 caller: `list_workflows` quotes a per-workflow figure today, and a six-entry
@@ -446,9 +446,9 @@ used twice.
   two groups plus fixed steps is ~70 members; `DEFAULT_MAX_ENTRIES = 50`
   (`dw/step_cache.py`) evicts a run's own earlier members before it ends,
   which silently defeats the insertion case the naming scheme exists for.
-  Raise the bound to 128, or make eviction skip the current run's entries;
-  the first is one line and the proposal's original "leave it alone unless
-  a real template needs more" no longer holds once the ceiling is 32.
+  Raised to 128 (`dw/step_cache.py`) - the proposal's original "leave it
+  alone unless a real template needs more" no longer holds once the
+  ceiling is 32.
 - **The editor's flow view draws no edges for `gather:` or `item:`**
   (`ui/src/lib/flow.ts` maps only `previous_result:`), so both templates
   render their editor step as an orphan. An edge from each `for_each` step
