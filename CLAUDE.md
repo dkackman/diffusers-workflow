@@ -325,6 +325,7 @@ same reason - default setup cannot load a pack.
   after the change regenerates rather than hitting the step cache (the key includes
   `result`). Those two, and a stray `subfolder` key becoming live, are the release-note
   items beside the `shots` list change
+  Gallery names for a template's runs now read `<template>/<run id>/final/<file>`, so an `output:` reference built from one carries the `final/` segment
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image

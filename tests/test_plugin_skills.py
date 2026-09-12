@@ -419,10 +419,10 @@ def test_a_skill_states_the_subfolder_convention(path):
     assert text.index("`subfolder`") > text.index("## Run and judge")
 
 
-def test_the_h3_skill_names_the_intermediate_steps_the_templates_mark():
-    """The skill says what the family's templates put in intermediate -
-    portraits, boards, the song; if a template's roles change the skill
-    must change with it."""
+def test_the_h3_skill_names_each_cut_templates_final_step():
+    """The skill names the one `final` step of each cut template - episode,
+    music_video, voyage; if a template's roles change the skill must change
+    with it."""
     text = skill_text(H3_SKILL)
     for name in ("dialogue-short", "music-video", "storyboard"):
         path = os.path.join(REPO_ROOT, "workflows", "templates", "minimax", name + ".json")

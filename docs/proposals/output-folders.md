@@ -325,7 +325,7 @@ Four places, in the order an agent meets them:
    distinguishable. Agents compose by
    copying a template, so the convention propagates whether or not anyone
    reads a description. A test asserts the rule as stated here - every
-   in-scope, non-exempt template's saving steps all carry a subfolder - so
+   in-scope template's saving steps all carry a subfolder - so
    the convention cannot drift. `workflows/models/**` is out of scope for
    this pass, though `list_workflows` returns those beside the templates;
    marking them up is a follow-up once the convention has held in the
