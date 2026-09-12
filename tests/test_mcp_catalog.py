@@ -102,6 +102,21 @@ def test_list_gallery_sends_its_limit():
     assert seen["params"]["limit"] == "7"
 
 
+def test_list_gallery_sends_a_subfolder_only_when_given():
+    client, seen = recording_client()
+    catalog.list_gallery(client, limit=7)
+    assert "subfolder" not in seen["params"]
+
+    client, seen = recording_client()
+    catalog.list_gallery(client, subfolder="final")
+    assert seen["params"]["subfolder"] == "final"
+
+    # '' is a real filter - files at a run's root - not "no filter"
+    client, seen = recording_client()
+    catalog.list_gallery(client, subfolder="")
+    assert seen["params"]["subfolder"] == ""
+
+
 def test_a_pass_through_tool_returns_the_body_unchanged():
     client, _seen = recording_client({"workflows": ["a"], "details": {}})
 
