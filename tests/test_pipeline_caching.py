@@ -267,8 +267,45 @@ def test_release_pipeline_evicts_after_step():
     kept_key = workflow._pipeline_keys_by_step["keep"]
     assert released_key not in pipeline_cache, "released pipeline should be evicted"
     assert kept_key in pipeline_cache, "other pipelines stay cached"
-    # the between-step cleanup returns cached blocks to the device
-    assert empty_cache.call_count == len(_release_workflow_def()["steps"])
+    # the between-step cleanup returns cached blocks to the device - once per
+    # step, plus once for the release itself, which reclaims where it drops
+    # rather than waiting for the end of the step
+    assert empty_cache.call_count == len(_release_workflow_def()["steps"]) + 1
+
+
+def test_release_pipeline_happens_before_the_result_is_written():
+    """A released pipeline is gone by the time the step writes its files.
+
+    The write does not touch the pipeline - the result is already in host
+    memory - and writing a long video is the longest phase of the step. A
+    release that waits for the write holds ~10 GB of weights on the device
+    for minutes after the last thing that needed them.
+    """
+    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    pipeline_cache = {}
+    cached_at_save = {}
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+
+    def mock_run(self, *args, **kwargs):
+        result = MagicMock(result_list=[])
+        step_name = self.name
+
+        def save(*save_args, **save_kwargs):
+            key = workflow._pipeline_keys_by_step.get(step_name)
+            cached_at_save[step_name] = key in pipeline_cache
+            return []
+
+        result.save.side_effect = save
+        return result
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(Step, "run", mock_run):
+            with patch("dw.workflow.empty_device_cache"):
+                workflow.run({}, previous_pipelines=pipeline_cache)
+
+    assert cached_at_save == {"generate": False, "keep": True}
 
 
 def _release_models_workflow_def(release):
