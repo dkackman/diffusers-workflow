@@ -595,3 +595,45 @@ class TestSubfolders:
         assert resolve_output_reference(
             f"output:Gyre/{run.name}/final/runs_test-gen0.0-0.0.png", root=str(tmp_path)
         ) == resolved
+
+    def test_a_for_each_member_lands_in_its_own_subfolder(self, tmp_path, fake_pipeline):
+        # The design's showcase case: 'item:' routes each member, and an entry
+        # may spell its value through a variable
+        from dw.workflow import Workflow
+
+        definition = _workflow_definition()
+        definition["variables"] = {"scratch": "out"}
+        step = definition["steps"][0]
+        step["for_each"] = [
+            {"name": "a", "dest": "shots/a"},
+            {"name": "b", "dest": "variable:scratch"},
+        ]
+        step["result"]["subfolder"] = "item:dest"
+        Workflow(definition, str(tmp_path), "/w/workflows/Gyre.json").run({})
+        (run,) = (tmp_path / "Gyre").iterdir()
+        assert (run / "shots" / "a" / "runs_test-gen0@a.0-0.0.png").is_file()
+        assert (run / "out" / "runs_test-gen0@b.1-0.0.png").is_file()
+        manifest = json.loads((run / "manifest.json").read_text())
+        assert [e["subfolder"] for e in manifest["steps"]] == ["shots/a", "out"]
+
+    def test_a_symlinked_subfolder_cannot_escape_the_run(self, tmp_path):
+        # The shape check never sees this one - 'final' is a fine name - so
+        # it is containment, validate_output_path on the joined path, that
+        # has to refuse it
+        from dw.security import SecurityError
+        from dw.workflow import Workflow
+
+        workflow = Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json")
+        run_dir = tmp_path / "Gyre" / "run"
+        run_dir.mkdir(parents=True)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (run_dir / "final").symlink_to(elsewhere)
+        workflow._run_dir = str(run_dir)
+        with pytest.raises(SecurityError):
+            workflow.step_output_dir(workflow.workflow_definition["steps"][0])
+
+    def test_the_first_run_id_shaped_segment_wins(self):
+        first = new_run_id({"id": "x"})
+        second = new_run_id({"id": "y"})
+        assert split_run_path(f"Gyre/{first}/{second}/x.png") == ("Gyre", first, second)

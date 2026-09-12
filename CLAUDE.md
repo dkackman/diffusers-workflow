@@ -303,8 +303,9 @@ same reason - default setup cannot load a pack.
   `intermediate`; the engine treats no name specially and there is no default.
   `Workflow.step_output_dir` computes the directory once and hands it to both
   `Result.save` and the pipeline wrapper, so a chain's `save_segments` spill follows it.
-  Shape is `SUBFOLDER_PATTERN` (the `output:` segment rule, so every subfolder is
-  `output:`-addressable), checked by `subfolder_errors` in `validation_errors` after
+  Shape is `SUBFOLDER_PATTERN` (the `output:` segment rule, so a subfolder is
+  `output:`-addressable up to `OUTPUT_REFERENCE_PATTERN`'s seven-segment ceiling),
+  checked by `subfolder_errors` in `validation_errors` after
   `for_each` expansion and again at run time; containment is `validate_output_path`
   against the run directory. Manifest entries and `step_end` carry `subfolder`.
   `split_run_path` finds the run id anywhere in a path, so `strip_run_id` still groups a
