@@ -530,6 +530,10 @@ all carry the value, so a consumer that follows the convention can tell the
 deliverable from the scratch without knowing the workflow. Mark every saving
 step of a multi-step workflow; a one-step workflow needs nothing.
 
+The shipped templates follow it: every template with two or more saving
+steps marks each one, so a workflow copied from a template starts with the
+roles in place.
+
 The value is a relative path of any depth (`shots/act-1`), may be a
 `variable:` or, inside a `for_each` step, an `item:` reference, and follows
 the `output:` segment rule - each segment starts with a letter, digit or

@@ -30,7 +30,8 @@
                 }
             },
             "result": {
-                "content_type": "text/plain"
+                "content_type": "text/plain",
+                "subfolder": "intermediate"
             },
             "release_models": true
         },
@@ -46,7 +47,8 @@
                 }
             },
             "result": {
-                "content_type": "text/plain"
+                "content_type": "text/plain",
+                "subfolder": "intermediate"
             },
             "release_models": true
         },
@@ -61,7 +63,8 @@
             },
             "result": {
                 "content_type": "image/jpeg",
-                "embed_metadata": true
+                "embed_metadata": true,
+                "subfolder": "final"
             }
         }
     ]

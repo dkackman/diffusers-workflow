@@ -1,6 +1,6 @@
 # Design: subfolders for a run's outputs
 
-Status: **stages 1-2 (engine, server/MCP) implemented; stages 3-4 pending**. Written for MCP feedback ticket T016;
+Status: **stages 1-3 (engine, server/MCP, steering) implemented; stage 4 (UI) pending**. Written for MCP feedback ticket T016;
 reviewed against the code on 2026-09-12. Decisions taken in that review are
 marked *decided*.
 
@@ -310,14 +310,22 @@ Four places, in the order an agent meets them:
    step gets `"subfolder": "final"`, scratch steps
    `"subfolder": "intermediate"`; a template whose saving steps are all
    deliverables (`image-processors`, `lora-styles` - a set of variants,
-   each final) marks them all `final`. A template whose saving steps are
-   all `workflow` steps over `builtin:` children (`compose-workflows`,
-   `sub-workflow`) is exempt: the files come from the child's steps, and
-   marking a builtin's step `final` would presume a role it does not have
-   - the builtins in `dw/workflows/` stay unmarked. Agents compose by
+   each final) marks them all `final`. A `workflow` step is marked
+   like any other: its `result` block saves the parent's copy of the
+   child's return value (*Sub-workflows*, above), so the role is real and
+   the child's own steps never see it. The one exemption is the packaged
+   builtins in `dw/workflows/`, which stay unmarked - a builtin is a step
+   list a parent composes, and the role is the parent's to assign
+   (*implemented*: the drift test pins both halves; the earlier draft
+   exempted `compose-workflows` and `sub-workflow`, neither of which is a
+   `builtin:` composition). One consequence: a `workflow` step's
+   deliverable exists twice - the child's copy at the run root, the
+   parent's in `final/` - so `list_gallery(subfolder="final")` shows only
+   the parent's. The duplication is older than this design; it is now
+   distinguishable. Agents compose by
    copying a template, so the convention propagates whether or not anyone
    reads a description. A test asserts the rule as stated here - every
-   in-scope, non-exempt template's saving steps all carry a subfolder - so
+   in-scope template's saving steps all carry a subfolder - so
    the convention cannot drift. `workflows/models/**` is out of scope for
    this pass, though `list_workflows` returns those beside the templates;
    marking them up is a follow-up once the convention has held in the
@@ -368,8 +376,9 @@ whose outputs are all legitimately final.
   `subfolders` lists distinct values; `job_for_file` attributes a foldered
   file; MCP `list_gallery` passes the parameter through.
 - **UI.** Gallery subfolder filter and job-page grouping (vitest).
-- **Templates.** Every template with two or more saving steps, not exempt
-  as a `builtin:` composition, has a subfolder on each saving step.
+- **Templates.** Every template with two or more saving steps has `final`
+  or `intermediate` on each saving step and at least one `final`; the
+  packaged builtins in `dw/workflows/` carry none.
 
 ## Phasing
 

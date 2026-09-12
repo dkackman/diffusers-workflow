@@ -9,6 +9,7 @@ matched to the server it was written against by that number.
 
 import glob
 import inspect
+import json
 import os
 import re
 
@@ -400,3 +401,37 @@ class TestMiniMaxMusic3Skill:
         )
         spec = json.load(open(path, encoding="utf-8"))
         assert spec["variables"]["audio_duration"] >= 496 / 24 + 5
+
+
+@pytest.mark.parametrize(
+    "path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+)
+def test_a_skill_states_the_subfolder_convention(path):
+    """The templates put the deliverable in `final` and the scratch in
+    `intermediate`; an agent reading get_job needs to know that, and one
+    composing a new workflow needs to keep it."""
+    text = skill_text(path)
+    assert "`subfolder`" in text, f"{path} does not name the subfolder field"
+    assert "`final`" in text and "`intermediate`" in text, (
+        f"{path} does not state the final/intermediate convention"
+    )
+    # the convention is stated where the manifest is read
+    assert text.index("`subfolder`") > text.index("## Run and judge")
+
+
+def test_the_h3_skill_names_each_cut_templates_final_step():
+    """The skill names the one `final` step of each cut template - episode,
+    music_video, voyage; if a template's roles change the skill must change
+    with it."""
+    text = skill_text(H3_SKILL)
+    for name in ("dialogue-short", "music-video", "storyboard"):
+        path = os.path.join(REPO_ROOT, "workflows", "templates", "minimax", name + ".json")
+        with open(path, encoding="utf-8") as f:
+            spec = json.load(f)
+        finals = [
+            step["name"]
+            for step in spec["steps"]
+            if (step.get("result") or {}).get("subfolder") == "final"
+        ]
+        assert len(finals) == 1, (name, finals)
+        assert f"`{finals[0]}`" in text, f"the skill does not name {name}'s final step {finals[0]}"

@@ -35,7 +35,8 @@
             },
             "result": {
                 "content_type": "image/jpeg",
-                "embed_metadata": true
+                "embed_metadata": true,
+                "subfolder": "intermediate"
             }
         },
         {
@@ -164,7 +165,8 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": 24
+                "fps": 24,
+                "subfolder": "final"
             }
         }
     ]
