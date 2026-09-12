@@ -271,6 +271,14 @@ not validation.
 - `prompt:` — `prompt:name` or `prompt:folder/name` is a stored prompt's
   `text`, rooted at the prompt library. That text may not itself begin with any of these
   prefixes; the engine rejects such a prompt rather than resolving twice.
+- `item:` — only inside a step that carries `for_each`: `item:` is the
+  entry the member was made for, `item:field` one field of an object entry,
+  spliced in whole whatever its type — a string, a number, a list of
+  references. See "One step per entry" below.
+- `gather:` — `gather:shot` is the result of *every* member of the
+  `for_each` step `shot`, in list order, as one list. Inside a list it splices
+  into it. It is how a step downstream of a fan-out reads the whole group;
+  `previous_result:shot` naming a `for_each` step is an error that says so.
 
 After a long inline run that is worth keeping, `get_job_workflow(job_id)`
 returns the realized workflow — the definition with the arguments, seed and
@@ -328,6 +336,79 @@ cannot be expressed with two references on one step. Write it as one step per
 pair, each referencing exactly the two things it pairs, or gather the pairs
 upstream so each is a single result. A step that seems to need a "zip" is the
 signal to restructure the workflow, not to add another reference.
+
+### One step per entry: `for_each`
+
+A step that carries `for_each` runs once per entry of a list — a shot per
+entry of `shots` — and the list is a variable the caller supplies, so a
+six-shot episode is an argument rather than a different file.
+
+```json
+{
+  "name": "shot",
+  "for_each": "variable:shots",
+  "pipeline": {
+    "arguments": {
+      "prompt": "item:prompt",
+      "references": "item:references"
+    }
+  }
+}
+```
+
+with
+
+```json
+"shots": [
+  { "name": "wide_open", "prompt": "the band walks on, wide",
+    "references": [{ "reference_type": "…", "from_previous_result": "draw_singer" }] },
+  { "name": "closeup", "prompt": "closeup on the singer",
+    "references": [{ "reference_type": "…", "from_previous_result": "draw_singer" }] }
+]
+```
+
+and downstream
+
+```json
+{ "name": "edit",
+  "task": { "command": "concat_videos", "arguments": { "videos": "gather:shot" } } }
+```
+
+Before the run starts, the engine replaces the `for_each` step with one
+ordinary step per entry, named `shot@wide_open`, `shot@closeup` — the
+entry's `name`, or its index for an entry without one. Those are the names
+the manifest, the job's events and the gallery show, and `@` is reserved
+for them: a hand-written step name may not contain it. An entry's `name`
+must be unique in its list and match `^[a-zA-Z_][a-zA-Z0-9_-]*$`. Give
+entries names: the step cache keys on the member name, so a shot inserted
+in the middle of a named list leaves every other shot cached, while an
+indexed list shifts every later shot onto a different entry and regenerates
+it.
+
+`item:field` is the whole value of that field, so an entry can carry
+anything a step argument can — including a `references` list whose length
+differs by shot, with `from_previous_result` and `asset:` strings inside
+it. Nothing is interpolated: `"item:prompt"` is the field, `"shot: item:prompt"`
+is a literal string.
+
+Two `for_each` steps over the *same* list are paired by key — the entry's
+`name`, or its index for an entry without one: inside `shot@closeup`, a
+reference to another `for_each` step `slice` over the same `shots` list
+resolves to `slice@closeup`. That is how a shot reads the audio
+slice cut for it when slicing and generating are two steps. It is the one
+pairing the engine has; `for_each` runs over exactly one list, and there is
+no zip and no loop index.
+
+Limits: a list has at most 32 entries. `release_pipeline` on a `for_each`
+step releases after the *last* member. Each entry is a full generation, so
+quote `cost × len(list)` before running a list-driven workflow, and
+`validate_workflow` with the `arguments` you will run with: it expands your
+list, not the template's default, and reports a duplicate name or a missing
+field at the entry's path.
+
+Every error carries a path in the file you wrote, not in the expanded step
+list: a bad reference inside a member is reported at the `for_each` step's
+own path, with the member it failed in named in the message.
 
 ### The loop
 

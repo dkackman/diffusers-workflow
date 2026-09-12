@@ -6,6 +6,7 @@ from .arguments import (
     PREVIOUS_RESULT_PREFIX,
     build_objects,
 )
+from .for_each import MEMBER_SEPARATOR, render_path
 from .step_cache import reference_resolves_to
 
 logger = logging.getLogger("dw")
@@ -308,7 +309,7 @@ def _not_found(previous_results, previous_result_name):
     return KeyError(message)
 
 
-def previous_result_reference_errors(workflow_definition):
+def previous_result_reference_errors(workflow_definition, source_indices=None):
     """Every 'previous_result:' reference that names no earlier step.
 
     References resolve lazily, one step at a time, so a reference naming a
@@ -318,8 +319,14 @@ def previous_result_reference_errors(workflow_definition):
     a read of the file would have caught (T005). The names are all in the
     definition, so this is answerable before anything runs.
 
-    Only literal references are checked: one spelled by a 'variable:' the
-    caller supplies is not knowable here and is left alone.
+    The definition handed here has already been substituted and expanded,
+    so every reference in it is literal; a 'variable:' still spelled out is
+    one nothing resolved and is left alone.
+
+    `source_indices`, when given, is the source step index of each step -
+    expansion of a 'for_each' group turns one written step into several, and
+    the path an error carries has to be one the author can find in the file
+    they wrote.
     """
     steps = workflow_definition.get("steps")
     if not isinstance(steps, list):
@@ -330,22 +337,34 @@ def previous_result_reference_errors(workflow_definition):
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
+        name = step.get("name")
         found = {}
         _collect_reference_paths(step, (), found)
         for path, reference in sorted(found.items(), key=lambda item: str(item[0])):
             if any(reference_resolves_to(reference, name) for name in seen):
                 continue
-            location = _render_path(("steps", index) + path)
+            source = (
+                source_indices[index]
+                if source_indices is not None and index < len(source_indices)
+                else index
+            )
+            location = render_path(("steps", source) + path)
+            # Which expansion it was: the source path alone points at the one
+            # step the author wrote, and every member reports the same path
+            where = (
+                f" in member '{name}'"
+                if isinstance(name, str) and MEMBER_SEPARATOR in name
+                else ""
+            )
             errors.append(
                 {
                     "path": location,
                     "message": (
-                        f"previous_result '{reference}' names no earlier step. "
-                        f"Steps available here: {seen}"
+                        f"previous_result '{reference}'{where} names no earlier "
+                        f"step. Steps available here: {seen}"
                     ),
                 }
             )
-        name = step.get("name")
         if isinstance(name, str):
             seen.append(name)
     return errors
@@ -370,16 +389,3 @@ def _collect_reference_paths(value, path, found):
             _collect_reference_paths(item, path + (index,), found)
     elif isinstance(value, str) and value.startswith(PREVIOUS_RESULT_PREFIX):
         found[path] = value[len(PREVIOUS_RESULT_PREFIX) :]
-
-
-def _render_path(path):
-    """'steps[3].task.arguments.videos[1]' - the same shape schema errors use."""
-    rendered = ""
-    for part in path:
-        if isinstance(part, int):
-            rendered += f"[{part}]"
-        elif rendered:
-            rendered += f".{part}"
-        else:
-            rendered = str(part)
-    return rendered

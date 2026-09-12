@@ -165,7 +165,11 @@ class TestWorkflowErrorHandling:
         }
 
         workflow = Workflow(workflow_data, temp_workflow_dir, "")
-        workflow.validate()
+        # Fatal at run time, so validation reports it rather than letting the
+        # run reach the step that spells it
+        with pytest.raises(Exception) as validation_error:
+            workflow.validate()
+        assert "undefined_var" in str(validation_error.value)
 
         with pytest.raises(Exception) as exc_info:
             workflow.run({})

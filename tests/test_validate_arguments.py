@@ -162,6 +162,45 @@ class TestValidateRoute:
         assert result["valid"] is False
         assert result["errors"][0]["path"] == "arguments.nope"
 
+    def test_validate_expands_for_each_with_the_callers_list(self, server):
+        workflow = {
+            "id": "fe",
+            "variables": {"shots": [{"name": "a", "text": "A"}]},
+            "steps": [
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["item:text"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                },
+                {
+                    "name": "edit",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": "gather:shot"},
+                    },
+                    "result": {"content_type": "text/plain"},
+                },
+            ],
+        }
+        with server() as client:
+            ok = client.post("/api/validate", json={"workflow": workflow}).json()
+            assert ok["valid"] is True
+
+            bad = client.post(
+                "/api/validate",
+                json={
+                    "workflow": workflow,
+                    "arguments": {"shots": [{"name": "x"}, {"name": "x"}]},
+                },
+            ).json()
+
+        assert bad["valid"] is False
+        assert bad["errors"][0]["path"] == "steps[0].for_each[1].name"
+
 
 class TestSubmission:
     def test_a_bad_argument_is_refused_before_the_job_is_queued(self, server):

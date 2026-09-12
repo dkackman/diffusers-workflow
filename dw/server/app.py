@@ -1267,7 +1267,9 @@ def create_app(
                 "has the detail",
             )
         try:
-            errors = candidate.validation_errors()
+            # The caller's list is the one a for_each expands over, so the
+            # pre-flight checks the step set that will actually run
+            errors = candidate.validation_errors(arguments=request.arguments)
         except Exception:
             # An error here is not the schema's verdict on the workflow -
             # validation_errors() reports that by returning it. It is the
