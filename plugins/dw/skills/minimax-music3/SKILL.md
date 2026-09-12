@@ -18,9 +18,14 @@ shapes; do not author a new workflow until the shape decision below fails.
    Trust the names quoted below only after the listing confirms them.
 3. `get_workflow` on the one chosen, for its variables and their defaults.
 4. Before a long track or the music video - anything that will sit near the
-   card's ceiling - `get_memory` with the server idle and read
-   `gpu_memory_allocated_mb`. A non-trivial idle figure is what an earlier run
-   left behind, and it comes off the ~22 GB these templates need. Nothing over
+   card's ceiling - `get_memory` with the server idle and read a `live: true`
+   reading's `gpu_memory_allocated_mb`. Only a live reading is the worker's own
+   and only live readings compare with each other: `info: null` means nothing
+   is resident, go ahead, while a `live: false` reading with a populated `info`
+   is cached from another moment - it reads low while a job is loading a model,
+   so ask again once the server is idle rather than trusting it. A non-trivial
+   idle figure is what an earlier run left behind, and it comes off the ~22 GB
+   these templates need. Nothing over
    MCP clears it, so say so and ask the operator to restart the worker rather
    than retrying into it - a failed attempt is itself what leaves weight
    resident, so an immediate retry starts from less than the attempt that just
