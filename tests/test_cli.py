@@ -82,6 +82,27 @@ class TestValidateEntryPoint:
         assert code == 1
         assert "Security validation failed" in capsys.readouterr().out
 
+    def test_trust_workflows_flag_is_accepted_and_wired(
+        self, workflow_file, monkeypatch, capsys
+    ):
+        """--trust-workflows must parse (dw.run has long had it; dw.validate
+        did not) and actually flip the trust gate before the workflow is
+        loaded/validated, since validation now realizes 'constant:' defaults
+        through the same gate a run would."""
+        seen = []
+        monkeypatch.setattr(
+            validate_module, "set_trust_workflows", lambda v: seen.append(v)
+        )
+
+        code = invoke(
+            validate_module,
+            monkeypatch,
+            ["dw-validate", "--trust-workflows", str(workflow_file)],
+        )
+        assert code == 0
+        assert seen == [True]
+        assert "validated successfully" in capsys.readouterr().out
+
 
 class TestRunEntryPoint:
     def test_name_value_arguments_reach_the_workflow(

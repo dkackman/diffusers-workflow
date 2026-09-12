@@ -38,7 +38,10 @@ workflow's file paths while writing none of its own.
 
 The cache is per-process and bounded (DEFAULT_MAX_ENTRIES, LRU): it holds
 realized media, so unbounded growth would work against the OOM avoidance
-release_unreferenced_results exists for.
+release_unreferenced_results exists for. The bound is sized so a maximal
+for_each run (32 entries over two groups plus fixed steps, ~70 members)
+never evicts its own earlier members before it ends - a smaller cap would
+turn a long list-driven run into one that thrashes its own cache.
 """
 
 import copy
@@ -122,10 +125,13 @@ class StepCache:
 
     Bounded: entries hold realized media, so an unbounded cache would work
     directly against release_unreferenced_results' OOM avoidance. The
-    least-recently-used entry is evicted once the cap is reached.
+    least-recently-used entry is evicted once the cap is reached. The
+    default is sized so a maximal for_each run - 32 entries over two groups
+    plus fixed steps, ~70 members - fits without evicting its own earlier
+    members.
     """
 
-    DEFAULT_MAX_ENTRIES = 50
+    DEFAULT_MAX_ENTRIES = 128
 
     def __init__(self, max_entries=None):
         # (workflow_id, step_name) -> {"step_data", "step_seed", "result",

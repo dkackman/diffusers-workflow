@@ -31,13 +31,14 @@ import copy
 from .arguments import FROM_PREVIOUS_RESULT_KEY, PREVIOUS_RESULT_PREFIX
 from .security import InvalidInputError, validate_variable_name
 from .step_cache import reference_resolves_to
+from .variables import argument_errors, set_variables
 
 FOR_EACH_KEY = "for_each"
 ITEM_PREFIX = "item:"
 GATHER_PREFIX = "gather:"
 MEMBER_SEPARATOR = "@"
 # Each entry is a full generation. Stated against the step cache's bound
-# (DEFAULT_MAX_ENTRIES = 50): a run whose expanded steps exceed the cache
+# (DEFAULT_MAX_ENTRIES = 128): a run whose expanded steps exceed the cache
 # evicts its own earlier members, so this is kept well under it
 MAX_FOR_EACH_ENTRIES = 32
 # release_pipeline / release_models would drop the model after the first
@@ -139,6 +140,12 @@ def _entry_keys(entries, path):
         raise ForEachError(
             render_path(path),
             f"for_each must be a list, got {type(entries).__name__}{hint}",
+        )
+    if not entries:
+        raise ForEachError(
+            render_path(path),
+            "for_each over an empty list would run no steps - a workflow that "
+            "generates nothing is never what was asked for",
         )
     if len(entries) > MAX_FOR_EACH_ENTRIES:
         raise ForEachError(
@@ -285,6 +292,108 @@ def _rewrite_reference(reference, path, groups, member):
         f"'{GATHER_PREFIX}{group}' for every member's result, or a reference "
         f"from a for_each step over the same list for the same-keyed member",
     )
+
+
+def list_fields(definition):
+    """What an entry of each list-driven variable has to carry, read off
+    the definition: for every step whose for_each is 'variable:<name>',
+    the fields its 'item:<field>' references name.
+
+    Returns {<variable>: {"fields": [...] or None, "steps": [...]}} -
+    fields sorted with 'name' first, or None when a step splices the
+    whole entry with a bare 'item:' (the entries are values, not
+    objects). A literal for_each list is not an argument and is skipped.
+    Reads the raw definition, no substitution, so the catalog and the
+    validator derive the same answer from the file as written.
+    """
+    steps = definition.get("steps") if isinstance(definition, dict) else None
+    if not isinstance(steps, list):
+        return {}
+    found = {}
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        target = step.get(FOR_EACH_KEY)
+        if not (isinstance(target, str) and target.startswith("variable:")):
+            continue
+        variable = target.removeprefix("variable:")
+        entry = found.setdefault(variable, {"fields": set(), "steps": []})
+        entry["steps"].append(step.get("name"))
+        for value in _strings(step):
+            if not value.startswith(ITEM_PREFIX):
+                continue
+            field = value[len(ITEM_PREFIX) :]
+            if field == "":
+                entry["fields"] = None
+            elif entry["fields"] is not None:
+                entry["fields"].add(field)
+    return {
+        variable: {
+            "fields": (
+                None
+                if entry["fields"] is None
+                else ["name"] + sorted(entry["fields"] - {"name"})
+            ),
+            "steps": entry["steps"],
+        }
+        for variable, entry in found.items()
+    }
+
+
+def entry_field_warnings(definition, arguments=None):
+    """Every entry key of a list-driven variable that no step reads.
+
+    A caller who writes 'num_frame' for 'num_frames' gets the template's
+    value for the field they meant to set, in silence; this names the
+    key, at the entry it sits in, with the fields the list takes. A
+    warning rather than an error: an entry may carry a note on purpose.
+    Good `arguments` are folded in first, and a list the caller supplied
+    is reported under 'arguments.', where they wrote it.
+    """
+    if not isinstance(definition, dict):
+        return []
+    variables = definition.get("variables")
+    if not isinstance(variables, dict):
+        return []
+    variables = copy.deepcopy(variables)
+    supplied = set()
+    if arguments and not argument_errors(definition, arguments):
+        set_variables(arguments, variables)
+        supplied = set(arguments)
+    warnings = []
+    for variable, spec in list_fields(definition).items():
+        fields = spec["fields"]
+        entries = variables.get(variable)
+        if fields is None or not isinstance(entries, list):
+            continue
+        where = "arguments" if variable in supplied else "variables"
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                continue
+            unknown = sorted(set(entry) - set(fields))
+            if not unknown:
+                continue
+            label = repr(entry["name"]) if isinstance(entry.get("name"), str) else index
+            warnings.append(
+                f"{where}.{variable}[{index}]: entry {label} carries "
+                f"{', '.join(repr(k) for k in unknown)}, which no step reads; "
+                f"entries of '{variable}' take: {', '.join(fields)}"
+            )
+    return warnings
+
+
+def _strings(value):
+    """Every string anywhere inside a JSON value, except the for_each key
+    itself."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key != FOR_EACH_KEY:
+                yield from _strings(item)
 
 
 def render_path(path):

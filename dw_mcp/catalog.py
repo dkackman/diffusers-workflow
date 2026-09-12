@@ -35,7 +35,8 @@ def get_workflow(client, name, variables_only=False):
     confirming that a stored workflow's audio_bleed_ms is 1800 otherwise
     means pulling the whole definition, quantization blocks and all, to
     read one integer (2026-09-11). Long defaults come back cut to their
-    first 200 characters, with the names of the cut ones in `truncated`.
+    first 200 characters, with the names of the cut ones in `truncated`,
+    including strings inside a list default, named like `shots[0].prompt`.
     """
     if variables_only:
         return client.get_json(api_path("api", "workflows", name, "variables"))

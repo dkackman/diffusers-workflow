@@ -353,3 +353,35 @@ class TestSubmission:
             )
 
         assert validated["errors"][0]["message"] in refused.json()["detail"]
+
+
+def test_an_entry_key_no_step_reads_is_a_warning_not_an_error(server):
+    workflow = {
+        "id": "cut",
+        "variables": {"shots": [{"name": "a", "text": "p"}]},
+        "steps": [
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": ["item:text"]},
+                },
+                "result": {"content_type": "text/plain"},
+            }
+        ],
+    }
+    with server() as client:
+        response = client.post(
+            "/api/validate",
+            json={
+                "workflow": workflow,
+                "arguments": {"shots": [{"name": "a", "text": "p", "txt": "q"}]},
+            },
+        )
+    body = response.json()
+    assert body["valid"] is True
+    assert any(
+        w.startswith("arguments.shots[0]: entry 'a' carries 'txt'")
+        for w in body["warnings"]
+    )

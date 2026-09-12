@@ -24,10 +24,15 @@ function scanStrings(value: unknown, visit: (s: string) => void): void {
     Object.values(value).forEach((v) => scanStrings(v, visit))
 }
 
-/** previous_result: target step name, media suffix stripped. */
-function refTarget(s: string): string | null {
-  if (!s.startsWith('previous_result:')) return null
-  return s.slice('previous_result:'.length).split('.')[0]
+/** The earlier step a value refers to: `previous_result:<step>[.suffix]`,
+ * `gather:<step>` (every member of a for_each step), or the string under
+ * a `from_previous_result` key inside a reference object. */
+function refTarget(s: string, path: string[] = []): string | null {
+  if (s.startsWith('previous_result:'))
+    return s.slice('previous_result:'.length).split('.')[0]
+  if (s.startsWith('gather:')) return s.slice('gather:'.length)
+  if (path[path.length - 1] === 'from_previous_result') return s
+  return null
 }
 
 export function flowGraph(workflow: Record<string, any>): StepFlow[] {
@@ -45,8 +50,8 @@ export function flowGraph(workflow: Record<string, any>): StepFlow[] {
     steps.slice(0, index).forEach((s, i) => {
       if (s.name) earlier.set(s.name, i)
     })
-    scanStrings(step, (s) => {
-      const target = refTarget(s)
+    scanStringsWithPath(step, [], (s, path) => {
+      const target = refTarget(s, path)
       if (target === null || !earlier.has(target)) return
       graph[index].resolvedRefs += 1
       if (!graph[index].inputs.includes(target)) {
@@ -173,9 +178,12 @@ export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
     })
     const seen = new Set<string>() // producer|attribute - dedupe repeats
     scanStringsWithPath(step, [], (value, path) => {
-      const target = refTarget(value)
+      const target = refTarget(value, path)
       if (target === null || !earlier.has(target)) return
-      const attribute = attributeLabel(path)
+      const attribute =
+        path[path.length - 1] === 'from_previous_result'
+          ? attributeLabel(path.slice(0, -1))
+          : attributeLabel(path)
       const key = `${target}|${attribute}`
       if (seen.has(key)) return
       seen.add(key)
@@ -239,6 +247,14 @@ export function danglingReferenceDetails(
           problems.push({
             stepIndex: index,
             message: `Step '${step.name}': previous_result:${name} - no earlier step has that name`,
+          })
+        }
+      } else if (value.startsWith('gather:')) {
+        const name = refTarget(value)!
+        if (!earlier.has(name)) {
+          problems.push({
+            stepIndex: index,
+            message: `Step '${step.name}': gather:${name} - no earlier step has that name`,
           })
         }
       } else if (value.startsWith('prompt:')) {

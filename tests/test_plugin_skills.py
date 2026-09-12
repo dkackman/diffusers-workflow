@@ -262,8 +262,10 @@ class TestMiniMaxH3Skill:
             assert all(set(entry) == fields for entry in entries), name
             for field in fields:
                 assert f"`{field}`" in text, f"the skill does not name {field}"
-        # cost scales with the list, and the listing's figure is the default's
-        assert "per shot" in text or "per entry" in text
+        # cost: the listing's per_entry block when present, the honest
+        # fallback when it is not
+        assert "`per_entry`" in text
+        assert "`lists`" in text
 
 
 LTX_SKILL = os.path.join(PLUGIN_DIR, "skills", "ltx-2.5", "SKILL.md")

@@ -2,7 +2,7 @@ import argparse
 import os
 from .workflow import workflow_from_file
 from . import startup
-from .security import validate_workflow_path, SecurityError
+from .security import validate_workflow_path, set_trust_workflows, SecurityError
 
 
 def main():
@@ -18,7 +18,20 @@ def main():
         default="INFO",
         help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
+    parser.add_argument(
+        "--trust-workflows",
+        action="store_true",
+        default=False,
+        help="Trust this workflow file to execute arbitrary Python: allow "
+        "pre_load_modules and any dotted *_type/*_dtype/dtype/config_type "
+        "value, not just ones inside the diffusers/torch/transformers/"
+        "quantization-backend ecosystem the tool already depends on. Off "
+        "by default - see docs/SECURITY.md's Trust model. Only pass this "
+        "for a workflow file whose source you trust.",
+    )
     args = parser.parse_args()
+
+    set_trust_workflows(args.trust_workflows)
 
     try:
         validated_file_path = validate_workflow_path(args.file_name)

@@ -1,9 +1,10 @@
 # Proposal: list-driven steps (`for_each`)
 
-Status: **stages 1 and 2 implemented** (expansion pass, validation, schema,
+Status: **stages 1, 2 and 3 implemented** (expansion pass, validation, schema,
 docs - `dw/for_each.py`; `music-video` and `dialogue-short` on a `shots`
-list, 2026-09-11); stage 3 (catalog per-entry cost and entry shape) not
-started. Written for MCP feedback ticket T003.
+list; catalog `lists`, `per_entry` cost schema, entry-key warning, rulings,
+flow-view edges, 2026-09-11). `per_entry` figures for the two templates await
+a measured run. Written for MCP feedback ticket T003.
 
 ## The ask, as filed
 
@@ -222,7 +223,7 @@ to shots + slices + five fixed steps, so the cache is full at about twenty
 shots. Either the ceiling is set so a maximal run fits (32 entries, under
 any of the templates) or the cache bound is raised alongside it; the
 proposal picks **32 and leaves the cache alone** unless a real template
-needs more.
+needs more (raised to 128 in stage 3).
 
 The larger consequence is that a list-driven template's cost is set by the
 caller: `list_workflows` quotes a per-workflow figure today, and a six-entry
@@ -329,3 +330,145 @@ other variables (`variable:character_a_voice`) are resolved by
 optional voices move into the entries. The empty-list and
 `realize_constants` questions are still open and belong to stage 3 with the
 catalog work.
+
+## Stage 3: cost and entry shape (design)
+
+Written after stage 2 merged (2026-09-11). Stage 2 left an agent composing
+over MCP with two gaps, both in what the catalog tells it: how much a
+list-driven run costs when the list is the agent's, and what an entry of
+that list has to contain. The stopgap in the skill and the guide - divide
+the listing's total by the default entry count - runs high because the
+total includes the fixed steps (portraits, the song), and nothing in the
+listing says which fields an entry takes. The rules below follow the
+catalog's standing principles: cost is measured, never derived; structure is
+derived, never declared twice.
+
+### Cost: a measured per-entry figure beside the measured total
+
+A `cost` entry gains an optional `per_entry` block:
+
+```json
+"cost": [
+  {
+    "device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 42,
+    "per_entry": {"variable": "shots", "minutes": 7.2, "entries": 5}
+  }
+]
+```
+
+- `minutes` stays what it is: the measured total for the workflow as
+  shipped, so every existing consumer and test is untouched.
+- `per_entry.minutes` is the measured cost of one entry - the sum of every
+  member the entry produces (`slice@x` plus `shot@x` for music-video), taken
+  from the run's step timings, averaged over the default list.
+- `per_entry.entries` is the length of the default list the total was
+  measured with, so the fixed part is recoverable: `fixed = minutes -
+  per_entry.minutes × entries`, and a run over N entries quotes `fixed +
+  per_entry.minutes × N`. Recording `entries` rather than `fixed` keeps
+  both numbers on the file as they were measured; a later edit of the
+  default list that forgets the cost block fails a test that compares
+  `entries` to `len(variables[variable])`.
+- Schema: `per_entry` is `{variable: string, minutes: number ≥ 0, entries:
+  integer ≥ 1}`, `additionalProperties: false`; `variable` must name a
+  list-valued variable that some step's `for_each` reads (test).
+
+The listing carries `cost` through unchanged (it already does), so
+`per_entry` reaches `list_workflows` in both views with no projection
+change. The skill and the guide replace the divide-by-default stopgap with
+the formula; `tests/test_plugin_skills.py` pins that the H3 skill quotes
+`per_entry`. Both templates need a measured run on lem for the numbers -
+the step timings T021 put in the job's progress block are the source, so
+one run per template gives every figure.
+
+### Entry shape: derived from what the steps read
+
+Nothing has to be declared. A `for_each` step reads its entry through
+`item:` strings, so the fields an entry needs are exactly the set of
+`item:<field>` references across every step over that variable, plus
+`name`. `derive_catalog_metadata` gains a `lists` block:
+
+```json
+"lists": {
+  "shots": {
+    "fields": ["name", "num_frames", "prompt", "references"],
+    "steps": ["shot"],
+    "entries": 5
+  }
+}
+```
+
+- `fields`: sorted union of `item:` fields over every step whose `for_each`
+  is `variable:<name>`, with `name` first. `item:` alone (the whole entry,
+  used when entries are scalars) yields `fields: null` and the entry is a
+  value, not an object.
+- `steps`: the `for_each` steps over that list, so an agent knows
+  `shot@<name>` and `slice@<name>` are what the manifest will show.
+- `entries`: the default list's length, which is what the cost block's
+  `entries` is checked against.
+
+`lists` joins `COMPACT_FIELDS`: it is what authoring the argument needs,
+and it is small. A workflow with no `for_each` has `lists: {}` and the
+compact view drops the key when empty, so listings that never had it do
+not grow.
+
+The meaning of each field stays where meaning lives today - the
+description and the template's default entries. `GET
+/api/workflows/{name}/variables` is the call that shows those defaults,
+and its 200-character preview only cuts *string* variables; a `shots` list
+comes back whole, ten kilobytes of prompts for dialogue-short. Stage 3
+extends the preview into list and dict values (`shots[0].prompt` named in
+`truncated`), so an agent sees the shape of every entry at a glance and
+asks for `full=true` when it wants the text.
+
+### Validation: unknown entry keys
+
+A missing field is already a `ForEachError` at the entry's path. An extra
+key - `num_frame` for `num_frames` - is ignored in silence today, and the
+member then runs with the template's value for the field the caller meant
+to override. Stage 3 reports an entry key no step reads as a validation
+*warning* (not an error: a caller may carry an annotation field on
+purpose), at the entry's path, naming the fields the list takes. The
+`lists.fields` derivation is the same computation, so this is one function
+used twice.
+
+### Decisions carried from stage 2, ruled here
+
+- **An empty `for_each` list is a validation error**, not an empty success.
+  A workflow that expands to no generating step is never what a caller
+  asked for, and the run producing no manifest and no events looks like a
+  server fault. `expand_for_each` raises `ForEachError` at the step's path
+  with "for_each over an empty list would run no steps"; the schema's
+  `minItems: 1` covers the literal form.
+- **`expanded_definition` runs `realize_constants`** before substitution,
+  the way `Workflow.run` does, so a list defaulted to a `constant:` name
+  validates as it runs. It is a name lookup, no download, so the pre-flight
+  stays free.
+- **The step cache's bound has to clear a maximal run.** 32 entries over
+  two groups plus fixed steps is ~70 members; `DEFAULT_MAX_ENTRIES = 50`
+  (`dw/step_cache.py`) evicts a run's own earlier members before it ends,
+  which silently defeats the insertion case the naming scheme exists for.
+  Raised to 128 (`dw/step_cache.py`) - the proposal's original "leave it
+  alone unless a real template needs more" no longer holds once the
+  ceiling is 32.
+- **The editor's flow view draws no edges for `gather:` or `item:`**
+  (`ui/src/lib/flow.ts` maps only `previous_result:`), so both templates
+  render their editor step as an orphan. An edge from each `for_each` step
+  to the step that gathers it, and between paired groups over one list,
+  is the whole fix; it is UI-only and can ship with or after the rest.
+
+### Order of work
+
+1. `lists` derivation + `COMPACT_FIELDS` + unknown-key warning (pure
+   functions, unit-tested, no GPU).
+2. `per_entry` schema, the two catalog tests (variable named exists; entries
+   matches the default list), the variables-endpoint nested preview.
+3. Skill and guide wording, pinned by test; MCP server instructions mention
+   `lists` and `per_entry` in the `list_workflows` sentence.
+4. Empty-list error, `realize_constants` in validation, cache bound.
+5. Measure both templates on lem (one run each) and fill in `per_entry`.
+6. Flow-view edges.
+
+Steps 1-4 are self-contained and testable here; step 5 is the only one
+that needs the GPU box, and the skill's formula degrades honestly without
+it (no `per_entry` means "quote the total and say the list is the
+default's").

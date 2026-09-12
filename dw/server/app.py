@@ -49,6 +49,7 @@ from ..introspection import (
     describe_task,
     workflow_argument_warnings,
 )
+from ..for_each import entry_field_warnings
 from ..schema import load_schema, validate_data, format_validation_errors
 from ..prompts import (
     PROMPT_PREFIX,
@@ -194,7 +195,8 @@ def catalog_name_for(path, source):
 def workflow_details(sources_by_name):
     """Per-workflow card metadata: output kinds, step and variable counts,
     and the variable names themselves - enough for an agent to pick a
-    workflow and know what to pass it without fetching each candidate. The
+    workflow and know what to pass it without fetching each candidate, and,
+    for a list-driven workflow, what an entry of each list carries. The
     names but not their defaults: across the workflows on disk the defaults
     are an order of magnitude more payload, on a listing the UI reloads.
 
@@ -248,6 +250,7 @@ def workflow_details(sources_by_name):
                 "shape": metadata["shape"],
                 "traits": metadata["traits"],
                 "summary": metadata["summary"],
+                "lists": metadata["lists"],
                 "cost": cost if isinstance(cost, list) and cost else None,
             }
         except Exception:
@@ -261,6 +264,7 @@ def workflow_details(sources_by_name):
                 "shape": "utility",
                 "traits": [],
                 "summary": "",
+                "lists": {},
                 "cost": None,
             }
         _workflow_detail_cache[path] = (mtime, detail)
@@ -1345,7 +1349,8 @@ def create_app(
             "valid": True,
             "error": None,
             "errors": [],
-            "warnings": workflow_argument_warnings(definition),
+            "warnings": workflow_argument_warnings(definition)
+            + entry_field_warnings(definition, request.arguments),
         }
         if request.arguments:
             # Naming what was checked is the difference between 'the stored
@@ -1596,11 +1601,12 @@ def create_app(
         blocks and all, to read a single integer. This answers that question
         by itself.
 
-        Long defaults - a shot's prompt runs to kilobytes - are cut to their
-        first 200 characters and named in `truncated`, so the answer stays
-        small for the numbers and names it is usually asked about; `full=true`
-        returns them whole, and `GET /api/workflows/{name}` is still the
-        definition itself.
+        Long strings - a shot's prompt runs to kilobytes, and a list-driven
+        workflow's default list holds several - are cut to their first 200
+        characters wherever they sit and named in `truncated`
+        (`shots[0].prompt`), so the answer stays small for the numbers and
+        names it is usually asked about; `full=true` returns them whole, and
+        `GET /api/workflows/{name}` is still the definition itself.
         """
         path, source = resolve_readable_workflow(_sources_for(ws), name)
         try:
@@ -1609,18 +1615,22 @@ def create_app(
         except (OSError, json.JSONDecodeError) as e:
             raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
 
+        def preview(value, path):
+            if isinstance(value, str) and len(value) > VARIABLE_VALUE_PREVIEW:
+                truncated.append(path)
+                return value[:VARIABLE_VALUE_PREVIEW]
+            if isinstance(value, list):
+                return [preview(item, f"{path}[{i}]") for i, item in enumerate(value)]
+            if isinstance(value, dict):
+                return {
+                    key: preview(item, f"{path}.{key}") for key, item in value.items()
+                }
+            return value
+
         variables = definition.get("variables") or {}
         values, truncated = {}, []
         for variable, value in variables.items():
-            if (
-                not full
-                and isinstance(value, str)
-                and len(value) > VARIABLE_VALUE_PREVIEW
-            ):
-                values[variable] = value[:VARIABLE_VALUE_PREVIEW]
-                truncated.append(variable)
-            else:
-                values[variable] = value
+            values[variable] = value if full else preview(value, variable)
         return {
             "name": name,
             "variables": values,

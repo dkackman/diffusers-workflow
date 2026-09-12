@@ -14,6 +14,11 @@ from dw.workflow import (
 from dw.pipeline_processors.pipeline import Pipeline
 import os
 
+# Referenced by test_validation_realizes_a_constant_default_list via
+# "constant:tests.test_workflow.CONSTANT_SHOTS" - a module-level value a
+# workflow's variable default can point at instead of a literal list.
+CONSTANT_SHOTS = [{"name": "a", "text": "1"}, {"name": "b", "text": "2"}]
+
 
 def test_workflow_validation_valid(valid_workflow_json, tmp_path):
     workflow = Workflow(valid_workflow_json, str(tmp_path), "")
@@ -741,6 +746,42 @@ def test_a_reference_error_inside_a_member_names_the_member(tmp_path):
     ]
     assert "in member 'shot@a'" in errors[0]["message"]
     assert "in member 'shot@b'" in errors[1]["message"]
+
+
+def test_validation_realizes_a_constant_default_list(tmp_path):
+    """A list defaulted to a constant: name used to fail validation with the
+    string unsubstituted and then run fine, since only the run realized
+    constants."""
+    definition = _for_each_workflow()
+    definition["variables"]["shots"] = "constant:tests.test_workflow.CONSTANT_SHOTS"
+    workflow = _workflow_from(definition, tmp_path)
+    assert workflow.validation_errors() == []
+    assert [s["name"] for s in workflow.expanded_definition()["steps"]][:2] == [
+        "shot@a",
+        "shot@b",
+    ]
+
+
+def test_validation_reports_an_unresolvable_constant_default(tmp_path):
+    """A trusted-ecosystem name that resolves to nothing used to escape
+    validation as an unhandled exception; now it is a validation error
+    naming the variable, with fetch_constant's own message."""
+    definition = _for_each_workflow()
+    definition["variables"]["shots"] = "constant:diffusers.NOPE_DOES_NOT_EXIST"
+    workflow = _workflow_from(definition, tmp_path)
+    errors = workflow.validation_errors()
+    assert len(errors) == 1
+    assert errors[0]["path"] == "variables.shots"
+    assert "diffusers.NOPE_DOES_NOT_EXIST" in errors[0]["message"]
+
+
+def test_validation_reports_a_malformed_constant_default(tmp_path):
+    definition = _for_each_workflow()
+    definition["variables"]["shots"] = "constant:not a name"
+    workflow = _workflow_from(definition, tmp_path)
+    errors = workflow.validation_errors()
+    assert len(errors) == 1
+    assert errors[0]["path"] == "variables.shots"
 
 
 def test_run_expands_for_each_and_names_the_members(tmp_path):

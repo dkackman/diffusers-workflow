@@ -21,6 +21,28 @@ from dw.security import (
 )
 from dw.type_helpers import load_type_from_full_name
 from dw.pipeline_processors.pipeline import Pipeline
+from dw.workflow import Workflow
+
+
+def _untrusted_constant_workflow():
+    """A minimal workflow whose only variable defaults to a 'constant:'
+    reference outside the diffusers ecosystem - the same code-execution
+    surface as a dotted '*_type' value, gated by require_trusted_dotted_name
+    via dw.type_helpers.load_constant_from_name."""
+    return {
+        "id": "untrusted_constant",
+        "variables": {"sep": "constant:os.sep"},
+        "steps": [
+            {
+                "name": "step",
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": ["variable:sep"]},
+                },
+                "result": {"content_type": "text/plain"},
+            }
+        ],
+    }
 
 
 def _untrust(monkeypatch):
@@ -177,6 +199,34 @@ class TestConstantReferencesAreGated:
 
         monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
         assert load_constant_from_name("os.sep") == "/"
+
+
+class TestValidationGatesUntrustedConstantDefaults:
+    """Workflow.validation_errors() realizes 'constant:' variable defaults
+    (Workflow.expanded_definition), which runs the same trust gate a run
+    would. An out-of-ecosystem name must come back as a validation error
+    naming the variable, not an unhandled UntrustedWorkflowError, and the
+    same definition must validate cleanly once trusted."""
+
+    def test_untrusted_constant_default_is_a_validation_error(
+        self, monkeypatch, tmp_path
+    ):
+        _untrust(monkeypatch)
+        workflow = Workflow(_untrusted_constant_workflow(), str(tmp_path), "")
+        try:
+            require_trusted_dotted_name("os.sep", "a constant: reference")
+        except UntrustedWorkflowError as e:
+            expected_message = str(e)
+        assert workflow.validation_errors() == [
+            {"path": "variables.sep", "message": expected_message}
+        ]
+
+    def test_untrusted_constant_default_validates_when_trusted(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
+        workflow = Workflow(_untrusted_constant_workflow(), str(tmp_path), "")
+        assert workflow.validation_errors() == []
 
 
 class TestRemoteCodeIsGated:

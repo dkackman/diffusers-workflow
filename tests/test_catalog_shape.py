@@ -407,6 +407,36 @@ def test_the_schema_declares_the_vocabulary():
     cost_item = props["cost"]["items"]
     assert set(cost_item["required"]) == {"device", "vram_gb", "minutes"}
     assert cost_item["properties"]["device"]["enum"] == ["cuda", "mps", "cpu"]
+    per_entry = cost_item["properties"]["per_entry"]
+    assert set(per_entry["required"]) == {"variable", "minutes", "entries"}
+    assert per_entry["additionalProperties"] is False
+
+
+def test_a_per_entry_cost_validates_and_a_partial_one_does_not():
+    schema = load_schema("workflow")
+    base = definition(pipeline_step("g", "image/jpeg"))
+    cost = {"device": "cuda", "vram_gb": 24, "minutes": 42}
+    ok, _ = validate_data(
+        {
+            **base,
+            "cost": [
+                {
+                    **cost,
+                    "per_entry": {"variable": "shots", "minutes": 7.2, "entries": 5},
+                }
+            ],
+        },
+        schema,
+    )
+    assert ok
+    bad, message = validate_data(
+        {
+            **base,
+            "cost": [{**cost, "per_entry": {"variable": "shots", "minutes": 7.2}}],
+        },
+        schema,
+    )
+    assert not bad and "per_entry" in message
 
 
 def test_a_declared_cost_validates_and_a_bad_one_does_not():
@@ -438,6 +468,7 @@ def entry(shape, traits=(), configures="", **extra):
         "variable_names": [],
         "description": "long text",
         "configures": configures,
+        "lists": {},
         "prompt_refs": [],
         "origin": "workspace",
         "writable": True,
@@ -483,7 +514,10 @@ def test_configures_filters_to_a_templates_configs():
 def test_compact_drops_prose_and_model_configs_and_keeps_user_workflows():
     compact = project_listing(LISTING, view="compact")
     assert set(compact) == {"templates/tti", "templates/talk", "templates/clip", "mine"}
-    assert set(compact["templates/tti"]) == set(COMPACT_FIELDS) - {"configures"}
+    assert set(compact["templates/tti"]) == set(COMPACT_FIELDS) - {
+        "configures",
+        "lists",
+    }
     assert "description" not in compact["templates/tti"]
     assert "steps" not in compact["templates/tti"]
     assert "variables" not in compact["templates/tti"]
@@ -627,3 +661,59 @@ def test_an_image_pipeline_carrying_a_vocoder_does_not():
     step = pipeline_step("still", "image/jpeg")
     step["pipeline"]["configuration"]["components"] = {"vocoder": {"device": "cuda"}}
     assert "has-audio" not in derive_catalog_metadata(definition(step))["traits"]
+
+
+def for_each_step(name, variable, arguments):
+    return {
+        "name": name,
+        "for_each": f"variable:{variable}",
+        "pipeline": {
+            "configuration": {"component_type": "{Fake}"},
+            "arguments": arguments,
+        },
+        "result": {"content_type": "video/mp4"},
+    }
+
+
+def test_lists_name_the_fields_an_entry_takes_and_the_default_length():
+    meta = derive_catalog_metadata(
+        definition(
+            for_each_step(
+                "shot", "shots", {"prompt": "item:prompt", "n": "item:num_frames"}
+            ),
+            variables={"shots": [{"name": "a", "prompt": "p", "num_frames": 1}] * 3},
+        )
+    )
+    assert meta["lists"] == {
+        "shots": {
+            "fields": ["name", "num_frames", "prompt"],
+            "steps": ["shot"],
+            "entries": 3,
+        }
+    }
+
+
+def test_lists_is_empty_without_for_each_and_entries_is_none_without_a_list_default():
+    assert (
+        derive_catalog_metadata(definition(pipeline_step("g", "image/jpeg")))["lists"]
+        == {}
+    )
+    meta = derive_catalog_metadata(
+        definition(for_each_step("shot", "shots", {"prompt": "item:prompt"}))
+    )
+    assert meta["lists"]["shots"]["entries"] is None
+
+
+def test_compact_carries_lists_only_when_there_are_any():
+    listing = {
+        "plain": entry("image"),
+        "cut": entry(
+            "sequence",
+            lists={
+                "shots": {"fields": ["name", "prompt"], "steps": ["shot"], "entries": 2}
+            },
+        ),
+    }
+    compact = project_listing(listing, view="compact")
+    assert "lists" not in compact["plain"]
+    assert compact["cut"]["lists"]["shots"]["fields"] == ["name", "prompt"]

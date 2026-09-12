@@ -60,11 +60,12 @@ not from here.
   per entry). `shots` is one list argument: a dialogue entry is `name`,
   `prompt`, `references` (which portraits and voices this shot uses) and
   `num_frames`; a music-video entry is `name`, `prompt` and `start_frame`.
-  A six-shot piece is one more entry, not another file. The listing's `cost`
-  is the whole workflow's, fixed steps included (the portraits, the song) -
-  divide by the default list's entry count for a rough per-shot figure (it
-  still carries those fixed steps, so it runs high), then multiply by the
-  entries you write.
+  A six-shot piece is one more entry, not another file.
+  The listing's `lists` block says what an entry carries; its `cost`
+  carries `per_entry` when one shot was measured: quote
+  `minutes - per_entry.minutes × per_entry.entries + per_entry.minutes × N`
+  for N entries. Without `per_entry`, quote the total and say it is the
+  default list's.
   A cut erases drift; the last shot is as clean as the first. Write shots,
   not takes. Each shot generates its own audio, so write
   `non_diegetic_music: N/A` in every shot and lay one score under the concat

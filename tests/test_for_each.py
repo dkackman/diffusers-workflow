@@ -8,7 +8,9 @@ import pytest
 from dw.for_each import (
     MAX_FOR_EACH_ENTRIES,
     ForEachError,
+    entry_field_warnings,
     expand_for_each,
+    list_fields,
     member_name,
 )
 
@@ -124,14 +126,11 @@ class TestNaming:
             )
         assert "variable:shots" in str(e.value)
 
-    def test_an_empty_list_expands_to_no_steps(self):
-        expanded = expand_for_each(
-            definition(
-                {"name": "shot", "for_each": [], "task": {}},
-                {"name": "after", "task": {}},
-            )
-        )
-        assert [s["name"] for s in expanded["steps"]] == ["after"]
+    def test_an_empty_list_is_an_error_at_the_step(self):
+        with pytest.raises(ForEachError) as e:
+            expand_for_each(definition({"name": "shot", "for_each": [], "task": {}}))
+        assert e.value.path == "steps[0].for_each"
+        assert "would run no steps" in str(e.value)
 
     def test_the_ceiling_is_enforced(self):
         entries = [{"name": f"s{i}"} for i in range(MAX_FOR_EACH_ENTRIES + 1)]
@@ -406,15 +405,6 @@ class TestGather:
             "previous_result:shot@open",
             "previous_result:shot@close",
         ]
-
-    def test_gather_of_an_empty_group_is_an_empty_list(self):
-        expanded = expand_for_each(
-            definition(
-                {"name": "shot", "for_each": [], "task": {}},
-                {"name": "edit", "task": {"arguments": {"videos": "gather:shot"}}},
-            )
-        )
-        assert expanded["steps"][-1]["task"]["arguments"]["videos"] == []
 
     def test_gather_of_a_plain_step_is_an_error(self):
         with pytest.raises(ForEachError) as e:
@@ -834,3 +824,120 @@ class TestRunTimeRealizationOrder:
                 assert isinstance(reference["reference_type"], type)
                 assert "from_previous_result" in reference
                 assert "from_file" not in reference
+
+
+class TestListFields:
+    """What an entry has to carry is read off the item: references the
+    for_each steps make - the catalog and the unknown-key warning both
+    derive from this."""
+
+    def test_fields_are_the_item_references_with_name_first(self):
+        fields = list_fields(
+            definition(
+                {
+                    "name": "slice",
+                    "for_each": "variable:shots",
+                    "task": {"arguments": {"start_frame": "item:start_frame"}},
+                },
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "pipeline": {
+                        "arguments": {
+                            "prompt": "item:prompt",
+                            "references": [{"x": "item:references"}],
+                        }
+                    },
+                },
+            )
+        )
+        assert fields == {
+            "shots": {
+                "fields": ["name", "prompt", "references", "start_frame"],
+                "steps": ["slice", "shot"],
+            }
+        }
+
+    def test_a_bare_item_means_the_entry_is_a_value(self):
+        fields = list_fields(
+            definition(
+                {
+                    "name": "say",
+                    "for_each": "variable:lines",
+                    "task": {"arguments": {"text": "item:"}},
+                }
+            )
+        )
+        assert fields == {"lines": {"fields": None, "steps": ["say"]}}
+
+    def test_a_literal_list_is_not_an_argument(self):
+        assert (
+            list_fields(definition({"name": "s", "for_each": ["a"], "task": {}})) == {}
+        )
+
+    def test_a_step_reading_no_field_still_lists_name(self):
+        fields = list_fields(
+            definition(
+                {"name": "s", "for_each": "variable:xs", "task": {"arguments": {}}}
+            )
+        )
+        assert fields == {"xs": {"fields": ["name"], "steps": ["s"]}}
+
+    def test_malformed_definitions_yield_nothing(self):
+        assert list_fields({}) == {}
+        assert list_fields({"steps": "nope"}) == {}
+        assert list_fields({"steps": ["not a dict"]}) == {}
+
+
+class TestEntryFieldWarnings:
+    def workflow(self):
+        return definition(
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "task": {"arguments": {"text": "item:prompt", "n": "item:num_frames"}},
+            },
+            variables={"shots": [{"name": "a", "prompt": "p", "num_frames": 1}]},
+        )
+
+    def test_a_key_no_step_reads_is_reported_at_the_entry(self):
+        w = self.workflow()
+        w["variables"]["shots"].append({"name": "b", "prompt": "q", "num_frame": 2})
+        assert entry_field_warnings(w) == [
+            "variables.shots[1]: entry 'b' carries 'num_frame', which no step reads; "
+            "entries of 'shots' take: name, num_frames, prompt"
+        ]
+
+    def test_a_caller_s_list_is_reported_under_arguments(self):
+        warnings = entry_field_warnings(
+            self.workflow(),
+            arguments={
+                "shots": [{"name": "a", "prompt": "p", "num_frames": 1, "note": "x"}]
+            },
+        )
+        assert warnings == [
+            "arguments.shots[0]: entry 'a' carries 'note', which no step reads; "
+            "entries of 'shots' take: name, num_frames, prompt"
+        ]
+
+    def test_bad_arguments_fall_back_to_the_defaults(self):
+        assert entry_field_warnings(self.workflow(), arguments={"nope": 1}) == []
+
+    def test_value_entries_and_clean_entries_warn_about_nothing(self):
+        assert entry_field_warnings(self.workflow()) == []
+        w = definition(
+            {
+                "name": "say",
+                "for_each": "variable:lines",
+                "task": {"arguments": {"t": "item:"}},
+            },
+            variables={"lines": ["a", "b"]},
+        )
+        assert entry_field_warnings(w) == []
+
+    def test_an_entry_without_a_name_is_named_by_its_index(self):
+        w = self.workflow()
+        w["variables"]["shots"] = [{"prompt": "p", "num_frames": 1, "extra": 0}]
+        assert entry_field_warnings(w)[0].startswith(
+            "variables.shots[0]: entry 0 carries 'extra'"
+        )
