@@ -414,15 +414,23 @@ class Job:
             "total_steps": self.total_steps,
             "phase": self.phase,
             "phase_detail": self.phase_detail,
-            "seconds_in_phase": round(now - self.phase_started_at, 1)
-            if self.phase_started_at
-            else None,
-            # The one number that separates a slow run from a hung one
+            "seconds_in_phase": (
+                round(now - self.phase_started_at, 1) if self.phase_started_at else None
+            ),
+            # The one number that separates a slow run from a hung one -
+            # but only once the denoise loop is running, see below
             "seconds_since_event": round(now - self.last_event_at, 1),
+            # Always present, null until the loop starts. A key that only
+            # appears once there is a count to report cannot be told apart
+            # from a key that is missing because nothing is happening: the
+            # lead-in to `generating` - encoding the prompt and any
+            # reference image or audio - is over a minute of silence on a
+            # large video model, and read as an absent counter it looks
+            # exactly like a wedged denoise loop. Null here means the loop
+            # has not started; a number that stops moving is the stuck one
+            "denoise_step": self.denoise_step,
+            "denoise_total_steps": self.denoise_total_steps,
         }
-        if self.denoise_step is not None:
-            summary["denoise_step"] = self.denoise_step
-            summary["denoise_total_steps"] = self.denoise_total_steps
         return summary
 
     def finish(self, status, error=None, traceback_text=None):

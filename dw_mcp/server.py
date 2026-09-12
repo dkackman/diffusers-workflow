@@ -732,9 +732,12 @@ def build_server(client):
         also carries `progress`: the step it is on, the phase (`loading`,
         `generating`, `decoding`, `saving`) with the model named in
         `phase_detail`, `seconds_in_phase`, `seconds_since_event`, and
-        `denoise_step`/`denoise_total_steps` once the denoise loop starts -
-        which is how a slow run and a stuck one tell apart between two
-        otherwise identical polls."""
+        `denoise_step`/`denoise_total_steps`, null until the denoise loop
+        starts - which is how a slow run and a stuck one tell apart between
+        two otherwise identical polls. A null `denoise_step` under
+        `generating` is the pipeline's lead-in (encoding the prompt and any
+        reference image or audio, ~90 s on MiniMax H3), which emits
+        nothing: wait it out rather than reading the silence as a hang."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states

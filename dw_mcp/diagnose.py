@@ -74,7 +74,9 @@ def run_workflow(
 def get_job(client, job_id):
     """A job's status, arguments, warnings, manifest, error and traceback.
     A running job also carries `progress` - the step, the phase and how long
-    it has been in it, with the denoise counter once that loop starts."""
+    it has been in it, with a denoise counter that is null until that loop
+    starts. Null under `generating` is the pipeline's silent lead-in, not a
+    hang; see wait_for_job."""
     return client.get_json(api_path("api", "jobs", job_id))
 
 
@@ -165,10 +167,18 @@ def wait_for_job(client, job_id, timeout_seconds=20):
     A running job carries `progress`: the step it is on, the phase
     (`loading`, `generating`, `decoding`, `saving`) with the model or step
     named in `phase_detail`, `seconds_in_phase`, `seconds_since_event`, and
-    `denoise_step`/`denoise_total_steps` once the denoise loop is running.
-    Two calls with the same phase and a growing `seconds_in_phase` but a
-    moving `denoise_step` is a slow run; one where nothing moves and
-    `seconds_since_event` keeps climbing is a stuck one."""
+    `denoise_step`/`denoise_total_steps`, which are null until the denoise
+    loop starts. Two calls with the same phase and a growing
+    `seconds_in_phase` but a moving `denoise_step` is a slow run; one where
+    `denoise_step` is a number that does not move while
+    `seconds_since_event` climbs is a stuck one.
+
+    `denoise_step: null` under `generating` is neither: it is the lead-in
+    the pipeline runs before the loop - encoding the prompt and any
+    reference image or audio - which emits nothing and is well over a
+    minute on a large video model (~90 s on MiniMax H3). Silence there is
+    expected; `seconds_since_event` only says something once
+    `denoise_step` is a number, or in any other phase."""
     requested = max(0.0, float(timeout_seconds))
     applied = min(requested, float(MAX_WAIT_SECONDS))
     capped = applied < requested
