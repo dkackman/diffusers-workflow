@@ -1,9 +1,10 @@
 # Proposal: list-driven steps (`for_each`)
 
-Status: **stages 1 and 2 implemented** (expansion pass, validation, schema,
+Status: **stages 1, 2 and 3 implemented** (expansion pass, validation, schema,
 docs - `dw/for_each.py`; `music-video` and `dialogue-short` on a `shots`
-list, 2026-09-11); stage 3 (catalog per-entry cost and entry shape) not
-started. Written for MCP feedback ticket T003.
+list; catalog `lists`, `per_entry` cost schema, entry-key warning, rulings,
+flow-view edges, 2026-09-11). `per_entry` figures for the two templates await
+a measured run. Written for MCP feedback ticket T003.
 
 ## The ask, as filed
 

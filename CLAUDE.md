@@ -169,7 +169,12 @@ docs/WORKSPACES.md, and docs/proposals/server-workspaces.md for the later stages
   (`"from_file": "variable:character_a_voice"`); `resolve_variable_values`
   (`dw/variables.py`) replaces those once, before `realize_args`, refusing a
   cycle, and `undeclared_variable_references` walks inside list/dict variable
-  values too.
+  values too. The catalog derives `lists` (`list_fields`, `dw/for_each.py`):
+  the fields an entry takes are the `item:` references the steps make, `name`
+  first; an entry key no step reads is a validation warning
+  (`entry_field_warnings`). A `cost` entry may carry `per_entry`
+  (`{variable, minutes, entries}`), measured, never derived. An empty
+  `for_each` list is an error; `expanded_definition` realizes constants first.
 - Every run directory holds `workflow.json` beside its manifest: the *realized*
   workflow, with the run's arguments folded into the variable defaults, the seed
   it used, stored prompt text inlined and `output:.../latest/...` pinned to the

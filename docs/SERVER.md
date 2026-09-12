@@ -265,9 +265,11 @@ The editor's forms come from these; they are just as usable from scripts:
   vocabulary. `configures=<template>` keeps that template's model configs.
   `view=compact` is the agent's projection: it drops `description`, `origin`,
   `writable`, `prompt_refs`, `steps` and `variables`, keeps `summary`,
-  `shape`, `traits`, `cost`, `kinds` and `variable_names`, and lists templates
-  only unless `include_models=true` or a `configures` asks otherwise. With no
-  params the response is what it always was, plus the four new fields
+  `shape`, `traits`, `cost`, `kinds`, `variable_names` and `lists` (carried
+  only when the workflow has a list-driven step, like `configures`), and
+  lists templates only unless `include_models=true` or a `configures` asks
+  otherwise. With no params the response is what it always was, plus the four
+  new fields
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`)
 - `GET /api/workflows/{name:path}/download` — download a workflow file as JSON
