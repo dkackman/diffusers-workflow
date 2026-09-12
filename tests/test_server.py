@@ -1681,6 +1681,7 @@ def test_workflow_listing_carries_details(server):
             "shape": "image",
             "traits": [],
             "summary": "Renders a small test image.",
+            "lists": {},
             "cost": None,
             # where it came from, and whether a client should offer save and
             # delete for it or only save-a-copy
@@ -3007,6 +3008,40 @@ def test_workflow_details_name_their_variables(server):
         details = client.get("/api/workflows").json()["details"]
         assert details["Knobby"]["variable_names"] == ["prompt", "steps"]
         assert details["Knobby"]["variables"] == 2
+
+
+def test_workflow_details_describe_their_lists(server):
+    """A list-driven workflow's listing says what an entry carries, so an
+    agent can write the list without opening the definition."""
+    with server(success_script) as client:
+        workflow = {
+            "id": "cut",
+            "variables": {
+                "shots": [{"name": "a", "prompt": "p"}, {"name": "b", "prompt": "q"}]
+            },
+            "steps": [
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "pipeline": {
+                        "configuration": {
+                            "component_type": "{Fake}",
+                            "no_generator": True,
+                        },
+                        "from_pretrained_arguments": {"model_name": "m"},
+                        "arguments": {"prompt": "item:prompt"},
+                    },
+                }
+            ],
+        }
+        client.put("/api/workflows/cut", json={"workflow": workflow})
+
+        details = client.get("/api/workflows").json()["details"]
+        assert details["cut"]["lists"] == {
+            "shots": {"fields": ["name", "prompt"], "steps": ["shot"], "entries": 2}
+        }
+        compact = client.get("/api/workflows", params={"view": "compact"}).json()
+        assert compact["details"]["cut"]["lists"]["shots"]["entries"] == 2
 
 
 def test_submit_accepts_a_cwd_relative_path_with_a_relative_workflow_dir(

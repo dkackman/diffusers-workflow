@@ -287,6 +287,66 @@ def _rewrite_reference(reference, path, groups, member):
     )
 
 
+def list_fields(definition):
+    """What an entry of each list-driven variable has to carry, read off
+    the definition: for every step whose for_each is 'variable:<name>',
+    the fields its 'item:<field>' references name.
+
+    Returns {<variable>: {"fields": [...] or None, "steps": [...]}} -
+    fields sorted with 'name' first, or None when a step splices the
+    whole entry with a bare 'item:' (the entries are values, not
+    objects). A literal for_each list is not an argument and is skipped.
+    Reads the raw definition, no substitution, so the catalog and the
+    validator derive the same answer from the file as written.
+    """
+    steps = definition.get("steps") if isinstance(definition, dict) else None
+    if not isinstance(steps, list):
+        return {}
+    found = {}
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        target = step.get(FOR_EACH_KEY)
+        if not (isinstance(target, str) and target.startswith("variable:")):
+            continue
+        variable = target.removeprefix("variable:")
+        entry = found.setdefault(variable, {"fields": set(), "steps": []})
+        entry["steps"].append(step.get("name"))
+        for value in _strings(step):
+            if not value.startswith(ITEM_PREFIX):
+                continue
+            field = value[len(ITEM_PREFIX) :]
+            if field == "":
+                entry["fields"] = None
+            elif entry["fields"] is not None:
+                entry["fields"].add(field)
+    return {
+        variable: {
+            "fields": (
+                None
+                if entry["fields"] is None
+                else ["name"] + sorted(entry["fields"] - {"name"})
+            ),
+            "steps": entry["steps"],
+        }
+        for variable, entry in found.items()
+    }
+
+
+def _strings(value):
+    """Every string anywhere inside a JSON value, except the for_each key
+    itself."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key != FOR_EACH_KEY:
+                yield from _strings(item)
+
+
 def render_path(path):
     """'steps[3].task.arguments.videos[1]' - the same shape schema errors use."""
     rendered = ""

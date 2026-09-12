@@ -194,7 +194,8 @@ def catalog_name_for(path, source):
 def workflow_details(sources_by_name):
     """Per-workflow card metadata: output kinds, step and variable counts,
     and the variable names themselves - enough for an agent to pick a
-    workflow and know what to pass it without fetching each candidate. The
+    workflow and know what to pass it without fetching each candidate, and,
+    for a list-driven workflow, what an entry of each list carries. The
     names but not their defaults: across the workflows on disk the defaults
     are an order of magnitude more payload, on a listing the UI reloads.
 
@@ -248,6 +249,7 @@ def workflow_details(sources_by_name):
                 "shape": metadata["shape"],
                 "traits": metadata["traits"],
                 "summary": metadata["summary"],
+                "lists": metadata["lists"],
                 "cost": cost if isinstance(cost, list) and cost else None,
             }
         except Exception:
@@ -261,6 +263,7 @@ def workflow_details(sources_by_name):
                 "shape": "utility",
                 "traits": [],
                 "summary": "",
+                "lists": {},
                 "cost": None,
             }
         _workflow_detail_cache[path] = (mtime, detail)

@@ -9,6 +9,7 @@ from dw.for_each import (
     MAX_FOR_EACH_ENTRIES,
     ForEachError,
     expand_for_each,
+    list_fields,
     member_name,
 )
 
@@ -834,3 +835,66 @@ class TestRunTimeRealizationOrder:
                 assert isinstance(reference["reference_type"], type)
                 assert "from_previous_result" in reference
                 assert "from_file" not in reference
+
+
+class TestListFields:
+    """What an entry has to carry is read off the item: references the
+    for_each steps make - the catalog and the unknown-key warning both
+    derive from this."""
+
+    def test_fields_are_the_item_references_with_name_first(self):
+        fields = list_fields(
+            definition(
+                {
+                    "name": "slice",
+                    "for_each": "variable:shots",
+                    "task": {"arguments": {"start_frame": "item:start_frame"}},
+                },
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "pipeline": {
+                        "arguments": {
+                            "prompt": "item:prompt",
+                            "references": [{"x": "item:references"}],
+                        }
+                    },
+                },
+            )
+        )
+        assert fields == {
+            "shots": {
+                "fields": ["name", "prompt", "references", "start_frame"],
+                "steps": ["slice", "shot"],
+            }
+        }
+
+    def test_a_bare_item_means_the_entry_is_a_value(self):
+        fields = list_fields(
+            definition(
+                {
+                    "name": "say",
+                    "for_each": "variable:lines",
+                    "task": {"arguments": {"text": "item:"}},
+                }
+            )
+        )
+        assert fields == {"lines": {"fields": None, "steps": ["say"]}}
+
+    def test_a_literal_list_is_not_an_argument(self):
+        assert (
+            list_fields(definition({"name": "s", "for_each": ["a"], "task": {}})) == {}
+        )
+
+    def test_a_step_reading_no_field_still_lists_name(self):
+        fields = list_fields(
+            definition(
+                {"name": "s", "for_each": "variable:xs", "task": {"arguments": {}}}
+            )
+        )
+        assert fields == {"xs": {"fields": ["name"], "steps": ["s"]}}
+
+    def test_malformed_definitions_yield_nothing(self):
+        assert list_fields({}) == {}
+        assert list_fields({"steps": "nope"}) == {}
+        assert list_fields({"steps": ["not a dict"]}) == {}
