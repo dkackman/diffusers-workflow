@@ -602,3 +602,72 @@ class TestRemoteTextEncoderResponse:
         embeds = remote.remote_text_encoder(["a mug"], "https://example.invalid", "cpu")
 
         assert embeds.shape == (2,)
+
+
+class TestFailedLoadIsTornDown:
+    """#72: a load that raises partway left what it had built resident.
+
+    Everything after the pipeline itself can fail - a quantized matmul pass, a
+    LoRA, a group-offload placement - and each failure used to hand the
+    workflow an exception with several GB still on the device, which the next
+    attempt then loaded on top of.
+    """
+
+    def _definition(self):
+        return {
+            "configuration": {"component_type": "{MockPipeline}"},
+            "from_pretrained_arguments": {"model_name": "some/repo"},
+            "arguments": {"prompt": "a cat"},
+        }
+
+    def _pipeline(self):
+        return Pipeline(self._definition(), 42, "cpu")
+
+    def test_a_load_that_fails_after_the_pipeline_is_built_drops_it(self, monkeypatch):
+        built = MagicMock()
+        monkeypatch.setattr(
+            "dw.pipeline_processors.pipeline.load_component",
+            lambda *args, **kwargs: built,
+        )
+        monkeypatch.setattr(
+            Pipeline,
+            "configure_loaded_components",
+            lambda self: (_ for _ in ()).throw(RuntimeError("placement failed")),
+        )
+        emptied = []
+        monkeypatch.setattr(
+            "dw.pipeline_processors.pipeline.empty_device_cache",
+            lambda *args, **kwargs: emptied.append(True),
+        )
+
+        pipeline = self._pipeline()
+        with pytest.raises(RuntimeError, match="placement failed"):
+            pipeline.load({})
+
+        assert pipeline.pipeline is None, "the half-loaded pipeline must be dropped"
+        assert emptied, "the device cache is emptied on the way out"
+
+    def test_a_failed_load_unpublishes_what_it_had_shared(self, monkeypatch):
+        """A component published before the failure would otherwise be handed
+        to a later step as if it belonged to a pipeline that exists."""
+        definition = self._definition()
+        definition["shared_components"] = ["vae"]
+        monkeypatch.setattr(
+            "dw.pipeline_processors.pipeline.load_component",
+            lambda *args, **kwargs: MagicMock(),
+        )
+        monkeypatch.setattr(
+            "dw.pipeline_processors.pipeline.load_loras",
+            lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("lora failed")),
+        )
+        monkeypatch.setattr(
+            "dw.pipeline_processors.pipeline.empty_device_cache",
+            lambda *args, **kwargs: None,
+        )
+
+        shared = {}
+        pipeline = Pipeline(definition, 42, "cpu")
+        with pytest.raises(RuntimeError, match="lora failed"):
+            pipeline.load(shared)
+
+        assert shared == {}

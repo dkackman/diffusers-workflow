@@ -901,8 +901,11 @@ def create_app(
                     status_code=400, detail="limit must not be negative"
                 )
             # the newest are the interesting ones, and the list is oldest
-            # first - so the cut comes off the front, not the back
-            jobs = jobs[len(jobs) - limit :] if limit else []
+            # first - so the cut comes off the front, not the back. max(0, ...)
+            # because a limit above what matched is no cut at all: a bare
+            # negative start would be read from the end instead, and answer a
+            # limit of 12 against 9 matching jobs with the last 3 of them
+            jobs = jobs[max(0, len(jobs) - limit) :] if limit else []
         return {"jobs": jobs, "total": total}
 
     @app.get("/api/jobs/{job_id}")

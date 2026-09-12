@@ -763,6 +763,35 @@ class Workflow:
                     hits_this_run.add(step.name)
                 else:
                     result = step.run(results, pipelines, step_action)
+
+                # A sub-workflow's saves land in the child's manifest - read it
+                # here, before the release below may drop the child
+                sub_manifest = (
+                    list(getattr(step_action, "manifest", []))
+                    if isinstance(step_action, Workflow)
+                    else []
+                )
+
+                # A released pipeline frees its memory for later steps - the
+                # alternative on a card that cannot hold two models is offloading
+                # everything, which taxes every run to survive one transition.
+                # Before the write, not after: the result is already in host
+                # memory and saving never touches the pipeline, so a release
+                # that waited for the write would hold ~10 GB on the device
+                # through the longest phase of a video step. The loop's own
+                # locals are the last references to this step's action, so
+                # clearing that is part of the release - a popped pipeline this
+                # frame still holds is not freed, and it would otherwise stay
+                # resident through the next step's load, which is exactly when
+                # both models would be in memory at once
+                if step_data.get("release_pipeline", False):
+                    logger.info(f"Releasing pipeline for step: {step.name}")
+                    pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
+                    step_action = None
+                    gc.collect()
+                    empty_device_cache()
+
+                if not reused:
                     saved_files = result.save(
                         self.step_output_dir(step_data),
                         f"{workflow_id}-{step.name}.{i}",
@@ -791,10 +820,9 @@ class Workflow:
                 if reused:
                     manifest_entry["reused"] = True
                 self.manifest.append(manifest_entry)
-                # A sub-workflow's saves land in the child's manifest - roll
-                # them up so job history and the gallery see every file
-                if isinstance(step_action, Workflow):
-                    self.manifest.extend(getattr(step_action, "manifest", []))
+                # roll the child's saves up so job history and the gallery see
+                # every file
+                self.manifest.extend(sub_manifest)
                 step_end_data = {"files": saved_files, "subfolder": subfolder}
                 if reused:
                     step_end_data["reused"] = True
@@ -812,17 +840,9 @@ class Workflow:
                 # already, and last_result keeps the workflow's return value
                 release_unreferenced_results(results, remaining_refs)
 
-                # A released pipeline frees its memory for later steps - the
-                # alternative on a card that cannot hold two models is offloading
-                # everything, which taxes every run to survive one transition
-                if step_data.get("release_pipeline", False):
-                    logger.info(f"Releasing pipeline for step: {step.name}")
-                    pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
-
                 # The loop's own locals are the last references to this step's
-                # action and result - a released pipeline would otherwise stay
-                # resident through the next step's load, which is exactly when
-                # both models would be in memory at once
+                # action and result - anything they still hold would stay
+                # resident through the next step's load
                 step_action = None
                 result = None
 
