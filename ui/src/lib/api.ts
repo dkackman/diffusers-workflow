@@ -61,7 +61,10 @@ function withToken(url: string): string {
 /** Scope a path to an explicit workspace instead of the picker's current
  * selection - for a job's own files, which must resolve to where they were
  * written even if the picker has since moved elsewhere. Mirrors `scoped()`. */
-function workspaceScopedPath(path: string, workspace: string | undefined): string {
+function workspaceScopedPath(
+  path: string,
+  workspace: string | undefined,
+): string {
   if (workspace === undefined || workspace === DEFAULT_WORKSPACE) return path
   return appendQuery(path, 'workspace', workspace)
 }
@@ -413,7 +416,10 @@ export const api = {
       metadata: Record<string, unknown> | null
       job: { id: string; status: string } | null
     }>(
-      workspaceScopedPath(`/api/gallery/${encodePath(name)}/metadata`, workspace),
+      workspaceScopedPath(
+        `/api/gallery/${encodePath(name)}/metadata`,
+        workspace,
+      ),
       undefined,
       { scope: workspace === undefined },
     ),

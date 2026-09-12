@@ -470,7 +470,9 @@
                   </div>
                 {/if}
                 {#if info.seed !== undefined}
-                  <div><span class="muted">seed</span> <code>{info.seed}</code></div>
+                  <div>
+                    <span class="muted">seed</span> <code>{info.seed}</code>
+                  </div>
                 {/if}
                 {#if info.prompt}
                   <div class="prompt">
