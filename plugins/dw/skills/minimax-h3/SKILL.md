@@ -164,7 +164,10 @@ inherits the portrait's composition.
    by its segment count. Get the user's go-ahead before `run_workflow` with
    `acknowledged_cost=true`.
 3. `wait_for_job`, then `get_job` for the manifest. A cancelled H3 job runs
-   on to its next step boundary, minutes on this model.
+   on to its next step boundary, minutes on this model. Each entry carries
+   `subfolder`: `final` is the deliverable (`episode`, `music_video`,
+   `voyage`), `intermediate` the scratch; keep that split in anything you
+   compose.
 4. You cannot watch a video: no tool returns a frame from one. Hand the user
    the gallery `url` (`list_gallery`, or the manifest's file name) and ask them
    to look, and check what you can yourself - `get_job` for the manifest and

@@ -112,7 +112,13 @@ Control" section.
    second of audio and dominates, so time scales with the length the model
    actually sings, not the ceiling. Get the user's go-ahead before
    `run_workflow` with `acknowledged_cost=true`.
-3. `wait_for_job`, then `get_job` for the manifest.
+3. `wait_for_job`, then `get_job` for the manifest. Each manifest entry
+   carries `subfolder`: `templates/minimax/music-video` puts the cut in
+   `final` and the song, the singer's portrait and each shot in
+   `intermediate`, and `list_gallery(subfolder="final")` lists only
+   deliverables. Keep the convention in anything you compose from a template:
+   the step whose output the user will be shown is `final`, every other
+   saving step `intermediate`.
 4. You cannot listen: no tool returns audio inline. Hand the user the gallery
    `url` (`list_gallery`, or the manifest's file name) and check what you can
    yourself - `get_gallery_metadata` for the file's duration against the

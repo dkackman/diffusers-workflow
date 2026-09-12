@@ -125,6 +125,11 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
    before `run_workflow` with `acknowledged_cost=true`.
 3. `wait_for_job`, then `get_job` for the manifest. Writing a 121-frame
    1536x896 clip takes minutes after the last step ends; the job is not stuck.
+   Each manifest entry carries `subfolder`: `templates/ltx2/generative-upscale`
+   puts `upscaled` in `final` and `low_resolution` in `intermediate`, and
+   `list_gallery(subfolder="final")` lists only deliverables. Keep the
+   convention in anything you compose from a template: the step whose output
+   the user will be shown is `final`, every other saving step `intermediate`.
 4. You cannot watch a video: no tool returns a frame from one, and this family
    has no image steps for `get_output_image` to read. Hand the user the gallery
    `url` (`list_gallery`, or the manifest's file name) and ask them to look, and
