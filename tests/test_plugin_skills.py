@@ -240,6 +240,31 @@ class TestMiniMaxH3Skill:
         text = skill_text(H3_SKILL)
         assert text.index("get_server_info") < text.index("templates/minimax/")
 
+    def test_the_cuts_templates_are_described_as_list_driven(self):
+        """Both cut templates take one 'shots' list; the skill says what an
+        entry carries, so an agent writes entries rather than the shot_N_*
+        arguments T005 and this rewrite removed."""
+        import json
+
+        text = skill_text(H3_SKILL)
+        assert "`shots`" in text
+        assert "shot_1_" not in text and "shot_2_" not in text
+        for name, fields in (
+            ("dialogue-short", {"name", "prompt", "references", "num_frames"}),
+            ("music-video", {"name", "prompt", "start_frame"}),
+        ):
+            path = os.path.join(
+                REPO_ROOT, "workflows", "templates", "minimax", name + ".json"
+            )
+            with open(path, encoding="utf-8") as f:
+                spec = json.load(f)
+            entries = spec["variables"]["shots"]
+            assert all(set(entry) == fields for entry in entries), name
+            for field in fields:
+                assert f"`{field}`" in text, f"the skill does not name {field}"
+        # cost scales with the list, and the listing's figure is the default's
+        assert "per shot" in text or "per entry" in text
+
 
 LTX_SKILL = os.path.join(PLUGIN_DIR, "skills", "ltx-2.5", "SKILL.md")
 

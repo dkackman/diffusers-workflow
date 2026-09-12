@@ -159,6 +159,25 @@ def test_a_concat_fed_by_two_steps_is_a_sequence():
     assert meta["shape"] == "sequence"
 
 
+def test_a_concat_over_a_gathered_for_each_group_is_a_sequence():
+    """A list-driven template's editor says "videos": "gather:shot" - a
+    cut over as many shots as the list holds, which the file cannot count."""
+    meta = derive_catalog_metadata(
+        definition(
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "pipeline": {
+                    "arguments": {"prompt": "item:prompt"},
+                },
+                "result": {"content_type": "video/mp4"},
+            },
+            task_step("cut", "concat_videos", {"videos": "gather:shot"}, "video/mp4"),
+        )
+    )
+    assert meta["shape"] == "sequence"
+
+
 def test_a_dissolve_fed_by_two_steps_is_a_sequence():
     meta = derive_catalog_metadata(
         definition(

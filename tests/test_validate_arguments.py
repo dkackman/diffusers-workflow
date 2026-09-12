@@ -201,6 +201,81 @@ class TestValidateRoute:
         assert bad["valid"] is False
         assert bad["errors"][0]["path"] == "steps[0].for_each[1].name"
 
+    def test_a_missing_reference_inside_a_list_argument_fails_validation(self, server):
+        """A `shots` list entry's `references[].from_file` is checked the
+        same as a top-level string argument - `_argument_reference_errors`
+        walks into list/dict argument values rather than skipping them."""
+        workflow = {
+            "id": "list-refs",
+            "variables": {"shots": [{"name": "a", "references": []}]},
+            "steps": [
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["item:name"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                }
+            ],
+        }
+        with server() as client:
+            result = client.post(
+                "/api/validate",
+                json={
+                    "workflow": workflow,
+                    "arguments": {
+                        "shots": [
+                            {
+                                "name": "a",
+                                "references": [{"from_file": "asset:missing.wav"}],
+                            }
+                        ]
+                    },
+                },
+            ).json()
+
+        assert result["valid"] is False
+        assert (
+            result["errors"][0]["path"] == "arguments.shots[0].references[0].from_file"
+        )
+        assert "missing.wav" in result["errors"][0]["message"]
+
+    def test_a_reference_inside_a_list_argument_that_exists_passes(self, server):
+        workflow = {
+            "id": "list-refs",
+            "variables": {"shots": [{"name": "a", "references": []}]},
+            "steps": [
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["item:name"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                }
+            ],
+        }
+        with server() as client:
+            result = client.post(
+                "/api/validate",
+                json={
+                    "workflow": workflow,
+                    "arguments": {
+                        "shots": [
+                            {
+                                "name": "a",
+                                "references": [{"from_file": "asset:iris.png"}],
+                            }
+                        ]
+                    },
+                },
+            ).json()
+
+        assert result["valid"] is True
+
 
 class TestSubmission:
     def test_a_bad_argument_is_refused_before_the_job_is_queued(self, server):

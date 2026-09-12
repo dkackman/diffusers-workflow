@@ -1203,31 +1203,47 @@ def create_app(
                     first = first or e
             raise first
 
+        def _string_leaves(value, path):
+            """Every string in `value`, paired with the path it sits at.
+
+            `value` is walked the way a for_each entry is - a list or dict
+            of arbitrary nesting - so a reference inside `shots[2].
+            references[1].from_file` is found the same as one at the
+            argument's own top level."""
+            if isinstance(value, str):
+                yield path, value
+            elif isinstance(value, list):
+                for i, item in enumerate(value):
+                    yield from _string_leaves(item, f"{path}[{i}]")
+            elif isinstance(value, dict):
+                for key, item in value.items():
+                    yield from _string_leaves(item, f"{path}.{key}")
+
         if not isinstance(arguments, dict):
             return []
         errors = []
         for name, value in arguments.items():
-            if not isinstance(value, str):
-                continue
-            path = f"arguments.{name}"
-            try:
-                if is_asset_reference(value):
-                    over_roots(
-                        _asset_roots(ws) or [ws.assets],
-                        lambda root: resolve_asset_reference(value, asset_dir=root),
-                    )
-                elif value.startswith(PROMPT_PREFIX):
-                    over_roots(
-                        _prompt_roots(),
-                        lambda root: resolve_prompt_reference(value, prompt_dir=root),
-                    )
-                elif is_output_reference(value):
-                    resolve_output_reference(value, root=ws.outputs)
-            except Exception as e:
-                # Every resolver here raises with a message written for the
-                # person who wrote the reference - a traversal refusal from
-                # the security layer included
-                errors.append({"path": path, "message": str(e)})
+            for path, leaf in _string_leaves(value, f"arguments.{name}"):
+                try:
+                    if is_asset_reference(leaf):
+                        over_roots(
+                            _asset_roots(ws) or [ws.assets],
+                            lambda root: resolve_asset_reference(leaf, asset_dir=root),
+                        )
+                    elif leaf.startswith(PROMPT_PREFIX):
+                        over_roots(
+                            _prompt_roots(),
+                            lambda root: resolve_prompt_reference(
+                                leaf, prompt_dir=root
+                            ),
+                        )
+                    elif is_output_reference(leaf):
+                        resolve_output_reference(leaf, root=ws.outputs)
+                except Exception as e:
+                    # Every resolver here raises with a message written for
+                    # the person who wrote the reference - a traversal
+                    # refusal from the security layer included
+                    errors.append({"path": path, "message": str(e)})
         return errors
 
     @app.post("/api/validate")

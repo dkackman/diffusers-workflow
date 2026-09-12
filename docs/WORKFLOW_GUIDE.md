@@ -391,6 +391,16 @@ differs by shot, with `from_previous_result` and `asset:` strings inside
 it. Nothing is interpolated: `"item:prompt"` is the field, `"shot: item:prompt"`
 is a literal string.
 
+An entry may name another variable: `"from_file": "variable:character_a_voice"`
+inside a `references` entry is that variable's value by the time the member
+exists, so one variable sets a voice in every shot the character speaks in
+and a caller who supplies the list still writes `variable:` for the parts the
+template fixes. Those references are resolved before anything in the entry is
+loaded, and an undeclared one is a validation error at the entry's path
+(`arguments.shots[2].references[1].from_file` when the list is yours,
+`variables.shots[...]` when it is the template's). A value may not reference
+itself, directly or through another variable.
+
 Two `for_each` steps over the *same* list are paired by key — the entry's
 `name`, or its index for an entry without one: inside `shot@closeup`, a
 reference to another `for_each` step `slice` over the same `shots` list
@@ -401,14 +411,22 @@ no zip and no loop index.
 
 Limits: a list has at most 32 entries. `release_pipeline` on a `for_each`
 step releases after the *last* member. Each entry is a full generation, so
-quote `cost × len(list)` before running a list-driven workflow, and
-`validate_workflow` with the `arguments` you will run with: it expands your
-list, not the template's default, and reports a duplicate name or a missing
-field at the entry's path.
+quote the cost before running a list-driven workflow: the listing's `cost`
+is for the whole workflow, fixed steps included, so divide it by the default
+list's entry count for a rough per-entry figure (it still carries those
+fixed steps, so it runs high), then multiply by the entries you write. Then
+`validate_workflow` with the
+`arguments` you will run with: it expands your list, not the template's
+default, resolves the variables your entries name, and reports a duplicate
+name or a missing field at the entry's path.
 
 Every error carries a path in the file you wrote, not in the expanded step
 list: a bad reference inside a member is reported at the `for_each` step's
 own path, with the member it failed in named in the message.
+
+`templates/minimax/dialogue-short` and `templates/minimax/music-video` are
+this shape: each takes one `shots` list, and `get_workflow` on either shows
+the entry an item needs.
 
 ### The loop
 

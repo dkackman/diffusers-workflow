@@ -1,5 +1,13 @@
+import copy
 import pytest
-from dw.variables import replace_variables, set_variables, VariableNotFoundError
+from dw.variables import (
+    argument_errors,
+    replace_variables,
+    resolve_variable_values,
+    set_variables,
+    undeclared_variable_references,
+    VariableNotFoundError,
+)
 
 
 def test_replace_variables_in_dict():
@@ -182,3 +190,135 @@ def test_set_variables_string_override_of_a_null_default_passes_through():
     variables = {"mask": None}
     set_variables({"mask": "masks/a.png"}, variables)
     assert variables["mask"] == "masks/a.png"
+
+
+def test_set_variables_string_too_long_raises():
+    from dw.security import InvalidInputError, MAX_VARIABLE_VALUE_LENGTH
+
+    variables = {"prompt": "a cat"}
+    values = {"prompt": "a" * (MAX_VARIABLE_VALUE_LENGTH + 1)}
+
+    with pytest.raises(InvalidInputError, match="too long"):
+        set_variables(values, variables)
+
+
+def test_set_variables_list_entry_too_long_raises_the_same_error():
+    """A string nested inside a list-valued argument (a for_each entry's
+    prompt, say) is exactly as reachable as a top-level one, and must be
+    checked the same way - not skipped because `isinstance(v, str)` alone
+    would miss it."""
+    from dw.security import InvalidInputError, MAX_VARIABLE_VALUE_LENGTH
+
+    variables = {"shots": [{"name": "a", "prompt": "short"}]}
+    values = {"shots": [{"name": "a", "prompt": "a" * (MAX_VARIABLE_VALUE_LENGTH + 1)}]}
+
+    with pytest.raises(InvalidInputError, match="too long"):
+        set_variables(values, variables)
+
+
+def test_set_variables_list_with_ordinary_strings_passes_unchanged():
+    variables = {"shots": [{"name": "default"}]}
+    values = {"shots": [{"name": "a", "prompt": "a cat"}, {"name": "b"}]}
+
+    set_variables(values, variables)
+
+    assert variables["shots"] == [{"name": "a", "prompt": "a cat"}, {"name": "b"}]
+
+
+def test_argument_errors_reports_a_too_long_entry_under_the_list_argument():
+    """argument_errors wraps set_variables, so a string too deep inside a
+    list argument to check field-by-field is still reported at the
+    argument's own name, the same as any other bad `shots` value."""
+    from dw.security import MAX_VARIABLE_VALUE_LENGTH
+
+    definition = {"variables": {"shots": [{"name": "default"}]}}
+    arguments = {
+        "shots": [{"name": "a", "prompt": "a" * (MAX_VARIABLE_VALUE_LENGTH + 1)}]
+    }
+
+    errors = argument_errors(definition, arguments)
+
+    assert [error["path"] for error in errors] == ["arguments.shots"]
+    assert "too long" in errors[0]["message"]
+
+
+class TestResolveVariableValues:
+    """A list-valued variable's entries may name other variables - a shot
+    entry says "from_file": "variable:character_a_voice" and one variable
+    sets the voice in every shot it speaks in."""
+
+    def test_a_reference_inside_a_list_value_is_replaced(self):
+        variables = {
+            "voice": "cast/priya.wav",
+            "shots": [{"name": "a", "references": [{"from_file": "variable:voice"}]}],
+        }
+        resolved = resolve_variable_values(variables)
+        assert resolved["shots"][0]["references"][0]["from_file"] == "cast/priya.wav"
+
+    def test_a_reference_inside_a_dict_value_is_replaced(self):
+        variables = {"n": 124, "shape": {"num_frames": "variable:n"}}
+        assert resolve_variable_values(variables)["shape"] == {"num_frames": 124}
+
+    def test_a_null_variable_resolves_to_null(self):
+        variables = {
+            "voice": None,
+            "shots": [{"references": [{"from_file": "variable:voice"}]}],
+        }
+        resolved = resolve_variable_values(variables)
+        assert resolved["shots"][0]["references"][0]["from_file"] is None
+
+    def test_a_scalar_value_that_looks_like_a_reference_is_left_alone(self):
+        variables = {"x": "variable:y", "y": 1}
+        assert resolve_variable_values(variables)["x"] == "variable:y"
+
+    def test_a_chain_resolves_through_a_referenced_list(self):
+        variables = {
+            "voice": "a.wav",
+            "refs": [{"from_file": "variable:voice"}],
+            "shots": [{"references": "variable:refs"}],
+        }
+        resolved = resolve_variable_values(variables)
+        assert resolved["shots"][0]["references"] == [{"from_file": "a.wav"}]
+
+    def test_the_input_is_not_mutated(self):
+        variables = {"voice": "a.wav", "shots": [{"from_file": "variable:voice"}]}
+        before = copy.deepcopy(variables)
+        resolve_variable_values(variables)
+        assert variables == before
+
+    def test_an_undeclared_name_is_the_usual_error(self):
+        with pytest.raises(VariableNotFoundError, match="nope"):
+            resolve_variable_values({"shots": [{"x": "variable:nope"}]})
+
+    def test_a_cycle_is_an_error_that_names_the_loop(self):
+        variables = {"a": [{"x": "variable:b"}], "b": [{"y": "variable:a"}]}
+        with pytest.raises(ValueError, match="a -> b -> a"):
+            resolve_variable_values(variables)
+
+    def test_a_self_reference_is_a_cycle(self):
+        with pytest.raises(ValueError, match="a -> a"):
+            resolve_variable_values({"a": [{"x": "variable:a"}]})
+
+
+class TestUndeclaredReferencesInsideVariableValues:
+    def test_a_reference_inside_a_list_value_is_found_with_its_path(self):
+        definition = {
+            "variables": {
+                "shots": [{"references": [{}, {"from_file": "variable:nope"}]}]
+            },
+            "steps": [],
+        }
+        assert undeclared_variable_references(definition) == [
+            ("variables.shots[0].references[1].from_file", "nope")
+        ]
+
+    def test_a_declared_reference_inside_a_value_is_not_reported(self):
+        definition = {
+            "variables": {"voice": None, "shots": [{"from_file": "variable:voice"}]},
+            "steps": [],
+        }
+        assert undeclared_variable_references(definition) == []
+
+    def test_a_scalar_value_beginning_with_the_prefix_is_not_a_reference(self):
+        definition = {"variables": {"x": "variable:nope"}, "steps": []}
+        assert undeclared_variable_references(definition) == []

@@ -46,8 +46,10 @@ from .for_each import expand_for_each, ForEachError
 from .variables import (
     argument_errors,
     replace_variables,
+    resolve_variable_values,
     set_variables,
     undeclared_variable_references,
+    VariableCycleError,
     VariableNotFoundError,
 )
 from .pipeline_processors.pipeline import Pipeline
@@ -308,6 +310,7 @@ class Workflow:
         if isinstance(variables, dict):
             if arguments and not argument_errors(definition, arguments):
                 set_variables(arguments, variables)
+            variables = resolve_variable_values(variables)
             definition = replace_variables(definition, variables)
         return expand_for_each(definition, source_indices)
 
@@ -331,26 +334,51 @@ class Workflow:
             # tripped over - and reported where each sits rather than as a
             # for_each whose list arrived unsubstituted, which is what a
             # half-substituted definition used to look like from here
-            return self._undeclared_variable_errors()
+            return self._undeclared_variable_errors(arguments)
+        except VariableCycleError as e:
+            # resolve_variable_values raises this for a variable that
+            # references itself, directly or through others - there is
+            # no single path inside the definition to blame, so it is
+            # reported against 'variables' as a whole rather than escaping
+            # as an unhandled exception
+            return [{"path": "variables", "message": str(e)}]
         return previous_result_reference_errors(expanded, source_indices)
 
-    def _undeclared_variable_errors(self):
+    def _undeclared_variable_errors(self, arguments=None):
         """Every 'variable:' reference naming nothing the workflow declares.
 
         Fatal rather than a warning: once a workflow has a 'variables'
         block, replace_variables refuses an undeclared reference, so this is
-        a run that cannot start.
+        a run that cannot start. Good caller `arguments` are folded in first,
+        and a reference inside one of them is reported under `arguments.`,
+        where the caller wrote it.
         """
-        declared = sorted(self.workflow_definition.get("variables") or {})
+        definition = copy.deepcopy(self.workflow_definition)
+        variables = definition.get("variables")
+        supplied = set()
+        if isinstance(variables, dict) and arguments:
+            if not argument_errors(definition, arguments):
+                set_variables(arguments, variables)
+                supplied = set(arguments)
+        declared = sorted(variables or {})
+
+        def where(path):
+            head, _, rest = path.partition(".")
+            if head == "variables":
+                name = rest.split(".", 1)[0].split("[", 1)[0]
+                if name in supplied:
+                    return "arguments." + rest
+            return path
+
         return [
             {
-                "path": path,
+                "path": where(path),
                 "message": (
                     f"'variable:{name}' names no declared variable; "
                     f"declared: {', '.join(declared) or '<none>'}"
                 ),
             }
-            for path, name in undeclared_variable_references(self.workflow_definition)
+            for path, name in undeclared_variable_references(definition)
         ]
 
     def validate(self):
@@ -438,6 +466,10 @@ class Workflow:
                 # first set variable values base don the arguments passed to the workflow
                 # these may come form the command line or form a parent workflow
                 set_variables(arguments, variables)
+                # an entry of a list-valued variable may name another
+                # variable; resolve those before anything inside it is
+                # realized, so a reference type in an entry is a type name
+                variables = resolve_variable_values(variables)
                 # realize the variables, initialiting downloads of images etc
                 realize_args(variables, base_dir)
                 ## then replace any variable references in the workflow definition with the actual values

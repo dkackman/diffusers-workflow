@@ -164,7 +164,12 @@ docs/WORKSPACES.md, and docs/proposals/server-workspaces.md for the later stages
   `slice@x`). `previous_result:` naming a group is a directed error. `@` is
   reserved in step names; entry names are validated and unique; 32 entries max;
   `release_pipeline`/`release_models` survive on the last member only. The
-  realized workflow keeps `for_each`; the manifest names the members
+  realized workflow keeps `for_each`; the manifest names the members. An entry
+  of a list-valued variable may reference another variable
+  (`"from_file": "variable:character_a_voice"`); `resolve_variable_values`
+  (`dw/variables.py`) replaces those once, before `realize_args`, refusing a
+  cycle, and `undeclared_variable_references` walks inside list/dict variable
+  values too.
 - Every run directory holds `workflow.json` beside its manifest: the *realized*
   workflow, with the run's arguments folded into the variable defaults, the seed
   it used, stored prompt text inlined and `output:.../latest/...` pinned to the
@@ -243,6 +248,15 @@ same reason - default setup cannot load a pack.
   warning and not a complaint about the `for_each` list that did substitute: once a
   `variables` block exists, `replace_variables` refuses an undeclared reference, so it is
   a run that cannot start
+- **The two MiniMax cut templates take one `shots` list** — since the stage-2
+  rewrite (2026-09-11) `templates/minimax/dialogue-short` and `music-video`
+  have no `shot_N_*` variables; a scripted caller passes `shots` (entries
+  `{name, prompt, references, num_frames}` and `{name, prompt, start_frame}`).
+  The members are `shot@<name>` in the manifest and the gallery. This is the
+  breaking change the next release note should name. The CLI and REPL only
+  take `name=value` strings, and a string handed to a list variable is
+  comma-split - so `shots` can only be supplied over the API/MCP (a JSON
+  body); `python -m dw.run` runs the templates' default list
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`

@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import tempfile
 
 import pytest
 
@@ -16,8 +17,8 @@ def definition(*steps, **extra):
     return {"id": "test", "steps": list(steps), **extra}
 
 
-TEMPLATES = os.path.join(
-    os.path.dirname(__file__), "..", "workflows", "templates", "minimax"
+TEMPLATES = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "workflows", "templates", "minimax")
 )
 
 
@@ -26,19 +27,16 @@ def load_template(name):
         return json.load(f)
 
 
+def load_workflow(name, output_dir=None):
+    from dw.workflow import workflow_from_file
+
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp()
+    return workflow_from_file(os.path.join(TEMPLATES, name), output_dir)
+
+
 def steps_by_name(definition):
     return {s["name"]: s for s in definition["steps"]}
-
-
-def without_pipeline_reference(step, pipeline_step):
-    """A hand-written 'pipeline_reference' shot as the full pipeline block
-    the expansion produces: the reference's arguments over the referenced
-    step's pipeline."""
-    rebuilt = {k: v for k, v in step.items() if k != "pipeline_reference"}
-    pipeline = copy.deepcopy(pipeline_step["pipeline"])
-    pipeline["arguments"] = step["pipeline_reference"]["arguments"]
-    rebuilt["pipeline"] = pipeline
-    return rebuilt
 
 
 class TestNaming:
@@ -628,141 +626,211 @@ class TestSameKeySiblings:
 
 
 class TestMusicVideoTemplate:
-    """music-video's four slices and four shots, written as two for_each
-    groups over one 'shots' list, expand to the steps the template holds
-    by hand today."""
+    """music-video's slices and shots are two for_each groups over one
+    'shots' list, paired by entry name: shot@closeup reads slice@closeup."""
 
-    def test_the_hand_written_shots_are_what_the_list_expands_to(self):
-        template = load_template("music-video.json")
-        today = steps_by_name(template)
-        shots = [
-            {
-                "name": "wide_open",
-                "prompt": "variable:shot_1_wide_open",
-                "start_frame": 0,
-            },
-            {
-                "name": "closeup",
-                "prompt": "variable:shot_2_closeup",
-                "start_frame": 124,
-            },
-            {"name": "room", "prompt": "variable:shot_3_room", "start_frame": 248},
-            {"name": "finale", "prompt": "variable:shot_4_finale", "start_frame": 372},
-        ]
-        slice_template = copy.deepcopy(today["slice_1"])
-        slice_template["name"] = "slice"
-        slice_template["for_each"] = shots
-        slice_template["task"]["arguments"]["start_frame"] = "item:start_frame"
+    KEYS = ["wide_open", "closeup", "room", "finale"]
 
-        shot_template = copy.deepcopy(today["shot_1_wide_open"])
-        shot_template["name"] = "shot"
-        shot_template["for_each"] = shots
-        shot_template["pipeline"]["arguments"]["prompt"] = "item:prompt"
-        for reference in shot_template["pipeline"]["arguments"]["references"]:
-            if reference.get("from_previous_result") == "slice_1":
-                reference["from_previous_result"] = "slice"
+    def expanded(self):
+        return load_workflow("music-video.json").expanded_definition()
 
-        edit = copy.deepcopy(today["edit"])
-        edit["task"]["arguments"]["videos"] = "gather:shot"
+    def test_the_template_validates_as_it_will_run(self):
+        assert load_workflow("music-video.json").validation_errors() == []
 
-        expanded = expand_for_each(
-            definition(
-                today["draw_singer"],
-                today["write_song"],
-                slice_template,
-                today["soundtrack"],
-                shot_template,
-                edit,
-                today["music_video"],
-            )
+    def test_one_slice_and_one_shot_per_entry_in_list_order(self):
+        names = [s["name"] for s in self.expanded()["steps"]]
+        assert names == (
+            ["draw_singer", "write_song"]
+            + [f"slice@{k}" for k in self.KEYS]
+            + ["soundtrack"]
+            + [f"shot@{k}" for k in self.KEYS]
+            + ["edit", "music_video"]
         )
-        got = steps_by_name(expanded)
 
-        # Each expanded slice is today's slice with the new name
-        for key, old in zip(["wide_open", "closeup", "room", "finale"], range(1, 5)):
-            expected = copy.deepcopy(today[f"slice_{old}"])
-            expected["name"] = f"slice@{key}"
-            assert got[f"slice@{key}"] == expected
-
-        # Each expanded shot is today's shot (as a full pipeline block) with
-        # the new name and its slice renamed
-        hand_written = [
-            "shot_1_wide_open",
-            "shot_2_closeup",
-            "shot_3_room",
-            "shot_4_finale",
+    def test_each_slice_starts_where_its_entry_says(self):
+        got = steps_by_name(self.expanded())
+        starts = [
+            got[f"slice@{k}"]["task"]["arguments"]["start_frame"] for k in self.KEYS
         ]
-        for key, old, index in zip(
-            ["wide_open", "closeup", "room", "finale"], hand_written, range(1, 5)
-        ):
-            step = today[old]
-            if "pipeline_reference" in step:
-                step = without_pipeline_reference(step, today["shot_1_wide_open"])
-            expected = copy.deepcopy(step)
-            expected["name"] = f"shot@{key}"
-            for reference in expected["pipeline"]["arguments"]["references"]:
-                if reference.get("from_previous_result") == f"slice_{index}":
-                    reference["from_previous_result"] = f"slice@{key}"
-            assert got[f"shot@{key}"] == expected
+        assert starts == [0, 124, 248, 372]
 
+    def test_each_shot_reads_its_own_slice_and_the_one_portrait(self):
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            references = got[f"shot@{key}"]["pipeline"]["arguments"]["references"]
+            assert [r["from_previous_result"] for r in references] == [
+                "draw_singer",
+                f"slice@{key}",
+            ]
+
+    def test_each_shot_carries_its_entry_s_prompt(self):
+        template = load_template("music-video.json")
+        got = steps_by_name(self.expanded())
+        for entry in template["variables"]["shots"]:
+            prompt = got[f"shot@{entry['name']}"]["pipeline"]["arguments"]["prompt"]
+            assert prompt == entry["prompt"]
+            assert prompt.startswith("subject_definitions:")
+
+    def test_every_shot_is_the_same_pipeline(self):
+        """Full pipeline blocks rather than pipeline_reference: the identity
+        cache reuses the loaded model, so this costs no reload."""
+        from dw.workflow import pipeline_cache_key
+
+        got = steps_by_name(self.expanded())
+        keys = {pipeline_cache_key(got[f"shot@{k}"]["pipeline"]) for k in self.KEYS}
+        assert len(keys) == 1
+
+    def test_the_edit_gathers_the_shots_in_order(self):
+        got = steps_by_name(self.expanded())
         assert got["edit"]["task"]["arguments"]["videos"] == [
-            f"previous_result:shot@{k}"
-            for k in ["wide_open", "closeup", "room", "finale"]
+            f"previous_result:shot@{k}" for k in self.KEYS
         ]
+
+    def test_the_template_keeps_the_list(self):
+        """The template on disk keeps 'for_each' and the 'shots' variable
+        rather than expanded members - the realized workflow.json a run
+        writes is built from this same definition, but that is not what
+        this test reads."""
+        template = load_template("music-video.json")
+        assert "shots" in template["variables"]
+        assert [s["name"] for s in template["steps"] if "for_each" in s] == [
+            "slice",
+            "shot",
+        ]
+
+    def test_each_shot_keeps_the_generation_settings(self):
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            arguments = got[f"shot@{key}"]["pipeline"]["arguments"]
+            assert arguments["num_frames"] == 124
+            assert arguments["width"] == 960
+            assert arguments["height"] == 544
+            assert arguments["num_inference_steps"] == 9
+            assert arguments["output"] == ["videos", "audio", "sampling_rate"]
+            loras = got[f"shot@{key}"]["pipeline"]["loras"]
+            assert len(loras) == 1
+            assert loras[0]["model_name"] == "lightx2v/Minimax-h3-Turbo"
 
 
 class TestDialogueShortTemplate:
-    """dialogue-short's five shots, whose reference lists and frame counts
-    differ by shot, written as one for_each group whose entries carry every
-    argument that differs between shots."""
+    """dialogue-short's five shots are one for_each group whose entries
+    carry everything that differs between shots: prompt, references and
+    length."""
 
-    def test_the_hand_written_shots_are_what_the_list_expands_to(self):
-        template = load_template("dialogue-short.json")
-        today = steps_by_name(template)
-        hand_written = [
-            ("cold_open", "shot_1_cold_open"),
-            ("deflect", "shot_2_deflect"),
-            ("react", "shot_3_react"),
-            ("button", "shot_4_button"),
-            ("tag", "shot_5_tag"),
-        ]
-        first = today["shot_1_cold_open"]
-        full = {
-            old: (
-                step
-                if "pipeline_reference" not in step
-                else without_pipeline_reference(step, first)
-            )
-            for old, step in today.items()
-            if old.startswith("shot_")
+    KEYS = ["cold_open", "deflect", "react", "button", "tag"]
+
+    def expanded(self):
+        return load_workflow("dialogue-short.json").expanded_definition()
+
+    def test_the_template_validates_as_it_will_run(self):
+        assert load_workflow("dialogue-short.json").validation_errors() == []
+
+    def test_one_shot_per_entry_between_the_cast_and_the_edit(self):
+        names = [s["name"] for s in self.expanded()["steps"]]
+        assert names == (
+            ["draw_character_a", "draw_character_b"]
+            + [f"shot@{k}" for k in self.KEYS]
+            + ["episode"]
+        )
+
+    def test_each_shot_references_the_portraits_its_entry_lists(self):
+        got = steps_by_name(self.expanded())
+        portraits = {
+            key: [
+                r["from_previous_result"]
+                for r in got[f"shot@{key}"]["pipeline"]["arguments"]["references"]
+                if "from_previous_result" in r
+            ]
+            for key in self.KEYS
+        }
+        assert portraits == {
+            "cold_open": ["draw_character_a", "draw_character_b"],
+            "deflect": ["draw_character_b"],
+            "react": ["draw_character_a"],
+            "button": ["draw_character_b"],
+            "tag": ["draw_character_a", "draw_character_b"],
         }
 
-        shots = []
-        for key, old in hand_written:
-            arguments = full[old]["pipeline"]["arguments"]
-            shots.append(
-                {
-                    "name": key,
-                    "prompt": arguments["prompt"],
-                    "references": arguments["references"],
-                    "num_frames": arguments["num_frames"],
-                }
-            )
+    def test_the_reference_types_are_resolved_inside_the_entries(self):
+        """An entry's "variable:subject_reference_type" is the dotted type
+        name by the time the member exists - never the literal reference."""
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            for r in got[f"shot@{key}"]["pipeline"]["arguments"]["references"]:
+                assert r["reference_type"].startswith("diffusers.modular_pipelines")
 
-        shot_template = copy.deepcopy(full["shot_1_cold_open"])
-        shot_template["name"] = "shot"
-        shot_template["for_each"] = shots
-        shot_template["pipeline"]["arguments"]["prompt"] = "item:prompt"
-        shot_template["pipeline"]["arguments"]["references"] = "item:references"
-        shot_template["pipeline"]["arguments"]["num_frames"] = "item:num_frames"
+    def test_the_tag_runs_longer(self):
+        got = steps_by_name(self.expanded())
+        frames = [
+            got[f"shot@{k}"]["pipeline"]["arguments"]["num_frames"] for k in self.KEYS
+        ]
+        assert frames == [124, 124, 124, 124, 141]
 
-        expanded = expand_for_each(
-            definition(
-                today["draw_character_a"], today["draw_character_b"], shot_template
-            )
+    def test_every_shot_is_the_same_pipeline(self):
+        from dw.workflow import pipeline_cache_key
+
+        got = steps_by_name(self.expanded())
+        assert (
+            len({pipeline_cache_key(got[f"shot@{k}"]["pipeline"]) for k in self.KEYS})
+            == 1
         )
+
+    def test_the_episode_gathers_the_shots_in_order(self):
+        got = steps_by_name(self.expanded())
+        assert got["episode"]["task"]["arguments"]["videos"] == [
+            f"previous_result:shot@{k}" for k in self.KEYS
+        ]
+
+    def test_each_shot_keeps_the_generation_settings(self):
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            arguments = got[f"shot@{key}"]["pipeline"]["arguments"]
+            assert arguments["width"] == 960
+            assert arguments["height"] == 544
+            assert arguments["num_inference_steps"] == 9
+            assert arguments["output"] == ["videos", "audio", "sampling_rate"]
+            loras = got[f"shot@{key}"]["pipeline"]["loras"]
+            assert len(loras) == 1
+            assert loras[0]["model_name"] == "lightx2v/Minimax-h3-Turbo"
+
+
+class TestRunTimeRealizationOrder:
+    """Workflow.run resolves in a fixed order: realize_constants ->
+    set_variables -> resolve_variable_values -> realize_args(variables,
+    base_dir) -> replace_variables -> expand_for_each. This test reproduces
+    that order by calling resolve_variable_values and realize_args itself,
+    in the same sequence, and pins what that order yields: realize_args
+    walks into the 'shots' variable and loads every 'reference_type' there,
+    so resolve_variable_values must already have turned
+    'variable:subject_reference_type' into a dotted name before realize_args
+    runs."""
+
+    KEYS = {
+        "cold_open": 2,
+        "deflect": 1,
+        "react": 1,
+        "button": 1,
+        "tag": 2,
+    }
+
+    def test_the_run_s_own_resolution_order_produces_loaded_types(self):
+        from dw.arguments import realize_args, realize_constants
+        from dw.for_each import expand_for_each
+        from dw.variables import replace_variables, resolve_variable_values
+
+        definition = load_template("dialogue-short.json")
+        variables = definition["variables"]
+        realize_constants(variables)
+        variables = resolve_variable_values(variables)
+        realize_args(variables, TEMPLATES)
+        expanded = expand_for_each(replace_variables(definition, variables))
+
         got = steps_by_name(expanded)
-        for key, old in hand_written:
-            expected = copy.deepcopy(full[old])
-            expected["name"] = f"shot@{key}"
-            assert got[f"shot@{key}"] == expected
+        for key, count in self.KEYS.items():
+            references = got[f"shot@{key}"]["pipeline"]["arguments"]["references"]
+            assert len(references) == count, key
+            for reference in references:
+                assert isinstance(reference, dict)
+                assert isinstance(reference["reference_type"], type)
+                assert "from_previous_result" in reference
+                assert "from_file" not in reference

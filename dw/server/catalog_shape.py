@@ -160,13 +160,13 @@ def _needs_input_media(steps):
 def _cuts_together(steps):
     """A concat or dissolve fed by two or more distinct steps, or by a list
     of shots handed in whole - one `variable:` reference is a supplied list
-    whose length only the caller knows, and a cut over supplied footage is
-    still an edit."""
+    whose length only the caller knows, one `gather:` reference is every
+    member of a for_each group, and a cut over either is still an edit."""
     for step in steps:
         key, body = _block(step)
         if key == "task" and body.get("command") in _CUT_TASKS:
             videos = _arguments(step).get("videos")
-            if isinstance(videos, str) and videos.startswith("variable:"):
+            if isinstance(videos, str) and videos.startswith(("variable:", "gather:")):
                 return True
             sources = _fed_by(videos)
             if isinstance(videos, list):
