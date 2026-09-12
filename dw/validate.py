@@ -23,7 +23,7 @@ def main():
         action="store_true",
         default=False,
         help="Trust this workflow file to execute arbitrary Python: allow "
-        "'constant:' to import any dotted name that resolves to a non-callable "
+        "pre_load_modules and any dotted *_type/*_dtype/dtype/config_type "
         "value, not just ones inside the diffusers/torch/transformers/"
         "quantization-backend ecosystem the tool already depends on. Off "
         "by default - see docs/SECURITY.md's Trust model. Only pass this "
