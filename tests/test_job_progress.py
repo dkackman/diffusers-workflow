@@ -51,10 +51,15 @@ def test_the_step_and_phase_are_reported():
     assert progress["seconds_since_event"] >= 0
 
 
-def test_the_denoise_counter_appears_once_the_loop_runs():
+def test_the_denoise_counter_is_null_until_the_loop_runs():
+    """Null, not absent: the lead-in to `generating` - encoding the prompt
+    and any reference image or audio - is a minute or more of silence, and
+    an absent key there cannot be told from a loop that has stopped."""
     job = running_job({"event": "phase", "phase": "generating", "detail": "h3"})
 
-    assert "denoise_step" not in job.progress()
+    lead_in = job.progress()
+    assert lead_in["denoise_step"] is None
+    assert lead_in["denoise_total_steps"] is None
 
     job.add_event({"event": "pipeline_step", "step": 3, "total_steps": 20})
 
@@ -73,7 +78,7 @@ def test_a_new_step_drops_the_previous_step_counter():
 
     progress = job.progress()
     assert progress["step"] == "b"
-    assert "denoise_step" not in progress
+    assert progress["denoise_step"] is None
 
 
 def test_the_phase_clock_restarts_with_the_phase_but_the_event_clock_does_not():
@@ -112,3 +117,28 @@ def test_the_mcp_poll_carries_it():
 
     assert slim["progress"]["denoise_step"] == 7
     assert slim["progress"]["phase"] == "generating"
+
+
+def test_the_generating_lead_in_is_distinguishable_from_a_stalled_loop():
+    """Two polls a minute apart inside H3's ~90 s of pre-loop encoding come
+    back identical apart from the clock - which is the signature a caller is
+    told means 'stuck'. The counter being present and null is what separates
+    the two: null, the loop has not started; a number that stops moving
+    while `seconds_since_event` climbs, it has stopped."""
+    lead_in = running_job({"event": "phase", "phase": "generating", "detail": "h3"})
+    lead_in.phase_started_at -= 90
+    lead_in.last_event_at -= 90
+
+    quiet = lead_in.progress()
+    assert quiet["seconds_since_event"] >= 90
+    assert quiet["denoise_step"] is None
+
+    stalled = running_job(
+        {"event": "phase", "phase": "generating", "detail": "h3"},
+        {"event": "pipeline_step", "step": 4, "total_steps": 20},
+    )
+    stalled.last_event_at -= 90
+
+    stuck = stalled.progress()
+    assert stuck["seconds_since_event"] >= 90
+    assert stuck["denoise_step"] == 4

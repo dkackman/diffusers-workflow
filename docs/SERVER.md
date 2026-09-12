@@ -191,7 +191,14 @@ to learn where a long render is:
 | `phase`, `phase_detail` | the latest phase and what it named |
 | `seconds_in_phase` | how long it has been in it |
 | `seconds_since_event` | how long since anything at all happened - the number that separates a slow run from a stuck one |
-| `denoise_step`, `denoise_total_steps` | present once the denoise loop is running |
+| `denoise_step`, `denoise_total_steps` | the denoise loop's counter, `null` until it starts |
+
+A null `denoise_step` under `generating` is the pipeline's lead-in - encoding
+the prompt and any reference image or audio - which emits nothing and runs
+well over a minute on a large video model (~90 s on MiniMax H3). The keys are
+always present so that lead-in can be told from a loop that has stopped
+advancing: `seconds_since_event` is a stall signal once `denoise_step` is a
+number, or in any phase other than `generating`.
 
 ## Introspection API
 

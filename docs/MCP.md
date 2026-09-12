@@ -361,11 +361,15 @@ The intended loop:
 While a job runs, `get_job` and `wait_for_job` carry a `progress` block -
 the step being run, the phase (`loading`, `generating`, `decoding`,
 `saving`) with the model in `phase_detail`, `seconds_in_phase`,
-`seconds_since_event`, and `denoise_step`/`denoise_total_steps` once the
-denoise loop starts. A single-step generation is minutes of one phase, so
-two polls otherwise come back identical: read `denoise_step` moving (slow
-but healthy) against `seconds_since_event` climbing with nothing else
-changing (nothing is happening). `cancel_job` stops at the next denoise or
+`seconds_since_event`, and `denoise_step`/`denoise_total_steps`, which are
+null until the denoise loop starts. A single-step generation is minutes of
+one phase, so two polls otherwise come back identical: read `denoise_step`
+moving (slow but healthy) against a `denoise_step` that is a number and
+stays put while `seconds_since_event` climbs (nothing is happening). A null
+`denoise_step` under `generating` is neither - it is the lead-in the
+pipeline runs before the loop, encoding the prompt and any reference image
+or audio, ~90 s on MiniMax H3 with nothing emitted, so silence there is
+expected. `cancel_job` stops at the next denoise or
 step boundary, which `denoise_step` is also the measure of.
 
 ## Security
