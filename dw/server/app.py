@@ -64,7 +64,7 @@ from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..hub_cache import scan_models, delete_model, DownloadManager
-from ..runs import is_output_reference, resolve_output_reference, strip_run_id
+from ..runs import is_output_reference, resolve_output_reference, split_run_path
 from ..workspace import (
     ASSETS_SUBDIR,
     DEFAULT_WORKSPACE_NAME,
@@ -901,8 +901,11 @@ def create_app(
                     status_code=400, detail="limit must not be negative"
                 )
             # the newest are the interesting ones, and the list is oldest
-            # first - so the cut comes off the front, not the back
-            jobs = jobs[len(jobs) - limit :] if limit else []
+            # first - so the cut comes off the front, not the back. max(0, ...)
+            # because a limit above what matched is no cut at all: a bare
+            # negative start would be read from the end instead, and answer a
+            # limit of 12 against 9 matching jobs with the last 3 of them
+            jobs = jobs[max(0, len(jobs) - limit) :] if limit else []
         return {"jobs": jobs, "total": total}
 
     @app.get("/api/jobs/{job_id}")
@@ -1951,20 +1954,23 @@ def create_app(
 
     def _iter_gallery_files(root, group_runs=True):
         """Every media file under a directory tree. Yields (relative_name,
-        folder, kind, path) - relative_name always uses '/' so it
-        round-trips through a URL the same way on every platform.
+        folder, subfolder, kind, path) - relative_name always uses '/' so
+        it round-trips through a URL the same way on every platform.
 
         With group_runs (the gallery's own use, over the output directory):
         recurses into the per-workflow subfolders (dw/workflow.py's
         effective_output_dir writes each run under '<workflow
         identity>/<run id>/', and mirrors a workflow's position under a
-        'workflows' tree in the flat layout), and the folder a file is
-        grouped under drops the run id - a workflow run fifty times is one
-        folder in the filter, not fifty. Which run a file came from is still
-        in its name, and in the manifest beside it.
+        'workflows' tree in the flat layout). The folder a file is grouped
+        under is the identity - the run id is dropped, so a workflow run
+        fifty times is one folder in the filter, not fifty - and whatever
+        followed the run id is the subfolder, the part of the run a step's
+        'result.subfolder' put it in ('final', 'intermediate'). A flat-layout
+        path has no run id to anchor on, so its subfolder is '' and its
+        whole directory is the folder, as it always was.
 
         Without it (the asset library's use, which has no run ids to strip):
-        folder is just the plain relative directory."""
+        folder is just the plain relative directory and subfolder is ''."""
         for current, _dirs, names in os.walk(root):
             rel_root = os.path.relpath(current, root)
             directory = "" if rel_root == "." else rel_root.replace(os.sep, "/")
@@ -1974,8 +1980,13 @@ def create_app(
                 if kind is None:
                     continue
                 relative_name = name if not directory else f"{directory}/{name}"
-                folder = strip_run_id(relative_name) if group_runs else directory
-                yield relative_name, folder, kind, os.path.join(current, name)
+                if group_runs:
+                    folder, _run_id, subfolder = split_run_path(relative_name)
+                else:
+                    folder, subfolder = directory, ""
+                yield relative_name, folder, subfolder, kind, os.path.join(
+                    current, name
+                )
 
     def _gallery_entries(root, ws):
         entries = []
@@ -1983,19 +1994,24 @@ def create_app(
             files = list(_iter_gallery_files(root))
         except OSError:
             files = []
-        for relative_name, folder, kind, path in files:
+        for relative_name, folder, subfolder, kind, path in files:
             try:
                 stat = os.stat(path)
             except OSError:
                 continue
-            # File names look like '{workflow}-{step}.{i}-{j}.{k}.ext'; the
-            # part before the first dot is a readable label and embedded
-            # metadata carries the precise identity
-            label = os.path.basename(relative_name).split(".")[0]
+            # File names look like '{workflow}-{step}-{i}.{j}.{k}.ext'; every
+            # artifact from one step shares the '{workflow}-{step}' prefix, so
+            # the label keeps the full name including the extension rather
+            # than truncating at the first dot - otherwise sibling outputs of
+            # the same step would show identical, indistinguishable labels,
+            # and a step that writes more than one kind of file (e.g. a still
+            # plus a video) would lose the extension that tells them apart
+            label = os.path.basename(relative_name)
             entries.append(
                 {
                     "name": relative_name,
                     "folder": folder,
+                    "subfolder": subfolder,
                     # Quoted (slashes kept literal): a name carrying '#', '?'
                     # or '%' would otherwise break the src the gallery
                     # renders it into. The mtime still rides along for cache
@@ -2020,6 +2036,7 @@ def create_app(
         limit: int = 200,
         offset: int = 0,
         folder: Optional[str] = None,
+        subfolder: Optional[str] = None,
         ws: Workspace = Depends(selected_workspace),
     ):
         """A page of media files in the output directory, newest first.
@@ -2029,11 +2046,18 @@ def create_app(
         this page), for the UI's folder filter - a run id is not a folder of
         its own, so a workflow's runs group together; '' stands for files
         saved directly at the output root, and is itself always a member so
-        that folder-less outputs stay selectable once anything is nested."""
+        that folder-less outputs stay selectable once anything is nested.
+        'subfolders' is the other axis, over the whole directory the same
+        way: the in-run subfolders steps wrote into ('final',
+        'intermediate'), '' for files at a run's root. `folder` and
+        `subfolder` filter independently and intersect when both are given."""
         entries = _gallery_entries(ws.outputs, ws)
         folders = sorted({e["folder"] for e in entries} | {""})
+        subfolders = sorted({e["subfolder"] for e in entries} | {""})
         if folder is not None:
             entries = [e for e in entries if e["folder"] == folder]
+        if subfolder is not None:
+            entries = [e for e in entries if e["subfolder"] == subfolder]
         offset = max(0, offset)
         limit = max(0, limit)
         page = entries[offset : offset + limit]
@@ -2043,6 +2067,7 @@ def create_app(
             "offset": offset,
             "limit": limit,
             "folders": folders,
+            "subfolders": subfolders,
             "workspace": ws.name,
         }
 
@@ -2334,7 +2359,7 @@ def create_app(
                 files = list(_iter_gallery_files(root, group_runs=False))
             except OSError:
                 files = []
-            for relative, folder, kind, path in files:
+            for relative, folder, _subfolder, kind, path in files:
                 # A name in the workspace shadows the same name in an
                 # examples library, exactly as 'asset:' resolution does
                 if relative in seen:

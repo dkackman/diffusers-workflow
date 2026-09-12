@@ -17,6 +17,19 @@ shapes; do not author a new workflow until the shape decision below fails.
 2. `list_workflows(shape="audio")`, and `shape="sequence"` for the music video.
    Trust the names quoted below only after the listing confirms them.
 3. `get_workflow` on the one chosen, for its variables and their defaults.
+4. Before a long track or the music video - anything that will sit near the
+   card's ceiling - `get_memory` with the server idle and read a `live: true`
+   reading's `gpu_memory_allocated_mb`. Only a live reading is the worker's own
+   and only live readings compare with each other: `info: null` means nothing
+   is resident, go ahead, while a `live: false` reading with a populated `info`
+   is cached from another moment - it reads low while a job is loading a model,
+   so ask again once the server is idle rather than trusting it. A non-trivial
+   idle figure is what an earlier run left behind, and it comes off the ~22 GB
+   these templates need. Nothing over
+   MCP clears it, so say so and ask the operator to restart the worker rather
+   than retrying into it - a failed attempt is itself what leaves weight
+   resident, so an immediate retry starts from less than the attempt that just
+   failed had.
 
 ## Which shape is the request
 
@@ -48,6 +61,15 @@ If none fits, compose from `list_tasks` (`slice_audio`, `fade_audio`,
   the song ends, and generation is cut at the ceiling if it has not. Default
   60 seconds. Ask for more than the piece needs and trim; the run's time
   follows the length actually generated, so the margin is free.
+  The consequence to size by: the arc the caption describes stretches to fill
+  the budget it is given, so a ceiling set at the intended length is not a
+  piece that ends early with room to spare - it is the same piece pulled out
+  to the ceiling and then cut off at it. A caption written for about 20
+  seconds under a 22-second ceiling comes back stretched and truncated. Set
+  the ceiling to at least 1.5x the length wanted and trim with
+  `templates/audio-trim-fade`. This is also why a track whose
+  `duration_seconds` lands within 0.2 s of its ceiling should be read as cut
+  off rather than finished.
 - The engine caps a track at 9000 frames at 25 frames per second, 360 seconds.
   MiniMax supports five minutes; stay at or under 300.
 - The caption is capped at 5,000 tokens and a longer one is an error, not a
@@ -112,7 +134,13 @@ Control" section.
    second of audio and dominates, so time scales with the length the model
    actually sings, not the ceiling. Get the user's go-ahead before
    `run_workflow` with `acknowledged_cost=true`.
-3. `wait_for_job`, then `get_job` for the manifest.
+3. `wait_for_job`, then `get_job` for the manifest. Each manifest entry
+   carries `subfolder`: `templates/minimax/music-video` puts the cut in
+   `final` and the song, the singer's portrait and each shot in
+   `intermediate`, and `list_gallery(subfolder="final")` lists only
+   deliverables. Keep the convention in anything you compose from a template:
+   the step whose output the user will be shown is `final`, every other
+   saving step `intermediate`.
 4. You cannot listen: no tool returns audio inline. Hand the user the gallery
    `url` (`list_gallery`, or the manifest's file name) and check what you can
    yourself - `get_gallery_metadata` for the file's duration against the

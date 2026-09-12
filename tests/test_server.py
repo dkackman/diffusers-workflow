@@ -689,10 +689,13 @@ def test_a_silently_killed_worker_reports_its_exit_and_frees_the_manager(tmp_pat
         # used to answer 503
         response = client.get("/api/memory")
         assert response.status_code == 200
-        assert response.json() == {
-            "live": False,
-            "info": {"gpu_available": True, "used": 42},
-        }
+        body = response.json()
+        assert body["live"] is False
+        assert body["info"] == {"gpu_available": True, "used": 42}
+        # and it says the figure is not this moment's, so a caller does not
+        # compare it against a live one
+        assert body["stale"] is True
+        assert body["reason"] == "worker_stopped"
 
 
 def test_a_slow_worker_is_not_declared_dead(tmp_path):
@@ -714,12 +717,46 @@ def test_a_slow_worker_is_not_declared_dead(tmp_path):
     manager.worker_manager.worker_active = True
     manager.last_memory = {"gpu_available": True}
 
-    assert manager.memory_status(timeout=0.01) == {
-        "live": False,
-        "info": {"gpu_available": True},
-    }
+    status = manager.memory_status(timeout=0.01)
+    assert status["live"] is False
+    assert status["info"] == {"gpu_available": True}
+    assert status["stale"] is True
+    assert status["reason"] == "worker_unreachable"
     assert manager.worker_manager.worker_active is True
     assert getattr(manager.worker_manager, "crashed", False) is False
+
+
+def test_memory_says_why_a_reading_is_not_the_worker_s(tmp_path):
+    """The three states a caller has to tell apart: no reading at all, a
+    cached one taken while the worker is busy, and a live one. Only the last
+    is the worker's memory now, and only those are comparable with each
+    other - a reading cached mid-load understates what is resident."""
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+
+    # (a) nothing has ever been measured, which means nothing is resident
+    stopped = manager.memory_status()
+    assert stopped == {
+        "live": False,
+        "info": None,
+        "stale": False,
+        "reason": "worker_stopped",
+        "age_seconds": None,
+    }
+
+    # (b) a job is running, so the reading on file predates it
+    manager._record_memory({"gpu_memory_allocated_mb": 8.125})
+    manager.last_memory_at -= 60
+    manager._current_job_id = "abc"
+    busy = manager.memory_status()
+    assert busy["live"] is False
+    assert busy["stale"] is True
+    assert busy["reason"] == "job_running"
+    assert busy["age_seconds"] >= 60
+    assert busy["info"] == {"gpu_memory_allocated_mb": 8.125}
 
 
 def test_health_and_memory(server):
@@ -738,6 +775,9 @@ def test_health_and_memory(server):
         memory = client.get("/api/memory").json()
         assert memory["live"] is True
         assert memory["info"]["gpu_available"] is True
+        # a live reading is nobody's cache
+        assert memory["stale"] is False
+        assert memory["reason"] is None
 
 
 def test_introspection_endpoints(server):
@@ -1297,6 +1337,63 @@ def test_gallery_paginates_and_groups_by_workflow_folder(server, tmp_path):
         assert meta["name"] == "ltx/nested-0.png"
         assert client.delete("/api/gallery/ltx/nested-0.png").status_code == 200
         assert not (outputs / "ltx" / "nested-0.png").exists()
+
+
+def test_gallery_reports_and_filters_by_subfolder(server, tmp_path):
+    """A step's `result.subfolder` puts its files under
+    '<identity>/<run id>/<subfolder>/'. The gallery keeps `folder` meaning
+    the workflow identity - a workflow run fifty times is still one folder
+    - and carries the in-run subfolder as its own axis, so 'which workflow'
+    and 'which part of the run' never multiply into one filter list."""
+    from PIL import Image
+
+    from dw.runs import new_run_id
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        run_id = new_run_id({"id": "dialogue"})
+        run = outputs / "dialogue" / run_id
+        (run / "final").mkdir(parents=True)
+        (run / "intermediate" / "shots").mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "final" / "dialogue-assemble.0-0.0.png")
+        Image.new("RGB", (2, 2)).save(run / "intermediate" / "dialogue-shot.0-0.0.png")
+        Image.new("RGB", (2, 2)).save(
+            run / "intermediate" / "shots" / "dialogue-slice.0-0.0.png"
+        )
+        Image.new("RGB", (2, 2)).save(run / "dialogue-still.0-0.0.png")
+        # a flat-layout file: no run id, so nothing to hang a subfolder on
+        (outputs / "ltx").mkdir()
+        Image.new("RGB", (2, 2)).save(outputs / "ltx" / "flat.png")
+
+        full = client.get("/api/gallery").json()
+        by_name = {f["name"]: f for f in full["files"]}
+
+        # folder is the identity, subfolder is what followed the run id
+        final = by_name[f"dialogue/{run_id}/final/dialogue-assemble.0-0.0.png"]
+        assert final["folder"] == "dialogue"
+        assert final["subfolder"] == "final"
+        nested = by_name[
+            f"dialogue/{run_id}/intermediate/shots/dialogue-slice.0-0.0.png"
+        ]
+        assert nested["subfolder"] == "intermediate/shots"
+        assert by_name[f"dialogue/{run_id}/dialogue-still.0-0.0.png"]["subfolder"] == ""
+        assert by_name["ltx/flat.png"]["folder"] == "ltx"
+        assert by_name["ltx/flat.png"]["subfolder"] == ""
+
+        # the two axes stay separate
+        assert set(full["folders"]) == {"", "dialogue", "ltx"}
+        assert full["subfolders"] == ["", "final", "intermediate", "intermediate/shots"]
+
+        # the filter narrows listing and total; combined with folder it intersects
+        finals = client.get("/api/gallery?subfolder=final").json()
+        assert finals["total"] == 1
+        assert finals["files"][0]["subfolder"] == "final"
+        both = client.get("/api/gallery?folder=dialogue&subfolder=").json()
+        assert {f["name"] for f in both["files"]} == {
+            f"dialogue/{run_id}/dialogue-still.0-0.0.png"
+        }
+        # subfolders is over the whole tree, not the filtered page
+        assert finals["subfolders"] == full["subfolders"]
 
 
 def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):

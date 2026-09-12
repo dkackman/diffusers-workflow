@@ -17,6 +17,10 @@ export interface ManifestEntry {
   /** The step was served from the step cache: these files are an earlier
    * run's, republished, and nothing was generated for them this time. */
   reused?: boolean
+  /** The in-run subfolder the step's `result.subfolder` chose - `final`,
+   * `intermediate`, any relative path - `''` when it chose none. Absent
+   * only on a job recorded before the field existed. */
+  subfolder?: string
 }
 
 export interface JobDetail extends JobSummary {
@@ -32,6 +36,16 @@ export interface JobEvent {
   seq: number
   event: string
   [key: string]: unknown
+}
+
+/** The `step_end` event, as the job page reads it: what the step saved and
+ * where, before the manifest confirms it. */
+export interface StepEndEvent extends JobEvent {
+  event: 'step_end'
+  step: string
+  files?: string[]
+  subfolder?: string
+  reused?: boolean
 }
 
 export interface HealthInfo {
@@ -198,6 +212,9 @@ export interface ValidationResult {
 export interface GalleryFile {
   name: string
   folder: string
+  /** What followed the run id in the file's path - the `final` /
+   * `intermediate` a step's `result.subfolder` chose, `''` for none. */
+  subfolder: string
   url: string
   kind: 'image' | 'video' | 'audio'
   size: number

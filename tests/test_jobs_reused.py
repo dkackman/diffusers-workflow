@@ -51,3 +51,19 @@ def test_job_for_file_still_finds_a_plain_writing_job(tmp_path):
     )
 
     assert history.job_for_file("test_image-0.0.png")["id"] == "writer"
+
+
+def test_job_for_file_attributes_a_file_in_a_subfolder(tmp_path):
+    # A step's result.subfolder puts a segment between the run id and the
+    # file; the recorded name and the gallery's name both carry it
+    history = JobHistory(str(tmp_path / "jobs.sqlite"))
+    name = "dialogue/20260912-120000-abcdef01/final/dialogue-assemble.0-0.0.png"
+
+    _record(
+        history,
+        "writer",
+        1.0,
+        [{"step": "assemble", "files": [name], "subfolder": "final"}],
+    )
+
+    assert history.job_for_file(name)["id"] == "writer"

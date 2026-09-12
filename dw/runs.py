@@ -308,18 +308,41 @@ def is_run_id(segment):
     return bool(RUN_ID_PATTERN.match(segment or ""))
 
 
-def strip_run_id(relative_path):
-    """The workflow identity a run-relative path belongs to.
+def split_run_path(relative_path):
+    """The three parts of a run-relative path: (identity, run id, subfolder).
 
-    'ltx2/Gyre/20260905-181530-a1b2c3d4/still-0.png' -> 'ltx2/Gyre'. A path
-    with no run id in it comes back with its own directory unchanged, which
-    is what a flat-layout output does.
+    'ltx2/Gyre/20260905-181530-a1b2c3d4/final/still.png' ->
+    ('ltx2/Gyre', '20260905-181530-a1b2c3d4', 'final'). The run id is
+    found wherever it sits, not only as the last directory - a step's
+    'subfolder' puts segments after it. A path with no run id in it (the
+    flat layout) has its whole directory as identity and nothing else,
+    which is what it was before subfolders existed.
+
+    Only the first segment matching RUN_ID_PATTERN counts. A workflow
+    *file* named in that shape would produce a matching identity segment;
+    that is unsupported rather than impossible.
     """
     parts = [part for part in (relative_path or "").split("/") if part]
     directory = parts[:-1]
-    if directory and is_run_id(directory[-1]):
-        directory = directory[:-1]
-    return "/".join(directory)
+    for position, segment in enumerate(directory):
+        if is_run_id(segment):
+            return (
+                "/".join(directory[:position]),
+                segment,
+                "/".join(directory[position + 1 :]),
+            )
+    return "/".join(directory), "", ""
+
+
+def strip_run_id(relative_path):
+    """The workflow identity a run-relative path belongs to.
+
+    'ltx2/Gyre/20260905-181530-a1b2c3d4/still-0.png' -> 'ltx2/Gyre', and
+    the same with a subfolder after the run id. A path with no run id in it
+    comes back with its own directory unchanged, which is what a
+    flat-layout output does.
+    """
+    return split_run_path(relative_path)[0]
 
 
 def run_directory(output_dir, file_spec, workflow_id, run_id):

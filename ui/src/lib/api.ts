@@ -58,6 +58,24 @@ function withToken(url: string): string {
   return token ? appendQuery(scopedUrl, 'token', token) : scopedUrl
 }
 
+/** Scope a path to an explicit workspace instead of the picker's current
+ * selection - for a job's own files, which must resolve to where they were
+ * written even if the picker has since moved elsewhere. Mirrors `scoped()`. */
+function workspaceScopedPath(
+  path: string,
+  workspace: string | undefined,
+): string {
+  if (workspace === undefined || workspace === DEFAULT_WORKSPACE) return path
+  return appendQuery(path, 'workspace', workspace)
+}
+
+/** `withToken`, scoped to an explicit workspace rather than the picker's. */
+function withTokenIn(url: string, workspace: string): string {
+  const scopedUrl = workspaceScopedPath(url, workspace)
+  const token = getApiToken()
+  return token ? appendQuery(scopedUrl, 'token', token) : scopedUrl
+}
+
 /** The URL an output file is served from. Jobs report files by their name
  * relative to the output directory - a workflow under a subfolder writes
  * to '<sub>/<file>' - so the whole relative path is kept. A job recorded
@@ -389,12 +407,22 @@ export const api = {
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
   // the limit just needs to exceed any real output directory's file count
   gallery: () => request<{ files: GalleryFile[] }>('/api/gallery?limit=100000'),
-  galleryMetadata: (name: string) =>
+  // `workspace`, when given, names the file's own workspace and wins over
+  // whatever is currently selected in the picker - mirrors `outputUrl`, since
+  // a job page must read its own files from where they were written
+  galleryMetadata: (name: string, workspace?: string) =>
     request<{
       name: string
       metadata: Record<string, unknown> | null
       job: { id: string; status: string } | null
-    }>(`/api/gallery/${encodePath(name)}/metadata`),
+    }>(
+      workspaceScopedPath(
+        `/api/gallery/${encodePath(name)}/metadata`,
+        workspace,
+      ),
+      undefined,
+      { scope: workspace === undefined },
+    ),
   galleryThumbnailUrl: (name: string) =>
     withToken(`/api/gallery/${encodePath(name)}/thumbnail`),
   deleteOutput: (name: string) =>
@@ -402,8 +430,10 @@ export const api = {
       `/api/gallery/${encodePath(name)}`,
       { method: 'DELETE' },
     ),
-  outputDownloadUrl: (name: string) =>
-    withToken(`/api/gallery/${encodePath(name)}/download`),
+  outputDownloadUrl: (name: string, workspace?: string) =>
+    workspace === undefined
+      ? withToken(`/api/gallery/${encodePath(name)}/download`)
+      : withTokenIn(`/api/gallery/${encodePath(name)}/download`, workspace),
   /** Download a multi-file gallery selection as one zip. The browser
    * cannot zip on its own and throttles a burst of single downloads, so
    * the server bundles the selection and this saves the response. */

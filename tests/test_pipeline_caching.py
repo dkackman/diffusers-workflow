@@ -267,8 +267,45 @@ def test_release_pipeline_evicts_after_step():
     kept_key = workflow._pipeline_keys_by_step["keep"]
     assert released_key not in pipeline_cache, "released pipeline should be evicted"
     assert kept_key in pipeline_cache, "other pipelines stay cached"
-    # the between-step cleanup returns cached blocks to the device
-    assert empty_cache.call_count == len(_release_workflow_def()["steps"])
+    # the between-step cleanup returns cached blocks to the device - once per
+    # step, plus once for the release itself, which reclaims where it drops
+    # rather than waiting for the end of the step
+    assert empty_cache.call_count == len(_release_workflow_def()["steps"]) + 1
+
+
+def test_release_pipeline_happens_before_the_result_is_written():
+    """A released pipeline is gone by the time the step writes its files.
+
+    The write does not touch the pipeline - the result is already in host
+    memory - and writing a long video is the longest phase of the step. A
+    release that waits for the write holds ~10 GB of weights on the device
+    for minutes after the last thing that needed them.
+    """
+    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    pipeline_cache = {}
+    cached_at_save = {}
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+
+    def mock_run(self, *args, **kwargs):
+        result = MagicMock(result_list=[])
+        step_name = self.name
+
+        def save(*save_args, **save_kwargs):
+            key = workflow._pipeline_keys_by_step.get(step_name)
+            cached_at_save[step_name] = key in pipeline_cache
+            return []
+
+        result.save.side_effect = save
+        return result
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(Step, "run", mock_run):
+            with patch("dw.workflow.empty_device_cache"):
+                workflow.run({}, previous_pipelines=pipeline_cache)
+
+    assert cached_at_save == {"generate": False, "keep": True}
 
 
 def _release_models_workflow_def(release):
@@ -407,3 +444,44 @@ def test_redefined_step_evicts_prior_pipeline_before_loading():
     assert (
         seen_at_load["old_still_cached"] is False
     ), "the redefined step's previous model must be evicted before load"
+
+
+def test_pipeline_released_is_reported_on_the_event_stream():
+    """The release is announced, and before the step's files are written.
+
+    A consumer cannot time the release by polling memory: it happens inside
+    the window between generation ending and the files appearing, which is
+    sub-second for an image step. The event is the ordered record that makes
+    it readable - see issue #75.
+    """
+    from dw.events import RunContext
+
+    events = []
+    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(
+            Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+        ):
+            with patch("dw.workflow.empty_device_cache"):
+                workflow.run(
+                    {},
+                    previous_pipelines={},
+                    context=RunContext(on_event=events.append),
+                )
+
+    names = [e["event"] for e in events]
+    released = [e for e in events if e["event"] == "pipeline_released"]
+    assert len(released) == 1, "only the step that asked for it reports a release"
+    assert released[0]["step"] == "generate"
+    assert "gpu_memory_allocated_mb" in released[0]
+    assert "gpu_memory_allocated_before_mb" in released[0]
+
+    ends = [i for i, e in enumerate(events) if e["event"] == "step_end"]
+    assert names.index("pipeline_released") < ends[0], (
+        "the release is reported before the step reports its files - which is "
+        "the ordering the event exists to make visible"
+    )

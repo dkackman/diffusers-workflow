@@ -137,9 +137,14 @@ def list_jobs(client, limit=20, status=None, workspace=None):
     return answer
 
 
-def list_gallery(client, limit=50):
-    """Generated media in the output directory, newest first."""
-    return client.get_json("/api/gallery", params={"limit": limit})
+def list_gallery(client, limit=50, subfolder=None):
+    """Generated media in the output directory, newest first. `subfolder`
+    narrows to one in-run subfolder ('final', 'intermediate', '' for files
+    at a run's root); None means every file."""
+    params = {"limit": limit}
+    if subfolder is not None:
+        params["subfolder"] = subfolder
+    return client.get_json("/api/gallery", params=params)
 
 
 def get_gallery_metadata(client, name, envelope=False):

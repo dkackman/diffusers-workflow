@@ -13,12 +13,22 @@ Lightricks' own caption spec, quoted below from diffusers.
 ## Before anything
 
 1. `get_server_info`: the device and the workspace. These templates quantize
-   with SDNQ on CUDA; on an `mps` or `cpu` server say so and stop, because
-   none of them fit there.
+   with SDNQ on CUDA; on an `mps` or `cpu` server say so and stop - none of
+   them fit there.
 2. `list_workflows(shape="shot")`: all eight of the family's templates carry
    that shape. Take their current names, `summary`, `traits` and `cost` from
    the listing and trust it over the names quoted below.
 3. `get_workflow` on the one chosen, for its variables and their defaults.
+4. Before anything near the card's ceiling - a full-size refine, 481 frames, a
+   2x upscale - `get_memory` on an idle server and read a `live: true`
+   reading's `gpu_memory_allocated_mb`. Only those are the worker's own and
+   only those compare: `info: null` means nothing is resident, go ahead, and a
+   `live: false` reading with an `info` is cached from another moment - it
+   reads low mid-load, so ask again when the server is idle. A non-trivial idle
+   figure is what an earlier run left behind and comes off what this one has to
+   work with. Nothing over MCP clears it: ask the operator to restart the
+   worker rather than retrying into it, since a failed attempt is itself what
+   leaves weight resident.
 
 ## Which shape is the request
 
@@ -36,14 +46,14 @@ Lightricks' own caption spec, quoted below from diffusers.
   low-resolution pass and has the IC-LoRA re-render it at twice the size,
   inventing detail rather than interpolating. `base_width` and `base_height`
   are that first render's size, `width` and `height` the doubled target; both
-  passes run the same eight distilled sigmas at guidance 1.0. Nothing in this
-  family takes a user-supplied video, so a user's own footage is not a fit for
-  any of these templates.
-- **Longer**: `templates/ltx2/extend-clip` generates an opening and then
-  continues it conditioned on the whole opening, not on a single frame - a
-  supplied clip is not an input here either; `templates/ltx2/chained-segments`
-  re-runs per segment on the previous last frame and stitches. Neither is a Lightricks recipe; both are dw's, and
-  a single 481-frame pass reaches 20 seconds before either is needed.
+  passes run the same eight distilled sigmas at guidance 1.0. No template in
+  this family takes a user-supplied video, so a user's own footage is not a
+  fit for any of them.
+- **Longer**: `templates/ltx2/extend-clip` generates an opening and continues
+  it conditioned on the whole opening, not on a single frame;
+  `templates/ltx2/chained-segments` re-runs per segment on the previous last
+  frame and stitches. Neither is a Lightricks recipe; both are dw's, and a
+  single 481-frame pass reaches 20 seconds before either is needed.
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and
 read the `workflows` guide's authoring section first.
@@ -64,9 +74,9 @@ read the `workflows` guide's authoring section first.
   `STAGE_2_DISTILLED_SIGMA_VALUES` entry) and run its three sigmas at full size.
 - An image condition is re-compressed at CRF 18 to match training and needs a
   PIL image; a multi-frame video condition is not re-compressed.
-- Audio is generated in the first pass; nothing refines it afterwards, so
-  carry the audio latents (two-stage) or pair the soundtrack back
-  (`pair_audio`) on any step that works on frames alone.
+- Audio is generated in the first pass and nothing refines it, so carry the
+  audio latents (two-stage) or pair the soundtrack back (`pair_audio`) on any
+  step that works on frames alone.
 
 ## Prompts
 
@@ -76,9 +86,7 @@ type, a camera motion (say static when there is none) and a viewpoint, with
 the soundscape interleaved with the action rather than appended, in plain
 observable words. For an image-conditioned clip describe only what changes
 from the image; restating it invites a scene cut. The stored prompts under
-`prompts/ltx2/` are written to this spec. For a one-line idea,
-`templates/ltx2/enhance-prompt` runs the model's own enhancer with the same
-spec. The spec itself, from `diffusers.pipelines.ltx2.utils.LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT`
+`prompts/ltx2/` are written to it. The spec itself, from `diffusers.pipelines.ltx2.utils.LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT`
 (the image-to-video variant, `LTX2_5_I2V_DEFAULT_SYSTEM_PROMPT`, adds the
 describe-only-changes rule):
 
@@ -116,37 +124,47 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
 ## Run and judge
 
 1. `validate_workflow` first - free, and it catches arguments the pipeline
-   does not accept.
+   rejects.
 2. Quote the listing's `cost`. Only `templates/ltx2/text-to-video` and
    `templates/ltx2/two-stage` declare one; for the other six say so and give
    the shape of the spend instead - a 121-frame clip at 960x544 is under a
-   minute warm on a 24 GB card, the two-stage flow about eight, and extend
-   and chain multiply by their passes. Either way get the user's go-ahead
-   before `run_workflow` with `acknowledged_cost=true`.
-3. `wait_for_job`, then `get_job` for the manifest. Writing a 121-frame
-   1536x896 clip takes minutes after the last step ends; the job is not stuck.
-4. You cannot watch a video: no tool returns a frame from one, and this family
+   minute warm on a 24 GB card, the two-stage flow about eight, and extend and
+   chain multiply by their passes. Either way get the go-ahead before
+   `run_workflow` with `acknowledged_cost=true`.
+3. `wait_for_job`, then `get_job` for the manifest. The write-out runs after
+   the last step ends, reports nothing while it does, and is not free: roughly
+   4 s per frame at 1536x896 - about 8 minutes for 121 frames, about half an
+   hour for 481. Scale by frame count from that rate rather than reading
+   "minutes" as a constant, and expect it to fall with the frame size. The job
+   is not stuck.
+4. Every step that writes pays that, so only the ones worth writing should:
+   `"result": {"save": false}` on the rest, as `two-stage` does for `base` and
+   `upscale`. On a long chain it is the largest saving there is, and missing
+   it is silent. What does write carries a `subfolder` in the manifest: the step the user will be
+   shown is `final` and every other saving step `intermediate`, the way
+   `generative-upscale` keeps `upscaled` in `final` and its low-resolution
+   pass in `intermediate` so the two sizes can be compared.
+   `list_gallery(subfolder="final")` then lists only deliverables. Keep both
+   conventions in anything you compose.
+5. You cannot watch a video: no tool returns a frame from one, and this family
    has no image steps for `get_output_image` to read. Hand the user the gallery
-   `url` (`list_gallery`, or the manifest's file name) and ask them to look, and
-   check what you can yourself - `get_job` for the manifest and its warnings,
+   `url` (`list_gallery`, or the manifest's file name), and check what you can
+   yourself - `get_job` for the manifest and its warnings,
    `get_gallery_metadata` for duration, size and whether an audio stream is
-   present. Ask the user to look for the family's failure modes: a scene cut
-   where the prompt contradicted the image; softness where the refine pass was
+   present. Ask them to look for the family's failure modes: a scene cut where
+   the prompt contradicted the image; softness where the refine pass was
    skipped; a near-silent soundtrack where the caption gave the sound nothing
    to do.
-5. After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
+6. After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
    so the next run is by name rather than by pasting JSON; `export_job` bundles
    the run — workflow, manifest, job row and media — for git. The bundle is on
    the server: fetch its zip URL and unpack it into `exports/` under the
    session's working directory, never a temp directory, and do not make a
-   folder named after the job id first, since the archive already unpacks
-   into one.
+   job-id folder first - the archive already unpacks into one.
 
 ## Sources
 
 Lightricks/LTX-2.5-Diffusers model card, the `ltx-pipelines` docs and
 CHANGELOG (github.com/Lightricks/LTX-2), the diffusers LTX-2 pipelines and
 `utils.py`. Read 2026-09-07; the audit is
-`docs/proposals/audits/2026-09-07-ltx-2.5-audit.md`. Since 2026-08 Lightricks
-route production quality through their DFR pipeline, which diffusers ships
-and no template here uses yet.
+`docs/proposals/audits/2026-09-07-ltx-2.5-audit.md`.

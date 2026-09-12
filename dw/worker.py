@@ -22,6 +22,7 @@ from dw.settings import load_settings, resolve_path
 from dw.security import validate_output_path
 from dw.events import RunContext, WorkflowCancelled
 from dw import get_device_type, empty_device_cache, device_memory_stats
+from dw.host_memory import host_memory_fields
 
 logger = logging.getLogger("dw.worker")
 
@@ -177,6 +178,9 @@ class WorkflowWorker:
         # whatever the run had written by then - the steps that did complete
         # are the first thing a failed long run is asked about
         workflow = None
+        # Bound for the same reason: the failure path evicts against what the
+        # run touched, and a run can fail before it has a context at all
+        context = None
 
         try:
             set_log_level(log_level)
@@ -232,12 +236,7 @@ class WorkflowWorker:
                 if asset_token is not None:
                     deactivate_asset_dir(asset_token)
 
-            # Drop cached pipelines this run no longer touched - an edited
-            # workflow that removed or redefined a step leaves those behind
-            for cache_key in list(self.loaded_pipelines):
-                if cache_key not in context.touched_pipelines:
-                    logger.info("Evicting cached pipeline no longer in workflow")
-                    del self.loaded_pipelines[cache_key]
+            self._evict_untouched_pipelines(context)
 
             self.run_count += 1
 
@@ -268,17 +267,28 @@ class WorkflowWorker:
             )
         except Exception as e:
             logger.error(f"Error executing workflow: {e}", exc_info=True)
-            self.result_queue.put(
-                {
-                    "type": "error",
-                    "message": f"Workflow execution error: {str(e)}",
-                    "traceback": traceback.format_exc(),
-                    # The files the steps before the failure wrote are on
-                    # disk; reporting them is what keeps a run that died at
-                    # step five from looking like one that produced nothing
-                    "manifest": getattr(workflow, "manifest", []),
-                }
-            )
+            failure = {
+                "type": "error",
+                "message": f"Workflow execution error: {str(e)}",
+                "traceback": traceback.format_exc(),
+                # The files the steps before the failure wrote are on
+                # disk; reporting them is what keeps a run that died at
+                # step five from looking like one that produced nothing
+                "manifest": getattr(workflow, "manifest", []),
+            }
+            # The exception's traceback reaches every frame between here and
+            # the failure, and those frames hold whatever a half-finished load
+            # had built - so a collection that runs while the exception is
+            # still live frees none of it. The report above is a formatted
+            # string by now, so nothing is lost by letting the traceback go
+            e.__traceback__ = None
+            del e
+            # Success and cancellation both reclaim; failure did neither, so a
+            # half-loaded pipeline and any variant the attempt superseded
+            # stayed resident and the next attempt loaded on top of them
+            self._evict_untouched_pipelines(context)
+            self._cleanup_between_runs()
+            self.result_queue.put(failure)
 
     def _load_workflow(self, command: Dict[str, Any], output_dir: str):
         """Build the Workflow a command names, and its cache identity."""
@@ -362,6 +372,22 @@ class WorkflowWorker:
         """Report current memory usage."""
         memory_info = self._get_memory_info()
         self.result_queue.put({"type": "memory_status", "info": memory_info})
+
+    def _evict_untouched_pipelines(self, context):
+        """Drop cached pipelines this run no longer touched.
+
+        An edited workflow that removed or redefined a step leaves those
+        behind, and so does a failed attempt whose superseded variant nothing
+        will ever load again. A run that failed before it had a context
+        touched nothing this can be judged against, so nothing is dropped -
+        the caller's own cleanup still runs.
+        """
+        if context is None:
+            return
+        for cache_key in list(self.loaded_pipelines):
+            if cache_key not in context.touched_pipelines:
+                logger.info("Evicting cached pipeline no longer in workflow")
+                del self.loaded_pipelines[cache_key]
 
     def _cleanup_between_runs(self):
         """
@@ -486,6 +512,13 @@ class WorkflowWorker:
             "gpu_memory_free_mb": 0.0,
             "gpu_device_name": None,
         }
+
+        # Host memory beside the device figures: the offloading these
+        # workflows use keeps weights in RAM by design, so a leak - or a run
+        # that simply has not let go of a model - shows here and nowhere
+        # else. Measured inside the worker, so the process figures are the
+        # worker's own
+        info.update(host_memory_fields())
 
         try:
             stats = device_memory_stats()

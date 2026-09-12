@@ -555,6 +555,61 @@ def validate_output_reference(name: str) -> str:
     )
 
 
+# A step's result 'subfolder': a relative path under the run directory. The
+# segment rule is OUTPUT_REFERENCE_PATTERN's, so every subfolder the engine
+# writes is one a later workflow can name with 'output:'. It also refuses a
+# backslash, which DANGEROUS_PATTERNS does not - '"final\\x"' would be one
+# directory on POSIX and two on Windows
+SUBFOLDER_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*)*\Z"
+MAX_SUBFOLDER_LENGTH = 200
+
+
+def validate_subfolder(name: str) -> str:
+    """
+    Validate the shape of a result 'subfolder'.
+
+    Containment is checked separately, by the validate_output_path call
+    that joins it onto the run directory.
+
+    Args:
+        name: The subfolder as written in the workflow
+
+    Returns:
+        The validated name
+
+    Raises:
+        InvalidInputError: If the name is not a valid subfolder
+    """
+    return _validate_name(
+        name,
+        SUBFOLDER_PATTERN,
+        MAX_SUBFOLDER_LENGTH,
+        "Subfolder",
+        "a subfolder is one or more path segments under the run directory, "
+        "each starting with a letter, digit or underscore, like 'final' or "
+        "'shots/act-1'",
+    )
+
+
+def validate_file_base_name(name: str) -> str:
+    """
+    Validate a result 'file_base_name': a name, never a path.
+
+    A separator here used to pass validation and then fail at open() because
+    the directory did not exist. Placement is what 'subfolder' is for.
+
+    Raises:
+        InvalidInputError: If the name carries a path separator
+    """
+    if "/" in name or "\\" in name:
+        raise InvalidInputError(
+            f"Invalid file_base_name: {name} - a file_base_name is a name, not "
+            f"a path; to write into a subfolder of the run directory set "
+            f"'subfolder' on the result instead"
+        )
+    return name
+
+
 # A workspace's name: one path segment, starting with a word character, so
 # '..', hidden names and anything with a separator in it are all excluded
 # before the name is joined onto the workspace root

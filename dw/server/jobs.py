@@ -10,7 +10,7 @@ import os
 import copy
 import json
 import queue
-import random
+import secrets
 import sqlite3
 import time
 import uuid
@@ -18,7 +18,7 @@ import logging
 import threading
 
 from ..repl_worker import WorkerManager
-from ..workflow import workflow_from_file, workflow_from_definition
+from ..workflow import SEED_BITS, workflow_from_file, workflow_from_definition
 from ..introspection import workflow_argument_warnings
 from ..variables import argument_errors
 from ..security import (
@@ -514,6 +514,7 @@ class JobManager:
         self.history = JobHistory(history_path or resolve_path("jobs.sqlite"))
         self.jobs = {}
         self.last_memory = None
+        self.last_memory_at = None
         # Reentrant: cancel() finishes a queued job while holding it, and
         # _finish's terminal-job trim needs it again on the same thread
         self._lock = threading.RLock()  # guards job state transitions
@@ -773,11 +774,9 @@ class JobManager:
                     "a rerun cannot change it. A workflow with no seed at all "
                     "already draws a fresh one every run."
                 )
-            # Bounded to 53 bits rather than the 64 torch allows: this number
-            # goes out as JSON and comes back through a browser, where every
-            # integer is a double, and a seed that changed on the way through
-            # would be a seed nobody can reproduce
-            arguments = {**arguments, variable: random.getrandbits(53)}
+            # Bounded so the number survives its trip through a browser as
+            # JSON - see SEED_BITS
+            arguments = {**arguments, variable: secrets.randbits(SEED_BITS)}
 
         workspace = spec.get("workspace")
         if (
@@ -1053,7 +1052,7 @@ class JobManager:
                 text = message.get("message") or message.get("workflow_name", "")
                 job.add_event({"event": "log", "message": text})
             elif message_type == "memory_info":
-                self.last_memory = message.get("info")
+                self._record_memory(message.get("info"))
                 job.add_event({"event": "memory", "info": self.last_memory})
             elif message_type == "success":
                 self._record_manifest(job, message)
@@ -1106,17 +1105,45 @@ class JobManager:
 
     # ---------------------------------------------------------------- memory
 
+    def _record_memory(self, info):
+        """Remember a reading and when it was taken, so a later cached answer
+        can say how old it is."""
+        self.last_memory = info
+        self.last_memory_at = time.time() if info is not None else None
+
+    def _cached_memory(self, reason):
+        """The last reading, labelled with why it is not a live one. A caller
+        comparing two readings must compare only `live: true` ones - a cached
+        `info` was taken at another moment, and while a job loads a model it
+        understates what is resident by however much has loaded since."""
+        info = self.last_memory
+        age = None
+        if info is not None and self.last_memory_at is not None:
+            age = round(time.time() - self.last_memory_at, 1)
+        return {
+            "live": False,
+            "info": info,
+            "stale": info is not None,
+            "reason": reason,
+            "age_seconds": age,
+        }
+
     def memory_status(self, timeout=5):
         """Live memory stats when the worker is idle; the run's last report
         while it is busy. The lock acquire is bounded: the runner holds
         _worker_lock for a job's whole duration, and a poll that raced a job
-        start must fall back to the cached reading, not block for hours."""
+        start must fall back to the cached reading, not block for hours.
+
+        `live` says whether `info` was measured by this call. `stale` and
+        `reason` say why it was not, and `age_seconds` how old the cached
+        reading is; `info` is null when there has never been a reading, which
+        means nothing is resident rather than that the answer is unknown."""
         if self._current_job_id is not None:
-            return {"live": False, "info": self.last_memory}
+            return self._cached_memory("job_running")
         if not self.worker_manager.worker_active:
-            return {"live": False, "info": self.last_memory}
+            return self._cached_memory("worker_stopped")
         if not self._worker_lock.acquire(timeout=2):
-            return {"live": False, "info": self.last_memory}
+            return self._cached_memory("worker_busy")
         try:
             self.worker_manager.send_command({"type": "memory_status"})
             result = self.worker_manager.get_result(timeout=timeout)
@@ -1132,10 +1159,16 @@ class JobManager:
                 # so a worker that is merely slow to reply keeps its state -
                 # a timeout is not evidence of death
                 self.worker_manager.mark_crashed()
-            return {"live": False, "info": self.last_memory}
+            return self._cached_memory("worker_unreachable")
         finally:
             self._worker_lock.release()
         if result.get("type") == "memory_status":
-            self.last_memory = result.get("info")
-            return {"live": True, "info": self.last_memory}
-        return {"live": False, "info": self.last_memory}
+            self._record_memory(result.get("info"))
+            return {
+                "live": True,
+                "info": self.last_memory,
+                "stale": False,
+                "reason": None,
+                "age_seconds": 0.0,
+            }
+        return self._cached_memory("worker_unreachable")

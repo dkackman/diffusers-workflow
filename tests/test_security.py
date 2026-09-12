@@ -473,5 +473,56 @@ class TestValidateUrl:
         assert issubclass(InvalidInputError, SecurityError)
 
 
+class TestSubfolderValidation:
+    def test_a_segment_path_is_accepted(self):
+        from dw.security import validate_subfolder
+
+        assert validate_subfolder("final") == "final"
+        assert validate_subfolder("shots/act-1") == "shots/act-1"
+        assert validate_subfolder("a.b_c-d/e") == "a.b_c-d/e"
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "",
+            "../final",
+            "final/..",
+            "/final",
+            "final/",
+            "final//x",
+            ".hidden",
+            "-dash",
+            "final\\x",
+            "final x",
+            "fin:al",
+        ],
+    )
+    def test_the_shape_refuses_what_output_references_refuse(self, bad):
+        from dw.security import InvalidInputError, validate_subfolder
+
+        with pytest.raises(InvalidInputError):
+            validate_subfolder(bad)
+
+    def test_too_long_is_refused(self):
+        from dw.security import InvalidInputError, validate_subfolder
+
+        with pytest.raises(InvalidInputError):
+            validate_subfolder("a" * 201)
+
+
+class TestFileBaseNameValidation:
+    def test_a_plain_name_is_accepted(self):
+        from dw.security import validate_file_base_name
+
+        assert validate_file_base_name("episode_") == "episode_"
+
+    @pytest.mark.parametrize("bad", ["final/", "a/b", "a\\b"])
+    def test_a_separator_is_refused_and_names_subfolder(self, bad):
+        from dw.security import InvalidInputError, validate_file_base_name
+
+        with pytest.raises(InvalidInputError, match="subfolder"):
+            validate_file_base_name(bad)
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -562,6 +562,106 @@ def loop_audio(
     return _as_track(bed[:, :length], sample_rate)
 
 
+# Shots generated independently land at whatever level the model chose, and
+# joining two of them butts one loudness against another - the one seam
+# artifact no fade can hide, because it is not at the seam, it is either side
+# of it. These are the levels a matched join targets, and the spread at which
+# an unmatched one is worth warning about
+MATCH_MEASURES = ("peak", "rms")
+DEFAULT_MATCH_DBFS = {"peak": -1.0, "rms": -20.0}
+# Matching to an rms target can ask for a gain that would clip; the peak is
+# held here instead, which keeps a loud shot's relative level honest rather
+# than squaring off its transients
+MATCH_CEILING_DBFS = -0.5
+LEVEL_SPREAD_WARN_DB = 6.0
+
+
+def level_dbfs(waveform, measure="peak"):
+    """A waveform's level in dBFS, measured as `peak` or `rms`.
+
+    `rms` is the same measurement `get_gallery_metadata` reports as
+    `mean_dbfs`, so a matched join can be checked against what the gallery
+    said about the shots going into it. A silent track has no level: None.
+    """
+    if measure not in MATCH_MEASURES:
+        raise ValueError(
+            f"level measure must be one of {MATCH_MEASURES}, got '{measure}'"
+        )
+    if waveform is None or waveform.size == 0:
+        return None
+    if measure == "peak":
+        value = float(numpy.abs(waveform).max())
+    else:
+        value = float(numpy.sqrt(numpy.mean(numpy.square(waveform, dtype=numpy.float64))))
+    if value <= 0.0:
+        return None
+    return 20.0 * numpy.log10(value)
+
+
+def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
+    """Scale each waveform so its level sits at one shared target.
+
+    Returns a new list in the same order and shape; a None entry (a video
+    with no soundtrack) and a silent track pass through untouched, since
+    neither has a level to move. A gain that would push the peak past
+    MATCH_CEILING_DBFS is held there and said so in the log - the shot is
+    then quieter than the target rather than clipped.
+    """
+    if measure not in MATCH_MEASURES:
+        raise ValueError(
+            f"{command} 'match_levels' must be one of {MATCH_MEASURES}, "
+            f"got '{measure}'"
+        )
+    if target_dbfs is None:
+        target_dbfs = DEFAULT_MATCH_DBFS[measure]
+    if target_dbfs > 0:
+        raise ValueError(
+            f"{command} 'match_levels_dbfs' cannot be above full scale (0)"
+        )
+
+    matched = []
+    for index, waveform in enumerate(waveforms):
+        level = level_dbfs(waveform, measure)
+        if level is None:
+            matched.append(waveform)
+            continue
+        gain_db = target_dbfs - level
+        peak = level_dbfs(waveform, "peak")
+        if peak is not None and peak + gain_db > MATCH_CEILING_DBFS:
+            held = MATCH_CEILING_DBFS - peak
+            logger.warning(
+                f"{command}: video {index + 1} would clip at the {measure} target "
+                f"({peak + gain_db:+.1f} dBFS peak) - held to {MATCH_CEILING_DBFS} dBFS"
+            )
+            gain_db = held
+        logger.debug(
+            f"{command}: video {index + 1} {measure} {level:.1f} dBFS, "
+            f"gain {gain_db:+.1f} dB"
+        )
+        matched.append((waveform * (10 ** (gain_db / 20.0))).astype(numpy.float32))
+    return matched
+
+
+def warn_on_level_spread(waveforms, command="concat_videos", measure="rms"):
+    """Say something when shots about to be joined are levels apart.
+
+    Independently generated shots drift by 10 dB and more, and each one reads
+    as fine on its own - it is only wrong relative to what it is cut against,
+    and nothing else compares them.
+    """
+    levels = [level for level in (level_dbfs(w, measure) for w in waveforms) if level]
+    if len(levels) < 2:
+        return None
+    spread = max(levels) - min(levels)
+    if spread >= LEVEL_SPREAD_WARN_DB:
+        logger.warning(
+            f"{command}: the tracks being joined span {spread:.1f} dB "
+            f"({measure} {min(levels):.1f} to {max(levels):.1f} dBFS) - the cut "
+            f"will be audible as a level jump. Pass match_levels to even them out"
+        )
+    return spread
+
+
 def _equal_power_ramps(window):
     """Cosine/sine fade curves that sum to constant power across the window."""
     theta = numpy.linspace(0.0, numpy.pi / 2.0, window, endpoint=False)

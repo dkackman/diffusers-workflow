@@ -22,6 +22,10 @@
   let files = $state<GalleryFile[]>([])
   let loaded = $state(false)
   let filter = $state('')
+  // The in-run subfolder to show - null is every one. Only offered when
+  // some output landed in one; a workspace of unfoldered runs never sees
+  // the control
+  let subfolder = $state<string | null>(null)
   let error = $state('')
   let selected = $state<GalleryFile | null>(null)
   // Names ticked in the grid, for the bulk actions
@@ -84,9 +88,37 @@
     }
   }
 
-  const visible = $derived(
-    files.filter((f) => f.name.toLowerCase().includes(filter.toLowerCase())),
+  // Every distinct subfolder in the listing - read off the entries so a
+  // delete updates it without a refetch. '' (the run root) appears only
+  // when some file sits there, so the pick never offers an empty option
+  const subfolders = $derived(
+    [...new Set(files.map((f) => f.subfolder))].sort((a, b) =>
+      a.localeCompare(b),
+    ),
   )
+  const subfolderOffered = $derived(subfolders.some((s) => s !== ''))
+  const filterActive = $derived(filter !== '' || subfolder !== null)
+  const visible = $derived(
+    files.filter(
+      (f) =>
+        f.name.toLowerCase().includes(filter.toLowerCase()) &&
+        (subfolder === null || f.subfolder === subfolder),
+    ),
+  )
+  // A pick that no longer exists (its last file deleted) means everything,
+  // not an empty grid pinned to a vanished value - and the control itself
+  // is reset, since a <select> whose value matches no option shows blank.
+  // A pick of '' (the run root) never appears in `subfolders` on its own,
+  // so it is only cleared once the control itself stops being offered -
+  // otherwise it would survive the control unmounting and leave
+  // `filterActive` stuck true with nothing to reset it
+  $effect(() => {
+    if (
+      subfolder !== null &&
+      (!subfolderOffered || !subfolders.includes(subfolder))
+    )
+      subfolder = null
+  })
   const byName = $derived(new Map(visible.map((f) => [f.name, f])))
   // The server folds each run id into `folder`; group by that, since the
   // name alone reads the run directory as one more folder
@@ -278,6 +310,19 @@
   <WorkspacePicker />
   <span class="num muted">{files.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
+  {#if subfolderOffered}
+    <select
+      class="subfolderpick"
+      aria-label="subfolder"
+      title="show only files a step saved to this subfolder of its run"
+      bind:value={subfolder}
+    >
+      <option value={null}>all subfolders</option>
+      {#each subfolders as s (s)}
+        <option value={s}>{s === '' ? '(run root)' : `${s}/`}</option>
+      {/each}
+    </select>
+  {/if}
 </div>
 
 {#if error}<p class="muted">Could not read the gallery: {error}</p>{/if}
@@ -307,7 +352,7 @@
     class="quiet"
     onclick={selectAllVisible}
     disabled={visible.length === 0}
-    >Select all{filter ? ' matching' : ''} ({visible.length})</button
+    >Select all{filterActive ? ' matching' : ''} ({visible.length})</button
   >
 </div>
 
@@ -315,7 +360,7 @@
   names={visible.map((f) => f.name)}
   groupOf={(name) => folderByName.get(name) ?? ''}
   collapseKey="collapsed-gallery-folders"
-  filterActive={filter !== ''}
+  {filterActive}
   minColumn="150px"
 >
   {#snippet card(name)}
@@ -419,7 +464,7 @@
             </div>{/if}
           {#if metadata.model_name}<div>
               <span class="muted">model</span>
-              {metadata.model_name}
+              <code>{metadata.model_name}</code>
             </div>{/if}
           {#if seed !== undefined}
             <div>
@@ -479,6 +524,13 @@
   .filter {
     max-width: 220px;
     margin-left: auto;
+  }
+  .subfolderpick {
+    /* The global select rule is width: 100% - here it must share the row */
+    width: auto;
+    max-width: 200px;
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
   }
   .picks {
     display: flex;
@@ -547,7 +599,7 @@
        view, which is most of the win for cheap. contain-intrinsic-size
        keeps scrollbar height stable before a cell has ever been measured. */
     content-visibility: auto;
-    contain-intrinsic-size: 150px 180px;
+    contain-intrinsic-size: 150px 210px;
   }
   .cell:hover,
   .cell.active {
@@ -575,8 +627,17 @@
     padding: 0.35rem 0.5rem 0.4rem;
     border-top: 1px solid var(--line);
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    /* Sibling outputs of one step share a long common prefix and differ only
+       near the end (the i.j.k index, or a dedupe counter right before the
+       extension) - a single nowrap+ellipsis line would hide exactly the part
+       that tells them apart, so wrap onto a few lines and break mid-token
+       instead of clipping. */
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    word-break: break-all;
   }
   .detail {
     position: sticky;

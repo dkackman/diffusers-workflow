@@ -6,6 +6,7 @@ import copy
 import gc
 import hashlib
 import logging
+import secrets
 from datetime import datetime, timezone
 from .arguments import (
     realize_args,
@@ -26,6 +27,7 @@ from .previous_results import (
     StepResults,
     previous_result_reference_errors,
 )
+from .subfolders import step_subfolder, subfolder_errors
 from .step import Step
 from .step_cache import (
     step_cache,
@@ -60,7 +62,7 @@ from .variables import (
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
-from . import get_device, empty_device_cache
+from . import get_device, empty_device_cache, device_memory_stats
 from .security import (
     validate_path,
     validate_workflow_path,
@@ -73,6 +75,10 @@ from .security import (
 )
 
 logger = logging.getLogger("dw")
+
+# The widest integer JavaScript's double represents exactly - the ceiling on
+# any seed the engine draws, since seeds travel as JSON through a browser
+SEED_BITS = 53
 
 
 class ConstantError(ValueError):
@@ -212,6 +218,17 @@ def pipeline_cache_key(pipeline_definition):
     return hashlib.sha256(serialized.encode()).hexdigest()
 
 
+def _allocated_mb():
+    """Device memory in use right now, for the pipeline_released event -
+    None where the backend cannot say, so a reading is never confused with
+    a genuine zero."""
+    try:
+        stats = device_memory_stats()
+    except Exception:  # a progress figure is never worth failing a run over
+        return None
+    return stats["allocated_mb"] if stats["available"] else None
+
+
 def release_unreferenced_results(results, remaining_refs):
     """Drop results no remaining reference can resolve to.
 
@@ -306,6 +323,26 @@ class Workflow:
             os.path.join(self.output_dir, subfolder) if subfolder else self.output_dir
         )
 
+    def step_output_dir(self, step_definition):
+        """Where one step writes: the run directory, or the subfolder of it
+        the step's result names.
+
+        Computed here, once, rather than inside Result.save, because two
+        things write on a step's behalf - Result.save for its results and
+        the pipeline wrapper for a chain's save_segments spill - and both
+        have to land in the same place. The shape was checked statically by
+        validation_errors; it is checked again here for a definition that
+        reached the engine without it, and containment (that the joined
+        path is really inside the run directory) is checked on the join.
+        """
+        base = self.effective_output_dir
+        subfolder = step_subfolder(step_definition)
+        if not subfolder:
+            return base
+        target = validate_output_path(os.path.join(base, subfolder), base)
+        os.makedirs(target, exist_ok=True)
+        return target
+
     def expanded_definition(self, arguments=None, source_indices=None):
         """The definition as the run will see it: constants realized,
         variables substituted - the caller's `arguments` folded in when they
@@ -378,7 +415,9 @@ class Workflow:
             # reported against 'variables' as a whole rather than escaping
             # as an unhandled exception
             return [{"path": "variables", "message": str(e)}]
-        return previous_result_reference_errors(expanded, source_indices)
+        return previous_result_reference_errors(
+            expanded, source_indices
+        ) + subfolder_errors(expanded, source_indices)
 
     def _undeclared_variable_errors(self, arguments=None):
         """Every 'variable:' reference naming nothing the workflow declares.
@@ -550,9 +589,14 @@ class Workflow:
             # while its seed still changes every run
             self._cache_enabled_this_run = cache_enabled_this_run
             if default_seed is None:
-                # A fresh generator draws a random seed without touching the
-                # global RNG the process may have seeded for reproducibility
-                default_seed = torch.Generator().seed()
+                # OS entropy rather than torch or random, so a process that
+                # seeded either for reproducibility is not disturbed. Bounded
+                # to 53 bits rather than the 64 torch allows: the seed is
+                # embedded in the image, the manifest and the realized
+                # workflow as JSON, and a browser reads every integer as a
+                # double - a seed that changed on the way through would be a
+                # seed nobody can reproduce
+                default_seed = secrets.randbits(SEED_BITS)
             workflow_def["seed"] = default_seed
             resolved_seed = default_seed
 
@@ -740,8 +784,55 @@ class Workflow:
                     hits_this_run.add(step.name)
                 else:
                     result = step.run(results, pipelines, step_action)
+
+                # A sub-workflow's saves land in the child's manifest - read it
+                # here, before the release below may drop the child
+                sub_manifest = (
+                    list(getattr(step_action, "manifest", []))
+                    if isinstance(step_action, Workflow)
+                    else []
+                )
+
+                # A released pipeline frees its memory for later steps - the
+                # alternative on a card that cannot hold two models is offloading
+                # everything, which taxes every run to survive one transition.
+                # Before the write, not after: the result is already in host
+                # memory and saving never touches the pipeline, so a release
+                # that waited for the write would hold ~10 GB on the device
+                # through the longest phase of a video step. The loop's own
+                # locals are the last references to this step's action, so
+                # clearing that is part of the release - a popped pipeline this
+                # frame still holds is not freed, and it would otherwise stay
+                # resident through the next step's load, which is exactly when
+                # both models would be in memory at once
+                if step_data.get("release_pipeline", False):
+                    logger.info(f"Releasing pipeline for step: {step.name}")
+                    before = _allocated_mb()
+                    pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
+                    step_action = None
+                    gc.collect()
+                    empty_device_cache()
+                    # Say so on the event stream. The release is otherwise
+                    # invisible to a consumer: it sits inside the sub-second
+                    # window between a step's generation and its files
+                    # appearing, which is too narrow to catch by polling
+                    # get_memory, and it is exactly the ordering this event
+                    # exists to make readable (it precedes the step's
+                    # step_end, and on a released card the figures show the
+                    # drop rather than implying it)
+                    run_context.emit(
+                        "pipeline_released",
+                        workflow=workflow_id,
+                        step=step.name,
+                        index=i,
+                        gpu_memory_allocated_mb=_allocated_mb(),
+                        gpu_memory_allocated_before_mb=before,
+                    )
+
+                if not reused:
                     saved_files = result.save(
-                        self.effective_output_dir, f"{workflow_id}-{step.name}.{i}"
+                        self.step_output_dir(step_data),
+                        f"{workflow_id}-{step.name}.{i}",
                     )
                     if is_cacheable:
                         step_cache.put(
@@ -758,15 +849,19 @@ class Workflow:
                 # 'reused' marks files an earlier run wrote and this one only
                 # republished, so nothing downstream (job_for_file, the
                 # gallery) credits this run with writing them
-                manifest_entry = {"step": step.name, "files": saved_files}
+                subfolder = step_subfolder(step_data)
+                manifest_entry = {
+                    "step": step.name,
+                    "files": saved_files,
+                    "subfolder": subfolder,
+                }
                 if reused:
                     manifest_entry["reused"] = True
                 self.manifest.append(manifest_entry)
-                # A sub-workflow's saves land in the child's manifest - roll
-                # them up so job history and the gallery see every file
-                if isinstance(step_action, Workflow):
-                    self.manifest.extend(getattr(step_action, "manifest", []))
-                step_end_data = {"files": saved_files}
+                # roll the child's saves up so job history and the gallery see
+                # every file
+                self.manifest.extend(sub_manifest)
+                step_end_data = {"files": saved_files, "subfolder": subfolder}
                 if reused:
                     step_end_data["reused"] = True
                 run_context.emit(
@@ -783,17 +878,9 @@ class Workflow:
                 # already, and last_result keeps the workflow's return value
                 release_unreferenced_results(results, remaining_refs)
 
-                # A released pipeline frees its memory for later steps - the
-                # alternative on a card that cannot hold two models is offloading
-                # everything, which taxes every run to survive one transition
-                if step_data.get("release_pipeline", False):
-                    logger.info(f"Releasing pipeline for step: {step.name}")
-                    pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
-
                 # The loop's own locals are the last references to this step's
-                # action and result - a released pipeline would otherwise stay
-                # resident through the next step's load, which is exactly when
-                # both models would be in memory at once
+                # action and result - anything they still hold would stay
+                # resident through the next step's load
                 step_action = None
                 result = None
 
@@ -959,7 +1046,7 @@ class Workflow:
                     default_seed,
                     device,
                     cached_pipeline.pipeline,  # Reuse the actual loaded model
-                    output_dir=self.effective_output_dir,
+                    output_dir=self.step_output_dir(step_definition),
                     file_prefix=self.step_file_prefix(step_name),
                 )
                 # Set up generator with potentially new seed. no_generator is a
@@ -1000,7 +1087,7 @@ class Workflow:
                 step_definition["pipeline"],
                 default_seed,
                 device,
-                output_dir=self.effective_output_dir,
+                output_dir=self.step_output_dir(step_definition),
                 file_prefix=self.step_file_prefix(step_name),
             )
             # Loading is the longest silence in a run: weights, quantization,
@@ -1029,7 +1116,7 @@ class Workflow:
                 default_seed,
                 device,
                 previous_pipeline.pipeline,
-                output_dir=self.effective_output_dir,
+                output_dir=self.step_output_dir(step_definition),
                 file_prefix=self.step_file_prefix(step_definition["name"]),
             )
 

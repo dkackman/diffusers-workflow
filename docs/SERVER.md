@@ -54,6 +54,9 @@ load entirely.
   progress, per-step denoising ticks, what each step is doing when it is not
   denoising (loading a model, decoding, saving), and its result files as
   they land.
+  A run whose steps chose a `result.subfolder` shows its results under
+  `final/` and `intermediate/` headings (or whatever the step named), the
+  deliverable first; one that chose none shows them as before.
   Jobs can be cancelled mid-denoise and re-run with one click. A finished
   job's **Export** button gathers the run into the workspace's `exports/`
   on the server (`POST /api/jobs/{id}/export`) and downloads it as one zip -
@@ -78,7 +81,10 @@ load entirely.
   the form view.
 - **Gallery** — everything in the selected workspace's output directory,
   which the engine lays out as `<workflow>/<run id>/`. The folder filter groups a workflow's runs
-  together rather than listing each run separately, and each run directory
+  together rather than listing each run separately, and a **subfolder** pick
+  beside the text filter - offered once any output landed in one - narrows
+  the grid to `final/`, `intermediate/` or whatever a step's
+  `result.subfolder` named; each run directory
   also holds a `manifest.json` describing what produced it (see
   [Workspaces](WORKSPACES.md#runs)). Images generated with
   `embed_metadata` carry their full workflow definition and seed; **open as
@@ -138,7 +144,7 @@ from another machine:
 | --- | --- |
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. |
 | `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. No parameters means every job, which is what the web UI polls |
-| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked |
+| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is |
 | `POST /api/jobs/{id}/export?workspace=&overwrite=` | Gather one finished job into `<workspace>/exports/<job id>/`: `workflow.json`, `manifest.json`, `job.json`, `README.md`, `assets/`, `inputs/`, `outputs/`. 201 with the file list, total bytes, anything it could not find, a `zip_url`, and the three JSON files inline. 404 unknown job, 409 for a job still running or an existing export without `overwrite` |
 | `GET /exports/{id}.zip?workspace=` | The same tree as one archive, built on request rather than kept as a second copy. Entries are named `<job id>/<relative path>`. Ungated exactly as `/outputs` is |
@@ -162,10 +168,11 @@ Every event in the stream carries a `seq` and an `event` name:
 | `memory` | device memory after a run | `info` |
 | `run_start` | the run directory is chosen, before the first step | `run_id`, `identity`, `run_dir` |
 | `workflow_start` | the run begins | `workflow`, `total_steps`, `steps`, `seed` |
-| `step_start` / `step_end` | each step | `step`, `index`, `total_steps`; `files` at the end. A step served from the step cache adds `reused: true` to `step_end`, and its `files` are the earlier run's files rather than newly written ones |
+| `step_start` / `step_end` | each step | `step`, `index`, `total_steps`; `files` and `subfolder` at the end. A step served from the step cache adds `reused: true` to `step_end`, and its `files` are the earlier run's files rather than newly written ones |
 | `iteration_start` | each argument combination in a step | `step`, `iteration`, `total_iterations` |
 | `pipeline_step` | each denoise step | `step`, `total_steps`. Emitted for a pipeline that takes a `callback_on_step_end`, and for a `ModularPipeline` (H3, LTX-2, Qwen-Image), which takes none - there the denoise block's own progress bar is what reports |
 | `phase` | the step changes what it is doing | `phase`, `detail` |
+| `pipeline_released` | a step with `release_pipeline` drops its pipeline | `step`, `index`, `gpu_memory_allocated_mb` and `gpu_memory_allocated_before_mb` (both `null` where the backend cannot say). Emitted between the step's generation and its files being written, which is where the release happens - so the ordering is readable off the event stream rather than by trying to poll memory through a sub-second write |
 | `workflow_end` | the run finishes | `manifest` |
 
 A step spends most of its wall clock outside the denoise loop, and
@@ -295,7 +302,13 @@ The editor's forms come from these; they are just as usable from scripts:
   queue an enhancement as an ordinary job whose saved text file is the
   result
 - `GET /api/gallery`, `GET /api/gallery/{name}/metadata`,
-  `DELETE /api/gallery/{name}` — outputs and their embedded metadata
+  `DELETE /api/gallery/{name}` — outputs and their embedded metadata. Each
+  gallery entry carries `folder` (the workflow identity, the run id dropped)
+  and `subfolder` (what followed the run id - the `final`/`intermediate` a
+  step's `result.subfolder` chose, `''` when it chose none); `?folder=` and
+  `?subfolder=` filter independently, and the reply's `folders` and
+  `subfolders` list every distinct value over the whole tree, `''` always a
+  member of each so root-level files stay selectable
 - `GET /api/gallery/{name:path}/download` — download an output file
 - `POST /api/gallery/archive` — `{"names": [...]}` (1-1000) bundles a
   multi-file selection into one zip, named by each file's gallery-relative
@@ -376,8 +389,13 @@ The editor's forms come from these; they are just as usable from scripts:
   started) alongside the live `version`/`commit`, so a revert has a
   concrete before/after to compare
 - `GET /api/memory`, `GET /api/health` — worker VRAM/RAM stats and liveness;
-  health also reports `hostname`, `device` and whether `mcp` is mounted, so a
-  remote client can tell which machine answered
+  memory answers `live` (whether `info` was measured by this call), `stale`,
+  `reason` (`job_running`, `worker_stopped`, `worker_busy`,
+  `worker_unreachable`) and `age_seconds`, so a cached reading is never
+  mistaken for the worker's memory now - `info: null` means nothing has been
+  measured because nothing is resident. health also reports `hostname`,
+  `device` and whether `mcp` is mounted, so a remote client can tell which
+  machine answered
 - `GET /api/server` — connection details for the Server page: `hostname`,
   `version`, `device`, the `bind_host`/`port`/`wildcard_bind` the server was
   started with, `auth_required` (whether a token is configured - never the

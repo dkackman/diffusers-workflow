@@ -256,7 +256,28 @@ def build_server(client):
 
     def get_memory() -> dict:
         """Get the worker's VRAM and RAM statistics. Check this first when a
-        job fails with an out-of-memory error."""
+        job fails with an out-of-memory error.
+
+        `gpu_*` is the card, `host_memory_*` the machine:
+        `host_memory_rss_mb` is what the worker process holds and
+        `host_memory_peak_rss_mb` the most it has ever held, beside the
+        machine's `host_memory_total_mb` / `host_memory_available_mb`. Read
+        both - a workflow that offloads (`offload: "sequential"`,
+        `group_offload`) keeps its weights in host memory by design, so the
+        card can sit near-empty through a generation and VRAM alone will not
+        show what a run is holding or failing to release. A host field is
+        absent, rather than null, on a platform that cannot measure it.
+
+        `live: true` means `info` was measured now and is the worker's own
+        memory - only these readings are comparable with each other.
+        `live: false` means it was not: `info: null` (with `stale: false`)
+        means nothing has been measured because nothing is resident, and a
+        populated `info` is a cached earlier reading - `reason` says why
+        (`job_running`, `worker_stopped`, `worker_busy`, `worker_unreachable`)
+        and `age_seconds` how old it is. A cached reading is not this
+        moment's: one taken while a job is loading a model understates what
+        is resident by however much has loaded since, so ask again when the
+        server is idle rather than comparing it against a live figure."""
         return catalog.get_memory(client)
 
     def get_health() -> dict:
@@ -297,16 +318,21 @@ def build_server(client):
             client, limit=limit, status=status, workspace=workspace
         )
 
-    def list_gallery(limit: int = 50) -> dict:
+    def list_gallery(limit: int = 50, subfolder: str | None = None) -> dict:
         """List generated output files, newest first. A name is
-        <workflow>/<run id>/<file> - the form `get_output_image`,
-        `get_output_text`, `download_output`, `keep_output` and
-        `delete_output` all take, and the form an "output:" reference in a
-        later workflow is built from. Each entry also carries a ready-made
-        `url` for viewing the file over HTTP, already scoped to the right
-        workspace; use it as given rather than composing one from the
-        name."""
-        return catalog.list_gallery(client, limit=limit)
+        <workflow>/<run id>/<file>, where <file> may itself sit in a
+        subfolder the step chose (`final/episode.mp4`) - the form
+        `get_output_image`, `get_output_text`, `download_output`,
+        `keep_output` and `delete_output` all take, and the form an
+        "output:" reference in a later workflow is built from. Each entry
+        carries `folder` (the workflow) and `subfolder` (the part of the run:
+        by convention `final` is the deliverable and `intermediate` the
+        scratch work, '' when the step chose none); `subfolder=` filters on
+        the latter, so `subfolder="final"` is "what did these runs
+        deliver". Each entry also carries a ready-made `url` for viewing the
+        file over HTTP, already scoped to the right workspace; use it as
+        given rather than composing one from the name."""
+        return catalog.list_gallery(client, limit=limit, subfolder=subfolder)
 
     def get_gallery_metadata(name: str, envelope: bool = False) -> dict:
         """Get the metadata embedded in a generated file: the exact
@@ -565,7 +591,11 @@ def build_server(client):
         `prompt:` or `output:` reference that names nothing this workspace
         can reach - each with `arguments.<name>` as its path.
         `checked_arguments` lists what was checked, so a valid answer says
-        whether it covered your values or only the stored defaults."""
+        whether it covered your values or only the stored defaults.
+
+        A `result.subfolder` or `file_base_name` that cannot be written (a
+        `..`, a backslash, a separator in `file_base_name`) is reported here
+        at its JSON path, after `for_each` expansion."""
         return authoring.validate_workflow(
             client,
             workflow=workflow,
@@ -581,7 +611,12 @@ def build_server(client):
         examples directory) is not overwritten - the copy lands in the
         writable directory and shadows it from then on, which is how an
         example gets adapted without being damaged. `name` may include
-        folders."""
+        folders.
+
+        A workflow stored for reuse should mark each saving step's
+        `result.subfolder` - `final` for the step whose output the user will
+        be shown, `intermediate` for the rest - so a later consumer can tell
+        the deliverable from the scratch files without knowing the workflow."""
         return authoring.save_workflow(client, name, workflow)
 
     def delete_workflow(name: str) -> dict:
@@ -696,10 +731,13 @@ def build_server(client):
     def get_job(job_id: str) -> dict:
         """Get a job's status, argument warnings, output manifest, error and
         traceback. The manifest names each step's files the way
-        `get_output_image`, `download_output` and `keep_output` take them; a
-        step served from the step cache is marked `reused` and reports the
-        earlier run's files. When a job failed, the error and traceback here
-        are what to read before changing anything."""
+        `get_output_image`, `download_output` and `keep_output` take them,
+        and each entry's `subfolder` says what kind of output the step
+        declared - by convention `final` is the deliverable, `intermediate`
+        the scratch work, and '' a step that said nothing. A step served
+        from the step cache is marked `reused` and reports the earlier run's
+        files. When a job failed, the error and traceback here are what to
+        read before changing anything."""
         return diagnose.get_job(client, job_id)
 
     def get_job_workflow(job_id: str) -> dict:

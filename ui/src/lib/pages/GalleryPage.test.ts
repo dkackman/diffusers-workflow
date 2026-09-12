@@ -12,10 +12,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import GalleryPage from './GalleryPage.svelte'
 import ConfirmDialog from '../ConfirmDialog.svelte'
 import type { GalleryFile } from '../types'
+import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 
-const file = (name: string): GalleryFile => ({
+const file = (name: string, subfolder = ''): GalleryFile => ({
   name,
   folder: name.includes('/') ? name.split('/')[0] : '',
+  subfolder,
   url: `/outputs/${name}`,
   kind: 'image',
   size: 1024,
@@ -57,7 +59,7 @@ const notifyError = vi.hoisted(() => vi.fn())
 vi.mock('../toast', () => ({ notify: { error: notifyError } }))
 
 beforeEach(() => {
-  listing.files = ['a.png', 'b.png', 'demo/c.png'].map(file)
+  listing.files = ['a.png', 'b.png', 'demo/c.png'].map((name) => file(name))
 })
 afterEach(() => {
   // Without this each render's DOM stays behind and the next test's
@@ -68,6 +70,7 @@ afterEach(() => {
   archiveOutputs.mockClear()
   notifyError.mockClear()
   vi.unstubAllGlobals()
+  workspace.current = DEFAULT_WORKSPACE
 })
 
 /** The grid's per-file selection checkbox. */
@@ -123,7 +126,9 @@ it('shift-clicking extends the selection across the range', async () => {
 })
 
 it('selects only the files the filter leaves visible', async () => {
-  listing.files = ['keep-a.png', 'keep-b.png', 'other.png'].map(file)
+  listing.files = ['keep-a.png', 'keep-b.png', 'other.png'].map((name) =>
+    file(name),
+  )
   await renderGallery('keep-a.png')
 
   const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
@@ -220,4 +225,138 @@ it('drops a file deleted from the detail panel out of the selection', async () =
 
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
   expect(screen.getByLabelText('select b.png')).toBeTruthy()
+})
+
+it('offers no subfolder control when nothing was written to one', async () => {
+  await renderGallery()
+  expect(screen.queryByRole('combobox', { name: 'subfolder' })).toBeNull()
+})
+
+it('lists the subfolders the outputs landed in and filters the grid by one', async () => {
+  listing.files = [
+    file('wf/run-1/final/deliverable.png', 'final'),
+    file('wf/run-1/intermediate/scratch.png', 'intermediate'),
+    file('wf/run-1/root.png', ''),
+  ]
+  await renderGallery('wf/run-1/final/deliverable.png')
+
+  const pick = screen.getByRole('combobox', {
+    name: 'subfolder',
+  }) as HTMLSelectElement
+  expect([...pick.options].map((o) => o.textContent?.trim())).toEqual([
+    'all subfolders',
+    '(run root)',
+    'final/',
+    'intermediate/',
+  ])
+
+  pick.value = 'final'
+  pick.dispatchEvent(new Event('change', { bubbles: true }))
+  await waitFor(() =>
+    expect(
+      screen.queryByLabelText('select wf/run-1/intermediate/scratch.png'),
+    ).toBeNull(),
+  )
+  expect(
+    screen.getByLabelText('select wf/run-1/final/deliverable.png'),
+  ).toBeTruthy()
+  expect(screen.queryByLabelText('select wf/run-1/root.png')).toBeNull()
+  // Select all takes what the subfolder filter leaves showing
+  screen.getByRole('button', { name: /select all matching \(1\)/i }).click()
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+})
+
+it('intersects the subfolder pick with the text filter', async () => {
+  listing.files = [
+    file('wf/run-1/final/a.png', 'final'),
+    file('wf/run-1/final/b.png', 'final'),
+    file('wf/run-1/intermediate/a.png', 'intermediate'),
+  ]
+  await renderGallery('wf/run-1/final/a.png')
+
+  const pick = screen.getByRole('combobox', {
+    name: 'subfolder',
+  }) as HTMLSelectElement
+  pick.value = 'final'
+  pick.dispatchEvent(new Event('change', { bubbles: true }))
+  const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  filter.value = '/a.'
+  filter.dispatchEvent(new Event('input', { bubbles: true }))
+
+  await waitFor(() =>
+    expect(screen.queryByLabelText('select wf/run-1/final/b.png')).toBeNull(),
+  )
+  expect(screen.getByLabelText('select wf/run-1/final/a.png')).toBeTruthy()
+  expect(
+    screen.queryByLabelText('select wf/run-1/intermediate/a.png'),
+  ).toBeNull()
+})
+
+it('falls back to every subfolder when the picked one empties out', async () => {
+  listing.files = [
+    file('wf/run-1/final/only.png', 'final'),
+    file('wf/run-1/root.png', ''),
+  ]
+  await renderGallery('wf/run-1/final/only.png')
+  const pick = screen.getByRole('combobox', {
+    name: 'subfolder',
+  }) as HTMLSelectElement
+  pick.value = 'final'
+  pick.dispatchEvent(new Event('change', { bubbles: true }))
+  await waitFor(() =>
+    expect(screen.queryByLabelText('select wf/run-1/root.png')).toBeNull(),
+  )
+
+  checkbox('wf/run-1/final/only.png').click()
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+  screen.getByRole('button', { name: /^delete/i }).click()
+  await answerConfirm(true)
+
+  // The last final/ file is gone: the control goes with it and the grid
+  // shows everything again rather than an empty page pinned to a value
+  // that no longer exists
+  await waitFor(() =>
+    expect(screen.getByLabelText('select wf/run-1/root.png')).toBeTruthy(),
+  )
+  expect(screen.queryByRole('combobox', { name: 'subfolder' })).toBeNull()
+})
+
+it('resets a run-root pick when the control it depends on disappears', async () => {
+  listing.files = [
+    file('wf/run-1/final/only.png', 'final'),
+    file('wf/run-1/root.png', ''),
+  ]
+  await renderGallery('wf/run-1/final/only.png')
+  const pick = screen.getByRole('combobox', {
+    name: 'subfolder',
+  }) as HTMLSelectElement
+  // "all subfolders" and "(run root)" both carry the native value "" -
+  // Svelte tells them apart by each option's bound __value - so picking by
+  // index is what actually lands on "(run root)" rather than falling back
+  // to "all subfolders"
+  pick.selectedIndex = 1
+  pick.dispatchEvent(new Event('change', { bubbles: true }))
+  await waitFor(() =>
+    expect(
+      screen.queryByLabelText('select wf/run-1/final/only.png'),
+    ).toBeNull(),
+  )
+  expect(screen.getByLabelText('select wf/run-1/root.png')).toBeTruthy()
+
+  // The run-root pick has just hidden the only other file, so nothing in
+  // this grid's own checkboxes can reach it to delete it - a workspace
+  // switch stands in for that (or the same file being deleted from
+  // elsewhere): the listing comes back with no subfolder at all, the same
+  // shape the last foldered file's own deletion would leave behind
+  listing.files = [file('wf/run-1/root.png', '')]
+  workspace.current = 'other'
+  await waitFor(() => expect(gallery).toHaveBeenCalledTimes(2))
+
+  // The control goes with the pick it can no longer offer, and "Select
+  // all" reads as unfiltered again rather than sticking on a filter
+  // nothing can now clear
+  expect(screen.queryByRole('combobox', { name: 'subfolder' })).toBeNull()
+  expect(
+    screen.getByRole('button', { name: /^select all \(1\)$/i }),
+  ).toBeTruthy()
 })

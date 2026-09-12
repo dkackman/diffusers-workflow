@@ -318,3 +318,83 @@ class TestVideoFiles:
 
         assert len(result.frames) == 8
         assert result.audio.shape[1] == 8 / 4 * 8000
+
+
+class TestLevelMatching:
+    """Independently generated shots land at whatever level the model chose,
+    and cutting a -2.6 dBFS shot against a -12.6 dBFS one is audible as a
+    drop no fade control can hide - see issue #82."""
+
+    def test_off_by_default(self):
+        loud, quiet = audio_video(4, 0.5), audio_video(4, 0.05)
+
+        result = concat_videos([loud, quiet])
+
+        assert result.audio[0][0] == pytest.approx(0.5)
+        assert result.audio[0][-1] == pytest.approx(0.05)
+
+    @pytest.mark.parametrize("measure", ["rms", "peak"])
+    def test_matching_brings_the_shots_to_one_level(self, measure):
+        loud, quiet = audio_video(4, 0.5), audio_video(4, 0.05)
+
+        result = concat_videos([loud, quiet], match_levels=measure)
+
+        # A steady tone's peak and rms are the same figure, so either
+        # measure lands both shots on the same sample value
+        head, tail = abs(result.audio[0][0]), abs(result.audio[0][-1])
+        assert head == pytest.approx(tail, rel=1e-3)
+
+    def test_the_target_level_is_the_callers_to_set(self):
+        result = concat_videos(
+            [audio_video(4, 0.5), audio_video(4, 0.05)],
+            match_levels="peak",
+            match_levels_dbfs=-6.0,
+        )
+
+        assert abs(result.audio[0][0]) == pytest.approx(10 ** (-6.0 / 20), rel=1e-3)
+
+    def test_a_gain_that_would_clip_is_held_below_full_scale(self, caplog):
+        # A track whose peak is far above its rms - matching the rms would
+        # ask for a gain that puts the peak past 0 dBFS
+        spiky = numpy.full((2, 100), 0.02, dtype=numpy.float32)
+        spiky[:, 50] = 0.9
+        video = AudioVideo(frames(4), spiky, 100)
+
+        result = concat_videos([video, audio_video(4, 0.02)], match_levels="rms")
+
+        assert float(numpy.abs(result.audio).max()) <= 1.0
+        assert "held to" in caplog.text
+
+    def test_a_silent_shot_is_left_alone(self):
+        silent = AudioVideo(frames(4), numpy.zeros((2, 100), dtype=numpy.float32), 100)
+
+        result = concat_videos([silent, audio_video(4, 0.5)], match_levels="rms")
+
+        assert float(numpy.abs(result.audio[:, :100]).max()) == 0.0
+
+    def test_a_shot_with_no_soundtrack_joins_as_before(self):
+        result = concat_videos([frames(4), audio_video(4, 0.5)], match_levels="rms")
+
+        assert result.audio is not None
+        assert len(result.frames) == 8
+
+    def test_an_unknown_measure_is_refused(self):
+        with pytest.raises(ValueError, match="match_levels"):
+            concat_videos([audio_video(4, 0.5)] * 2, match_levels="loudness")
+
+    def test_a_target_above_full_scale_is_refused(self):
+        with pytest.raises(ValueError, match="full scale"):
+            concat_videos(
+                [audio_video(4, 0.5)] * 2, match_levels="peak", match_levels_dbfs=3.0
+            )
+
+    def test_an_unmatched_join_warns_when_the_shots_are_levels_apart(self, caplog):
+        concat_videos([audio_video(4, 0.5), audio_video(4, 0.05)])
+
+        assert "level jump" in caplog.text
+        assert "match_levels" in caplog.text
+
+    def test_shots_already_at_one_level_draw_no_warning(self, caplog):
+        concat_videos([audio_video(4, 0.5), audio_video(4, 0.45)])
+
+        assert "level jump" not in caplog.text

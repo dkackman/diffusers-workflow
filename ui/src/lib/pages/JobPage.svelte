@@ -6,13 +6,15 @@
     TriangleAlert,
     X,
   } from '@lucide/svelte'
+  import { untrack } from 'svelte'
   import { ApiError, api, outputUrl, streamJobEvents } from '../api'
   import { confirmDialog } from '../confirm.svelte'
   import { go } from '../router.svelte'
-  import { groupResultFiles } from '../results'
+  import { groupResultFiles, sectionBySubfolder } from '../results'
   import { stepProgress } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
   import CopyButton from '../CopyButton.svelte'
+  import DownloadLink from '../DownloadLink.svelte'
   import { notify } from '../toast'
   import type { JobDetail, JobEvent } from '../types'
 
@@ -39,6 +41,9 @@
     events = []
     definition = null
     seedVariable = null
+    // Under the flat output layout two runs write the same file names, so
+    // a map keyed by name would show the last job's recipe for this one
+    fileMeta = {}
     // stopped guards the async gap: navigating away mid-fetch must not let
     // a late-resolving getJob open a stream nothing will ever stop
     let stopped = false
@@ -184,11 +189,62 @@
   const fileGroups = $derived(
     groupResultFiles(job?.manifest, events as JobEvent[]),
   )
+
+  /** A prompt argument as displayable text - pipelines accept a list too. */
+  function promptText(value: unknown): string {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value))
+      return value.filter((v) => typeof v === 'string').join('\n')
+    return ''
+  }
+
+  // The generation metadata embedded in each image, keyed by file - per
+  // file rather than per step, since each image of a batch carries its own
+  // seed. Images only: the metadata route decodes an audio or video file
+  // whole to probe it, and nothing it would report is shown here. A key
+  // present with null is a lookup already in flight or failed
+  let fileMeta = $state<Record<string, Record<string, unknown> | null>>({})
+  $effect(() => {
+    const workspace = job?.workspace
+    const pending = fileGroups
+      .flatMap((group) => group.files)
+      .filter((file) => isImage(file) && !(file in untrack(() => fileMeta)))
+    if (!pending.length) return
+    untrack(() => {
+      for (const file of pending) {
+        fileMeta[file] = null
+        api
+          .galleryMetadata(file, workspace)
+          .then((r) => {
+            fileMeta[file] = r.metadata
+          })
+          .catch(() => {})
+      }
+    })
+  })
+
+  /** The gallery detail's fields for one output's embedded metadata. */
+  function describe(meta: Record<string, unknown> | null | undefined) {
+    const args =
+      (meta?.arguments as Record<string, unknown> | undefined) ?? null
+    return {
+      model: typeof meta?.model_name === 'string' ? meta.model_name : '',
+      seed: typeof meta?.seed === 'number' ? meta.seed : args?.seed,
+      prompt: promptText(args?.prompt),
+      negativePrompt: promptText(args?.negative_prompt),
+    }
+  }
   // Nothing at all was generated: every step the manifest lists was served
   // from the step cache. Worth saying outright - the page otherwise shows a
   // succeeded job full of images that are not this run's
   const allReused = $derived(
     fileGroups.length > 0 && fileGroups.every((group) => group.reused),
+  )
+  // Sections by result.subfolder - one root section, no heading, when no
+  // step chose one, so an older run renders as it always did
+  const sections = $derived(sectionBySubfolder(fileGroups))
+  const sectioned = $derived(
+    sections.length > 1 || sections[0].subfolder !== '',
   )
   const running = $derived(job !== null && !TERMINAL.includes(job.status))
   // A cancel requested while loading a model or running a task step has no
@@ -354,42 +410,86 @@
             Use <strong>New seed</strong> for a different image.{/if}
         </p>
       {/if}
-      {#each fileGroups as group (group.step)}
-        {#if fileGroups.length > 1}
-          <h3 class="stephead muted">
-            {group.step}
-            {#if group.reused && !allReused}
-              <span
-                class="muted"
-                title="served from the step cache - an
-                     earlier run's files, nothing generated for this step"
-                >· reused</span
-              >
-            {/if}
+      {#each sections as section (section.subfolder)}
+        {#if sectioned}
+          <h3 class="subhead">
+            {section.subfolder === '' ? '(run root)' : `${section.subfolder}/`}
           </h3>
         {/if}
-        <div class="media">
+        {#each section.groups as group (group.step)}
+          {#if fileGroups.length > 1}
+            <svelte:element
+              this={sectioned ? 'h4' : 'h3'}
+              class="stephead muted"
+            >
+              {group.step}
+              {#if group.reused && !allReused}
+                <span
+                  class="muted"
+                  title="served from the step cache - an
+                       earlier run's files, nothing generated for this step"
+                  >· reused</span
+                >
+              {/if}
+            </svelte:element>
+          {/if}
           {#each group.files as file (file)}
-            {#if isImage(file)}
-              <a
-                class="frame plain"
-                href={fileUrl(file)}
-                target="_blank"
-                title={file.split('/').pop()}
-                ><img src={fileUrl(file)} alt={file.split('/').pop()} /></a
-              >
-            {:else if isVideo(file)}
-              <span class="frame">
-                <!-- svelte-ignore a11y_media_has_caption -->
-                <video src={fileUrl(file)} controls loop></video>
-              </span>
-            {:else}
-              <a class="filelink" href={fileUrl(file)} target="_blank"
-                >{file.split('/').pop()}</a
-              >
-            {/if}
+            {@const info = describe(fileMeta[file])}
+            <!-- Laid out as the gallery detail is: the media on the left,
+                 what made it on the right -->
+            <div class="output">
+              {#if isImage(file)}
+                <a
+                  class="frame plain"
+                  href={fileUrl(file)}
+                  target="_blank"
+                  title={file.split('/').pop()}
+                  ><img src={fileUrl(file)} alt={file.split('/').pop()} /></a
+                >
+              {:else if isVideo(file)}
+                <span class="frame">
+                  <!-- svelte-ignore a11y_media_has_caption -->
+                  <video src={fileUrl(file)} controls loop></video>
+                </span>
+              {:else}
+                <a class="filelink" href={fileUrl(file)} target="_blank"
+                  >{file.split('/').pop()}</a
+                >
+              {/if}
+              <div class="meta">
+                <div class="metabar">
+                  <span class="filename">{file.split('/').pop()}</span>
+                  <DownloadLink
+                    href={api.outputDownloadUrl(file, job.workspace)}
+                  />
+                </div>
+                {#if info.model}
+                  <div>
+                    <span class="muted">model</span>
+                    <code>{info.model}</code>
+                  </div>
+                {/if}
+                {#if info.seed !== undefined}
+                  <div>
+                    <span class="muted">seed</span> <code>{info.seed}</code>
+                  </div>
+                {/if}
+                {#if info.prompt}
+                  <div class="prompt">
+                    <span class="muted">prompt</span>
+                    <p>{info.prompt}</p>
+                  </div>
+                {/if}
+                {#if info.negativePrompt}
+                  <div class="prompt">
+                    <span class="muted">negative prompt</span>
+                    <p>{info.negativePrompt}</p>
+                  </div>
+                {/if}
+              </div>
+            </div>
           {/each}
-        </div>
+        {/each}
       {/each}
     </div>
   {/if}
@@ -502,33 +602,84 @@
     font-variant-numeric: tabular-nums;
     font-size: 0.8rem;
   }
-  .media {
+  /* One output per row, the gallery detail's shape: the proof on the left,
+     the recipe that made it on the right */
+  .output {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
+    gap: var(--space-4);
     align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .output + .output {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
   }
   /* What the run produced, framed the way the catalog and the gallery
      frame it - the picture flush to its edges, no rounding of its own */
-  .media :global(.frame) {
-    max-width: min(340px, 100%);
+  .output :global(.frame) {
+    max-width: min(480px, 100%);
   }
-  .media :global(.frame > video) {
+  .output :global(.frame > video) {
     height: auto;
   }
-  .media a.filelink {
+  .output a.filelink {
     font-family: var(--font-mono);
     font-size: var(--t-sm);
+  }
+  .meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.85rem;
+    max-width: 46ch;
+    min-width: 0;
+  }
+  .meta .muted {
+    margin-right: 0.4rem;
+  }
+  .metabar {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-bottom: 0.3rem;
+  }
+  /* The name the engine wrote, and what you would type to reference it */
+  .filename {
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
+    overflow-wrap: anywhere;
+    flex: 1;
+  }
+  .prompt p {
+    margin: 0.15rem 0 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .error {
     color: var(--bad);
   }
   .stephead {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
     font-size: 0.78rem;
     text-transform: none;
     margin: var(--space-3) 0 var(--space-2);
   }
   .stephead:first-of-type {
+    margin-top: 0;
+  }
+  .subhead {
+    font-size: var(--t-sm);
+    text-transform: none;
+    margin: var(--space-3) 0 var(--space-1);
+  }
+  .subhead:first-of-type {
+    margin-top: 0;
+  }
+  .subhead + .stephead {
     margin-top: 0;
   }
 </style>
