@@ -512,6 +512,33 @@ workflow.
   `reference-to-video` and `dialogue-short` templates). The `identity-referenced`
   trait in the listing marks the workflows that take one.
 
+### Saying which output is the deliverable
+
+A run writes everything into one directory, so a finished episode sits
+beside the twenty scratch files that went into it. A step's `result` block
+can name a subfolder of the run directory for its files:
+
+```json
+"result": { "content_type": "video/mp4", "subfolder": "final" }
+```
+
+The convention is two names: `final` for a step whose output the user will
+be shown, `intermediate` for everything else. The engine treats no name
+specially and applies no default - a step that says nothing writes to the
+run's root as it always has - but the gallery, `get_job` and `list_gallery`
+all carry the value, so a consumer that follows the convention can tell the
+deliverable from the scratch without knowing the workflow. Mark every saving
+step of a multi-step workflow; a one-step workflow needs nothing.
+
+The value is a relative path of any depth (`shots/act-1`), may be a
+`variable:` or, inside a `for_each` step, an `item:` reference, and follows
+the `output:` segment rule - each segment starts with a letter, digit or
+underscore; `..`, a backslash and a leading `.` are refused - so every
+subfolder written is one a later workflow can name:
+`output:dialogue-short/latest/final/episode.mp4`. A bad value is a
+validation error at its JSON path. `file_base_name` is a name, not a path:
+a separator there is refused, and `subfolder` is the way to place a file.
+
 ### Being found next time
 
 The catalog derives each entry's `shape` — one of `image`, `image-set`,
@@ -536,11 +563,14 @@ never derived — leave it absent until a run has been measured.
 "result": {
     "content_type": "image/jpeg",
     "save": true,
-    "file_base_name": "custom_prefix"
+    "file_base_name": "custom_prefix",
+    "subfolder": "final"
 }
 ```
 
 Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `audio/wav`, `audio/flac`, `audio/mpeg` (mp3), `audio/ogg`, `audio/opus`, `audio/aiff`, `application/json`, `text/plain` (plus the common aliases `audio/x-wav`, `audio/mp3`, `audio/vorbis`).
+
+`subfolder` places the step's files in a subfolder of the run directory - see *Saying which output is the deliverable* above. `file_base_name` may not contain a path separator.
 
 For video, add `"fps": 8`. For audio, add `"sample_rate": 44100` when the waveform doesn't
 already carry a rate of its own (a declared rate always wins). Setting `embed_metadata: true`

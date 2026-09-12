@@ -154,6 +154,10 @@ docs/WORKSPACES.md, and docs/proposals/server-workspaces-complete.md for the lat
   rooted at the library rather than the workflow file. The library is `DW_PROMPT_DIR` /
   `--prompt-dir`, else `./prompts` if it exists, else found by walking up from the
   workflow file's directory
+- A step's `result.subfolder` names a subfolder of the run directory for that step's
+  files - by convention `final` for the deliverable and `intermediate` for the rest; any
+  relative path (`shots/act-1`); `variable:`/`item:` allowed; no default. Mechanics under
+  *Result subfolders* in Critical Gotchas
 - A step carrying `for_each` (a list, or `variable:` naming one) is expanded by
   `expand_for_each` (`dw/for_each.py`) into one ordinary step per entry, named
   `<step>@<entry name or index>`, immediately after `replace_variables` in
@@ -309,7 +313,9 @@ same reason - default setup cannot load a pack.
   `for_each` expansion and again at run time; containment is `validate_output_path`
   against the run directory. Manifest entries and `step_end` carry `subfolder`.
   `split_run_path` finds the run id anywhere in a path, so `strip_run_id` still groups a
-  workflow's runs. `file_base_name` may not contain a separator - it is a name, not a path
+  workflow's runs. Gallery entries carry it too; `GET /api/gallery?subfolder=` and MCP
+  `list_gallery(subfolder=)` filter on it. `file_base_name` may not contain a separator -
+  it is a name, not a path
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image
