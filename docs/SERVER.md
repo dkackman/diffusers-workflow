@@ -388,8 +388,13 @@ The editor's forms come from these; they are just as usable from scripts:
   started) alongside the live `version`/`commit`, so a revert has a
   concrete before/after to compare
 - `GET /api/memory`, `GET /api/health` — worker VRAM/RAM stats and liveness;
-  health also reports `hostname`, `device` and whether `mcp` is mounted, so a
-  remote client can tell which machine answered
+  memory answers `live` (whether `info` was measured by this call), `stale`,
+  `reason` (`job_running`, `worker_stopped`, `worker_busy`,
+  `worker_unreachable`) and `age_seconds`, so a cached reading is never
+  mistaken for the worker's memory now - `info: null` means nothing has been
+  measured because nothing is resident. health also reports `hostname`,
+  `device` and whether `mcp` is mounted, so a remote client can tell which
+  machine answered
 - `GET /api/server` — connection details for the Server page: `hostname`,
   `version`, `device`, the `bind_host`/`port`/`wildcard_bind` the server was
   started with, `auth_required` (whether a token is configured - never the
