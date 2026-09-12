@@ -26,6 +26,7 @@ from .previous_results import (
     StepResults,
     previous_result_reference_errors,
 )
+from .subfolders import step_subfolder, subfolder_errors
 from .step import Step
 from .step_cache import (
     step_cache,
@@ -306,6 +307,26 @@ class Workflow:
             os.path.join(self.output_dir, subfolder) if subfolder else self.output_dir
         )
 
+    def step_output_dir(self, step_definition):
+        """Where one step writes: the run directory, or the subfolder of it
+        the step's result names.
+
+        Computed here, once, rather than inside Result.save, because two
+        things write on a step's behalf - Result.save for its results and
+        the pipeline wrapper for a chain's save_segments spill - and both
+        have to land in the same place. The shape was checked statically by
+        validation_errors; it is checked again here for a definition that
+        reached the engine without it, and containment (that the joined
+        path is really inside the run directory) is checked on the join.
+        """
+        base = self.effective_output_dir
+        subfolder = step_subfolder(step_definition)
+        if not subfolder:
+            return base
+        target = validate_output_path(os.path.join(base, subfolder), base)
+        os.makedirs(target, exist_ok=True)
+        return target
+
     def expanded_definition(self, arguments=None, source_indices=None):
         """The definition as the run will see it: constants realized,
         variables substituted - the caller's `arguments` folded in when they
@@ -378,7 +399,9 @@ class Workflow:
             # reported against 'variables' as a whole rather than escaping
             # as an unhandled exception
             return [{"path": "variables", "message": str(e)}]
-        return previous_result_reference_errors(expanded, source_indices)
+        return previous_result_reference_errors(
+            expanded, source_indices
+        ) + subfolder_errors(expanded, source_indices)
 
     def _undeclared_variable_errors(self, arguments=None):
         """Every 'variable:' reference naming nothing the workflow declares.
@@ -741,7 +764,8 @@ class Workflow:
                 else:
                     result = step.run(results, pipelines, step_action)
                     saved_files = result.save(
-                        self.effective_output_dir, f"{workflow_id}-{step.name}.{i}"
+                        self.step_output_dir(step_data),
+                        f"{workflow_id}-{step.name}.{i}",
                     )
                     if is_cacheable:
                         step_cache.put(
@@ -758,7 +782,12 @@ class Workflow:
                 # 'reused' marks files an earlier run wrote and this one only
                 # republished, so nothing downstream (job_for_file, the
                 # gallery) credits this run with writing them
-                manifest_entry = {"step": step.name, "files": saved_files}
+                subfolder = step_subfolder(step_data)
+                manifest_entry = {
+                    "step": step.name,
+                    "files": saved_files,
+                    "subfolder": subfolder,
+                }
                 if reused:
                     manifest_entry["reused"] = True
                 self.manifest.append(manifest_entry)
@@ -766,7 +795,7 @@ class Workflow:
                 # them up so job history and the gallery see every file
                 if isinstance(step_action, Workflow):
                     self.manifest.extend(getattr(step_action, "manifest", []))
-                step_end_data = {"files": saved_files}
+                step_end_data = {"files": saved_files, "subfolder": subfolder}
                 if reused:
                     step_end_data["reused"] = True
                 run_context.emit(
@@ -959,7 +988,7 @@ class Workflow:
                     default_seed,
                     device,
                     cached_pipeline.pipeline,  # Reuse the actual loaded model
-                    output_dir=self.effective_output_dir,
+                    output_dir=self.step_output_dir(step_definition),
                     file_prefix=self.step_file_prefix(step_name),
                 )
                 # Set up generator with potentially new seed. no_generator is a
@@ -1000,7 +1029,7 @@ class Workflow:
                 step_definition["pipeline"],
                 default_seed,
                 device,
-                output_dir=self.effective_output_dir,
+                output_dir=self.step_output_dir(step_definition),
                 file_prefix=self.step_file_prefix(step_name),
             )
             # Loading is the longest silence in a run: weights, quantization,
@@ -1029,7 +1058,7 @@ class Workflow:
                 default_seed,
                 device,
                 previous_pipeline.pipeline,
-                output_dir=self.effective_output_dir,
+                output_dir=self.step_output_dir(step_definition),
                 file_prefix=self.step_file_prefix(step_definition["name"]),
             )
 

@@ -16,6 +16,8 @@ from dw.runs import (
     manifest_relative_files,
     new_run_id,
     output_layout,
+    resolve_output_reference,
+    split_run_path,
     strip_run_id,
     workflow_identity,
 )
@@ -73,6 +75,40 @@ class TestRunIds:
     def test_a_path_with_no_run_id_keeps_its_folder(self):
         assert strip_run_id("ltx2/still.png") == "ltx2"
         assert strip_run_id("still.png") == ""
+
+    def test_splitting_a_run_path_names_its_three_parts(self):
+        run_id = new_run_id({"id": "x"})
+        assert split_run_path(f"ltx2/Gyre/{run_id}/still.png") == (
+            "ltx2/Gyre",
+            run_id,
+            "",
+        )
+        assert split_run_path(f"ltx2/Gyre/{run_id}/final/still.png") == (
+            "ltx2/Gyre",
+            run_id,
+            "final",
+        )
+        assert split_run_path(f"ltx2/Gyre/{run_id}/shots/act-1/x.mp4") == (
+            "ltx2/Gyre",
+            run_id,
+            "shots/act-1",
+        )
+        # A counter suffix is still a run id
+        assert split_run_path(f"Gyre/{run_id}-2/final/x.mp4") == (
+            "Gyre",
+            f"{run_id}-2",
+            "final",
+        )
+
+    def test_a_path_with_no_run_id_splits_to_its_directory(self):
+        # Flat layout: nothing to anchor on, so the directory is the identity
+        assert split_run_path("ltx2/final/still.png") == ("ltx2/final", "", "")
+        assert split_run_path("still.png") == ("", "", "")
+
+    def test_stripping_a_run_id_ignores_what_follows_it(self):
+        run_id = new_run_id({"id": "x"})
+        assert strip_run_id(f"ltx2/Gyre/{run_id}/final/still.png") == "ltx2/Gyre"
+        assert strip_run_id(f"{run_id}/final/still.png") == ""
 
     def test_a_run_id_with_tz_aware_utc_now_has_correct_stamp(self):
         # Verify that a tz-aware UTC now produces the correct timestamp prefix
@@ -151,6 +187,12 @@ def _workflow_definition():
             }
         ],
     }
+
+
+def _foldered_definition(subfolder="final"):
+    definition = _workflow_definition()
+    definition["steps"][0]["result"]["subfolder"] = subfolder
+    return definition
 
 
 @pytest.fixture
@@ -412,3 +454,186 @@ class TestRealizedWorkflow:
         path = write_realized_workflow(str(tmp_path / "run"), {"id": "x"})
         assert path == str(tmp_path / "run" / "workflow.json")
         assert json.loads(open(path).read()) == {"id": "x"}
+
+
+class TestSubfolders:
+    def test_a_step_without_a_subfolder_writes_where_it_always_did(
+        self, tmp_path, fake_pipeline
+    ):
+        from dw.workflow import Workflow
+
+        Workflow(_workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        (run,) = (tmp_path / "Gyre").iterdir()
+        assert (run / "runs_test-gen0.0-0.0.png").is_file()
+        assert not any(child.is_dir() for child in run.iterdir())
+
+    def test_a_step_with_a_subfolder_writes_into_it(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        (run,) = (tmp_path / "Gyre").iterdir()
+        assert (run / "final" / "runs_test-gen0.0-0.0.png").is_file()
+        assert not (run / "runs_test-gen0.0-0.0.png").exists()
+        # The manifest still sits at the root of the run
+        assert (run / "manifest.json").is_file()
+
+    def test_a_nested_subfolder_is_created(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        Workflow(
+            _foldered_definition("shots/act-1"), str(tmp_path), "/w/workflows/Gyre.json"
+        ).run({})
+        (run,) = (tmp_path / "Gyre").iterdir()
+        assert (run / "shots" / "act-1" / "runs_test-gen0.0-0.0.png").is_file()
+
+    def test_step_output_dir_is_the_run_directory_without_a_subfolder(self, tmp_path):
+        from dw.workflow import Workflow
+
+        workflow = Workflow(_workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json")
+        workflow._run_dir = str(tmp_path / "Gyre" / "run")
+        step = workflow.workflow_definition["steps"][0]
+        assert workflow.step_output_dir(step) == workflow.effective_output_dir
+
+    def test_step_output_dir_refuses_an_escape_at_run_time(self, tmp_path):
+        from dw.security import SecurityError
+        from dw.workflow import Workflow
+
+        workflow = Workflow(
+            _foldered_definition("../other"), str(tmp_path), "/w/workflows/Gyre.json"
+        )
+        workflow._run_dir = str(tmp_path / "Gyre" / "run")
+        with pytest.raises(SecurityError):
+            workflow.step_output_dir(workflow.workflow_definition["steps"][0])
+
+    def test_the_pipeline_wrapper_is_pointed_at_the_subfolder(self, tmp_path, fake_pipeline):
+        # A chain step's save_segments spill writes through the pipeline's
+        # output_dir, so it has to be the step's directory, not the run's
+        from dw.workflow import Workflow
+
+        workflow = Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json")
+        workflow._run_dir = str(tmp_path / "Gyre" / "run")
+        step = workflow.workflow_definition["steps"][0]
+        action = workflow.create_step_action(step, {}, {}, 7, "cpu")
+        assert action.output_dir == os.path.join(workflow.effective_output_dir, "final")
+
+    def test_a_separator_in_file_base_name_is_refused_at_save(self, tmp_path):
+        from dw.result import Result
+        from dw.security import InvalidInputError
+
+        result = Result({"content_type": "image/png", "file_base_name": "final/"})
+        with pytest.raises(InvalidInputError, match="subfolder"):
+            result.save(str(tmp_path), "w-step.0")
+
+    def test_the_manifest_entry_carries_the_subfolder(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        (run,) = (tmp_path / "Gyre").iterdir()
+        manifest = json.loads((run / "manifest.json").read_text())
+        (entry,) = manifest["steps"]
+        assert entry["subfolder"] == "final"
+        assert entry["files"] == ["final/runs_test-gen0.0-0.0.png"]
+
+    def test_an_unfoldered_entry_carries_the_empty_string(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        Workflow(_workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        (run,) = (tmp_path / "Gyre").iterdir()
+        manifest = json.loads((run / "manifest.json").read_text())
+        assert manifest["steps"][0]["subfolder"] == ""
+
+    def test_a_reused_entry_carries_the_definitions_subfolder(
+        self, tmp_path, fake_pipeline
+    ):
+        from dw.workflow import Workflow
+
+        Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        first, second = sorted((tmp_path / "Gyre").iterdir())
+        manifest = json.loads((second / "manifest.json").read_text())
+        (entry,) = manifest["steps"]
+        assert entry["reused"] is True
+        assert entry["subfolder"] == "final"
+        # The file is the first run's, absolute, inside its 'final'
+        assert os.path.dirname(entry["files"][0]) == str(first / "final")
+
+    def test_the_step_end_event_carries_the_subfolder(self, tmp_path, fake_pipeline):
+        from dw.events import RunContext
+        from dw.workflow import Workflow
+
+        seen = []
+        context = RunContext(on_event=seen.append)
+        Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}, previous_pipelines={}, context=context
+        )
+        step_ends = [event for event in seen if event.get("event") == "step_end"]
+        assert step_ends and step_ends[0]["subfolder"] == "final"
+
+    def test_an_output_reference_reaches_into_a_subfolder(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        (run,) = (tmp_path / "Gyre").iterdir()
+        resolved = resolve_output_reference(
+            "output:Gyre/latest/final/runs_test-gen0.0-0.0.png", root=str(tmp_path)
+        )
+        assert resolved == str(run / "final" / "runs_test-gen0.0-0.0.png")
+        assert resolve_output_reference(
+            f"output:Gyre/{run.name}/final/runs_test-gen0.0-0.0.png", root=str(tmp_path)
+        ) == resolved
+
+    def test_a_for_each_member_lands_in_its_own_subfolder(self, tmp_path, fake_pipeline):
+        # The design's showcase case: 'item:' routes each member, and an entry
+        # may spell its value through a variable
+        from dw.workflow import Workflow
+
+        definition = _workflow_definition()
+        definition["variables"] = {"scratch": "out"}
+        step = definition["steps"][0]
+        step["for_each"] = [
+            {"name": "a", "dest": "shots/a"},
+            {"name": "b", "dest": "variable:scratch"},
+        ]
+        step["result"]["subfolder"] = "item:dest"
+        Workflow(definition, str(tmp_path), "/w/workflows/Gyre.json").run({})
+        (run,) = (tmp_path / "Gyre").iterdir()
+        assert (run / "shots" / "a" / "runs_test-gen0@a.0-0.0.png").is_file()
+        assert (run / "out" / "runs_test-gen0@b.1-0.0.png").is_file()
+        manifest = json.loads((run / "manifest.json").read_text())
+        assert [e["subfolder"] for e in manifest["steps"]] == ["shots/a", "out"]
+
+    def test_a_symlinked_subfolder_cannot_escape_the_run(self, tmp_path):
+        # The shape check never sees this one - 'final' is a fine name - so
+        # it is containment, validate_output_path on the joined path, that
+        # has to refuse it
+        from dw.security import SecurityError
+        from dw.workflow import Workflow
+
+        workflow = Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json")
+        run_dir = tmp_path / "Gyre" / "run"
+        run_dir.mkdir(parents=True)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (run_dir / "final").symlink_to(elsewhere)
+        workflow._run_dir = str(run_dir)
+        with pytest.raises(SecurityError):
+            workflow.step_output_dir(workflow.workflow_definition["steps"][0])
+
+    def test_the_first_run_id_shaped_segment_wins(self):
+        first = new_run_id({"id": "x"})
+        second = new_run_id({"id": "y"})
+        assert split_run_path(f"Gyre/{first}/{second}/x.png") == ("Gyre", first, second)
