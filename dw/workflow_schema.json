@@ -719,9 +719,11 @@
                     "type": "object",
                     "properties": {
                         "enable_slicing": {
+                            "description": "Decode the latent batch one sample at a time rather than all at once - the answer to a decode that runs out of memory on a batch the denoise itself fitted. Costs nothing but the loss of batched decode parallelism.",
                             "type": "boolean"
                         },
                         "enable_tiling": {
+                            "description": "Decode in tiles rather than in one allocation, for a single sample too large to decode whole - a long or high-resolution video, where the peak is the decode rather than the denoise. Combines with 'enable_slicing'.",
                             "type": "boolean"
                         },
                         "channels_last": {
