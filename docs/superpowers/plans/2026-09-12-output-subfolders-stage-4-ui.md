@@ -555,7 +555,21 @@ Styles - add beside `.stephead`:
   }
 ```
 
-Headings are already mono site-wide (`ui/CLAUDE.md`: "Headings are mono because they name things the engine resolves"), so `final/` reads as the path segment it is with no extra class. Check `.stephead:first-of-type` still behaves: it matches the first `h3.stephead` among its siblings in the unsectioned case and is inert in the sectioned case (the step heading is then an `h4`, covered by `.subhead + .stephead`).
+and extend `.stephead` itself with the heading treatment `app.css` gives `h1, h2, h3` only - an `h4` would otherwise fall back to the browser's sans bold, and a step name is engine-resolved, so mono:
+
+```css
+  .stephead {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    font-size: 0.78rem;
+    text-transform: none;
+    margin: var(--space-3) 0 var(--space-2);
+  }
+```
+
+(No change in the `h3` case - those values are what the global rule already gives it. Do not edit `app.css`.) `.subhead` is an `h3`, so `final/` is already mono. `.stephead:first-of-type` is per element type: in the sectioned case it matches the first `h4.stephead` in the panel and sets `margin-top: 0`, the same thing `.subhead + .stephead` sets - redundant there, not inert. Keep both rules: the second and later sections' first `h4` rely on `.subhead + .stephead`.
 
 - [ ] **Step 4: Run the tests, check and lint**
 
@@ -656,7 +670,7 @@ it('falls back to every subfolder when the picked one empties out', async () => 
   )
 
   checkbox('wf/run-1/final/only.png').click()
-  screen.getByRole('button', { name: /^delete$/i }).click()
+  screen.getByRole('button', { name: /^delete/i }).click()
   await answerConfirm(true)
 
   // The last final/ file is gone: the control goes with it and the grid
@@ -669,7 +683,7 @@ it('falls back to every subfolder when the picked one empties out', async () => 
 })
 ```
 
-Note: the fourth test's "Delete" click - the bulk `Delete` in the `.picks` bar - shares its name with the confirm dialog's button; `answerConfirm` is already scoped to the dialog. If `getByRole('button', { name: /^delete$/i })` matches two buttons *before* the dialog opens, scope it with `within(screen.getByRole('region', { name: 'selected files' }))`.
+Note: the fourth test's "Delete" click is the bulk `Delete` in the `.picks` bar - the only button of that name before the dialog opens (the existing delete tests use the same `/^delete/i`), and `answerConfirm` is scoped to the dialog that follows.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -699,19 +713,20 @@ Derivations - replace the `visible` derivation:
     ),
   )
   const subfolderOffered = $derived(subfolders.some((s) => s !== ''))
-  // A pick that no longer exists (its last file deleted) means everything,
-  // not an empty grid pinned to a vanished value
-  const subfolderPick = $derived(
-    subfolder !== null && subfolders.includes(subfolder) ? subfolder : null,
-  )
-  const filterActive = $derived(filter !== '' || subfolderPick !== null)
+  const filterActive = $derived(filter !== '' || subfolder !== null)
   const visible = $derived(
     files.filter(
       (f) =>
         f.name.toLowerCase().includes(filter.toLowerCase()) &&
-        (subfolderPick === null || f.subfolder === subfolderPick),
+        (subfolder === null || f.subfolder === subfolder),
     ),
   )
+  // A pick that no longer exists (its last file deleted) means everything,
+  // not an empty grid pinned to a vanished value - and the control itself
+  // is reset, since a <select> whose value matches no option shows blank
+  $effect(() => {
+    if (subfolder !== null && !subfolders.includes(subfolder)) subfolder = null
+  })
 ```
 
 Markup - in `.head`, after the filter input:
@@ -740,12 +755,15 @@ Style, beside `.filter`:
 
 ```css
   .subfolderpick {
+    /* The global select rule is width: 100% - here it must share the row */
+    width: auto;
+    max-width: 200px;
     font-family: var(--font-mono);
     font-size: var(--t-sm);
   }
 ```
 
-(The option text is a path segment the engine wrote - mono, per the design system. Leave the global `select` colours alone.) The `.filter` rule's `margin-left: auto` pushes the input to the right edge; the select lands after it and inherits the `.head` gap - check the layout reads "filter, then subfolder" and is not wrapped oddly at narrow widths; if the select should sit before the input, move it and keep `margin-left: auto` on `.filter`.
+(The option text is a path segment the engine wrote - mono, per the design system. Leave the global `select` colours alone; `width: auto` is what keeps the control beside the filter rather than wrapped onto a row of its own.) The `.filter` rule's `margin-left: auto` pushes the input to the right edge; the select lands after it and inherits the `.head` gap - check the layout reads "filter, then subfolder" and is not wrapped oddly at narrow widths; if the select should sit before the input, move it and keep `margin-left: auto` on `.filter`.
 
 - [ ] **Step 4: Run tests, check, lint**
 
@@ -772,7 +790,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: `docs/SERVER.md`**
 
-In the *Jobs* bullet, after "and its result files as they land." append (same line):
+In the *Jobs* bullet, the sentence "…and its result files as they land." wraps across two lines (~55-56, ending `they land.`); the next line begins "Jobs can be cancelled". Insert after `they land.` and before "Jobs can be cancelled", rewrapped to the bullet's width:
 
 ```
   A run whose steps chose a `result.subfolder` shows its results under
@@ -813,7 +831,7 @@ Status line: change `**stages 1-3 (engine, server/MCP, steering) implemented; st
   `ui/src/lib/results.ts`).
 ```
 
-*Phasing* item 4 - leave the text; it is accurate.
+*Phasing* item 4 - change "`subfolder` on the `ManifestEntry` and `JobEvent` types" to "`subfolder` on the `ManifestEntry` and `GalleryFile` types and a `StepEndEvent` subtype of `JobEvent`" (the `JobEvent` type is an index signature, so the field lives on a typed subtype).
 
 - [ ] **Step 3: `CLAUDE.md`**
 
@@ -830,8 +848,8 @@ Keep the bullet's wrapping width (~90 columns) and make sure the inserted senten
 
 - [ ] **Step 4: Check nothing else pins the old status**
 
-Run: `grep -rn "stage 4 (UI) pending\|stages 1-3" docs CLAUDE.md`
-Expected: no matches.
+Run: `grep -rn "stage 4 (UI) pending\|stages 1-3" docs/proposals docs/SERVER.md docs/MCP.md docs/WORKFLOW_GUIDE.md CLAUDE.md`
+Expected: no matches. (The plans under `docs/superpowers/` legitimately mention both phrases - they are history, not status.)
 
 - [ ] **Step 5: Commit**
 
