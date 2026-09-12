@@ -8,7 +8,7 @@ server. They assume the `dw` MCP server is already registered
 
 Install once, from Claude Code:
 
-```
+```bash
 /plugin marketplace add dkackman/diffusers-workflow
 /plugin install dw@diffusers-workflow
 ```
@@ -24,7 +24,7 @@ fetch the vendor's guides when those are absent, so nothing else is required.
 Installing them is optional and worth it for Music 3, whose skill carries a
 genre router and 1,000 example captions that a fetch does not reach:
 
-```
+```bash
 npx skills add MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing
 npx skills add MiniMax-AI/MiniMax-Music3 --skill music-caption-rewriter
 ```
