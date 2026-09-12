@@ -60,8 +60,9 @@ not from here.
   per entry). `shots` is one list argument: a dialogue entry is `name`,
   `prompt`, `references` (which portraits and voices this shot uses) and
   `num_frames`; a music-video entry is `name`, `prompt` and `start_frame`.
-  A six-shot piece is one more entry, not another file; the listing's `cost`
-  is the default list's, so quote it per shot times the entries you write.
+  A six-shot piece is one more entry, not another file. The listing's `cost`
+  is the whole default list's: divide by its entry count for the per shot
+  figure, then multiply by the entries you write.
   A cut erases drift; the last shot is as clean as the first. Write shots,
   not takes. Each shot generates its own audio, so write
   `non_diegetic_music: N/A` in every shot and lay one score under the concat

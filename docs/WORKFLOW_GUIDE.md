@@ -411,10 +411,12 @@ no zip and no loop index.
 
 Limits: a list has at most 32 entries. `release_pipeline` on a `for_each`
 step releases after the *last* member. Each entry is a full generation, so
-quote `cost × len(list)` before running a list-driven workflow, and
-`validate_workflow` with the `arguments` you will run with: it expands your
-list, not the template's default, resolves the variables your entries name,
-and reports a duplicate name or a missing field at the entry's path.
+quote the cost before running a list-driven workflow: the listing's `cost`
+is for the default list, so divide it by that list's entry count and
+multiply by the entries you write. Then `validate_workflow` with the
+`arguments` you will run with: it expands your list, not the template's
+default, resolves the variables your entries name, and reports a duplicate
+name or a missing field at the entry's path.
 
 Every error carries a path in the file you wrote, not in the expanded step
 list: a bad reference inside a member is reported at the `for_each` step's
