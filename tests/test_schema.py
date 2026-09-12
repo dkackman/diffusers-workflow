@@ -431,3 +431,26 @@ def test_an_empty_for_each_list_fails_schema_validation():
     errors = validate_data_all(base, schema)
     assert errors != []
     assert any("for_each" in e["path"] for e in errors)
+
+
+class TestResultSubfolder:
+    def test_subfolder_is_a_described_string_with_no_pattern(self):
+        result = load_schema("workflow")["$defs"]["result"]["properties"]
+        assert result["subfolder"]["type"] == "string"
+        assert "final" in result["subfolder"]["description"]
+        # Schema validation runs before substitution, so a pattern would
+        # reject 'variable:dest' and 'item:subfolder'
+        assert "pattern" not in result["subfolder"]
+
+    def test_a_workflow_with_a_subfolder_validates(self):
+        definition = {
+            "id": "s",
+            "steps": [
+                {
+                    "name": "a",
+                    "task": {"command": "noop", "arguments": {}},
+                    "result": {"content_type": "image/png", "subfolder": "variable:dest"},
+                }
+            ],
+        }
+        assert validate_data_all(definition, load_schema("workflow")) == []

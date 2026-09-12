@@ -1109,7 +1109,11 @@
                     "default": true
                 },
                 "file_base_name": {
-                    "description": "The base name for saving result and metadata files. The file extension is determined by context and content_type.",
+                    "description": "The base name for saving result and metadata files. A name, not a path - it may not contain a separator; to place a step's files in a subfolder of the run directory set 'subfolder'. The file extension is determined by context and content_type.",
+                    "type": "string"
+                },
+                "subfolder": {
+                    "description": "A subfolder of the run directory this step's files are written into, as a relative path like 'final' or 'shots/act-1'. Optional: without it the files land at the root of the run directory as they always have. By convention a step whose output the user will be shown is 'final' and everything else is 'intermediate', which is how a consumer tells the deliverable from the scratch files without knowing the workflow; the engine treats no name specially. May be a 'variable:' or, inside a for_each step, an 'item:' reference. Each segment must start with a letter, digit or underscore; '..' and '\\' are refused.",
                     "type": "string"
                 },
                 "fps": {
