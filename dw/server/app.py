@@ -49,6 +49,7 @@ from ..introspection import (
     describe_task,
     workflow_argument_warnings,
 )
+from ..for_each import entry_field_warnings
 from ..schema import load_schema, validate_data, format_validation_errors
 from ..prompts import (
     PROMPT_PREFIX,
@@ -1348,7 +1349,8 @@ def create_app(
             "valid": True,
             "error": None,
             "errors": [],
-            "warnings": workflow_argument_warnings(definition),
+            "warnings": workflow_argument_warnings(definition)
+            + entry_field_warnings(definition, request.arguments),
         }
         if request.arguments:
             # Naming what was checked is the difference between 'the stored

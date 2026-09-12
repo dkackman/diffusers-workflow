@@ -8,6 +8,7 @@ import pytest
 from dw.for_each import (
     MAX_FOR_EACH_ENTRIES,
     ForEachError,
+    entry_field_warnings,
     expand_for_each,
     list_fields,
     member_name,
@@ -898,3 +899,57 @@ class TestListFields:
         assert list_fields({}) == {}
         assert list_fields({"steps": "nope"}) == {}
         assert list_fields({"steps": ["not a dict"]}) == {}
+
+
+class TestEntryFieldWarnings:
+    def workflow(self):
+        return definition(
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "task": {"arguments": {"text": "item:prompt", "n": "item:num_frames"}},
+            },
+            variables={"shots": [{"name": "a", "prompt": "p", "num_frames": 1}]},
+        )
+
+    def test_a_key_no_step_reads_is_reported_at_the_entry(self):
+        w = self.workflow()
+        w["variables"]["shots"].append({"name": "b", "prompt": "q", "num_frame": 2})
+        assert entry_field_warnings(w) == [
+            "variables.shots[1]: entry 'b' carries 'num_frame', which no step reads; "
+            "entries of 'shots' take: name, num_frames, prompt"
+        ]
+
+    def test_a_caller_s_list_is_reported_under_arguments(self):
+        warnings = entry_field_warnings(
+            self.workflow(),
+            arguments={
+                "shots": [{"name": "a", "prompt": "p", "num_frames": 1, "note": "x"}]
+            },
+        )
+        assert warnings == [
+            "arguments.shots[0]: entry 'a' carries 'note', which no step reads; "
+            "entries of 'shots' take: name, num_frames, prompt"
+        ]
+
+    def test_bad_arguments_fall_back_to_the_defaults(self):
+        assert entry_field_warnings(self.workflow(), arguments={"nope": 1}) == []
+
+    def test_value_entries_and_clean_entries_warn_about_nothing(self):
+        assert entry_field_warnings(self.workflow()) == []
+        w = definition(
+            {
+                "name": "say",
+                "for_each": "variable:lines",
+                "task": {"arguments": {"t": "item:"}},
+            },
+            variables={"lines": ["a", "b"]},
+        )
+        assert entry_field_warnings(w) == []
+
+    def test_an_entry_without_a_name_is_named_by_its_index(self):
+        w = self.workflow()
+        w["variables"]["shots"] = [{"prompt": "p", "num_frames": 1, "extra": 0}]
+        assert entry_field_warnings(w)[0].startswith(
+            "variables.shots[0]: entry 0 carries 'extra'"
+        )

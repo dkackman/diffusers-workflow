@@ -31,6 +31,7 @@ import copy
 from .arguments import FROM_PREVIOUS_RESULT_KEY, PREVIOUS_RESULT_PREFIX
 from .security import InvalidInputError, validate_variable_name
 from .step_cache import reference_resolves_to
+from .variables import argument_errors, set_variables
 
 FOR_EACH_KEY = "for_each"
 ITEM_PREFIX = "item:"
@@ -331,6 +332,48 @@ def list_fields(definition):
         }
         for variable, entry in found.items()
     }
+
+
+def entry_field_warnings(definition, arguments=None):
+    """Every entry key of a list-driven variable that no step reads.
+
+    A caller who writes 'num_frame' for 'num_frames' gets the template's
+    value for the field they meant to set, in silence; this names the
+    key, at the entry it sits in, with the fields the list takes. A
+    warning rather than an error: an entry may carry a note on purpose.
+    Good `arguments` are folded in first, and a list the caller supplied
+    is reported under 'arguments.', where they wrote it.
+    """
+    if not isinstance(definition, dict):
+        return []
+    variables = definition.get("variables")
+    if not isinstance(variables, dict):
+        return []
+    variables = copy.deepcopy(variables)
+    supplied = set()
+    if arguments and not argument_errors(definition, arguments):
+        set_variables(arguments, variables)
+        supplied = set(arguments)
+    warnings = []
+    for variable, spec in list_fields(definition).items():
+        fields = spec["fields"]
+        entries = variables.get(variable)
+        if fields is None or not isinstance(entries, list):
+            continue
+        where = "arguments" if variable in supplied else "variables"
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                continue
+            unknown = sorted(set(entry) - set(fields))
+            if not unknown:
+                continue
+            label = repr(entry["name"]) if isinstance(entry.get("name"), str) else index
+            warnings.append(
+                f"{where}.{variable}[{index}]: entry {label} carries "
+                f"{', '.join(repr(k) for k in unknown)}, which no step reads; "
+                f"entries of '{variable}' take: {', '.join(fields)}"
+            )
+    return warnings
 
 
 def _strings(value):
