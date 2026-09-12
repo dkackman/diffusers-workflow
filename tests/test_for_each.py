@@ -26,6 +26,12 @@ def load_template(name):
         return json.load(f)
 
 
+def load_workflow(name):
+    from dw.workflow import workflow_from_file
+
+    return workflow_from_file(os.path.normpath(os.path.join(TEMPLATES, name)), ".")
+
+
 def steps_by_name(definition):
     return {s["name"]: s for s in definition["steps"]}
 
@@ -628,86 +634,74 @@ class TestSameKeySiblings:
 
 
 class TestMusicVideoTemplate:
-    """music-video's four slices and four shots, written as two for_each
-    groups over one 'shots' list, expand to the steps the template holds
-    by hand today."""
+    """music-video's slices and shots are two for_each groups over one
+    'shots' list, paired by entry name: shot@closeup reads slice@closeup."""
 
-    def test_the_hand_written_shots_are_what_the_list_expands_to(self):
-        template = load_template("music-video.json")
-        today = steps_by_name(template)
-        shots = [
-            {
-                "name": "wide_open",
-                "prompt": "variable:shot_1_wide_open",
-                "start_frame": 0,
-            },
-            {
-                "name": "closeup",
-                "prompt": "variable:shot_2_closeup",
-                "start_frame": 124,
-            },
-            {"name": "room", "prompt": "variable:shot_3_room", "start_frame": 248},
-            {"name": "finale", "prompt": "variable:shot_4_finale", "start_frame": 372},
-        ]
-        slice_template = copy.deepcopy(today["slice_1"])
-        slice_template["name"] = "slice"
-        slice_template["for_each"] = shots
-        slice_template["task"]["arguments"]["start_frame"] = "item:start_frame"
+    KEYS = ["wide_open", "closeup", "room", "finale"]
 
-        shot_template = copy.deepcopy(today["shot_1_wide_open"])
-        shot_template["name"] = "shot"
-        shot_template["for_each"] = shots
-        shot_template["pipeline"]["arguments"]["prompt"] = "item:prompt"
-        for reference in shot_template["pipeline"]["arguments"]["references"]:
-            if reference.get("from_previous_result") == "slice_1":
-                reference["from_previous_result"] = "slice"
+    def expanded(self):
+        return load_workflow("music-video.json").expanded_definition()
 
-        edit = copy.deepcopy(today["edit"])
-        edit["task"]["arguments"]["videos"] = "gather:shot"
+    def test_the_template_validates_as_it_will_run(self):
+        assert load_workflow("music-video.json").validation_errors() == []
 
-        expanded = expand_for_each(
-            definition(
-                today["draw_singer"],
-                today["write_song"],
-                slice_template,
-                today["soundtrack"],
-                shot_template,
-                edit,
-                today["music_video"],
-            )
+    def test_one_slice_and_one_shot_per_entry_in_list_order(self):
+        names = [s["name"] for s in self.expanded()["steps"]]
+        assert names == (
+            ["draw_singer", "write_song"]
+            + [f"slice@{k}" for k in self.KEYS]
+            + ["soundtrack"]
+            + [f"shot@{k}" for k in self.KEYS]
+            + ["edit", "music_video"]
         )
-        got = steps_by_name(expanded)
 
-        # Each expanded slice is today's slice with the new name
-        for key, old in zip(["wide_open", "closeup", "room", "finale"], range(1, 5)):
-            expected = copy.deepcopy(today[f"slice_{old}"])
-            expected["name"] = f"slice@{key}"
-            assert got[f"slice@{key}"] == expected
-
-        # Each expanded shot is today's shot (as a full pipeline block) with
-        # the new name and its slice renamed
-        hand_written = [
-            "shot_1_wide_open",
-            "shot_2_closeup",
-            "shot_3_room",
-            "shot_4_finale",
+    def test_each_slice_starts_where_its_entry_says(self):
+        got = steps_by_name(self.expanded())
+        starts = [
+            got[f"slice@{k}"]["task"]["arguments"]["start_frame"] for k in self.KEYS
         ]
-        for key, old, index in zip(
-            ["wide_open", "closeup", "room", "finale"], hand_written, range(1, 5)
-        ):
-            step = today[old]
-            if "pipeline_reference" in step:
-                step = without_pipeline_reference(step, today["shot_1_wide_open"])
-            expected = copy.deepcopy(step)
-            expected["name"] = f"shot@{key}"
-            for reference in expected["pipeline"]["arguments"]["references"]:
-                if reference.get("from_previous_result") == f"slice_{index}":
-                    reference["from_previous_result"] = f"slice@{key}"
-            assert got[f"shot@{key}"] == expected
+        assert starts == [0, 124, 248, 372]
 
+    def test_each_shot_reads_its_own_slice_and_the_one_portrait(self):
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            references = got[f"shot@{key}"]["pipeline"]["arguments"]["references"]
+            assert [r["from_previous_result"] for r in references] == [
+                "draw_singer",
+                f"slice@{key}",
+            ]
+
+    def test_each_shot_carries_its_entry_s_prompt(self):
+        template = load_template("music-video.json")
+        got = steps_by_name(self.expanded())
+        for entry in template["variables"]["shots"]:
+            prompt = got[f"shot@{entry['name']}"]["pipeline"]["arguments"]["prompt"]
+            assert prompt == entry["prompt"]
+            assert prompt.startswith("subject_definitions:")
+
+    def test_every_shot_is_the_same_pipeline(self):
+        """Full pipeline blocks rather than pipeline_reference: the identity
+        cache reuses the loaded model, so this costs no reload."""
+        from dw.workflow import pipeline_cache_key
+
+        got = steps_by_name(self.expanded())
+        keys = {pipeline_cache_key(got[f"shot@{k}"]["pipeline"]) for k in self.KEYS}
+        assert len(keys) == 1
+
+    def test_the_edit_gathers_the_shots_in_order(self):
+        got = steps_by_name(self.expanded())
         assert got["edit"]["task"]["arguments"]["videos"] == [
-            f"previous_result:shot@{k}"
-            for k in ["wide_open", "closeup", "room", "finale"]
+            f"previous_result:shot@{k}" for k in self.KEYS
+        ]
+
+    def test_the_realized_file_keeps_the_list(self):
+        """workflow.json beside a run is the source form: 'for_each' and the
+        'shots' variable, not the expanded members."""
+        template = load_template("music-video.json")
+        assert "shots" in template["variables"]
+        assert [s["name"] for s in template["steps"] if "for_each" in s] == [
+            "slice",
+            "shot",
         ]
 
 

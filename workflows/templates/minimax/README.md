@@ -133,4 +133,4 @@ same clip as an audio reference in each shot, as
 | Example | What it introduces |
 | ------- | ------------------ |
 | [dialogue-short.json](dialogue-short.json) | A five-shot sitcom scene: Z-Image draws the cast, `pipeline_reference` reruns one loaded model per shot, `concat_videos` splices the episode |
-| [music-video.json](music-video.json) | A music video cut to a generated song: `slice_audio` deals frame-exact pieces to lip-synced shots, and `pair_audio` lays the unbroken track over the finished edit |
+| [music-video.json](music-video.json) | A music video cut to a generated song, one `shots` list driving both `for_each` groups: `slice_audio` deals each entry its frame-exact piece, the shot lip-syncs to it, and `pair_audio` lays the unbroken track over the finished edit |
