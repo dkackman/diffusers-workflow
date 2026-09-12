@@ -315,7 +315,16 @@ same reason - default setup cannot load a pack.
   `split_run_path` finds the run id anywhere in a path, so `strip_run_id` still groups a
   workflow's runs. Gallery entries carry it too; `GET /api/gallery?subfolder=` and MCP
   `list_gallery(subfolder=)` filter on it. `file_base_name` may not contain a separator -
-  it is a name, not a path
+  it is a name, not a path.
+  Every `workflows/templates/**` file with two or more saving steps
+  marks each one `final`/`intermediate` (`tests/test_template_subfolders.py` pins the rule;
+  `dw/workflows/` builtins stay unmarked - a role is the parent's to assign). That moved
+  the templates' outputs into `<run>/final/` and `<run>/intermediate/`: an
+  `output:<template>/latest/x` reference keeps resolving but stops advancing past the last
+  pre-change run (`keep_output` is the stable form), and a seeded template's first run
+  after the change regenerates rather than hitting the step cache (the key includes
+  `result`). Those two, and a stray `subfolder` key becoming live, are the release-note
+  items beside the `shots` list change
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image
