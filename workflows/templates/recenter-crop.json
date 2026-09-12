@@ -29,7 +29,8 @@
                 }
             },
             "result": {
-                "content_type": "image/jpeg"
+                "content_type": "image/jpeg",
+                "subfolder": "final"
             }
         },
         {
@@ -46,7 +47,8 @@
                 }
             },
             "result": {
-                "content_type": "image/jpeg"
+                "content_type": "image/jpeg",
+                "subfolder": "final"
             }
         },
         {
@@ -64,7 +66,8 @@
                 }
             },
             "result": {
-                "content_type": "image/jpeg"
+                "content_type": "image/jpeg",
+                "subfolder": "final"
             }
         }
     ]

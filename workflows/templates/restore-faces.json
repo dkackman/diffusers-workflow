@@ -34,7 +34,8 @@
             },
             "result": {
                 "content_type": "image/jpeg",
-                "embed_metadata": true
+                "embed_metadata": true,
+                "subfolder": "intermediate"
             }
         },
         {
@@ -50,7 +51,8 @@
             },
             "result": {
                 "content_type": "image/jpeg",
-                "embed_metadata": true
+                "embed_metadata": true,
+                "subfolder": "final"
             }
         }
     ]

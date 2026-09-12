@@ -30,7 +30,8 @@
                 }
             },
             "result": {
-                "content_type": "text/plain"
+                "content_type": "text/plain",
+                "subfolder": "intermediate"
             }
         },
         {
@@ -157,7 +158,8 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": 24
+                "fps": 24,
+                "subfolder": "final"
             }
         }
     ]
