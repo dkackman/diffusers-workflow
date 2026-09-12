@@ -599,7 +599,7 @@
        view, which is most of the win for cheap. contain-intrinsic-size
        keeps scrollbar height stable before a cell has ever been measured. */
     content-visibility: auto;
-    contain-intrinsic-size: 150px 180px;
+    contain-intrinsic-size: 150px 210px;
   }
   .cell:hover,
   .cell.active {
@@ -633,8 +633,8 @@
        that tells them apart, so wrap onto two lines and break mid-token
        instead of clipping. */
     display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
     -webkit-box-orient: vertical;
     white-space: normal;
     word-break: break-all;
