@@ -1,6 +1,6 @@
 {
     "id": "MiniMaxH3MusicVideo",
-    "description": "A music video built from cuts, sung to a soundtrack that never touches a chain. The long-take way to film a song - one chained generation lip-synced end to end - degrades with every carried segment and can let the sync slip. This builds the video the way music television does instead: MiniMax-Music3 writes the song, one 'slice_audio' step per entry of 'shots' cuts it into frame-exact pieces (124 frames at 24 fps each, from each entry's 'start_frame'), and one shot per entry is generated fresh from the same Z-Image portrait plus its own slice, lip-synced to just those five seconds. 'shots' is a list, so the cut is an argument: add an entry and there is one more slice and one more shot, named for it ('slice@closeup', 'shot@closeup'), and the loaded model is reused across every shot - identical pipeline definitions share one model. No shot conditions on another shot's output, so the last cut is as clean as the first. 'concat_videos' gathers the shots in list order, and because each one covered exactly its slice's frames, the edit is sample-accurate by construction: 'pair_audio' drops the original, unbroken song over the whole cut and the mouths line up in every shot. The generation models pass through one at a time - each is released before the next loads - so the workflow peaks no higher than its largest single model.",
+    "description": "A music video built from cuts, sung to a soundtrack that never touches a chain. The long-take way to film a song - one chained generation lip-synced end to end - degrades with every carried segment and can let the sync slip. This builds the video the way music television does instead: MiniMax-Music3 writes the song, one 'slice_audio' step per entry of 'shots' cuts it into frame-exact pieces (124 frames at 24 fps each, from each entry's 'start_frame'), and one shot per entry is generated fresh from the same Z-Image portrait plus its own slice, lip-synced to just those five seconds. 'shots' is a list, so the cut is an argument: add an entry and there is one more slice and one more shot, named for it ('slice@closeup', 'shot@closeup'), and the loaded model is reused across every shot - identical pipeline definitions share one model. No shot conditions on another shot's output, so the last cut is as clean as the first. 'concat_videos' gathers the shots in list order, and because each one covered exactly its slice's frames, the edit is sample-accurate by construction: 'pair_audio' drops the original, unbroken song over the whole cut and the mouths line up in every shot. The generation models pass through one at a time - each is released before the next loads - so the workflow peaks no higher than its largest single model. Shots generated independently also drift in loudness - 10 dB between two shots of one scene is ordinary - and no seam control can hide a level jump, because it is either side of the cut rather than at it; 'match_levels' ('rms' for perceived level, 'peak' for the loudest sample) evens the shots out before they are joined, and left null, as it is by default, a wide spread is warned about in the log rather than passing in silence.",
     "cost": [
         {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 35}
     ],
@@ -38,6 +38,7 @@
         "fps": 24,
         "audio_bleed_ms": 0,
         "seam_fade_ms": null,
+        "match_levels": null,
         "width": 960,
         "height": 544,
         "num_inference_steps": 9,
@@ -281,7 +282,8 @@
                     "trim_frames": 0,
                     "fps": "variable:fps",
                     "audio_bleed_ms": "variable:audio_bleed_ms",
-                    "seam_fade_ms": "variable:seam_fade_ms"
+                    "seam_fade_ms": "variable:seam_fade_ms",
+                    "match_levels": "variable:match_levels"
                 }
             }
         },

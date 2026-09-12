@@ -101,3 +101,29 @@ class TestDissolveVideos:
 
         with pytest.raises(ValueError, match="sample rate"):
             dissolve_videos([first, second], 2, fps=4)
+
+
+class TestLevelMatching:
+    """The same pair concat_videos carries (#82) - a dissolve joins
+    independently generated shots too, and a cross-dissolve between two
+    loudnesses is a swell, not a match."""
+
+    def test_matching_brings_the_shots_to_one_level(self):
+        result = dissolve_videos(
+            [audio_video(8, 0, 0.5), audio_video(8, 0, 0.05)],
+            dissolve_frames=0,
+            fps=4,
+            match_levels="peak",
+        )
+
+        assert abs(result.audio[0][0]) == pytest.approx(abs(result.audio[0][-1]))
+
+    def test_off_by_default_but_a_wide_spread_warns(self, caplog):
+        result = dissolve_videos(
+            [audio_video(8, 0, 0.5), audio_video(8, 0, 0.05)],
+            dissolve_frames=0,
+            fps=4,
+        )
+
+        assert abs(result.audio[0][-1]) == pytest.approx(0.05)
+        assert "level jump" in caplog.text
