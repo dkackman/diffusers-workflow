@@ -506,23 +506,35 @@ class Pipeline:
                 stack.enter_context(attention_backend(attn_backend))
 
             stack.enter_context(stateful_cache_context(self.pipeline))
+            if not self._takes_step_callback():
+                # A modular pipeline takes no step callback at all, so this
+                # is the only per-step signal it has: the denoise blocks
+                # drive a tqdm bar, and a bar that reports each advance is
+                # the difference between a slow run and a hung one
+                stack.enter_context(reported_progress_bars(self.pipeline))
 
             return self.pipeline(**arguments)
+
+    def _takes_step_callback(self):
+        """Whether this pipeline names `callback_on_step_end` in its own
+        signature. Only a pipeline that names the parameter explicitly gets
+        one - a **kwargs signature is no promise the pipeline honors it, and
+        a ModularPipeline (H3, LTX-2, Qwen-Image) has no such parameter at
+        all, which is why it needs the progress-bar route instead."""
+        try:
+            parameters = inspect.signature(self.pipeline.__call__).parameters
+        except (TypeError, ValueError):
+            return False
+        return "callback_on_step_end" in parameters
 
     def _with_step_callback(self, arguments):
         """Inject a callback_on_step_end that reports per-step progress to the
         active run context and raises when the run has been cancelled.
 
         Workflow JSON cannot express a callable, so this is the only way a
-        diffusion-step callback ever reaches a pipeline call. Only pipelines
-        that name the parameter explicitly get one - a **kwargs signature is
-        no promise the pipeline honors it.
+        diffusion-step callback ever reaches a pipeline call.
         """
-        try:
-            parameters = inspect.signature(self.pipeline.__call__).parameters
-        except (TypeError, ValueError):
-            return arguments
-        if "callback_on_step_end" not in parameters:
+        if not self._takes_step_callback():
             return arguments
 
         run_context = get_context()
@@ -1748,6 +1760,144 @@ def get_cache_transformer(pipeline):
         if transformer is not None:
             return transformer
     return None
+
+
+class _ReportingProgressBar:
+    """A tqdm bar that also reports each advance to the active run.
+
+    Wraps rather than subclasses, because the bar it wraps is whatever the
+    block's own progress_bar() built - tqdm, or a notebook bar, or whatever
+    a future diffusers uses. Everything it does not intercept falls through
+    to the real bar, so the terminal output is unchanged.
+    """
+
+    def __init__(self, bar, on_advance, total=None):
+        self._bar = bar
+        self._on_advance = on_advance
+        # Counted here rather than read off the bar: a disabled tqdm - which
+        # is what a quiet server or a notebook config leaves you with - keeps
+        # its own `n` at zero while still being advanced normally
+        self._done = 0
+        self._total = total if total is not None else getattr(bar, "total", None)
+
+    def update(self, n=1):
+        result = self._bar.update(n)
+        self._done += n or 0
+        self._on_advance(self._done, self._total)
+        return result
+
+    def __iter__(self):
+        # Reported after the body of the loop has run, not before it: the
+        # step is finished when control comes back here
+        for item in self._bar:
+            yield item
+            self._done += 1
+            self._on_advance(self._done, self._total)
+
+    def __enter__(self):
+        self._bar.__enter__()
+        return self
+
+    def __exit__(self, *exception):
+        return self._bar.__exit__(*exception)
+
+    def __getattr__(self, name):
+        # Guarded: the wrapped bar is the first thing __init__ sets, and an
+        # unguarded lookup of it before then recurses forever
+        if name == "_bar":
+            raise AttributeError(name)
+        return getattr(self._bar, name)
+
+
+def _progress_bar_holders(pipeline):
+    """Every object under a modular pipeline that can open a progress bar.
+
+    The denoise loop is a block, not the pipeline, and it calls its own
+    `self.progress_bar(...)` - so the tree is what has to be walked. Uses
+    `_blocks`, not the public `blocks`, which hands back a deepcopy: patching
+    a copy would report nothing and look like this never worked.
+    """
+    holders = []
+    seen = set()
+
+    def walk(candidate):
+        if candidate is None or id(candidate) in seen:
+            return
+        seen.add(id(candidate))
+        # __dict__, because the patch is an instance attribute: an object
+        # with none could not be patched and must not be tried
+        if callable(getattr(candidate, "progress_bar", None)) and hasattr(
+            candidate, "__dict__"
+        ):
+            holders.append(candidate)
+        children = getattr(candidate, "sub_blocks", None)
+        if hasattr(children, "values"):
+            for child in children.values():
+                walk(child)
+
+    walk(pipeline)
+    walk(getattr(pipeline, "_blocks", None))
+    return holders
+
+
+@contextlib.contextmanager
+def reported_progress_bars(pipeline):
+    """Report each denoise step of a pipeline that takes no step callback.
+
+    A ModularPipeline - H3, LTX-2, Qwen-Image and every family diffusers has
+    moved over - has no `callback_on_step_end` parameter, so the whole
+    denoise loop passed in silence: one 'generating' phase, then nothing for
+    however many minutes it took, which reads exactly like a hung run. What
+    those blocks do have is a tqdm bar, and every advance of it is a step.
+
+    The patch is per-instance and undone on the way out, so a pipeline this
+    process keeps loaded is handed back as it was found.
+    """
+    holders = _progress_bar_holders(pipeline)
+    if not holders:
+        yield
+        return
+
+    run_context = get_context()
+
+    def on_advance(done, total):
+        run_context.emit("pipeline_step", step=done, total_steps=total)
+        # Past the last step there is still the decode, which on video is
+        # minutes with the bar sitting at 100%
+        if done is not None and total is not None and done >= total:
+            emit_phase("decoding")
+        # The one cancellation checkpoint inside a modular denoise loop:
+        # without it a cancel waits out the whole generation
+        run_context.check_cancelled()
+
+    patched = []
+    for holder in holders:
+        original = holder.progress_bar
+        # Whether the name was already an attribute of the instance decides
+        # how it is put back: restored, or removed so the class method shows
+        # through again rather than a bound copy of it being frozen on
+        patched.append((holder, original, "progress_bar" in vars(holder)))
+
+        def reporting(iterable=None, total=None, _original=original):
+            bar = _original(iterable=iterable, total=total)
+            if total is None and iterable is not None:
+                # An iterated bar's total is the length of what it iterates,
+                # when that can be known at all
+                total = getattr(bar, "total", None)
+            return _ReportingProgressBar(bar, on_advance, total)
+
+        holder.progress_bar = reporting
+    try:
+        yield
+    finally:
+        for holder, original, was_own in patched:
+            if was_own:
+                holder.progress_bar = original
+            else:
+                try:
+                    del holder.progress_bar
+                except AttributeError:
+                    holder.progress_bar = original
 
 
 @contextlib.contextmanager
