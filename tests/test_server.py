@@ -1299,6 +1299,61 @@ def test_gallery_paginates_and_groups_by_workflow_folder(server, tmp_path):
         assert not (outputs / "ltx" / "nested-0.png").exists()
 
 
+def test_gallery_reports_and_filters_by_subfolder(server, tmp_path):
+    """A step's `result.subfolder` puts its files under
+    '<identity>/<run id>/<subfolder>/'. The gallery keeps `folder` meaning
+    the workflow identity - a workflow run fifty times is still one folder
+    - and carries the in-run subfolder as its own axis, so 'which workflow'
+    and 'which part of the run' never multiply into one filter list."""
+    from PIL import Image
+
+    from dw.runs import new_run_id
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        run_id = new_run_id({"id": "dialogue"})
+        run = outputs / "dialogue" / run_id
+        (run / "final").mkdir(parents=True)
+        (run / "intermediate" / "shots").mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "final" / "dialogue-assemble.0-0.0.png")
+        Image.new("RGB", (2, 2)).save(run / "intermediate" / "dialogue-shot.0-0.0.png")
+        Image.new("RGB", (2, 2)).save(
+            run / "intermediate" / "shots" / "dialogue-slice.0-0.0.png"
+        )
+        Image.new("RGB", (2, 2)).save(run / "dialogue-still.0-0.0.png")
+        # a flat-layout file: no run id, so nothing to hang a subfolder on
+        (outputs / "ltx").mkdir()
+        Image.new("RGB", (2, 2)).save(outputs / "ltx" / "flat.png")
+
+        full = client.get("/api/gallery").json()
+        by_name = {f["name"]: f for f in full["files"]}
+
+        # folder is the identity, subfolder is what followed the run id
+        final = by_name[f"dialogue/{run_id}/final/dialogue-assemble.0-0.0.png"]
+        assert final["folder"] == "dialogue"
+        assert final["subfolder"] == "final"
+        nested = by_name[f"dialogue/{run_id}/intermediate/shots/dialogue-slice.0-0.0.png"]
+        assert nested["subfolder"] == "intermediate/shots"
+        assert by_name[f"dialogue/{run_id}/dialogue-still.0-0.0.png"]["subfolder"] == ""
+        assert by_name["ltx/flat.png"]["folder"] == "ltx"
+        assert by_name["ltx/flat.png"]["subfolder"] == ""
+
+        # the two axes stay separate
+        assert set(full["folders"]) == {"", "dialogue", "ltx"}
+        assert full["subfolders"] == ["", "final", "intermediate", "intermediate/shots"]
+
+        # the filter narrows listing and total; combined with folder it intersects
+        finals = client.get("/api/gallery?subfolder=final").json()
+        assert finals["total"] == 1
+        assert finals["files"][0]["subfolder"] == "final"
+        both = client.get("/api/gallery?folder=dialogue&subfolder=").json()
+        assert {f["name"] for f in both["files"]} == {
+            f"dialogue/{run_id}/dialogue-still.0-0.0.png"
+        }
+        # subfolders is over the whole tree, not the filtered page
+        assert finals["subfolders"] == full["subfolders"]
+
+
 def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
     from PIL import Image
 
