@@ -3,12 +3,12 @@
 Skills for Claude Code that teach an agent to compose a model family's
 workflows on a [diffusers-workflow](https://github.com/dkackman/diffusers-workflow)
 server. They assume the `dw` MCP server is already registered
-(see the repo README, "Drive it from Claude Code"); a skill's first move is
+(see the repo README, "Drive it from an agent"); a skill's first move is
 `get_server_info`.
 
 Install once, from Claude Code:
 
-```
+```bash
 /plugin marketplace add dkackman/diffusers-workflow
 /plugin install dw@diffusers-workflow
 ```
@@ -24,7 +24,7 @@ fetch the vendor's guides when those are absent, so nothing else is required.
 Installing them is optional and worth it for Music 3, whose skill carries a
 genre router and 1,000 example captions that a fetch does not reach:
 
-```
+```bash
 npx skills add MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing
 npx skills add MiniMax-AI/MiniMax-Music3 --skill music-caption-rewriter
 ```

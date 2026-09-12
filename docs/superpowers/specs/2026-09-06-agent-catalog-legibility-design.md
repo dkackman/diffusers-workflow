@@ -1,7 +1,7 @@
 # Agent catalog legibility — design
 
 Status: design, 2026-09-06. Designs Parts 1 and 2 of
-[docs/proposals/agent-catalog-legibility.md](../../proposals/agent-catalog-legibility.md)
+[docs/proposals/agent-catalog-legibility-complete.md](../../proposals/agent-catalog-legibility-complete.md)
 (Proposals 1–10). Part 3's constraint — model-specific prompting knowledge
 stays as data, never engine code — is carried in as a principle every
 section respects. Part 4 (guide-vs-Skill packaging of that knowledge) is
@@ -331,7 +331,7 @@ something composing a draft rather than a person onboarding:
 - the cartesian-product rule: several `previous_result` references on one
   step multiply; a zip-shaped pairing (shot *i* with speaker *i*) is not
   expressible this way and must be written as one step per pair — the
-  general form of the reasoning in `scripted-dialogue-and-tts.md`
+  general form of the reasoning in `scripted-dialogue-and-tts-complete.md`
 - the loop: `validate_workflow` → `save_workflow` → `run_workflow` →
   `wait_for_job` → `get_output_image`
 - the shape and trait vocabulary, and what a good `summary` says, so a

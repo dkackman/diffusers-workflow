@@ -106,7 +106,7 @@ reference won.
 Whether this becomes a task, a generator, or stays documentation is decided
 below, in "What was built" — and the reasoning there is now the general case
 for closing any catalog gap like it, recorded in
-[agent-catalog-legibility.md](agent-catalog-legibility.md).
+[agent-catalog-legibility-complete.md](agent-catalog-legibility-complete.md).
 
 ## Suggested next step
 
@@ -143,4 +143,4 @@ documentation and a template workflow rather than code. Revisit a `dw.script`
 generator or an MCP tool once that shape has been used enough by hand to be sure
 of it. This case is now the worked example for the general "format-knowledge
 belongs in guides and templates, not new engine code" rule in
-[agent-catalog-legibility.md](agent-catalog-legibility.md).
+[agent-catalog-legibility-complete.md](agent-catalog-legibility-complete.md).

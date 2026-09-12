@@ -120,7 +120,7 @@ read an inferred workspace back as one the user named - `get_prompt_dir` yields
 to its older discovery (`./prompts`, then the walk up from the workflow file)
 for an inferred workspace but not for an explicit one. `--workflow-dir`,
 `--output-dir` and `--prompt-dir` each still override one folder. See
-docs/WORKSPACES.md, and docs/proposals/server-workspaces.md for the later stages
+docs/WORKSPACES.md, and docs/proposals/server-workspaces-complete.md for the later stages
 (workflow search path, run directories, `asset:`/`output:` references).
 
 ### Type System
@@ -154,6 +154,27 @@ docs/WORKSPACES.md, and docs/proposals/server-workspaces.md for the later stages
   rooted at the library rather than the workflow file. The library is `DW_PROMPT_DIR` /
   `--prompt-dir`, else `./prompts` if it exists, else found by walking up from the
   workflow file's directory
+- A step carrying `for_each` (a list, or `variable:` naming one) is expanded by
+  `expand_for_each` (`dw/for_each.py`) into one ordinary step per entry, named
+  `<step>@<entry name or index>`, immediately after `replace_variables` in
+  `Workflow.run` and, with the caller's arguments folded, in `validation_errors`.
+  Inside a member `item:` / `item:field` is the entry (any type, spliced whole);
+  a later step reads the group with `gather:<step>` (a list; splices inside a
+  list); two groups over the same list pair by key (`slice` inside `shot@x` is
+  `slice@x`). `previous_result:` naming a group is a directed error. `@` is
+  reserved in step names; entry names are validated and unique; 32 entries max;
+  `release_pipeline`/`release_models` survive on the last member only. The
+  realized workflow keeps `for_each`; the manifest names the members. An entry
+  of a list-valued variable may reference another variable
+  (`"from_file": "variable:character_a_voice"`); `resolve_variable_values`
+  (`dw/variables.py`) replaces those once, before `realize_args`, refusing a
+  cycle, and `undeclared_variable_references` walks inside list/dict variable
+  values too. The catalog derives `lists` (`list_fields`, `dw/for_each.py`):
+  the fields an entry takes are the `item:` references the steps make, `name`
+  first; an entry key no step reads is a validation warning
+  (`entry_field_warnings`). A `cost` entry may carry `per_entry`
+  (`{variable, minutes, entries}`), measured, never derived. An empty
+  `for_each` list is an error; `expanded_definition` realizes constants first.
 - Every run directory holds `workflow.json` beside its manifest: the *realized*
   workflow, with the run's arguments folded into the variable defaults, the seed
   it used, stored prompt text inlined and `output:.../latest/...` pinned to the
@@ -219,8 +240,28 @@ same reason - default setup cannot load a pack.
   literal `previous_result:` or `from_previous_result` naming no *earlier* step, with
   the JSON path it sits at. References otherwise resolve lazily per step, so a step
   renamed in one place and not another failed only when the run reached it, after
-  every step before it had generated. A reference spelled by a `variable:` is left
-  alone - what it names is not knowable before substitution
+  every step before it had generated. The definition is substituted before the check,
+  so a reference spelled by a *declared* variable is checked by its value; one spelled
+  by an undeclared variable is itself a validation error (below)
+- **`for_each` expands before the reference check** — `validation_errors` substitutes
+  (the caller's `arguments` when they are all good, else the defaults) and expands
+  first, so `gather:` and `item:` errors carry the path of the template step
+  (`steps[0].for_each[1].name`). Expansion records each expanded step's *source* index
+  (`expand_for_each(definition, source_indices)`), so a reference error always carries a
+  path in the file the author wrote, and one inside a member names the member in its
+  message. An undeclared `variable:` is a validation error at the path it sits at, not a
+  warning and not a complaint about the `for_each` list that did substitute: once a
+  `variables` block exists, `replace_variables` refuses an undeclared reference, so it is
+  a run that cannot start
+- **The two MiniMax cut templates take one `shots` list** — since the stage-2
+  rewrite (2026-09-11) `templates/minimax/dialogue-short` and `music-video`
+  have no `shot_N_*` variables; a scripted caller passes `shots` (entries
+  `{name, prompt, references, num_frames}` and `{name, prompt, start_frame}`).
+  The members are `shot@<name>` in the manifest and the gallery. This is the
+  breaking change the next release note should name. The CLI and REPL only
+  take `name=value` strings, and a string handed to a list variable is
+  comma-split - so `shots` can only be supplied over the API/MCP (a JSON
+  body); `python -m dw.run` runs the templates' default list
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`

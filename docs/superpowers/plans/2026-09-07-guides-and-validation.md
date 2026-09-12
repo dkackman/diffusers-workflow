@@ -12,7 +12,7 @@
 
 **Agent assignment:** each task is tagged `[model: haiku|sonnet|opus]`. Haiku for mechanical edits with exact code given, sonnet for integration work with judgement about existing code, opus for prose that has to be right for a reader who cannot ask. The orchestrator passes the tag as the `model` parameter when dispatching.
 
-**Ledger:** `docs/proposals/agent-catalog-legibility.md` ends with a `## Ledger` table. The last step of every task updates the row(s) it lands, changing `designed` to `done (task N)` and adding anything learned to the notes column. Keep the row on one line.
+**Ledger:** `docs/proposals/agent-catalog-legibility-complete.md` ends with a `## Ledger` table. The last step of every task updates the row(s) it lands, changing `designed` to `done (task N)` and adding anything learned to the notes column. Keep the row on one line.
 
 ## Rulings against the spec text
 
@@ -575,7 +575,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `dw_mcp/server.py` (lines 286–304, the two guide tools)
 - Modify: `tests/test_mcp_guides.py` (replace whole file)
 - Modify: `dw_mcp/CLAUDE.md` (the `guides.py` sentences, ~lines 24–29), `docs/MCP.md` (~lines 196–203)
-- Modify: `docs/proposals/agent-catalog-legibility.md` (ledger row 4)
+- Modify: `docs/proposals/agent-catalog-legibility-complete.md` (ledger row 4)
 
 **Interfaces:**
 - Consumes: Task 2's routes.
@@ -760,7 +760,7 @@ composing one.
 
 - [ ] **Step 7: Ledger**
 
-In `docs/proposals/agent-catalog-legibility.md`, ledger row 4 becomes:
+In `docs/proposals/agent-catalog-legibility-complete.md`, ledger row 4 becomes:
 
 ```
 | 4 server-side guides | done (plan 2, tasks 1–3) | spec §2.1 | `dw/server/guides.py` owns `GUIDES`; `GET /api/guides`, `GET /api/guides/{name}?section=`; `dw_mcp/guides.py` is two proxy calls; payload keys unchanged (`guides`, `content`) so an agent's contract did not move; `dw/docs/` is a `dw.server` build product now in `MANIFEST.in`; supersedes `guides.py`'s "works with the server down" rationale |
@@ -769,7 +769,7 @@ In `docs/proposals/agent-catalog-legibility.md`, ledger row 4 becomes:
 - [ ] **Step 8: Commit**
 
 ```bash
-git add dw_mcp/guides.py dw_mcp/server.py tests/test_mcp_guides.py dw_mcp/CLAUDE.md docs/MCP.md docs/proposals/agent-catalog-legibility.md
+git add dw_mcp/guides.py dw_mcp/server.py tests/test_mcp_guides.py dw_mcp/CLAUDE.md docs/MCP.md docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "mcp: list_guides and get_guide proxy the engine's /api/guides
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -994,7 +994,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `ui/src/lib/types.ts` (`ValidationResult`, line 153)
 - Modify: `docs/SERVER.md` (~line 186), `docs/MCP.md` (the `validate_workflow` row)
 - Modify: `tests/test_workflow.py` (append), `tests/test_server.py` (append), `tests/test_mcp_authoring.py` (one scripted body)
-- Modify: `docs/proposals/agent-catalog-legibility.md` (ledger row 8)
+- Modify: `docs/proposals/agent-catalog-legibility-complete.md` (ledger row 8)
 
 **Interfaces:**
 - Consumes: Task 4's `validate_data_all`, `format_validation_errors`.
@@ -1166,7 +1166,7 @@ Row 8 becomes:
 - [ ] **Step 8: Commit**
 
 ```bash
-git add dw/workflow.py dw/server/app.py dw_mcp/server.py ui/src/lib/types.ts docs/SERVER.md docs/MCP.md tests/test_workflow.py tests/test_server.py tests/test_mcp_authoring.py docs/proposals/agent-catalog-legibility.md
+git add dw/workflow.py dw/server/app.py dw_mcp/server.py ui/src/lib/types.ts docs/SERVER.md docs/MCP.md tests/test_workflow.py tests/test_server.py tests/test_mcp_authoring.py docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "validate: report every schema error at once, from the CLI to /api/validate
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -1180,7 +1180,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `docs/WORKFLOW_GUIDE.md` (new top-level section, placed after `## Cross-Step Data Flow`, before `## Result Configuration`)
 - Modify: `CLAUDE.md` (one pointer line under `### Type System`)
 - Modify: `tests/test_server_guides.py` (append to `TestTheRealDocs`)
-- Modify: `docs/proposals/agent-catalog-legibility.md` (ledger rows 7 and 9)
+- Modify: `docs/proposals/agent-catalog-legibility-complete.md` (ledger rows 7 and 9)
 
 **Interfaces:**
 - Consumes: Task 1's `get_guide` over the real docs.
@@ -1272,13 +1272,13 @@ Rows 7 and 9 become:
 
 ```
 | 7 authoring guide | done (plan 2, task 6) | spec §2.3 | `## Authoring a workflow from an agent` in `WORKFLOW_GUIDE.md`, reachable as one `get_guide` section; `CLAUDE.md` points at it; a test checks every reserved prefix is explained there |
-| 9 composition rules | done (plan 2, task 6) | spec §2.3 | the cartesian rule and the one-step-per-pair form are stated in the authoring section, the general case of `scripted-dialogue-and-tts.md`'s reasoning |
+| 9 composition rules | done (plan 2, task 6) | spec §2.3 | the cartesian rule and the one-step-per-pair form are stated in the authoring section, the general case of `scripted-dialogue-and-tts-complete.md`'s reasoning |
 ```
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add docs/WORKFLOW_GUIDE.md CLAUDE.md tests/test_server_guides.py docs/proposals/agent-catalog-legibility.md
+git add docs/WORKFLOW_GUIDE.md CLAUDE.md tests/test_server_guides.py docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "docs: authoring a workflow from an agent - references, types, the cartesian rule, the loop
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"

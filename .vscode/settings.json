@@ -7,6 +7,7 @@
         "aiohttp",
         "controlnet",
         "cuda",
+        "denoise",
         "dtype",
         "exif",
         "fullgraph",

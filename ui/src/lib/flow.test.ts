@@ -218,3 +218,64 @@ describe('dataFlowGraph', () => {
     expect(graph.fanIn.get('combine')?.label).toBe('combines 2 upstream steps')
   })
 })
+
+describe('for_each references', () => {
+  const cut = {
+    steps: [
+      step('draw', {}),
+      step('slice', { audio: 'previous_result:song' }),
+      {
+        name: 'shot',
+        for_each: 'variable:shots',
+        pipeline: {
+          configuration: { component_type: 'ModularPipeline' },
+          arguments: {
+            prompt: 'item:prompt',
+            references: [
+              { reference_type: 'T', from_previous_result: 'draw' },
+              { reference_type: 'T', from_previous_result: 'slice' },
+            ],
+          },
+        },
+      },
+      step('edit', { videos: 'gather:shot' }),
+    ],
+  }
+
+  it('from_previous_result inside a reference list is an edge labeled by the list', () => {
+    const graph = dataFlowGraph(cut)
+    expect(graph.edges).toContainEqual({
+      from: 'draw',
+      to: 'shot',
+      attribute: 'references',
+    })
+    expect(graph.edges).toContainEqual({
+      from: 'slice',
+      to: 'shot',
+      attribute: 'references',
+    })
+    expect(graph.nodes.find((n) => n.name === 'shot')?.isEntryPoint).toBe(false)
+  })
+
+  it('gather: is an edge from the for_each step to the step that gathers it', () => {
+    const graph = dataFlowGraph(cut)
+    expect(graph.edges).toContainEqual({
+      from: 'shot',
+      to: 'edit',
+      attribute: 'videos',
+    })
+    expect(graph.nodes.find((n) => n.name === 'edit')?.isEntryPoint).toBe(false)
+    expect(flowGraph(cut)[3].inputs).toEqual(['shot'])
+    expect(flowGraph(cut)[2].consumers).toEqual(['edit'])
+  })
+
+  it('a gather of a step that does not exist is dangling', () => {
+    const wf = { steps: [step('edit', { videos: 'gather:nope' })] }
+    expect(danglingReferenceDetails(wf)).toEqual([
+      {
+        stepIndex: 0,
+        message: "Step 'edit': gather:nope - no earlier step has that name",
+      },
+    ])
+  })
+})

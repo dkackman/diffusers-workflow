@@ -15,6 +15,8 @@ read structure (a concat step, a `references` argument), never checkpoints.
 
 import re
 
+from ..for_each import list_fields
+
 SHAPES = (
     "image",
     "image-set",
@@ -160,13 +162,13 @@ def _needs_input_media(steps):
 def _cuts_together(steps):
     """A concat or dissolve fed by two or more distinct steps, or by a list
     of shots handed in whole - one `variable:` reference is a supplied list
-    whose length only the caller knows, and a cut over supplied footage is
-    still an edit."""
+    whose length only the caller knows, one `gather:` reference is every
+    member of a for_each group, and a cut over either is still an edit."""
     for step in steps:
         key, body = _block(step)
         if key == "task" and body.get("command") in _CUT_TASKS:
             videos = _arguments(step).get("videos")
-            if isinstance(videos, str) and videos.startswith("variable:"):
+            if isinstance(videos, str) and videos.startswith(("variable:", "gather:")):
                 return True
             sources = _fed_by(videos)
             if isinstance(videos, list):
@@ -283,9 +285,13 @@ def _derive_summary(description):
 def derive_catalog_metadata(definition):
     """shape, traits and summary for one definition, declarations honoured.
 
-    Returns {shape, traits, summary, summary_truncated, declared}; `declared`
-    names which of the three came from the file rather than the rules, so a
-    test can refuse a declaration that merely repeats the derivation.
+    Returns {shape, traits, summary, summary_truncated, lists, declared};
+    `lists` names what an entry of each for_each-driven variable has to
+    carry (`list_fields`) plus its default's length, so an agent can write
+    the list argument without opening the definition; `declared` names
+    which of the three prose fields came from the file rather than the
+    rules, so a test can refuse a declaration that merely repeats the
+    derivation.
     """
     if not isinstance(definition, dict):
         definition = {}
@@ -306,11 +312,23 @@ def derive_catalog_metadata(definition):
     if isinstance(definition.get("summary"), str) and definition["summary"].strip():
         summary, truncated = _truncate(definition["summary"].strip())
         declared.add("summary")
+    variables = definition.get("variables")
+    variables = variables if isinstance(variables, dict) else {}
+    lists = {
+        name: {
+            **fields,
+            "entries": (
+                len(variables[name]) if isinstance(variables.get(name), list) else None
+            ),
+        }
+        for name, fields in list_fields(definition).items()
+    }
     return {
         "shape": shape,
         "traits": traits,
         "summary": summary,
         "summary_truncated": truncated,
+        "lists": lists,
         "declared": declared,
     }
 
@@ -322,8 +340,13 @@ COMPACT_FIELDS = (
     "cost",
     "kinds",
     "variable_names",
+    "lists",
     "configures",
 )
+
+# Carried in the compact view only when set: a template has no
+# `configures`, and most workflows have no list-driven step
+_COMPACT_WHEN_SET = frozenset({"configures", "lists"})
 
 
 def project_listing(
@@ -374,7 +397,7 @@ def project_listing(
             slim = {
                 key: detail.get(key)
                 for key in COMPACT_FIELDS
-                if key != "configures" or detail.get(key)
+                if key not in _COMPACT_WHEN_SET or detail.get(key)
             }
             if detail.get("configures_missing"):
                 slim["configures_missing"] = detail["configures_missing"]

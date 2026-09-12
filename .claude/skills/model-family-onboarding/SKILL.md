@@ -23,7 +23,7 @@ next family gets it in an afternoon rather than a rediscovery.
   independent sources repeat it *and* nothing primary contradicts it.
 - **Model knowledge is data, never engine code.** Template JSON, stored
   prompts, a builtin's system prompt, README prose, a skill. No per-model
-  Python (proposal `docs/proposals/agent-catalog-legibility.md`, "Principle").
+  Python (proposal `docs/proposals/agent-catalog-legibility-complete.md`, "Principle").
 - **Do not transcribe a prompt format the vendor publishes.** Point at it. If
   the vendor ships an agent skill (MiniMax does) or a system-prompt constant
   inside diffusers (Lightricks does), the dw skill says "use that" and a test

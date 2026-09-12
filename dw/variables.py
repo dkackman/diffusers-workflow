@@ -15,6 +15,11 @@ class VariableNotFoundError(ValueError):
     """Raised when a workflow references a "variable:name" that isn't declared."""
 
 
+class VariableCycleError(ValueError):
+    """Raised when a list- or dict-valued variable references itself, directly
+    or through others, inside `resolve_variable_values`."""
+
+
 def _resolve_variable_reference(value, variables):
     """
     If value is a "variable:name" reference, look it up and return (True, resolved).
@@ -86,16 +91,69 @@ def replace_variables(data, variables):
     return copy.deepcopy(data)
 
 
+def resolve_variable_values(variables):
+    """A copy of `variables` in which every "variable:name" inside a list-
+    or dict-valued variable is replaced by that variable's value.
+
+    A list-driven step reads its entries from a variable, and an entry that
+    says "from_file": "variable:character_a_voice" is how one variable sets
+    a voice in every shot the character speaks in. replace_variables only
+    walks the definition, so those references would reach the step as the
+    literal strings; this resolves them once, before realize_args, so a
+    reference type inside an entry is a type name by the time it is loaded.
+
+    Only list and dict values are walked. A scalar value that begins with
+    "variable:" is passed through as it always was.
+
+    Raises:
+        VariableNotFoundError: a reference names nothing declared
+        VariableCycleError: a value references itself, directly or through others
+    """
+    resolved = {}
+
+    def resolve(name, chain):
+        if name in resolved:
+            return resolved[name]
+        if name in chain:
+            loop = " -> ".join(chain[chain.index(name) :] + [name])
+            raise VariableCycleError(
+                f"Variable '{name}' references itself through: {loop}"
+            )
+        value = variables[name]
+        if isinstance(value, (list, dict)):
+            value = walk(value, chain + [name])
+        else:
+            value = copy.deepcopy(value)
+        resolved[name] = value
+        return value
+
+    def walk(node, chain):
+        matched, _ = _resolve_variable_reference(node, variables)
+        if matched:
+            return resolve(node.removeprefix("variable:"), chain)
+        if isinstance(node, list):
+            return [walk(item, chain) for item in node]
+        if isinstance(node, dict):
+            return {key: walk(item, chain) for key, item in node.items()}
+        return copy.deepcopy(node)
+
+    for name in variables:
+        resolve(name, [])
+    return resolved
+
+
 def undeclared_variable_references(definition):
     """The "variable:name" references in a workflow definition that name no
     entry of its `variables` - the ones `replace_variables` will refuse at run
     time, found before anything loads.
 
-    Walks everything but `variables` itself, the way resolution does. Returns
-    a list of (path, name) pairs, path being where the reference sits
-    (`steps[0].pipeline.arguments.prompt`) and name what it asked for - which
-    is the whole remainder of the string, since a reference is the entire
-    value and nothing is interpolated around it.
+    Walks everything but `variables` itself, plus the inside of every list-
+    or dict-valued variable, the way `resolve_variable_values` and
+    `replace_variables` together do. Returns a list of (path, name) pairs,
+    path being where the reference sits (`steps[0].pipeline.arguments.prompt`)
+    and name what it asked for - which is the whole remainder of the string,
+    since a reference is the entire value and nothing is interpolated
+    around it.
     """
     declared = definition.get("variables") or {}
     found = []
@@ -115,7 +173,32 @@ def undeclared_variable_references(definition):
     for key, value in definition.items():
         if key != "variables":
             walk(value, key)
+    if isinstance(declared, dict):
+        for name, value in declared.items():
+            if isinstance(value, (list, dict)):
+                walk(value, f"variables.{name}")
     return found
+
+
+def _validated_strings(value):
+    """A copy of a list- or dict-valued caller argument with every string
+    leaf passed through `validate_string_input` - the same check a
+    top-level string argument gets in `set_variables` below. A for_each
+    entry's `prompt` or `from_file` is exactly as reachable to an attacker
+    as a top-level variable, and `isinstance(v, str)` alone would skip it.
+
+    Non-string leaves (numbers, bools, None, nested lists/dicts) pass
+    through unchanged; only str is validated.
+    """
+    if isinstance(value, str):
+        return validate_string_input(
+            value, max_length=MAX_VARIABLE_VALUE_LENGTH, allow_empty=True
+        )
+    if isinstance(value, list):
+        return [_validated_strings(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _validated_strings(item) for key, item in value.items()}
+    return value
 
 
 def set_variables(values, variables):
@@ -147,11 +230,15 @@ def set_variables(values, variables):
                     f"Unknown variable '{validated_name}'; declared variables: {declared}"
                 )
 
-            # Validate string values
+            # Validate string values - including strings nested inside a
+            # list- or dict-valued argument, which a for_each entry's
+            # prompt or from_file always is
             if isinstance(v, str):
                 validated_value = validate_string_input(
                     v, max_length=MAX_VARIABLE_VALUE_LENGTH, allow_empty=True
                 )
+            elif isinstance(v, (list, dict)):
+                validated_value = _validated_strings(v)
             else:
                 validated_value = v
 

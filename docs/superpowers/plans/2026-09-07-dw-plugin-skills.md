@@ -21,7 +21,7 @@
 - Nothing under `dw/`, `dw_mcp/`, `MANIFEST.in` or `pyproject.toml`'s package data changes.
 - Test names and docstrings state the behaviour, matching the suite's style.
 - Commit messages end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
-- Each task appends one sentence to the Part 4 row of the ledger table in `docs/proposals/agent-catalog-legibility.md` (the row beginning `| Part 4 packaging |`, at the end of its last cell before the closing `|`), in the same commit.
+- Each task appends one sentence to the Part 4 row of the ledger table in `docs/proposals/agent-catalog-legibility-complete.md` (the row beginning `| Part 4 packaging |`, at the end of its last cell before the closing `|`), in the same commit.
 - Work on branch `dw-plugin`, cut from `master` at or after 09e36e1.
 
 ---
@@ -40,7 +40,7 @@
 | `workflows/templates/minimax/README.md` | one line pointing at the skill | 2 |
 | `plugins/dw/skills/ltx-2.5/SKILL.md` | the LTX-2.5 composition skill | 3 |
 | `workflows/templates/ltx2/README.md` | one line pointing at the skill | 3 |
-| `docs/proposals/agent-catalog-legibility.md` | ledger row; drill result; the mould for the next family | every task, 4 |
+| `docs/proposals/agent-catalog-legibility-complete.md` | ledger row; drill result; the mould for the next family | every task, 4 |
 
 ---
 
@@ -279,7 +279,7 @@ Expected: marketplace and version tests PASS; `test_there_are_skills` still FAIL
 Append to the Part 4 ledger row: `Plugin task 1: a marketplace at the repo root and the dw plugin under plugins/dw, installable with two commands the README shows; plugin.json's version is the engine's, bumped by release.sh and held by test.`
 
 ```bash
-git add .claude-plugin plugins/dw README.md scripts/release.sh docs/RELEASING.md tests/test_plugin_skills.py docs/proposals/agent-catalog-legibility.md
+git add .claude-plugin plugins/dw README.md scripts/release.sh docs/RELEASING.md tests/test_plugin_skills.py docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "dw plugin scaffold: marketplace, plugin manifest, version lock
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -506,7 +506,7 @@ Expected: all PASS, including the README link test for the new relative link and
 Append to the Part 4 ledger row: `Plugin task 2: the minimax-h3 skill - shape decision over the family's templates, the frame and canvas rules pinned by test to the diffusers modular pipeline, prompts deferred to MiniMax's h3-prompt-writing skill and the two guides, the run-and-judge loop; the README points at it.`
 
 ```bash
-git add plugins/dw/skills/minimax-h3 workflows/templates/minimax/README.md tests/test_plugin_skills.py docs/proposals/agent-catalog-legibility.md
+git add plugins/dw/skills/minimax-h3 workflows/templates/minimax/README.md tests/test_plugin_skills.py docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "dw plugin: the MiniMax H3 composition skill
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -721,7 +721,7 @@ Expected: all PASS; both skills under 12288 bytes.
 Append to the Part 4 ledger row: `Plugin task 3: the ltx-2.5 skill - shape decision, the schedule and size rules pinned to the LTX-2 pipeline, the trained caption spec quoted and held equal to the diffusers constant by test; the README points at it.`
 
 ```bash
-git add plugins/dw/skills/ltx-2.5 workflows/templates/ltx2/README.md tests/test_plugin_skills.py docs/proposals/agent-catalog-legibility.md
+git add plugins/dw/skills/ltx-2.5 workflows/templates/ltx2/README.md tests/test_plugin_skills.py docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "dw plugin: the LTX-2.5 composition skill, quoting the trained caption spec
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -734,7 +734,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Recommended model:** the controlling session, with the user - the drill needs a fresh Claude Code session on the user's machine with the plugin installed, which no subagent can start. Opus for reading the transcripts.
 
 **Files:**
-- Modify: `docs/proposals/agent-catalog-legibility.md` (the ledger row and a `### Plugin drill` section beside the cold-session probe)
+- Modify: `docs/proposals/agent-catalog-legibility-complete.md` (the ledger row and a `### Plugin drill` section beside the cold-session probe)
 
 **Interfaces:**
 - Consumes: the merged branch on lem, restarted (`git checkout master && git pull`, restart `dw.serve --mcp`).
@@ -756,7 +756,7 @@ The transcripts are under `~/.claude/projects/-Users-don-testing-scratch-1/*.jso
 Add a `### Plugin drill, <date>` section after `### Cold-session probe, 2026-09-07` in the proposal with: the two transcript paths, the tool calls in order for each run, which template each chose, whether the prompts came from vendor text, and the verdict. Append to the Part 4 ledger row: `Plugin task 4: cold drill <date> - <pass/fail and one sentence>; the mould for the next family is copy a skill, follow its six sections, add the family's rules to tests/test_plugin_skills.py, cite the vendor, and run this drill (.claude/skills/model-family-onboarding).`
 
 ```bash
-git add docs/proposals/agent-catalog-legibility.md
+git add docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "Plugin drill recorded; the mould for the next model family
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"

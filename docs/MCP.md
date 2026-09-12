@@ -187,7 +187,7 @@ Nothing in this sequence costs GPU time.
 
 ## Tool reference
 
-52 tools in six groups. Names and arguments below are transcribed from
+55 tools in six groups. Names and arguments below are transcribed from
 `dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
@@ -212,8 +212,8 @@ when no single workflow covers it.
 | --- | --- | --- |
 | `list_guides()` | — | List the documentation the engine serves: each guide's name, what it covers, and its section headings. The index is the routing table - match a request's shape against a heading rather than guessing |
 | `get_guide(name, section=None)` | `name`, `section` | Get one guide whole, or one section of it. Prefer a section: a guide runs to thousands of lines. Section names match loosely, so a heading copied approximately still resolves |
-| `list_workflows(shape=None, traits=None, configures=None, include_models=False)` | `shape`, `traits`, `configures`, `include_models` | List stored workflows. Always the server's compact view: each entry carries `summary`, `shape`, `traits`, `cost`, `kinds`, `variable_names`, and `configures` only when set - `get_workflow` has the full description and definition. `shape` keeps one of `image`, `image-set`, `image-edit`, `shot`, `sequence`, `audio`, `text`, `utility`; `traits` is comma-separated and every one listed must match (`has-audio`, `chained`, `image-conditioned`, `identity-referenced`, `needs-input-media`, `composes-workflows`); an unknown value in either is a 400 listing the vocabulary. Templates only by default - `configures=<template>` lists the checkpoint configs tuned for one, `include_models=true` lists them all. The first call to make for a request an existing workflow might cover |
-| `get_workflow(name, variables_only=False)` | `name` | Get one stored workflow's full JSON definition. `variables_only=true` answers with just its variables and their defaults (long strings cut to 200 characters, the cut ones named in `truncated`) — the cheap way to confirm what a variable defaults to |
+| `list_workflows(shape=None, traits=None, configures=None, include_models=False)` | `shape`, `traits`, `configures`, `include_models` | List stored workflows. Always the server's compact view: each entry carries `summary`, `shape`, `traits`, `cost`, `kinds`, `variable_names`, `lists`, and `configures` only when set - `get_workflow` has the full description and definition. `lists`, present for a list-driven workflow, names the fields an entry of each list takes, the steps over it and the default's length; `cost` may carry `per_entry`, the measured cost of one entry so a run over a different-length list can be priced from it. `shape` keeps one of `image`, `image-set`, `image-edit`, `shot`, `sequence`, `audio`, `text`, `utility`; `traits` is comma-separated and every one listed must match (`has-audio`, `chained`, `image-conditioned`, `identity-referenced`, `needs-input-media`, `composes-workflows`); an unknown value in either is a 400 listing the vocabulary. Templates only by default - `configures=<template>` lists the checkpoint configs tuned for one, `include_models=true` lists them all. The first call to make for a request an existing workflow might cover |
+| `get_workflow(name, variables_only=False)` | `name` | Get one stored workflow's full JSON definition. `variables_only=true` answers with just its variables and their defaults (long strings cut to 200 characters, the cut ones named in `truncated`, including strings inside a list default, named like `shots[0].prompt`) — the cheap way to confirm what a variable defaults to |
 | `get_schema()` | — | Get the JSON schema every workflow definition must satisfy |
 | `list_pipelines()` | — | List every diffusers pipeline class this installation provides |
 | `get_pipeline_signature(name)` | `name` | Get a pipeline's real call arguments |
@@ -249,7 +249,7 @@ The session starts in `default` and stays there unless it is told otherwise.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `validate_workflow(workflow=None, name=None, workspace=None, arguments=None)` | exactly one of `workflow` (inline definition) or `name` (a stored workflow, as `list_workflows` reports it), optional `workspace`, optional `arguments` | Check a workflow against the schema and against real pipeline signatures. Free and instant. Validating by name uses the workflow file's own directory as the base directory, so it sees what a run would. Returns every schema violation in `errors`, each with the JSON path it sits at, so a draft is fixed in one pass, and a `previous_result:` that names no earlier step is one of them. `workspace` names the workspace for this one call without switching the session to it - use it to pin a job whose `output:` or `asset:` references live in a workspace other than the session's. Pass the same `arguments` you will pass to `run_workflow` and they are checked too - an undeclared or renamed variable name, a value that will not coerce to the declared type, and an `asset:`, `prompt:` or `output:` reference that names nothing this workspace can reach, each reported at `arguments.<name>`. `checked_arguments` lists what was covered, so a `valid: true` about the stored defaults cannot be mistaken for one about your values. `run_workflow` makes the same check and refuses a bad argument rather than queuing a job that fails on its first step |
+| `validate_workflow(workflow=None, name=None, workspace=None, arguments=None)` | exactly one of `workflow` (inline definition) or `name` (a stored workflow, as `list_workflows` reports it), optional `workspace`, optional `arguments` | Check a workflow against the schema and against real pipeline signatures. Free and instant. Validating by name uses the workflow file's own directory as the base directory, so it sees what a run would. Returns every schema violation in `errors`, each with the JSON path it sits at, so a draft is fixed in one pass, and a `previous_result:` that names no earlier step is one of them. `warnings` covers what still runs but is probably wrong - a signature mismatch, and, for a list-driven variable, an entry key no step reads, at the entry's path. `workspace` names the workspace for this one call without switching the session to it - use it to pin a job whose `output:` or `asset:` references live in a workspace other than the session's. Pass the same `arguments` you will pass to `run_workflow` and they are checked too - an undeclared or renamed variable name, a value that will not coerce to the declared type, and an `asset:`, `prompt:` or `output:` reference that names nothing this workspace can reach, each reported at `arguments.<name>`. `checked_arguments` lists what was covered, so a `valid: true` about the stored defaults cannot be mistaken for one about your values. `run_workflow` makes the same check and refuses a bad argument rather than queuing a job that fails on its first step |
 | `list_workspaces()` | — | The server's workspaces and which one this session is using. Each has its own workflows, assets and outputs; the prompt library is shared by all of them |
 | `use_workspace(name)` | `name` | Work in that workspace for the rest of the session - every later call reads and writes there. This is how to keep your work out of another agent's namespace rather than sharing the default one. Checked against the server, so a typo fails here rather than scoping every later call to nothing |
 | `create_workspace(name, use=False)` | `name`, `use` | Create a workspace. Pass use=true to switch this session to it as well; otherwise the session stays where it was and the result says so |
@@ -283,11 +283,11 @@ references written in the same session.
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `run_workflow(workflow_path=None, inline_workflow=None, arguments=None, acknowledged_cost=False, workspace=None)` | exactly one of `workflow_path` (a catalog name from `list_workflows`, with or without `.json`, or a path to a workflow file on the server) or `inline_workflow`, optional `arguments`, `acknowledged_cost`, `workspace` | Queue a workflow for generation. Returns as soon as the job is queued. `workspace` names the workspace for this one call without switching the session to it - use it to pin a job whose `output:` or `asset:` references live in a workspace other than the session's |
-| `get_job(job_id)` | `job_id` | Get a job's status, warnings, output manifest, error and traceback |
+| `get_job(job_id)` | `job_id` | Get a job's status, warnings, output manifest, error and traceback. A running job also carries `progress` (below) |
 | `get_job_workflow(job_id)` | `job_id` | The workflow the job actually ran. `realized: true` means every mutable input is pinned (arguments, seed, prompts, `output:latest`); `false` means the job predates run tracking and this is the definition as submitted. Pass it to `save_workflow` to keep it under a name |
 | `export_job(job_id, overwrite=False)` | `job_id`, `overwrite` | Gather one finished job into `<workspace>/exports/<job id>/` on the server: the realized workflow, the run's manifest, the job row, a README, and copies of the assets, earlier-run inputs and outputs. Returns the directory, a zip URL, the file list with sizes and the total. The three JSON files are in the zip, not repeated here - get_job_workflow and get_job serve them individually. **The directory is on the machine running the server**, like `download_output`'s destination - fetch the zip URL and unpack it into `exports/` under the session's working directory (a deliverable, not a temp file); the archive already unpacks into one folder named after the job id |
 | `get_job_events(job_id, after=-1, limit=200)` | `job_id`, `after`, `limit` | Get a page of a job's progress events |
-| `wait_for_job(job_id, timeout_seconds=20)` | `job_id`, `timeout_seconds` | Block until a job reaches a terminal status, or `timeout_seconds` elapses. **One call blocks for at most 55 seconds** — a larger `timeout_seconds` is clamped, not honoured, because no MCP client holds a tool call open for a generation's real runtime, so budget one call per ~55s of the job. Every reply carries `waited_seconds`, `timeout_requested_seconds`, `timeout_applied_seconds` and `timeout_capped`, so a capped return is distinguishable from an elapsed one. Use instead of hand-polling `get_job`/`get_job_events` in a loop; if it returns `still_running: true`, call it again. Returns a slim job - status, warnings, error, and the manifest once finished - without the arguments; `get_job` has those |
+| `wait_for_job(job_id, timeout_seconds=20)` | `job_id`, `timeout_seconds` | Block until a job reaches a terminal status, or `timeout_seconds` elapses. **One call blocks for at most 55 seconds** — a larger `timeout_seconds` is clamped, not honoured, because no MCP client holds a tool call open for a generation's real runtime, so budget one call per ~55s of the job. Every reply carries `waited_seconds`, `timeout_requested_seconds`, `timeout_applied_seconds` and `timeout_capped`, so a capped return is distinguishable from an elapsed one. Use instead of hand-polling `get_job`/`get_job_events` in a loop; if it returns `still_running: true`, call it again. Returns a slim job - status, warnings, error, and the manifest once finished - without the arguments; `get_job` has those. A running job also carries `progress` (below) |
 | `cancel_job(job_id)` | `job_id` | Ask a queued or running job to stop |
 | `rerun_job(job_id, acknowledged_cost=False, new_seed=False)` | `job_id`, `acknowledged_cost`, `new_seed` | Queue a fresh job from a previous job's stored specification. Costs GPU time, so it passes the same gate as `run_workflow`. `new_seed=true` draws a fresh seed into the workflow's seed variable — without it a seeded workflow's rerun repeats its arguments exactly and the step cache serves the whole run from the earlier one's files (`reused: true`), generating nothing. `get_job_workflow`'s `seed_variable` says whether there is one |
 | `move_job(job_id, direction)` | `job_id`, `direction` (`up`\|`down`\|`front`\|`back`) | Reorder a queued job |
@@ -353,10 +353,27 @@ The intended loop:
    again if it comes back `still_running: true` — or
    `get_job_events(job_id)` repeatedly, passing back the previous call's
    `last_seq` as `after`, for incremental progress instead of just a
-   terminal/not-terminal status
+   terminal/not-terminal status. Each event carries `at`, seconds since the
+   job started, so where a step's time went is a subtraction between two
+   events - `step_start` to `generating` is the lead-in a reused pipeline
+   still pays, `generating` to the first `pipeline_step` the encoding
 4. `get_job(job_id)` for the finished manifest (or the error and traceback,
    if it failed)
 5. `get_output_image(name)` to look at a result image
+
+While a job runs, `get_job` and `wait_for_job` carry a `progress` block -
+the step being run, the phase (`loading`, `generating`, `decoding`,
+`saving`) with the model in `phase_detail`, `seconds_in_phase`,
+`seconds_since_event`, and `denoise_step`/`denoise_total_steps`, which are
+null until the denoise loop starts. A single-step generation is minutes of
+one phase, so two polls otherwise come back identical: read `denoise_step`
+moving (slow but healthy) against a `denoise_step` that is a number and
+stays put while `seconds_since_event` climbs (nothing is happening). A null
+`denoise_step` under `generating` is neither - it is the lead-in the
+pipeline runs before the loop, encoding the prompt and any reference image
+or audio, ~90 s on MiniMax H3 with nothing emitted, so silence there is
+expected. `cancel_job` stops at the next denoise or
+step boundary, which `denoise_step` is also the measure of.
 
 ## Security
 

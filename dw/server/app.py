@@ -49,6 +49,7 @@ from ..introspection import (
     describe_task,
     workflow_argument_warnings,
 )
+from ..for_each import entry_field_warnings
 from ..schema import load_schema, validate_data, format_validation_errors
 from ..prompts import (
     PROMPT_PREFIX,
@@ -194,7 +195,8 @@ def catalog_name_for(path, source):
 def workflow_details(sources_by_name):
     """Per-workflow card metadata: output kinds, step and variable counts,
     and the variable names themselves - enough for an agent to pick a
-    workflow and know what to pass it without fetching each candidate. The
+    workflow and know what to pass it without fetching each candidate, and,
+    for a list-driven workflow, what an entry of each list carries. The
     names but not their defaults: across the workflows on disk the defaults
     are an order of magnitude more payload, on a listing the UI reloads.
 
@@ -248,6 +250,7 @@ def workflow_details(sources_by_name):
                 "shape": metadata["shape"],
                 "traits": metadata["traits"],
                 "summary": metadata["summary"],
+                "lists": metadata["lists"],
                 "cost": cost if isinstance(cost, list) and cost else None,
             }
         except Exception:
@@ -261,6 +264,7 @@ def workflow_details(sources_by_name):
                 "shape": "utility",
                 "traits": [],
                 "summary": "",
+                "lists": {},
                 "cost": None,
             }
         _workflow_detail_cache[path] = (mtime, detail)
@@ -813,6 +817,23 @@ def create_app(
             resolved, source = resolve_workflow_reference(
                 request.workflow_path, sources
             )
+            # The same reference check POST /api/validate makes, because a
+            # caller who skipped the free pre-flight should still not get a
+            # job id for an argument that cannot resolve. The name half of
+            # this check lives in JobManager.submit, where the definition is
+            # loaded; this half needs the workspace's search path, which is
+            # here - which is why a bad 'asset:' used to queue and die on the
+            # first step while a bad variable name was refused outright
+            reference_problems = _argument_reference_errors(
+                request.arguments, workspace
+            )
+            if reference_problems:
+                raise ValueError(
+                    "; ".join(
+                        f"{problem['path']}: {problem['message']}"
+                        for problem in reference_problems
+                    )
+                )
             job = manager.submit(
                 workflow_path=resolved,
                 workflow=request.workflow,
@@ -1186,31 +1207,47 @@ def create_app(
                     first = first or e
             raise first
 
+        def _string_leaves(value, path):
+            """Every string in `value`, paired with the path it sits at.
+
+            `value` is walked the way a for_each entry is - a list or dict
+            of arbitrary nesting - so a reference inside `shots[2].
+            references[1].from_file` is found the same as one at the
+            argument's own top level."""
+            if isinstance(value, str):
+                yield path, value
+            elif isinstance(value, list):
+                for i, item in enumerate(value):
+                    yield from _string_leaves(item, f"{path}[{i}]")
+            elif isinstance(value, dict):
+                for key, item in value.items():
+                    yield from _string_leaves(item, f"{path}.{key}")
+
         if not isinstance(arguments, dict):
             return []
         errors = []
         for name, value in arguments.items():
-            if not isinstance(value, str):
-                continue
-            path = f"arguments.{name}"
-            try:
-                if is_asset_reference(value):
-                    over_roots(
-                        _asset_roots(ws) or [ws.assets],
-                        lambda root: resolve_asset_reference(value, asset_dir=root),
-                    )
-                elif value.startswith(PROMPT_PREFIX):
-                    over_roots(
-                        _prompt_roots(),
-                        lambda root: resolve_prompt_reference(value, prompt_dir=root),
-                    )
-                elif is_output_reference(value):
-                    resolve_output_reference(value, root=ws.outputs)
-            except Exception as e:
-                # Every resolver here raises with a message written for the
-                # person who wrote the reference - a traversal refusal from
-                # the security layer included
-                errors.append({"path": path, "message": str(e)})
+            for path, leaf in _string_leaves(value, f"arguments.{name}"):
+                try:
+                    if is_asset_reference(leaf):
+                        over_roots(
+                            _asset_roots(ws) or [ws.assets],
+                            lambda root: resolve_asset_reference(leaf, asset_dir=root),
+                        )
+                    elif leaf.startswith(PROMPT_PREFIX):
+                        over_roots(
+                            _prompt_roots(),
+                            lambda root: resolve_prompt_reference(
+                                leaf, prompt_dir=root
+                            ),
+                        )
+                    elif is_output_reference(leaf):
+                        resolve_output_reference(leaf, root=ws.outputs)
+                except Exception as e:
+                    # Every resolver here raises with a message written for
+                    # the person who wrote the reference - a traversal
+                    # refusal from the security layer included
+                    errors.append({"path": path, "message": str(e)})
         return errors
 
     @app.post("/api/validate")
@@ -1267,7 +1304,9 @@ def create_app(
                 "has the detail",
             )
         try:
-            errors = candidate.validation_errors()
+            # The caller's list is the one a for_each expands over, so the
+            # pre-flight checks the step set that will actually run
+            errors = candidate.validation_errors(arguments=request.arguments)
         except Exception:
             # An error here is not the schema's verdict on the workflow -
             # validation_errors() reports that by returning it. It is the
@@ -1310,7 +1349,8 @@ def create_app(
             "valid": True,
             "error": None,
             "errors": [],
-            "warnings": workflow_argument_warnings(definition),
+            "warnings": workflow_argument_warnings(definition)
+            + entry_field_warnings(definition, request.arguments),
         }
         if request.arguments:
             # Naming what was checked is the difference between 'the stored
@@ -1561,11 +1601,12 @@ def create_app(
         blocks and all, to read a single integer. This answers that question
         by itself.
 
-        Long defaults - a shot's prompt runs to kilobytes - are cut to their
-        first 200 characters and named in `truncated`, so the answer stays
-        small for the numbers and names it is usually asked about; `full=true`
-        returns them whole, and `GET /api/workflows/{name}` is still the
-        definition itself.
+        Long strings - a shot's prompt runs to kilobytes, and a list-driven
+        workflow's default list holds several - are cut to their first 200
+        characters wherever they sit and named in `truncated`
+        (`shots[0].prompt`), so the answer stays small for the numbers and
+        names it is usually asked about; `full=true` returns them whole, and
+        `GET /api/workflows/{name}` is still the definition itself.
         """
         path, source = resolve_readable_workflow(_sources_for(ws), name)
         try:
@@ -1574,18 +1615,22 @@ def create_app(
         except (OSError, json.JSONDecodeError) as e:
             raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
 
+        def preview(value, path):
+            if isinstance(value, str) and len(value) > VARIABLE_VALUE_PREVIEW:
+                truncated.append(path)
+                return value[:VARIABLE_VALUE_PREVIEW]
+            if isinstance(value, list):
+                return [preview(item, f"{path}[{i}]") for i, item in enumerate(value)]
+            if isinstance(value, dict):
+                return {
+                    key: preview(item, f"{path}.{key}") for key, item in value.items()
+                }
+            return value
+
         variables = definition.get("variables") or {}
         values, truncated = {}, []
         for variable, value in variables.items():
-            if (
-                not full
-                and isinstance(value, str)
-                and len(value) > VARIABLE_VALUE_PREVIEW
-            ):
-                values[variable] = value[:VARIABLE_VALUE_PREVIEW]
-                truncated.append(variable)
-            else:
-                values[variable] = value
+            values[variable] = value if full else preview(value, variable)
         return {
             "name": name,
             "variables": values,

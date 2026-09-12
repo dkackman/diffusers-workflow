@@ -7,7 +7,12 @@ import gc
 import hashlib
 import logging
 from datetime import datetime, timezone
-from .arguments import realize_args, realize_constants
+from .arguments import (
+    realize_args,
+    realize_constants,
+    fetch_constant,
+    is_constant_reference,
+)
 from .events import (
     RunContext,
     emit_phase,
@@ -42,7 +47,16 @@ from .runs import (
 )
 from .realize import realize_workflow
 from .schema import validate_data_all, format_validation_errors, load_schema
-from .variables import replace_variables, set_variables
+from .for_each import expand_for_each, ForEachError
+from .variables import (
+    argument_errors,
+    replace_variables,
+    resolve_variable_values,
+    set_variables,
+    undeclared_variable_references,
+    VariableCycleError,
+    VariableNotFoundError,
+)
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
@@ -55,9 +69,19 @@ from .security import (
     SecurityError,
     PathTraversalError,
     InvalidInputError,
+    UntrustedWorkflowError,
 )
 
 logger = logging.getLogger("dw")
+
+
+class ConstantError(ValueError):
+    """A 'constant:' variable default that failed to resolve during
+    validation, with the 'variables.<name>' path at fault."""
+
+    def __init__(self, path, message):
+        super().__init__(message)
+        self.path = path
 
 
 def workflow_from_file(file_spec, output_dir, workflow_dir=None):
@@ -282,16 +306,116 @@ class Workflow:
             os.path.join(self.output_dir, subfolder) if subfolder else self.output_dir
         )
 
-    def validation_errors(self):
+    def expanded_definition(self, arguments=None, source_indices=None):
+        """The definition as the run will see it: constants realized,
+        variables substituted - the caller's `arguments` folded in when they
+        are all good, else the declared defaults - and every for_each step
+        expanded.
+
+        Raises ForEachError for a for_each that cannot be expanded,
+        ConstantError for a 'constant:' variable default that fails to
+        resolve, and VariableNotFoundError for a 'variable:' that names
+        nothing - which is exactly what the run itself would raise, since a
+        definition that declares variables is always substituted before it
+        runs.
+
+        `source_indices`, when a list is passed, comes back holding the
+        index in *this* definition's steps of every expanded step, so an
+        error can be reported at a path in the file the author wrote.
+        """
+        definition = copy.deepcopy(self.workflow_definition)
+        variables = definition.get("variables")
+        if isinstance(variables, dict):
+            # the run realizes constants before folding arguments, and a
+            # list defaulted to a 'constant:' name must expand here as it
+            # does there - a name lookup, no download. Realizing a constant
+            # imports the module it names, so validating one runs the same
+            # trust gate (require_trusted_dotted_name) a run would - only
+            # the diffusers ecosystem allowlist, unless the caller trusts
+            # the workflow. Realized per top-level variable, not as one
+            # call over the whole dict, so a failure names the variable.
+            for name, value in variables.items():
+                try:
+                    if is_constant_reference(value):
+                        variables[name] = fetch_constant(value)
+                    else:
+                        realize_constants(value)
+                except (ValueError, InvalidInputError, UntrustedWorkflowError) as e:
+                    raise ConstantError(f"variables.{name}", str(e)) from e
+            if arguments and not argument_errors(definition, arguments):
+                set_variables(arguments, variables)
+            variables = resolve_variable_values(variables)
+            definition = replace_variables(definition, variables)
+        return expand_for_each(definition, source_indices)
+
+    def validation_errors(self, arguments=None):
         """Every schema violation in the definition, as [{path, message}];
-        empty when it validates."""
+        empty when it validates. `arguments` are the caller's, so a
+        for_each over a list the caller supplies is checked as it will run."""
         errors = validate_data_all(self.workflow_definition, load_schema("workflow"))
-        # Only once the shape is known good: the reference pass walks the
+        # Only once the shape is known good: the passes below walk the
         # steps array and a definition that fails the schema may have no
         # such array to walk
         if errors:
             return errors
-        return previous_result_reference_errors(self.workflow_definition)
+        source_indices = []
+        try:
+            expanded = self.expanded_definition(arguments, source_indices)
+        except ForEachError as e:
+            return [{"path": e.path, "message": str(e)}]
+        except ConstantError as e:
+            return [{"path": e.path, "message": str(e)}]
+        except VariableNotFoundError:
+            # Every undeclared reference, not just the first one substitution
+            # tripped over - and reported where each sits rather than as a
+            # for_each whose list arrived unsubstituted, which is what a
+            # half-substituted definition used to look like from here
+            return self._undeclared_variable_errors(arguments)
+        except VariableCycleError as e:
+            # resolve_variable_values raises this for a variable that
+            # references itself, directly or through others - there is
+            # no single path inside the definition to blame, so it is
+            # reported against 'variables' as a whole rather than escaping
+            # as an unhandled exception
+            return [{"path": "variables", "message": str(e)}]
+        return previous_result_reference_errors(expanded, source_indices)
+
+    def _undeclared_variable_errors(self, arguments=None):
+        """Every 'variable:' reference naming nothing the workflow declares.
+
+        Fatal rather than a warning: once a workflow has a 'variables'
+        block, replace_variables refuses an undeclared reference, so this is
+        a run that cannot start. Good caller `arguments` are folded in first,
+        and a reference inside one of them is reported under `arguments.`,
+        where the caller wrote it.
+        """
+        definition = copy.deepcopy(self.workflow_definition)
+        variables = definition.get("variables")
+        supplied = set()
+        if isinstance(variables, dict) and arguments:
+            if not argument_errors(definition, arguments):
+                set_variables(arguments, variables)
+                supplied = set(arguments)
+        declared = sorted(variables or {})
+
+        def where(path):
+            head, _, rest = path.partition(".")
+            if head == "variables":
+                name = rest.split(".", 1)[0].split("[", 1)[0]
+                if name in supplied:
+                    return "arguments." + rest
+            return path
+
+        return [
+            {
+                "path": where(path),
+                "message": (
+                    f"'variable:{name}' names no declared variable; "
+                    f"declared: {', '.join(declared) or '<none>'}"
+                ),
+            }
+            for path, name in undeclared_variable_references(definition)
+        ]
 
     def validate(self):
         """Validates workflow definition against JSON schema.
@@ -378,12 +502,22 @@ class Workflow:
                 # first set variable values base don the arguments passed to the workflow
                 # these may come form the command line or form a parent workflow
                 set_variables(arguments, variables)
+                # an entry of a list-valued variable may name another
+                # variable; resolve those before anything inside it is
+                # realized, so a reference type in an entry is a type name
+                variables = resolve_variable_values(variables)
                 # realize the variables, initialiting downloads of images etc
                 realize_args(variables, base_dir)
                 ## then replace any variable references in the workflow definition with the actual values
                 # replace_variables returns a new structure rather than mutating in
                 # place, so the result must be captured here
                 workflow_def = replace_variables(workflow_def, variables)
+
+            # One ordinary step per entry of every for_each list, before the
+            # seed, the run id and the realized workflow are computed, so
+            # each covers what actually runs. A ForEachError here fails the
+            # run before anything loads
+            workflow_def = expand_for_each(workflow_def)
 
             # Set up random seed for reproducibility. Resolved lazily - as a
             # dict.get default, torch.seed() would run on every call and reseed

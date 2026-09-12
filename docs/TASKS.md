@@ -84,6 +84,7 @@ All accept an `image` argument with processing parameters:
 | `resize_rescale` | Resize to exact dimensions | `width`, `height` |
 | `resize_bucket` | Snap to closest model-native aspect ratio | `resolution`, `ratios`, `alignment` |
 | `crop_square` | Center crop to square | |
+| `recenter_crop` | Re-frame around a chosen point at a chosen scale, so a series of images registers on one feature; the window may run off the source | `center_x`, `center_y`, `crop`, `width`, `height`, `fill` |
 | `add_border_and_mask` | Add border with alpha mask | |
 | `add_border_and_mask_with_size` | Border with specific dimensions | `width`, `height` |
 | `strip_exif` | Remove all EXIF/metadata from image | |

@@ -351,12 +351,95 @@ class Job:
         self.run_id = None
         self.run_dir = None
         self.events = []
+        # The running summary a poll reads - see _note_progress. Kept as the
+        # events arrive rather than derived from the log on request, because
+        # the log is trimmed to its last MAX_PERSISTED_EVENTS and a caller
+        # polling a long render should not have to page through it to learn
+        # that something moved
+        self.last_event_at = None
+        self.phase = None
+        self.phase_detail = None
+        self.phase_started_at = None
+        self.step_name = None
+        self.step_index = None
+        self.total_steps = None
+        self.denoise_step = None
+        self.denoise_total_steps = None
         self.condition = threading.Condition()
 
     def add_event(self, event):
         with self.condition:
-            self.events.append({"seq": len(self.events), **event})
+            # `at` is seconds since the job started (since it was created,
+            # for the events before that). Phases say what a step is waiting
+            # on; only a clock on each event says what it cost - the
+            # lead-in from `step_start` to the first `pipeline_step` on a
+            # reused pipeline is the number a "slow start" report needs
+            since = self.started_at if self.started_at is not None else self.created_at
+            self.events.append(
+                {"seq": len(self.events), "at": round(time.time() - since, 1), **event}
+            )
+            self._note_progress(event)
             self.condition.notify_all()
+
+    def _note_progress(self, event):
+        """Fold one event into the running summary.
+
+        A single-step generation emits `generating` and then nothing until it
+        is done, so 'no new events' is the normal state of a healthy run and
+        says nothing about whether it is progressing. What answers that is
+        how long it has been that way, and how far into the denoise loop it
+        got - both of which are here rather than in the event log.
+        """
+        now = time.time()
+        self.last_event_at = now
+        kind = event.get("event")
+        if kind == "phase":
+            self.phase = event.get("phase")
+            self.phase_detail = event.get("detail")
+            self.phase_started_at = now
+        elif kind == "pipeline_step":
+            self.denoise_step = event.get("step")
+            self.denoise_total_steps = event.get("total_steps")
+        elif kind == "step_start":
+            self.step_name = event.get("step")
+            self.step_index = event.get("index")
+            self.total_steps = event.get("total_steps")
+            # A new step's denoise loop has not started; the previous step's
+            # count would read as this one's progress
+            self.denoise_step = None
+            self.denoise_total_steps = None
+
+    def progress(self):
+        """Where a running job has got to, or None for one that has not
+        started or has finished - a terminal job has a manifest, which is a
+        better answer than a stale phase."""
+        if self.status != RUNNING or self.last_event_at is None:
+            return None
+        now = time.time()
+        summary = {
+            "step": self.step_name,
+            "step_index": self.step_index,
+            "total_steps": self.total_steps,
+            "phase": self.phase,
+            "phase_detail": self.phase_detail,
+            "seconds_in_phase": (
+                round(now - self.phase_started_at, 1) if self.phase_started_at else None
+            ),
+            # The one number that separates a slow run from a hung one -
+            # but only once the denoise loop is running, see below
+            "seconds_since_event": round(now - self.last_event_at, 1),
+            # Always present, null until the loop starts. A key that only
+            # appears once there is a count to report cannot be told apart
+            # from a key that is missing because nothing is happening: the
+            # lead-in to `generating` - encoding the prompt and any
+            # reference image or audio - is over a minute of silence on a
+            # large video model, and read as an absent counter it looks
+            # exactly like a wedged denoise loop. Null here means the loop
+            # has not started; a number that stops moving is the stuck one
+            "denoise_step": self.denoise_step,
+            "denoise_total_steps": self.denoise_total_steps,
+        }
+        return summary
 
     def finish(self, status, error=None, traceback_text=None):
         self.status = status
@@ -406,6 +489,7 @@ class Job:
             "traceback": self.traceback,
             "event_count": len(self.events),
             "run_dir": self.run_dir,
+            "progress": self.progress(),
         }
 
 

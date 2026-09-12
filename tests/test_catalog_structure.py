@@ -203,6 +203,73 @@ def test_a_declared_cost_is_well_formed(path):
         ), path
 
 
+def per_entry_problems(definition):
+    """The checks a per_entry cost has to satisfy: its 'variable' is a
+    for_each list this definition actually reads, and 'entries' is that
+    list's default length - a stale figure left behind by an edited
+    default is otherwise invisible until the wrong minutes gets quoted."""
+    from dw.for_each import list_fields
+
+    problems = []
+    for entry in definition.get("cost") or []:
+        per_entry = entry.get("per_entry")
+        if per_entry is None:
+            continue
+        lists = list_fields(definition)
+        variable = per_entry["variable"]
+        if variable not in lists:
+            problems.append(f"{variable} is not a for_each list")
+            continue
+        default = (definition.get("variables") or {}).get(variable)
+        if not (isinstance(default, list) and len(default) == per_entry["entries"]):
+            problems.append(
+                f"entries={per_entry['entries']} does not match the default "
+                f"list's length ({default!r})"
+            )
+    return problems
+
+
+@pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS)
+def test_a_per_entry_cost_names_a_list_the_steps_read(path):
+    """per_entry is measured over the default list, so the variable it
+    names must be one a for_each expands and `entries` must be that
+    list's length - an edited default that forgot the cost block fails
+    here."""
+    definition = load(path)
+    problems = per_entry_problems(definition)
+    assert not problems, f"{path}: {problems}"
+
+
+def test_per_entry_problems_reports_a_mismatched_entries_count():
+    """Synthetic case so the check above is not vacuous while no bundled
+    template carries a per_entry cost yet."""
+    definition = {
+        "variables": {"shots": [{"name": "a"}, {"name": "b"}]},
+        "steps": [
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "pipeline": {
+                    "configuration": {"component_type": "{Fake}"},
+                    "from_pretrained_arguments": {"model_name": "m"},
+                    "arguments": {"name": "item:name"},
+                },
+                "result": {"content_type": "image/jpeg"},
+            }
+        ],
+        "cost": [
+            {
+                "device": "cuda",
+                "vram_gb": 24,
+                "minutes": 10,
+                "per_entry": {"variable": "shots", "minutes": 5, "entries": 5},
+            }
+        ],
+    }
+    problems = per_entry_problems(definition)
+    assert problems and "entries=5" in problems[0]
+
+
 # The catalog's descriptions quote identifiers in single quotes, not
 # backticks - JSON strings, where a backtick reads as a stray character.
 QUOTED = re.compile(r"'([a-z_][a-z0-9_]*)'")
@@ -219,6 +286,8 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/image-to-text.json": {"model_name", "prompt"},
     # a field of the step's 'chain' block
     "workflows/templates/minimax/chained-segments.json": {"trim_frames"},
+    # fields of a 'shots' list entry, not this workflow's own variables
+    "workflows/templates/minimax/dialogue-short.json": {"prompt", "num_frames"},
     # the fl2va sub-workflow's argument, named to say this one leaves it unset
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared

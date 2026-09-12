@@ -162,6 +162,120 @@ class TestValidateRoute:
         assert result["valid"] is False
         assert result["errors"][0]["path"] == "arguments.nope"
 
+    def test_validate_expands_for_each_with_the_callers_list(self, server):
+        workflow = {
+            "id": "fe",
+            "variables": {"shots": [{"name": "a", "text": "A"}]},
+            "steps": [
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["item:text"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                },
+                {
+                    "name": "edit",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": "gather:shot"},
+                    },
+                    "result": {"content_type": "text/plain"},
+                },
+            ],
+        }
+        with server() as client:
+            ok = client.post("/api/validate", json={"workflow": workflow}).json()
+            assert ok["valid"] is True
+
+            bad = client.post(
+                "/api/validate",
+                json={
+                    "workflow": workflow,
+                    "arguments": {"shots": [{"name": "x"}, {"name": "x"}]},
+                },
+            ).json()
+
+        assert bad["valid"] is False
+        assert bad["errors"][0]["path"] == "steps[0].for_each[1].name"
+
+    def test_a_missing_reference_inside_a_list_argument_fails_validation(self, server):
+        """A `shots` list entry's `references[].from_file` is checked the
+        same as a top-level string argument - `_argument_reference_errors`
+        walks into list/dict argument values rather than skipping them."""
+        workflow = {
+            "id": "list-refs",
+            "variables": {"shots": [{"name": "a", "references": []}]},
+            "steps": [
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["item:name"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                }
+            ],
+        }
+        with server() as client:
+            result = client.post(
+                "/api/validate",
+                json={
+                    "workflow": workflow,
+                    "arguments": {
+                        "shots": [
+                            {
+                                "name": "a",
+                                "references": [{"from_file": "asset:missing.wav"}],
+                            }
+                        ]
+                    },
+                },
+            ).json()
+
+        assert result["valid"] is False
+        assert (
+            result["errors"][0]["path"] == "arguments.shots[0].references[0].from_file"
+        )
+        assert "missing.wav" in result["errors"][0]["message"]
+
+    def test_a_reference_inside_a_list_argument_that_exists_passes(self, server):
+        workflow = {
+            "id": "list-refs",
+            "variables": {"shots": [{"name": "a", "references": []}]},
+            "steps": [
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["item:name"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                }
+            ],
+        }
+        with server() as client:
+            result = client.post(
+                "/api/validate",
+                json={
+                    "workflow": workflow,
+                    "arguments": {
+                        "shots": [
+                            {
+                                "name": "a",
+                                "references": [{"from_file": "asset:iris.png"}],
+                            }
+                        ]
+                    },
+                },
+            ).json()
+
+        assert result["valid"] is True
+
 
 class TestSubmission:
     def test_a_bad_argument_is_refused_before_the_job_is_queued(self, server):
@@ -183,3 +297,91 @@ class TestSubmission:
             )
 
         assert response.status_code == 201
+
+    def test_a_bad_reference_is_refused_before_the_job_is_queued(self, server):
+        """The name half of the check was refused at submission and the
+        reference half was not, so a typo'd asset came back as a job id and
+        died on the first step - a success-shaped answer to a question
+        validate could answer for free."""
+        with server() as client:
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow_path": "Typed",
+                    "arguments": {"image": "asset:iirs.png"},
+                },
+            )
+
+            assert response.status_code == 400
+            detail = response.json()["detail"]
+            assert "arguments.image" in detail and "iirs.png" in detail
+            assert client.get("/api/jobs").json()["jobs"] == []
+
+    def test_a_reference_that_resolves_still_queues(self, server):
+        with server() as client:
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow_path": "Typed",
+                    "arguments": {"image": "asset:iris.png"},
+                },
+            )
+
+        assert response.status_code == 201
+
+    def test_an_inline_workflow_is_checked_the_same_way(self, server):
+        with server() as client:
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": typed_workflow(),
+                    "arguments": {"image": "asset:nowhere.png"},
+                },
+            )
+
+        assert response.status_code == 400
+        assert "arguments.image" in response.json()["detail"]
+
+    def test_submission_and_validation_give_the_same_message(self, server):
+        """The ticket was a consistency gap, not a missing check: what the
+        free pre-flight says is what submission says."""
+        arguments = {"image": "asset:iirs.png"}
+        with server() as client:
+            validated = validate(client, arguments=arguments)
+            refused = client.post(
+                "/api/jobs", json={"workflow_path": "Typed", "arguments": arguments}
+            )
+
+        assert validated["errors"][0]["message"] in refused.json()["detail"]
+
+
+def test_an_entry_key_no_step_reads_is_a_warning_not_an_error(server):
+    workflow = {
+        "id": "cut",
+        "variables": {"shots": [{"name": "a", "text": "p"}]},
+        "steps": [
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": ["item:text"]},
+                },
+                "result": {"content_type": "text/plain"},
+            }
+        ],
+    }
+    with server() as client:
+        response = client.post(
+            "/api/validate",
+            json={
+                "workflow": workflow,
+                "arguments": {"shots": [{"name": "a", "text": "p", "txt": "q"}]},
+            },
+        )
+    body = response.json()
+    assert body["valid"] is True
+    assert any(
+        w.startswith("arguments.shots[0]: entry 'a' carries 'txt'")
+        for w in body["warnings"]
+    )

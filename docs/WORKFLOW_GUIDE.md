@@ -244,8 +244,13 @@ document, which is where a draft that validates still fails.
 ### References
 
 An argument value is a reference when it begins with one of these prefixes.
-Each resolves before the step runs; a name that does not resolve fails the run,
-not validation.
+Each resolves before the step runs. `variable:` and `previous_result:` names
+are checked statically, so a bad one is a validation error at the path it
+sits at; a `constant:`, `asset:`, `prompt:` or `output:` name in the
+definition body resolves only when the step runs, and one that is missing
+fails the run - unless it arrives in the `arguments` passed to
+`validate_workflow`, which checks an `asset:`, `prompt:` or `output:` there
+for existence.
 
 - `variable:` — `variable:name` is the workflow's own `variables` entry,
   overridden by the caller's `arguments`. A variable declared `null` is optional and untyped.
@@ -271,6 +276,14 @@ not validation.
 - `prompt:` — `prompt:name` or `prompt:folder/name` is a stored prompt's
   `text`, rooted at the prompt library. That text may not itself begin with any of these
   prefixes; the engine rejects such a prompt rather than resolving twice.
+- `item:` — only inside a step that carries `for_each`: `item:` is the
+  entry the member was made for, `item:field` one field of an object entry,
+  spliced in whole whatever its type — a string, a number, a list of
+  references. See "One step per entry" below.
+- `gather:` — `gather:shot` is the result of *every* member of the
+  `for_each` step `shot`, in list order, as one list. Inside a list it splices
+  into it. It is how a step downstream of a fan-out reads the whole group;
+  `previous_result:shot` naming a `for_each` step is an error that says so.
 
 After a long inline run that is worth keeping, `get_job_workflow(job_id)`
 returns the realized workflow — the definition with the arguments, seed and
@@ -286,8 +299,10 @@ value: `"variable:base_prompt"` resolves, `"variable:base_prompt, in fog"` asks
 for a variable named `base_prompt, in fog` and fails the run. Nothing is
 interpolated around a reference. To vary a fixed prompt across steps, write
 each full prompt out, or put the shared text in a variable and let a step's
-argument override it whole. `validate_workflow` warns about a `variable:`
-reference that names nothing the workflow declares.
+argument override it whole. A `variable:` reference that names nothing the
+workflow declares is a validation error, not a warning: once a `variables`
+block exists the engine refuses an undeclared reference, so it is a run that
+cannot start.
 
 When several steps share a block of text — a character's description and voice
 repeated in every shot of a dialogue short — the answer is composition rather
@@ -328,6 +343,103 @@ cannot be expressed with two references on one step. Write it as one step per
 pair, each referencing exactly the two things it pairs, or gather the pairs
 upstream so each is a single result. A step that seems to need a "zip" is the
 signal to restructure the workflow, not to add another reference.
+
+### One step per entry: `for_each`
+
+A step that carries `for_each` runs once per entry of a list — a shot per
+entry of `shots` — and the list is a variable the caller supplies, so a
+six-shot episode is an argument rather than a different file.
+
+```json
+{
+  "name": "shot",
+  "for_each": "variable:shots",
+  "pipeline": {
+    "arguments": {
+      "prompt": "item:prompt",
+      "references": "item:references"
+    }
+  }
+}
+```
+
+with
+
+```json
+"shots": [
+  { "name": "wide_open", "prompt": "the band walks on, wide",
+    "references": [{ "reference_type": "…", "from_previous_result": "draw_singer" }] },
+  { "name": "closeup", "prompt": "closeup on the singer",
+    "references": [{ "reference_type": "…", "from_previous_result": "draw_singer" }] }
+]
+```
+
+and downstream
+
+```json
+{ "name": "edit",
+  "task": { "command": "concat_videos", "arguments": { "videos": "gather:shot" } } }
+```
+
+Before the run starts, the engine replaces the `for_each` step with one
+ordinary step per entry, named `shot@wide_open`, `shot@closeup` — the
+entry's `name`, or its index for an entry without one. Those are the names
+the manifest, the job's events and the gallery show, and `@` is reserved
+for them: a hand-written step name may not contain it. An entry's `name`
+must be unique in its list and match `^[a-zA-Z_][a-zA-Z0-9_-]*$`. Give
+entries names: the step cache keys on the member name, so a shot inserted
+in the middle of a named list leaves every other shot cached, while an
+indexed list shifts every later shot onto a different entry and regenerates
+it.
+
+`item:field` is the whole value of that field, so an entry can carry
+anything a step argument can — including a `references` list whose length
+differs by shot, with `from_previous_result` and `asset:` strings inside
+it. Nothing is interpolated: `"item:prompt"` is the field, `"shot: item:prompt"`
+is a literal string.
+
+An entry may name another variable: `"from_file": "variable:character_a_voice"`
+inside a `references` entry is that variable's value by the time the member
+exists, so one variable sets a voice in every shot the character speaks in
+and a caller who supplies the list still writes `variable:` for the parts the
+template fixes. Those references are resolved before anything in the entry is
+loaded, and an undeclared one is a validation error at the entry's path
+(`arguments.shots[2].references[1].from_file` when the list is yours,
+`variables.shots[...]` when it is the template's). A value may not reference
+itself, directly or through another variable.
+
+Two `for_each` steps over the *same* list are paired by key — the entry's
+`name`, or its index for an entry without one: inside `shot@closeup`, a
+reference to another `for_each` step `slice` over the same `shots` list
+resolves to `slice@closeup`. That is how a shot reads the audio
+slice cut for it when slicing and generating are two steps. It is the one
+pairing the engine has; `for_each` runs over exactly one list, and there is
+no zip and no loop index.
+
+Limits: a list has at most 32 entries, and an empty list is a validation
+error — the step would run nothing. Validation realizes a `constant:`
+default before checking it, so a list defaulted to a constant validates the
+same way it will run. `release_pipeline` on a `for_each`
+step releases after the *last* member. Each entry is a full generation, so
+quote the cost before running a list-driven workflow: the listing's `lists`
+block names the fields an entry takes and the steps over it, and its `cost`
+carries `per_entry` once one entry has been measured — quote
+`minutes - per_entry.minutes × per_entry.entries + per_entry.minutes × N` for
+N entries, and without `per_entry` quote the total as the default list's. An
+entry key no step reads is a validation warning at the entry's path, so a
+misspelt field is caught before the run. Then
+`validate_workflow` with the
+`arguments` you will run with: it expands your list, not the template's
+default, resolves the variables your entries name, and reports a duplicate
+name or a missing field at the entry's path.
+
+Every error carries a path in the file you wrote, not in the expanded step
+list: a bad reference inside a member is reported at the `for_each` step's
+own path, with the member it failed in named in the message.
+
+`templates/minimax/dialogue-short` and `templates/minimax/music-video` are
+this shape: each takes one `shots` list, and `get_workflow` on either shows
+the entry an item needs.
 
 ### The loop
 
@@ -1016,9 +1128,11 @@ Override the default scheduler:
 }
 ```
 
-A pipeline that carries a second scheduler takes an `audio_scheduler` block with the
-same shape - MiniMax H3 steps video and audio latents down two schedules whose shifts
-are set independently.
+A scheduler block may also carry `shift`, the exponential sigma shift for
+schedulers that take one (MiniMax H3's released checkpoint: 12.0 for video,
+3.0 for audio). A pipeline that carries a second scheduler takes an
+`audio_scheduler` block with the same shape - MiniMax H3 steps video and audio
+latents down two schedules whose shifts are set independently.
 
 ## Seeds
 

@@ -230,7 +230,7 @@ class TestServer:
         the caller works in reads as though it was never looked in."""
         api, workspace, checkout = client
         definition = valid_workflow("refs")
-        definition["variables"] = {"image": "asset:mine.png"}
+        definition["variables"]["image"] = "asset:mine.png"
 
         for name in ("asset:mine.png", "asset:iris.png"):
             answer = api.post(

@@ -18,7 +18,7 @@
 - A template's `description` may not mention a variable or step in single quotes that the workflow does not have (`test_catalog_structure.py` drift check).
 - Every test file docstring and every test name states the behaviour, not the mechanism, matching the existing suite's style.
 - Commit messages end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
-- Each task appends to the Part 4 row of the ledger table in `docs/proposals/agent-catalog-legibility.md` (the row beginning `| Part 4 packaging |`), one sentence per task, in the same commit as the change.
+- Each task appends to the Part 4 row of the ledger table in `docs/proposals/agent-catalog-legibility-complete.md` (the row beginning `| Part 4 packaging |`), one sentence per task, in the same commit as the change.
 - Work on branch `catalog-repair`, cut from `master` after PR #49 has merged. Do not start it from `agent-legibility`.
 
 ---
@@ -37,7 +37,7 @@
 | `dw/workflows/h3_context_ir.json` | system prompt corrections | 4 |
 | `tests/test_h3_context_ir.py` | the corrections are present, the removed lines absent | 4 |
 | `workflows/templates/minimax/README.md`, `workflows/templates/ltx2/README.md` | links, vendor sources, model facts | 5 |
-| `docs/proposals/agent-catalog-legibility.md` | ledger row and dated follow-ups | every task, 6 |
+| `docs/proposals/agent-catalog-legibility-complete.md` | ledger row and dated follow-ups | every task, 6 |
 
 ---
 
@@ -110,7 +110,7 @@ If it FAILS: the failure names what the engine cannot do. Do not patch around it
 Append to the Part 4 ledger row: `Catalog repair task 1: the latent handoff a two-stage flow needs is proven by test (tests/test_result.py::TestLatentHandoff), no engine change.`
 
 ```bash
-git add tests/test_result.py docs/proposals/agent-catalog-legibility.md
+git add tests/test_result.py docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "test: a latent pipeline output hands each tensor to the next step by name
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -524,7 +524,7 @@ and in the `**Examples:**` line change `(base -> latent upsample -> mux)` to `(b
 Append to the Part 4 ledger row: `Catalog repair task 2: two-stage.json is the three-move flow (8 sigmas at 768x448, 2x latent upsample, renoise + 3 stage-two sigmas at 1536x896, audio latents carried); latents pass by name; a test holds noise_scale to STAGE_2_DISTILLED_SIGMA_VALUES[0]. Cost and the sharpness comparison await the lem run (task 7).`
 
 ```bash
-git add workflows/templates/ltx2/two-stage.json tests/test_catalog_structure.py docs/RECIPES_24GB.md docs/proposals/agent-catalog-legibility.md
+git add workflows/templates/ltx2/two-stage.json tests/test_catalog_structure.py docs/RECIPES_24GB.md docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "LTX-2.5 two-stage template runs the stage-two refine pass it was missing
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -661,7 +661,7 @@ Expected: all PASS.
 Append to the Part 4 ledger row: `Catalog repair task 3: the six prompts/ltx2 captions are rewritten to the trained format (one paragraph, 150-220 words, shot type/camera motion/viewpoint in prose, sound interleaved; the two I2V ones describe only what changes), intended_model ltx-2.5, four summaries say LTX-2.5; tests/test_ltx_prompt_library.py holds the shape.`
 
 ```bash
-git add prompts/ltx2 workflows/templates/ltx2 tests/test_ltx_prompt_library.py docs/proposals/agent-catalog-legibility.md
+git add prompts/ltx2 workflows/templates/ltx2 tests/test_ltx_prompt_library.py docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "LTX-2.5 prompt library rewritten in the caption format the model was trained on
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -840,7 +840,7 @@ Expected: the diff touches only the `system_prompt` line; validate passes; all t
 Append to the Part 4 ledger row: `Catalog repair task 4: h3_context_ir names its two source guides, writes N/A for silent audio fields, numbers <Video N>/<Audio N> within their category, labels continuity modes as this engine's chaining convention (nothing in the engine emits the phrase; it is a user-message convention), adds the ref guide's dialogue-fidelity rules, drops the two unsourced lines; tests/test_h3_context_ir.py.`
 
 ```bash
-git add dw/workflows/h3_context_ir.json tests/test_h3_context_ir.py docs/proposals/agent-catalog-legibility.md
+git add dw/workflows/h3_context_ir.json tests/test_h3_context_ir.py docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "H3 Context-IR builtin corrected against MiniMax's prompt-writing guides
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -999,7 +999,7 @@ Expected: PASS, including `test_every_readme_link_resolves` for both files. Also
 Append to the Part 4 ledger row: `Catalog repair task 5: both template READMEs link the files that exist, name the vendor sources and the audit, the H3 one states the canvas rules and the 5-second diffusers floor; a test resolves every README link.`
 
 ```bash
-git add workflows/templates/minimax/README.md workflows/templates/ltx2/README.md tests/test_catalog_structure.py docs/proposals/agent-catalog-legibility.md
+git add workflows/templates/minimax/README.md workflows/templates/ltx2/README.md tests/test_catalog_structure.py docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "Template READMEs: links that resolve, vendor sources named, H3 canvas rules stated
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -1012,7 +1012,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Recommended model:** sonnet — a transcription from the two audits' "Missing knowledge" sections.
 
 **Files:**
-- Modify: `docs/proposals/agent-catalog-legibility.md`
+- Modify: `docs/proposals/agent-catalog-legibility-complete.md`
 
 **Interfaces:**
 - Consumes: both audits' "Missing knowledge" sections.
@@ -1065,7 +1065,7 @@ MiniMax H3 ([audit](audits/2026-09-07-minimax-h3-audit.md)):
 - [ ] **Step 2: Commit**
 
 ```bash
-git add docs/proposals/agent-catalog-legibility.md
+git add docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "Ledger: dated model-knowledge follow-ups from the H3 and LTX-2.5 audits
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -1078,7 +1078,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Recommended model:** this is run by the controlling session (it needs the dw MCP connection to lem and a human go-ahead for GPU minutes), not a subagent. Opus.
 
 **Files:**
-- Modify: `workflows/templates/ltx2/two-stage.json` (`cost`), `docs/RECIPES_24GB.md` (only if the comparison supports a sharpness sentence), `docs/proposals/agent-catalog-legibility.md`
+- Modify: `workflows/templates/ltx2/two-stage.json` (`cost`), `docs/RECIPES_24GB.md` (only if the comparison supports a sharpness sentence), `docs/proposals/agent-catalog-legibility-complete.md`
 
 **Interfaces:**
 - Consumes: Tasks 2 to 5 merged into the branch; lem checked out on the branch and `dw.serve` restarted (the builtin and the JSON are read at start or per run respectively, and a restart makes both certain).
@@ -1123,7 +1123,7 @@ If the comparison in Step 2 showed the refine pass sharper, add to the RECIPES p
 Append to the Part 4 ledger row: `Catalog repair task 7: verified on lem <date>: two-stage <minutes> warm min at 1536x896 (<sharper / not sharper> than upsample-only at seed 42); fox and hummingbird captions run as written; the silent-candle brief produced N/A for both audio fields<, after N tries>.`
 
 ```bash
-git add workflows/templates/ltx2/two-stage.json docs/RECIPES_24GB.md docs/proposals/agent-catalog-legibility.md
+git add workflows/templates/ltx2/two-stage.json docs/RECIPES_24GB.md docs/proposals/agent-catalog-legibility-complete.md
 git commit -m "Two-stage cost measured on lem; lem verification of the catalog repair recorded
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"

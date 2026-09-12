@@ -74,7 +74,10 @@ def build_server(client):
             "\n"
             "Start from `list_workflows(shape=...)`: the server keeps a "
             "large catalog, and its compact listing carries each "
-            "workflow's summary, shape, traits, cost and variable names - "
+            "workflow's summary, shape, traits, cost, variable names and, "
+            "for a list-driven workflow, `lists` - what an entry of each "
+            "list carries; a list-driven workflow's `cost` may also carry "
+            "a measured `per_entry` (neither template does yet) - "
             "run what is already there, with `arguments` overriding its "
             "variables, rather than authoring a new workflow for a "
             "request an existing one covers. Shapes: image, image-set, "
@@ -166,10 +169,15 @@ def build_server(client):
         composes-workflows. Each entry carries a one-line `summary`, its
         `shape` and `traits` (what it needs supplied), `cost` (measured
         runs per device; null means unknown - call `get_memory` and say
-        so), output kinds and variable names. Templates only by default;
-        `configures=<template>` lists the checkpoint configs tuned for
-        one, `include_models=true` lists them all. `get_workflow` has the
-        full description and definition."""
+        so), output kinds and variable names. `lists`, present for a
+        list-driven workflow, names per list variable the fields an entry
+        takes, the steps run over it and the default's length; there
+        `cost[].per_entry`, when present, is the measured cost of one
+        entry (`{variable, minutes, entries}`), so a run over a
+        different-length list can be priced from it. Templates only by
+        default; `configures=<template>` lists the checkpoint configs
+        tuned for one, `include_models=true` lists them all. `get_workflow`
+        has the full description and definition."""
         return catalog.list_workflows(
             client,
             shape=shape,
@@ -185,8 +193,9 @@ def build_server(client):
         `variables_only=true` when the question is only what a variable
         defaults to - it answers with the variables and their values and
         nothing else, which is a fraction of the definition; long defaults
-        (a shot's prompt) come back cut to 200 characters with the cut ones
-        named in `truncated`."""
+        come back cut to 200 characters with the cut ones named in
+        `truncated`, reaching into a list default too - a shot's prompt
+        is named `shots[0].prompt`."""
         return catalog.get_workflow(client, name, variables_only=variables_only)
 
     def get_schema() -> dict:
@@ -515,7 +524,7 @@ def build_server(client):
         """Create a workspace on the server. It gets its own workflows,
         assets and outputs and shares the one prompt library. The name is a
         single path segment and cannot be one of the reserved folder names
-        (workflows, prompts, assets, outputs). Pass use=true to switch this
+        (workflows, prompts, assets, outputs, exports, common). Pass use=true to switch this
         session to it as well; otherwise the session stays where it was and
         the result says so."""
         return workspaces.create_workspace(client, name, use=use)
@@ -705,9 +714,13 @@ def build_server(client):
         return diagnose.get_job_workflow(client, job_id)
 
     def get_job_events(job_id: str, after: int = -1, limit: int = 200) -> dict:
-        """Get a page of a job's progress events - phase transitions, memory
-        readings and log lines. `after` is exclusive: pass back the previous
-        call's `last_seq` to continue."""
+        """Get a page of a job's progress events - phase transitions, denoise
+        steps, memory readings and log lines. `after` is exclusive: pass back
+        the previous call's `last_seq` to continue. Each event's `at` is
+        seconds since the job started, so where a step's time went is the
+        difference between two events. For 'is it still moving?' the
+        `progress` block on get_job/wait_for_job is cheaper than a page of
+        events."""
         return diagnose.get_job_events(client, job_id, after=after, limit=limit)
 
     def wait_for_job(job_id: str, timeout_seconds: int = 20) -> dict:
@@ -726,7 +739,16 @@ def build_server(client):
         timeout_capped.
 
         Returns a slim job - status, warnings, error, and the manifest once
-        finished - without the arguments; get_job has those."""
+        finished - without the arguments; get_job has those. A running job
+        also carries `progress`: the step it is on, the phase (`loading`,
+        `generating`, `decoding`, `saving`) with the model named in
+        `phase_detail`, `seconds_in_phase`, `seconds_since_event`, and
+        `denoise_step`/`denoise_total_steps`, null until the denoise loop
+        starts - which is how a slow run and a stuck one tell apart between
+        two otherwise identical polls. A null `denoise_step` under
+        `generating` is the pipeline's lead-in (encoding the prompt and any
+        reference image or audio, ~90 s on MiniMax H3), which emits
+        nothing: wait it out rather than reading the silence as a hang."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states

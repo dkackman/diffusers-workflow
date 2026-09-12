@@ -43,7 +43,18 @@
                     "device": {"type": "string", "enum": ["cuda", "mps", "cpu"]},
                     "name": {"type": "string", "description": "The accelerator, for a person: 'RTX 4090', 'M2 Ultra'"},
                     "vram_gb": {"type": "number", "minimum": 0},
-                    "minutes": {"type": "number", "minimum": 0}
+                    "minutes": {"type": "number", "minimum": 0},
+                    "per_entry": {
+                        "type": "object",
+                        "description": "For a list-driven workflow: the measured cost of one entry of 'variable' (every member it produces), and the length of the default list 'minutes' was measured with, so a run over N entries is (minutes - per_entry.minutes * entries) + per_entry.minutes * N.",
+                        "required": ["variable", "minutes", "entries"],
+                        "properties": {
+                            "variable": {"type": "string"},
+                            "minutes": {"type": "number", "minimum": 0},
+                            "entries": {"type": "integer", "minimum": 1}
+                        },
+                        "additionalProperties": false
+                    }
                 },
                 "additionalProperties": false
             }
@@ -103,6 +114,13 @@
             "properties": {
                 "name": {
                     "type": "string"
+                },
+                "for_each": {
+                    "description": "Run this step once per entry of a list. A list, or a 'variable:' reference to one. Inside the step, 'item:' is the entry and 'item:field' one of its fields; a later step reads every member's result with 'gather:<step name>'. Members are named '<step name>@<entry name>' (or '@<index>' for an entry without a name), so '@' is reserved in step names.",
+                    "type": ["array", "string"],
+                    "pattern": "^variable:",
+                    "minItems": 1,
+                    "maxItems": 32
                 },
                 "seed": {
                     "description": "Default seed for the entire step. Accepts a 'variable:' reference.",
