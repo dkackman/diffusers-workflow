@@ -1,6 +1,6 @@
 # Design: subfolders for a run's outputs
 
-Status: **designed, not implemented**. Written for MCP feedback ticket T016;
+Status: **stage 1 (engine) implemented; stages 2-4 pending**. Written for MCP feedback ticket T016;
 reviewed against the code on 2026-09-12. Decisions taken in that review are
 marked *decided*.
 

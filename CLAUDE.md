@@ -298,6 +298,17 @@ same reason - default setup cannot load a pack.
   `JobManager.realized` finds the file. `exports` is a reserved workspace name:
   `POST /api/jobs/{id}/export` gathers one finished job into
   `<workspace>/exports/<job id>/` and `GET /exports/<job id>.zip` streams it.
+- **Result subfolders**: a step's `result.subfolder` (`dw/subfolders.py`) puts its files
+  in a subfolder of the run directory - `<run>/final/x.mp4` - by convention `final` or
+  `intermediate`; the engine treats no name specially and there is no default.
+  `Workflow.step_output_dir` computes the directory once and hands it to both
+  `Result.save` and the pipeline wrapper, so a chain's `save_segments` spill follows it.
+  Shape is `SUBFOLDER_PATTERN` (the `output:` segment rule, so every subfolder is
+  `output:`-addressable), checked by `subfolder_errors` in `validation_errors` after
+  `for_each` expansion and again at run time; containment is `validate_output_path`
+  against the run directory. Manifest entries and `step_end` carry `subfolder`.
+  `split_run_path` finds the run id anywhere in a path, so `strip_run_id` still groups a
+  workflow's runs. `file_base_name` may not contain a separator - it is a name, not a path
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image
