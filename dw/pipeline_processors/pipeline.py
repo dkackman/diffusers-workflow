@@ -238,116 +238,149 @@ class Pipeline:
             logger.info(f"Pre-loading module: {module_name}")
             importlib.import_module(module_name)
 
-        # Prepare arguments and load pipeline
-        from_pretrained_arguments = self.populate_from_pretrained_arguments(
-            self.device, shared_components
-        )
-        reused_components = self.resolve_reused_components(shared_components)
+        # A load that raises partway has already built some of what it was
+        # asked for - the pipeline itself, its quantized weights, a placement
+        # half applied - and none of that is reachable from the caller, which
+        # never received a pipeline. Left alone it stays resident until the
+        # exception is handled and something else happens to collect, so a
+        # retry loads its own copy on top of the last attempt's: three failures
+        # is three pipelines' worth of dead weight. Tear the attempt down here
+        # instead, then let the failure carry on
+        try:
+            # Prepare arguments and load pipeline
+            from_pretrained_arguments = self.populate_from_pretrained_arguments(
+                self.device, shared_components
+            )
+            reused_components = self.resolve_reused_components(shared_components)
 
-        # Adapters add weights to the components they attach to, and an offloading
-        # hook only streams the weights that existed when it was installed - so a
-        # pipeline that loads any is placed after they are on it, not at load
-        adapters_to_load = bool(self.pipeline_definition.get("loras", [])) or (
-            self.pipeline_definition.get("ip_adapter", None) is not None
-        )
-
-        # Load and configure the main pipeline
-        self.pipeline = load_component(
-            "pipeline",
-            self.configuration,
-            from_pretrained_arguments,
-            self.device,
-            reused_components,
-            defer_placement=adapters_to_load,
-        )
-
-        # Enable attention slicing if explicitly requested or automatically on MPS
-        # MPS benefits from slicing since Metal shares system RAM with the GPU
-        if self.configuration.get("enable_attention_slicing", False) or (
-            get_device_type(self.device) == "mps"
-            and not self.configuration.get("disable_attention_slicing", False)
-        ):
-            # Modular pipelines have no attention slicing - on MPS this is applied
-            # automatically, so skip rather than fail when the pipeline lacks it
-            if has_method(self.pipeline, "enable_attention_slicing"):
-                logger.debug("Enabling attention slicing for pipeline")
-                self.pipeline.enable_attention_slicing()
-            else:
-                logger.debug(
-                    f"{type(self.pipeline).__name__} does not support attention slicing, skipping"
-                )
-
-        # configure components that are not shared
-        self.configure_loaded_components()
-
-        # Apply SDNQ quantized matmul optimization to specified components
-        sdnq_optimize = self.configuration.get("sdnq_optimize", [])
-        if sdnq_optimize:
-            apply_sdnq_optimizations(self.pipeline, sdnq_optimize)
-
-        # Enable diffusers built-in cache acceleration on transformer
-        cache_config = get_cache_configuration(self.configuration)
-        if cache_config is not None:
-            enable_cache_on_transformer(self.pipeline, cache_config)
-
-        # Configure the schedulers if specified - a pipeline that denoises two
-        # modalities against two schedules configures each of them separately
-        load_and_configure_scheduler(
-            self.pipeline_definition.get("scheduler", None), self.pipeline
-        )
-        load_and_configure_scheduler(
-            self.pipeline_definition.get("audio_scheduler", None),
-            self.pipeline,
-            "audio_scheduler",
-        )
-
-        self.publish_shared_components(shared_components)
-
-        # Load and configure LoRA models
-        load_loras(self.pipeline_definition.get("loras", []), self.pipeline)
-
-        # Load and configure IP-Adapter
-        load_ip_adapter(self.pipeline_definition.get("ip_adapter", None), self.pipeline)
-
-        # The adapters are on the pipeline now, so its offloading hooks can be
-        # installed over the weights they added
-        if adapters_to_load:
-            self.pipeline = place_component(
-                self.pipeline,
-                "pipeline",
-                self.configuration,
-                self.device,
-                # A modular pipeline's manager owns its placement, and the manager
-                # load_component gave it is the one it holds
-                getattr(self.pipeline, "_components_manager", None),
+            # Adapters add weights to the components they attach to, and an offloading
+            # hook only streams the weights that existed when it was installed - so a
+            # pipeline that loads any is placed after they are on it, not at load
+            adapters_to_load = bool(self.pipeline_definition.get("loras", [])) or (
+                self.pipeline_definition.get("ip_adapter", None) is not None
             )
 
-        # Place the components the pipeline loaded itself, once everything that alters
-        # them - dtypes, adapters, quantized matmuls - has been applied. Offloading hooks
-        # installed before those would be fighting them
-        configure_components(
-            self.pipeline, self.configuration, self.device, reused_components
-        )
+            # Load and configure the main pipeline
+            self.pipeline = load_component(
+                "pipeline",
+                self.configuration,
+                from_pretrained_arguments,
+                self.device,
+                reused_components,
+                defer_placement=adapters_to_load,
+            )
 
-        # Set up random generator if needed - no_generator is a boolean, so an
-        # explicit false still gets a generator
-        if not self.configuration.get("no_generator", False):
-            logger.debug("Setting up random generator")
-            self.argument_template["generator"] = torch.Generator(
-                self.device
-            ).manual_seed(self.pipeline_definition.get("seed", self.default_seed))
+            # Enable attention slicing if explicitly requested or automatically on MPS
+            # MPS benefits from slicing since Metal shares system RAM with the GPU
+            if self.configuration.get("enable_attention_slicing", False) or (
+                get_device_type(self.device) == "mps"
+                and not self.configuration.get("disable_attention_slicing", False)
+            ):
+                # Modular pipelines have no attention slicing - on MPS this is applied
+                # automatically, so skip rather than fail when the pipeline lacks it
+                if has_method(self.pipeline, "enable_attention_slicing"):
+                    logger.debug("Enabling attention slicing for pipeline")
+                    self.pipeline.enable_attention_slicing()
+                else:
+                    logger.debug(
+                        f"{type(self.pipeline).__name__} does not support attention slicing, skipping"
+                    )
 
-        # Hand the first run a clean allocator. Loading churns the device even
-        # when little of the pipeline stays there - a quantization pass with
-        # 'quantization_device' set works on the accelerator and returns the
-        # weights to the host, and group offloading moves components off it
-        # again - and the cached blocks left behind are the wrong shape for
-        # inference. workflow.py does this between steps; a one-step workflow
-        # would otherwise run its only step on top of the loading debris
-        gc.collect()
-        empty_device_cache()
+            # configure components that are not shared
+            self.configure_loaded_components()
+
+            # Apply SDNQ quantized matmul optimization to specified components
+            sdnq_optimize = self.configuration.get("sdnq_optimize", [])
+            if sdnq_optimize:
+                apply_sdnq_optimizations(self.pipeline, sdnq_optimize)
+
+            # Enable diffusers built-in cache acceleration on transformer
+            cache_config = get_cache_configuration(self.configuration)
+            if cache_config is not None:
+                enable_cache_on_transformer(self.pipeline, cache_config)
+
+            # Configure the schedulers if specified - a pipeline that denoises two
+            # modalities against two schedules configures each of them separately
+            load_and_configure_scheduler(
+                self.pipeline_definition.get("scheduler", None), self.pipeline
+            )
+            load_and_configure_scheduler(
+                self.pipeline_definition.get("audio_scheduler", None),
+                self.pipeline,
+                "audio_scheduler",
+            )
+
+            self.publish_shared_components(shared_components)
+
+            # Load and configure LoRA models
+            load_loras(self.pipeline_definition.get("loras", []), self.pipeline)
+
+            # Load and configure IP-Adapter
+            load_ip_adapter(
+                self.pipeline_definition.get("ip_adapter", None), self.pipeline
+            )
+
+            # The adapters are on the pipeline now, so its offloading hooks can be
+            # installed over the weights they added
+            if adapters_to_load:
+                self.pipeline = place_component(
+                    self.pipeline,
+                    "pipeline",
+                    self.configuration,
+                    self.device,
+                    # A modular pipeline's manager owns its placement, and the manager
+                    # load_component gave it is the one it holds
+                    getattr(self.pipeline, "_components_manager", None),
+                )
+
+            # Place the components the pipeline loaded itself, once everything that alters
+            # them - dtypes, adapters, quantized matmuls - has been applied. Offloading hooks
+            # installed before those would be fighting them
+            configure_components(
+                self.pipeline, self.configuration, self.device, reused_components
+            )
+
+            # Set up random generator if needed - no_generator is a boolean, so an
+            # explicit false still gets a generator
+            if not self.configuration.get("no_generator", False):
+                logger.debug("Setting up random generator")
+                self.argument_template["generator"] = torch.Generator(
+                    self.device
+                ).manual_seed(self.pipeline_definition.get("seed", self.default_seed))
+
+            # Hand the first run a clean allocator. Loading churns the device even
+            # when little of the pipeline stays there - a quantization pass with
+            # 'quantization_device' set works on the accelerator and returns the
+            # weights to the host, and group offloading moves components off it
+            # again - and the cached blocks left behind are the wrong shape for
+            # inference. workflow.py does this between steps; a one-step workflow
+            # would otherwise run its only step on top of the loading debris
+            gc.collect()
+            empty_device_cache()
+        except BaseException:
+            self._discard_failed_load(shared_components)
+            raise
 
         logger.debug("Pipeline loaded successfully")
+
+    def _discard_failed_load(self, shared_components):
+        """Drop everything a load that raised had built, and reclaim it.
+
+        Unpublishes as well as releases: a component shared before the failure
+        would otherwise be handed to a later step as a component of a pipeline
+        that does not exist. A name this pipeline reused rather than loaded
+        stays published - that entry belongs to the earlier pipeline that put
+        it there, which is still alive.
+        """
+        logger.info(f"Load of pipeline '{self.name}' failed - releasing what it built")
+        reused = set(self.component_names("reused_components"))
+        for shared_component_name in self.component_names("shared_components"):
+            if shared_component_name not in reused:
+                shared_components.pop(shared_component_name, None)
+        self.pipeline = None
+        self.argument_template.pop("generator", None)
+        gc.collect()
+        empty_device_cache()
 
     def publish_shared_components(self, shared_components):
         """Store components that will be shared with other pipelines.

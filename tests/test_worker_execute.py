@@ -195,3 +195,72 @@ def test_a_failure_before_the_workflow_loads_reports_no_manifest():
         )
     error = next(m for m in _drain(worker.result_queue) if m["type"] == "error")
     assert error["manifest"] == []
+
+
+def test_a_failed_run_reclaims_memory_and_drops_untouched_pipelines():
+    """#72: a run that fails leaks everything it had loaded.
+
+    Success and cancellation both reclaim; failure did neither, so a
+    half-loaded pipeline and any variant the failed attempt superseded stayed
+    resident - and the next attempt loaded its own on top of them, which is
+    how three retries starved a decode by 1.88 GiB.
+    """
+
+    class FailingWorkflow(StubWorkflow):
+        def run(self, arguments, previous_pipelines=None, context=None):
+            context.touch_pipeline("kept-key")
+            raise RuntimeError("CUDA out of memory")
+
+    worker = _make_worker()
+    worker.loaded_pipelines["kept-key"] = object()
+    worker.loaded_pipelines["dead-variant"] = object()
+
+    with patch.object(worker, "_cleanup_between_runs") as cleanup:
+        messages = _execute(worker, FailingWorkflow())
+
+    assert "error" in [message["type"] for message in messages]
+    cleanup.assert_called_once()
+    # the variant this run never touched is dead weight - the one it did touch
+    # is still the warm model a retry would reuse
+    assert "dead-variant" not in worker.loaded_pipelines
+    assert "kept-key" in worker.loaded_pipelines
+
+
+def test_a_failed_run_drops_the_traceback_before_reclaiming():
+    """The traceback is what pins a half-finished load in memory.
+
+    Every frame between the handler and the failure is reachable through
+    `__traceback__`, and those frames hold whatever the load had built when it
+    raised - so a collection that runs while the exception is still live frees
+    none of it. The report is a formatted string by then, so the traceback
+    goes first and the reclaim afterwards has something to reclaim.
+    """
+    import gc
+    import weakref
+
+    class Weight:
+        pass
+
+    held = []
+    alive_at_cleanup = []
+
+    class FailingWorkflow(StubWorkflow):
+        def run(self, arguments, previous_pipelines=None, context=None):
+            half_loaded = Weight()
+            held.append(weakref.ref(half_loaded))
+            raise RuntimeError("load failed partway")
+
+    worker = _make_worker()
+
+    def record():
+        gc.collect()
+        alive_at_cleanup.append(held[0]() is not None)
+
+    # the log record itself carries exc_info, and pytest's capture keeps every
+    # record for the length of the test - which would pin the traceback here
+    # no matter what the worker does with it
+    with patch("dw.worker.logger"):
+        with patch.object(worker, "_cleanup_between_runs", side_effect=record):
+            _execute(worker, FailingWorkflow())
+
+    assert alive_at_cleanup == [False]
