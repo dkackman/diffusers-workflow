@@ -7,7 +7,12 @@ import gc
 import hashlib
 import logging
 from datetime import datetime, timezone
-from .arguments import realize_args, realize_constants
+from .arguments import (
+    realize_args,
+    realize_constants,
+    fetch_constant,
+    is_constant_reference,
+)
 from .events import (
     RunContext,
     emit_phase,
@@ -64,9 +69,19 @@ from .security import (
     SecurityError,
     PathTraversalError,
     InvalidInputError,
+    UntrustedWorkflowError,
 )
 
 logger = logging.getLogger("dw")
+
+
+class ConstantError(ValueError):
+    """A 'constant:' variable default that failed to resolve during
+    validation, with the 'variables.<name>' path at fault."""
+
+    def __init__(self, path, message):
+        super().__init__(message)
+        self.path = path
 
 
 def workflow_from_file(file_spec, output_dir, workflow_dir=None):
@@ -297,10 +312,12 @@ class Workflow:
         are all good, else the declared defaults - and every for_each step
         expanded.
 
-        Raises ForEachError for a for_each that cannot be expanded, and
-        VariableNotFoundError for a 'variable:' that names nothing - which
-        is exactly what the run itself would raise, since a definition that
-        declares variables is always substituted before it runs.
+        Raises ForEachError for a for_each that cannot be expanded,
+        ConstantError for a 'constant:' variable default that fails to
+        resolve, and VariableNotFoundError for a 'variable:' that names
+        nothing - which is exactly what the run itself would raise, since a
+        definition that declares variables is always substituted before it
+        runs.
 
         `source_indices`, when a list is passed, comes back holding the
         index in *this* definition's steps of every expanded step, so an
@@ -311,8 +328,20 @@ class Workflow:
         if isinstance(variables, dict):
             # the run realizes constants before folding arguments, and a
             # list defaulted to a 'constant:' name must expand here as it
-            # does there - a name lookup, no download
-            realize_constants(variables)
+            # does there - a name lookup, no download. Realizing a constant
+            # imports the module it names, so validating one runs the same
+            # trust gate (require_trusted_dotted_name) a run would - only
+            # the diffusers ecosystem allowlist, unless the caller trusts
+            # the workflow. Realized per top-level variable, not as one
+            # call over the whole dict, so a failure names the variable.
+            for name, value in variables.items():
+                try:
+                    if is_constant_reference(value):
+                        variables[name] = fetch_constant(value)
+                    else:
+                        realize_constants(value)
+                except (ValueError, InvalidInputError, UntrustedWorkflowError) as e:
+                    raise ConstantError(f"variables.{name}", str(e)) from e
             if arguments and not argument_errors(definition, arguments):
                 set_variables(arguments, variables)
             variables = resolve_variable_values(variables)
@@ -333,6 +362,8 @@ class Workflow:
         try:
             expanded = self.expanded_definition(arguments, source_indices)
         except ForEachError as e:
+            return [{"path": e.path, "message": str(e)}]
+        except ConstantError as e:
             return [{"path": e.path, "message": str(e)}]
         except VariableNotFoundError:
             # Every undeclared reference, not just the first one substitution

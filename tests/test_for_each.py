@@ -406,11 +406,6 @@ class TestGather:
             "previous_result:shot@close",
         ]
 
-    # test_gather_of_an_empty_group_is_an_empty_list deleted: an empty
-    # for_each list is now a directed error at the step itself (see
-    # test_an_empty_list_is_an_error_at_the_step), so expansion never
-    # reaches a gather: of that group.
-
     def test_gather_of_a_plain_step_is_an_error(self):
         with pytest.raises(ForEachError) as e:
             expand_for_each(

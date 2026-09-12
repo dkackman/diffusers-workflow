@@ -141,16 +141,16 @@ def _entry_keys(entries, path):
             render_path(path),
             f"for_each must be a list, got {type(entries).__name__}{hint}",
         )
-    if len(entries) > MAX_FOR_EACH_ENTRIES:
-        raise ForEachError(
-            render_path(path),
-            f"for_each has {len(entries)} entries; the limit is {MAX_FOR_EACH_ENTRIES}",
-        )
     if not entries:
         raise ForEachError(
             render_path(path),
             "for_each over an empty list would run no steps - a workflow that "
             "generates nothing is never what was asked for",
+        )
+    if len(entries) > MAX_FOR_EACH_ENTRIES:
+        raise ForEachError(
+            render_path(path),
+            f"for_each has {len(entries)} entries; the limit is {MAX_FOR_EACH_ENTRIES}",
         )
     keys = []
     for index, entry in enumerate(entries):

@@ -762,6 +762,28 @@ def test_validation_realizes_a_constant_default_list(tmp_path):
     ]
 
 
+def test_validation_reports_an_unresolvable_constant_default(tmp_path):
+    """A trusted-ecosystem name that resolves to nothing used to escape
+    validation as an unhandled exception; now it is a validation error
+    naming the variable, with fetch_constant's own message."""
+    definition = _for_each_workflow()
+    definition["variables"]["shots"] = "constant:diffusers.NOPE_DOES_NOT_EXIST"
+    workflow = _workflow_from(definition, tmp_path)
+    errors = workflow.validation_errors()
+    assert len(errors) == 1
+    assert errors[0]["path"] == "variables.shots"
+    assert "diffusers.NOPE_DOES_NOT_EXIST" in errors[0]["message"]
+
+
+def test_validation_reports_a_malformed_constant_default(tmp_path):
+    definition = _for_each_workflow()
+    definition["variables"]["shots"] = "constant:not a name"
+    workflow = _workflow_from(definition, tmp_path)
+    errors = workflow.validation_errors()
+    assert len(errors) == 1
+    assert errors[0]["path"] == "variables.shots"
+
+
 def test_run_expands_for_each_and_names_the_members(tmp_path):
     workflow = _workflow_from(_for_each_workflow(seed=1), tmp_path)
     workflow.run({})
