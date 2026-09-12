@@ -755,3 +755,56 @@ def test_run_substitutes_the_callers_list(tmp_path):
     workflow.run({"shots": [{"name": "only", "text": "X"}]})
     names = [entry["step"] for entry in workflow.manifest]
     assert names == ["shot@only", "edit"]
+
+
+def test_an_entry_may_reference_another_variable(tmp_path):
+    """A shot entry's "from_file": "variable:voice" is the voice variable's
+    value by the time the member exists."""
+    definition = _for_each_workflow()
+    definition["variables"]["voice"] = "cast/priya.wav"
+    definition["variables"]["shots"] = [
+        {"name": "a", "text": "one", "voice": "variable:voice"}
+    ]
+    definition["steps"][0]["task"]["arguments"]["voice"] = "item:voice"
+    workflow = _workflow_from(definition, tmp_path)
+
+    expanded = workflow.expanded_definition()
+
+    assert expanded["steps"][0]["task"]["arguments"]["voice"] == "cast/priya.wav"
+
+
+def test_an_undeclared_reference_inside_a_default_entry_is_a_validation_error(
+    tmp_path,
+):
+    definition = _for_each_workflow()
+    definition["variables"]["shots"] = [{"name": "a", "text": "variable:nope"}]
+    workflow = _workflow_from(definition, tmp_path)
+
+    errors = workflow.validation_errors()
+
+    assert [e["path"] for e in errors] == ["variables.shots[0].text"]
+    assert "names no declared variable" in errors[0]["message"]
+
+
+def test_an_undeclared_reference_inside_a_caller_s_entry_is_reported_under_arguments(
+    tmp_path,
+):
+    workflow = _workflow_from(_for_each_workflow(), tmp_path)
+
+    errors = workflow.validation_errors(
+        arguments={"shots": [{"name": "a", "text": "variable:nope"}]}
+    )
+
+    assert [e["path"] for e in errors] == ["arguments.shots[0].text"]
+
+
+def test_a_caller_s_entry_may_reference_a_declared_variable(tmp_path):
+    definition = _for_each_workflow()
+    definition["variables"]["voice"] = None
+    workflow = _workflow_from(definition, tmp_path)
+
+    errors = workflow.validation_errors(
+        arguments={"shots": [{"name": "a", "text": "variable:voice"}]}
+    )
+
+    assert errors == []

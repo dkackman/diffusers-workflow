@@ -1,5 +1,12 @@
+import copy
 import pytest
-from dw.variables import replace_variables, set_variables, VariableNotFoundError
+from dw.variables import (
+    replace_variables,
+    resolve_variable_values,
+    set_variables,
+    undeclared_variable_references,
+    VariableNotFoundError,
+)
 
 
 def test_replace_variables_in_dict():
@@ -182,3 +189,83 @@ def test_set_variables_string_override_of_a_null_default_passes_through():
     variables = {"mask": None}
     set_variables({"mask": "masks/a.png"}, variables)
     assert variables["mask"] == "masks/a.png"
+
+
+class TestResolveVariableValues:
+    """A list-valued variable's entries may name other variables - a shot
+    entry says "from_file": "variable:character_a_voice" and one variable
+    sets the voice in every shot it speaks in."""
+
+    def test_a_reference_inside_a_list_value_is_replaced(self):
+        variables = {
+            "voice": "cast/priya.wav",
+            "shots": [{"name": "a", "references": [{"from_file": "variable:voice"}]}],
+        }
+        resolved = resolve_variable_values(variables)
+        assert resolved["shots"][0]["references"][0]["from_file"] == "cast/priya.wav"
+
+    def test_a_reference_inside_a_dict_value_is_replaced(self):
+        variables = {"n": 124, "shape": {"num_frames": "variable:n"}}
+        assert resolve_variable_values(variables)["shape"] == {"num_frames": 124}
+
+    def test_a_null_variable_resolves_to_null(self):
+        variables = {
+            "voice": None,
+            "shots": [{"references": [{"from_file": "variable:voice"}]}],
+        }
+        resolved = resolve_variable_values(variables)
+        assert resolved["shots"][0]["references"][0]["from_file"] is None
+
+    def test_a_scalar_value_that_looks_like_a_reference_is_left_alone(self):
+        variables = {"x": "variable:y", "y": 1}
+        assert resolve_variable_values(variables)["x"] == "variable:y"
+
+    def test_a_chain_resolves_through_a_referenced_list(self):
+        variables = {
+            "voice": "a.wav",
+            "refs": [{"from_file": "variable:voice"}],
+            "shots": [{"references": "variable:refs"}],
+        }
+        resolved = resolve_variable_values(variables)
+        assert resolved["shots"][0]["references"] == [{"from_file": "a.wav"}]
+
+    def test_the_input_is_not_mutated(self):
+        variables = {"voice": "a.wav", "shots": [{"from_file": "variable:voice"}]}
+        before = copy.deepcopy(variables)
+        resolve_variable_values(variables)
+        assert variables == before
+
+    def test_an_undeclared_name_is_the_usual_error(self):
+        with pytest.raises(VariableNotFoundError, match="nope"):
+            resolve_variable_values({"shots": [{"x": "variable:nope"}]})
+
+    def test_a_cycle_is_an_error_that_names_the_loop(self):
+        variables = {"a": [{"x": "variable:b"}], "b": [{"y": "variable:a"}]}
+        with pytest.raises(ValueError, match="a -> b -> a"):
+            resolve_variable_values(variables)
+
+    def test_a_self_reference_is_a_cycle(self):
+        with pytest.raises(ValueError, match="a -> a"):
+            resolve_variable_values({"a": [{"x": "variable:a"}]})
+
+
+class TestUndeclaredReferencesInsideVariableValues:
+    def test_a_reference_inside_a_list_value_is_found_with_its_path(self):
+        definition = {
+            "variables": {"shots": [{"references": [{}, {"from_file": "variable:nope"}]}]},
+            "steps": [],
+        }
+        assert undeclared_variable_references(definition) == [
+            ("variables.shots[0].references[1].from_file", "nope")
+        ]
+
+    def test_a_declared_reference_inside_a_value_is_not_reported(self):
+        definition = {
+            "variables": {"voice": None, "shots": [{"from_file": "variable:voice"}]},
+            "steps": [],
+        }
+        assert undeclared_variable_references(definition) == []
+
+    def test_a_scalar_value_beginning_with_the_prefix_is_not_a_reference(self):
+        definition = {"variables": {"x": "variable:nope"}, "steps": []}
+        assert undeclared_variable_references(definition) == []

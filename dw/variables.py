@@ -86,16 +86,72 @@ def replace_variables(data, variables):
     return copy.deepcopy(data)
 
 
+def resolve_variable_values(variables):
+    """A copy of `variables` in which every "variable:name" inside a list-
+    or dict-valued variable is replaced by that variable's value.
+
+    A list-driven step reads its entries from a variable, and an entry that
+    says "from_file": "variable:character_a_voice" is how one variable sets
+    a voice in every shot the character speaks in. replace_variables only
+    walks the definition, so those references would reach the step as the
+    literal strings; this resolves them once, before realize_args, so a
+    reference type inside an entry is a type name by the time it is loaded.
+
+    Only list and dict values are walked. A scalar value that begins with
+    "variable:" is passed through as it always was.
+
+    Raises:
+        VariableNotFoundError: a reference names nothing declared
+        ValueError: a value references itself, directly or through others
+    """
+    resolved = {}
+
+    def resolve(name, chain):
+        if name in resolved:
+            return resolved[name]
+        if name in chain:
+            loop = " -> ".join(chain[chain.index(name) :] + [name])
+            raise ValueError(f"Variable '{name}' references itself through: {loop}")
+        value = variables[name]
+        if isinstance(value, (list, dict)):
+            value = walk(value, chain + [name])
+        else:
+            value = copy.deepcopy(value)
+        resolved[name] = value
+        return value
+
+    def walk(node, chain):
+        if isinstance(node, str) and node.startswith("variable:"):
+            target = node.removeprefix("variable:")
+            if target not in variables:
+                available = ", ".join(sorted(variables.keys())) or "<none>"
+                raise VariableNotFoundError(
+                    f"Variable <{target}> not found; available variables: {available}"
+                )
+            return resolve(target, chain)
+        if isinstance(node, list):
+            return [walk(item, chain) for item in node]
+        if isinstance(node, dict):
+            return {key: walk(item, chain) for key, item in node.items()}
+        return copy.deepcopy(node)
+
+    for name in variables:
+        resolve(name, [])
+    return resolved
+
+
 def undeclared_variable_references(definition):
     """The "variable:name" references in a workflow definition that name no
     entry of its `variables` - the ones `replace_variables` will refuse at run
     time, found before anything loads.
 
-    Walks everything but `variables` itself, the way resolution does. Returns
-    a list of (path, name) pairs, path being where the reference sits
-    (`steps[0].pipeline.arguments.prompt`) and name what it asked for - which
-    is the whole remainder of the string, since a reference is the entire
-    value and nothing is interpolated around it.
+    Walks everything but `variables` itself, plus the inside of every list-
+    or dict-valued variable, the way `resolve_variable_values` and
+    `replace_variables` together do. Returns a list of (path, name) pairs,
+    path being where the reference sits (`steps[0].pipeline.arguments.prompt`)
+    and name what it asked for - which is the whole remainder of the string,
+    since a reference is the entire value and nothing is interpolated
+    around it.
     """
     declared = definition.get("variables") or {}
     found = []
@@ -115,6 +171,10 @@ def undeclared_variable_references(definition):
     for key, value in definition.items():
         if key != "variables":
             walk(value, key)
+    if isinstance(declared, dict):
+        for name, value in declared.items():
+            if isinstance(value, (list, dict)):
+                walk(value, f"variables.{name}")
     return found
 
 
