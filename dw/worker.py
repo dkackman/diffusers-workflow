@@ -22,6 +22,7 @@ from dw.settings import load_settings, resolve_path
 from dw.security import validate_output_path
 from dw.events import RunContext, WorkflowCancelled
 from dw import get_device_type, empty_device_cache, device_memory_stats
+from dw.host_memory import host_memory_fields
 
 logger = logging.getLogger("dw.worker")
 
@@ -511,6 +512,13 @@ class WorkflowWorker:
             "gpu_memory_free_mb": 0.0,
             "gpu_device_name": None,
         }
+
+        # Host memory beside the device figures: the offloading these
+        # workflows use keeps weights in RAM by design, so a leak - or a run
+        # that simply has not let go of a model - shows here and nowhere
+        # else. Measured inside the worker, so the process figures are the
+        # worker's own
+        info.update(host_memory_fields())
 
         try:
             stats = device_memory_stats()

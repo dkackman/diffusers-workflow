@@ -258,6 +258,16 @@ def build_server(client):
         """Get the worker's VRAM and RAM statistics. Check this first when a
         job fails with an out-of-memory error.
 
+        `gpu_*` is the card, `host_memory_*` the machine:
+        `host_memory_rss_mb` is what the worker process holds and
+        `host_memory_peak_rss_mb` the most it has ever held, beside the
+        machine's `host_memory_total_mb` / `host_memory_available_mb`. Read
+        both - a workflow that offloads (`offload: "sequential"`,
+        `group_offload`) keeps its weights in host memory by design, so the
+        card can sit near-empty through a generation and VRAM alone will not
+        show what a run is holding or failing to release. A host field is
+        absent, rather than null, on a platform that cannot measure it.
+
         `live: true` means `info` was measured now and is the worker's own
         memory - only these readings are comparable with each other.
         `live: false` means it was not: `info: null` (with `stale: false`)
