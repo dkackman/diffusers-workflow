@@ -592,7 +592,9 @@ def level_dbfs(waveform, measure="peak"):
     if measure == "peak":
         value = float(numpy.abs(waveform).max())
     else:
-        value = float(numpy.sqrt(numpy.mean(numpy.square(waveform, dtype=numpy.float64))))
+        value = float(
+            numpy.sqrt(numpy.mean(numpy.square(waveform, dtype=numpy.float64)))
+        )
     if value <= 0.0:
         return None
     return 20.0 * numpy.log10(value)
