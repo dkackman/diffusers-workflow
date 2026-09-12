@@ -26,6 +26,7 @@ from .previous_results import (
     StepResults,
     previous_result_reference_errors,
 )
+from .subfolders import step_subfolder, subfolder_errors
 from .step import Step
 from .step_cache import (
     step_cache,
@@ -378,7 +379,9 @@ class Workflow:
             # reported against 'variables' as a whole rather than escaping
             # as an unhandled exception
             return [{"path": "variables", "message": str(e)}]
-        return previous_result_reference_errors(expanded, source_indices)
+        return previous_result_reference_errors(
+            expanded, source_indices
+        ) + subfolder_errors(expanded, source_indices)
 
     def _undeclared_variable_errors(self, arguments=None):
         """Every 'variable:' reference naming nothing the workflow declares.
