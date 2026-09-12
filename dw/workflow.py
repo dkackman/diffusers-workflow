@@ -782,7 +782,12 @@ class Workflow:
                 # 'reused' marks files an earlier run wrote and this one only
                 # republished, so nothing downstream (job_for_file, the
                 # gallery) credits this run with writing them
-                manifest_entry = {"step": step.name, "files": saved_files}
+                subfolder = step_subfolder(step_data)
+                manifest_entry = {
+                    "step": step.name,
+                    "files": saved_files,
+                    "subfolder": subfolder,
+                }
                 if reused:
                     manifest_entry["reused"] = True
                 self.manifest.append(manifest_entry)
@@ -790,7 +795,7 @@ class Workflow:
                 # them up so job history and the gallery see every file
                 if isinstance(step_action, Workflow):
                     self.manifest.extend(getattr(step_action, "manifest", []))
-                step_end_data = {"files": saved_files}
+                step_end_data = {"files": saved_files, "subfolder": subfolder}
                 if reused:
                     step_end_data["reused"] = True
                 run_context.emit(

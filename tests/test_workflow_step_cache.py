@@ -418,6 +418,7 @@ def test_cache_hit_marks_its_manifest_entry_and_event_reused():
             {
                 "step": "generate",
                 "files": workflow.manifest[0]["files"],
+                "subfolder": "",
                 "reused": True,
             }
         ]

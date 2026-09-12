@@ -526,3 +526,56 @@ class TestSubfolders:
         result = Result({"content_type": "image/png", "file_base_name": "final/"})
         with pytest.raises(InvalidInputError, match="subfolder"):
             result.save(str(tmp_path), "w-step.0")
+
+    def test_the_manifest_entry_carries_the_subfolder(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        (run,) = (tmp_path / "Gyre").iterdir()
+        manifest = json.loads((run / "manifest.json").read_text())
+        (entry,) = manifest["steps"]
+        assert entry["subfolder"] == "final"
+        assert entry["files"] == ["final/runs_test-gen0.0-0.0.png"]
+
+    def test_an_unfoldered_entry_carries_the_empty_string(self, tmp_path, fake_pipeline):
+        from dw.workflow import Workflow
+
+        Workflow(_workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        (run,) = (tmp_path / "Gyre").iterdir()
+        manifest = json.loads((run / "manifest.json").read_text())
+        assert manifest["steps"][0]["subfolder"] == ""
+
+    def test_a_reused_entry_carries_the_definitions_subfolder(
+        self, tmp_path, fake_pipeline
+    ):
+        from dw.workflow import Workflow
+
+        Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}
+        )
+        first, second = sorted((tmp_path / "Gyre").iterdir())
+        manifest = json.loads((second / "manifest.json").read_text())
+        (entry,) = manifest["steps"]
+        assert entry["reused"] is True
+        assert entry["subfolder"] == "final"
+        # The file is the first run's, absolute, inside its 'final'
+        assert os.path.dirname(entry["files"][0]) == str(first / "final")
+
+    def test_the_step_end_event_carries_the_subfolder(self, tmp_path, fake_pipeline):
+        from dw.events import RunContext
+        from dw.workflow import Workflow
+
+        seen = []
+        context = RunContext(on_event=seen.append)
+        Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
+            {}, previous_pipelines={}, context=context
+        )
+        step_ends = [event for event in seen if event.get("event") == "step_end"]
+        assert step_ends and step_ends[0]["subfolder"] == "final"
