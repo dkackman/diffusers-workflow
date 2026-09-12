@@ -224,3 +224,85 @@ it('drops a file deleted from the detail panel out of the selection', async () =
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
   expect(screen.getByLabelText('select b.png')).toBeTruthy()
 })
+
+it('offers no subfolder control when nothing was written to one', async () => {
+  await renderGallery()
+  expect(screen.queryByRole('combobox', { name: 'subfolder' })).toBeNull()
+})
+
+it('lists the subfolders the outputs landed in and filters the grid by one', async () => {
+  listing.files = [
+    file('wf/run-1/final/deliverable.png', 'final'),
+    file('wf/run-1/intermediate/scratch.png', 'intermediate'),
+    file('wf/run-1/root.png', ''),
+  ]
+  await renderGallery('wf/run-1/final/deliverable.png')
+
+  const pick = screen.getByRole('combobox', { name: 'subfolder' }) as HTMLSelectElement
+  expect([...pick.options].map((o) => o.textContent?.trim())).toEqual([
+    'all subfolders',
+    '(run root)',
+    'final/',
+    'intermediate/',
+  ])
+
+  pick.value = 'final'
+  pick.dispatchEvent(new Event('change', { bubbles: true }))
+  await waitFor(() =>
+    expect(screen.queryByLabelText('select wf/run-1/intermediate/scratch.png')).toBeNull(),
+  )
+  expect(screen.getByLabelText('select wf/run-1/final/deliverable.png')).toBeTruthy()
+  expect(screen.queryByLabelText('select wf/run-1/root.png')).toBeNull()
+  // Select all takes what the subfolder filter leaves showing
+  screen.getByRole('button', { name: /select all matching \(1\)/i }).click()
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+})
+
+it('intersects the subfolder pick with the text filter', async () => {
+  listing.files = [
+    file('wf/run-1/final/a.png', 'final'),
+    file('wf/run-1/final/b.png', 'final'),
+    file('wf/run-1/intermediate/a.png', 'intermediate'),
+  ]
+  await renderGallery('wf/run-1/final/a.png')
+
+  const pick = screen.getByRole('combobox', { name: 'subfolder' }) as HTMLSelectElement
+  pick.value = 'final'
+  pick.dispatchEvent(new Event('change', { bubbles: true }))
+  const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  filter.value = '/a.'
+  filter.dispatchEvent(new Event('input', { bubbles: true }))
+
+  await waitFor(() =>
+    expect(screen.queryByLabelText('select wf/run-1/final/b.png')).toBeNull(),
+  )
+  expect(screen.getByLabelText('select wf/run-1/final/a.png')).toBeTruthy()
+  expect(screen.queryByLabelText('select wf/run-1/intermediate/a.png')).toBeNull()
+})
+
+it('falls back to every subfolder when the picked one empties out', async () => {
+  listing.files = [
+    file('wf/run-1/final/only.png', 'final'),
+    file('wf/run-1/root.png', ''),
+  ]
+  await renderGallery('wf/run-1/final/only.png')
+  const pick = screen.getByRole('combobox', { name: 'subfolder' }) as HTMLSelectElement
+  pick.value = 'final'
+  pick.dispatchEvent(new Event('change', { bubbles: true }))
+  await waitFor(() =>
+    expect(screen.queryByLabelText('select wf/run-1/root.png')).toBeNull(),
+  )
+
+  checkbox('wf/run-1/final/only.png').click()
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+  screen.getByRole('button', { name: /^delete/i }).click()
+  await answerConfirm(true)
+
+  // The last final/ file is gone: the control goes with it and the grid
+  // shows everything again rather than an empty page pinned to a value
+  // that no longer exists
+  await waitFor(() =>
+    expect(screen.getByLabelText('select wf/run-1/root.png')).toBeTruthy(),
+  )
+  expect(screen.queryByRole('combobox', { name: 'subfolder' })).toBeNull()
+})
