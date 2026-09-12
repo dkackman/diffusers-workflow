@@ -273,7 +273,8 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/workflows/{name:path}/download` — download a workflow file as JSON
 - `GET /api/workflows/{name:path}/variables` — a workflow's variables and what
   they default to, without the definition around them. Long string defaults are
-  cut to 200 characters and named in `truncated`; `full=true` returns them whole
+  cut to 200 characters and named in `truncated`, including strings inside a
+  list default, named like `shots[0].prompt`; `full=true` returns them whole
 - `GET /api/prompts`, `GET/PUT/DELETE /api/prompts/{name}` — the prompt
   library (confined to `--prompt-dir`, names held to what a `prompt:`
   reference can load); saves are validated against the prompt schema,

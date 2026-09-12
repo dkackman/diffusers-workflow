@@ -407,6 +407,36 @@ def test_the_schema_declares_the_vocabulary():
     cost_item = props["cost"]["items"]
     assert set(cost_item["required"]) == {"device", "vram_gb", "minutes"}
     assert cost_item["properties"]["device"]["enum"] == ["cuda", "mps", "cpu"]
+    per_entry = cost_item["properties"]["per_entry"]
+    assert set(per_entry["required"]) == {"variable", "minutes", "entries"}
+    assert per_entry["additionalProperties"] is False
+
+
+def test_a_per_entry_cost_validates_and_a_partial_one_does_not():
+    schema = load_schema("workflow")
+    base = definition(pipeline_step("g", "image/jpeg"))
+    cost = {"device": "cuda", "vram_gb": 24, "minutes": 42}
+    ok, _ = validate_data(
+        {
+            **base,
+            "cost": [
+                {
+                    **cost,
+                    "per_entry": {"variable": "shots", "minutes": 7.2, "entries": 5},
+                }
+            ],
+        },
+        schema,
+    )
+    assert ok
+    bad, message = validate_data(
+        {
+            **base,
+            "cost": [{**cost, "per_entry": {"variable": "shots", "minutes": 7.2}}],
+        },
+        schema,
+    )
+    assert not bad and "per_entry" in message
 
 
 def test_a_declared_cost_validates_and_a_bad_one_does_not():

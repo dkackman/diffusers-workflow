@@ -1601,11 +1601,12 @@ def create_app(
         blocks and all, to read a single integer. This answers that question
         by itself.
 
-        Long defaults - a shot's prompt runs to kilobytes - are cut to their
-        first 200 characters and named in `truncated`, so the answer stays
-        small for the numbers and names it is usually asked about; `full=true`
-        returns them whole, and `GET /api/workflows/{name}` is still the
-        definition itself.
+        Long strings - a shot's prompt runs to kilobytes, and a list-driven
+        workflow's default list holds several - are cut to their first 200
+        characters wherever they sit and named in `truncated`
+        (`shots[0].prompt`), so the answer stays small for the numbers and
+        names it is usually asked about; `full=true` returns them whole, and
+        `GET /api/workflows/{name}` is still the definition itself.
         """
         path, source = resolve_readable_workflow(_sources_for(ws), name)
         try:
@@ -1614,18 +1615,22 @@ def create_app(
         except (OSError, json.JSONDecodeError) as e:
             raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
 
+        def preview(value, path):
+            if isinstance(value, str) and len(value) > VARIABLE_VALUE_PREVIEW:
+                truncated.append(path)
+                return value[:VARIABLE_VALUE_PREVIEW]
+            if isinstance(value, list):
+                return [preview(item, f"{path}[{i}]") for i, item in enumerate(value)]
+            if isinstance(value, dict):
+                return {
+                    key: preview(item, f"{path}.{key}") for key, item in value.items()
+                }
+            return value
+
         variables = definition.get("variables") or {}
         values, truncated = {}, []
         for variable, value in variables.items():
-            if (
-                not full
-                and isinstance(value, str)
-                and len(value) > VARIABLE_VALUE_PREVIEW
-            ):
-                values[variable] = value[:VARIABLE_VALUE_PREVIEW]
-                truncated.append(variable)
-            else:
-                values[variable] = value
+            values[variable] = value if full else preview(value, variable)
         return {
             "name": name,
             "variables": values,
