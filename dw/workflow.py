@@ -61,7 +61,7 @@ from .variables import (
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
-from . import get_device, empty_device_cache
+from . import get_device, empty_device_cache, device_memory_stats
 from .security import (
     validate_path,
     validate_workflow_path,
@@ -211,6 +211,17 @@ def pipeline_cache_key(pipeline_definition):
     }
     serialized = json.dumps(load_definition, sort_keys=True, default=str)
     return hashlib.sha256(serialized.encode()).hexdigest()
+
+
+def _allocated_mb():
+    """Device memory in use right now, for the pipeline_released event -
+    None where the backend cannot say, so a reading is never confused with
+    a genuine zero."""
+    try:
+        stats = device_memory_stats()
+    except Exception:  # a progress figure is never worth failing a run over
+        return None
+    return stats["allocated_mb"] if stats["available"] else None
 
 
 def release_unreferenced_results(results, remaining_refs):
@@ -786,10 +797,27 @@ class Workflow:
                 # both models would be in memory at once
                 if step_data.get("release_pipeline", False):
                     logger.info(f"Releasing pipeline for step: {step.name}")
+                    before = _allocated_mb()
                     pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
                     step_action = None
                     gc.collect()
                     empty_device_cache()
+                    # Say so on the event stream. The release is otherwise
+                    # invisible to a consumer: it sits inside the sub-second
+                    # window between a step's generation and its files
+                    # appearing, which is too narrow to catch by polling
+                    # get_memory, and it is exactly the ordering this event
+                    # exists to make readable (it precedes the step's
+                    # step_end, and on a released card the figures show the
+                    # drop rather than implying it)
+                    run_context.emit(
+                        "pipeline_released",
+                        workflow=workflow_id,
+                        step=step.name,
+                        index=i,
+                        gpu_memory_allocated_mb=_allocated_mb(),
+                        gpu_memory_allocated_before_mb=before,
+                    )
 
                 if not reused:
                     saved_files = result.save(
