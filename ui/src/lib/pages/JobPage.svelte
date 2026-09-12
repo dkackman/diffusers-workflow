@@ -9,7 +9,7 @@
   import { ApiError, api, outputUrl, streamJobEvents } from '../api'
   import { confirmDialog } from '../confirm.svelte'
   import { go } from '../router.svelte'
-  import { groupResultFiles } from '../results'
+  import { groupResultFiles, sectionBySubfolder } from '../results'
   import { stepProgress } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
   import CopyButton from '../CopyButton.svelte'
@@ -190,6 +190,12 @@
   const allReused = $derived(
     fileGroups.length > 0 && fileGroups.every((group) => group.reused),
   )
+  // Sections by result.subfolder - one root section, no heading, when no
+  // step chose one, so an older run renders as it always did
+  const sections = $derived(sectionBySubfolder(fileGroups))
+  const sectioned = $derived(
+    sections.length > 1 || sections[0].subfolder !== '',
+  )
   const running = $derived(job !== null && !TERMINAL.includes(job.status))
   // A cancel requested while loading a model or running a task step has no
   // checkpoint to catch it until that phase finishes - without this the UI
@@ -354,42 +360,52 @@
             Use <strong>New seed</strong> for a different image.{/if}
         </p>
       {/if}
-      {#each fileGroups as group (group.step)}
-        {#if fileGroups.length > 1}
-          <h3 class="stephead muted">
-            {group.step}
-            {#if group.reused && !allReused}
-              <span
-                class="muted"
-                title="served from the step cache - an
-                     earlier run's files, nothing generated for this step"
-                >· reused</span
-              >
-            {/if}
+      {#each sections as section (section.subfolder)}
+        {#if sectioned}
+          <h3 class="subhead">
+            {section.subfolder === '' ? '(run root)' : `${section.subfolder}/`}
           </h3>
         {/if}
-        <div class="media">
-          {#each group.files as file (file)}
-            {#if isImage(file)}
-              <a
-                class="frame plain"
-                href={fileUrl(file)}
-                target="_blank"
-                title={file.split('/').pop()}
-                ><img src={fileUrl(file)} alt={file.split('/').pop()} /></a
-              >
-            {:else if isVideo(file)}
-              <span class="frame">
-                <!-- svelte-ignore a11y_media_has_caption -->
-                <video src={fileUrl(file)} controls loop></video>
-              </span>
-            {:else}
-              <a class="filelink" href={fileUrl(file)} target="_blank"
-                >{file.split('/').pop()}</a
-              >
-            {/if}
-          {/each}
-        </div>
+        {#each section.groups as group (group.step)}
+          {#if fileGroups.length > 1}
+            <svelte:element
+              this={sectioned ? 'h4' : 'h3'}
+              class="stephead muted"
+            >
+              {group.step}
+              {#if group.reused && !allReused}
+                <span
+                  class="muted"
+                  title="served from the step cache - an
+                       earlier run's files, nothing generated for this step"
+                  >· reused</span
+                >
+              {/if}
+            </svelte:element>
+          {/if}
+          <div class="media">
+            {#each group.files as file (file)}
+              {#if isImage(file)}
+                <a
+                  class="frame plain"
+                  href={fileUrl(file)}
+                  target="_blank"
+                  title={file.split('/').pop()}
+                  ><img src={fileUrl(file)} alt={file.split('/').pop()} /></a
+                >
+              {:else if isVideo(file)}
+                <span class="frame">
+                  <!-- svelte-ignore a11y_media_has_caption -->
+                  <video src={fileUrl(file)} controls loop></video>
+                </span>
+              {:else}
+                <a class="filelink" href={fileUrl(file)} target="_blank"
+                  >{file.split('/').pop()}</a
+                >
+              {/if}
+            {/each}
+          </div>
+        {/each}
       {/each}
     </div>
   {/if}
@@ -524,11 +540,26 @@
     color: var(--bad);
   }
   .stephead {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
     font-size: 0.78rem;
     text-transform: none;
     margin: var(--space-3) 0 var(--space-2);
   }
   .stephead:first-of-type {
+    margin-top: 0;
+  }
+  .subhead {
+    font-size: var(--t-sm);
+    text-transform: none;
+    margin: var(--space-3) 0 var(--space-1);
+  }
+  .subhead:first-of-type {
+    margin-top: 0;
+  }
+  .subhead + .stephead {
     margin-top: 0;
   }
 </style>
