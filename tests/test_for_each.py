@@ -797,11 +797,13 @@ class TestDialogueShortTemplate:
 class TestRunTimeRealizationOrder:
     """Workflow.run resolves in a fixed order: realize_constants ->
     set_variables -> resolve_variable_values -> realize_args(variables,
-    base_dir) -> replace_variables -> expand_for_each. realize_args walks
-    into the 'shots' variable and loads every 'reference_type' there, so
-    resolve_variable_values must already have turned
+    base_dir) -> replace_variables -> expand_for_each. This test reproduces
+    that order by calling resolve_variable_values and realize_args itself,
+    in the same sequence, and pins what that order yields: realize_args
+    walks into the 'shots' variable and loads every 'reference_type' there,
+    so resolve_variable_values must already have turned
     'variable:subject_reference_type' into a dotted name before realize_args
-    runs - reordering those two would fail exactly what this test checks."""
+    runs."""
 
     KEYS = {
         "cold_open": 2,

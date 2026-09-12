@@ -253,7 +253,10 @@ same reason - default setup cannot load a pack.
   have no `shot_N_*` variables; a scripted caller passes `shots` (entries
   `{name, prompt, references, num_frames}` and `{name, prompt, start_frame}`).
   The members are `shot@<name>` in the manifest and the gallery. This is the
-  breaking change the next release note should name
+  breaking change the next release note should name. The CLI and REPL only
+  take `name=value` strings, and a string handed to a list variable is
+  comma-split - so `shots` can only be supplied over the API/MCP (a JSON
+  body); `python -m dw.run` runs the templates' default list
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`

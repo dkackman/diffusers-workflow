@@ -15,6 +15,11 @@ class VariableNotFoundError(ValueError):
     """Raised when a workflow references a "variable:name" that isn't declared."""
 
 
+class VariableCycleError(ValueError):
+    """Raised when a list- or dict-valued variable references itself, directly
+    or through others, inside `resolve_variable_values`."""
+
+
 def _resolve_variable_reference(value, variables):
     """
     If value is a "variable:name" reference, look it up and return (True, resolved).
@@ -102,7 +107,7 @@ def resolve_variable_values(variables):
 
     Raises:
         VariableNotFoundError: a reference names nothing declared
-        ValueError: a value references itself, directly or through others
+        VariableCycleError: a value references itself, directly or through others
     """
     resolved = {}
 
@@ -111,7 +116,9 @@ def resolve_variable_values(variables):
             return resolved[name]
         if name in chain:
             loop = " -> ".join(chain[chain.index(name) :] + [name])
-            raise ValueError(f"Variable '{name}' references itself through: {loop}")
+            raise VariableCycleError(
+                f"Variable '{name}' references itself through: {loop}"
+            )
         value = variables[name]
         if isinstance(value, (list, dict)):
             value = walk(value, chain + [name])
@@ -173,6 +180,27 @@ def undeclared_variable_references(definition):
     return found
 
 
+def _validated_strings(value):
+    """A copy of a list- or dict-valued caller argument with every string
+    leaf passed through `validate_string_input` - the same check a
+    top-level string argument gets in `set_variables` below. A for_each
+    entry's `prompt` or `from_file` is exactly as reachable to an attacker
+    as a top-level variable, and `isinstance(v, str)` alone would skip it.
+
+    Non-string leaves (numbers, bools, None, nested lists/dicts) pass
+    through unchanged; only str is validated.
+    """
+    if isinstance(value, str):
+        return validate_string_input(
+            value, max_length=MAX_VARIABLE_VALUE_LENGTH, allow_empty=True
+        )
+    if isinstance(value, list):
+        return [_validated_strings(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _validated_strings(item) for key, item in value.items()}
+    return value
+
+
 def set_variables(values, variables):
     """
     Sets the values of variables from a dictionary of new values with validation
@@ -202,11 +230,15 @@ def set_variables(values, variables):
                     f"Unknown variable '{validated_name}'; declared variables: {declared}"
                 )
 
-            # Validate string values
+            # Validate string values - including strings nested inside a
+            # list- or dict-valued argument, which a for_each entry's
+            # prompt or from_file always is
             if isinstance(v, str):
                 validated_value = validate_string_input(
                     v, max_length=MAX_VARIABLE_VALUE_LENGTH, allow_empty=True
                 )
+            elif isinstance(v, (list, dict)):
+                validated_value = _validated_strings(v)
             else:
                 validated_value = v
 

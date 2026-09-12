@@ -412,8 +412,10 @@ no zip and no loop index.
 Limits: a list has at most 32 entries. `release_pipeline` on a `for_each`
 step releases after the *last* member. Each entry is a full generation, so
 quote the cost before running a list-driven workflow: the listing's `cost`
-is for the default list, so divide it by that list's entry count and
-multiply by the entries you write. Then `validate_workflow` with the
+is for the whole workflow, fixed steps included, so divide it by the default
+list's entry count for a rough per-entry figure (it still carries those
+fixed steps, so it runs high), then multiply by the entries you write. Then
+`validate_workflow` with the
 `arguments` you will run with: it expands your list, not the template's
 default, resolves the variables your entries name, and reports a duplicate
 name or a missing field at the entry's path.

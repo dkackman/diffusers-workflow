@@ -1,6 +1,7 @@
 import copy
 import pytest
 from dw.variables import (
+    argument_errors,
     replace_variables,
     resolve_variable_values,
     set_variables,
@@ -189,6 +190,56 @@ def test_set_variables_string_override_of_a_null_default_passes_through():
     variables = {"mask": None}
     set_variables({"mask": "masks/a.png"}, variables)
     assert variables["mask"] == "masks/a.png"
+
+
+def test_set_variables_string_too_long_raises():
+    from dw.security import InvalidInputError, MAX_VARIABLE_VALUE_LENGTH
+
+    variables = {"prompt": "a cat"}
+    values = {"prompt": "a" * (MAX_VARIABLE_VALUE_LENGTH + 1)}
+
+    with pytest.raises(InvalidInputError, match="too long"):
+        set_variables(values, variables)
+
+
+def test_set_variables_list_entry_too_long_raises_the_same_error():
+    """A string nested inside a list-valued argument (a for_each entry's
+    prompt, say) is exactly as reachable as a top-level one, and must be
+    checked the same way - not skipped because `isinstance(v, str)` alone
+    would miss it."""
+    from dw.security import InvalidInputError, MAX_VARIABLE_VALUE_LENGTH
+
+    variables = {"shots": [{"name": "a", "prompt": "short"}]}
+    values = {"shots": [{"name": "a", "prompt": "a" * (MAX_VARIABLE_VALUE_LENGTH + 1)}]}
+
+    with pytest.raises(InvalidInputError, match="too long"):
+        set_variables(values, variables)
+
+
+def test_set_variables_list_with_ordinary_strings_passes_unchanged():
+    variables = {"shots": [{"name": "default"}]}
+    values = {"shots": [{"name": "a", "prompt": "a cat"}, {"name": "b"}]}
+
+    set_variables(values, variables)
+
+    assert variables["shots"] == [{"name": "a", "prompt": "a cat"}, {"name": "b"}]
+
+
+def test_argument_errors_reports_a_too_long_entry_under_the_list_argument():
+    """argument_errors wraps set_variables, so a string too deep inside a
+    list argument to check field-by-field is still reported at the
+    argument's own name, the same as any other bad `shots` value."""
+    from dw.security import MAX_VARIABLE_VALUE_LENGTH
+
+    definition = {"variables": {"shots": [{"name": "default"}]}}
+    arguments = {
+        "shots": [{"name": "a", "prompt": "a" * (MAX_VARIABLE_VALUE_LENGTH + 1)}]
+    }
+
+    errors = argument_errors(definition, arguments)
+
+    assert [error["path"] for error in errors] == ["arguments.shots"]
+    assert "too long" in errors[0]["message"]
 
 
 class TestResolveVariableValues:

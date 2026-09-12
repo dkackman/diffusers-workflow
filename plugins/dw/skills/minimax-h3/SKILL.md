@@ -61,8 +61,10 @@ not from here.
   `prompt`, `references` (which portraits and voices this shot uses) and
   `num_frames`; a music-video entry is `name`, `prompt` and `start_frame`.
   A six-shot piece is one more entry, not another file. The listing's `cost`
-  is the whole default list's: divide by its entry count for the per shot
-  figure, then multiply by the entries you write.
+  is the whole workflow's, fixed steps included (the portraits, the song) -
+  divide by the default list's entry count for a rough per-shot figure (it
+  still carries those fixed steps, so it runs high), then multiply by the
+  entries you write.
   A cut erases drift; the last shot is as clean as the first. Write shots,
   not takes. Each shot generates its own audio, so write
   `non_diegetic_music: N/A` in every shot and lay one score under the concat

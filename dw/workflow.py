@@ -49,6 +49,7 @@ from .variables import (
     resolve_variable_values,
     set_variables,
     undeclared_variable_references,
+    VariableCycleError,
     VariableNotFoundError,
 )
 from .pipeline_processors.pipeline import Pipeline
@@ -334,9 +335,9 @@ class Workflow:
             # for_each whose list arrived unsubstituted, which is what a
             # half-substituted definition used to look like from here
             return self._undeclared_variable_errors(arguments)
-        except ValueError as e:
-            # resolve_variable_values raises a bare ValueError for a variable
-            # that references itself, directly or through others - there is
+        except VariableCycleError as e:
+            # resolve_variable_values raises this for a variable that
+            # references itself, directly or through others - there is
             # no single path inside the definition to blame, so it is
             # reported against 'variables' as a whole rather than escaping
             # as an unhandled exception

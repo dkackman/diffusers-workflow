@@ -256,7 +256,8 @@ class TestMiniMaxH3Skill:
             path = os.path.join(
                 REPO_ROOT, "workflows", "templates", "minimax", name + ".json"
             )
-            spec = json.load(open(path, encoding="utf-8"))
+            with open(path, encoding="utf-8") as f:
+                spec = json.load(f)
             entries = spec["variables"]["shots"]
             assert all(set(entry) == fields for entry in entries), name
             for field in fields:
