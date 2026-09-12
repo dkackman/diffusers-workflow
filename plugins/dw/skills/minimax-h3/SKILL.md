@@ -54,22 +54,28 @@ not from here.
   Drift compounds per seam: reference the subject picture in every segment,
   prefer `last_segment` continuity, and use the longest segments memory allows.
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
-  `templates/minimax/dialogue-short` (Z-Image draws the cast, one loaded model
-  per shot, `concat_videos` splices) and `templates/minimax/music-video`
-  (shots cut to a generated song, lip-synced slices). A cut erases drift; the
-  last shot is as clean as the first. Write shots, not takes. Each shot
-  generates its own audio, so write `non_diegetic_music: N/A` in every shot
-  and lay one score under the concat afterwards: `templates/minimax/music`
-  writes the track and `templates/assemble-and-score` shows the `pair_audio`
-  step that mixes it under the world sound (it takes three shots; for more,
-  author the concat and score steps the same way). A character who speaks in
-  several shots keeps one voice by passing the same clip as an audio
-  reference in each (the `voice-timbre-reference` pattern); a repeated voice
-  description alone drifts. Each shot's `num_frames` is its own, so pace the
-  cut - a trailer builds by varying shot length. The reference carries
-  delivery as well as timbre: a flat read gives a flat performance. Bark's
-  presets are conversational; for a narrator with gravitas, `upload_asset` a
-  recorded read in that register and reference the same file in every shot.
+  `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
+  entry of its `shots` list on one loaded model, `concat_videos` splices) and
+  `templates/minimax/music-video` (a song, one slice and one lip-synced shot
+  per entry). `shots` is one list argument: a dialogue entry is `name`,
+  `prompt`, `references` (which portraits and voices this shot uses) and
+  `num_frames`; a music-video entry is `name`, `prompt` and `start_frame`.
+  A six-shot piece is one more entry, not another file; the listing's `cost`
+  is the default list's, so quote it per shot times the entries you write.
+  A cut erases drift; the last shot is as clean as the first. Write shots,
+  not takes. Each shot generates its own audio, so write
+  `non_diegetic_music: N/A` in every shot and lay one score under the concat
+  afterwards: `templates/minimax/music` writes the track and
+  `templates/assemble-and-score` shows the `pair_audio` step that mixes it
+  under the world sound (it takes three shots; for more, author the concat
+  and score steps the same way). A character who speaks in several shots
+  keeps one voice by passing the same clip as an audio reference in each
+  (the `voice-timbre-reference` pattern); a repeated voice description alone
+  drifts. Each entry's `num_frames` is its own, so pace the cut. The
+  reference carries delivery as well as timbre: a flat read gives a flat
+  performance. Bark's presets are conversational; for a narrator with
+  gravitas, `upload_asset` a recorded read in that register and reference
+  the same file in every shot.
 - **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3` skill.
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and

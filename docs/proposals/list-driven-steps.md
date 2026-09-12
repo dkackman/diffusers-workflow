@@ -1,8 +1,9 @@
 # Proposal: list-driven steps (`for_each`)
 
-Status: **stage 1 implemented** (expansion pass, validation, schema, docs -
-`dw/for_each.py`); stages 2 and 3 (templates, catalog cost and entry shape)
-not started. Written for MCP feedback ticket T003.
+Status: **stages 1 and 2 implemented** (expansion pass, validation, schema,
+docs - `dw/for_each.py`; `music-video` and `dialogue-short` on a `shots`
+list, 2026-09-11); stage 3 (catalog per-entry cost and entry shape) not
+started. Written for MCP feedback ticket T003.
 
 ## The ask, as filed
 
@@ -317,3 +318,14 @@ not have to rediscover them:
   `constant:` name fails validation (the list arrives as the `constant:`
   string) and then runs fine, since `Workflow.run` does realize constants. A
   template that wants a constant default needs that pass in the validator.
+
+Resolved in stage 2: the `pipeline_reference` question went away - every
+member is the full pipeline block, and the identity-keyed pipeline cache
+reuses the loaded model exactly as the reference did (a test holds every
+member to one `pipeline_cache_key`). A group's `pipeline_reference` still
+gets no directed error; nothing bundled uses one now. Entries that name
+other variables (`variable:character_a_voice`) are resolved by
+`resolve_variable_values` before `realize_args`, which is what let the
+optional voices move into the entries. The empty-list and
+`realize_constants` questions are still open and belong to stage 3 with the
+catalog work.
