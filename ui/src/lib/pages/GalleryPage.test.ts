@@ -13,9 +13,10 @@ import GalleryPage from './GalleryPage.svelte'
 import ConfirmDialog from '../ConfirmDialog.svelte'
 import type { GalleryFile } from '../types'
 
-const file = (name: string): GalleryFile => ({
+const file = (name: string, subfolder = ''): GalleryFile => ({
   name,
   folder: name.includes('/') ? name.split('/')[0] : '',
+  subfolder,
   url: `/outputs/${name}`,
   kind: 'image',
   size: 1024,
@@ -57,7 +58,7 @@ const notifyError = vi.hoisted(() => vi.fn())
 vi.mock('../toast', () => ({ notify: { error: notifyError } }))
 
 beforeEach(() => {
-  listing.files = ['a.png', 'b.png', 'demo/c.png'].map(file)
+  listing.files = ['a.png', 'b.png', 'demo/c.png'].map((name) => file(name))
 })
 afterEach(() => {
   // Without this each render's DOM stays behind and the next test's
@@ -123,7 +124,9 @@ it('shift-clicking extends the selection across the range', async () => {
 })
 
 it('selects only the files the filter leaves visible', async () => {
-  listing.files = ['keep-a.png', 'keep-b.png', 'other.png'].map(file)
+  listing.files = ['keep-a.png', 'keep-b.png', 'other.png'].map((name) =>
+    file(name),
+  )
   await renderGallery('keep-a.png')
 
   const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
