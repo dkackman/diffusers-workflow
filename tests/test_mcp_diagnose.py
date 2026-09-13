@@ -603,3 +603,53 @@ def test_the_refusal_teaches_the_bound_form():
     from dw_mcp.diagnose import COST_REFUSAL
 
     assert "fingerprint" in COST_REFUSAL
+
+
+def test_a_null_download_entry_is_dropped_before_sending():
+    """A `from_single_file` URL sits in downloads_required with repo: null;
+    an agent copying the list verbatim must not earn a 422 for it."""
+    import json
+
+    client, seen = submitting()
+    diagnose.run_workflow(
+        client,
+        workflow_path="w.json",
+        acknowledged_cost={"fingerprint": "sha256:abc", "downloads": ["org/x", None]},
+    )
+    assert json.loads(seen[0]["body"])["acknowledged_cost"]["downloads"] == ["org/x"]
+
+
+def test_a_409_without_a_measured_estimate_says_so():
+    client, _seen = scripted(
+        {
+            ("POST", "/api/jobs"): (
+                409,
+                {
+                    "detail": {
+                        "message": "The run's shape changed since it was acknowledged",
+                        "reason": "fingerprint",
+                        "acknowledged": BOUND,
+                        "plan": {
+                            "fingerprint": "sha256:def",
+                            "steps": 1,
+                            "list_entries": {},
+                            "cached_steps": None,
+                            "downloads_required": [],
+                            "estimate": {
+                                "minutes": None,
+                                "basis": "unknown",
+                                "device": "cuda",
+                                "measured_on": None,
+                                "partial": False,
+                            },
+                        },
+                    }
+                },
+            )
+        }
+    )
+    with pytest.raises(DwApiError) as caught:
+        diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost=BOUND)
+    message = str(caught.value)
+    assert "None minutes" not in message
+    assert "no measured estimate" in message

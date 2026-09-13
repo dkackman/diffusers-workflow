@@ -816,7 +816,7 @@ def build_server(client):
 
         Bind the acknowledgement to what you quoted: pass
         {"fingerprint": plan.fingerprint, "minutes": plan.estimate.minutes,
-        "downloads": [...repos from plan.downloads_required]} from the
+        "downloads": [...the non-null repos in plan.downloads_required]} from the
         validate answer, and the server refuses with 409 - naming the new
         plan - if the run's shape changed since; bare true is for a plan
         that was null."""

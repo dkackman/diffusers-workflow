@@ -30,7 +30,7 @@ COST_REFUSAL = (
     "fetch first. Tell the user that number, get their go-ahead, then call "
     'again with acknowledged_cost bound to the plan: {"fingerprint": '
     'plan.fingerprint, "minutes": plan.estimate.minutes, "downloads": '
-    "[each downloads_required repo]} - the server then refuses (409) if the "
+    "[each non-null downloads_required repo]} - the server then refuses (409) if the "
     "run's shape changed since. acknowledged_cost=true is for a `plan` that "
     "was null."
 )
@@ -49,6 +49,14 @@ def _acknowledgement_body(acknowledged_cost):
                 "plan.fingerprint the validate answer carried. Validate again "
                 "and pass {fingerprint, minutes, downloads} from its plan."
             )
+        # A from_single_file URL sits in downloads_required with repo: null;
+        # an agent copying the list verbatim should not earn a 422 for it
+        downloads = acknowledged_cost.get("downloads")
+        if isinstance(downloads, list):
+            acknowledged_cost = {
+                **acknowledged_cost,
+                "downloads": [repo for repo in downloads if repo],
+            }
         return {"acknowledged_cost": acknowledged_cost}
     return {}
 

@@ -348,10 +348,16 @@ class DwClient:
                 # A 409 from the cost gate: say what the run costs now, so a
                 # client that only sees the message can re-quote from it
                 estimate = plan.get("estimate") or {}
-                formatted += (
-                    f" It now estimates {estimate.get('minutes')} minutes "
-                    f"(basis {estimate.get('basis')})"
-                )
+                if estimate.get("minutes") is None:
+                    formatted += (
+                        f" It now has no measured estimate (basis "
+                        f"{estimate.get('basis')})"
+                    )
+                else:
+                    formatted += (
+                        f" It now estimates {estimate.get('minutes')} minutes "
+                        f"(basis {estimate.get('basis')})"
+                    )
                 downloads = [
                     entry.get("repo") or entry.get("url")
                     for entry in plan.get("downloads_required") or []
