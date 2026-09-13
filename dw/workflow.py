@@ -675,7 +675,7 @@ class Workflow:
             # variable; resolve those before anything inside it is
             # realized, so a reference type in an entry is a type name
             variables = resolve_variable_values(variables)
-            # realize the variables, initialiting downloads of images etc
+            # realize the variables, initializing downloads of images etc
             realize_args(variables, base_dir)
             ## then replace any variable references in the workflow definition with the actual values
             # replace_variables returns a new structure rather than mutating in
@@ -745,9 +745,7 @@ class Workflow:
         # The last step of a composed child whose parent does the saving
         # (#92) - its files are the parent step's, written once, under the
         # parent's name and subfolder
-        parent_saves_this = (
-            self._final_save_owned_by_parent and index == len(steps) - 1
-        )
+        parent_saves_this = self._final_save_owned_by_parent and index == len(steps) - 1
         step_data_snapshot = None
         if is_cacheable:
             try:
@@ -1467,7 +1465,7 @@ class Workflow:
                 # An unconfined run (no workflow_dir - a bare CLI
                 # invocation) used to rely on the '..' regex alone to stop a
                 # relative reference from leaving the file's own directory;
-                # normalising the path removes that guard, so confine it to
+                # normalizing the path removes that guard, so confine it to
                 # the catalog root instead - the referencing file's nearest
                 # ancestor literally named 'workflows', which still lets it
                 # climb to a sibling folder like models/ but not out of the
@@ -1491,7 +1489,7 @@ class Workflow:
                 logger.error(f"Security validation failed for sub-workflow {path}: {e}")
                 raise
 
-            # this is where the arguments in the paretn script are passed to the child workflow
+            # this is where the arguments in the parent script are passed to the child workflow
             # they will already be populated with values from previous steps or parent variables
             workflow.workflow_definition["argument_template"] = workflow_reference.get(
                 "arguments", {}
