@@ -379,16 +379,19 @@ class Result:
             self.saved_files = []
             return self.saved_files
 
-        # Determine base filename with validation
+        # Determine base filename with validation. A file_base_name *replaces*
+        # the derived name - it is set to get a name the caller can predict, and
+        # gluing it onto the name it was meant to replace made it neither (#100).
+        # What the derived name guaranteed - a distinct name per step - is then
+        # the caller's to keep; output_file_path's counter catches a collision.
         file_base_name = validated_base_name
         if "file_base_name" in self.result_definition:
-            custom_base = validate_file_base_name(
+            file_base_name = validate_file_base_name(
                 validate_string_input(
                     self.result_definition["file_base_name"],
                     max_length=MAX_BASE_NAME_LENGTH,
                 )
             )
-            file_base_name = custom_base + validated_base_name
 
         # Get file extension for content type
         extension = guess_extension(content_type)

@@ -333,8 +333,10 @@ same reason - default setup cannot load a pack.
   job page sections results under `final/` / `intermediate/` headings (or
   whatever the step named) (`sectionBySubfolder`, `ui/src/lib/results.ts`),
   unchanged for a run that chose none. `file_base_name` may not contain a
-  separator -
-  it is a name, not a path.
+  separator - it is a name, not a path - and it *replaces* the derived
+  `<workflow id>-<step name>.<index>` base rather than prefixing it (#100), so
+  two steps in one subfolder that set the same one collide onto
+  `output_file_path`'s `-2` counter.
   Every `workflows/templates/**` file with two or more saving steps
   marks each one `final`/`intermediate` (`tests/test_template_subfolders.py` pins the rule;
   `dw/workflows/` builtins stay unmarked - a role is the parent's to assign). That moved
