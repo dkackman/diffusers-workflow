@@ -3843,3 +3843,237 @@ class TestAcknowledgementRecord:
             rerun = manager.rerun(job.id)
             assert rerun.acknowledged == "none"
             assert rerun.spec["acknowledged_cost"] == bound
+
+
+def plan_for(client, workflow, arguments=None):
+    body = {"workflow": workflow}
+    if arguments:
+        body["arguments"] = arguments
+    answer = client.post("/api/validate?sizes=false", json=body).json()
+    assert answer["valid"], answer
+    return answer["plan"]
+
+
+def bound(plan):
+    return {
+        "fingerprint": plan["fingerprint"],
+        "minutes": plan["estimate"]["minutes"],
+        "downloads": [d["repo"] for d in plan["downloads_required"] if d["repo"]],
+    }
+
+
+@pytest.fixture
+def no_hub(monkeypatch):
+    import dw.plan
+
+    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+
+
+def list_workflow(job_id="listed"):
+    return {
+        "id": job_id,
+        "seed": "variable:seed",
+        "variables": {"seed": 1, "shots": [{"name": "a", "prompt": "a"}]},
+        "steps": [
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "pipeline": {
+                    "configuration": {"component_type": "{Fake}", "no_generator": True},
+                    "from_pretrained_arguments": {"model_name": "m"},
+                    "arguments": {"prompt": "item:prompt"},
+                },
+            }
+        ],
+    }
+
+
+class TestBoundAcknowledgement:
+    """A bound acknowledgement is checked against the run's current plan
+    before anything is queued (#85); true and absent are untouched."""
+
+    def test_a_matching_fingerprint_queues(self, server, no_hub):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 201, response.json()
+            assert response.json()["acknowledged"] == "bound"
+            assert response.json()["acknowledged_cost"] == bound(plan)
+
+    def test_a_longer_list_than_acknowledged_is_refused(self, server, no_hub):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            longer = {"shots": [{"name": n, "prompt": n} for n in "abc"]}
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": list_workflow(),
+                    "arguments": longer,
+                    "acknowledged_cost": bound(plan),
+                },
+            )
+            assert response.status_code == 409
+            detail = response.json()["detail"]
+            assert detail["reason"] == "fingerprint"
+            assert detail["acknowledged"]["fingerprint"] == plan["fingerprint"]
+            assert detail["plan"]["list_entries"] == {"shots": 3}
+            assert detail["plan"]["fingerprint"] != plan["fingerprint"]
+            assert "differ" in detail["message"]
+            assert client.app.state.job_manager.worker_manager.commands == []
+
+    def test_a_new_seed_is_the_same_work(self, server, no_hub):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": list_workflow(),
+                    "arguments": {"seed": 99},
+                    "acknowledged_cost": bound(plan),
+                },
+            )
+            assert response.status_code == 201
+
+    def test_a_download_not_acknowledged_is_refused(self, server, no_hub):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            acknowledgement = bound(plan)
+            acknowledgement["downloads"] = []  # the caller left the repo out
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": acknowledgement},
+            )
+            assert response.status_code == 409
+            detail = response.json()["detail"]
+            assert detail["reason"] == "downloads"
+            assert "m" in detail["message"]
+
+    def test_a_download_that_vanished_is_not_a_refusal(self, server, no_hub, monkeypatch):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            assert bound(plan)["downloads"] == ["m"]
+            import dw.plan
+
+            monkeypatch.setattr(
+                dw.plan,
+                "scan_models",
+                lambda cache_dir=None: {"repos": [{"repo_id": "m"}]},
+            )
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 201
+
+    def test_an_unplannable_run_is_refused_not_passed(self, server, no_hub, monkeypatch):
+        import dw.server.app as app_module
+
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+
+            def boom(*a, **k):
+                raise RuntimeError("no plan")
+
+            monkeypatch.setattr(app_module, "build_plan", boom)
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 409
+            assert response.json()["detail"]["reason"] == "unplannable"
+            assert response.json()["detail"]["plan"] is None
+
+    def test_true_and_absent_queue_without_planning(self, server, no_hub, monkeypatch):
+        import dw.server.app as app_module
+
+        def boom(*a, **k):
+            raise AssertionError("the boolean path must not plan")
+
+        monkeypatch.setattr(app_module, "build_plan", boom)
+        with server(success_script) as client:
+            plain = client.post("/api/jobs", json={"workflow": valid_workflow("p")})
+            flagged = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow("f"), "acknowledged_cost": True},
+            )
+            off = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow("o"), "acknowledged_cost": False},
+            )
+        assert plain.json()["acknowledged"] == "none"
+        assert flagged.json()["acknowledged"] == "boolean"
+        assert off.json()["acknowledged"] == "none"
+
+    def test_a_bound_form_without_a_fingerprint_is_a_422(self, server):
+        with server(success_script) as client:
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow(), "acknowledged_cost": {"minutes": 3}},
+            )
+            assert response.status_code == 422
+
+    def test_a_stored_prompt_edited_after_validation_is_refused(
+        self, server, no_hub, tmp_path
+    ):
+        (tmp_path / "prompts" / "p.json").write_text(json.dumps({"text": "before"}))
+        workflow = valid_workflow("prompted")
+        workflow["variables"]["prompt"] = "prompt:p"
+        with server(success_script) as client:
+            plan = plan_for(client, workflow)
+            (tmp_path / "prompts" / "p.json").write_text(json.dumps({"text": "after"}))
+            response = client.post(
+                "/api/jobs", json={"workflow": workflow, "acknowledged_cost": bound(plan)}
+            )
+            assert response.status_code == 409
+            assert response.json()["detail"]["reason"] == "fingerprint"
+
+
+class TestBoundRerun:
+    def test_a_rerun_with_the_original_plan_queues_even_with_a_new_seed(
+        self, server, no_hub
+    ):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            first = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
+            ).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun",
+                json={"new_seed": True, "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 201
+            assert response.json()["acknowledged"] == "bound"
+
+    def test_a_rerun_bound_to_a_stale_plan_is_refused(self, server, no_hub):
+        with server(success_script) as client:
+            first = client.post("/api/jobs", json={"workflow": list_workflow()}).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            other = plan_for(client, valid_workflow("other"))
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun", json={"acknowledged_cost": bound(other)}
+            )
+            assert response.status_code == 409
+            assert response.json()["detail"]["reason"] == "fingerprint"
+
+    def test_a_rerun_with_true_is_unchanged(self, server, no_hub):
+        with server(success_script) as client:
+            first = client.post("/api/jobs", json={"workflow": list_workflow()}).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun", json={"acknowledged_cost": True}
+            )
+            assert response.status_code == 201
+            assert response.json()["acknowledged"] == "boolean"
+
+    def test_an_unknown_job_is_still_404(self, server):
+        with server(success_script) as client:
+            response = client.post(
+                "/api/jobs/nope/rerun",
+                json={"acknowledged_cost": {"fingerprint": "sha256:0"}},
+            )
+            assert response.status_code == 404

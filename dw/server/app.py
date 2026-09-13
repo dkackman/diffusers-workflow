@@ -19,7 +19,7 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
 from urllib.parse import quote, urlparse
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
@@ -96,6 +96,9 @@ from ..workflow_sources import (
     writable_source,
 )
 from .jobs import (
+    ACK_BOOLEAN,
+    ACK_BOUND,
+    ACK_NONE,
     JobManager,
     MAX_PERSISTED_EVENTS,
     QUEUED,
@@ -112,6 +115,29 @@ logger = logging.getLogger("dw")
 
 # How long one SSE poll waits for a new event before checking liveness
 SSE_POLL_SECONDS = 1.0
+
+
+class AcknowledgedCost(BaseModel):
+    """A cost acknowledgement bound to the plan a validate call answered
+    with (#85): the server refuses to queue a run whose plan no longer
+    matches it. `minutes` is recorded, never compared."""
+
+    fingerprint: str = Field(description="plan.fingerprint from POST /api/validate")
+    minutes: Optional[float] = Field(
+        default=None, description="plan.estimate.minutes, recorded on the job"
+    )
+    downloads: List[str] = Field(
+        default_factory=list,
+        description="The repos in plan.downloads_required that were acknowledged",
+    )
+
+
+ACKNOWLEDGED_COST_FIELD = Field(
+    default=None,
+    description="Cost acknowledgement: true (recorded), or an object "
+    "{fingerprint, minutes, downloads} bound to the plan validate answered "
+    "with - then the run is refused with 409 if its plan changed",
+)
 
 
 class JobRequest(BaseModel):
@@ -132,6 +158,7 @@ class JobRequest(BaseModel):
         default=None,
         description="Which workspace to run or resolve in; the default when omitted",
     )
+    acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
 
 
 # What each workflow produces and takes, for listing cards - cached by mtime
@@ -807,6 +834,80 @@ def create_app(
 
     # ------------------------------------------------------------------ jobs
 
+    def _acknowledgement_form(value):
+        """none | boolean | bound - classified once, here, so the check and
+        the record agree (#85)."""
+        if isinstance(value, AcknowledgedCost):
+            return ACK_BOUND
+        return ACK_BOOLEAN if value is True else ACK_NONE
+
+    def _check_bound_acknowledgement(candidate, arguments, acknowledged, workspace):
+        """Refuse with 409 when the run `candidate` + `arguments` will
+        execute is not the one `acknowledged` was bound to: a different
+        fingerprint, or a download the caller did not acknowledge. The body
+        carries the current plan so the agent re-quotes from it without a
+        second validate call. A plan that cannot be built is a refusal too -
+        never a silent pass (#85).
+        """
+        record = acknowledged.model_dump()
+
+        def refuse(message, reason, plan):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": message,
+                    "reason": reason,
+                    "acknowledged": record,
+                    "plan": plan,
+                },
+            )
+
+        try:
+            from .. import get_device, get_device_type
+
+            current = build_plan(
+                candidate,
+                arguments,
+                device=get_device_type(get_device()),
+                prompt_dir=workspace.prompts,
+                lookup_sizes=False,
+            )
+        except Exception:
+            logger.exception("Plan could not be built for a bound acknowledgement")
+            refuse(
+                "The run could not be planned, so a bound acknowledgement "
+                "cannot be checked; acknowledge with true or validate again",
+                "unplannable",
+                None,
+            )
+        if current["fingerprint"] != acknowledged.fingerprint:
+            refuse(
+                "The run's shape changed since it was acknowledged: the "
+                "workflow or its arguments differ from what was validated",
+                "fingerprint",
+                current,
+            )
+        missing = [
+            entry["repo"]
+            for entry in current["downloads_required"]
+            if entry.get("repo") and entry["repo"] not in acknowledged.downloads
+        ]
+        if missing:
+            refuse(
+                "The run's shape changed since it was acknowledged: it now "
+                f"has to download {', '.join(missing)} first",
+                "downloads",
+                current,
+            )
+
+    def _candidate_for(workflow_path, workflow, base_dir, output_dir, workflow_dir):
+        """The Workflow a job spec names, built as the worker will build it."""
+        if workflow_path is not None:
+            return workflow_from_file(workflow_path, output_dir, workflow_dir)
+        return workflow_from_definition(
+            copy.deepcopy(workflow), output_dir, base_dir, workflow_dir
+        )
+
     @app.post("/api/jobs", status_code=201)
     def submit_job(request: JobRequest, ws: Workspace = Depends(selected_workspace)):
         """Queue a workflow. The workspace it runs in comes from the body or,
@@ -835,6 +936,21 @@ def create_app(
                         for problem in reference_problems
                     )
                 )
+            # A bound acknowledgement is checked against the plan this
+            # request would run - before anything is queued, since a refusal
+            # is free here and costs a job id anywhere later (#85)
+            form = _acknowledgement_form(request.acknowledged_cost)
+            if form == ACK_BOUND:
+                candidate = _candidate_for(
+                    resolved,
+                    request.workflow,
+                    request.base_dir,
+                    workspace.outputs,
+                    source.root if source else workspace.workflows,
+                )
+                _check_bound_acknowledgement(
+                    candidate, request.arguments, request.acknowledged_cost, workspace
+                )
             job = manager.submit(
                 workflow_path=resolved,
                 workflow=request.workflow,
@@ -856,6 +972,12 @@ def create_app(
                 # for, so 'Basic', 'Basic.json' and an absolute path
                 # inside the source all record the one catalog name
                 catalog_name=catalog_name_for(resolved, source),
+                acknowledged=form,
+                acknowledged_cost=(
+                    request.acknowledged_cost.model_dump()
+                    if form == ACK_BOUND
+                    else None
+                ),
             )
         except HTTPException:
             raise
@@ -952,12 +1074,49 @@ def create_app(
             "the step cache serves from the earlier run - the same seed and "
             "inputs would produce the same files.",
         )
+        acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = (
+            ACKNOWLEDGED_COST_FIELD
+        )
 
     @app.post("/api/jobs/{job_id}/rerun", status_code=201)
     def rerun_job(job_id: str, body: RerunRequest = RerunRequest()):
-        """Queue a fresh job from a previous job's stored spec."""
+        """Queue a fresh job from a previous job's stored spec. Takes
+        `acknowledged_cost` as POST /api/jobs does; a bound one is checked
+        against the stored spec's plan - the fresh seed of `new_seed` does
+        not change a fingerprint."""
+        form = _acknowledgement_form(body.acknowledged_cost)
+        if form == ACK_BOUND:
+            prepared = manager.rerun_spec(job_id)
+            if prepared is None:
+                raise HTTPException(status_code=404, detail="Unknown job")
+            spec, arguments = prepared
+            try:
+                candidate = _candidate_for(
+                    spec.get("workflow_path"),
+                    spec.get("workflow"),
+                    spec.get("base_dir"),
+                    spec.get("output_dir") or manager.output_dir,
+                    spec.get("workflow_dir"),
+                )
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            _check_bound_acknowledgement(
+                candidate,
+                arguments,
+                body.acknowledged_cost,
+                _workspace_for(spec.get("workspace")),
+            )
         try:
-            job = manager.rerun(job_id, new_seed=body.new_seed)
+            job = manager.rerun(
+                job_id,
+                new_seed=body.new_seed,
+                acknowledged=form,
+                acknowledged_cost=(
+                    body.acknowledged_cost.model_dump() if form == ACK_BOUND else None
+                ),
+            )
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
         if job is None:
