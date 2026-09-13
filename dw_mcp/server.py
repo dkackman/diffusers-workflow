@@ -795,7 +795,7 @@ def build_server(client):
         workflow_path: str | None = None,
         inline_workflow: dict | None = None,
         arguments: dict | None = None,
-        acknowledged_cost: bool = False,
+        acknowledged_cost: bool | dict = False,
         workspace: str | None = None,
     ) -> dict:
         """Queue a workflow for generation. THIS COSTS GPU TIME: a run
@@ -811,7 +811,14 @@ def build_server(client):
         workflow serves many requests without being edited or copied.
         `workspace` names the workspace for this one call without switching
         the session to it - use it to pin a job whose `output:` or `asset:`
-        references live in a workspace other than the session's."""
+        references live in a workspace other than the session's.
+
+        Bind the acknowledgement to what you quoted: pass
+        {"fingerprint": plan.fingerprint, "minutes": plan.estimate.minutes,
+        "downloads": [...repos from plan.downloads_required]} from the
+        validate answer, and the server refuses with 409 - naming the new
+        plan - if the run's shape changed since; bare true is for a plan
+        that was null."""
         return diagnose.run_workflow(
             client,
             workflow_path=workflow_path,
@@ -905,7 +912,7 @@ def build_server(client):
         return diagnose.cancel_job(client, job_id)
 
     def rerun_job(
-        job_id: str, acknowledged_cost: bool = False, new_seed: bool = False
+        job_id: str, acknowledged_cost: bool | dict = False, new_seed: bool = False
     ) -> dict:
         """Queue a fresh job from a previous job's stored specification. THIS
         COSTS GPU TIME: a rerun is a run - it occupies the machine for
@@ -915,7 +922,11 @@ def build_server(client):
         Pass new_seed=true for a different image: a workflow that pins its
         seed reruns to the same pixels, and the step cache serves that whole
         run from the earlier one's files (marked `reused`) in a fraction of a
-        second rather than generating anything."""
+        second rather than generating anything.
+
+        `acknowledged_cost` takes the same bound form as run_workflow; a
+        fresh seed never changes the fingerprint, so the original plan still
+        binds a new_seed rerun."""
         return diagnose.rerun_job(
             client,
             job_id,

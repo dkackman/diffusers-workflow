@@ -343,6 +343,22 @@ class DwClient:
             entries = detail.get("entries")
             if isinstance(entries, list) and entries:
                 formatted += f" Also holds: {', '.join(str(e) for e in entries)}."
+            plan = detail.get("plan")
+            if isinstance(plan, dict):
+                # A 409 from the cost gate: say what the run costs now, so a
+                # client that only sees the message can re-quote from it
+                estimate = plan.get("estimate") or {}
+                formatted += (
+                    f" It now estimates {estimate.get('minutes')} minutes "
+                    f"(basis {estimate.get('basis')})"
+                )
+                downloads = [
+                    entry.get("repo") or entry.get("url")
+                    for entry in plan.get("downloads_required") or []
+                ]
+                if downloads:
+                    formatted += f", and would download {', '.join(downloads)} first"
+                formatted += f"; new fingerprint {plan.get('fingerprint')}."
             return formatted
         if isinstance(detail, list):
             messages = []
