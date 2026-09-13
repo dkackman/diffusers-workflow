@@ -1,9 +1,11 @@
 ---
 name: MCP agent-loop ticket
-about: Filed by the implementer/tester agent loop (see the iterate repo's CLAUDE.md) — not for human bug reports, use "Bug report" for those.
+about: Filed by the implementer/tester agent loop (see docs/AGENT_LOOP.md) — not for human bug reports, use "Bug report" for those.
 title: ""
 labels: ["owner:implementer"]
 ---
+
+<!-- New to this ticket format? See docs/AGENT_LOOP.md for what the owner/status labels mean and how to act on one. -->
 
 **tool/endpoint:** which MCP tool or method this concerns
 

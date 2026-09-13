@@ -220,3 +220,4 @@ frame interpolation and more.
 - [Security](docs/SECURITY.md) — Security model
 - [Testing](docs/TESTING.md) — Running the test suite
 - [Releasing](docs/RELEASING.md) — Cutting a release from a version tag
+- [Agent Loop](docs/AGENT_LOOP.md) — What the automated implementer/tester ticket labels mean, for anyone joining an Issue
