@@ -285,3 +285,27 @@ it('explains a run that wrote nothing at all rather than showing no results', as
     'base result.save is false, so the step is kept in memory and never written',
   ])
 })
+
+it('says when the run was queued with an acknowledgement bound to its plan', async () => {
+  detail.job = {
+    ...job([]),
+    acknowledged: 'bound',
+    acknowledged_cost: {
+      fingerprint: 'sha256:abcdef0123456789',
+      minutes: 38,
+      downloads: [],
+    },
+  }
+  render(JobPage, { jobId: 'j1' })
+  const line = await waitFor(() => screen.getByText(/acknowledged/))
+  expect(line.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+    'acknowledged at 38 min',
+  )
+})
+
+it('says nothing about an acknowledgement a run did not carry', async () => {
+  detail.job = { ...job([]), acknowledged: 'none' }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('j1')).toBeTruthy())
+  expect(screen.queryByText(/acknowledged/)).toBeNull()
+})

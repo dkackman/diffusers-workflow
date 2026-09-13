@@ -315,6 +315,21 @@
         >seed {seed}</code
       >
     {/if}
+    {#if job.acknowledged === 'bound'}
+      <!-- Whoever queued this bound their go-ahead to a plan; the number
+           they quoted is what this run was consented to at -->
+      <code
+        class="muted seed"
+        title={`queued with a cost acknowledgement bound to the validated plan${
+          job.acknowledged_cost?.fingerprint
+            ? ` (${job.acknowledged_cost.fingerprint.slice(0, 15)}…)`
+            : ''
+        }`}
+        >{job.acknowledged_cost?.minutes != null
+          ? `acknowledged at ${job.acknowledged_cost.minutes} min`
+          : 'acknowledged'}</code
+      >
+    {/if}
     <span class="flex"></span>
     {#if running}
       <button

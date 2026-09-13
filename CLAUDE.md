@@ -292,7 +292,11 @@ same reason - default setup cannot load a pack.
   changed; `minutes` never compared), and the job records `acknowledged:
   none | boolean | bound`. `cached_steps` is the worker's answer to a
   `probe_cache` command (`Workflow.cache_hits`, which shares
-  `_prepare_definition` / `_cache_lookup` with `run` so the two cannot drift)
+  `_prepare_definition` / `_cache_lookup` with `run` so the two cannot drift).
+  The web UI reads the fields only: the editor lists the plan under a valid
+  verdict (`describePlan`, `ui/src/lib/plan.ts`), and a job queued `bound`
+  says so on the job page and in the jobs list; the UI itself sends no
+  acknowledgement
 - **A failed run still reports what it wrote** — the worker carries its partial
   manifest on the error and cancelled messages as well as on success, and the
   "Previous result not found" error names the steps that ran even after
