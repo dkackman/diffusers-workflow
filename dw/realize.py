@@ -48,6 +48,7 @@ def realize_workflow(
     prompt_dir=None,
     output_root=None,
     workflow_dir=None,
+    pin_outputs=True,
 ):
     """A copy of `definition` with every mutable input pinned.
 
@@ -64,6 +65,11 @@ def realize_workflow(
         output_root: The output directory `output:` names resolve against.
         workflow_dir: The root a sub-workflow path is confined to, as
             `Workflow` confines it; None for an unconfined CLI run.
+        pin_outputs: Whether an 'output:.../latest/...' reference is rewritten
+            to the run it resolves to. The run leaves this True; the planner
+            (dw/plan.py) passes False so a run finishing between a validate
+            call and the queue call does not change the fingerprint of
+            identical work.
 
     Returns:
         (realized, annotations) - the pinned copy, and
@@ -92,7 +98,9 @@ def realize_workflow(
         seed_variable = definition_seed.removeprefix(VARIABLE_PREFIX)
         if isinstance(variables, dict) and seed_variable in variables:
             variables[seed_variable] = seed
-    realized = _pin(realized, annotations, base_dir, prompt_dir, output_root)
+    realized = _pin(
+        realized, annotations, base_dir, prompt_dir, output_root, pin_outputs
+    )
     _record_sub_workflows(realized.get("steps"), annotations, base_dir, workflow_dir)
     return realized, annotations
 
@@ -129,13 +137,14 @@ def _map_strings(value, transform):
     return value
 
 
-def _pin(value, annotations, base_dir, prompt_dir, output_root):
-    """Rebuild a value with prompt and output references pinned."""
+def _pin(value, annotations, base_dir, prompt_dir, output_root, pin_outputs=True):
+    """Rebuild a value with prompt references inlined and, when
+    `pin_outputs`, output references pinned."""
 
     def transform(string):
         if string.startswith(PROMPT_PREFIX):
             return _inline_prompt(string, annotations, prompt_dir, base_dir)
-        if is_output_reference(string):
+        if pin_outputs and is_output_reference(string):
             return _pin_output(string, output_root)
         return string
 
@@ -208,21 +217,28 @@ def _record_sub_workflows(steps, annotations, base_dir, workflow_dir):
         scan(step)
 
 
-def _digest(path, base_dir, workflow_dir):
-    """The SHA-256 of a sub-workflow file, or None when it cannot be read.
+def read_sub_workflow(path, base_dir, workflow_dir):
+    """The bytes of the sub-workflow file a step's `path` names, or None
+    when it cannot be read.
 
     Resolved the way `Workflow.create_step_action` resolves it - beside the
     referencing file, then across the workflow search path, then through
     `validate_workflow_path` confined to the root it came from - so a path
-    this run could not have loaded is not one realization reads either, and
-    a catalog name the run composed is digested rather than recorded as
-    unreadable (#90).
+    this run could not have loaded is not one realization (or the planner)
+    reads either, and a catalog name the run composed is read rather than
+    recorded as unreadable (#90).
     """
     try:
         candidate, root = resolve_sub_workflow(path, base_dir or ".", workflow_dir)
         validated = validate_workflow_path(candidate, root)
         with open(validated, "rb") as file:
-            return hashlib.sha256(file.read()).hexdigest()
+            return file.read()
     except (SecurityError, OSError, ValueError, SubWorkflowNotFound) as e:
-        logger.debug(f"No digest for sub-workflow {path}: {e}")
+        logger.debug(f"Sub-workflow {path} could not be read: {e}")
         return None
+
+
+def _digest(path, base_dir, workflow_dir):
+    """The SHA-256 of a sub-workflow file, or None when it cannot be read."""
+    raw = read_sub_workflow(path, base_dir, workflow_dir)
+    return hashlib.sha256(raw).hexdigest() if raw is not None else None

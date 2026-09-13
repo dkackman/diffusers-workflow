@@ -242,3 +242,68 @@ class TestStringsWithPrefix:
             "asset:iris.png",
             "asset:mask.png",
         ]
+
+
+class TestUnpinnedOutputs:
+    def test_pin_outputs_false_leaves_latest_as_written(self, output_root):
+        root, _ = output_root
+        spec = definition()
+        spec["steps"][0]["pipeline"]["arguments"]["image"] = (
+            "output:ltx2/Gyre/latest/still.png"
+        )
+        realized, _ = realize_workflow(
+            spec, {}, 7, output_root=root, pin_outputs=False
+        )
+        assert (
+            realized["steps"][0]["pipeline"]["arguments"]["image"]
+            == "output:ltx2/Gyre/latest/still.png"
+        )
+
+    def test_pin_outputs_false_still_inlines_prompts(self, prompt_library):
+        spec = definition()
+        spec["variables"]["prompt"] = "prompt:scenic/dusk"
+        realized, annotations = realize_workflow(
+            spec, {}, 7, prompt_dir=prompt_library, pin_outputs=False
+        )
+        assert realized["variables"]["prompt"] == "a harbour at dusk"
+        assert annotations["prompts"] == ["scenic/dusk"]
+
+    def test_the_default_still_pins(self, output_root):
+        root, run_id = output_root
+        spec = definition()
+        spec["steps"][0]["pipeline"]["arguments"]["image"] = (
+            "output:ltx2/Gyre/latest/still.png"
+        )
+        realized, _ = realize_workflow(spec, {}, 7, output_root=root)
+        assert (
+            realized["steps"][0]["pipeline"]["arguments"]["image"]
+            == f"output:ltx2/Gyre/{run_id}/still.png"
+        )
+
+
+class TestReadSubWorkflow:
+    def test_reads_a_child_beside_the_parent(self, tmp_path):
+        from dw.realize import read_sub_workflow
+
+        child = {"id": "child", "steps": []}
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        raw = read_sub_workflow("child.json", str(tmp_path), str(tmp_path))
+        assert json.loads(raw) == child
+
+    def test_a_missing_child_reads_as_none(self, tmp_path):
+        from dw.realize import read_sub_workflow
+
+        assert read_sub_workflow("nope.json", str(tmp_path), str(tmp_path)) is None
+
+    def test_a_child_outside_the_confinement_reads_as_none(self, tmp_path):
+        from dw.realize import read_sub_workflow
+
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "child.json").write_text(json.dumps({"id": "c", "steps": []}))
+        confined = tmp_path / "confined"
+        confined.mkdir()
+        assert (
+            read_sub_workflow("../outside/child.json", str(confined), str(confined))
+            is None
+        )
