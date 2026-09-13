@@ -15,7 +15,12 @@
     sectionBySubfolder,
     unsavedSteps,
   } from '../results'
-  import { finishedNodes, flowNodeName } from '../runstate'
+  import {
+    activeMember,
+    finishedMembers,
+    finishedNodes,
+    flowNodeName,
+  } from '../runstate'
   import { stepProgress } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
   import CopyButton from '../CopyButton.svelte'
@@ -271,6 +276,12 @@
     unsavedSteps(job?.manifest, events as JobEvent[], definition),
   )
   const running = $derived(job !== null && !TERMINAL.includes(job.status))
+  // One grain finer than the group: which entries of a for_each step have
+  // finished and which is running, in the engine's own `group@entry` names
+  const finishedMemberSteps = $derived(finishedMembers(events as JobEvent[]))
+  const activeMemberStep = $derived(
+    running ? activeMember(events as JobEvent[]) : undefined,
+  )
   // A cancel requested while loading a model or running a task step has no
   // checkpoint to catch it until that phase finishes - without this the UI
   // goes silent for however long that takes, and looks hung rather than
@@ -434,6 +445,8 @@
         workflow={definition}
         activeStep={running ? activeNode : undefined}
         doneSteps={finishedSteps}
+        activeMember={activeMemberStep}
+        doneMembers={finishedMemberSteps}
       />
     </section>
   {/if}

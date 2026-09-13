@@ -152,8 +152,13 @@ export interface WorkflowDefinition {
 }
 
 /** A workflow plus where it came from - `getWorkflow` reads these off the
- * `X-Workflow-Origin` / `X-Workflow-Writable` response headers. */
-export interface WorkflowWithOrigin extends WorkflowDefinition {
+ * `X-Workflow-Origin` / `X-Workflow-Writable` response headers. Beside the
+ * definition rather than spread into it, as for a prompt: a workflow is
+ * validated and saved back exactly as it was read, and a stray root field
+ * fails the schema - the engine refuses unknown root keys rather than
+ * ignoring them. */
+export interface WorkflowWithOrigin {
+  definition: WorkflowDefinition
   /** 'workspace' | 'examples' | 'builtin'. */
   origin: string
   writable: boolean

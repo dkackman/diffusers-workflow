@@ -109,6 +109,14 @@ export interface FlowNode {
    * JSON says so directly (currently just a literal
    * `num_images_per_prompt`). Null means "unknown, assume 1". */
   producedCount: number | null
+  /** True when the step carries a `for_each` - list-driven, so a run
+   * expands it into one step per entry. */
+  forEach: boolean
+  /** The step's entry keys when its `for_each` list is readable from the
+   * definition (a literal, or a declared variable holding one) - the
+   * names the run's members carry after the `@`. Null when there is no
+   * for_each or the list cannot be read statically. */
+  members: string[] | null
 }
 
 export interface FlowEdge {
@@ -149,6 +157,37 @@ function producedCount(step: Record<string, any>): number | null {
   return typeof n === 'number' ? n : null
 }
 
+const FOR_EACH_KEY = 'for_each'
+const VARIABLE_PREFIX = 'variable:'
+
+/** A for_each step's entry keys, when the list can be read statically: a
+ * literal list written on the step, or a `variable:` naming a declared
+ * variable that holds one - which a realized workflow always does, since
+ * the run's actual list is folded into `variables` (dw/realize.py). The
+ * keys are what the engine appends to the step name: an entry's `name`,
+ * else its index (`_entry_keys`, dw/for_each.py). */
+function forEachMembers(
+  workflow: Record<string, any>,
+  step: Record<string, any>,
+): string[] | null {
+  const value = step[FOR_EACH_KEY]
+  let entries: unknown[] | null = null
+  if (Array.isArray(value)) {
+    entries = value
+  } else if (typeof value === 'string' && value.startsWith(VARIABLE_PREFIX)) {
+    const declared = workflow.variables?.[value.slice(VARIABLE_PREFIX.length)]
+    if (Array.isArray(declared)) entries = declared
+  }
+  if (!entries?.length) return null
+  return entries.map((entry, index) =>
+    entry !== null &&
+    typeof entry === 'object' &&
+    typeof (entry as Record<string, unknown>).name === 'string'
+      ? (entry as Record<string, string>).name
+      : String(index),
+  )
+}
+
 /** The read-only data-flow view's graph: one node per step, one edge per
  * `previous_result:<step>` reference (labeled with the attribute that
  * carries it), entry points flagged, and fan-in points - steps combining
@@ -166,6 +205,8 @@ export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
       detail,
       isEntryPoint: true,
       producedCount: producedCount(step),
+      forEach: FOR_EACH_KEY in step,
+      members: forEachMembers(workflow, step),
     }
   })
   const edges: FlowEdge[] = []
