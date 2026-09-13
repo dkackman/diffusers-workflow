@@ -6,6 +6,8 @@
     onselect = undefined,
     activeStep = undefined,
     doneSteps = [],
+    activeMember = undefined,
+    doneMembers = [],
   }: {
     workflow: Record<string, any>
     onselect?: (stepName: string) => void
@@ -14,11 +16,23 @@
     activeStep?: string
     /** Steps that run has already finished. */
     doneSteps?: string[]
+    /** The for_each member (`group@entry`) the run is on right now - a
+     * finer grain than activeStep, which names the group. */
+    activeMember?: string
+    /** The for_each members that run has already finished, engine names. */
+    doneMembers?: string[]
   } = $props()
 
   const showsRun = $derived(activeStep !== undefined || doneSteps.length > 0)
   const stateOf = $derived((name: string) =>
     name === activeStep ? 'active' : doneSteps.includes(name) ? 'done' : '',
+  )
+  const memberStateOf = $derived((full: string) =>
+    full === activeMember
+      ? 'active'
+      : doneMembers.includes(full)
+        ? 'done'
+        : '',
   )
 
   const graph = $derived(dataFlowGraph(workflow))
@@ -66,6 +80,24 @@
   const COL_W = 232
   const ROW_H = 92
   const PAD = 28
+  // Member chips: a list-driven step's box grows to hold one inset chip
+  // per entry, beneath the header the ordinary box's three lines occupy
+  const CHIP_H = 15
+  const CHIP_STEP = 19
+  const CHIP_CHARS = 26
+  const CHIP_TOP = BOX_H - 2
+  // The gap ROW_H left between fixed-height boxes, kept for the
+  // height-aware stacking below
+  const ROW_GAP = ROW_H - BOX_H
+
+  /** The box's height: the standard header, plus a chip row per entry for
+   * a list-driven step - or one empty slot when the step carries
+   * for_each but its list cannot be read from the definition. */
+  function heightOf(node: FlowNode): number {
+    const count = node.members?.length ?? 0
+    if (count) return CHIP_TOP + (count - 1) * CHIP_STEP + CHIP_H + 6
+    return node.forEach ? BOX_H + 26 : BOX_H
+  }
 
   const layout = $derived.by(() => {
     const { nodes, edges } = graph
@@ -97,25 +129,37 @@
       columns[l] = [...(columns[l] ?? []), n]
     }
 
+    // Boxes in a column stack by their own height now - a for_each box
+    // holding many chips must not overlap the node beneath it
     const positions: Record<string, { x: number; y: number }> = {}
+    const heightOfName: Record<string, number> = {}
+    const bottoms: number[] = []
     columns.forEach((col, c) => {
-      col.forEach((n, r) => {
-        positions[n.name] = { x: PAD + c * COL_W, y: PAD + r * ROW_H }
+      let y = PAD
+      col.forEach((n) => {
+        positions[n.name] = { x: PAD + c * COL_W, y }
+        heightOfName[n.name] = heightOf(n)
+        y += heightOf(n) + ROW_GAP
       })
+      bottoms.push(y - ROW_GAP)
     })
 
-    const maxRows = Math.max(1, ...columns.map((c) => c.length))
     const width = PAD * 2 + BOX_W + Math.max(0, columns.length - 1) * COL_W
-    const height = PAD * 2 + BOX_H + (maxRows - 1) * ROW_H
+    const height = Math.max(...bottoms, PAD * 2 + BOX_H)
+    // One clip box per distinct member-box height; the standard box keeps
+    // the shared clipPath below
+    const tallHeights = [
+      ...new Set(nodes.map((n) => heightOf(n)).filter((h) => h > BOX_H)),
+    ]
 
     const edgeLines = edges.map((e) => {
       const from = positions[e.from]
       const to = positions[e.to]
       if (!from || !to) return null
       const x1 = from.x + BOX_W
-      const y1 = from.y + BOX_H / 2
+      const y1 = from.y + (heightOfName[e.from] ?? BOX_H) / 2
       const x2 = to.x
-      const y2 = to.y + BOX_H / 2
+      const y2 = to.y + (heightOfName[e.to] ?? BOX_H) / 2
       // A gentle horizontal-first curve keeps lines readable when an
       // edge skips columns or two edges share a target row.
       const dx = Math.max(40, (x2 - x1) / 2)
@@ -123,7 +167,7 @@
       return { ...e, path, labelX: (x1 + x2) / 2, labelY: (y1 + y2) / 2 }
     })
 
-    return { positions, width, height, edgeLines }
+    return { positions, width, height, tallHeights, edgeLines }
   })
 
   function kindLabel(kind: string): string {
@@ -166,7 +210,8 @@
       <code>previous_result</code> references labeled with the argument they
       feed. A step with more than one incoming arrow multiplies its inputs
       together (CLAUDE.md's cartesian-product gotcha) - its border is
-      highlighted and the multiplier is noted.{#if showsRun}
+      highlighted and the multiplier is noted. A step carrying
+      <code>for_each</code> shows the entries it runs inset.{#if showsRun}
         A finished step is outlined in green, the one running now in amber
         colour.{/if}{#if onselect}
         Click a step to jump to it in the form view.{/if}
@@ -194,6 +239,11 @@
           <clipPath id="flow-nodebox">
             <rect width={BOX_W} height={BOX_H} rx="8" />
           </clipPath>
+          {#each layout.tallHeights as h (h)}
+            <clipPath id={`flow-nodebox-${h}`}>
+              <rect width={BOX_W} height={h} rx="8" />
+            </clipPath>
+          {/each}
         </defs>
 
         {#each layout.edgeLines ?? [] as edge, i (i)}
@@ -209,6 +259,7 @@
           {@const pos = layout.positions[node.name]}
           {#if pos}
             {@const fanIn = graph.fanIn.get(node.name)}
+            {@const boxH = heightOf(node)}
             <g
               class="node"
               class:entry={node.isEntryPoint}
@@ -217,14 +268,16 @@
               class:active={node.name === activeStep}
               class:done={stateOf(node.name) === 'done'}
               transform={`translate(${pos.x}, ${pos.y})`}
-              clip-path="url(#flow-nodebox)"
-              aria-label={`step ${node.name}, ${kindLabel(node.kind)}${stateOf(node.name) ? ', ' + stateOf(node.name) : ''}${node.isEntryPoint ? ', entry point' : ''}${fanIn ? ', fan-in: ' + fanIn.label : ''}`}
+              clip-path={boxH > BOX_H
+                ? `url(#flow-nodebox-${boxH})`
+                : 'url(#flow-nodebox)'}
+              aria-label={`step ${node.name}, ${kindLabel(node.kind)}${stateOf(node.name) ? ', ' + stateOf(node.name) : ''}${node.isEntryPoint ? ', entry point' : ''}${fanIn ? ', fan-in: ' + fanIn.label : ''}${node.forEach ? (node.members?.length ? `, for_each with ${node.members.length} entries` : ', for_each') : ''}`}
               {...nodeAttributes(node.name)}
             >
               {#if overflowTitle(node)}
                 <title>{overflowTitle(node)}</title>
               {/if}
-              <rect width={BOX_W} height={BOX_H} rx="8" class="box" />
+              <rect width={BOX_W} height={boxH} rx="8" class="box" />
               <text x="10" y="20" class="stepname"
                 >{fit(
                   node.name,
@@ -243,11 +296,45 @@
                   >entry</text
                 >
               {/if}
+              {#if node.members?.length}
+                <!-- The run's entries, in the order the engine expands them:
+                     each chip named as the workflow wrote it, the engine's
+                     own name for it on hover -->
+                {#each node.members as key, i (i)}
+                  {@const full = `${node.name}@${key}`}
+                  {@const state = memberStateOf(full)}
+                  <g
+                    class="member"
+                    class:done={state === 'done'}
+                    class:active={state === 'active'}
+                    aria-label={`member ${full}${state ? ', ' + state : ''}`}
+                  >
+                    <title>{full}</title>
+                    <rect
+                      x="10"
+                      y={CHIP_TOP + i * CHIP_STEP}
+                      width={BOX_W - 20}
+                      height={CHIP_H}
+                      rx="4"
+                      class="chip"
+                    />
+                    <text
+                      x="15"
+                      y={CHIP_TOP + i * CHIP_STEP + 11}
+                      class="chiplabel">{fit(key, CHIP_CHARS, 'head')}</text
+                    >
+                  </g>
+                {/each}
+              {:else if node.forEach}
+                <text x="11" y={CHIP_TOP + 12} class="membersunknown"
+                  >for_each</text
+                >
+              {/if}
             </g>
             {#if fanIn}
               <text
                 x={pos.x + BOX_W / 2}
-                y={pos.y + BOX_H + 14}
+                y={pos.y + boxH + 14}
                 class="fanlabel"
                 text-anchor="middle">× {fanIn.label}</text
               >
@@ -353,5 +440,37 @@
     font-size: 10px;
     fill: var(--warn);
     font-weight: 600;
+  }
+  /* The entries a for_each step runs, inset beneath its header. Machine
+     state on their edges, as on the nodes: done green, running the
+     safelight amber. */
+  .member .chip {
+    fill: var(--panel-2);
+    stroke: var(--line);
+    stroke-width: 1;
+  }
+  .member.done .chip {
+    stroke: var(--good);
+    stroke-width: 1.5;
+  }
+  .member.active .chip {
+    stroke: var(--live);
+    stroke-width: 1.5;
+    animation: dw-pulse 1.6s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .member.active .chip {
+      animation: none;
+    }
+  }
+  .chiplabel {
+    font-size: 9px;
+    fill: var(--ink);
+    font-family: var(--font-mono);
+  }
+  .membersunknown {
+    font-size: 9px;
+    fill: var(--muted);
+    font-family: var(--font-mono);
   }
 </style>

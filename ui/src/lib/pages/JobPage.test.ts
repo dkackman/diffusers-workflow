@@ -210,6 +210,47 @@ it('lights the for_each step in the flow chart while one of its members runs', a
   expect(nodeFor(container, 'episode').classList.contains('active')).toBe(true)
 })
 
+it('marks the entries a for_each step runs as chips inside its box', async () => {
+  // The realized workflow keeps for_each and holds the run's actual list
+  // in its variables, so the flow view can name the members
+  ran.definition = {
+    variables: { shots: [{ name: 'open' }, { name: 'reveal' }] },
+    steps: [
+      {
+        name: 'shot',
+        for_each: 'variable:shots',
+        pipeline: { configuration: { component_type: 'Fake' } },
+      },
+    ],
+  }
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({
+    seq: 1,
+    event: 'workflow_start',
+    steps: ['shot@open', 'shot@reveal'],
+  })
+  stream.onEvent!({ seq: 2, event: 'step_start', step: 'shot@open' })
+  const chip = (key: string) =>
+    [...nodeFor(container, 'shot').querySelectorAll('g.member')].find(
+      // the label is "member shot@open" plus ", done"/", active" when styled
+      (m) => m.getAttribute('aria-label')?.split(',')[0] === `member shot@${key}`,
+    )!
+  await waitFor(() =>
+    expect(chip('open').classList.contains('active')).toBe(true),
+  )
+
+  // One entry down, one to go: the finished chip greens while the group
+  // box itself stays amber
+  stream.onEvent!({ seq: 3, event: 'step_end', step: 'shot@open', files: [] })
+  await waitFor(() =>
+    expect(chip('open').classList.contains('done')).toBe(true),
+  )
+  expect(chip('reveal').classList.contains('done')).toBe(false)
+  expect(nodeFor(container, 'shot').classList.contains('active')).toBe(true)
+})
+
 it('keeps the Progress list on the composed step while its child runs', async () => {
   ran.definition = {
     steps: [

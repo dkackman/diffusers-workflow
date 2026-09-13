@@ -59,3 +59,33 @@ export function finishedNodes(
     .filter(([, names]) => names.every((name) => ended.has(name)))
     .map(([node]) => node)
 }
+
+/** The for_each members a run has finished, in the engine's own
+ * `group@entry` spelling - the names the flow view's member chips carry.
+ * Only top-level ends count: a sub-workflow's inner members, whose
+ * `step_end` carries the composed step as `parent_step`, belong to no
+ * chip this graph draws. */
+export function finishedMembers(events: JobEvent[]): string[] {
+  return events
+    .filter((event) => event.event === 'step_end' && !event.parent_step)
+    .map((event) => event.step as string)
+    .filter((step) => step.includes(MEMBER_SEPARATOR))
+}
+
+/** The for_each member the run is on right now, or undefined when the
+ * last step it started is not a member - or is a member that has already
+ * ended, since between one entry finishing and the next starting the run
+ * is on neither, and a chip still amber there would lie about progress. A
+ * sub-workflow's inner steps do not count, member-named or not, for the
+ * same reason as above. */
+export function activeMember(events: JobEvent[]): string | undefined {
+  const ended = new Set(finishedMembers(events))
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (event.event !== 'step_start' || event.parent_step) continue
+    const step = event.step as string
+    if (!step.includes(MEMBER_SEPARATOR) || ended.has(step)) return undefined
+    return step
+  }
+  return undefined
+}

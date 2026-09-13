@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { finishedNodes, flowNodeName } from './runstate'
+import {
+  activeMember,
+  finishedMembers,
+  finishedNodes,
+  flowNodeName,
+} from './runstate'
 import type { JobEvent } from './types'
 
 const ended = (step: string, parent_step?: string): JobEvent =>
@@ -50,5 +55,60 @@ describe('finishedNodes', () => {
 
   it('has nothing finished before the run has reported anything', () => {
     expect(finishedNodes([], members)).toEqual([])
+  })
+})
+
+describe('finishedMembers', () => {
+  it('lists the for_each members that have ended, engine names and all', () => {
+    const events = [ended('base@open'), ended('film'), ended('base@reveal')]
+    expect(finishedMembers(events)).toEqual(['base@open', 'base@reveal'])
+  })
+
+  it("leaves out a sub-workflow's inner members - their chips are not this graph's", () => {
+    expect(finishedMembers([ended('shot@reveal', 'cut')])).toEqual([])
+  })
+
+  it('has nothing for a run that has not ended anything', () => {
+    expect(finishedMembers([])).toEqual([])
+  })
+})
+
+describe('activeMember', () => {
+  it('is the member the run is on, engine name and all', () => {
+    const events: JobEvent[] = [
+      { seq: 0, event: 'step_start', step: 'base@open' },
+      { seq: 1, event: 'step_end', step: 'base@open' },
+      { seq: 2, event: 'step_start', step: 'base@reveal' },
+    ]
+    expect(activeMember(events)).toBe('base@reveal')
+  })
+
+  it('is nothing in the gap after a member ended, before the next one starts', () => {
+    const events: JobEvent[] = [
+      { seq: 0, event: 'step_start', step: 'base@open' },
+      { seq: 1, event: 'step_end', step: 'base@open' },
+    ]
+    expect(activeMember(events)).toBeUndefined()
+  })
+
+  it('is nothing once the run has moved on to a plain step', () => {
+    const events: JobEvent[] = [
+      { seq: 0, event: 'step_start', step: 'base@open' },
+      { seq: 1, event: 'step_end', step: 'base@open' },
+      { seq: 2, event: 'step_start', step: 'episode' },
+    ]
+    expect(activeMember(events)).toBeUndefined()
+  })
+
+  it("ignores a sub-workflow's inner steps, member-named or not", () => {
+    const events: JobEvent[] = [
+      { seq: 0, event: 'step_start', step: 'base@open', parent_step: 'cut' },
+ { seq: 1, event: 'step_start', step: 'inner', parent_step: 'shot1' },
+    ]
+    expect(activeMember(events)).toBeUndefined()
+  })
+
+  it('has nothing before the run has started anything', () => {
+    expect(activeMember([])).toBeUndefined()
   })
 })
