@@ -211,9 +211,9 @@
       fileOpen = false
       api
         .getWorkflow(name)
-        .then((definition) => {
-          workflow = definition as WorkflowDefinition
-          baseline = JSON.stringify(definition)
+        .then((fetched) => {
+          workflow = fetched.definition as WorkflowDefinition
+          baseline = JSON.stringify(fetched.definition)
           stepModes = storageGet(modesKey, {})
         })
         .catch((e) => notify.error(e.message))
