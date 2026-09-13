@@ -75,6 +75,7 @@ from .security import (
 )
 from .workflow_sources import (
     builtin_root,
+    catalog_root,
     resolve_sub_workflow,
     SubWorkflowNotFound,
 )
@@ -188,16 +189,10 @@ def catalog_root_dir(file_spec):
     workflow_dir of its own (an unconfined CLI run) - the same "last
     'workflows' segment" rule workflow_output_subfolder uses for output
     naming, but returning the directory itself rather than what sits under
-    it.
+    it. It is `catalog_root` asked for a file rather than a directory, so
+    the resolver (dw/workflow_sources.py) confines to exactly this root.
     """
-    directory = os.path.dirname(os.path.abspath(file_spec))
-    parts = os.path.normpath(directory).split(os.sep)
-    try:
-        index = len(parts) - 1 - parts[::-1].index("workflows")
-    except ValueError:
-        return directory
-
-    return os.sep.join(parts[: index + 1])
+    return catalog_root(os.path.dirname(os.path.abspath(file_spec)))
 
 
 def pipeline_cache_key(pipeline_definition):
