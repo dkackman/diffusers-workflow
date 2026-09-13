@@ -23,6 +23,7 @@
   } from '../runstate'
   import { stepProgress } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
+  import JsonEditor from '../editor/JsonEditor.svelte'
   import CopyButton from '../CopyButton.svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import { notify } from '../toast'
@@ -39,6 +40,13 @@
   // a workflow that pins its seed to a literal or names none at all -
   // neither can be handed a different one, so the button stays away.
   let seedVariable = $state<string | null>(null)
+  // Whether `definition` is the realized copy the run itself wrote (every
+  // mutable input pinned) or the definition as submitted - the run predates
+  // run tracking, or its run directory is gone. Named beside the JSON view.
+  let realized = $state(false)
+  // The JSON view of that definition - off until asked, since the flow graph
+  // already answers "what did this run do" for most readers
+  let showJson = $state(false)
   let events = $state<JobEvent[]>([])
   let error = $state('')
   // arrival clocks for pipeline_step events, for the ETA estimate
@@ -51,6 +59,8 @@
     events = []
     definition = null
     seedVariable = null
+    realized = false
+    showJson = false
     // Under the flat output layout two runs write the same file names, so
     // a map keyed by name would show the last job's recipe for this one
     fileMeta = {}
@@ -64,6 +74,7 @@
         if (stopped) return
         definition = result.definition
         seedVariable = result.seed_variable
+        realized = result.realized
       })
       .catch(() => {
         /* no definition on file - the graph just does not appear */
@@ -440,7 +451,27 @@
 
   {#if definition}
     <section class="flowsection">
-      <h2>Workflow</h2>
+      <div class="flowhead">
+        <h2>Workflow</h2>
+        <span
+          class="muted jsonmark"
+          title={realized
+            ? 'this is the realized copy the run itself wrote - every mutable input pinned to the value it used'
+            : 'this is the definition as submitted - no realized copy of this run is on file'}
+          >{realized ? 'realized' : 'as submitted'}</span
+        >
+        <span class="flex"></span>
+        <button
+          class="bare"
+          onclick={() => (showJson = !showJson)}
+          aria-expanded={showJson}
+          title={showJson
+            ? 'hide the workflow this job ran'
+            : 'show the workflow this job ran, as JSON'}
+        >
+          {showJson ? 'hide' : 'show'} JSON
+        </button>
+      </div>
       <FlowView
         workflow={definition}
         activeStep={running ? activeNode : undefined}
@@ -448,6 +479,15 @@
         activeMember={activeMemberStep}
         doneMembers={finishedMemberSteps}
       />
+      {#if showJson}
+        <div class="json">
+          <JsonEditor
+            value={JSON.stringify(definition, null, 2)}
+            readonly
+            height="520px"
+          />
+        </div>
+      {/if}
     </section>
   {/if}
 
@@ -618,8 +658,20 @@
   .flowsection {
     margin-bottom: 1rem;
   }
-  .flowsection h2 {
+  .flowhead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 1rem;
     margin-bottom: var(--space-2);
+  }
+  .flowhead h2 {
+    margin: 0;
+  }
+  /* Which copy the definition is - what the engine resolves, so mono */
+  .jsonmark {
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
   }
   .warnings {
     color: var(--warn);
