@@ -69,7 +69,11 @@ load entirely.
   and three views — form, split, and raw JSON — edit the same definition.
   The split view puts the form beside the JSON with both sides editable;
   changes apply when a side loses focus. Validate, save, and run from the
-  same screen. A Monaco editor with the workflow JSON schema backs the
+  same screen; a valid verdict is followed by the run's plan - the step
+  and list counts, the minutes from the workflow's `cost` block with its
+  basis, how many steps the step cache would serve, and the weights this
+  server would download first (`describePlan`, `ui/src/lib/plan.ts`,
+  reading `POST /api/validate`'s `plan`). A Monaco editor with the workflow JSON schema backs the
   JSON views. A fourth view, **flow**, renders the workflow's data-flow
   graph read-only: one box per step, arrows for each `previous_result`
   reference labeled with the argument it feeds, entry-point steps marked
@@ -142,7 +146,7 @@ from another machine:
 
 | Route | What it does |
 | --- | --- |
-| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. |
+| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan}}` with the current plan, so the caller re-quotes from it. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
 | `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. No parameters means every job, which is what the web UI polls |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is |
@@ -241,11 +245,18 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/tasks` — the task commands and processors
 - `GET /api/tasks/{command}` — a task's argument schema, read from its
   registered implementation's real signature
-- `GET /api/schema` — the workflow JSON schema
+- `GET /api/schema` — the workflow JSON schema. `?section=` answers one
+  part of it - `steps`, `pipelines`, `tasks`, `result`, `variables` or
+  `configuration` - as `{section, sections, elsewhere, schema}`, where
+  `elsewhere` names the section holding each definition the fragment still
+  `$ref`s; the no-argument call is the whole schema, unchanged
 - `GET /api/guides` — the documentation that bears on choosing a
   capability: each guide's name, what it covers, and its section headings
-- `GET /api/guides/{name}?section=` — one guide whole, or one section of
-  it; section names match loosely. Served by the engine so an MCP client
+- `GET /api/guides/{name}?section=` — one section of a guide; section names
+  match loosely. Without a `section` the answer is the guide's index - its
+  opening, its first section, and `sections`/`withheld` naming the rest -
+  rather than the whole file, which for WORKFLOW_GUIDE.md is ~19.6k tokens
+  in one call (#101). Served by the engine so an MCP client
   at another version reads the guides for the server it is driving, not
   its own. A checkout serves the repo's `docs/`; an install the copy
   `build_dist.sh` puts under `dw/docs/`
@@ -267,6 +278,33 @@ The editor's forms come from these; they are just as usable from scripts:
   fail on its first step; `checked_arguments` on a valid answer names what
   was covered, since without arguments the verdict is about the stored
   defaults only.
+
+  A valid answer also carries `plan`, what the run will execute for those
+  arguments: `fingerprint` (`sha256:…` over the realized, expanded
+  definition with the seed and the documentation keys removed and
+  `output:…/latest/…` left unpinned - the same work hashes the same, a
+  longer list or an edited stored prompt does not); `steps`, the expanded
+  member count; `list_entries`, `{variable: length}` for each `for_each`
+  over a list variable; `cached_steps`, how many of those steps the
+  worker's step cache would serve (`0` for an unseeded workflow, `null`
+  when the worker is busy or did not answer - a workflow with no `seed`
+  also gets a warning saying so, since `0` alone does not distinguish a
+  disabled cache from an empty one);
+  `downloads_required`, each `model_name` the hub cache does not hold as
+  `{repo, gb}` (`gb` from the hub, `null` when it could not be asked -
+  `?sizes=false` skips the hub) and each `from_single_file` URL as
+  `{repo: null, url, gb: null}`; and `estimate`, `{minutes, basis,
+  device, measured_on, partial}` from the workflow's own `cost` block -
+  `basis` is `catalog` (the stored total, for a run whose lists are the
+  ones it was measured with), `per_entry` (re-priced from a measured
+  per-entry rate, when the entry carries `per_entry`), `derived` (the
+  stored total extrapolated linearly over a list whose length the caller
+  changed - an estimate, not a measurement), `other_device` (no entry for
+  the serving backend; the first entry's figure, which is a warning rather
+  than a quote) or `unknown` (no cost block, or more than one list changed
+  so there is nothing honest to extrapolate along); a composed child's
+  cost is added and `partial` is true when a child has none. `plan` is `null` when
+  it could not be built; an invalid answer carries no `plan` key.
 
 ## Files and models
 

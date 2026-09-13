@@ -141,6 +141,8 @@ class WorkflowWorker:
                         self._handle_clear_memory()
                     elif command_type == "memory_status":
                         self._handle_memory_status()
+                    elif command_type == "probe_cache":
+                        self._handle_probe_cache(command)
                     else:
                         self.result_queue.put(
                             {
@@ -386,6 +388,42 @@ class WorkflowWorker:
         """Report current memory usage."""
         memory_info = self._get_memory_info()
         self.result_queue.put({"type": "memory_status", "info": memory_info})
+
+    def _handle_probe_cache(self, command: Dict[str, Any]):
+        """Which steps the step cache would serve for a run of this command
+        - the plan's cached_steps (#85). Same fields as an execute command;
+        loads the workflow, executes nothing. A failure answers
+        cached: null with the reason rather than an error message, since
+        an unknown answer is a valid plan and a crashed probe is not. The
+        command's probe_id is echoed so a reply that arrives after its
+        caller gave up is not read as the answer to the next probe.
+        """
+        probe_id = command.get("probe_id")
+        try:
+            workflow, _ = self._load_workflow(command, command["output_dir"])
+            asset_token = (
+                activate_asset_dir(command["asset_dir"])
+                if command.get("asset_dir")
+                else None
+            )
+            try:
+                cached = workflow.cache_hits(command.get("arguments") or {})
+            finally:
+                if asset_token is not None:
+                    deactivate_asset_dir(asset_token)
+            self.result_queue.put(
+                {"type": "probe_cache", "probe_id": probe_id, "cached": cached}
+            )
+        except Exception as e:
+            logger.debug(f"Cache probe failed: {e}")
+            self.result_queue.put(
+                {
+                    "type": "probe_cache",
+                    "probe_id": probe_id,
+                    "cached": None,
+                    "error": str(e),
+                }
+            )
 
     def _evict_untouched_pipelines(self, context):
         """Drop cached pipelines this run no longer touched.

@@ -23,7 +23,13 @@ def list_guides(client):
 
 
 def get_guide(client, name, section=None):
-    """One guide, whole or one section of it. A section name is matched
-    loosely on the server, so a heading copied approximately resolves."""
+    """One guide, or one section of it. A section name is matched loosely
+    on the server, so a heading copied approximately resolves.
+
+    Without a section the answer is the guide's index - its opening, its
+    first section, and `sections`/`withheld` naming the rest - not the
+    whole file: WORKFLOW_GUIDE.md whole is ~19.6k tokens, more in one call
+    than the entire tool surface costs to connect (#101). Name the section
+    you want."""
     params = {"section": section} if section is not None else None
     return client.get_json(api_path("api", "guides", name), params=params)

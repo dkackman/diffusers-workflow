@@ -316,6 +316,43 @@ class TestLoadAudioVideo:
 
         assert load_audio_video(path).fps == 24
 
+    def test_a_loaded_video_argument_carries_the_files_rate(self, tmp_path):
+        """The fps that reaches pair_audio: a `video` argument is loaded by
+        fetch_video, which used to hand on a bare frame list - so a 24 fps
+        file was written back at the 8 fps default, three times long, with
+        nothing said about it (#104)."""
+        from dw.arguments import fetch_video
+        from dw.tasks.video_utils import FrameList
+
+        path = self.write_video(tmp_path / "shot.mp4", fps=24, num_frames=24)
+
+        frames = fetch_video(path)
+
+        assert isinstance(frames, FrameList) and len(frames) == 24
+        assert frames.fps == 24
+
+    def test_a_file_that_states_no_rate_stays_a_plain_list(self, tmp_path):
+        """Not knowing the rate is a state, not an error - the frames are
+        already read by the time it is asked for."""
+        from dw.arguments import _with_frame_rate
+
+        assert _with_frame_rate(["a", "b"], str(tmp_path / "gone.mp4")) == ["a", "b"]
+
+    def test_the_rate_reaches_the_paired_video(self, tmp_path):
+        """End to end over the two functions #104 sits between."""
+        from dw.arguments import fetch_video
+        from dw.tasks.pair_audio import pair_audio
+
+        path = self.write_video(tmp_path / "shot.mp4", fps=24, num_frames=24)
+
+        paired = pair_audio(
+            video=fetch_video(path),
+            audio=numpy.zeros((2, 16000), dtype=numpy.float32),
+            sample_rate=16000,
+        )
+
+        assert paired.fps == 24
+
     def test_audio_is_fitted_to_the_frames_own_duration(self, tmp_path):
         """The codec pads the last block; joined shot after shot that padding
         would walk the sound off the picture."""

@@ -75,6 +75,7 @@ from .security import (
 )
 from .workflow_sources import (
     builtin_root,
+    catalog_root,
     resolve_sub_workflow,
     SubWorkflowNotFound,
 )
@@ -188,16 +189,10 @@ def catalog_root_dir(file_spec):
     workflow_dir of its own (an unconfined CLI run) - the same "last
     'workflows' segment" rule workflow_output_subfolder uses for output
     naming, but returning the directory itself rather than what sits under
-    it.
+    it. It is `catalog_root` asked for a file rather than a directory, so
+    the resolver (dw/workflow_sources.py) confines to exactly this root.
     """
-    directory = os.path.dirname(os.path.abspath(file_spec))
-    parts = os.path.normpath(directory).split(os.sep)
-    try:
-        index = len(parts) - 1 - parts[::-1].index("workflows")
-    except ValueError:
-        return directory
-
-    return os.sep.join(parts[: index + 1])
+    return catalog_root(os.path.dirname(os.path.abspath(file_spec)))
 
 
 def pipeline_cache_key(pipeline_definition):
@@ -647,6 +642,186 @@ class Workflow:
             raise Exception(message)
         logger.debug(f"Workflow {self.name} validated successfully")
 
+    def _prepare_definition(self, workflow_def, arguments, base_dir):
+        """The definition as a run works from it: constants realized,
+        arguments folded into the variables, list entries' own references
+        resolved, variable values realized (assets loaded), every
+        'variable:' substituted, every for_each expanded, and the seed read
+        and coerced. Returns (workflow_def, default_seed) - the seed is
+        None when the workflow names none, and the caller decides what
+        that means (run() draws one; cache_hits() reports no hits).
+
+        Shared by run() and cache_hits() so the probe prepares exactly what
+        the run prepares - the step cache keys on the realized step, and a
+        probe that prepared it differently would answer for a run that
+        never happens.
+        """
+        workflow_id = workflow_def["id"]
+        variables = workflow_def.get("variables", None)
+        if variables is not None:
+            logger.debug(f"Setting variables for workflow: {workflow_id}")
+            # a constant is the value a variable declares, so it resolves before
+            # anything is converted to the type of that declaration
+            realize_constants(variables)
+            # first set variable values base don the arguments passed to the workflow
+            # these may come form the command line or form a parent workflow
+            set_variables(arguments, variables)
+            # an entry of a list-valued variable may name another
+            # variable; resolve those before anything inside it is
+            # realized, so a reference type in an entry is a type name
+            variables = resolve_variable_values(variables)
+            # realize the variables, initializing downloads of images etc
+            realize_args(variables, base_dir)
+            ## then replace any variable references in the workflow definition with the actual values
+            # replace_variables returns a new structure rather than mutating in
+            # place, so the result must be captured here
+            workflow_def = replace_variables(workflow_def, variables)
+
+        # One ordinary step per entry of every for_each list, before the
+        # seed, the run id and the realized workflow are computed, so
+        # each covers what actually runs. A ForEachError here fails the
+        # run before anything loads
+        workflow_def = expand_for_each(workflow_def)
+
+        # Set up random seed for reproducibility. Resolved lazily - as a
+        # dict.get default, torch.seed() would run on every call and reseed
+        # the global RNG even when the workflow names an explicit seed
+        default_seed = workflow_def.get("seed")
+        # The schema lets 'seed' be a string so it can hold a 'variable:'
+        # reference, which the substitution above has already resolved -
+        # but a variable overridden from the command line arrives as a
+        # string whenever the workflow declared no integer default to
+        # coerce against, and manual_seed would fail deep inside the run
+        if isinstance(default_seed, str):
+            try:
+                default_seed = int(default_seed)
+            except ValueError:
+                raise ValueError(
+                    f"Workflow {workflow_id} seed must be an integer, "
+                    f"got {default_seed!r}"
+                )
+            workflow_def["seed"] = default_seed
+        return workflow_def, default_seed
+
+    def _cache_lookup(
+        self,
+        workflow_id,
+        steps,
+        index,
+        step_data,
+        step_seed,
+        hits_this_run,
+        cache_enabled,
+    ):
+        """Whether the step cache serves step `index`, as (cached_result or
+        None, the step_data snapshot the entry is keyed on or None, whether
+        a later step still reads this one's result, the names later steps
+        still reference). Shared by run() and cache_hits() - see
+        _prepare_definition for why.
+        """
+        # What later steps still read, which decides both whether this
+        # step's result has to be kept alive after the step (release_unreferenced_results
+        # at the bottom of the run loop) and whether a cached entry that
+        # kept none can serve this run
+        remaining_refs = referenced_result_names(steps[index + 1 :])
+        result_needed = index == len(steps) - 1 or any(
+            reference_resolves_to(ref, step_data["name"]) for ref in remaining_refs
+        )
+        # create_step_action (and the pipeline load it triggers) mutates
+        # step_data in place - injecting a "generator" key - so the cache
+        # must key off a snapshot taken before that happens, and that same
+        # snapshot must be reused for the put() later. Caching off the live,
+        # later-mutated step_data would make every step's dict keys diverge
+        # from a freshly deep-copied future run's step_data, so get() would
+        # never match again after the first run.
+        # A sub-workflow step is never cacheable: its files roll up from the
+        # child's own manifest, which a hit does not rebuild.
+        is_cacheable = "workflow" not in step_data and cache_enabled
+        # The last step of a composed child whose parent does the saving
+        # (#92) - its files are the parent step's, written once, under the
+        # parent's name and subfolder
+        parent_saves_this = self._final_save_owned_by_parent and index == len(steps) - 1
+        step_data_snapshot = None
+        if is_cacheable:
+            try:
+                step_data_snapshot = copy.deepcopy(step_data)
+                if parent_saves_this:
+                    # Keyed apart from the same step run standalone: this
+                    # entry's result was never saved here, so a standalone
+                    # hit on it would report no files
+                    step_data_snapshot["__saved_by_parent__"] = True
+            except Exception as ex:
+                # A realized argument that cannot be deep-copied (an open
+                # handle, a live model object) just means this step is not
+                # cacheable - never a failed run
+                logger.debug(
+                    f"Step '{step_data['name']}' arguments are not copyable "
+                    f"({ex}) - skipping the step cache for it"
+                )
+                is_cacheable = False
+        if not is_cacheable:
+            return None, None, result_needed, remaining_refs
+        cached_result = step_cache.get(
+            workflow_id,
+            step_data_snapshot,
+            step_seed,
+            hits_this_run,
+            # The root, not this run's directory: a hit reports the earlier
+            # run's files and writes nothing new, so keying on a directory
+            # that is new every run would mean the cache could never hit
+            # again. What the root still guards is a run redirected
+            # somewhere else, where the earlier files are not what the
+            # caller asked for
+            self.output_dir,
+            needs_result=result_needed,
+        )
+        return cached_result, step_data_snapshot, result_needed, remaining_refs
+
+    def cache_hits(self, arguments):
+        """The steps the step cache would serve for a run with `arguments`,
+        in step order - what the plan reports as cached_steps (#85).
+
+        Prepares the definition exactly as run() does and asks the cache the
+        question run() asks, step by step with the hits so far, and executes
+        nothing: no run directory, no events, no pipeline. An unseeded
+        workflow has no cache, so it answers [] without asking.
+        """
+        output_root_token = activate_output_root(self.output_dir)
+        try:
+            workflow_def = copy.deepcopy(self.workflow_definition)
+            workflow_id = workflow_def["id"]
+            base_dir = (
+                os.path.dirname(os.path.abspath(self.file_spec))
+                if self.file_spec
+                else None
+            )
+            workflow_def, default_seed = self._prepare_definition(
+                workflow_def, arguments or {}, base_dir
+            )
+            if default_seed is None or not self._cache_enabled_by_parent:
+                return []
+            steps = workflow_def.get("steps", [])
+            realize_args(steps, base_dir)
+            hits_this_run = set()
+            hits = []
+            for index, step_data in enumerate(steps):
+                step_seed = step_data.get("seed", default_seed)
+                cached_result, _, _, _ = self._cache_lookup(
+                    workflow_id,
+                    steps,
+                    index,
+                    step_data,
+                    step_seed,
+                    hits_this_run,
+                    True,
+                )
+                if cached_result is not None:
+                    hits_this_run.add(step_data["name"])
+                    hits.append(step_data["name"])
+            return hits
+        finally:
+            deactivate_output_root(output_root_token)
+
     def run(
         self, arguments, previous_pipelines=None, context=None, prior_step_keys=None
     ):
@@ -706,51 +881,9 @@ class Workflow:
                 else None
             )
 
-            # Handle variable substitution if variables are defined
-            variables = workflow_def.get("variables", None)
-            if variables is not None:
-                logger.debug(f"Setting variables for workflow: {workflow_id}")
-                # a constant is the value a variable declares, so it resolves before
-                # anything is converted to the type of that declaration
-                realize_constants(variables)
-                # first set variable values base don the arguments passed to the workflow
-                # these may come form the command line or form a parent workflow
-                set_variables(arguments, variables)
-                # an entry of a list-valued variable may name another
-                # variable; resolve those before anything inside it is
-                # realized, so a reference type in an entry is a type name
-                variables = resolve_variable_values(variables)
-                # realize the variables, initialiting downloads of images etc
-                realize_args(variables, base_dir)
-                ## then replace any variable references in the workflow definition with the actual values
-                # replace_variables returns a new structure rather than mutating in
-                # place, so the result must be captured here
-                workflow_def = replace_variables(workflow_def, variables)
-
-            # One ordinary step per entry of every for_each list, before the
-            # seed, the run id and the realized workflow are computed, so
-            # each covers what actually runs. A ForEachError here fails the
-            # run before anything loads
-            workflow_def = expand_for_each(workflow_def)
-
-            # Set up random seed for reproducibility. Resolved lazily - as a
-            # dict.get default, torch.seed() would run on every call and reseed
-            # the global RNG even when the workflow names an explicit seed
-            default_seed = workflow_def.get("seed")
-            # The schema lets 'seed' be a string so it can hold a 'variable:'
-            # reference, which the substitution above has already resolved -
-            # but a variable overridden from the command line arrives as a
-            # string whenever the workflow declared no integer default to
-            # coerce against, and manual_seed would fail deep inside the run
-            if isinstance(default_seed, str):
-                try:
-                    default_seed = int(default_seed)
-                except ValueError:
-                    raise ValueError(
-                        f"Workflow {workflow_id} seed must be an integer, "
-                        f"got {default_seed!r}"
-                    )
-                workflow_def["seed"] = default_seed
+            workflow_def, default_seed = self._prepare_definition(
+                workflow_def, arguments, base_dir
+            )
             # A workflow that names no seed gets a fresh one every run, so no
             # step's cache entry can ever match again - skip the cache
             # wholesale rather than deep-copying every step's realized images
@@ -884,69 +1017,22 @@ class Workflow:
 
                 step = Step(step_data, step_seed, self.workflow_definition)
 
-                # What later steps still read, which decides both whether
-                # this step's result has to be kept alive after the step
-                # (below, and release_unreferenced_results at the bottom of
-                # the loop) and whether a cached entry that kept none can
-                # serve this run
-                remaining_refs = referenced_result_names(steps[i + 1 :])
-                result_needed = i == len(steps) - 1 or any(
-                    reference_resolves_to(ref, step_data["name"])
-                    for ref in remaining_refs
-                )
-
-                # create_step_action (and the pipeline load it triggers)
-                # mutates step_data in place - injecting a "generator" key -
-                # so the cache must key off a snapshot taken before that
-                # happens, and that same snapshot must be reused for the
-                # put() below. Caching off the live, later-mutated step_data
-                # would make every step's dict keys diverge from a freshly
-                # deep-copied future run's step_data, so get() would never
-                # match again after the first run.
-                # A sub-workflow step is never cacheable: its files roll up
-                # from the child's own manifest, which a hit does not rebuild.
-                is_cacheable = "workflow" not in step_data and cache_enabled_this_run
-                # The last step of a composed child whose parent does the
-                # saving (#92) - its files are the parent step's, written
-                # once, under the parent's name and subfolder
-                parent_saves_this = (
-                    self._final_save_owned_by_parent and i == len(steps) - 1
-                )
-                step_data_snapshot = None
-                if is_cacheable:
-                    try:
-                        step_data_snapshot = copy.deepcopy(step_data)
-                        if parent_saves_this:
-                            # Keyed apart from the same step run standalone:
-                            # this entry's result was never saved here, so a
-                            # standalone hit on it would report no files
-                            step_data_snapshot["__saved_by_parent__"] = True
-                    except Exception as ex:
-                        # A realized argument that cannot be deep-copied (an
-                        # open handle, a live model object) just means this
-                        # step is not cacheable - never a failed run
-                        logger.debug(
-                            f"Step '{step.name}' arguments are not copyable "
-                            f"({ex}) - skipping the step cache for it"
-                        )
-                        is_cacheable = False
-                cached_result = (
-                    step_cache.get(
+                cached_result, step_data_snapshot, result_needed, remaining_refs = (
+                    self._cache_lookup(
                         workflow_id,
-                        step_data_snapshot,
+                        steps,
+                        i,
+                        step_data,
                         step_seed,
                         hits_this_run,
-                        # The root, not this run's directory: a hit reports
-                        # the earlier run's files and writes nothing new, so
-                        # keying on a directory that is new every run would
-                        # mean the cache could never hit again. What the root
-                        # still guards is a run redirected somewhere else,
-                        # where the earlier files are not what the caller asked for
-                        self.output_dir,
-                        needs_result=result_needed,
+                        cache_enabled_this_run,
                     )
-                    if is_cacheable
-                    else None
+                )
+                is_cacheable = step_data_snapshot is not None
+                # The last step of a composed child whose parent does the
+                # saving (#92) - its files are written once, by the parent
+                parent_saves_this = (
+                    self._final_save_owned_by_parent and i == len(steps) - 1
                 )
 
                 # A hit skips the step's work, never its bookkeeping:
@@ -1374,7 +1460,7 @@ class Workflow:
                 # An unconfined run (no workflow_dir - a bare CLI
                 # invocation) used to rely on the '..' regex alone to stop a
                 # relative reference from leaving the file's own directory;
-                # normalising the path removes that guard, so confine it to
+                # normalizing the path removes that guard, so confine it to
                 # the catalog root instead - the referencing file's nearest
                 # ancestor literally named 'workflows', which still lets it
                 # climb to a sibling folder like models/ but not out of the
@@ -1398,7 +1484,7 @@ class Workflow:
                 logger.error(f"Security validation failed for sub-workflow {path}: {e}")
                 raise
 
-            # this is where the arguments in the paretn script are passed to the child workflow
+            # this is where the arguments in the parent script are passed to the child workflow
             # they will already be populated with values from previous steps or parent variables
             workflow.workflow_definition["argument_template"] = workflow_reference.get(
                 "arguments", {}

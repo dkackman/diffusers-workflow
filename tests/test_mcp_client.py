@@ -423,3 +423,48 @@ def test_no_token_means_no_authorization_header(monkeypatch):
 
     client_with(handler).get_json("/api/health")
     assert seen["auth"] is None
+
+
+def _cost_gate_message(minutes):
+    """The 409 the cost gate raises, formatted the way an MCP caller reads it."""
+
+    def handler(request):
+        return httpx.Response(
+            409,
+            json={
+                "detail": {
+                    "message": "The plan changed since it was acknowledged.",
+                    "plan": {
+                        "fingerprint": "sha256:abc",
+                        "estimate": {"minutes": minutes, "basis": "none"},
+                        "downloads_required": [{"repo": "org/model"}],
+                    },
+                }
+            },
+        )
+
+    with pytest.raises(DwApiError) as caught:
+        client_with(handler).get_json("/api/jobs")
+    return str(caught.value)
+
+
+def test_reacknowledge_object_is_json_not_a_python_repr():
+    # An inline workflow has no measured estimate, so this is the common 409,
+    # and the sentence invites the reader to resend what it prints (#107)
+    import json
+
+    message = _cost_gate_message(None)
+    payload = message.split("Re-acknowledge with ", 1)[1].rstrip(".")
+    assert json.loads(payload) == {
+        "fingerprint": "sha256:abc",
+        "minutes": None,
+        "downloads": ["org/model"],
+    }
+    assert "None" not in payload
+
+
+def test_reacknowledge_object_carries_a_measured_estimate():
+    import json
+
+    payload = _cost_gate_message(12.5).split("Re-acknowledge with ", 1)[1].rstrip(".")
+    assert json.loads(payload)["minutes"] == 12.5

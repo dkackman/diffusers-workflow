@@ -1111,7 +1111,7 @@
                     "default": true
                 },
                 "file_base_name": {
-                    "description": "The base name for saving result and metadata files. A name, not a path - it may not contain a separator; to place a step's files in a subfolder of the run directory set 'subfolder'. The file extension is determined by context and content_type.",
+                    "description": "The base name for saving result and metadata files. It replaces the name the engine would derive from the workflow and step - it is not a prefix on one - so a caller that sets it can predict the file name. That derived name is what makes two steps' files distinct, so give each step that sets one a different value, or the second collides and gets a '-2' counter. A name, not a path - it may not contain a separator; to place a step's files in a subfolder of the run directory set 'subfolder'. The file extension is determined by context and content_type.",
                     "type": "string"
                 },
                 "subfolder": {

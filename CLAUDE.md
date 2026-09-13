@@ -282,7 +282,23 @@ same reason - default setup cannot load a pack.
   the workspace) so the free pre-flight covers the part the caller wrote.
   A workflow that declares no variables takes no arguments at all - those were
   dropped in silence, since `Workflow.run` only substitutes when a `variables`
-  block exists
+  block exists. A valid `POST /api/validate` answer also carries `plan`
+  (`dw/plan.py`): the fingerprint of the work, step and list counts,
+  `downloads_required` and a cost `estimate` with its `basis` - the number an
+  agent quotes, with `basis` saying whether it was measured for this list
+  (`catalog`/`per_entry`) or extrapolated over one the caller resized
+  (`derived`); `plan: null` when it could not be built, never a changed
+  verdict. `acknowledged_cost` on `POST /api/jobs` / `rerun` takes `true`
+  (recorded) or the plan's `{fingerprint, minutes, downloads}` (checked - 409
+  with the current plan when the fingerprint or the required downloads
+  changed; `minutes` never compared), and the job records `acknowledged:
+  none | boolean | bound`. `cached_steps` is the worker's answer to a
+  `probe_cache` command (`Workflow.cache_hits`, which shares
+  `_prepare_definition` / `_cache_lookup` with `run` so the two cannot drift).
+  The web UI reads the fields only: the editor lists the plan under a valid
+  verdict (`describePlan`, `ui/src/lib/plan.ts`), and a job queued `bound`
+  says so on the job page and in the jobs list; the UI itself sends no
+  acknowledgement
 - **A failed run still reports what it wrote** — the worker carries its partial
   manifest on the error and cancelled messages as well as on success, and the
   "Previous result not found" error names the steps that ran even after
@@ -319,8 +335,10 @@ same reason - default setup cannot load a pack.
   job page sections results under `final/` / `intermediate/` headings (or
   whatever the step named) (`sectionBySubfolder`, `ui/src/lib/results.ts`),
   unchanged for a run that chose none. `file_base_name` may not contain a
-  separator -
-  it is a name, not a path.
+  separator - it is a name, not a path - and it *replaces* the derived
+  `<workflow id>-<step name>.<index>` base rather than prefixing it (#100), so
+  two steps in one subfolder that set the same one collide onto
+  `output_file_path`'s `-2` counter.
   Every `workflows/templates/**` file with two or more saving steps
   marks each one `final`/`intermediate` (`tests/test_template_subfolders.py` pins the rule;
   `dw/workflows/` builtins stay unmarked - a role is the parent's to assign). That moved

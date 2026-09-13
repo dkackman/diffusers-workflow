@@ -6,6 +6,7 @@ import os
 
 import pytest
 
+from dw.security import SecurityError
 from dw.workflow_sources import (
     BUILTIN_ORIGIN,
     EXAMPLES_ORIGIN,
@@ -14,6 +15,7 @@ from dw.workflow_sources import (
     find_workflow,
     listing,
     resolve_in_source,
+    resolve_sub_workflow,
     source_for_path,
     workflow_names,
     workflow_sources,
@@ -107,6 +109,57 @@ class TestResolution:
             sources, str(examples / "ltx2" / "Gyre.json")
         ).origin == (EXAMPLES_ORIGIN)
         assert source_for_path(sources, str(tmp_path / "elsewhere.json")) is None
+
+
+class TestSubWorkflowResolution:
+    """A composed step's relative path is confined to the root it is handed
+    back with, so a name that climbs out of the catalog is never resolved -
+    and never stat'ed, which the dw/path-injection query flagged here. The
+    '../models/x.json' form a template uses to reach a sibling catalog folder
+    still resolves."""
+
+    @pytest.fixture
+    def catalog(self, tmp_path):
+        """workflows/templates/ beside workflows/models/, and a decoy outside
+        the catalog that a climbing name reaches."""
+        root = tmp_path / "workflows"
+        (root / "templates").mkdir(parents=True)
+        (root / "models").mkdir()
+        (root / "models" / "Child.json").write_text(json.dumps({"id": "child"}))
+        outside = tmp_path / "Outside.json"
+        outside.write_text(json.dumps({"id": "outside"}))
+        return root, outside
+
+    def test_a_climb_inside_the_confinement_resolves(self, catalog):
+        root, _outside = catalog
+        candidate, confine_to = resolve_sub_workflow(
+            "../models/Child.json", str(root / "templates"), str(root)
+        )
+        assert os.path.basename(candidate) == "Child.json"
+        assert confine_to == str(root)
+
+    def test_a_climb_out_of_the_confinement_is_refused_not_resolved(self, catalog):
+        root, outside = catalog
+        assert os.path.isfile(outside), "the decoy has to exist to be reachable"
+        with pytest.raises(SecurityError):
+            resolve_sub_workflow(
+                "../../Outside.json", str(root / "templates"), str(root)
+            )
+
+    def test_an_unconfined_caller_still_confines_to_the_catalog(self, catalog):
+        """No confine_to (a bare CLI run) confines to the catalog root the
+        run itself would use - the nearest ancestor named 'workflows' - so
+        the climb out is refused rather than stat'ed."""
+        root, _outside = catalog
+        with pytest.raises(SecurityError):
+            resolve_sub_workflow("../../Outside.json", str(root / "templates"), None)
+
+    def test_an_unconfined_caller_may_climb_to_a_sibling_catalog_folder(self, catalog):
+        root, _outside = catalog
+        candidate, _confine_to = resolve_sub_workflow(
+            "../models/Child.json", str(root / "templates"), None
+        )
+        assert os.path.basename(candidate) == "Child.json"
 
 
 class TestNames:

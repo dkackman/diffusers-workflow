@@ -203,14 +203,20 @@ def build_server(client):
         is named `shots[0].prompt`."""
         return catalog.get_workflow(client, name, variables_only=variables_only)
 
-    def get_schema() -> dict:
+    def get_schema(section: str | None = None) -> dict:
         """Get the JSON schema every workflow definition must satisfy - the
         authority on a workflow's structure: steps, pipelines, tasks,
         results, variables. Read it before authoring one from scratch, and
         note that schema validation runs before variable substitution, so a
         variable's default has to be the type its use expects (25, not
-        "25")."""
-        return catalog.get_schema(client)
+        "25").
+
+        Ask for the part you need: `section` takes `steps`, `pipelines`,
+        `tasks`, `result`, `variables` or `configuration` and answers that
+        fragment - a tenth the size - with `elsewhere` naming the section
+        that holds each definition it still references. The whole schema is
+        the no-argument call."""
+        return catalog.get_schema(client, section=section)
 
     def list_pipelines() -> dict:
         """List every diffusers pipeline class this installation provides.
@@ -274,12 +280,10 @@ def build_server(client):
         absent, rather than null, on a platform that cannot measure it.
 
         `host_pinned_reserved_mb` / `host_pinned_allocated_mb`, when
-        present, are torch's pinned-host cache - the staging buffers group
-        offloading moves weights through. They are part of
-        `host_memory_rss_mb` and invisible in every `gpu_*` figure, so a
-        worker that has released every model and still holds GB is usually
-        holding them (#98); they are returned when the worker switches to a
-        different workflow.
+        present, are torch's pinned-host cache and are part of
+        `host_memory_rss_mb` - see the `acceleration` guide, section
+        "Reading Memory While Offloading", for what that means for a worker
+        that has released every model and still holds gigabytes.
 
         `live: true` means `info` was measured now and is the worker's own
         memory - only these readings are comparable with each other.
@@ -326,7 +330,8 @@ def build_server(client):
         them - queued, running, succeeded, failed, cancelled. `workspace`
         lists one workspace's jobs; without it, a named workspace lists its
         own and the default workspace lists every job the server holds,
-        whichever workspace ran it."""
+        whichever workspace ran it. Each job carries `acknowledged` - `none`,
+        `boolean` or `bound` - which form of cost acknowledgement queued it."""
         return catalog.list_jobs(
             client, limit=limit, status=status, workspace=workspace
         )
@@ -394,11 +399,13 @@ def build_server(client):
         return guides.list_guides(client)
 
     def get_guide(name: str, section: str | None = None) -> dict:
-        """Get one guide from `list_guides`, whole or one section of it.
-        Prefer a section - a guide runs to thousands of lines, and the
-        headings in the listing are there so the right part can be asked
-        for by name. A section name is matched loosely, so a heading
-        copied approximately still resolves."""
+        """Get one guide from `list_guides`, or one section of it. Name the
+        section - a guide runs to thousands of lines, and the headings in
+        the listing are there so the right part can be asked for by name. A
+        section name is matched loosely, so a heading copied approximately
+        still resolves. Called without one, the answer is the guide's index
+        (its opening and first section, with `sections` and `withheld`
+        naming the rest), not the whole file."""
         return guides.get_guide(client, name, section=section)
 
     for fn in (
@@ -678,7 +685,20 @@ def build_server(client):
         workflow it names is validated in turn under that path, a
         composition cycle is refused, and an argument passed down that the
         composed workflow declares no variable for comes back as a
-        warning."""
+        warning.
+
+        A valid answer carries `plan`: what will execute for these
+        arguments. Quote `plan.estimate.minutes` with its `basis` -
+        `per_entry` is a measured per-entry rate re-priced for your list,
+        `catalog` a measured total for a run whose lists are the ones it
+        was measured with, `derived` that total extrapolated over a list
+        you changed the length of (an estimate - say so), `other_device` a
+        figure from another accelerator (say so), `unknown` no figure at
+        all - and name each `downloads_required`
+        entry as its own line item ("and 41 GB of weights this box does not
+        have"); `gb` is null when the hub could not be asked. `steps` and
+        `list_entries` say how many members the list actually produced.
+        `plan` is null when it could not be built; the verdict stands."""
         return authoring.validate_workflow(
             client,
             workflow=workflow,
@@ -785,7 +805,7 @@ def build_server(client):
         workflow_path: str | None = None,
         inline_workflow: dict | None = None,
         arguments: dict | None = None,
-        acknowledged_cost: bool = False,
+        acknowledged_cost: bool | dict = False,
         workspace: str | None = None,
     ) -> dict:
         """Queue a workflow for generation. THIS COSTS GPU TIME: a run
@@ -801,7 +821,14 @@ def build_server(client):
         workflow serves many requests without being edited or copied.
         `workspace` names the workspace for this one call without switching
         the session to it - use it to pin a job whose `output:` or `asset:`
-        references live in a workspace other than the session's."""
+        references live in a workspace other than the session's.
+
+        Bind the acknowledgement to what you quoted: pass
+        {"fingerprint": plan.fingerprint, "minutes": plan.estimate.minutes,
+        "downloads": [...the non-null repos in plan.downloads_required]} from the
+        validate answer, and the server refuses with 409 - naming the new
+        plan - if the run's shape changed since; bare true is for a plan
+        that was null."""
         return diagnose.run_workflow(
             client,
             workflow_path=workflow_path,
@@ -820,7 +847,10 @@ def build_server(client):
         the scratch work, and '' a step that said nothing. A step served
         from the step cache is marked `reused` and reports the earlier run's
         files. When a job failed, the error and traceback here are what to
-        read before changing anything."""
+        read before changing anything. `acknowledged` says which form of
+        cost acknowledgement queued the job (`none`, `boolean`, `bound`) and
+        `acknowledged_cost` is the bound `{fingerprint, minutes, downloads}`
+        when there was one."""
         return diagnose.get_job(client, job_id)
 
     def get_job_workflow(job_id: str) -> dict:
@@ -868,17 +898,12 @@ def build_server(client):
         starts - which is how a slow run and a stuck one tell apart between
         two otherwise identical polls. A null `denoise_step` under
         `generating` is the pipeline's lead-in - encoding the prompt and
-        every reference - which emits nothing, and its length depends on
-        what it has to encode: on MiniMax H3 ~90 s for a prompt with an
-        image or audio reference, but ~10 min once a *video* reference is
-        among them (measured 629 s for one 5 s 960x544 clip on an RTX
-        3090). Wait it out rather than reading the silence as a hang.
-        Gaps between denoise steps are uneven too where a transformer
-        block cache is configured - most steps cheap, every few steps a
-        full one - so on H3 `seconds_since_event` of ~140 s with a number
-        in `denoise_step` is still healthy. The signal is whether
-        `denoise_step` has moved since a poll minutes ago, not silence
-        past a fixed threshold."""
+        every reference - which emits nothing and can run for many minutes
+        when a video reference is among them; gaps between denoise steps
+        are uneven too where a transformer block cache is configured. Both
+        are normal, and the model family's own skill carries the measured
+        figures. The signal is whether `denoise_step` has moved since a
+        poll minutes ago, not silence past a fixed threshold."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states
@@ -895,7 +920,7 @@ def build_server(client):
         return diagnose.cancel_job(client, job_id)
 
     def rerun_job(
-        job_id: str, acknowledged_cost: bool = False, new_seed: bool = False
+        job_id: str, acknowledged_cost: bool | dict = False, new_seed: bool = False
     ) -> dict:
         """Queue a fresh job from a previous job's stored specification. THIS
         COSTS GPU TIME: a rerun is a run - it occupies the machine for
@@ -905,7 +930,11 @@ def build_server(client):
         Pass new_seed=true for a different image: a workflow that pins its
         seed reruns to the same pixels, and the step cache serves that whole
         run from the earlier one's files (marked `reused`) in a fraction of a
-        second rather than generating anything."""
+        second rather than generating anything.
+
+        `acknowledged_cost` takes the same bound form as run_workflow; a
+        fresh seed never changes the fingerprint, so the original plan still
+        binds a new_seed rerun."""
         return diagnose.rerun_job(
             client,
             job_id,

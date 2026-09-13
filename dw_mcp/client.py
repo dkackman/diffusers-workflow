@@ -1,6 +1,7 @@
 """HTTP access to a running dw.serve, and the single place an API failure
 becomes a message a non-developer can act on."""
 
+import json
 import os
 import tempfile
 from urllib.parse import quote
@@ -343,6 +344,50 @@ class DwClient:
             entries = detail.get("entries")
             if isinstance(entries, list) and entries:
                 formatted += f" Also holds: {', '.join(str(e) for e in entries)}."
+            plan = detail.get("plan")
+            if isinstance(plan, dict):
+                # A 409 from the cost gate: say what the run costs now, so a
+                # client that only sees the message can re-quote from it
+                estimate = plan.get("estimate") or {}
+                if estimate.get("minutes") is None:
+                    formatted += (
+                        f" It now has no measured estimate (basis "
+                        f"{estimate.get('basis')})"
+                    )
+                else:
+                    formatted += (
+                        f" It now estimates {estimate.get('minutes')} minutes "
+                        f"(basis {estimate.get('basis')})"
+                    )
+                downloads = [
+                    entry.get("repo") or entry.get("url")
+                    for entry in plan.get("downloads_required") or []
+                ]
+                if downloads:
+                    formatted += f", and would download {', '.join(downloads)} first"
+                # The shape to resend, not just the new fingerprint: a
+                # client reading only the message can re-acknowledge from it
+                minutes = estimate.get("minutes")
+                repos = [
+                    entry.get("repo")
+                    for entry in plan.get("downloads_required") or []
+                    if entry.get("repo")
+                ]
+                # json.dumps for the whole object, not an f-string per field:
+                # an inline workflow has no measured estimate, so `minutes` is
+                # None far more often than not, and Python's repr of it is not
+                # JSON a client could paste back (#107)
+                formatted += (
+                    ". Re-acknowledge with "
+                    + json.dumps(
+                        {
+                            "fingerprint": plan.get("fingerprint"),
+                            "minutes": minutes,
+                            "downloads": repos,
+                        }
+                    )
+                    + "."
+                )
             return formatted
         if isinstance(detail, list):
             messages = []

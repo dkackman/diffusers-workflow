@@ -609,3 +609,66 @@ def test_adding_a_downstream_reference_misses_on_a_result_that_was_not_retained(
     counts = _run_with_per_step_counts(with_reference, {})
 
     assert counts.get("A") == 1
+
+
+class TestCacheHits:
+    """cache_hits() answers the plan's cached_steps (#85): what the next
+    run would reuse, by the run's own preparation, executing nothing."""
+
+    def test_a_cold_cache_reports_no_hits(self):
+        step_cache.clear()
+        workflow, _ = build_test_workflow_and_call_count_spy()
+        try:
+            assert workflow.cache_hits({}) == []
+        finally:
+            for p in workflow._test_patcher:
+                p.stop()
+
+    def test_after_a_run_the_probe_names_what_the_next_run_reuses(self):
+        step_cache.clear()
+        workflow, call_count = build_test_workflow_and_call_count_spy()
+        try:
+            workflow.run({})
+            probe = workflow.cache_hits({})
+            workflow.run({})
+            reused = [
+                entry["step"] for entry in workflow.manifest if entry.get("reused")
+            ]
+            assert probe == ["generate"]
+            assert probe == reused
+            assert call_count() == 1, "the probe executed nothing"
+        finally:
+            for p in workflow._test_patcher:
+                p.stop()
+
+    def test_a_changed_argument_is_a_miss(self):
+        step_cache.clear()
+        workflow, _ = build_test_workflow_and_call_count_spy()
+        try:
+            workflow.run({"prompt": "a cat"})
+            assert workflow.cache_hits({"prompt": "a dog"}) == []
+        finally:
+            for p in workflow._test_patcher:
+                p.stop()
+
+    def test_an_unseeded_workflow_has_no_hits(self):
+        step_cache.clear()
+        workflow, _ = build_test_workflow_and_call_count_spy()
+        del workflow.workflow_definition["seed"]
+        try:
+            workflow.run({})
+            assert workflow.cache_hits({}) == []
+        finally:
+            for p in workflow._test_patcher:
+                p.stop()
+
+    def test_the_probe_writes_nothing(self, tmp_path):
+        step_cache.clear()
+        workflow, _ = build_test_workflow_and_call_count_spy()
+        workflow.output_dir = str(tmp_path)
+        try:
+            workflow.cache_hits({})
+            assert list(tmp_path.iterdir()) == []
+        finally:
+            for p in workflow._test_patcher:
+                p.stop()

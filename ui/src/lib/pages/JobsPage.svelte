@@ -127,6 +127,13 @@
           {#if (workspace.names?.length ?? 0) > 1}
             <span class="wschip muted" title="workspace">{job.workspace}</span>
           {/if}
+          {#if job.acknowledged === 'bound'}
+            <span
+              class="wschip muted"
+              title="queued with a cost acknowledgement bound to the validated plan"
+              >acknowledged</span
+            >
+          {/if}
           {#if job.queue_position !== undefined}
             <span class="qpos" title="position in the waiting queue"
               >#{job.queue_position + 1}</span

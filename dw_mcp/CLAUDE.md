@@ -44,7 +44,12 @@ them testable without an MCP session. It is a top-level package rather than
 and pulls in torch, which a pure HTTP client has no use for — a test guards
 that boundary. Seven tools require `acknowledged_cost=True`
 (`run_workflow`, `rerun_job`, `enhance_prompt`, `download_model`,
-`delete_model`, `update_diffusers`, `delete_workspace`); the three job-queuing tools return as
+`delete_model`, `update_diffusers`, `delete_workspace`); `run_workflow` and
+`rerun_job` also take the acknowledgement *bound* to the plan
+`validate_workflow` answered with - `{fingerprint, minutes, downloads}`,
+forwarded verbatim, which the server refuses with 409 when the run's shape
+changed since (`_acknowledgement_body` in `diagnose.py`; the 409 is rendered
+with the new estimate by `DwClient._format_detail`). The three job-queuing tools return as
 soon as the job is queued, since a generation outlasts any client's tool-call
 timeout. Authoring has two halves: `get_schema` describes a workflow and
 `get_prompt_schema` a stored prompt, which a workflow reaches by

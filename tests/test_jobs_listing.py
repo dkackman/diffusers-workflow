@@ -39,6 +39,7 @@ def stored_job(history, job_id, status, created_at, workspace="default"):
         events = []
         run_id = None
         run_dir = None
+        acknowledged = "none"
 
     row = Row()
     row.status = status

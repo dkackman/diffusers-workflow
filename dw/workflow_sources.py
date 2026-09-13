@@ -39,6 +39,25 @@ def builtin_root():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "workflows")
 
 
+def catalog_root(directory):
+    """The nearest ancestor of `directory` literally named 'workflows', else
+    the directory itself.
+
+    The root a run with no workflow_dir of its own confines a relative
+    sub-workflow reference to, so a template under templates/ can still climb
+    to a sibling models/ without leaving the catalog. `catalog_root_dir`
+    (dw/workflow.py) is this rule asked for a file rather than a directory.
+    """
+    directory = os.path.normpath(os.path.abspath(directory))
+    parts = directory.split(os.sep)
+    try:
+        index = len(parts) - 1 - parts[::-1].index("workflows")
+    except ValueError:
+        return directory
+
+    return os.sep.join(parts[: index + 1])
+
+
 class WorkflowSource:
     """One root on the search path."""
 
@@ -223,7 +242,10 @@ def resolve_sub_workflow(path, base_dir, confine_to):
     An absolute path is taken as written and confined to whichever root
     holds it, so the sandbox still refuses one that belongs to no source.
 
-    Raises SubWorkflowNotFound, naming every candidate it looked at.
+    A relative path that climbs out of the root it will be handed back with is
+    a PathTraversalError rather than a SubWorkflowNotFound - a refusal, not a
+    name that was absent. Otherwise raises SubWorkflowNotFound, naming every
+    candidate it looked at.
     """
     roots = []
     if confine_to:
@@ -245,8 +267,26 @@ def resolve_sub_workflow(path, base_dir, confine_to):
         return candidate, confine_to
 
     if base_dir:
+        # The root this candidate would be handed back with: the caller's
+        # confinement when it named one, else the catalog root the run itself
+        # would confine to. Containment is checked before the stat, so a name
+        # that climbs out of the catalog is never even looked at - which is
+        # what the callers' own validate_workflow_path caught a step too late,
+        # leaving this `os.path.isfile` the dw/path-injection query's only
+        # unguarded sink. A climb out is refused rather than reported as
+        # absent, the distinction the search path below keeps: the
+        # PathTraversalError propagates to the caller
+        root = confine_to or catalog_root(base_dir)
         for name in _candidate_names(path):
-            candidate = os.path.normpath(os.path.join(base_dir, name))
+            # normpath first: validate_path refuses a '..' outright, so a
+            # climb that stays inside the root has to be collapsed before it
+            # is judged. Its return value is what gets stat'ed - and being
+            # the validator's own, it is contained by construction
+            candidate = validate_path(
+                os.path.normpath(os.path.join(base_dir, name)),
+                root,
+                allow_create=True,
+            )
             tried.append(candidate)
             if os.path.isfile(candidate):
                 return candidate, confine_to

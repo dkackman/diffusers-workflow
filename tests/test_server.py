@@ -68,6 +68,8 @@ class ScriptedWorkerManager:
         self.worker_active = False
         self.worker_process = None
         self._results = queue.Queue()
+        # What a probe_cache command answers with
+        self.cached_steps = []
 
     def ensure_worker(self, log_level="INFO"):
         self.worker_active = True
@@ -82,6 +84,14 @@ class ScriptedWorkerManager:
         elif command["type"] == "memory_status":
             self._results.put(
                 {"type": "memory_status", "info": {"gpu_available": True}}
+            )
+        elif command["type"] == "probe_cache":
+            self._results.put(
+                {
+                    "type": "probe_cache",
+                    "probe_id": command.get("probe_id"),
+                    "cached": list(self.cached_steps),
+                }
             )
 
     def get_result(self, timeout=None):
@@ -867,6 +877,21 @@ def test_validate_endpoint_flags_signature_typos(server):
             "/api/validate", json={"workflow": {"steps": "nope"}}
         ).json()
         assert result["valid"] is False and result["error"]
+
+
+def test_validate_explains_why_an_unseeded_workflow_caches_nothing(server):
+    """`cached_steps: 0` on an unseeded workflow means the cache is off, not
+    that it was probed and missed - which is not readable from the number
+    alone (#107)."""
+    with server(success_script) as client:
+        workflow = valid_workflow()
+        result = client.post("/api/validate", json={"workflow": workflow}).json()
+        assert result["valid"] is True
+        assert any("seed" in w and "cached_steps" in w for w in result["warnings"])
+
+        workflow["seed"] = 1
+        result = client.post("/api/validate", json={"workflow": workflow}).json()
+        assert not any("cached_steps" in w for w in result["warnings"])
 
 
 def test_submission_carries_argument_warnings(server):
@@ -2979,6 +3004,7 @@ def _finished_job_with_events(job_id, events):
         error = None
         run_id = None
         run_dir = None
+        acknowledged = "none"
         spec = {"arguments": {}, "workflow_path": "w.json"}
 
     job = FinishedJob()
@@ -3598,3 +3624,566 @@ def test_an_old_history_database_gains_the_column(tmp_path):
         history_path=str(db),
     )
     assert manager.get("old1")["workflow_name"] is None
+
+
+EMPTY_PLAN = {
+    "fingerprint": "sha256:0",
+    "steps": 0,
+    "list_entries": {},
+    "cached_steps": None,
+    "downloads_required": [],
+    "estimate": None,
+}
+
+
+class TestValidatePlan:
+    """A valid pre-flight answers with the run's plan (#85): what these
+    arguments will execute, fingerprinted, priced and with the weights the
+    box lacks named. Best effort - the verdict is never the planner's."""
+
+    def test_a_valid_answer_carries_a_plan(self, server, monkeypatch):
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+        with server(success_script) as client:
+            result = client.post(
+                "/api/validate?sizes=false",
+                json={"workflow": video_workflow("planned", with_cost=True)},
+            ).json()
+        assert result["valid"] is True
+        plan = result["plan"]
+        assert set(plan) == set(EMPTY_PLAN)
+        assert plan["steps"] == 1
+        assert plan["estimate"]["basis"] in {"catalog", "other_device"}
+        assert plan["estimate"]["minutes"] == 2.0
+        assert plan["downloads_required"] == [{"repo": "m", "gb": None}]
+
+    def test_an_invalid_answer_carries_no_plan(self, server):
+        with server(success_script) as client:
+            result = client.post(
+                "/api/validate", json={"workflow": {"id": "broken", "steps": "no"}}
+            ).json()
+        assert result["valid"] is False
+        assert "plan" not in result
+
+    def test_a_planner_failure_is_a_null_plan_not_a_verdict(self, server, monkeypatch):
+        import dw.server.app as app_module
+
+        def boom(*a, **k):
+            raise RuntimeError("planner broke")
+
+        monkeypatch.setattr(app_module, "build_plan", boom)
+        with server(success_script) as client:
+            result = client.post(
+                "/api/validate", json={"workflow": valid_workflow("v")}
+            ).json()
+        assert result["valid"] is True
+        assert result["plan"] is None
+
+    def test_sizes_reaches_the_planner(self, server, monkeypatch):
+        import dw.server.app as app_module
+
+        seen = []
+
+        def spy(candidate, arguments, **kwargs):
+            seen.append(kwargs["lookup_sizes"])
+            return dict(EMPTY_PLAN)
+
+        monkeypatch.setattr(app_module, "build_plan", spy)
+        with server(success_script) as client:
+            client.post("/api/validate", json={"workflow": valid_workflow("v")})
+            client.post(
+                "/api/validate?sizes=false", json={"workflow": valid_workflow("v")}
+            )
+        assert seen == [True, False]
+
+    def test_cached_steps_comes_from_the_worker(self, server, monkeypatch):
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            manager.worker_manager.ensure_worker()
+            manager.worker_manager.cached_steps = ["gen"]
+            seeded = valid_workflow("seeded")
+            seeded["seed"] = 7
+            result = client.post(
+                "/api/validate?sizes=false",
+                json={"workflow": seeded, "arguments": {"prompt": "x"}},
+            ).json()
+        assert result["plan"]["cached_steps"] == 1
+        probe = [
+            c for c in manager.worker_manager.commands if c["type"] == "probe_cache"
+        ]
+        assert len(probe) == 1
+        assert probe[0]["arguments"] == {"prompt": "x"}
+        assert probe[0]["workflow"] == seeded
+        assert probe[0]["output_dir"] == manager.output_dir
+
+    def test_an_unseeded_workflow_does_not_probe(self, server, monkeypatch):
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            manager.worker_manager.ensure_worker()
+            result = client.post(
+                "/api/validate?sizes=false", json={"workflow": valid_workflow("v")}
+            ).json()
+        assert result["plan"]["cached_steps"] == 0
+        assert all(c["type"] != "probe_cache" for c in manager.worker_manager.commands)
+
+    def test_the_plan_sees_the_callers_arguments(self, server, monkeypatch):
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+        with server(success_script) as client:
+            body = {"workflow": valid_workflow("v")}
+            one = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+            body["arguments"] = {"prompt": "something else"}
+            two = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+        assert one["fingerprint"] != two["fingerprint"]
+
+
+PROBE = {"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}
+
+
+class TestProbeCache:
+    def test_asks_the_worker_and_returns_its_answer(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            manager.worker_manager.ensure_worker()
+            manager.worker_manager.cached_steps = ["gen"]
+            assert manager.probe_cache(PROBE) == ["gen"]
+            sent = manager.worker_manager.commands[-1]
+            assert sent["type"] == "probe_cache"
+            assert sent["workflow_path"] == "x.json"
+
+    def test_no_worker_means_an_empty_cache(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            assert manager.worker_manager.worker_active is False
+            assert manager.probe_cache(PROBE) == []
+            assert manager.worker_manager.commands == []
+
+    def test_a_running_job_means_unknown(self, server):
+        with server(hanging_script) as client:
+            response = client.post("/api/jobs", json={"workflow": valid_workflow()})
+            job_id = response.json()["id"]
+            wait_for_status(client, job_id, ("running",))
+            manager = client.app.state.job_manager
+            assert manager.probe_cache(PROBE) is None
+            client.post(f"/api/jobs/{job_id}/cancel")
+
+    def test_a_late_reply_is_not_attributed_to_the_next_probe(self, server):
+        """A probe that timed out still answers eventually; the next probe
+        must not read that stale hit list as its own."""
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            worker = manager.worker_manager
+            worker.ensure_worker()
+            held = []
+            real_send = worker.send_command
+
+            def hold_then_answer(command):
+                # The first probe never answers in time; its reply lands
+                # just before the second probe is sent
+                if command["type"] == "probe_cache" and not held:
+                    held.append(command)
+                    return None
+                if held:
+                    late = held.pop()
+                    worker._results.put(
+                        {
+                            "type": "probe_cache",
+                            "probe_id": late["probe_id"],
+                            "cached": ["stale"],
+                        }
+                    )
+                worker.cached_steps = ["fresh"]
+                return real_send(command)
+
+            worker.send_command = hold_then_answer
+            assert manager.probe_cache(PROBE, timeout=0.05) is None
+            assert manager.probe_cache(PROBE) == ["fresh"]
+
+    def test_an_unanswered_probe_is_unknown(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            manager.worker_manager.ensure_worker()
+            manager.worker_manager.send_command = lambda command: None
+            assert manager.probe_cache(PROBE, timeout=0.05) is None
+
+
+class TestAcknowledgementRecord:
+    """Every job says which form of cost acknowledgement queued it (#85), so
+    'was this run consented to at its actual size' is answerable later."""
+
+    def test_a_submit_records_none_by_default(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            job = manager.submit(workflow=valid_workflow(), arguments={})
+            assert job.acknowledged == "none"
+            assert manager.describe(job)["acknowledged"] == "none"
+            assert manager.describe(job)["acknowledged_cost"] is None
+
+    def test_a_bound_submit_records_the_object(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": []}
+            job = manager.submit(
+                workflow=valid_workflow(),
+                arguments={},
+                acknowledged="bound",
+                acknowledged_cost=bound,
+            )
+            detail = manager.describe(job)
+            assert detail["acknowledged"] == "bound"
+            assert detail["acknowledged_cost"] == bound
+            assert job.summary()["acknowledged"] == "bound"
+
+    def test_history_keeps_the_form_and_the_object(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            bound = {
+                "fingerprint": "sha256:abc",
+                "minutes": 3.0,
+                "downloads": ["org/x"],
+            }
+            job = manager.submit(
+                workflow=valid_workflow(),
+                arguments={},
+                acknowledged="bound",
+                acknowledged_cost=bound,
+            )
+            wait_for_status(client, job.id, TERMINAL_STATES)
+            row = manager.history.get(job.id)
+            assert row["acknowledged"] == "bound"
+            assert row["acknowledged_cost"] == bound
+            assert row["spec"]["acknowledged_cost"] == bound
+            listed = [
+                s for s in manager.history.recent_summaries() if s["id"] == job.id
+            ]
+            assert listed[0]["acknowledged"] == "bound"
+
+    def test_a_database_without_the_column_is_migrated(self, tmp_path):
+        import sqlite3
+
+        from dw.server.jobs import JobHistory
+
+        path = tmp_path / "old.sqlite"
+        with sqlite3.connect(path) as connection:
+            connection.execute(
+                "CREATE TABLE jobs (id TEXT PRIMARY KEY, workflow TEXT, status TEXT,"
+                " created_at REAL, started_at REAL, finished_at REAL, arguments TEXT,"
+                " spec TEXT, manifest TEXT, warnings TEXT, error TEXT)"
+            )
+            connection.execute(
+                "INSERT INTO jobs (id, workflow, status, created_at, spec) VALUES"
+                " ('old1', 'w', 'succeeded', 1.0, '{}')"
+            )
+        history = JobHistory(str(path))
+        assert history.get("old1")["acknowledged"] == "none"
+        assert history.get("old1")["acknowledged_cost"] is None
+
+    def test_a_rerun_carries_the_original_object_for_the_record(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": []}
+            job = manager.submit(
+                workflow=valid_workflow(),
+                arguments={},
+                acknowledged="bound",
+                acknowledged_cost=bound,
+            )
+            wait_for_status(client, job.id, TERMINAL_STATES)
+            rerun = manager.rerun(job.id)
+            assert rerun.acknowledged == "none"
+            assert rerun.spec["acknowledged_cost"] == bound
+
+
+def plan_for(client, workflow, arguments=None):
+    body = {"workflow": workflow}
+    if arguments:
+        body["arguments"] = arguments
+    answer = client.post("/api/validate?sizes=false", json=body).json()
+    assert answer["valid"], answer
+    return answer["plan"]
+
+
+def bound(plan):
+    return {
+        "fingerprint": plan["fingerprint"],
+        "minutes": plan["estimate"]["minutes"],
+        "downloads": [d["repo"] for d in plan["downloads_required"] if d["repo"]],
+    }
+
+
+@pytest.fixture
+def no_hub(monkeypatch):
+    import dw.plan
+
+    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+
+
+def list_workflow(job_id="listed"):
+    return {
+        "id": job_id,
+        "seed": "variable:seed",
+        "variables": {"seed": 1, "shots": [{"name": "a", "prompt": "a"}]},
+        "steps": [
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "pipeline": {
+                    "configuration": {"component_type": "{Fake}", "no_generator": True},
+                    "from_pretrained_arguments": {"model_name": "m"},
+                    "arguments": {"prompt": "item:prompt"},
+                },
+            }
+        ],
+    }
+
+
+class TestBoundAcknowledgement:
+    """A bound acknowledgement is checked against the run's current plan
+    before anything is queued (#85); true and absent are untouched."""
+
+    def test_a_matching_fingerprint_queues(self, server, no_hub):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 201, response.json()
+            assert response.json()["acknowledged"] == "bound"
+            assert response.json()["acknowledged_cost"] == bound(plan)
+
+    def test_a_longer_list_than_acknowledged_is_refused(self, server, no_hub):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            longer = {"shots": [{"name": n, "prompt": n} for n in "abc"]}
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": list_workflow(),
+                    "arguments": longer,
+                    "acknowledged_cost": bound(plan),
+                },
+            )
+            assert response.status_code == 409
+            detail = response.json()["detail"]
+            assert detail["reason"] == "fingerprint"
+            assert detail["acknowledged"]["fingerprint"] == plan["fingerprint"]
+            assert detail["plan"]["list_entries"] == {"shots": 3}
+            assert detail["plan"]["fingerprint"] != plan["fingerprint"]
+            assert "differ" in detail["message"]
+            assert client.app.state.job_manager.worker_manager.commands == []
+
+    def test_a_new_seed_is_the_same_work(self, server, no_hub):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": list_workflow(),
+                    "arguments": {"seed": 99},
+                    "acknowledged_cost": bound(plan),
+                },
+            )
+            assert response.status_code == 201
+
+    def test_a_download_not_acknowledged_is_refused(self, server, no_hub):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            acknowledgement = bound(plan)
+            acknowledgement["downloads"] = []  # the caller left the repo out
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": list_workflow(),
+                    "acknowledged_cost": acknowledgement,
+                },
+            )
+            assert response.status_code == 409
+            detail = response.json()["detail"]
+            assert detail["reason"] == "downloads"
+            assert "m" in detail["message"]
+
+    def test_a_download_that_vanished_is_not_a_refusal(
+        self, server, no_hub, monkeypatch
+    ):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            assert bound(plan)["downloads"] == ["m"]
+            import dw.plan
+
+            monkeypatch.setattr(
+                dw.plan,
+                "scan_models",
+                lambda cache_dir=None: {"repos": [{"repo_id": "m"}]},
+            )
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 201
+
+    def test_an_unplannable_run_is_refused_not_passed(
+        self, server, no_hub, monkeypatch
+    ):
+        import dw.server.app as app_module
+
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+
+            def boom(*a, **k):
+                raise RuntimeError("no plan")
+
+            monkeypatch.setattr(app_module, "build_plan", boom)
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 409
+            assert response.json()["detail"]["reason"] == "unplannable"
+            assert response.json()["detail"]["plan"] is None
+
+    def test_true_and_absent_queue_without_planning(self, server, no_hub, monkeypatch):
+        import dw.server.app as app_module
+
+        def boom(*a, **k):
+            raise AssertionError("the boolean path must not plan")
+
+        monkeypatch.setattr(app_module, "build_plan", boom)
+        with server(success_script) as client:
+            plain = client.post("/api/jobs", json={"workflow": valid_workflow("p")})
+            flagged = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow("f"), "acknowledged_cost": True},
+            )
+            off = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow("o"), "acknowledged_cost": False},
+            )
+        assert plain.json()["acknowledged"] == "none"
+        assert flagged.json()["acknowledged"] == "boolean"
+        assert off.json()["acknowledged"] == "none"
+
+    def test_a_bad_argument_is_still_a_400_under_a_bound_acknowledgement(
+        self, server, no_hub
+    ):
+        """The argument and schema checks come first, as they do on the
+        boolean path - a typo in an argument name is the caller's 400, not
+        a 409 telling them to acknowledge with true and try again."""
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": list_workflow(),
+                    "arguments": {"shotz": []},
+                    "acknowledged_cost": bound(plan),
+                },
+            )
+            assert response.status_code == 400
+            assert "shotz" in response.json()["detail"]
+
+    def test_an_invalid_workflow_is_still_a_400_under_a_bound_acknowledgement(
+        self, server, no_hub
+    ):
+        with server(success_script) as client:
+            broken = {"id": "broken", "steps": "no"}
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": broken,
+                    "acknowledged_cost": {"fingerprint": "sha256:0", "downloads": []},
+                },
+            )
+            assert response.status_code == 400
+
+    def test_a_bound_form_without_a_fingerprint_is_a_422(self, server):
+        with server(success_script) as client:
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": valid_workflow(),
+                    "acknowledged_cost": {"minutes": 3},
+                },
+            )
+            assert response.status_code == 422
+
+    def test_a_stored_prompt_edited_after_validation_is_refused(
+        self, server, no_hub, tmp_path
+    ):
+        (tmp_path / "prompts" / "p.json").write_text(json.dumps({"text": "before"}))
+        workflow = valid_workflow("prompted")
+        workflow["variables"]["prompt"] = "prompt:p"
+        with server(success_script) as client:
+            plan = plan_for(client, workflow)
+            (tmp_path / "prompts" / "p.json").write_text(json.dumps({"text": "after"}))
+            response = client.post(
+                "/api/jobs",
+                json={"workflow": workflow, "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 409
+            assert response.json()["detail"]["reason"] == "fingerprint"
+
+
+class TestBoundRerun:
+    def test_a_rerun_with_the_original_plan_queues_even_with_a_new_seed(
+        self, server, no_hub
+    ):
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            first = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
+            ).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun",
+                json={"new_seed": True, "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 201
+            assert response.json()["acknowledged"] == "bound"
+
+    def test_a_rerun_bound_to_a_stale_plan_is_refused(self, server, no_hub):
+        with server(success_script) as client:
+            first = client.post("/api/jobs", json={"workflow": list_workflow()}).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            other = plan_for(client, valid_workflow("other"))
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun",
+                json={"acknowledged_cost": bound(other)},
+            )
+            assert response.status_code == 409
+            assert response.json()["detail"]["reason"] == "fingerprint"
+
+    def test_a_rerun_with_true_is_unchanged(self, server, no_hub):
+        with server(success_script) as client:
+            first = client.post("/api/jobs", json={"workflow": list_workflow()}).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun", json={"acknowledged_cost": True}
+            )
+            assert response.status_code == 201
+            assert response.json()["acknowledged"] == "boolean"
+
+    def test_an_unknown_job_is_still_404(self, server):
+        with server(success_script) as client:
+            response = client.post(
+                "/api/jobs/nope/rerun",
+                json={"acknowledged_cost": {"fingerprint": "sha256:0"}},
+            )
+            assert response.status_code == 404

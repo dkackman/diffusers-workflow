@@ -296,6 +296,24 @@ Three older per-component knobs, set in the pipeline `configuration` beside
 
 **Example:** [flux-dev.json](../workflows/models/flux-dev.json) (`"offload": "model"`), [z-image.json](../workflows/models/z-image.json) (`"offload": "sequential"`), [video-with-audio.json](../workflows/templates/minimax/video-with-audio.json) (`group_offload` per component), [reference-to-video.json](../workflows/templates/minimax/reference-to-video.json) (`group_offload` for the transformer, `on_demand` for the VAEs)
 
+## Reading Memory While Offloading
+
+A workflow that offloads keeps its weights in host memory by design, so the
+card can sit near-empty through a generation and the VRAM figures alone say
+nothing about what a run holds or fails to release. `get_memory` (MCP) and
+`GET /api/memory` report both: `gpu_*` is the card, `host_memory_rss_mb` is
+what the worker process holds and `host_memory_peak_rss_mb` the most it has
+ever held, beside the machine's `host_memory_total_mb` /
+`host_memory_available_mb`.
+
+`host_pinned_reserved_mb` / `host_pinned_allocated_mb`, where the platform
+reports them, are torch's pinned-host cache - the staging buffers group
+offloading moves weights through. They are part of `host_memory_rss_mb` and
+invisible in every `gpu_*` figure, so a worker that has released every model
+and still holds gigabytes is usually holding these; they are returned when
+the worker switches to a different workflow (#98). A host field is absent,
+rather than null, on a platform that cannot measure it.
+
 ## TF32 and cuDNN
 
 Device-level settings, read once at startup from `~/.diffusers_helper/settings.json`:

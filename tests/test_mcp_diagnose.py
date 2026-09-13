@@ -504,3 +504,167 @@ def test_run_sends_the_session_workspace_when_none_is_named():
     diagnose.run_workflow(client, workflow_path="w", acknowledged_cost=True)
 
     assert seen[0]["params"]["workspace"] == "music-video"
+
+
+def test_the_refusal_says_to_quote_the_plan():
+    from dw_mcp.diagnose import COST_REFUSAL
+
+    assert "plan" in COST_REFUSAL
+    assert "validate_workflow" in COST_REFUSAL
+
+
+BOUND = {"fingerprint": "sha256:abc", "minutes": 4.0, "downloads": ["org/x"]}
+
+
+def test_run_forwards_a_bound_acknowledgement_verbatim():
+    import json
+
+    client, seen = submitting()
+    diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost=BOUND)
+    assert json.loads(seen[0]["body"])["acknowledged_cost"] == BOUND
+
+
+def test_run_sends_a_bare_true_so_the_job_records_the_form():
+    """The boolean gate is this layer's, but the server still has to record
+    which form queued the job - it read `none` for a bare true while the
+    body omitted it (#85)."""
+    import json
+
+    client, seen = submitting()
+    diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost=True)
+    assert json.loads(seen[0]["body"])["acknowledged_cost"] is True
+
+
+def test_rerun_sends_a_bare_true_so_the_job_records_the_form():
+    import json
+
+    client, seen = scripted(
+        {("POST", "/api/jobs/job-1/rerun"): (201, {"id": "job-2", "status": "queued"})}
+    )
+    diagnose.rerun_job(client, "job-1", acknowledged_cost=True)
+    assert json.loads(seen[0]["body"])["acknowledged_cost"] is True
+
+
+def test_run_refuses_a_bound_form_without_a_fingerprint():
+    client, seen = submitting()
+    with pytest.raises(DwApiError, match="fingerprint"):
+        diagnose.run_workflow(
+            client, workflow_path="w.json", acknowledged_cost={"minutes": 4}
+        )
+    assert seen == []
+
+
+def test_run_refuses_an_empty_dict_as_unacknowledged():
+    client, seen = submitting()
+    with pytest.raises(DwApiError, match="acknowledged_cost"):
+        diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost={})
+    assert seen == []
+
+
+def test_a_409_surfaces_with_the_new_estimate():
+    client, _seen = scripted(
+        {
+            ("POST", "/api/jobs"): (
+                409,
+                {
+                    "detail": {
+                        "message": "The run's shape changed since it was "
+                        "acknowledged: the workflow or its arguments differ "
+                        "from what was validated",
+                        "reason": "fingerprint",
+                        "acknowledged": BOUND,
+                        "plan": {
+                            "fingerprint": "sha256:def",
+                            "steps": 6,
+                            "list_entries": {"shots": 5},
+                            "cached_steps": None,
+                            "downloads_required": [{"repo": "org/y", "gb": 3.5}],
+                            "estimate": {
+                                "minutes": 19.0,
+                                "basis": "per_entry",
+                                "device": "cuda",
+                                "measured_on": "card",
+                                "partial": False,
+                            },
+                        },
+                    }
+                },
+            )
+        }
+    )
+    with pytest.raises(DwApiError) as caught:
+        diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost=BOUND)
+    message = str(caught.value)
+    assert "shape changed" in message
+    assert "19.0" in message and "per_entry" in message
+    assert "org/y" in message
+    # The shape to resend, not just the new fingerprint (#85)
+    assert '"fingerprint": "sha256:def"' in message
+    assert '"minutes": 19.0' in message
+    assert '"downloads": ["org/y"]' in message
+    assert "sha256:def" in message
+
+
+def test_rerun_forwards_a_bound_acknowledgement():
+    import json
+
+    client, seen = scripted({("POST", "/api/jobs/job-1/rerun"): (201, SUBMITTED)})
+    diagnose.rerun_job(client, "job-1", acknowledged_cost=BOUND, new_seed=True)
+    body = json.loads(seen[0]["body"])
+    assert body["acknowledged_cost"] == BOUND and body["new_seed"] is True
+
+
+def test_the_refusal_teaches_the_bound_form():
+    from dw_mcp.diagnose import COST_REFUSAL
+
+    assert "fingerprint" in COST_REFUSAL
+
+
+def test_a_null_download_entry_is_dropped_before_sending():
+    """A `from_single_file` URL sits in downloads_required with repo: null;
+    an agent copying the list verbatim must not earn a 422 for it."""
+    import json
+
+    client, seen = submitting()
+    diagnose.run_workflow(
+        client,
+        workflow_path="w.json",
+        acknowledged_cost={"fingerprint": "sha256:abc", "downloads": ["org/x", None]},
+    )
+    assert json.loads(seen[0]["body"])["acknowledged_cost"]["downloads"] == ["org/x"]
+
+
+def test_a_409_without_a_measured_estimate_says_so():
+    client, _seen = scripted(
+        {
+            ("POST", "/api/jobs"): (
+                409,
+                {
+                    "detail": {
+                        "message": "The run's shape changed since it was acknowledged",
+                        "reason": "fingerprint",
+                        "acknowledged": BOUND,
+                        "plan": {
+                            "fingerprint": "sha256:def",
+                            "steps": 1,
+                            "list_entries": {},
+                            "cached_steps": None,
+                            "downloads_required": [],
+                            "estimate": {
+                                "minutes": None,
+                                "basis": "unknown",
+                                "device": "cuda",
+                                "measured_on": None,
+                                "partial": False,
+                            },
+                        },
+                    }
+                },
+            )
+        }
+    )
+    with pytest.raises(DwApiError) as caught:
+        diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost=BOUND)
+    message = str(caught.value)
+    assert "None minutes" not in message
+    assert "no measured estimate" in message

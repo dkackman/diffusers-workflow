@@ -438,9 +438,13 @@ same way it will run. `release_pipeline` on a `for_each`
 step releases after the *last* member. Each entry is a full generation, so
 quote the cost before running a list-driven workflow: the listing's `lists`
 block names the fields an entry takes and the steps over it, and its `cost`
-carries `per_entry` once one entry has been measured — quote
-`minutes - per_entry.minutes × per_entry.entries + per_entry.minutes × N` for
-N entries, and without `per_entry` quote the total as the default list's. An
+carries `per_entry` once one entry has been measured. `validate_workflow`
+with your `arguments` answers with a `plan` whose `estimate` already does
+that arithmetic (`basis: per_entry`); without `per_entry` it extrapolates
+the stored total linearly over your list (`basis: derived` - an estimate
+rather than a measurement) and reports the stored total unchanged only
+when your list is the one it was measured with (`basis: catalog`) - quote
+the plan's figure and say which basis it has. An
 entry key no step reads is a validation warning at the entry's path, so a
 misspelt field is caught before the run. Then
 `validate_workflow` with the
@@ -479,7 +483,16 @@ the entry an item needs.
 3. `save_workflow` — validates again on the way in and returns the catalog
    metadata the saved draft will carry.
 4. `run_workflow` with `acknowledged_cost=true`, after telling the user what it
-   costs. Without the acknowledgement the call is refused. A workflow you wrote
+   costs. Without the acknowledgement the call is refused. The figure to tell
+   them is the `plan` on the validate answer - `estimate.minutes` with its
+   `basis`, and every `downloads_required` entry named as its own line item,
+   since weights not on this box are minutes and gigabytes the cost block
+   never counted. Then pass that plan back:
+   `acknowledged_cost={"fingerprint": plan.fingerprint, "minutes":
+   plan.estimate.minutes, "downloads": [...]}` - the server refuses with 409
+   if the run's shape changed since the quote, and the refusal carries the
+   new plan to quote from. `true` is for a plan that was null. When `basis`
+   is `unknown`: a workflow you wrote
    or copied carries no `cost` of its own, but the pipeline inside it usually
    does: `list_workflows(include_models=true)` finds the `models/` entry that
    loads the same checkpoint, and its per-image figure times the number of
@@ -556,7 +569,11 @@ underscore; `..`, a backslash and a leading `.` are refused - so every
 subfolder written is one a later workflow can name:
 `output:dialogue-short/latest/final/episode.mp4`. A bad value is a
 validation error at its JSON path. `file_base_name` is a name, not a path:
-a separator there is refused, and `subfolder` is the way to place a file.
+a separator there is refused, and `subfolder` is the way to place a file. It
+replaces the name the engine would derive from the workflow and step rather
+than prefixing it, so `"file_base_name": "episode"` in a `final` subfolder
+writes `final/episode-0.0.mp4` - name each step that sets one differently, or
+the second collides and picks up a `-2`.
 
 ### Composing a stored workflow
 
@@ -604,16 +621,23 @@ never derived — leave it absent until a run has been measured.
 "result": {
     "content_type": "image/jpeg",
     "save": true,
-    "file_base_name": "custom_prefix",
+    "file_base_name": "episode",
     "subfolder": "final"
 }
 ```
 
 Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `audio/wav`, `audio/flac`, `audio/mpeg` (mp3), `audio/ogg`, `audio/opus`, `audio/aiff`, `application/json`, `text/plain` (plus the common aliases `audio/x-wav`, `audio/mp3`, `audio/vorbis`).
 
-`subfolder` places the step's files in a subfolder of the run directory - see *Saying which output is the deliverable* above. `file_base_name` may not contain a path separator.
+`subfolder` places the step's files in a subfolder of the run directory - see *Saying which output is the deliverable* above. `file_base_name` is the base name the step's files are written under, replacing the name derived from the workflow and step; it may not contain a path separator.
 
-For video, add `"fps": 8`. For audio, add `"sample_rate": 44100` when the waveform doesn't
+For video, `"fps"` is the rate the file is written at. It is rarely needed:
+frames that know their own rate carry it - a video read from a file or an
+`asset:`, a `concat_videos`/`dissolve_videos` join, an interpolation - and
+the engine writes them at it. Frames that bring no rate (most generations)
+fall back to 8, so a workflow that assembles from bare frames should say
+what they run at. A declared `fps` always wins over the carried one and
+warns when the two differ, which is how a deliberate slow motion is written.
+For audio, add `"sample_rate": 44100` when the waveform doesn't
 already carry a rate of its own (a declared rate always wins). Setting `embed_metadata: true`
 on an image result embeds the step's model name and arguments as generation metadata -
 PNG info chunks for `image/png`, EXIF `UserComment` (via `piexif`) for `image/jpeg` and
@@ -644,12 +668,14 @@ Audio is written through soundfile, so both lossless and compressed containers w
 `audio/opus` writes an Opus stream in an ogg container, and only encodes at sample rates
 of 8000, 12000, 16000, 24000 or 48000.
 
-Output files are saved as `{output_dir}/{file_base_name}{workflow_id}-{step_name}.{step_index}-{result_index}.{artifact_index}.{ext}`,
-where `step_index` is the step's position in the workflow, `result_index` counts the
-argument-combination iterations the step ran (see cartesian product, above), and
-`artifact_index` counts multiple artifacts within one result (`num_images_per_prompt > 1`,
-or a dict result saved key by key). `file_base_name`, when set, is prepended to the
-default name rather than replacing it.
+Output files are saved as `{output_dir}/{base_name}-{result_index}.{artifact_index}.{ext}`,
+where `base_name` is `{workflow_id}-{step_name}.{step_index}` unless the step's result sets
+`file_base_name`, which replaces it entirely. `step_index` is the step's position in the
+workflow, `result_index` counts the argument-combination iterations the step ran (see
+cartesian product, above), and `artifact_index` counts multiple artifacts within one result
+(`num_images_per_prompt > 1`, or a dict result saved key by key). The derived name is what
+makes two steps' files distinct, so when you replace it on more than one step in the same
+subfolder, give each a different name - otherwise the second one gets a `-2` counter.
 
 ## Pipeline Configuration
 
@@ -1603,7 +1629,12 @@ interpolator - returns frames without it. Two tasks carry the pieces across:
 
 `audio` takes either a waveform or the earlier step whose video carried the soundtrack,
 which brings its sample rate along; here it is an earlier step's waveform, so
-`sample_rate` is given explicitly.
+`sample_rate` is given explicitly. The frames keep the rate they arrived
+with - `video` given a file or an `asset:` carries that file's fps through
+to the saved mp4 - so `result.fps` is only needed for frames that bring no
+rate of their own. A mono track needs no preparation: an mp4 audio stream
+takes stereo and nothing else, so saving duplicates the single channel into
+two and emits a warning saying it did.
 
 Which shape a pipeline argument wants is the pipeline's business, and the two LTX-2
 paths differ: a keyframe condition is mapped from 0-255, so it takes the `video_frames`

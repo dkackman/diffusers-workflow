@@ -379,16 +379,19 @@ class Result:
             self.saved_files = []
             return self.saved_files
 
-        # Determine base filename with validation
+        # Determine base filename with validation. A file_base_name *replaces*
+        # the derived name - it is set to get a name the caller can predict, and
+        # gluing it onto the name it was meant to replace made it neither (#100).
+        # What the derived name guaranteed - a distinct name per step - is then
+        # the caller's to keep; output_file_path's counter catches a collision.
         file_base_name = validated_base_name
         if "file_base_name" in self.result_definition:
-            custom_base = validate_file_base_name(
+            file_base_name = validate_file_base_name(
                 validate_string_input(
                     self.result_definition["file_base_name"],
                     max_length=MAX_BASE_NAME_LENGTH,
                 )
             )
-            file_base_name = custom_base + validated_base_name
 
         # Get file extension for content type
         extension = guess_extension(content_type)
@@ -985,16 +988,51 @@ def as_audio_track(audio):
     encode_video wants a float torch tensor on the CPU shaped (channels, samples) -
     pipelines hand back bfloat16 tensors that are still on the GPU, or numpy arrays.
 
+    A mono track is duplicated into two channels, because the mp4 audio stream
+    takes nothing else: diffusers' _write_audio refuses any other channel count
+    with a raw tensor shape, and a mono voice track paired onto a picture is the
+    ordinary case, not an edge one (#106). Duplicating one channel is lossless,
+    but it is a change to what was handed in, so it warns.
+
     Args:
         audio: Waveform as a torch tensor or numpy array
 
     Returns:
-        Float CPU torch tensor holding the waveform
+        Float CPU torch tensor holding the waveform, with at least 2 channels
     """
     if not isinstance(audio, torch.Tensor):
         audio = torch.from_numpy(numpy.asarray(audio))
 
-    return audio.detach().float().cpu()
+    audio = audio.detach().float().cpu()
+    return _as_stereo(audio)
+
+
+def _as_stereo(audio):
+    """Duplicate a mono waveform into two channels, leaving anything else alone.
+
+    Orientation is read the way encode_video reads it: (samples,) and (1, samples)
+    are mono, and so is (samples, 1) - a lone channel laid out samples-first.
+    A 2-channel waveform in either orientation is already what the encoder takes
+    and is handed back untouched, so a short stereo track is never mistaken for
+    many channels of one sample.
+    """
+    if audio.ndim == 2:
+        if audio.shape[0] == 2 or audio.shape[1] == 2:
+            return audio
+        if audio.shape[0] == 1:
+            audio = audio[0]
+        elif audio.shape[1] == 1:
+            audio = audio[:, 0]
+        else:
+            return audio
+    elif audio.ndim != 1:
+        return audio
+
+    emit_warning(
+        f"Duplicating a mono audio track of {audio.shape[0]} samples into two "
+        f"channels - an mp4 audio stream takes stereo and nothing else"
+    )
+    return audio.unsqueeze(0).repeat(2, 1)
 
 
 def write_audio(output_path, waveform, sample_rate, **write_arguments):

@@ -103,3 +103,15 @@ def test_registered_as_a_task_command():
     from dw.tasks.task import _COMMAND_REGISTRY
 
     assert "pair_audio" in _COMMAND_REGISTRY
+
+
+def test_get_task_says_what_the_frame_rate_does():
+    """#104's fix is only useful where an author authoring a task step looks,
+    and that is `get_task` - which reads the implementation's own docstring."""
+    from dw.introspection import describe_task
+
+    described = describe_task("pair_audio")
+    video = next(p for p in described["parameters"] if p["name"] == "video")
+    assert "result.fps" in video["description"]
+    audio = next(p for p in described["parameters"] if p["name"] == "audio")
+    assert "mono" in audio["description"]
