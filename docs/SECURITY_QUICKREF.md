@@ -19,6 +19,26 @@ from dw.security import (
 )
 ```
 
+## Locations a workflow supplies
+
+A media path, glob or URL that comes out of a workflow's arguments is not
+just a path - it is untrusted input choosing where the server reads. Use
+`dw/locations.py`, never `validate_path`/`validate_url` directly, for
+anything a workflow names:
+
+```python
+from dw.locations import (
+    validate_media_path,    # confined to the workflow dir / assets / outputs
+    validate_media_glob,    # the same, on a pattern's fixed prefix
+    contained_matches,      # each match re-checked on its real path
+    validate_media_url,     # no loopback / link-local / private host
+    validate_model_name,    # a Hub repo id, or a contained path
+)
+```
+
+Containment is checked before existence, so a refusal never discloses
+whether the file is there. All of it yields to `--trust-workflows`.
+
 ## Common Patterns
 
 ```python

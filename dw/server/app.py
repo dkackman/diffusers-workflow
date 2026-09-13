@@ -39,6 +39,7 @@ from ..security import (
     validate_commit_hash,
     InvalidInputError,
     SecurityError,
+    workflows_are_trusted,
 )
 from ..introspection import (
     describe_class,
@@ -2981,6 +2982,13 @@ def create_app(
             "port": port,
             "wildcard_bind": wildcard_bind,
             "auth_required": bool(token),
+            # The posture a security check has to know it is testing: with
+            # this off, a workflow file is untrusted input - no arbitrary
+            # imports, no remote code, no location outside the workspace's
+            # roots. It is not a secret (the refusals name the flag), and
+            # without it the posture could only be inferred from behavior
+            # (#120)
+            "trust_workflows": workflows_are_trusted(),
             "mcp": {"mounted": bool(app.state.mcp_mounted), "path": MCP_PATH},
             "addresses": addresses,
             "directories": {

@@ -580,3 +580,99 @@ def test_download_output_leaves_no_file_when_the_stream_breaks_mid_body(tmp_path
 
     assert not destination.exists()
     assert list(tmp_path.iterdir()) == []
+
+
+# ------------------------------------------------- a mounted server's writes
+#
+# SE-F016 (#113): over a `dw.serve --mcp` endpoint the tool runs on the GPU
+# box, so `destination` is a path on the operator's machine rather than on the
+# calling agent's. The '..' check it had could not see that - an absolute or
+# '~' path needs no '..' to reach anywhere the server process can write.
+
+
+def mounted(content, content_type, workspace_root):
+    """A client shaped like the one dw.serve builds for its own /mcp."""
+
+    def handler(request):
+        if request.url.path == "/api/server":
+            return httpx.Response(
+                200,
+                json={"directories": {"workspace": str(workspace_root)}},
+                headers={"content-type": "application/json"},
+            )
+        return httpx.Response(
+            200, content=content, headers={"content-type": content_type}
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    client.mounted = True
+    return client
+
+
+def test_a_mounted_server_refuses_an_absolute_destination_outside_the_workspace(
+    tmp_path,
+):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    client = mounted(png_bytes(4, 4), "image/png", workspace)
+    outside = tmp_path / "elsewhere" / "probe.jpg"
+
+    with pytest.raises(DwApiError) as refusal:
+        download_output(client, "run/probe.jpg", destination=str(outside))
+
+    assert "confined to the workspace" in str(refusal.value)
+    assert not outside.exists()
+
+
+def test_a_mounted_server_refuses_a_home_relative_destination(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    client = mounted(png_bytes(4, 4), "image/png", workspace)
+
+    with pytest.raises(DwApiError):
+        download_output(client, "run/probe.jpg", destination="~/probe.jpg")
+
+    assert not (home / "probe.jpg").exists()
+
+
+def test_a_mounted_server_refuses_an_overwrite_outside_the_workspace(tmp_path):
+    """The escalation SE-F016 flagged but would not probe: the same absolute
+    destination with overwrite=true is an arbitrary file overwrite."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    victim = tmp_path / "bashrc"
+    victim.write_text("mine")
+    client = mounted(png_bytes(4, 4), "image/png", workspace)
+
+    with pytest.raises(DwApiError):
+        download_output(
+            client, "run/probe.jpg", destination=str(victim), overwrite=True
+        )
+
+    assert victim.read_text() == "mine"
+
+
+def test_a_mounted_server_writes_a_relative_destination_into_its_workspace(tmp_path):
+    """And the default keeps working: a relative destination is joined onto
+    the workspace rather than onto whatever the server's cwd happens to be."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    client = mounted(png_bytes(4, 4), "image/png", workspace)
+
+    result = download_output(client, "run/probe.jpg", destination="kept/probe.jpg")
+
+    assert result["saved_to"] == str(workspace / "kept" / "probe.jpg")
+    assert (workspace / "kept" / "probe.jpg").read_bytes() == png_bytes(4, 4)
+
+
+def test_a_stdio_client_still_writes_wherever_the_user_can(tmp_path):
+    """Unmounted, 'local disk' is genuinely the caller's own machine."""
+    client = serving(png_bytes(4, 4), "image/png")
+    destination = tmp_path / "anywhere" / "probe.jpg"
+
+    download_output(client, "run/probe.jpg", destination=str(destination))
+
+    assert destination.read_bytes() == png_bytes(4, 4)

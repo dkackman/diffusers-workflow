@@ -145,6 +145,25 @@ class TestMiniMaxH3Skill:
             and 345 / modular_pipeline.MINIMAX_H3_FPS <= 15
         )
 
+    def test_the_denoise_step_count_is_the_scheduler_s(self):
+        """#110: `denoise_total_steps` comes back one less than the
+        `num_inference_steps` asked for, on every H3 run. Not a dropped step
+        and not an off-by-one in our progress reporting - MiniMaxH3Scheduler
+        counts sigma grid points with the terminal zero among them, so the
+        schedule it builds evaluates the model N-1 times, and the bar we
+        report is `len(scheduler.timesteps)`. Pinned here because from
+        outside the two are indistinguishable, which is what got it filed.
+        """
+        from diffusers import MiniMaxH3Scheduler
+
+        scheduler = MiniMaxH3Scheduler(shift=12.0)
+        for requested, evaluations in ((9, 8), (20, 19)):
+            scheduler.set_timesteps(requested)
+            assert len(scheduler.timesteps) == evaluations
+
+        text = skill_text(H3_SKILL)
+        assert "denoise_total_steps" in text and "9 reports 8" in text
+
     def test_the_canvas_rules_are_the_pipeline_s(self):
         import inspect
 

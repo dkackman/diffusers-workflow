@@ -105,6 +105,12 @@ class DwClient:
         workspace=None,
     ):
         self.base_url = resolve_base_url(base_url)
+        # True only for the client dw.serve --mcp builds for its own mounted
+        # tool surface (dw/server/mcp_mount.py). It is what distinguishes
+        # "local disk" meaning the caller's own machine (stdio dw-mcp) from
+        # it meaning the GPU box a remote agent is talking to - which decides
+        # whether download_output may write outside the workspace (#113)
+        self.mounted = False
         # Mutable: use_workspace switches it for the rest of the session,
         # which is what makes a switch one visible call rather than a
         # parameter on every tool

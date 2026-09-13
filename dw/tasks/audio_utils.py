@@ -219,7 +219,9 @@ def load_audio(location, base_dir=None):
     if location.startswith(("http://", "https://")):
         import requests
 
-        validated_url = validate_url(location)
+        from ..locations import validate_media_url
+
+        validated_url = validate_media_url(location, "an audio argument")
         logger.debug(f"Downloading audio from {validated_url}")
         response = requests.get(validated_url, timeout=60)
         response.raise_for_status()
@@ -227,7 +229,9 @@ def load_audio(location, base_dir=None):
             io.BytesIO(response.content), dtype="float32"
         )
     else:
-        validated_path = validate_path(location, base_dir=base_dir, allow_create=False)
+        from ..locations import validate_media_path
+
+        validated_path = validate_media_path(location, base_dir, "an audio argument")
         validate_file_extension(validated_path, ALLOWED_AUDIO_EXTENSIONS)
         logger.debug(f"Reading audio from {validated_path}")
         data, sample_rate = soundfile.read(validated_path, dtype="float32")
@@ -333,31 +337,15 @@ def slice_audio(
     return _as_track(slice_samples(waveform, start, length), sample_rate)
 
 
-def resample_audio(audio, target_sample_rate, sample_rate=None):
-    """Task command: resample an audio track to a different sample rate.
+def resample_waveform(waveform, sample_rate, target_sample_rate):
+    """A waveform at a different rate, as a plain (channels, samples) array.
 
-    MiniMax H3 conditions on audio at its audio VAE's own rate and resamples
-    anything else with torchaudio, which dw does not depend on. Resampling a
-    supplied recording once, up front, feeds the pipeline what it already wants
-    and keeps the dependency out - PyAV, which dw needs for video anyway, does
-    the conversion.
-
-    Args:
-        audio: Path or URL of an audio file (or of a video file, whose
-            soundtrack is taken), a video generated with a
-            soundtrack (which brings its sample rate along), or a waveform
-            (which needs sample_rate alongside it)
-        target_sample_rate: Rate to convert to
-        sample_rate: Sample rate of a waveform passed directly; given for a
-            file or a video it overrides the rate they carry
-
-    Returns:
-        An AudioTrack holding the resampled waveform and its new rate
+    The conversion resample_audio performs, without the task's argument
+    handling or its AudioTrack return, so a task that has waveforms in hand
+    already can reach the rate conversion directly.
     """
-    waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "resample_audio")
-
     if sample_rate == target_sample_rate:
-        return _as_track(waveform, sample_rate)
+        return waveform
 
     import av
     from av.audio.resampler import AudioResampler
@@ -380,8 +368,34 @@ def resample_audio(audio, target_sample_rate, sample_rate=None):
         f"Resampled {waveform.shape[1]} samples at {sample_rate}Hz "
         f"to {target_sample_rate}Hz"
     )
+    return numpy.concatenate(converted, axis=1).astype(numpy.float32)
+
+
+def resample_audio(audio, target_sample_rate, sample_rate=None):
+    """Task command: resample an audio track to a different sample rate.
+
+    MiniMax H3 conditions on audio at its audio VAE's own rate and resamples
+    anything else with torchaudio, which dw does not depend on. Resampling a
+    supplied recording once, up front, feeds the pipeline what it already wants
+    and keeps the dependency out - PyAV, which dw needs for video anyway, does
+    the conversion.
+
+    Args:
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a video generated with a
+            soundtrack (which brings its sample rate along), or a waveform
+            (which needs sample_rate alongside it)
+        target_sample_rate: Rate to convert to
+        sample_rate: Sample rate of a waveform passed directly; given for a
+            file or a video it overrides the rate they carry
+
+    Returns:
+        An AudioTrack holding the resampled waveform and its new rate
+    """
+    waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "resample_audio")
     return _as_track(
-        numpy.concatenate(converted, axis=1).astype(numpy.float32), target_sample_rate
+        resample_waveform(waveform, sample_rate, target_sample_rate),
+        target_sample_rate,
     )
 
 

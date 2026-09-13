@@ -108,6 +108,27 @@ def test_example_workflow(example_file):
 
 
 @pytest.mark.parametrize("example_file", get_example_files())
+def test_example_workflow_validates_untrusted(example_file, monkeypatch):
+    """And validates on the posture a server actually runs on.
+
+    conftest's autouse fixture trusts workflows for the whole suite, which
+    would hide exactly the thing the location policy changed (#114-#117): a
+    shipped workflow that names a media location outside the roots it is
+    allowed to read would pass every other test here and fail on the box.
+    Closing the step object (#118) is checked by the same pass.
+    """
+    from dw.security import TRUST_WORKFLOWS_ENV_VAR
+
+    monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
+    path = os.path.join(REPO_ROOT, example_file)
+    try:
+        workflow = workflow_from_file(path, ".")
+        workflow.validate()
+    except Exception as e:
+        pytest.fail(f"Example {example_file} failed untrusted validation: {str(e)}")
+
+
+@pytest.mark.parametrize("example_file", get_example_files())
 def test_example_workflow_references_resolve(example_file):
     """Test that every sub-workflow an example references exists"""
     path = os.path.join(REPO_ROOT, example_file)

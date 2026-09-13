@@ -3,6 +3,8 @@ Unit tests for the concat_videos task - the standalone counterpart of the
 chained pipeline step's stitching.
 """
 
+from unittest.mock import patch
+
 import numpy
 import pytest
 import torch
@@ -70,11 +72,54 @@ class TestConcatVideos:
         assert len(result.frames) == 12
         assert result.audio.shape == (2, 200)
 
-    def test_mismatched_sample_rates_raise(self):
+    def test_mismatched_sample_rates_are_resampled_to_the_highest(self, caplog):
+        """#108: a 24 kHz voice clip paired onto a 32 kHz generation used to
+        fail the run mid-way, after the earlier steps had already written
+        their files, with an error that named neither which shot to fix nor
+        the `resample_audio` task that was the remedy. The difference has no
+        editorial meaning - unlike a level jump - so it is converted."""
         videos = [audio_video(8, 1), audio_video(8, 2, sample_rate=200)]
 
-        with pytest.raises(ValueError, match="different sample rates"):
-            concat_videos(videos)
+        with caplog.at_level("WARNING"):
+            result = concat_videos(videos)
+
+        assert result.sample_rate == 200
+        # both halves at the joined rate: two 2 s videos at 200 Hz. The
+        # first was resampled up from 100, so its 200 samples became 400
+        assert result.audio.shape[1] == pytest.approx(800, abs=4)
+        assert "resampling them all to 200 Hz" in caplog.text
+
+    def test_the_resample_warning_names_which_video(self, caplog):
+        """ "24000 then 32000" does not say which entry of a six-shot list to
+        look at."""
+        videos = ["first.mp4", audio_video(8, 2, sample_rate=200)]
+
+        with caplog.at_level("WARNING"):
+            with patch(
+                "dw.tasks.concat_videos.load_audio_video",
+                return_value=audio_video(8, 1),
+            ):
+                concat_videos(videos)
+
+        assert "first.mp4: 100 Hz" in caplog.text
+        assert "video 2: 200 Hz" in caplog.text
+        assert "resample_audio" in caplog.text
+
+    def test_an_explicit_sample_rate_pins_the_target(self):
+        videos = [audio_video(8, 1), audio_video(8, 2, sample_rate=200)]
+
+        result = concat_videos(videos, sample_rate=100)
+
+        assert result.sample_rate == 100
+
+    def test_matching_rates_are_left_alone(self, caplog):
+        videos = [audio_video(8, 1), audio_video(8, 2)]
+
+        with caplog.at_level("WARNING"):
+            result = concat_videos(videos)
+
+        assert result.sample_rate == 100
+        assert "resampling" not in caplog.text
 
     def test_trimmed_audio_without_fps_raises(self):
         videos = [audio_video(8, 1), audio_video(8, 2)]

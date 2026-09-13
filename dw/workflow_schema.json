@@ -111,6 +111,8 @@
         },
         "step": {
             "type": "object",
+            "additionalProperties": false,
+            "$comment": "A step is closed: the engine reads only the properties above, so an invented control-flow key ('when', 'retry') or a mistyped real one ('relase_pipeline') is a hard error rather than a silent no-op.",
             "properties": {
                 "name": {
                     "type": "string"
@@ -199,6 +201,8 @@
         },
         "pipeline_reference": {
             "type": "object",
+            "additionalProperties": false,
+            "$comment": "Closed - see 'step'.",
             "properties": {
                 "reference_name": {
                     "type": "string"
@@ -1051,6 +1055,8 @@
         },
         "task": {
             "type": "object",
+            "additionalProperties": false,
+            "$comment": "Closed - see 'step'. A task's own arguments are open; it is the task object itself that is fixed.",
             "properties": {
                 "command": {
                     "type": "string"
@@ -1088,6 +1094,8 @@
         },
         "workflow_reference": {
             "type": "object",
+            "additionalProperties": false,
+            "$comment": "Closed - see 'step'.",
             "properties": {
                 "path": {
                     "description": "The workflow this step composes: a catalog name as list_workflows reports it (with or without '.json'), a path relative to the workflow that names it ('../models/x.json'), or 'builtin:name.json' for one of the packaged fragments. A name is resolved first beside the referencing file, then against this run's own workflows directory, then against each read-only source on the server's search path - so a stored template can be composed without copying it into the workspace. A path outside every source is refused. When the composing step declares a 'result', that is where the composed output is saved and the composed workflow's own last step does not save it again.",

@@ -46,6 +46,7 @@ def test_payload_shape(tmp_path):
     assert body["port"] == 8765
     assert body["wildcard_bind"] is False
     assert body["auth_required"] is False
+    assert isinstance(body["trust_workflows"], bool)
     assert body["mcp"] == {"mounted": False, "path": "/mcp"}
     assert isinstance(body["addresses"], list)
     for entry in body["addresses"]:
@@ -57,6 +58,22 @@ def test_payload_shape(tmp_path):
     assert directories["workflows"] == str(tmp_path / "workflows")
     assert directories["outputs"] == str(tmp_path / "outputs")
     assert directories["prompts"] == str(tmp_path / "prompts")
+
+
+def test_trust_posture_is_reported(tmp_path, monkeypatch):
+    """SE-F001 (#120): the security suite has to be able to confirm it is
+    testing the untrusted default rather than assuming it. Inferring the
+    posture from behavior only works while the trust-gated cases happen to
+    fail closed."""
+    from dw.security import TRUST_WORKFLOWS_ENV_VAR
+
+    monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
+    with client(tmp_path) as c:
+        assert c.get("/api/server").json()["trust_workflows"] is False
+
+    monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "1")
+    with client(tmp_path) as c:
+        assert c.get("/api/server").json()["trust_workflows"] is True
 
 
 def test_wildcard_bind_and_port_reported(tmp_path):
