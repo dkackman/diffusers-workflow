@@ -193,7 +193,9 @@ class SubWorkflowNotFound(Exception):
 
     def __init__(self, path, tried):
         self.path = path
-        self.tried = list(tried)
+        # In order, each candidate once - two roots can resolve one name to
+        # the same file, and saying so twice reads as two failures
+        self.tried = list(dict.fromkeys(tried))
         detail = "\n  ".join(self.tried)
         super().__init__(
             f"Sub-workflow '{path}' could not be resolved. It is read as a "
