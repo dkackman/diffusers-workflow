@@ -235,7 +235,7 @@ when no single workflow covers it.
 | --- | --- | --- |
 | `get_output_image(name, max_dimension=768, workspace=None)` | `name`, `max_dimension`, `workspace` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
 | `get_output_text(name, max_characters=20000, workspace=None)` | `name`, `max_characters`, `workspace` | Read a text output — a prompt enhancement, or any step whose result is `text/plain` or JSON. Reports the file's real length and whether it was truncated. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
-| `download_output(name, destination=None, overwrite=False, workspace=None)` | `name`, `destination`, `overwrite`, `workspace` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context. Writes on the machine running the MCP server - over `dw.serve --mcp` that is the GPU box. A write that fails there (a path that exists only on the client, for instance) comes back as an error naming the server-side write and the client-side alternatives, not as an anonymous tool failure. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
+| `download_output(name, destination=None, overwrite=False, workspace=None)` | `name`, `destination`, `overwrite`, `workspace` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Over a `dw.serve --mcp` endpoint the file lands on the server, so the destination is confined to that workspace and a relative one is joined onto it. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context. Writes on the machine running the MCP server - over `dw.serve --mcp` that is the GPU box. A write that fails there (a path that exists only on the client, for instance) comes back as an error naming the server-side write and the client-side alternatives, not as an anonymous tool failure. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
 | `delete_output(name, workspace=None)` | `name`, `workspace` | Permanently remove one generated file from the output directory. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
 
 ### Authoring, assets and workspaces
@@ -412,12 +412,21 @@ localhost binding, no auth, `Origin` header checks, and path confinement in
 Nothing under `dw_mcp/` re-implements or loosens that confinement; it is
 purely a client of the same validated endpoints the web UI uses - except for
 `download_output`, the one tool that writes a local file for the MCP client
-rather than only reading through the API. It may write anywhere the
-client's own filesystem lets it (a full path, a directory, or the current
-working directory by default, `~` expanded), the way a shell redirect
-would for the same user; a `..` path segment in `destination` is refused,
-and an existing file is left alone unless the caller passes
+rather than only reading through the API. Over a stdio `dw-mcp` it may write
+anywhere the client's own filesystem lets it (a full path, a directory, or
+the current working directory by default, `~` expanded), the way a shell
+redirect would for the same user; a `..` path segment in `destination` is
+refused, and an existing file is left alone unless the caller passes
 `overwrite=True`.
+
+Over `dw.serve --mcp` the write happens **on the server**, and there the
+destination is confined to that workspace: an absolute or `~` path outside
+it is refused, and a relative one is joined onto the workspace rather than
+onto whatever the server process's working directory happens to be. The
+transport is what distinguishes the two - on stdio "local disk" is genuinely
+the caller's own machine, over HTTP it is the operator's. Confinement is on
+the resolved real path, not a substring test, because an absolute path needs
+no `..` to reach anywhere the server can write.
 
 `dw-mcp` may be pointed at a `dw.serve` on another machine only when that
 server was started with a token, and the same token is passed here

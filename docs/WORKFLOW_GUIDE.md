@@ -336,6 +336,37 @@ in braces keeps it a plain string — `"{nf4}"` is the string `nf4`. Getting thi
 wrong fails at load time, after validation has already passed, so a value that
 is meant as text under one of those keys must be braced.
 
+### A step takes only the keys the engine reads
+
+`step`, `task`, `workflow` and `pipeline_reference` are closed objects: a
+property the engine does not read is a validation error naming the step and
+the key, not a warning. There is no `when`, no `retry`, no `select` - if a
+draft reaches for one, the shape it wants is a different arrangement of
+steps, not a flag. The error exists because a plausible invented key used to
+validate cleanly and then do nothing, so the expensive work ran with the
+input silently having had no effect. `result` and `from_pretrained_arguments`
+are open on purpose; `pipeline` is open because a component's name is one of
+its keys.
+
+### Where a workflow may read and reach
+
+An argument that names a *location* is confined, untrusted (the default):
+
+- a path must resolve inside the workflow's own directory, the asset
+  libraries, or the output root. An absolute path elsewhere is refused
+  whether or not it exists. The remedy is `upload_asset` (or `keep_output`)
+  and an `asset:` reference - which is what those exist for.
+- a `glob` is confined the same way, and each match re-checked.
+- an `http(s)` URL may not resolve to an address inside the deployment -
+  loopback, link-local, private ranges.
+- `remote_text_encoder.url` is https-only, and only a HuggingFace host is
+  sent this machine's token.
+- `model_name` must be a Hub repo id, or a path inside one of those roots.
+
+All of it is reported by `validate_workflow`, before anything is queued, so
+a draft that names a file the server may not read costs nothing to find out.
+`get_server_info`'s `trust_workflows` says which posture is in force.
+
 ### Remote code is refused by default
 
 A server started without `--trust-workflows` refuses any
@@ -343,7 +374,7 @@ A server started without `--trust-workflows` refuses any
 `custom_pipeline`, at load time, after validation has passed. Use a
 pipeline diffusers ships: no bundled catalog entry carries either key, and a
 workflow that does runs only on a server whose operator turned trust on,
-which `get_server_info` does not report.
+which `get_server_info` reports as `trust_workflows`.
 
 ### Several `previous_result` references multiply
 

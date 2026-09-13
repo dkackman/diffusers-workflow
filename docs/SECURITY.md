@@ -91,6 +91,47 @@ diffusers' remote-code paths open. No bundled catalog entry sets either
 (`tests/test_catalog_structure.py` refuses one that does); a workflow that
 needs them needs `--trust-workflows`.
 
+### Where a workflow may read and reach (`dw/locations.py`)
+
+Code execution is not the only thing a workflow file chooses. Its arguments
+choose *locations* - which image to open, which URL to fetch, which
+directory a glob expands over - and until 2026-09-13 each loader trusted the
+one it was handed. A workflow could name `/usr/share/pixmaps/debian-logo.png`
+as its `image` and get it decoded, glob `/usr/share/pixmaps/*.png` and get
+every match republished verbatim as an output, or point an `image` at
+`http://127.0.0.1:8765` and have the server fetch its own loopback.
+`remote_text_encoder.url` was the worst of them: the request carries this
+machine's HuggingFace token.
+
+One policy now answers all of it, untrusted:
+
+- **A path** must resolve inside a root this installation already works in -
+  the workflow file's own directory, the asset libraries on the search path,
+  the output root. `validate_path` already refuses `..`, so in practice this
+  closes the absolute path that pointed somewhere else entirely. The remedy
+  for a file outside is to put it in the asset library and use an `asset:`
+  reference. Containment is checked **before** existence, so the refusal
+  cannot be used as a file-existence oracle.
+- **A glob** is contained the same way, on the fixed directory its pattern
+  starts from, and every match is re-checked on its real path so a symlink
+  cannot carry the expansion out.
+- **An `http(s)` URL** must not resolve to an address inside the deployment -
+  loopback, link-local (`169.254.0.0/16`, the cloud metadata address),
+  private ranges. Checked after DNS resolution, not on the literal string.
+- **`remote_text_encoder.url`** is https-only, and the HuggingFace token is
+  attached only for `huggingface.co`, `huggingface.cloud` and `hf.space`. An
+  endpoint elsewhere is still reachable; it just does not get the credential.
+- **`model_name`** must be a Hub repo id or a path inside a root - the same
+  shape check `download_model` has always applied to `repo_id`.
+
+Enforced twice: `location_errors` runs inside `validation_errors`, so
+`validate_workflow` refuses before a model load is spent on the run, and the
+loaders call the same functions for a location that arrives through a
+variable or a previous result. All of it yields to `--trust-workflows`.
+
+`GET /api/server` reports `trust_workflows`, so a client can read the posture
+it is running against rather than infer it.
+
 `--trust-workflows` is a blanket, process-wide choice - it is not scoped
 per-workflow or per-request. A `dw-serve` instance that accepts jobs from
 anything other than yourself (including an MCP client - see below) should
@@ -160,10 +201,13 @@ SecurityError
 - **Path traversal** — Cannot access files outside allowed directories
 - **Command injection** — No shell interpretation is used anywhere in `dw/`; `sanitize_command_args()` is available as a guard should a subprocess call be added
 - **Resource exhaustion** — File size limits prevent memory exhaustion
-- **Malicious URLs** — Only http/https schemes allowed
+- **Malicious URLs** — Only http/https schemes allowed, and an untrusted
+  workflow may not name a host inside the deployment (SSRF)
+- **Arbitrary file read through a media argument** — a location a workflow
+  supplies is confined to the roots it may read (`dw/locations.py`)
 
 ## Testing
 
 ```bash
-pytest tests/test_security.py -v
+pytest tests/test_security.py tests/test_locations.py tests/test_workflow_trust.py -v
 ```
