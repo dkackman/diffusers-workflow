@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
 import { api } from '../api'
@@ -13,9 +13,17 @@ const stream = vi.hoisted(() => ({
 const metadata = vi.hoisted(() => ({
   byFile: {} as Record<string, Record<string, unknown>>,
 }))
-// The definition the job ran, for the flow view and the unsaved reasons
+// The definition the job ran, for the flow view and the unsaved reasons,
+// and whether it is the realized copy or the definition as submitted
 const ran = vi.hoisted(() => ({
   definition: null as Record<string, any> | null,
+  realized: true,
+}))
+
+// Monaco cannot boot in jsdom; the page's JSON view is tested through this
+// stub, which renders the value it was handed as plain text
+vi.mock('../editor/JsonEditor.svelte', async () => ({
+  default: (await import('./JsonEditorStub.svelte')).default,
 }))
 
 vi.mock('../api', () => ({
@@ -23,7 +31,11 @@ vi.mock('../api', () => ({
   api: {
     getJob: vi.fn(() => Promise.resolve(detail.job)),
     getJobWorkflow: vi.fn(() =>
-      Promise.resolve({ definition: ran.definition, seed_variable: null }),
+      Promise.resolve({
+        definition: ran.definition,
+        realized: ran.realized,
+        seed_variable: null,
+      }),
     ),
     galleryMetadata: vi.fn((name: string) =>
       Promise.resolve({
@@ -67,6 +79,7 @@ afterEach(() => {
   stream.onEvent = null
   metadata.byFile = {}
   ran.definition = null
+  ran.realized = true
   vi.mocked(api.galleryMetadata).mockClear()
 })
 
@@ -350,4 +363,24 @@ it('says nothing about an acknowledgement a run did not carry', async () => {
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('j1')).toBeTruthy())
   expect(screen.queryByText(/acknowledged/)).toBeNull()
+})
+
+it('offers the workflow JSON behind a toggle, labelled as the realized copy', async () => {
+  ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+  // The JSON is for the curious, not the default view
+  expect(screen.queryByTestId('json-editor')).toBeNull()
+  await fireEvent.click(screen.getByRole('button', { name: 'show JSON' }))
+  const shown = await screen.findByTestId('json-editor')
+  // What the viewer is handed is the definition the page fetched
+  expect(shown.textContent).toContain('"name": "base"')
+  expect(screen.getByRole('button', { name: 'hide JSON' })).toBeTruthy()
+})
+
+it('labels a definition with no realized copy on file as submitted', async () => {
+  ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+  ran.realized = false
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
 })
