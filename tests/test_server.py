@@ -68,6 +68,8 @@ class ScriptedWorkerManager:
         self.worker_active = False
         self.worker_process = None
         self._results = queue.Queue()
+        # What a probe_cache command answers with
+        self.cached_steps = []
 
     def ensure_worker(self, log_level="INFO"):
         self.worker_active = True
@@ -82,6 +84,10 @@ class ScriptedWorkerManager:
         elif command["type"] == "memory_status":
             self._results.put(
                 {"type": "memory_status", "info": {"gpu_available": True}}
+            )
+        elif command["type"] == "probe_cache":
+            self._results.put(
+                {"type": "probe_cache", "cached": list(self.cached_steps)}
             )
 
     def get_result(self, timeout=None):
@@ -3681,3 +3687,41 @@ class TestValidatePlan:
             body["arguments"] = {"prompt": "something else"}
             two = client.post("/api/validate?sizes=false", json=body).json()["plan"]
         assert one["fingerprint"] != two["fingerprint"]
+
+
+PROBE = {"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}
+
+
+class TestProbeCache:
+    def test_asks_the_worker_and_returns_its_answer(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            manager.worker_manager.ensure_worker()
+            manager.worker_manager.cached_steps = ["gen"]
+            assert manager.probe_cache(PROBE) == ["gen"]
+            sent = manager.worker_manager.commands[-1]
+            assert sent["type"] == "probe_cache"
+            assert sent["workflow_path"] == "x.json"
+
+    def test_no_worker_means_an_empty_cache(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            assert manager.worker_manager.worker_active is False
+            assert manager.probe_cache(PROBE) == []
+            assert manager.worker_manager.commands == []
+
+    def test_a_running_job_means_unknown(self, server):
+        with server(hanging_script) as client:
+            response = client.post("/api/jobs", json={"workflow": valid_workflow()})
+            job_id = response.json()["id"]
+            wait_for_status(client, job_id, ("running",))
+            manager = client.app.state.job_manager
+            assert manager.probe_cache(PROBE) is None
+            client.post(f"/api/jobs/{job_id}/cancel")
+
+    def test_an_unanswered_probe_is_unknown(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            manager.worker_manager.ensure_worker()
+            manager.worker_manager.send_command = lambda command: None
+            assert manager.probe_cache(PROBE, timeout=0.05) is None

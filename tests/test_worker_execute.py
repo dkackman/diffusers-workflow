@@ -264,3 +264,70 @@ def test_a_failed_run_drops_the_traceback_before_reclaiming():
             _execute(worker, FailingWorkflow())
 
     assert alive_at_cleanup == [False]
+
+
+class ProbableWorkflow(StubWorkflow):
+    def __init__(self, hits):
+        super().__init__()
+        self.hits = hits
+        self.probed_with = None
+
+    def cache_hits(self, arguments):
+        self.probed_with = arguments
+        return list(self.hits)
+
+
+def test_probe_cache_answers_with_the_workflows_hits():
+    worker = _make_worker()
+    workflow = ProbableWorkflow(["gen"])
+    command = {
+        "type": "probe_cache",
+        "workflow_path": "x.json",
+        "arguments": {"prompt": "p"},
+        "output_dir": "/tmp",
+    }
+    with patch("dw.worker.workflow_from_file", return_value=workflow):
+        worker._handle_probe_cache(command)
+    assert _drain(worker.result_queue) == [{"type": "probe_cache", "cached": ["gen"]}]
+    assert workflow.probed_with == {"prompt": "p"}
+
+
+def test_probe_cache_reports_a_failure_as_unknown_not_as_a_crash():
+    worker = _make_worker()
+    with patch("dw.worker.workflow_from_file", side_effect=ValueError("bad file")):
+        worker._handle_probe_cache(
+            {
+                "type": "probe_cache",
+                "workflow_path": "x.json",
+                "arguments": {},
+                "output_dir": "/tmp",
+            }
+        )
+    [answer] = _drain(worker.result_queue)
+    assert answer["type"] == "probe_cache"
+    assert answer["cached"] is None
+    assert "bad file" in answer["error"]
+
+
+def test_probe_cache_activates_the_jobs_asset_dir(tmp_path):
+    worker = _make_worker()
+    seen = {}
+
+    class AssetAwareWorkflow(ProbableWorkflow):
+        def cache_hits(self, arguments):
+            from dw.assets import get_asset_dir
+
+            seen["asset_dir"] = get_asset_dir()
+            return []
+
+    with patch("dw.worker.workflow_from_file", return_value=AssetAwareWorkflow([])):
+        worker._handle_probe_cache(
+            {
+                "type": "probe_cache",
+                "workflow_path": "x.json",
+                "arguments": {},
+                "output_dir": "/tmp",
+                "asset_dir": str(tmp_path),
+            }
+        )
+    assert seen["asset_dir"] == str(tmp_path)

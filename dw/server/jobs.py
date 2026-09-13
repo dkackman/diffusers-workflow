@@ -1151,6 +1151,36 @@ class JobManager:
             "age_seconds": age,
         }
 
+    def probe_cache(self, command, timeout=5):
+        """Which steps the worker's step cache would serve for `command` (the
+        fields an execute command carries, minus its type), or None when the
+        answer cannot be had right now - a job is running, the worker is
+        busy, or it did not answer in time. Never blocks a request behind a
+        running job, for the same reason memory_status does not.
+
+        No worker running is a definite answer, not an unknown one: the
+        cache lives in the worker process, so a worker that is not running
+        holds nothing.
+        """
+        if self._current_job_id is not None:
+            return None
+        if not self.worker_manager.worker_active:
+            return []
+        if not self._worker_lock.acquire(timeout=2):
+            return None
+        try:
+            self.worker_manager.send_command({"type": "probe_cache", **command})
+            result = self.worker_manager.get_result(timeout=timeout)
+        except (RuntimeError, queue.Empty) as e:
+            logger.debug(f"Worker did not answer the cache probe: {e}")
+            return None
+        finally:
+            self._worker_lock.release()
+        if result.get("type") != "probe_cache":
+            return None
+        cached = result.get("cached")
+        return list(cached) if isinstance(cached, list) else None
+
     def memory_status(self, timeout=5):
         """Live memory stats when the worker is idle; the run's last report
         while it is busy. The lock acquire is bounded: the runner holds
