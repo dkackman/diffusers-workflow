@@ -73,6 +73,11 @@ from .security import (
     InvalidInputError,
     UntrustedWorkflowError,
 )
+from .workflow_sources import (
+    builtin_root,
+    resolve_sub_workflow,
+    SubWorkflowNotFound,
+)
 
 logger = logging.getLogger("dw")
 
@@ -270,6 +275,22 @@ class Workflow:
     # leaves no manifest of its own, since its steps are already rolled up
     # into the parent's
     _run_dir_inherited = False
+    # Where the parent step that delegated to this workflow sits in the
+    # run the caller queued: {"step", "index", "total_steps"}. A child
+    # counts its own steps from zero, so without this a composed run
+    # reported "step 1 of 1" from inside the first of the parent's three
+    # (#90) - and "is this nearly finished" is the whole question progress
+    # answers. Handed straight down to a grandchild, so the numbers always
+    # describe the run that was queued
+    _parent_progress = None
+    # Whether the parent step that composed this workflow declares a
+    # `result` of its own. It does the saving then, and this run's last step
+    # does not: the two used to write the same artifact twice, once under
+    # the parent step's name and subfolder and once under the child's, with
+    # the child's entry shadowing a manifest key the caller never wrote
+    # (#92). A child whose parent declares nothing still saves, since
+    # otherwise the output would exist nowhere
+    _final_save_owned_by_parent = False
 
     def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
@@ -292,11 +313,37 @@ class Workflow:
     def variables(self):
         return self.workflow_definition.get("variables", {})
 
+    def step_save_name(self, workflow_id, step_name, index):
+        """The base name a step's files are written under.
+
+        Inside a composed child the parent step's name leads, so two steps
+        composing the same workflow do not both want one name and get told
+        apart by a '-2' suffix that says nothing about which step made it
+        (#92).
+        """
+        base = f"{workflow_id}-{step_name}.{index}"
+        parent = self._parent_progress
+        return f"{parent['step']}.{base}" if parent else base
+
+    def _parent_progress_fields(self):
+        """The queued run's own step counter, on an event a sub-workflow
+        emits - empty for a top-level run, whose index is already that."""
+        parent = self._parent_progress
+        if not parent:
+            return {}
+        return {
+            "parent_step": parent["step"],
+            "parent_index": parent["index"],
+            "parent_total_steps": parent["total_steps"],
+        }
+
     def step_file_prefix(self, step_name):
         """Naming prefix for files a step writes on its own (chain segment
         spills), matching the workflow-id-step naming its results are saved
         under."""
-        return f"{self.name}-{step_name}"
+        prefix = f"{self.name}-{step_name}"
+        parent = self._parent_progress
+        return f"{parent['step']}.{prefix}" if parent else prefix
 
     @property
     def effective_output_dir(self):
@@ -385,10 +432,136 @@ class Workflow:
             definition = replace_variables(definition, variables)
         return expand_for_each(definition, source_indices)
 
-    def validation_errors(self, arguments=None):
+    def resolve_sub_workflow_path(self, path):
+        """Where one sub-workflow step's `path` resolves to, as
+        (path, root) - the same resolution create_step_action does, asked
+        ahead of the run so validation can answer for free what used to cost
+        a queued job to find out (#89).
+
+        Raises SubWorkflowNotFound, SecurityError or InvalidInputError,
+        each carrying the message the run would have failed with.
+        """
+        confine_to = self.workflow_dir
+        if path.startswith("builtin:"):
+            builtin_name = path.replace("builtin:", "")
+            if (
+                not builtin_name.endswith(".json")
+                or "/" in builtin_name
+                or "\\" in builtin_name
+            ):
+                raise InvalidInputError(
+                    f"Invalid builtin workflow name: {builtin_name}"
+                )
+            confine_to = builtin_root()
+            resolved = os.path.join(confine_to, builtin_name)
+            if not os.path.isfile(resolved):
+                raise SubWorkflowNotFound(path, [resolved])
+            return validate_workflow_path(resolved, confine_to), confine_to
+        if confine_to is None and not os.path.isabs(path):
+            confine_to = catalog_root_dir(self.file_spec)
+        resolved, confine_to = resolve_sub_workflow(
+            path, os.path.dirname(self.file_spec), confine_to
+        )
+        return validate_workflow_path(resolved, confine_to), confine_to
+
+    def sub_workflow_errors(self, expanded, source_indices=None, composing=None):
+        """Every sub-workflow step whose `path` names nothing this server can
+        reach, composes a workflow already on the chain, or resolves to a
+        workflow that does not itself validate.
+
+        `composing` is the resolved path of every workflow above this one,
+        which is what makes a cycle an error here rather than a recursion
+        the run discovers.
+        """
+        errors = []
+        composing = list(composing or [])
+        for index, step in enumerate(expanded.get("steps", []) or []):
+            reference = step.get("workflow")
+            if not isinstance(reference, dict) or not isinstance(
+                reference.get("path"), str
+            ):
+                continue
+            source = source_indices[index] if source_indices else index
+            where = f"steps[{source}].workflow.path"
+            path = reference["path"]
+            try:
+                resolved, root = self.resolve_sub_workflow_path(path)
+            except (SubWorkflowNotFound, SecurityError, InvalidInputError) as e:
+                errors.append({"path": where, "message": str(e)})
+                continue
+            if resolved in composing:
+                errors.append(
+                    {
+                        "path": where,
+                        "message": (
+                            f"Sub-workflow '{path}' composes a workflow that "
+                            "is already composing it - a cycle: "
+                            + " -> ".join(composing + [resolved])
+                        ),
+                    }
+                )
+                continue
+            try:
+                child = workflow_from_file(resolved, self.output_dir, root)
+            except Exception as e:
+                errors.append({"path": where, "message": f"Sub-workflow '{path}': {e}"})
+                continue
+            for error in child.validation_errors(composing=composing + [resolved]):
+                errors.append(
+                    {
+                        "path": f"{where} -> {error['path']}",
+                        "message": f"Sub-workflow '{path}': {error['message']}",
+                    }
+                )
+        return errors
+
+    def sub_workflow_warnings(self, expanded=None):
+        """An argument a sub-workflow step passes down that the workflow it
+        composes declares no variable for - dropped in silence at run time,
+        and composition is exactly where a name drifts (#89)."""
+        warnings = []
+        try:
+            expanded = expanded if expanded is not None else self.expanded_definition()
+        except Exception:
+            return warnings
+        for index, step in enumerate(expanded.get("steps", []) or []):
+            reference = step.get("workflow")
+            if not isinstance(reference, dict):
+                continue
+            passed = reference.get("arguments")
+            if not isinstance(passed, dict) or not isinstance(
+                reference.get("path"), str
+            ):
+                continue
+            try:
+                resolved, root = self.resolve_sub_workflow_path(reference["path"])
+                child = workflow_from_file(resolved, self.output_dir, root)
+            except Exception:
+                # An unresolvable path is an error, reported by
+                # sub_workflow_errors - not a second complaint here
+                continue
+            declared = child.workflow_definition.get("variables") or {}
+            for name in sorted(set(passed) - set(declared)):
+                warnings.append(
+                    {
+                        "path": f"steps[{index}].workflow.arguments.{name}",
+                        "message": (
+                            f"'{reference['path']}' declares no variable "
+                            f"'{name}' - the value is dropped. Declared: "
+                            + (", ".join(sorted(declared)) or "<none>")
+                        ),
+                    }
+                )
+        return warnings
+
+    def validation_errors(self, arguments=None, composing=None):
         """Every schema violation in the definition, as [{path, message}];
         empty when it validates. `arguments` are the caller's, so a
-        for_each over a list the caller supplies is checked as it will run."""
+        for_each over a list the caller supplies is checked as it will run.
+
+        `composing` carries the chain of sub-workflows above this one, so a
+        workflow that composes itself is an error rather than a recursion.
+        """
         errors = validate_data_all(self.workflow_definition, load_schema("workflow"))
         # Only once the shape is known good: the passes below walk the
         # steps array and a definition that fails the schema may have no
@@ -415,9 +588,11 @@ class Workflow:
             # reported against 'variables' as a whole rather than escaping
             # as an unhandled exception
             return [{"path": "variables", "message": str(e)}]
-        return previous_result_reference_errors(
-            expanded, source_indices
-        ) + subfolder_errors(expanded, source_indices)
+        return (
+            previous_result_reference_errors(expanded, source_indices)
+            + subfolder_errors(expanded, source_indices)
+            + self.sub_workflow_errors(expanded, source_indices, composing)
+        )
 
     def _undeclared_variable_errors(self, arguments=None):
         """Every 'variable:' reference naming nothing the workflow declares.
@@ -701,6 +876,7 @@ class Workflow:
                     step=step_data["name"],
                     index=i,
                     total_steps=len(steps),
+                    **self._parent_progress_fields(),
                 )
 
                 # Seeds resolve most-specific-first: pipeline > step > workflow
@@ -730,10 +906,21 @@ class Workflow:
                 # A sub-workflow step is never cacheable: its files roll up
                 # from the child's own manifest, which a hit does not rebuild.
                 is_cacheable = "workflow" not in step_data and cache_enabled_this_run
+                # The last step of a composed child whose parent does the
+                # saving (#92) - its files are the parent step's, written
+                # once, under the parent's name and subfolder
+                parent_saves_this = (
+                    self._final_save_owned_by_parent and i == len(steps) - 1
+                )
                 step_data_snapshot = None
                 if is_cacheable:
                     try:
                         step_data_snapshot = copy.deepcopy(step_data)
+                        if parent_saves_this:
+                            # Keyed apart from the same step run standalone:
+                            # this entry's result was never saved here, so a
+                            # standalone hit on it would report no files
+                            step_data_snapshot["__saved_by_parent__"] = True
                     except Exception as ex:
                         # A realized argument that cannot be deep-copied (an
                         # open handle, a live model object) just means this
@@ -776,6 +963,24 @@ class Workflow:
                     step_seed,
                     get_device(),
                 )
+                if isinstance(step_action, Workflow):
+                    # The child reports into this run's counter rather than
+                    # its own, and a grandchild reports into the same one
+                    step_action._parent_progress = self._parent_progress or {
+                        "step": step_data["name"],
+                        "index": i,
+                        "total_steps": len(steps),
+                    }
+                    # Only when the parent's own result would write
+                    # something: a result block that names no content_type,
+                    # or says save: false, saves nothing, and suppressing
+                    # the child's save for it would lose the artifact
+                    parent_result = step_data.get("result")
+                    step_action._final_save_owned_by_parent = bool(
+                        isinstance(parent_result, dict)
+                        and parent_result.get("content_type")
+                        and parent_result.get("save", True)
+                    )
                 reused = cached_result is not None
                 if reused:
                     logger.info(f"Step '{step.name}' unchanged - reusing cached result")
@@ -830,9 +1035,13 @@ class Workflow:
                     )
 
                 if not reused:
-                    saved_files = result.save(
-                        self.step_output_dir(step_data),
-                        f"{workflow_id}-{step.name}.{i}",
+                    saved_files = (
+                        []
+                        if parent_saves_this
+                        else result.save(
+                            self.step_output_dir(step_data),
+                            self.step_save_name(workflow_id, step.name, i),
+                        )
                     )
                     if is_cacheable:
                         step_cache.put(
@@ -857,7 +1066,11 @@ class Workflow:
                 }
                 if reused:
                     manifest_entry["reused"] = True
-                self.manifest.append(manifest_entry)
+                # No entry at all for a step the parent saves for: the
+                # parent's own entry names the same files, under the step
+                # name the caller wrote (#92)
+                if not parent_saves_this:
+                    self.manifest.append(manifest_entry)
                 # roll the child's saves up so job history and the gallery see
                 # every file
                 self.manifest.extend(sub_manifest)
@@ -870,6 +1083,7 @@ class Workflow:
                     step=step.name,
                     index=i,
                     total_steps=len(steps),
+                    **self._parent_progress_fields(),
                     **step_end_data,
                 )
                 logger.debug(f"Step {step.name} completed with result: {result}")
@@ -1149,24 +1363,28 @@ class Workflow:
                         os.path.dirname(os.path.abspath(__file__)), "workflows"
                     )
                     path = os.path.join(confine_to, builtin_name)
-                # Handle relative paths. A template under templates/ names a
-                # model config as '../models/x.json'; collapsing the '..' here
-                # is what lets the validator judge where the path actually
-                # lands rather than refusing the spelling - containment is
-                # still checked on the resolved path below
-                elif not os.path.isabs(path):
-                    base_dir = os.path.dirname(self.file_spec)
-                    path = os.path.normpath(os.path.join(base_dir, path))
-                    # An unconfined run (no workflow_dir - a bare CLI
-                    # invocation) used to rely on the '..' regex alone to
-                    # stop a relative reference from leaving the file's own
-                    # directory; normalising the path removes that guard, so
-                    # here confine it to the catalog root instead - the
-                    # referencing file's nearest ancestor literally named
-                    # 'workflows', which still lets it climb to a sibling
-                    # folder like models/ but not out of the catalog
-                    if confine_to is None:
+                # Everything else - a relative path, or a catalog name as
+                # list_workflows reports it - goes through the search path.
+                # A template under templates/ names a model config as
+                # '../models/x.json', so a path relative to the referencing
+                # file still resolves first and the '..' is collapsed here,
+                # which is what lets the validator judge where the path
+                # actually lands rather than refusing the spelling;
+                # containment is still checked on the resolved path below.
+                # An unconfined run (no workflow_dir - a bare CLI
+                # invocation) used to rely on the '..' regex alone to stop a
+                # relative reference from leaving the file's own directory;
+                # normalising the path removes that guard, so confine it to
+                # the catalog root instead - the referencing file's nearest
+                # ancestor literally named 'workflows', which still lets it
+                # climb to a sibling folder like models/ but not out of the
+                # catalog
+                else:
+                    if confine_to is None and not os.path.isabs(path):
                         confine_to = catalog_root_dir(self.file_spec)
+                    path, confine_to = resolve_sub_workflow(
+                        path, os.path.dirname(self.file_spec), confine_to
+                    )
 
                 # Validate the resolved path - confined when this workflow
                 # itself is (an inline/server-submitted run), so a

@@ -163,3 +163,105 @@ def listing(sources):
         for name in source.names():
             found.setdefault(name, source)
     return dict(sorted(found.items()))
+
+
+def fallback_roots(primary=None):
+    """The read-only workflow roots a sub-workflow name is resolved against
+    after the directory the run is confined to.
+
+    Pinned in DW_WORKFLOW_PATH by dw.serve, the same way the prompt and
+    asset libraries are, so the worker resolves a composed template exactly
+    as the API would.
+    """
+    from .workspace import WORKFLOWS_SUBDIR, library_fallbacks
+
+    return library_fallbacks(WORKFLOWS_SUBDIR, primary)
+
+
+def _candidate_names(name):
+    """A name as written, and with .json appended when it has no extension -
+    the catalog reports names without it, and run_workflow's workflow_path
+    takes either (#90)."""
+    names = [name]
+    if not name.endswith(".json"):
+        names.append(f"{name}.json")
+    return names
+
+
+class SubWorkflowNotFound(Exception):
+    """A sub-workflow step's path names nothing on the search path."""
+
+    def __init__(self, path, tried):
+        self.path = path
+        # In order, each candidate once - two roots can resolve one name to
+        # the same file, and saying so twice reads as two failures
+        self.tried = list(dict.fromkeys(tried))
+        detail = "\n  ".join(self.tried)
+        super().__init__(
+            f"Sub-workflow '{path}' could not be resolved. It is read as a "
+            "catalog name from list_workflows (with or without .json), or a "
+            "path relative to the workflow that names it. Looked in:"
+            f"\n  {detail}"
+        )
+
+
+def resolve_sub_workflow(path, base_dir, confine_to):
+    """Where a sub-workflow step's `path` resolves to, and the root the
+    child is confined to, as (path, root).
+
+    Order, first hit wins:
+
+      1. relative to the directory of the workflow that names it - which is
+         how a template reaches '../models/x.json', and stays first so an
+         existing composition keeps meaning what it did
+      2. the same, with '.json' supplied
+      3. the run's own workflow root (a workspace's workflows/), by catalog
+         name, with or without '.json'
+      4. each read-only root on the search path, the same way - which is
+         what lets a stored template be composed rather than copied (#90)
+
+    An absolute path is taken as written and confined to whichever root
+    holds it, so the sandbox still refuses one that belongs to no source.
+
+    Raises SubWorkflowNotFound, naming every candidate it looked at.
+    """
+    roots = []
+    if confine_to:
+        roots.append(os.path.abspath(os.path.expanduser(str(confine_to))))
+    for root in fallback_roots(roots[0] if roots else None):
+        if root not in roots:
+            roots.append(root)
+
+    tried = []
+    if os.path.isabs(path):
+        candidate = os.path.normpath(path)
+        tried.append(candidate)
+        for root in roots:
+            source = WorkflowSource(root, EXAMPLES_ORIGIN, False)
+            if source.contains(candidate) and os.path.isfile(candidate):
+                return candidate, root
+        # No root holds it - hand it back confined as it was, so the
+        # security layer writes the refusal it always did
+        return candidate, confine_to
+
+    if base_dir:
+        for name in _candidate_names(path):
+            candidate = os.path.normpath(os.path.join(base_dir, name))
+            tried.append(candidate)
+            if os.path.isfile(candidate):
+                return candidate, confine_to
+
+    for root in roots:
+        source = WorkflowSource(root, EXAMPLES_ORIGIN, False)
+        # allow_create, because what is being asked is where the name would
+        # land rather than whether something is there - None means the name
+        # traverses out of the root, and the file check is the next line
+        candidate = resolve_in_source(source, path, allow_create=True)
+        if candidate is None:
+            tried.append(f"{os.path.join(root, path)} (outside the root)")
+            continue
+        tried.append(candidate)
+        if os.path.isfile(candidate):
+            return candidate, root
+
+    raise SubWorkflowNotFound(path, tried)

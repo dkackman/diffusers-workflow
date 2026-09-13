@@ -1353,7 +1353,10 @@ def create_app(
             "error": None,
             "errors": [],
             "warnings": workflow_argument_warnings(definition)
-            + entry_field_warnings(definition, request.arguments),
+            + entry_field_warnings(definition, request.arguments)
+            # An argument a sub-workflow step passes to a workflow that
+            # declares no variable for it - dropped in silence at run time
+            + candidate.sub_workflow_warnings(),
         }
         if request.arguments:
             # Naming what was checked is the difference between 'the stored
@@ -1510,6 +1513,13 @@ def create_app(
             "sources": [source.to_dict() for source in sources],
             "workflows": sorted(details),
             "details": details,
+            # What a `cost` is, and so what a null one means. Curated:
+            # figures a maintainer measured once on the devices named and
+            # wrote into the workflow - nothing derives them from this
+            # server's own job history, so null means nobody wrote one
+            # down, not that the run is cheap or that this box has never
+            # run it (#91)
+            "cost_basis": "curated",
         }
 
     @app.put("/api/workflows/{name:path}")

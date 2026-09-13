@@ -192,10 +192,19 @@ def main():
     # search path is what lets an example run as it shipped: the workspace's
     # own library is still searched first and is still the only one written
     # to. Pinned in the environment, so the worker resolves as the API does
-    from .workspace import ASSETS_SUBDIR, example_libraries, set_library_fallbacks
+    from .workspace import (
+        ASSETS_SUBDIR,
+        WORKFLOWS_SUBDIR,
+        example_libraries,
+        set_library_fallbacks,
+    )
 
     example_dirs = example_libraries(args.examples_dirs)
     set_library_fallbacks(PROMPTS_SUBDIR, example_dirs[PROMPTS_SUBDIR])
+    # The workflow trees themselves, so a sub-workflow step can compose a
+    # stored template by the name list_workflows reports rather than a copy
+    # of it in this workspace (#90)
+    set_library_fallbacks(WORKFLOWS_SUBDIR, args.examples_dirs)
     # The shared library goes ahead of the examples and behind the
     # workspace's own, which is the order 'asset:' resolves in: a workspace
     # name shadows a shared one, and a shared one shadows an example's.

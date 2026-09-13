@@ -167,9 +167,14 @@ def build_server(client):
         further (comma-separated, all must match): has-audio, chained,
         image-conditioned, identity-referenced, needs-input-media,
         composes-workflows. Each entry carries a one-line `summary`, its
-        `shape` and `traits` (what it needs supplied), `cost` (measured
-        runs per device; null means unknown - call `get_memory` and say
-        so), output kinds and variable names. `lists`, present for a
+        `shape` and `traits` (what it needs supplied), `cost` (curated:
+        figures a maintainer measured once on the devices named and wrote
+        into the workflow, never derived from this server's job history -
+        so null means nobody wrote one down, not that the run is cheap;
+        the answer's `cost_basis` says as much. For a null one, earlier
+        runs of the same template in `list_jobs` carry
+        `started_at`/`finished_at`, which is the measurement this box
+        actually holds), output kinds and variable names. `lists`, present for a
         list-driven workflow, names per list variable the fields an entry
         takes, the steps run over it and the default's length; there
         `cost[].per_entry`, when present, is the measured cost of one
@@ -268,6 +273,14 @@ def build_server(client):
         show what a run is holding or failing to release. A host field is
         absent, rather than null, on a platform that cannot measure it.
 
+        `host_pinned_reserved_mb` / `host_pinned_allocated_mb`, when
+        present, are torch's pinned-host cache - the staging buffers group
+        offloading moves weights through. They are part of
+        `host_memory_rss_mb` and invisible in every `gpu_*` figure, so a
+        worker that has released every model and still holds GB is usually
+        holding them (#98); they are returned when the worker switches to a
+        different workflow.
+
         `live: true` means `info` was measured now and is the worker's own
         memory - only these readings are comparable with each other.
         `live: false` means it was not: `info: null` (with `stale: false`)
@@ -318,7 +331,9 @@ def build_server(client):
             client, limit=limit, status=status, workspace=workspace
         )
 
-    def list_gallery(limit: int = 50, subfolder: str | None = None) -> dict:
+    def list_gallery(
+        limit: int = 50, subfolder: str | None = None, workspace: str | None = None
+    ) -> dict:
         """List generated output files, newest first. A name is
         <workflow>/<run id>/<file>, where <file> may itself sit in a
         subfolder the step chose (`final/episode.mp4`) - the form
@@ -331,10 +346,19 @@ def build_server(client):
         the latter, so `subfolder="final"` is "what did these runs
         deliver". Each entry also carries a ready-made `url` for viewing the
         file over HTTP, already scoped to the right workspace; use it as
-        given rather than composing one from the name."""
-        return catalog.list_gallery(client, limit=limit, subfolder=subfolder)
+        given rather than composing one from the name.
 
-    def get_gallery_metadata(name: str, envelope: bool = False) -> dict:
+        `workspace` names the workspace for this one call without
+        switching the session to it - the same pin `run_workflow`
+        takes, so a job run into another workspace is reachable from
+        here without leaving this one (#99)."""
+        return catalog.list_gallery(
+            client, limit=limit, subfolder=subfolder, workspace=workspace
+        )
+
+    def get_gallery_metadata(
+        name: str, envelope: bool = False, workspace: str | None = None
+    ) -> dict:
         """Get the metadata embedded in a generated file: the exact
         workflow, arguments and seed that produced it. Use this to
         reproduce a result, or to see what a run that went wrong actually
@@ -347,8 +371,15 @@ def build_server(client):
         track something is: whether a shot is still sounding at its last
         frame, how deep the hole at a seam goes, where a score goes quiet.
         Leave it off unless you are asking a question about a position in
-        the track - a long track is a long list."""
-        return catalog.get_gallery_metadata(client, name, envelope=envelope)
+        the track - a long track is a long list.
+
+        `workspace` names the workspace for this one call without
+        switching the session to it - the same pin `run_workflow`
+        takes, so a job run into another workspace is reachable from
+        here without leaving this one (#99)."""
+        return catalog.get_gallery_metadata(
+            client, name, envelope=envelope, workspace=workspace
+        )
 
     def list_guides() -> dict:
         """List the documentation the engine serves: each guide's
@@ -395,7 +426,7 @@ def build_server(client):
     # --------------------------------------------------------------- media
 
     def get_output_image(
-        name: str, max_dimension: int = 768
+        name: str, max_dimension: int = 768, workspace: str | None = None
     ) -> list[ImageContent | TextContent]:
         """Look at a generated image, named as `list_gallery` or a job's
         manifest reports it. Use this to judge output quality - it is the
@@ -405,8 +436,15 @@ def build_server(client):
         `get_gallery_metadata` or hand the user the file. The image is
         downscaled to `max_dimension` on its longest side; the second part
         of the result reports the size it went in and came out at, so a
-        downscale is never silent."""
-        result = media.get_output_image(client, name, max_dimension=max_dimension)
+        downscale is never silent.
+
+        `workspace` names the workspace for this one call without
+        switching the session to it - the same pin `run_workflow`
+        takes, so a job run into another workspace is reachable from
+        here without leaving this one (#99)."""
+        result = media.get_output_image(
+            client, name, max_dimension=max_dimension, workspace=workspace
+        )
         image = ImageContent(
             type="image", data=result["data"], mime_type=result["mime_type"]
         )
@@ -421,21 +459,38 @@ def build_server(client):
         )
         return [image, telemetry]
 
-    def get_output_text(name: str, max_characters: int = 20000) -> dict:
+    def get_output_text(
+        name: str, max_characters: int = 20000, workspace: str | None = None
+    ) -> dict:
         """Read a text output - a prompt enhancement, or any step whose
         result is text/plain or JSON. Truncated to `max_characters`, and
-        the reply says how long the file really was."""
-        return media.get_output_text(client, name, max_characters=max_characters)
+        the reply says how long the file really was.
 
-    def delete_output(name: str) -> dict:
+        `workspace` names the workspace for this one call without
+        switching the session to it - the same pin `run_workflow`
+        takes, so a job run into another workspace is reachable from
+        here without leaving this one (#99)."""
+        return media.get_output_text(
+            client, name, max_characters=max_characters, workspace=workspace
+        )
+
+    def delete_output(name: str, workspace: str | None = None) -> dict:
         """Permanently remove one generated file from the output directory.
         Not recoverable: rerunning the job that made it is the only way
         back, and any "output:" reference pointing at it stops resolving.
-        Prefer `keep_output` first if it is worth keeping."""
-        return media.delete_output(client, name)
+        Prefer `keep_output` first if it is worth keeping.
+
+        `workspace` names the workspace for this one call without
+        switching the session to it - the same pin `run_workflow`
+        takes, so a job run into another workspace is reachable from
+        here without leaving this one (#99)."""
+        return media.delete_output(client, name, workspace=workspace)
 
     def download_output(
-        name: str, destination: str | None = None, overwrite: bool = False
+        name: str,
+        destination: str | None = None,
+        overwrite: bool = False,
+        workspace: str | None = None,
     ) -> dict:
         """Save one output file to disk on the
         machine running the MCP server - for the stdio `dw-mcp` that is
@@ -455,9 +510,18 @@ def build_server(client):
         full path, a directory, or omitted to save into the current
         working directory under the output's own name; a '..' path segment
         in it is refused. An existing file at the resolved path is left
-        alone unless `overwrite=True`."""
+        alone unless `overwrite=True`.
+
+        `workspace` names the workspace for this one call without
+        switching the session to it - the same pin `run_workflow`
+        takes, so a job run into another workspace is reachable from
+        here without leaving this one (#99)."""
         return media.download_output(
-            client, name, destination=destination, overwrite=overwrite
+            client,
+            name,
+            destination=destination,
+            overwrite=overwrite,
+            workspace=workspace,
         )
 
     tool(get_output_image, READ_ONLY)
@@ -499,6 +563,7 @@ def build_server(client):
         asset_name: str | None = None,
         overwrite: bool = False,
         shared: bool = False,
+        workspace: str | None = None,
     ) -> dict:
         """Keep a generated file as an input asset under a stable "asset:"
         name, so later workflows can rely on it - a run's own name moves
@@ -508,9 +573,19 @@ def build_server(client):
         own. The copy happens on the server, inside the workspace: nothing
         is downloaded or re-uploaded. Pass `shared=true` to keep it in the
         library every workspace shares instead - where something a later
-        piece in its own workspace has to reach belongs."""
+        piece in its own workspace has to reach belongs.
+
+        `workspace` names the workspace for this one call without
+        switching the session to it - the same pin `run_workflow`
+        takes, so a job run into another workspace is reachable from
+        here without leaving this one (#99)."""
         return assets.keep_output(
-            client, name, asset_name=asset_name, overwrite=overwrite, shared=shared
+            client,
+            name,
+            asset_name=asset_name,
+            overwrite=overwrite,
+            shared=shared,
+            workspace=workspace,
         )
 
     def delete_asset(name: str) -> dict:
@@ -595,7 +670,15 @@ def build_server(client):
 
         A `result.subfolder` or `file_base_name` that cannot be written (a
         `..`, a backslash, a separator in `file_base_name`) is reported here
-        at its JSON path, after `for_each` expansion."""
+        at its JSON path, after `for_each` expansion.
+
+        A sub-workflow step is resolved too: a `workflow.path` that names
+        nothing this server can reach is an error at
+        `steps[N].workflow.path` (the message lists where it looked), the
+        workflow it names is validated in turn under that path, a
+        composition cycle is refused, and an argument passed down that the
+        composed workflow declares no variable for comes back as a
+        warning."""
         return authoring.validate_workflow(
             client,
             workflow=workflow,
@@ -784,9 +867,18 @@ def build_server(client):
         `denoise_step`/`denoise_total_steps`, null until the denoise loop
         starts - which is how a slow run and a stuck one tell apart between
         two otherwise identical polls. A null `denoise_step` under
-        `generating` is the pipeline's lead-in (encoding the prompt and any
-        reference image or audio, ~90 s on MiniMax H3), which emits
-        nothing: wait it out rather than reading the silence as a hang."""
+        `generating` is the pipeline's lead-in - encoding the prompt and
+        every reference - which emits nothing, and its length depends on
+        what it has to encode: on MiniMax H3 ~90 s for a prompt with an
+        image or audio reference, but ~10 min once a *video* reference is
+        among them (measured 629 s for one 5 s 960x544 clip on an RTX
+        3090). Wait it out rather than reading the silence as a hang.
+        Gaps between denoise steps are uneven too where a transformer
+        block cache is configured - most steps cheap, every few steps a
+        full one - so on H3 `seconds_since_event` of ~140 s with a number
+        in `denoise_step` is still healthy. The signal is whether
+        `denoise_step` has moved since a poll minutes ago, not silence
+        past a fixed threshold."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states

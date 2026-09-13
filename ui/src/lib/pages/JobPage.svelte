@@ -10,7 +10,12 @@
   import { ApiError, api, outputUrl, streamJobEvents } from '../api'
   import { confirmDialog } from '../confirm.svelte'
   import { go } from '../router.svelte'
-  import { groupResultFiles, sectionBySubfolder } from '../results'
+  import {
+    groupResultFiles,
+    sectionBySubfolder,
+    unsavedSteps,
+  } from '../results'
+  import { finishedNodes, flowNodeName } from '../runstate'
   import { stepProgress } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
   import CopyButton from '../CopyButton.svelte'
@@ -157,15 +162,27 @@
   const steps = $derived(
     (events.find((e) => e.event === 'workflow_start')?.steps as string[]) ?? [],
   )
-  const currentStep = $derived(
-    [...events].reverse().find((e) => e.event === 'step_start')?.step as
-      string | undefined,
+  // The step_start the run is on, as the engine named it: a for_each member
+  // keeps its '@', a sub-workflow's inner step its own name. The Progress
+  // list is written in these names, so it reads off this one.
+  const stepStart = $derived(
+    [...events].reverse().find((e) => e.event === 'step_start'),
   )
-  const finishedSteps = $derived(
-    new Set(
-      events.filter((e) => e.event === 'step_end').map((e) => e.step as string),
+  const currentStep = $derived(stepStart?.step as string | undefined)
+  // The same step in the name the definition gives it, which is what the
+  // flow graph's nodes are called - see runstate.ts for why the two differ
+  const activeNode = $derived(
+    flowNodeName(
+      stepStart?.step as string | undefined,
+      stepStart?.parent_step as string | undefined,
     ),
   )
+  // A sub-workflow's inner step has no row of its own in the Progress list,
+  // so what lights up while one runs is the composed step that queued it
+  const listStep = $derived(
+    steps.includes(currentStep ?? '') ? currentStep : activeNode,
+  )
+  const finishedSteps = $derived(finishedNodes(events as JobEvent[], steps))
   // Scoped to the step now running: its phase, and its own denoise counter
   const progress = $derived(stepProgress(events as JobEvent[]))
   const denoise = $derived(progress.denoise)
@@ -245,6 +262,13 @@
   const sections = $derived(sectionBySubfolder(fileGroups))
   const sectioned = $derived(
     sections.length > 1 || sections[0].subfolder !== '',
+  )
+  // Steps that ran and wrote no file, with the definition's reason for each.
+  // Without this a workflow that keeps most of its steps in memory shows a
+  // short Results list and no word about the rest, which reads as outputs
+  // that went missing rather than as a choice the workflow made
+  const unsaved = $derived(
+    unsavedSteps(job?.manifest, events as JobEvent[], definition),
   )
   const running = $derived(job !== null && !TERMINAL.includes(job.status))
   // A cancel requested while loading a model or running a task step has no
@@ -352,13 +376,13 @@
         <div class="step">
           <span
             class="dot"
-            class:done={finishedSteps.has(step)}
-            class:active={step === currentStep && running}
+            class:done={finishedSteps.includes(step)}
+            class:active={step === listStep && running}
           ></span>
-          <span class:muted={step !== currentStep && !finishedSteps.has(step)}
+          <span class:muted={step !== listStep && !finishedSteps.includes(step)}
             >{step}</span
           >
-          {#if step === currentStep && running}
+          {#if step === listStep && running}
             {#if denoise}
               <div class="bar">
                 <div
@@ -393,13 +417,13 @@
       <h2>Workflow</h2>
       <FlowView
         workflow={definition}
-        activeStep={running ? currentStep : undefined}
-        doneSteps={[...finishedSteps]}
+        activeStep={running ? activeNode : undefined}
+        doneSteps={finishedSteps}
       />
     </section>
   {/if}
 
-  {#if fileGroups.length}
+  {#if fileGroups.length || unsaved.length}
     <div class="panel">
       <h2>Results</h2>
       {#if allReused}
@@ -491,6 +515,27 @@
           {/each}
         {/each}
       {/each}
+      {#if unsaved.length}
+        <h3 class="subhead">Steps that wrote nothing</h3>
+        <ul class="unsaved">
+          {#each unsaved as entry (entry.node)}
+            <li>
+              <code>{entry.node}</code>
+              {#if entry.members.length}
+                <span
+                  class="muted"
+                  title="this step has for_each: {entry.members.join(', ')}"
+                  >× {entry.members.length}</span
+                >
+              {/if}
+              <span class="muted why">
+                {#if entry.reason}<code>{entry.reason.key}</code>
+                  {entry.reason.detail}{:else}no file written{/if}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
     </div>
   {/if}
 
@@ -681,5 +726,26 @@
   }
   .subhead + .stephead {
     margin-top: 0;
+  }
+  /* The steps whose files are deliberately absent: the step name is what
+     the engine resolves, the reason is written for a person */
+  .unsaved {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: var(--t-sm);
+  }
+  .unsaved li {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+  }
+  .unsaved code {
+    font-size: 0.8rem;
+  }
+  .unsaved .why {
+    min-width: 0;
   }
 </style>

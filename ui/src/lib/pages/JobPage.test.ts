@@ -13,13 +13,17 @@ const stream = vi.hoisted(() => ({
 const metadata = vi.hoisted(() => ({
   byFile: {} as Record<string, Record<string, unknown>>,
 }))
+// The definition the job ran, for the flow view and the unsaved reasons
+const ran = vi.hoisted(() => ({
+  definition: null as Record<string, any> | null,
+}))
 
 vi.mock('../api', () => ({
   ApiError: class ApiError extends Error {},
   api: {
     getJob: vi.fn(() => Promise.resolve(detail.job)),
     getJobWorkflow: vi.fn(() =>
-      Promise.resolve({ definition: null, seed_variable: null }),
+      Promise.resolve({ definition: ran.definition, seed_variable: null }),
     ),
     galleryMetadata: vi.fn((name: string) =>
       Promise.resolve({
@@ -62,8 +66,23 @@ afterEach(() => {
   cleanup()
   stream.onEvent = null
   metadata.byFile = {}
+  ran.definition = null
   vi.mocked(api.galleryMetadata).mockClear()
 })
+
+/** The flow view's box for one step of the definition. */
+function nodeFor(container: HTMLElement, name: string) {
+  return [...container.querySelectorAll('g.node')].find((node) =>
+    node.getAttribute('aria-label')?.startsWith(`step ${name},`),
+  )!
+}
+
+/** The page's "wrote nothing" rows, whitespace flattened. */
+function unsavedRows(container: HTMLElement) {
+  return [...container.querySelectorAll('.unsaved li')].map((li) =>
+    li.textContent?.replace(/\s+/g, ' ').trim(),
+  )
+}
 
 it('shows each image beside what made it, with a download link, and never probes a video', async () => {
   metadata.byFile['a.png'] = {
@@ -148,4 +167,121 @@ it('places a live step_end under its subfolder before the manifest arrives', asy
       screen.getByRole('heading', { level: 3, name: 'final/' }),
     ).toBeTruthy(),
   )
+})
+
+it('lights the for_each step in the flow chart while one of its members runs', async () => {
+  // The graph is drawn from the definition, where for_each is one step; the
+  // engine reports the members, so the two only meet at the group name
+  ran.definition = {
+    steps: [
+      {
+        name: 'shot',
+        pipeline: { configuration: { component_type: 'Fake' } },
+        for_each: 'variable:shots',
+      },
+      { name: 'episode', task: { command: 'mux' } },
+    ],
+  }
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({
+    seq: 1,
+    event: 'workflow_start',
+    steps: ['shot@open', 'shot@reveal', 'episode'],
+  })
+  stream.onEvent!({ seq: 2, event: 'step_start', step: 'shot@open' })
+  await waitFor(() =>
+    expect(nodeFor(container, 'shot').classList.contains('active')).toBe(true),
+  )
+
+  // One member of two down: the group is not behind us yet
+  stream.onEvent!({ seq: 3, event: 'step_end', step: 'shot@open', files: [] })
+  await waitFor(() =>
+    expect(nodeFor(container, 'shot').classList.contains('active')).toBe(true),
+  )
+  expect(nodeFor(container, 'shot').classList.contains('done')).toBe(false)
+
+  stream.onEvent!({ seq: 4, event: 'step_end', step: 'shot@reveal', files: [] })
+  stream.onEvent!({ seq: 5, event: 'step_start', step: 'episode' })
+  await waitFor(() =>
+    expect(nodeFor(container, 'shot').classList.contains('done')).toBe(true),
+  )
+  expect(nodeFor(container, 'episode').classList.contains('active')).toBe(true)
+})
+
+it('keeps the Progress list on the composed step while its child runs', async () => {
+  ran.definition = {
+    steps: [
+      { name: 'shot1', workflow: { path: 'child.json' } },
+      { name: 'episode', task: { command: 'mux' } },
+    ],
+  }
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({
+    seq: 1,
+    event: 'workflow_start',
+    steps: ['shot1', 'episode'],
+  })
+  // What a child emits: its own step name, with the parent's alongside
+  stream.onEvent!({
+    seq: 2,
+    event: 'step_start',
+    step: 'reference_to_video_audio',
+    parent_step: 'shot1',
+  })
+  await waitFor(() =>
+    expect(nodeFor(container, 'shot1').classList.contains('active')).toBe(true),
+  )
+  const dotFor = (name: string) =>
+    [...container.querySelectorAll('.step')]
+      .find(
+        (row) =>
+          row.querySelector('span:nth-child(2)')?.textContent?.trim() === name,
+      )!
+      .querySelector('.dot')!
+  expect(dotFor('shot1').classList.contains('active')).toBe(true)
+  expect(dotFor('episode').classList.contains('active')).toBe(false)
+})
+
+it('says why a step wrote nothing, so a deliberate non-output is not a missing one', async () => {
+  ran.definition = {
+    steps: [
+      { name: 'base', pipeline: {}, result: { save: false } },
+      { name: 'edit', task: { command: 'mux' } },
+      { name: 'film', pipeline: {}, result: { content_type: 'video/mp4' } },
+    ],
+  }
+  detail.job = job([
+    { step: 'base', files: [] },
+    { step: 'edit', files: [] },
+    { step: 'film', files: ['final/film.mp4'], subfolder: 'final' },
+  ])
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() =>
+    expect(screen.getByText('Steps that wrote nothing')).toBeTruthy(),
+  )
+  expect(unsavedRows(container)).toEqual([
+    'base result.save is false, so the step is kept in memory and never written',
+    'edit result.content_type is not declared, so there is no file type to write',
+  ])
+  // The step that did write is in the results above, not in this list
+  expect(screen.getByRole('heading', { level: 3, name: 'final/' })).toBeTruthy()
+})
+
+it('explains a run that wrote nothing at all rather than showing no results', async () => {
+  ran.definition = { steps: [{ name: 'base', result: { save: false } }] }
+  detail.job = job([{ step: 'base', files: [] }])
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() =>
+    expect(screen.getByText('Steps that wrote nothing')).toBeTruthy(),
+  )
+  expect(
+    screen.getByRole('heading', { level: 2, name: 'Results' }),
+  ).toBeTruthy()
+  expect(unsavedRows(container)).toEqual([
+    'base result.save is false, so the step is kept in memory and never written',
+  ])
 })

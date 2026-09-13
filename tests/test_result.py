@@ -1161,6 +1161,10 @@ class TestVideoFrameRate:
         assert warning["kind"] == "fps_mismatch"
         assert warning["declared_fps"] == 8
         assert warning["source_fps"] == 24
+        # 24 fps frames written at 8 play in slow motion, not fast - the
+        # factor is declared/source, and it pointed the other way (#88)
+        assert "0.33x speed" in warning["message"]
+        assert "3 times as long" in warning["message"]
 
     def test_declaring_the_rate_the_frames_carry_warns_about_nothing(self):
         from dw.events import RunContext, activate_context, deactivate_context
@@ -1176,3 +1180,94 @@ class TestVideoFrameRate:
             deactivate_context(token)
 
         assert [e for e in events if e["event"] == "warning"] == []
+
+
+class TestFramesForEncoding:
+    """What `encode_video` is handed, and why it is not the float array the
+    pipeline returned (#97)."""
+
+    def test_float_frames_in_zero_to_one_become_a_uint8_tensor(self):
+        from dw.result import frames_for_encoding
+
+        frames = numpy.zeros((2, 4, 4, 3), dtype=numpy.float32)
+        frames[1] = 1.0
+        frames[0, 0, 0] = 0.5
+
+        converted = frames_for_encoding(frames)
+
+        assert isinstance(converted, torch.Tensor)
+        assert converted.dtype == torch.uint8
+        assert converted[1].max().item() == 255
+        assert converted[0, 0, 0].tolist() == [128, 128, 128]
+
+    def test_the_source_array_is_left_alone(self):
+        """A later step can still read this result through a
+        'previous_result:' reference, and the step cache retains it."""
+        from dw.result import frames_for_encoding
+
+        frames = numpy.full((2, 2, 2, 3), 0.5, dtype=numpy.float32)
+        frames_for_encoding(frames)
+
+        assert frames.max() == 0.5 and frames.dtype == numpy.float32
+
+    def test_frames_outside_the_range_are_handed_over_untouched(self):
+        """That is diffusers' own 'assume they are pixel values' branch -
+        left to it rather than reproduced here."""
+        from dw.result import frames_for_encoding
+
+        frames = numpy.full((1, 2, 2, 3), 255.0, dtype=numpy.float32)
+
+        assert frames_for_encoding(frames) is frames
+
+    def test_anything_that_is_not_a_float_array_is_passed_through(self):
+        from dw.result import frames_for_encoding
+
+        already_uint8 = numpy.zeros((1, 2, 2, 3), dtype=numpy.uint8)
+        assert frames_for_encoding(already_uint8) is already_uint8
+        assert frames_for_encoding("frames") == "frames"
+        tensor = torch.zeros((1, 2, 2, 3))
+        assert frames_for_encoding(tensor) is tensor
+
+    def test_a_muxed_save_converts_before_it_encodes(self):
+        result = Result({"content_type": "video/mp4", "fps": 24})
+        frames = numpy.ones((1, 2, 2, 3), dtype=numpy.float32)
+        result.add_result(AudioVideo(frames, torch.zeros((2, 100)), 48000))
+
+        with (
+            patch("dw.result.encode_video") as encode,
+            patch("dw.result.is_av_available", return_value=True),
+            tempfile.TemporaryDirectory() as temp_dir,
+        ):
+            result.save(temp_dir, "test")
+
+        handed = encode.call_args.args[0]
+        assert isinstance(handed, torch.Tensor) and handed.dtype == torch.uint8
+
+
+class TestSavingIsNarrated:
+    """The 'saving' phase used to emit nothing at all - on a video template
+    that is minutes with the denoise counter frozen at its last step, which
+    is indistinguishable from a hang (#97)."""
+
+    def events_of_a_save(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            result = Result({"content_type": "text/plain"})
+            result.add_result("some text")
+            with tempfile.TemporaryDirectory() as temp_dir:
+                result.save(temp_dir, "test")
+        finally:
+            deactivate_context(token)
+        return [e for e in events if e["event"] == "log"]
+
+    def test_the_file_is_named_as_it_starts_and_costed_as_it_finishes(self):
+        logs = self.events_of_a_save()
+
+        assert len(logs) == 2
+        assert logs[0]["message"].startswith("writing test-0.0.txt")
+        assert logs[1]["message"].startswith("wrote test-0.0.txt in ")
+        assert logs[0]["file"] == logs[1]["file"] == "test-0.0.txt"
+        assert isinstance(logs[1]["seconds"], float)

@@ -1,4 +1,5 @@
 import os
+import time
 import numpy
 import torch
 import soundfile
@@ -12,7 +13,7 @@ from diffusers.utils import (
     is_av_available,
 )
 from collections.abc import Mapping
-from .events import emit_phase, emit_warning
+from .events import emit_log, emit_phase, emit_warning
 from .security import (
     SecurityError,
     validate_file_base_name,
@@ -29,6 +30,64 @@ DEFAULT_AUDIO_SAMPLE_RATE = 44100
 # says - a diffusers convention old enough that changing it would restate
 # every existing workflow's output
 DEFAULT_VIDEO_FPS = 8
+
+
+def _artifact_size(artifact):
+    """How much there is to write, said the way the thing itself counts -
+    frames for a video, samples for a waveform. Best effort: it is narration
+    beside a file name, so anything it cannot measure it does not mention."""
+    try:
+        frames = getattr(artifact, "frames", None)
+        if frames is not None:
+            return f"{len(frames)} frames"
+        if hasattr(artifact, "__len__") and not isinstance(artifact, (str, bytes)):
+            return f"{len(artifact)} frames"
+    except Exception:
+        pass
+    return ""
+
+
+def _file_size_mb(path):
+    try:
+        return os.path.getsize(path) / (1024 * 1024)
+    except OSError:
+        return 0.0
+
+
+def frames_for_encoding(frames):
+    """Generated frames in the form `encode_video` encodes without first
+    inspecting them.
+
+    A pipeline that returns `output_type="np"` hands back float frames in
+    [0, 1], and diffusers' `encode_video` establishes that range with three
+    full-size temporaries - `np.zeros_like`, `np.ones_like` and the bool
+    mask - before converting. On a 121-frame 960x544 clip that is ~3 GB of
+    allocation and 16 s of wall clock on an idle box, against 2.4 s for the
+    encode itself, and it is the bulk of a 'saving' phase that ran for 53 s
+    with nothing else in it (#97, measured on lem 2026-09-14).
+
+    Converting here is a pass and a half and hands back a torch tensor,
+    which `encode_video` takes as given - so the check never runs. Frames
+    outside [0, 1] are left exactly as they were: that is the branch where
+    diffusers warns and treats them as pixel values already, and it is not
+    a path any pipeline here produces or that this can be tested against.
+
+    The source array is never written to - a later step may still read this
+    result through a `previous_result:` reference, and the step cache
+    retains it.
+    """
+    if not isinstance(frames, numpy.ndarray) or frames.size == 0:
+        return frames
+    if not numpy.issubdtype(frames.dtype, numpy.floating):
+        return frames
+    if float(frames.min()) < 0.0 or float(frames.max()) > 1.0:
+        return frames
+    denormalized = numpy.empty(frames.shape, dtype=numpy.uint8)
+    # Frame by frame: the whole-array form allocates another copy the size
+    # of the video, which is the cost this exists to avoid
+    for index in range(frames.shape[0]):
+        denormalized[index] = numpy.round(frames[index] * 255.0)
+    return torch.from_numpy(denormalized)
 
 
 def output_file_path(output_dir, file_name):
@@ -408,6 +467,20 @@ class Result:
 
         output_path = output_file_path(output_dir, f"{file_base_name}{extension}")
         logger.info(f"Saving artifact to {output_path}")
+        # Writing one file is the whole of the 'saving' phase's wall clock,
+        # and on a video it is minutes of it with nothing else to report -
+        # the denoise counter is frozen at its last step and there is no
+        # further event until step_end, so a healthy run is indistinguishable
+        # from a hung one (#97). Name the file as it starts and report what
+        # it cost as it finishes, the same shape the modular block lead-in
+        # got in #95
+        emit_log(
+            f"writing {os.path.basename(output_path)}"
+            + (f" ({_artifact_size(artifact)})" if _artifact_size(artifact) else ""),
+            file=os.path.basename(output_path),
+            content_type=content_type,
+        )
+        started = time.monotonic()
 
         try:
             if content_type.startswith("video"):
@@ -478,6 +551,12 @@ class Result:
             )
             raise
 
+        emit_log(
+            f"wrote {os.path.basename(output_path)} in "
+            f"{time.monotonic() - started:.1f}s ({_file_size_mb(output_path):.1f} MB)",
+            file=os.path.basename(output_path),
+            seconds=round(time.monotonic() - started, 1),
+        )
         return [output_path]
 
     def video_fps(self, artifact):
@@ -503,8 +582,9 @@ class Result:
             emit_warning(
                 f"Writing video at {declared} fps, but the frames it was "
                 f"given run at {carried} fps - the file will play "
-                f"{carried / declared:.2g}x speed. Drop 'fps' from the step's "
-                f"result to keep the source rate",
+                f"{declared / carried:.2g}x speed "
+                f"({carried / declared:.2g} times as long). Drop 'fps' from "
+                f"the step's result to keep the source rate",
                 kind="fps_mismatch",
                 declared_fps=declared,
                 source_fps=carried,
@@ -582,7 +662,7 @@ class Result:
 
         logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")
         encode_video(
-            artifact.frames,
+            frames_for_encoding(artifact.frames),
             fps=fps,
             output_path=output_path,
             audio=as_audio_track(artifact.audio),
