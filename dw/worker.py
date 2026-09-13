@@ -394,8 +394,11 @@ class WorkflowWorker:
         - the plan's cached_steps (#85). Same fields as an execute command;
         loads the workflow, executes nothing. A failure answers
         cached: null with the reason rather than an error message, since
-        an unknown answer is a valid plan and a crashed probe is not.
+        an unknown answer is a valid plan and a crashed probe is not. The
+        command's probe_id is echoed so a reply that arrives after its
+        caller gave up is not read as the answer to the next probe.
         """
+        probe_id = command.get("probe_id")
         try:
             workflow, _ = self._load_workflow(command, command["output_dir"])
             asset_token = (
@@ -408,11 +411,18 @@ class WorkflowWorker:
             finally:
                 if asset_token is not None:
                     deactivate_asset_dir(asset_token)
-            self.result_queue.put({"type": "probe_cache", "cached": cached})
+            self.result_queue.put(
+                {"type": "probe_cache", "probe_id": probe_id, "cached": cached}
+            )
         except Exception as e:
             logger.debug(f"Cache probe failed: {e}")
             self.result_queue.put(
-                {"type": "probe_cache", "cached": None, "error": str(e)}
+                {
+                    "type": "probe_cache",
+                    "probe_id": probe_id,
+                    "cached": None,
+                    "error": str(e),
+                }
             )
 
     def _evict_untouched_pipelines(self, context):

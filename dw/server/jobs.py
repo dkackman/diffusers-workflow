@@ -1223,16 +1223,32 @@ class JobManager:
             return []
         if not self._worker_lock.acquire(timeout=2):
             return None
+        # A probe that timed out still answers eventually, onto the same
+        # queue the next probe reads - so each carries an id and a reader
+        # discards every reply that is not its own, rather than reporting
+        # the previous workflow's hit list as this plan's
+        probe_id = uuid.uuid4().hex
+        deadline = time.monotonic() + timeout
         try:
-            self.worker_manager.send_command({"type": "probe_cache", **command})
-            result = self.worker_manager.get_result(timeout=timeout)
+            self.worker_manager.send_command(
+                {"type": "probe_cache", "probe_id": probe_id, **command}
+            )
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                result = self.worker_manager.get_result(timeout=remaining)
+                if (
+                    result.get("type") == "probe_cache"
+                    and result.get("probe_id") == probe_id
+                ):
+                    break
+                logger.debug(f"Discarding a stale worker message: {result.get('type')}")
         except (RuntimeError, queue.Empty) as e:
             logger.debug(f"Worker did not answer the cache probe: {e}")
             return None
         finally:
             self._worker_lock.release()
-        if result.get("type") != "probe_cache":
-            return None
         cached = result.get("cached")
         return list(cached) if isinstance(cached, list) else None
 

@@ -282,13 +282,16 @@ def test_probe_cache_answers_with_the_workflows_hits():
     workflow = ProbableWorkflow(["gen"])
     command = {
         "type": "probe_cache",
+        "probe_id": "p-1",
         "workflow_path": "x.json",
         "arguments": {"prompt": "p"},
         "output_dir": "/tmp",
     }
     with patch("dw.worker.workflow_from_file", return_value=workflow):
         worker._handle_probe_cache(command)
-    assert _drain(worker.result_queue) == [{"type": "probe_cache", "cached": ["gen"]}]
+    assert _drain(worker.result_queue) == [
+        {"type": "probe_cache", "probe_id": "p-1", "cached": ["gen"]}
+    ]
     assert workflow.probed_with == {"prompt": "p"}
 
 
@@ -305,6 +308,7 @@ def test_probe_cache_reports_a_failure_as_unknown_not_as_a_crash():
         )
     [answer] = _drain(worker.result_queue)
     assert answer["type"] == "probe_cache"
+    assert answer["probe_id"] is None  # echoed even when the command had none
     assert answer["cached"] is None
     assert "bad file" in answer["error"]
 

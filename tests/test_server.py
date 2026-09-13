@@ -87,7 +87,11 @@ class ScriptedWorkerManager:
             )
         elif command["type"] == "probe_cache":
             self._results.put(
-                {"type": "probe_cache", "cached": list(self.cached_steps)}
+                {
+                    "type": "probe_cache",
+                    "probe_id": command.get("probe_id"),
+                    "cached": list(self.cached_steps),
+                }
             )
 
     def get_result(self, timeout=None):
@@ -3755,6 +3759,38 @@ class TestProbeCache:
             manager = client.app.state.job_manager
             assert manager.probe_cache(PROBE) is None
             client.post(f"/api/jobs/{job_id}/cancel")
+
+    def test_a_late_reply_is_not_attributed_to_the_next_probe(self, server):
+        """A probe that timed out still answers eventually; the next probe
+        must not read that stale hit list as its own."""
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            worker = manager.worker_manager
+            worker.ensure_worker()
+            held = []
+            real_send = worker.send_command
+
+            def hold_then_answer(command):
+                # The first probe never answers in time; its reply lands
+                # just before the second probe is sent
+                if command["type"] == "probe_cache" and not held:
+                    held.append(command)
+                    return None
+                if held:
+                    late = held.pop()
+                    worker._results.put(
+                        {
+                            "type": "probe_cache",
+                            "probe_id": late["probe_id"],
+                            "cached": ["stale"],
+                        }
+                    )
+                worker.cached_steps = ["fresh"]
+                return real_send(command)
+
+            worker.send_command = hold_then_answer
+            assert manager.probe_cache(PROBE, timeout=0.05) is None
+            assert manager.probe_cache(PROBE) == ["fresh"]
 
     def test_an_unanswered_probe_is_unknown(self, server):
         with server(success_script) as client:
