@@ -440,9 +440,11 @@ quote the cost before running a list-driven workflow: the listing's `lists`
 block names the fields an entry takes and the steps over it, and its `cost`
 carries `per_entry` once one entry has been measured. `validate_workflow`
 with your `arguments` answers with a `plan` whose `estimate` already does
-that arithmetic (`basis: per_entry`), and without `per_entry` reports the
-default list's total (`basis: catalog`) - quote the plan's figure and say
-which basis it has. An
+that arithmetic (`basis: per_entry`); without `per_entry` it extrapolates
+the stored total linearly over your list (`basis: derived` - an estimate
+rather than a measurement) and reports the stored total unchanged only
+when your list is the one it was measured with (`basis: catalog`) - quote
+the plan's figure and say which basis it has. An
 entry key no step reads is a validation warning at the entry's path, so a
 misspelt field is caught before the run. Then
 `validate_workflow` with the
@@ -628,7 +630,14 @@ Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `
 
 `subfolder` places the step's files in a subfolder of the run directory - see *Saying which output is the deliverable* above. `file_base_name` is the base name the step's files are written under, replacing the name derived from the workflow and step; it may not contain a path separator.
 
-For video, add `"fps": 8`. For audio, add `"sample_rate": 44100` when the waveform doesn't
+For video, `"fps"` is the rate the file is written at. It is rarely needed:
+frames that know their own rate carry it - a video read from a file or an
+`asset:`, a `concat_videos`/`dissolve_videos` join, an interpolation - and
+the engine writes them at it. Frames that bring no rate (most generations)
+fall back to 8, so a workflow that assembles from bare frames should say
+what they run at. A declared `fps` always wins over the carried one and
+warns when the two differ, which is how a deliberate slow motion is written.
+For audio, add `"sample_rate": 44100` when the waveform doesn't
 already carry a rate of its own (a declared rate always wins). Setting `embed_metadata: true`
 on an image result embeds the step's model name and arguments as generation metadata -
 PNG info chunks for `image/png`, EXIF `UserComment` (via `piexif`) for `image/jpeg` and
@@ -1620,7 +1629,10 @@ interpolator - returns frames without it. Two tasks carry the pieces across:
 
 `audio` takes either a waveform or the earlier step whose video carried the soundtrack,
 which brings its sample rate along; here it is an earlier step's waveform, so
-`sample_rate` is given explicitly.
+`sample_rate` is given explicitly. The frames keep the rate they arrived
+with - `video` given a file or an `asset:` carries that file's fps through
+to the saved mp4 - so `result.fps` is only needed for frames that bring no
+rate of their own.
 
 Which shape a pipeline argument wants is the pipeline's business, and the two LTX-2
 paths differ: a keyframe condition is mapped from 0-255, so it takes the `video_frames`

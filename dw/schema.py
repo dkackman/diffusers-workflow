@@ -93,3 +93,125 @@ def load_schema(schema_name):
     )
     with open(file_spec, "r") as file:
         return json.load(file)
+
+
+# The parts of the workflow schema that can be asked for on their own, and
+# what each holds. Whole, the schema is ~36 KB - ~8.6k tokens in one call,
+# spent by an agent that needed the shape of a `result` block (#101). A
+# section answers that question at a tenth the size; the no-argument call
+# is unchanged, so nothing that reads the whole schema is affected.
+SCHEMA_SECTIONS = {
+    "variables": {
+        "properties": [
+            "id",
+            "description",
+            "summary",
+            "shape",
+            "traits",
+            "configures",
+            "cost",
+            "variables",
+            "seed",
+        ],
+        "defs": [],
+    },
+    "steps": {"properties": ["steps"], "defs": ["step", "workflow_reference"]},
+    "pipelines": {
+        "properties": [],
+        "defs": ["pipeline", "pipeline_reference", "chain", "arguments", "image"],
+    },
+    "tasks": {"properties": [], "defs": ["task"]},
+    "result": {"properties": [], "defs": ["result"]},
+    "configuration": {
+        "properties": [],
+        "defs": [
+            "pipeline_configuration",
+            "pipeline_component",
+            "shared_components",
+            "reused_components",
+            "quantization_config",
+            "scheduler",
+            "lora",
+            "controlnet",
+            "ip_adapter",
+            "from_pretrained_arguments",
+            "group_offload",
+            "compile_config",
+            "enable_layerwise_casting",
+        ],
+    },
+}
+
+DEFS_KEY = "$defs"
+DEFS_REF_PREFIX = f"#/{DEFS_KEY}/"
+
+
+class SchemaSectionError(LookupError):
+    """A section name the schema has no part for. The message names the
+    ones it does, so a route can hand it back as a 404 detail."""
+
+
+def _referenced_defs(node, found):
+    """Every '#/$defs/x' name reachable from a subtree, into `found`."""
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith(DEFS_REF_PREFIX):
+            found.add(ref[len(DEFS_REF_PREFIX) :])
+        for value in node.values():
+            _referenced_defs(value, found)
+    elif isinstance(node, list):
+        for value in node:
+            _referenced_defs(value, found)
+    return found
+
+
+def schema_section(schema, section):
+    """One part of the workflow schema, plus where the rest of it is.
+
+    The fragment carries only the definitions this section owns; a `$ref`
+    to a definition another section owns is left standing and named in
+    `elsewhere` ({definition: section}), because expanding it transitively
+    would pull most of the schema back in and there would be no section
+    left to speak of. `sections` lists every section name.
+
+    Raises:
+        SchemaSectionError: If `section` is not one of SCHEMA_SECTIONS.
+    """
+    if section not in SCHEMA_SECTIONS:
+        raise SchemaSectionError(
+            f"No schema section '{section}'. The sections are: "
+            f"{', '.join(sorted(SCHEMA_SECTIONS))}."
+        )
+    wanted = SCHEMA_SECTIONS[section]
+    defs = schema.get(DEFS_KEY, {})
+    fragment = {
+        key: schema[key]
+        for key in ("$schema", "$id", "type", "description")
+        if key in schema
+    }
+    properties = {
+        name: schema["properties"][name]
+        for name in wanted["properties"]
+        if name in schema.get("properties", {})
+    }
+    if properties:
+        fragment["properties"] = properties
+        required = [name for name in schema.get("required", []) if name in properties]
+        if required:
+            fragment["required"] = required
+    held = {name: defs[name] for name in wanted["defs"] if name in defs}
+    if held:
+        fragment[DEFS_KEY] = held
+    owner = {
+        name: other for other, part in SCHEMA_SECTIONS.items() for name in part["defs"]
+    }
+    referenced = _referenced_defs(fragment, set())
+    elsewhere = {
+        name: owner[name] for name in sorted(referenced - set(held)) if name in owner
+    }
+    return {
+        "section": section,
+        "sections": sorted(SCHEMA_SECTIONS),
+        "elsewhere": elsewhere,
+        "schema": fragment,
+    }

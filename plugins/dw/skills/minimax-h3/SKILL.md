@@ -165,17 +165,17 @@ inherits the portrait's composition.
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, then `get_job` for the manifest. A cancelled H3 job runs
    on to its next step boundary, minutes on this model. Silence is no hang:
-   `denoise_step` is null through the reference encode (~90 s, ~10 min with a
-   video reference), and the block cache makes later steps uneven - two-minute
-   gaps are healthy. Each entry carries
+   `denoise_step` is null through the reference encode (~90 s; 629 s for one
+   5 s 960x544 video reference on a 3090), and the block cache makes later
+   steps uneven - two-minute gaps are healthy. Each entry carries
    `subfolder`: `final` is the deliverable (`episode`, `music_video`,
    `voyage`), `intermediate` the scratch; keep that split in anything you
    compose.
 4. You cannot watch a video: no tool returns a frame from one. Hand the user
    the gallery `url` (`list_gallery`, or the manifest's file name) and ask them
    to look, and check what you can yourself - `get_job` for the manifest and
-   its warnings, `get_gallery_metadata` for duration, size and whether an audio
-   stream is present. `get_output_image` works only on image steps, which in
+   its warnings, `get_gallery_metadata` for duration, size and whether audio
+   is present. `get_output_image` works only on image steps, which in
    this family are the Z-Image portraits and boards of
    `templates/minimax/dialogue-short`, `templates/minimax/storyboard`,
    `templates/minimax/generated-subject-reference` and
@@ -190,8 +190,8 @@ inherits the portrait's composition.
    it, so the next run is by name rather than pasted JSON; `export_job` bundles
    the run — workflow, manifest, job row and media — for git. It is on the
    server: fetch its zip URL and unpack it into `exports/` under the session's
-   working directory, never a temp directory; the archive already unpacks into
-   a job-id folder, so do not make one first.
+   working directory, never a temp dir; the archive unpacks into a job-id
+   folder, so do not make one first.
 
 ## Sources
 

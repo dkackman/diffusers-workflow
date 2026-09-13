@@ -15,6 +15,12 @@ def list_workflows(
     only unless `include_models` or `configures` asks for the model configs
     of one template. `get_workflow` has the full definition.
 
+    Called with no filter at all, each entry is cut to its summary and
+    shape (`view: "summary"`), because the whole catalog in full detail is
+    ~6.8k tokens for a question that is really "which shape do I want"
+    (#101). Pass `shape` - which the instructions ask for anyway - and the
+    entries come back whole.
+
     `cost_basis` in the answer says what a `cost` is: `curated` means a
     maintainer measured it once, on the devices the entry names, and wrote
     it into the workflow. Nothing derives one from this server's own job
@@ -34,7 +40,45 @@ def list_workflows(
         params["configures"] = configures
     if include_models:
         params["include_models"] = "true"
-    return client.get_json("/api/workflows", params=params)
+    answer = client.get_json("/api/workflows", params=params)
+    if not (shape or traits or configures or include_models):
+        return _summarised(answer)
+    return answer
+
+
+# What a summarised entry keeps: enough to choose a shape to ask about,
+# nothing that reading one needs
+SUMMARY_FIELDS = ("summary", "shape")
+
+
+def _summarised(answer):
+    """The unfiltered listing, each entry cut to its summary and shape.
+
+    The whole catalog in full compact detail is ~6.8k tokens - variables,
+    traits, cost and list fields for every workflow on the server, when
+    the question the call answers is "which of these is the shape I
+    want" (#101). Asking with a `shape` still gets the full entries, and
+    the note says so, so nothing is unreachable.
+    """
+    details = answer.get("details")
+    if not isinstance(details, dict):
+        return answer
+    summarised = {
+        name: {key: detail.get(key) for key in SUMMARY_FIELDS if key in detail}
+        for name, detail in details.items()
+        if isinstance(detail, dict)
+    }
+    return {
+        **answer,
+        "details": summarised,
+        "view": "summary",
+        "note": (
+            "Summarised because no `shape` was given: each entry is its "
+            "summary and shape only. Call list_workflows(shape=...) for "
+            "the full entries - variables, traits, cost and list fields - "
+            "of the shape you want."
+        ),
+    }
 
 
 def get_workflow(client, name, variables_only=False):
@@ -52,9 +96,15 @@ def get_workflow(client, name, variables_only=False):
     return client.get_json(api_path("api", "workflows", name))
 
 
-def get_schema(client):
-    """The workflow JSON schema every definition is validated against."""
-    return client.get_json("/api/schema")
+def get_schema(client, section=None):
+    """The workflow JSON schema every definition is validated against.
+
+    Whole it is ~8.6k tokens, so name the part you need: `section` takes
+    `steps`, `pipelines`, `tasks`, `result`, `variables` or
+    `configuration` and answers that fragment plus `elsewhere`, which says
+    which section holds each definition it still references."""
+    params = {"section": section} if section else None
+    return client.get_json("/api/schema", params=params)
 
 
 def list_pipelines(client):

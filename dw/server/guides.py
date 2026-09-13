@@ -164,10 +164,19 @@ def list_guides():
 
 
 def get_guide(name, section=None):
-    """One guide, whole or one section of it."""
+    """One guide, or one section of it.
+
+    Without a `section` the answer is the *index*: the guide's preamble,
+    its first section, and the headings of the rest - not the whole file.
+    A full WORKFLOW_GUIDE.md is ~19.6k tokens and TASKS.md ~16k, which is
+    more in one call than the entire 55-tool MCP surface costs to connect,
+    and an agent can make that call twice before noticing (#101). Every
+    withheld section is named in `sections` and fetched by name, so
+    nothing is unreachable - only unspent by accident.
+    """
     text = read_guide(name)
     if section is None:
-        return {"name": name, "section": None, "content": text}
+        return _index(name, text)
 
     found = _extract_section(text, section)
     if found is None:
@@ -177,3 +186,41 @@ def get_guide(name, section=None):
         )
     heading, content = found
     return {"name": name, "section": heading, "content": content}
+
+
+def _index(name, text):
+    """The guide's opening plus the headings of what was not sent.
+
+    `content` is everything before the first heading followed by the first
+    section - the part that says what the guide is for - so an agent that
+    reads only this still knows which section it wants.
+    """
+    matches = list(SECTION_PATTERN.finditer(text))
+    headings = [match.group(1) for match in matches]
+    if not matches:
+        return {
+            "name": name,
+            "section": None,
+            "content": text,
+            "sections": headings,
+            "withheld": [],
+        }
+    end = matches[1].start() if len(matches) > 1 else len(text)
+    content = text[:end].rstrip() + "\n"
+    withheld = headings[1:]
+    answer = {
+        "name": name,
+        "section": None,
+        "content": content,
+        "sections": headings,
+        "withheld": withheld,
+    }
+    if withheld:
+        answer["note"] = (
+            f"This is the '{name}' guide's opening and its first section. "
+            f"{len(withheld)} further section(s) - {len(text) - len(content)} "
+            f"characters - were not sent: read one with "
+            f"get_guide('{name}', section='<heading>'). `sections` lists "
+            f"every heading in order."
+        )
+    return answer

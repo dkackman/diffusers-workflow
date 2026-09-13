@@ -1,6 +1,9 @@
 import pytest
 from dw.schema import (
     MAX_VALIDATION_ERRORS,
+    SCHEMA_SECTIONS,
+    SchemaSectionError,
+    schema_section,
     format_validation_errors,
     load_schema,
     validate_data,
@@ -457,3 +460,50 @@ class TestResultSubfolder:
             ],
         }
         assert validate_data_all(definition, load_schema("workflow")) == []
+
+
+class TestSections:
+    """One part of the schema at a time - the whole thing is ~8.6k tokens
+    in a single call, spent by an agent that wanted the shape of a result
+    block (#101)."""
+
+    @pytest.fixture
+    def schema(self):
+        return load_schema("workflow")
+
+    def test_every_definition_belongs_to_a_section(self, schema):
+        """An orphan definition would be unreachable by section - findable
+        only in the whole schema, which is the call sections exist to
+        avoid."""
+        owned = {name for part in SCHEMA_SECTIONS.values() for name in part["defs"]}
+        assert set(schema["$defs"]) - owned == set()
+
+    def test_a_section_is_a_fraction_of_the_whole(self, schema):
+        import json
+
+        whole = len(json.dumps(schema))
+        answer = schema_section(schema, "result")
+        assert len(json.dumps(answer["schema"])) < whole / 5
+
+    def test_a_section_carries_its_own_definitions(self, schema):
+        answer = schema_section(schema, "tasks")
+        assert list(answer["schema"]["$defs"]) == ["task"]
+
+    def test_a_reference_it_does_not_hold_says_where_it_lives(self, schema):
+        answer = schema_section(schema, "steps")
+        assert answer["elsewhere"]["result"] == "result"
+        assert answer["elsewhere"]["task"] == "tasks"
+
+    def test_variables_carries_the_top_level_properties(self, schema):
+        answer = schema_section(schema, "variables")
+        assert "variables" in answer["schema"]["properties"]
+        assert "seed" in answer["schema"]["properties"]
+        assert "steps" not in answer["schema"]["properties"]
+
+    def test_every_section_answers(self, schema):
+        for name in SCHEMA_SECTIONS:
+            assert schema_section(schema, name)["section"] == name
+
+    def test_an_unknown_section_names_the_ones_there_are(self, schema):
+        with pytest.raises(SchemaSectionError, match="steps"):
+            schema_section(schema, "pipline")

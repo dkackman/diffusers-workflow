@@ -245,11 +245,18 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/tasks` — the task commands and processors
 - `GET /api/tasks/{command}` — a task's argument schema, read from its
   registered implementation's real signature
-- `GET /api/schema` — the workflow JSON schema
+- `GET /api/schema` — the workflow JSON schema. `?section=` answers one
+  part of it - `steps`, `pipelines`, `tasks`, `result`, `variables` or
+  `configuration` - as `{section, sections, elsewhere, schema}`, where
+  `elsewhere` names the section holding each definition the fragment still
+  `$ref`s; the no-argument call is the whole schema, unchanged
 - `GET /api/guides` — the documentation that bears on choosing a
   capability: each guide's name, what it covers, and its section headings
-- `GET /api/guides/{name}?section=` — one guide whole, or one section of
-  it; section names match loosely. Served by the engine so an MCP client
+- `GET /api/guides/{name}?section=` — one section of a guide; section names
+  match loosely. Without a `section` the answer is the guide's index - its
+  opening, its first section, and `sections`/`withheld` naming the rest -
+  rather than the whole file, which for WORKFLOW_GUIDE.md is ~19.6k tokens
+  in one call (#101). Served by the engine so an MCP client
   at another version reads the guides for the server it is driving, not
   its own. A checkout serves the repo's `docs/`; an install the copy
   `build_dist.sh` puts under `dw/docs/`
@@ -286,11 +293,15 @@ The editor's forms come from these; they are just as usable from scripts:
   `?sizes=false` skips the hub) and each `from_single_file` URL as
   `{repo: null, url, gb: null}`; and `estimate`, `{minutes, basis,
   device, measured_on, partial}` from the workflow's own `cost` block -
-  `basis` is `catalog` (the stored total), `per_entry` (re-priced for the
-  list passed, when the entry carries `per_entry`), `other_device` (no
-  entry for the serving backend; the first entry's figure, which is a
-  warning rather than a quote) or `unknown`; a composed child's cost is
-  added and `partial` is true when a child has none. `plan` is `null` when
+  `basis` is `catalog` (the stored total, for a run whose lists are the
+  ones it was measured with), `per_entry` (re-priced from a measured
+  per-entry rate, when the entry carries `per_entry`), `derived` (the
+  stored total extrapolated linearly over a list whose length the caller
+  changed - an estimate, not a measurement), `other_device` (no entry for
+  the serving backend; the first entry's figure, which is a warning rather
+  than a quote) or `unknown` (no cost block, or more than one list changed
+  so there is nothing honest to extrapolate along); a composed child's
+  cost is added and `partial` is true when a child has none. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 
 ## Files and models
