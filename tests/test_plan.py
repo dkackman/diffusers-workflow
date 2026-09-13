@@ -459,3 +459,39 @@ class TestDownloadsRequired:
 
         monkeypatch.setattr(dw.plan, "model_info", boom)
         plan(lookup_sizes=False)
+
+
+class TestCachedSteps:
+    def test_no_probe_is_unknown(self, plan):
+        assert plan()["cached_steps"] is None
+
+    def test_the_probe_is_asked_with_the_arguments_and_counted(self, plan):
+        seen = []
+
+        def probe(arguments):
+            seen.append(arguments)
+            return ["still", "shot@a"]
+
+        answer = plan(arguments={"frames": 9}, cache_probe=probe)
+        assert answer["cached_steps"] == 2
+        assert seen == [{"frames": 9}]
+
+    def test_a_probe_that_cannot_answer_is_unknown(self, plan):
+        assert plan(cache_probe=lambda arguments: None)["cached_steps"] is None
+
+    def test_an_unseeded_workflow_is_zero_without_asking(self, plan):
+        def probe(arguments):
+            raise AssertionError("must not be asked")
+
+        spec = definition()
+        del spec["seed"]
+        del spec["variables"]["seed"]
+        assert plan(spec, cache_probe=probe)["cached_steps"] == 0
+
+    def test_a_seed_variable_left_null_is_unseeded(self, plan):
+        def probe(arguments):
+            raise AssertionError("must not be asked")
+
+        spec = definition()
+        spec["variables"]["seed"] = None
+        assert plan(spec, cache_probe=probe)["cached_steps"] == 0

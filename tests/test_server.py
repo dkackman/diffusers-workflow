@@ -3677,6 +3677,42 @@ class TestValidatePlan:
             )
         assert seen == [True, False]
 
+    def test_cached_steps_comes_from_the_worker(self, server, monkeypatch):
+        import dw.plan
+
+        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            manager.worker_manager.ensure_worker()
+            manager.worker_manager.cached_steps = ["gen"]
+            seeded = valid_workflow("seeded")
+            seeded["seed"] = 7
+            result = client.post(
+                "/api/validate?sizes=false",
+                json={"workflow": seeded, "arguments": {"prompt": "x"}},
+            ).json()
+        assert result["plan"]["cached_steps"] == 1
+        probe = [
+            c for c in manager.worker_manager.commands if c["type"] == "probe_cache"
+        ]
+        assert len(probe) == 1
+        assert probe[0]["arguments"] == {"prompt": "x"}
+        assert probe[0]["workflow"] == seeded
+        assert probe[0]["output_dir"] == manager.output_dir
+
+    def test_an_unseeded_workflow_does_not_probe(self, server, monkeypatch):
+        import dw.plan
+
+        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            manager.worker_manager.ensure_worker()
+            result = client.post(
+                "/api/validate?sizes=false", json={"workflow": valid_workflow("v")}
+            ).json()
+        assert result["plan"]["cached_steps"] == 0
+        assert all(c["type"] != "probe_cache" for c in manager.worker_manager.commands)
+
     def test_the_plan_sees_the_callers_arguments(self, server, monkeypatch):
         import dw.plan
 

@@ -1254,6 +1254,24 @@ def create_app(
                     errors.append({"path": path, "message": str(e)})
         return errors
 
+    def _probe_command_for(candidate, request, workspace, workflow_dir):
+        """The execute-shaped command a cache probe of this validate request
+        needs - the same fields _run_job sends, so the worker loads the
+        workflow exactly as a job would."""
+        command = {
+            "arguments": request.arguments,
+            "output_dir": workspace.outputs,
+            "workflow_dir": workflow_dir,
+        }
+        if workspace.assets:
+            command["asset_dir"] = workspace.assets
+        if request.workflow_path is not None:
+            command["workflow_path"] = candidate.file_spec
+        else:
+            command["workflow"] = request.workflow
+            command["base_dir"] = os.path.dirname(candidate.file_spec)
+        return command
+
     @app.post("/api/validate")
     def validate_workflow(
         request: JobRequest,
@@ -1287,21 +1305,19 @@ def create_app(
                 resolved, source = resolve_workflow_reference(
                     request.workflow_path, sources
                 )
-                candidate = workflow_from_file(
-                    resolved,
-                    workspace.outputs,
-                    # Confined to the source it came from, not to the
-                    # writable root - an example is read where it lives
-                    source.root if source else workspace.workflows,
-                )
+                # Confined to the source it came from, not to the writable
+                # root - an example is read where it lives
+                source_root = source.root if source else workspace.workflows
+                candidate = workflow_from_file(resolved, workspace.outputs, source_root)
                 definition = candidate.workflow_definition
             else:
                 definition = request.workflow
+                source_root = workspace.workflows
                 candidate = workflow_from_definition(
                     copy.deepcopy(request.workflow),
                     workspace.outputs,
                     request.base_dir,
-                    workspace.workflows,
+                    source_root,
                 )
         except HTTPException:
             raise
@@ -1379,12 +1395,16 @@ def create_app(
         try:
             from .. import get_device, get_device_type
 
+            command = _probe_command_for(candidate, request, workspace, source_root)
             answer["plan"] = build_plan(
                 candidate,
                 request.arguments,
                 device=get_device_type(get_device()),
                 prompt_dir=workspace.prompts,
                 lookup_sizes=sizes,
+                cache_probe=lambda arguments: manager.probe_cache(
+                    {**command, "arguments": arguments}
+                ),
             )
         except Exception:
             logger.exception("Plan could not be built")
