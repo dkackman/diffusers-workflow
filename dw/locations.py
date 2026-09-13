@@ -375,8 +375,17 @@ def validate_model_name(name, base_dir=None):
     try:
         validate_repo_id(str(name))
         return str(name)
-    except HFValidationError:
-        pass
+    except HFValidationError as e:
+        # A URL is neither a repo id nor a path, but joined onto the workflow
+        # directory it resolves inside a root and so passed the containment
+        # check below - the one shape of the four `download_model` refuses
+        # that got through here (#117). `from_pretrained` would refuse it
+        # downstream; the point of this check is not to rely on that
+        if "://" in str(name):
+            raise InvalidInputError(
+                f"Refusing a model_name of '{name}': it is a URL, not a Hub "
+                f"repo id or a local model directory ({e})."
+            )
     return validate_media_path(
         str(name), base_dir, "a model_name", require_exists=False
     )
@@ -416,10 +425,21 @@ def _check(value, base_dir, what):
         if is_http_url(value):
             validate_media_url(value, what)
         elif os.path.isabs(value):
-            # Only an absolute path can escape: validate_path already
-            # refuses '..', so a relative one is under base_dir by
-            # construction and costs a stat nobody asked for here
             validate_media_path(value, base_dir, what, require_exists=False)
+        elif ".." in value.replace("\\", "/").split("/"):
+            # A relative path is under base_dir by construction unless it
+            # climbs out, and validate_path refuses '..' - but only when the
+            # loader reaches it, which is a queued job and three seconds in
+            # rather than a validation answer. Checked on the segments here
+            # the way validate_media_glob checks a pattern's, so the two
+            # spellings of "read outside the roots" are refused at the same
+            # moment (#124)
+            raise PathTraversalError(
+                f"Refusing to read {what} at '{value}': it contains a '..' "
+                f"path segment, so it does not resolve inside any directory "
+                f"this workflow may read. Put the file in the asset library "
+                f"and name it with an 'asset:' reference."
+            )
     except (PathTraversalError, InvalidInputError) as e:
         return str(e)
     except Exception:

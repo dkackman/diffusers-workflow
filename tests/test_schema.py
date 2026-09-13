@@ -580,15 +580,138 @@ class TestClosedObjects:
         errors = validate_data_all(workflow, schema)
         assert errors, f"{definition} should not have validated"
 
-    def test_the_pipeline_object_stays_open(self):
-        """The reason `pipeline` is not in the list above: a component's name
-        is one of its keys - `latent_upsampler`, `prompt_enhancer` and
-        `processor` all appear that way in shipped templates - so the
-        zero-stray-key sweep it would need cannot pass until those are named
-        properties. Pinned so a later sweep does not close it by eye."""
+    def test_the_pipeline_object_is_open_only_to_a_component(self):
+        """#123: `pipeline` cannot be closed outright - a component's name is
+        one of its keys, and `latent_upsampler`, `prompt_enhancer` and
+        `processor` all appear that way in shipped templates. So it takes the
+        rule `declared_component_names` applies: any other key whose value is
+        a component definition, and nothing else."""
         schema = load_schema("workflow")
-        for name in ("pipeline", "pipeline_component"):
-            assert schema["$defs"][name].get("additionalProperties") is not False
+        extra = schema["$defs"]["pipeline"]["additionalProperties"]
+        assert extra["required"] == ["from_pretrained_arguments"]
+        assert extra["type"] == "object"
+        # pipeline_component itself stays open - its own keys are the
+        # from_pretrained kwargs a component takes
+        assert (
+            schema["$defs"]["pipeline_component"].get("additionalProperties")
+            is not False
+        )
+
+    @pytest.mark.parametrize(
+        "stray",
+        [
+            {"pipeline_type": "diffusers.Whatever"},
+            {"model_name": "org/typo"},
+            {"trasformer": {}},
+        ],
+    )
+    def test_a_key_that_is_not_a_component_is_an_error(self, stray):
+        """#123: `pipeline_type` and `model_name` are real names from the
+        wrong level and `trasformer` is a typo; all three used to validate
+        and be ignored, and the `model_name` one ran against whatever
+        `from_pretrained_arguments` said."""
+        schema = load_schema("workflow")
+        workflow = {
+            "id": "probe",
+            "steps": [
+                {
+                    "name": "draw",
+                    "pipeline": {
+                        "configuration": {"component_type": "StableDiffusionPipeline"},
+                        "from_pretrained_arguments": {"model_name": "org/model"},
+                        "arguments": {"prompt": "x"},
+                        **stray,
+                    },
+                    "result": {"content_type": "image/jpeg"},
+                }
+            ],
+        }
+
+        errors = validate_data_all(workflow, schema)
+
+        assert [error["path"] for error in errors] == [
+            f"steps[0].pipeline.{list(stray)[0]}"
+        ]
+        # one message per stray key, and it is the one that says what is
+        # wrong rather than a complaint about the component it is not
+        assert errors[0]["message"].startswith(f'unknown property "{list(stray)[0]}"')
+        assert "from_pretrained_arguments" in errors[0]["message"]
+
+    def test_a_component_named_by_a_key_still_validates(self):
+        schema = load_schema("workflow")
+        workflow = {
+            "id": "probe",
+            "steps": [
+                {
+                    "name": "draw",
+                    "pipeline": {
+                        "configuration": {"component_type": "LTXPipeline"},
+                        "from_pretrained_arguments": {"model_name": "org/model"},
+                        "arguments": {"prompt": "x"},
+                        "latent_upsampler": {
+                            "configuration": {"component_type": "LatentUpsampler"},
+                            "from_pretrained_arguments": {"model_name": "org/up"},
+                        },
+                    },
+                    "result": {"content_type": "video/mp4"},
+                }
+            ],
+        }
+
+        assert validate_data_all(workflow, schema) == []
+
+    @pytest.mark.parametrize(
+        "stray",
+        [{"varaibles": {"x": 1}}, {"sedd": 42}, {"when": "always"}],
+    )
+    def test_an_unknown_top_level_property_is_an_error(self, stray):
+        """#123: `sedd` was the sharp one - validation answered that the
+        workflow set no seed and advised setting one, with the misspelling
+        of it in front of it."""
+        schema = load_schema("workflow")
+        workflow = {
+            "id": "probe",
+            "steps": [
+                {"name": "s", "task": {"command": "gather_inputs", "arguments": {}}}
+            ],
+            **stray,
+        }
+
+        errors = validate_data_all(workflow, schema)
+
+        assert [error["path"] for error in errors] == [None]
+        assert list(stray)[0] in errors[0]["message"]
+        assert "steps" in errors[0]["message"]
+
+    @pytest.mark.parametrize(
+        "stray", [{"subfoldr": "final"}, {"fille_base_name": "x"}, {"fsp": 24}]
+    )
+    def test_an_unknown_result_property_is_an_error(self, stray):
+        """#123: a mistyped `subfoldr` means the deliverable quietly lands at
+        the run root rather than in the `final/` the convention promises."""
+        schema = load_schema("workflow")
+        workflow = {
+            "id": "probe",
+            "steps": [
+                {
+                    "name": "s",
+                    "task": {"command": "gather_inputs", "arguments": {}},
+                    "result": {"content_type": "text/plain", **stray},
+                }
+            ],
+        }
+
+        errors = validate_data_all(workflow, schema)
+
+        assert [error["path"] for error in errors] == ["steps[0].result"]
+        assert list(stray)[0] in errors[0]["message"]
+        assert "subfolder" in errors[0]["message"]
+
+    def test_the_later_swept_objects_are_closed_in_the_schema(self):
+        """#123: the three the #118 sweep left open."""
+        schema = load_schema("workflow")
+        assert schema["additionalProperties"] is False
+        assert schema["$defs"]["result"]["additionalProperties"] is False
 
     def test_the_swept_objects_are_closed_in_the_schema(self):
         schema = load_schema("workflow")

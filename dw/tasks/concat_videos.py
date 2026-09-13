@@ -10,6 +10,7 @@ outgoing tail ring on across the seam - see `audio_bleed_ms`.
 
 import logging
 
+from ..events import emit_warning
 from ..result import AudioVideo
 from .audio_utils import (
     as_channels_samples,
@@ -137,16 +138,27 @@ def concat_videos(
     ]
     sample_rate = sample_rate or (max(rates) if rates else None)
     if rates and any(rate != sample_rate for rate in rates):
-        logger.warning(
-            "Videos carry audio at different sample rates ("
-            + ", ".join(
-                f"{name}: {video.sample_rate} Hz"
-                for name, video in zip(names, videos)
-                if isinstance(video, AudioVideo) and video.audio is not None
-            )
+        # emit_warning rather than logger.warning, for the reason the level
+        # spread below is emitted: resampling every track is an audio
+        # decision made on the caller's behalf, and a caller reading the job
+        # over the API or MCP sees the warnings list and nothing else - the
+        # conversion landing silently is worse than the loud failure it
+        # replaced (#108)
+        per_video = {
+            name: video.sample_rate
+            for name, video in zip(names, videos)
+            if isinstance(video, AudioVideo) and video.audio is not None
+        }
+        emit_warning(
+            "concat_videos: videos carry audio at different sample rates ("
+            + ", ".join(f"{name}: {rate} Hz" for name, rate in per_video.items())
             + f") - resampling them all to {sample_rate} Hz. Pass "
             "'sample_rate' to pin a different target, or resample ahead of "
-            "this step with the 'resample_audio' task."
+            "this step with the 'resample_audio' task.",
+            kind="sample_rate_mismatch",
+            command="concat_videos",
+            sample_rate=sample_rate,
+            sample_rates=per_video,
         )
         waveforms = [
             (
