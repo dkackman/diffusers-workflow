@@ -399,9 +399,9 @@ class Workflow:
         try:
             expanded = self.expanded_definition(arguments, source_indices)
         except ForEachError as e:
-            return [{"path": e.path, "message": str(e)}]
+            return [{"path": e.path, "message": "Invalid for_each configuration"}]
         except ConstantError as e:
-            return [{"path": e.path, "message": str(e)}]
+            return [{"path": e.path, "message": "Invalid constant reference or constant value"}]
         except VariableNotFoundError:
             # Every undeclared reference, not just the first one substitution
             # tripped over - and reported where each sits rather than as a
@@ -414,7 +414,7 @@ class Workflow:
             # no single path inside the definition to blame, so it is
             # reported against 'variables' as a whole rather than escaping
             # as an unhandled exception
-            return [{"path": "variables", "message": str(e)}]
+            return [{"path": "variables", "message": "Variable cycle detected"}]
         return previous_result_reference_errors(
             expanded, source_indices
         ) + subfolder_errors(expanded, source_indices)
