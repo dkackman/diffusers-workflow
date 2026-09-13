@@ -93,7 +93,9 @@ def build_plan(
         "list_entries": entries,
         "cached_steps": None,
         "downloads_required": [],
-        "estimate": None,
+        "estimate": estimate(
+            definition, expanded, entries, device, base_dir, candidate.workflow_dir
+        ),
     }
 
 
@@ -145,3 +147,83 @@ def fingerprint(expanded, definition):
         doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=repr
     )
     return FINGERPRINT_PREFIX + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+UNKNOWN = "unknown"
+CATALOG = "catalog"
+PER_ENTRY = "per_entry"
+OTHER_DEVICE = "other_device"
+
+
+def estimate(definition, expanded, list_entries, device, base_dir, workflow_dir):
+    """Minutes from the workflow's own cost block, scaled by the caller's
+    list when the block was measured per entry, plus each composed child's.
+
+    `basis` names where the figure came from - the honesty is in the field,
+    not in a fabricated number: 'unknown' is no cost block at all,
+    'other_device' a figure measured on a backend other than the one
+    serving (reported so the agent has something to scale, flagged so it
+    is not quoted as a measurement), 'catalog' the stored total, and
+    'per_entry' that total re-priced for the list actually passed.
+    """
+    own = _price(definition.get("cost"), device, list_entries)
+    minutes = own["minutes"]
+    partial = False
+    for path in _sub_workflow_paths(expanded):
+        # A builtin is the parent's to price; a local child prices itself
+        raw = read_sub_workflow(path, base_dir, workflow_dir)
+        child_cost = None
+        if raw is not None:
+            try:
+                child_cost = json.loads(raw).get("cost")
+            except (ValueError, AttributeError):
+                child_cost = None
+        child = _price(child_cost, device, {})
+        if child["minutes"] is None:
+            partial = True
+        elif minutes is not None:
+            minutes += child["minutes"]
+        else:
+            minutes = child["minutes"]
+    return {
+        "minutes": round(minutes, 1) if minutes is not None else None,
+        "basis": own["basis"],
+        "device": device,
+        "measured_on": own["measured_on"],
+        "partial": partial,
+    }
+
+
+def _sub_workflow_paths(expanded):
+    """The local (non-builtin) sub-workflow path of every composing step."""
+    for step in expanded.get("steps") or []:
+        reference = step.get("workflow") if isinstance(step, dict) else None
+        path = reference.get("path") if isinstance(reference, dict) else None
+        if isinstance(path, str) and not path.startswith(BUILTIN_PREFIX):
+            yield path
+
+
+def _price(cost, device, list_entries):
+    """One cost list priced for `device` and `list_entries`, as
+    {minutes, basis, measured_on}."""
+    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
+    if not entries:
+        return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    chosen = next((entry for entry in entries if entry.get("device") == device), None)
+    basis = CATALOG
+    if chosen is None:
+        chosen = entries[0]
+        basis = OTHER_DEVICE
+    minutes = float(chosen.get("minutes", 0))
+    per = chosen.get("per_entry")
+    if (
+        basis == CATALOG
+        and isinstance(per, dict)
+        and per.get("variable") in list_entries
+    ):
+        count = list_entries[per["variable"]]
+        each = float(per.get("minutes", 0))
+        measured_with = int(per.get("entries", 0))
+        minutes = max(0.0, (minutes - each * measured_with) + each * count)
+        basis = PER_ENTRY
+    return {"minutes": minutes, "basis": basis, "measured_on": chosen.get("name")}
