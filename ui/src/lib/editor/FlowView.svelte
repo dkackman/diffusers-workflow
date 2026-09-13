@@ -28,11 +28,7 @@
     name === activeStep ? 'active' : doneSteps.includes(name) ? 'done' : '',
   )
   const memberStateOf = $derived((full: string) =>
-    full === activeMember
-      ? 'active'
-      : doneMembers.includes(full)
-        ? 'done'
-        : '',
+    full === activeMember ? 'active' : doneMembers.includes(full) ? 'done' : '',
   )
 
   const graph = $derived(dataFlowGraph(workflow))

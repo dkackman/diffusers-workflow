@@ -103,7 +103,7 @@ describe('activeMember', () => {
   it("ignores a sub-workflow's inner steps, member-named or not", () => {
     const events: JobEvent[] = [
       { seq: 0, event: 'step_start', step: 'base@open', parent_step: 'cut' },
- { seq: 1, event: 'step_start', step: 'inner', parent_step: 'shot1' },
+      { seq: 1, event: 'step_start', step: 'inner', parent_step: 'shot1' },
     ]
     expect(activeMember(events)).toBeUndefined()
   })

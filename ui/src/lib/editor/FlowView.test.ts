@@ -132,10 +132,10 @@ describe('for_each members', () => {
       'reveal',
     ])
     // The whole engine name is on the chip, as hover text
+    expect(chips[0].querySelector('title')?.textContent).toBe('shot@open')
     expect(
-      chips[0].querySelector('title')?.textContent,
-    ).toBe('shot@open')
-    expect(nodeFor(container, 'episode').querySelectorAll('g.member')).toHaveLength(0)
+      nodeFor(container, 'episode').querySelectorAll('g.member'),
+    ).toHaveLength(0)
     expect(
       nodeFor(container, 'episode').getAttribute('aria-label'),
     ).not.toContain('for_each')

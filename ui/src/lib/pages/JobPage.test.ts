@@ -235,7 +235,8 @@ it('marks the entries a for_each step runs as chips inside its box', async () =>
   const chip = (key: string) =>
     [...nodeFor(container, 'shot').querySelectorAll('g.member')].find(
       // the label is "member shot@open" plus ", done"/", active" when styled
-      (m) => m.getAttribute('aria-label')?.split(',')[0] === `member shot@${key}`,
+      (m) =>
+        m.getAttribute('aria-label')?.split(',')[0] === `member shot@${key}`,
     )!
   await waitFor(() =>
     expect(chip('open').classList.contains('active')).toBe(true),
