@@ -1,0 +1,308 @@
+"""The plan a validate call answers with: what a run of a workflow with a
+caller's arguments will actually execute, what it will have to download
+first, and what the workflow's own cost block says it will take - with a
+fingerprint over the work, so an acknowledgement can be bound to it and a
+run whose shape changed after consent refused (#85, stage 2).
+
+Everything here is derived from the same resolvers the run uses -
+`realize_workflow` folds the arguments and inlines the prompts, and
+`Workflow.expanded_definition` substitutes and expands `for_each` - so the
+plan describes the run and not an approximation of it. Nothing here knows a
+model: every minute comes from a `cost` block and every repo name from a
+`from_pretrained_arguments`.
+"""
+
+import copy
+import hashlib
+import json
+import logging
+import os
+
+from huggingface_hub import model_info
+
+from .hub_cache import scan_models
+from .realize import (
+    BUILTIN_PREFIX,
+    VARIABLE_PREFIX,
+    read_sub_workflow,
+    realize_workflow,
+)
+from .security import validate_url
+from .workflow import Workflow
+
+logger = logging.getLogger("dw")
+
+FINGERPRINT_PREFIX = "sha256:"
+# Top-level keys that document a workflow rather than shape its work
+DOCUMENTATION_KEYS = ("cost", "description", "summary", "configures")
+FOR_EACH_KEY = "for_each"
+SIZE_LOOKUP_TIMEOUT = 5.0
+GIB = 1024**3
+
+
+def build_plan(
+    candidate,
+    arguments,
+    *,
+    device,
+    prompt_dir=None,
+    cache_dir=None,
+    lookup_sizes=True,
+    cache_probe=None,
+):
+    """What a run of `candidate` with `arguments` will execute and cost.
+
+    Args:
+        candidate: The Workflow the route built - it carries the file spec
+            (so base_dir), the output root and the confinement a run has.
+        arguments: The caller's arguments, already past `argument_errors`;
+            an undeclared name or an uncoercible value raises here.
+        device: The backend that is serving - 'cuda', 'mps' or 'cpu'.
+        prompt_dir: The prompt library, for inlining.
+        cache_dir: The hub cache to check downloads against; None for the
+            default.
+        lookup_sizes: Whether to ask the hub how large a missing repo is.
+        cache_probe: Stage 2's step-cache probe; unused, `cached_steps` is
+            always None until then.
+    """
+    definition = candidate.workflow_definition
+    base_dir = (
+        os.path.dirname(os.path.abspath(candidate.file_spec))
+        if candidate.file_spec
+        else None
+    )
+    realized, _ = realize_workflow(
+        definition,
+        arguments,
+        seed=0,
+        base_dir=base_dir,
+        prompt_dir=prompt_dir,
+        output_root=candidate.output_dir,
+        workflow_dir=candidate.workflow_dir,
+        pin_outputs=False,
+    )
+    # Arguments are already folded into the realized variables, so the
+    # expansion takes none; it substitutes and expands exactly as the run
+    expanded = Workflow(
+        realized, candidate.output_dir, candidate.file_spec, candidate.workflow_dir
+    ).expanded_definition()
+    entries = list_entries(definition, realized)
+    return {
+        "fingerprint": fingerprint(expanded, definition),
+        "steps": len(expanded.get("steps") or []),
+        "list_entries": entries,
+        "cached_steps": None,
+        "downloads_required": downloads_required(
+            expanded, base_dir, candidate.workflow_dir, cache_dir, lookup_sizes
+        ),
+        "estimate": estimate(
+            definition, expanded, entries, device, base_dir, candidate.workflow_dir
+        ),
+    }
+
+
+def list_entries(definition, realized):
+    """{variable: length} for every `for_each` that names a list variable,
+    read from the folded variables - a literal list is not an argument and
+    is not listed."""
+    variables = realized.get("variables") or {}
+    entries = {}
+    for step in definition.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        reference = step.get(FOR_EACH_KEY)
+        if isinstance(reference, str) and reference.startswith(VARIABLE_PREFIX):
+            name = reference.removeprefix(VARIABLE_PREFIX)
+            value = variables.get(name)
+            if isinstance(value, list):
+                entries[name] = len(value)
+    return entries
+
+
+def fingerprint(expanded, definition):
+    """SHA-256 over the expanded definition with everything that is not
+    work removed: the seed wherever it sits, and the documentation keys.
+
+    `definition` is the workflow as written, consulted for whether the
+    top-level seed named a variable - if it did, that variable's folded
+    value is the seed too and is blanked at its source.
+    """
+    doc = copy.deepcopy(expanded)
+    doc.pop("seed", None)
+    for key in DOCUMENTATION_KEYS:
+        doc.pop(key, None)
+    written_seed = definition.get("seed")
+    if isinstance(written_seed, str) and written_seed.startswith(VARIABLE_PREFIX):
+        name = written_seed.removeprefix(VARIABLE_PREFIX)
+        variables = doc.get("variables")
+        if isinstance(variables, dict) and name in variables:
+            variables[name] = None
+    for step in doc.get("steps") or []:
+        if isinstance(step, dict):
+            step.pop("seed", None)
+            pipeline = step.get("pipeline")
+            if isinstance(pipeline, dict):
+                pipeline.pop("seed", None)
+    # default=repr: a realized 'constant:' can be any Python value, and the
+    # fingerprint only needs it to be stable, not round-trippable
+    serialized = json.dumps(
+        doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=repr
+    )
+    return FINGERPRINT_PREFIX + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+UNKNOWN = "unknown"
+CATALOG = "catalog"
+PER_ENTRY = "per_entry"
+OTHER_DEVICE = "other_device"
+
+
+def estimate(definition, expanded, list_entries, device, base_dir, workflow_dir):
+    """Minutes from the workflow's own cost block, scaled by the caller's
+    list when the block was measured per entry, plus each composed child's.
+
+    `basis` names where the figure came from - the honesty is in the field,
+    not in a fabricated number: 'unknown' is no cost block at all,
+    'other_device' a figure measured on a backend other than the one
+    serving (reported so the agent has something to scale, flagged so it
+    is not quoted as a measurement), 'catalog' the stored total, and
+    'per_entry' that total re-priced for the list actually passed.
+    """
+    own = _price(definition.get("cost"), device, list_entries)
+    minutes = own["minutes"]
+    partial = False
+    for path in _sub_workflow_paths(expanded):
+        # A builtin is the parent's to price; a local child prices itself
+        raw = read_sub_workflow(path, base_dir, workflow_dir)
+        child_cost = None
+        if raw is not None:
+            try:
+                child_cost = json.loads(raw).get("cost")
+            except (ValueError, AttributeError):
+                child_cost = None
+        child = _price(child_cost, device, {})
+        if child["minutes"] is None:
+            partial = True
+        elif minutes is not None:
+            minutes += child["minutes"]
+        else:
+            minutes = child["minutes"]
+    return {
+        "minutes": round(minutes, 1) if minutes is not None else None,
+        "basis": own["basis"],
+        "device": device,
+        "measured_on": own["measured_on"],
+        "partial": partial,
+    }
+
+
+def _sub_workflow_paths(expanded):
+    """The local (non-builtin) sub-workflow path of every composing step."""
+    for step in expanded.get("steps") or []:
+        reference = step.get("workflow") if isinstance(step, dict) else None
+        path = reference.get("path") if isinstance(reference, dict) else None
+        if isinstance(path, str) and not path.startswith(BUILTIN_PREFIX):
+            yield path
+
+
+def _price(cost, device, list_entries):
+    """One cost list priced for `device` and `list_entries`, as
+    {minutes, basis, measured_on}."""
+    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
+    if not entries:
+        return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    chosen = next((entry for entry in entries if entry.get("device") == device), None)
+    basis = CATALOG
+    if chosen is None:
+        chosen = entries[0]
+        basis = OTHER_DEVICE
+    minutes = float(chosen.get("minutes", 0))
+    per = chosen.get("per_entry")
+    if (
+        basis == CATALOG
+        and isinstance(per, dict)
+        and per.get("variable") in list_entries
+    ):
+        count = list_entries[per["variable"]]
+        each = float(per.get("minutes", 0))
+        measured_with = int(per.get("entries", 0))
+        minutes = max(0.0, (minutes - each * measured_with) + each * count)
+        basis = PER_ENTRY
+    return {"minutes": minutes, "basis": basis, "measured_on": chosen.get("name")}
+
+
+FROM_PRETRAINED_KEY = "from_pretrained_arguments"
+MODEL_NAME_KEY = "model_name"
+SINGLE_FILE_KEY = "from_single_file"
+
+
+def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes):
+    """The hub repos and checkpoint URLs the run would fetch before its
+    first step: every `model_name` in the expanded definition (and in each
+    composed child) that `scan_models` does not find, plus every
+    `from_single_file` that is a URL. Sizes come from the hub when asked
+    and are None whenever it does not answer - an offline box is a state,
+    not an error, so nothing here raises or logs above debug.
+    """
+    names = []
+    urls = []
+    _collect_sources(expanded, names, urls)
+    for path in _sub_workflow_paths(expanded):
+        raw = read_sub_workflow(path, base_dir, workflow_dir)
+        if raw is None:
+            continue
+        try:
+            _collect_sources(json.loads(raw), names, urls)
+        except ValueError:
+            continue
+    present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
+    required = []
+    for name in names:
+        if name in present or os.path.isdir(name):
+            continue
+        required.append({"repo": name, "gb": _size_gb(name) if lookup_sizes else None})
+    for url in urls:
+        required.append({"repo": None, "url": url, "gb": None})
+    return required
+
+
+def _collect_sources(tree, names, urls):
+    """Every from_pretrained source in a tree, first-seen order, deduplicated."""
+    if isinstance(tree, dict):
+        source = tree.get(FROM_PRETRAINED_KEY)
+        if isinstance(source, dict):
+            name = source.get(MODEL_NAME_KEY)
+            if isinstance(name, str) and name not in names:
+                names.append(name)
+            single = source.get(SINGLE_FILE_KEY)
+            if isinstance(single, str) and _is_url(single) and single not in urls:
+                urls.append(single)
+        for value in tree.values():
+            _collect_sources(value, names, urls)
+    elif isinstance(tree, list):
+        for value in tree:
+            _collect_sources(value, names, urls)
+
+
+def _is_url(value):
+    if not value.startswith(("http://", "https://")):
+        return False
+    try:
+        validate_url(value)
+        return True
+    except Exception:
+        return False
+
+
+def _size_gb(name):
+    """A repo's size in GiB to one decimal, or None when the hub does not
+    say - unreachable, gated without a token, or a file with no size."""
+    try:
+        info = model_info(name, files_metadata=True, timeout=SIZE_LOOKUP_TIMEOUT)
+        total = sum(
+            s.size for s in (info.siblings or []) if getattr(s, "size", None)
+        )
+    except Exception as e:
+        logger.debug(f"No size for {name}: {e}")
+        return None
+    return round(total / GIB, 1) if total else None

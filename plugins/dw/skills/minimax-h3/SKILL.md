@@ -156,8 +156,9 @@ inherits the portrait's composition.
 
 1. `validate_workflow` first - free, and it catches arguments the pipeline
    does not accept.
-2. Quote the listing's `cost` (warm minutes on the card it was measured on;
-   a first load is longer). When it declares none, say so and give the shape
+2. Quote `plan.estimate` from the validate answer (warm minutes; a first
+   load, and any `downloads_required`, is longer). When `basis` is
+   `unknown`, say so and give the shape
    instead: a 124-frame turbo clip is a few minutes on a 24 GB card, 345
    frames three times that, an image reference twice a turbo clip, a video
    reference beside it 3.4x again, and a chain multiplies by its segments.

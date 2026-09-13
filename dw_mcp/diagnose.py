@@ -24,9 +24,11 @@ MAX_WAIT_SECONDS = 55
 
 COST_REFUSAL = (
     "Running a workflow occupies the GPU for minutes and the engine runs one "
-    "job at a time. Tell the user what is about to run, get their go-ahead, "
-    "then call again with acknowledged_cost=true. `validate_workflow` is free "
-    "and checks the definition first."
+    "job at a time. Call `validate_workflow` with the arguments you will run "
+    "with (free): its `plan` says what will execute - `estimate.minutes` with "
+    "its `basis`, and any weights in `downloads_required` this box has to "
+    "fetch first. Tell the user that number, get their go-ahead, then call "
+    "again with acknowledged_cost=true."
 )
 
 

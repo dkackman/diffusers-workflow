@@ -21,7 +21,7 @@ from datetime import datetime
 from urllib.parse import quote, urlparse
 from typing import Any, Dict, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse, JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -64,6 +64,7 @@ from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..hub_cache import scan_models, delete_model, DownloadManager
+from ..plan import build_plan
 from ..runs import is_output_reference, resolve_output_reference, split_run_path
 from ..workspace import (
     ASSETS_SUBDIR,
@@ -1255,13 +1256,23 @@ def create_app(
 
     @app.post("/api/validate")
     def validate_workflow(
-        request: JobRequest, ws: Workspace = Depends(selected_workspace)
+        request: JobRequest,
+        ws: Workspace = Depends(selected_workspace),
+        sizes: bool = Query(
+            True,
+            description="Ask the hub how large each missing model is; false "
+            "skips the network for a faster answer",
+        ),
     ):
         """Schema-validate a workflow and check its pipeline arguments
         against real signatures, without queuing anything. Give either an
         inline workflow or a workflow_path - a path on the server or a
         stored workflow name from /api/workflows. The workspace it resolves
-        in comes from the body or the query string, body first."""
+        in comes from the body or the query string, body first. A valid
+        answer also carries a plan: the fingerprint of the work these
+        arguments produce, the step count, the list lengths, the model
+        repos not in the cache, and an estimate from the workflow's cost
+        block."""
         if (request.workflow is None) == (request.workflow_path is None):
             raise HTTPException(
                 status_code=400,
@@ -1362,6 +1373,22 @@ def create_app(
             # Naming what was checked is the difference between 'the stored
             # definition is valid' and 'the values you are about to pass are'
             answer["checked_arguments"] = sorted(request.arguments)
+        # What the run will execute for these arguments, fingerprinted so
+        # an acknowledgement can be bound to it (#85). Best effort: the
+        # verdict above is the schema's and the planner may not change it
+        try:
+            from .. import get_device, get_device_type
+
+            answer["plan"] = build_plan(
+                candidate,
+                request.arguments,
+                device=get_device_type(get_device()),
+                prompt_dir=workspace.prompts,
+                lookup_sizes=sizes,
+            )
+        except Exception:
+            logger.exception("Plan could not be built")
+            answer["plan"] = None
         return answer
 
     # ------------------------------------------------------------ workspaces

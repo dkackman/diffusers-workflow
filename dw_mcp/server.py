@@ -678,7 +678,17 @@ def build_server(client):
         workflow it names is validated in turn under that path, a
         composition cycle is refused, and an argument passed down that the
         composed workflow declares no variable for comes back as a
-        warning."""
+        warning.
+
+        A valid answer carries `plan`: what will execute for these
+        arguments. Quote `plan.estimate.minutes` with its `basis` -
+        `per_entry` or `catalog` is a measured figure re-priced for your
+        list, `other_device` a figure from another accelerator (say so),
+        `unknown` no figure at all - and name each `downloads_required`
+        entry as its own line item ("and 41 GB of weights this box does not
+        have"); `gb` is null when the hub could not be asked. `steps` and
+        `list_entries` say how many members the list actually produced.
+        `plan` is null when it could not be built; the verdict stands."""
         return authoring.validate_workflow(
             client,
             workflow=workflow,
