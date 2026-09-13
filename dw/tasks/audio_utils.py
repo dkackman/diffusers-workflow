@@ -28,6 +28,10 @@ logger = logging.getLogger("dw")
 # discontinuity does not click
 DECLICK_MS = 3.0
 
+# Padding shorter than this at the end of a slice is the rounding that
+# frame-aligned slicing produces, not a slice that overran its source
+SLICE_PAD_WARN_MS = 10.0
+
 
 def as_channels_samples(audio):
     """Normalize a waveform to a (channels, samples) float32 numpy array.
@@ -280,8 +284,15 @@ def slice_audio(
     """Task command: cut a slice out of an audio track.
 
     The slice is addressed either in seconds (start_seconds + duration_seconds)
-    or in video frames (start_frame + num_frames + fps). Slices reaching past
-    the end of the track are zero-padded.
+    or in video frames (start_frame + num_frames + fps).
+
+    A slice reaching past the end of the track is zero-padded to the length
+    asked for - it does not fail and it is not shortened - and the padding is
+    digital silence, so asking for more than the source holds returns a track
+    that is partly empty. Anything past a few milliseconds of that is
+    reported as a 'slice_past_end' warning on the job. To fill a cut longer
+    than the recording, make a bed with the 'loop_audio' task first
+    ('target_frames' + 'fps' matches one exactly) and slice that.
 
     Either half of a pair may be left out: with no start the slice begins at the
     head of the track, and with no duration it runs to the end of it. A workflow
@@ -334,7 +345,47 @@ def slice_audio(
             "'start_frame'/'num_frames'/'fps'"
         )
 
+    _warn_on_slice_past_end(total, start, length, sample_rate)
     return _as_track(slice_samples(waveform, start, length), sample_rate)
+
+
+def _warn_on_slice_past_end(total, start, length, sample_rate):
+    """Say when a slice asked for more material than its source holds.
+
+    slice_samples zero-pads the shortfall, which is what makes frame-aligned
+    chunking near the end of a track work at all - but the same padding is
+    how a score shorter than the film it is laid under leaves the film
+    unscored for the rest of its length, with nothing anywhere saying so
+    (#126). emit_warning rather than logger.warning for the reason the
+    concat_videos resample warning is emitted: silently substituting silence
+    for four fifths of a track is an audio decision made on the caller's
+    behalf, and a caller reading the job over the API or MCP sees the
+    warnings list and nothing else (#82, #108).
+    """
+    available = max(0, min(total - start, length))
+    padded = length - available
+    if padded <= 0 or not sample_rate:
+        return
+    padded_seconds = padded / float(sample_rate)
+    if padded_seconds * 1000.0 < SLICE_PAD_WARN_MS:
+        # Frame-aligned slicing lands a sample or two past the end routinely;
+        # that is rounding, not a decision anyone can act on
+        return
+    emit_warning(
+        f"slice_audio: the requested slice runs "
+        f"{padded_seconds:.2f} s past the end of a "
+        f"{total / float(sample_rate):.2f} s source, so that much of the "
+        f"{length / float(sample_rate):.2f} s returned is digital silence. "
+        f"If you meant to fill a cut of this length, make a bed with the "
+        f"'loop_audio' task ('target_frames' + 'fps' matches one exactly) "
+        f"and slice that; if you meant the tail pad, nothing is wrong.",
+        kind="slice_past_end",
+        command="slice_audio",
+        source_seconds=round(total / float(sample_rate), 3),
+        requested_seconds=round(length / float(sample_rate), 3),
+        padded_seconds=round(padded_seconds, 3),
+        sample_rate=sample_rate,
+    )
 
 
 def resample_waveform(waveform, sample_rate, target_sample_rate):

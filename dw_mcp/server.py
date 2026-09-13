@@ -381,6 +381,16 @@ def build_server(client):
         Leave it off unless you are asking a question about a position in
         the track - a long track is a long list.
 
+        `name` may be an "asset:" reference instead of a gallery name, and
+        then it describes that input asset. This is how you learn what an
+        asset you are about to pass to a workflow actually holds - how many
+        frames a shot is, whether two shots share an fps, whether a score
+        reaches the length of the cut you are about to lay it under. Do
+        that before running rather than after: a workflow's frame counts
+        and rates are arguments the caller supplies, and getting one wrong
+        is discovered as a failed job or, worse, as silence padded onto the
+        end of a track.
+
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
@@ -544,7 +554,10 @@ def build_server(client):
     def list_assets() -> dict:
         """List the input media on the server, each with the "asset:"
         reference a workflow argument carries. Look here before asking for
-        a file: what a workflow needs may already be there."""
+        a file: what a workflow needs may already be there. Entries carry
+        name, kind, size and origin only - for one asset's duration, frame
+        count, fps, sample rate or channels, pass its reference to
+        `get_gallery_metadata`, which reads inputs as well as outputs."""
         return assets.list_assets(client)
 
     def upload_asset(

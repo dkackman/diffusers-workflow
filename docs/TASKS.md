@@ -438,8 +438,14 @@ returns frames without it, and this puts it back:
 ### slice_audio
 
 Cut a slice out of an audio track, addressed in seconds or in video frames.
-Slices reaching past the end of the track are zero-padded. Either half of a pair
-may be left out - an omitted start begins at the head of the track, an omitted
+Slices reaching past the end of the track are zero-padded — asking for more
+than the source holds returns a track of the length you asked for whose tail is
+digital silence, not a shorter track and not an error. Anything past a few
+milliseconds of that padding is reported as a `slice_past_end` warning on the
+job, because a score laid under a longer cut goes silent for the rest of the
+film without anything else saying so; to fill a cut longer than the recording,
+build a bed with [`loop_audio`](#loop_audio) first and slice that. Either half
+of a pair may be left out - an omitted start begins at the head of the track, an omitted
 duration runs to the end of it - so a workflow that trims only when it is given
 a length still passes the whole track along:
 

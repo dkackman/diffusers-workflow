@@ -212,6 +212,10 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
     audio and video what the file holds - duration, sample rate, channels,
     fps, size, peak and mean level in dBFS.
 
+    `name` is a gallery name, or an 'asset:' reference to read an input
+    asset the same way (#127) - the same numbers, `job` null, and `source`
+    saying which of the two answered.
+
     With envelope=True the soundtrack's level is reported second by second
     as well, which is what locates something in a track rather than only
     measuring the whole of it. Opt-in: it is one number per second per
@@ -222,7 +226,17 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
         workspace=workspace,
     )
     media = body.get("media")
-    if media and media.get("kind") in ("audio", "video"):
+    if media and body.get("source") == "asset":
+        body["next"] = (
+            "These are the numbers a workflow's arguments have to match "
+            "before the run, not after: frame_count and fps decide a cut's "
+            "'total_frames', sample_rate decides what its audio is mixed "
+            "at, and duration_seconds says whether a score reaches the "
+            "length of the film it goes under - a score shorter than the "
+            "cut is padded with digital silence rather than refused, so "
+            "make a longer bed with the 'loop_audio' task instead."
+        )
+    elif media and media.get("kind") in ("audio", "video"):
         body["next"] = (
             "Check duration_seconds against what was asked for: a Music 3 "
             "track that lands within 0.2 s of its audio_duration ceiling was "

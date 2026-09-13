@@ -642,3 +642,120 @@ class TestLoopAudio:
                 duration_seconds=1.0,
                 sample_rate=100,
             )
+
+
+class TestSlicingPastTheEndOfATrack:
+    """#126: a slice reaching past the end of its source is zero-padded, and
+    said nothing about it. In `templates/assemble-and-score` that is the
+    default path - `total_frames` is the length of the cut and the score is a
+    separate asset with its own length - so a score shorter than the film
+    left the film unscored for the rest of its length with `warnings: []`.
+    The padding stays (a few frames of tail pad is a legitimate thing to
+    want); what it no longer does is happen in silence.
+    """
+
+    def events_from(self, call):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            call()
+        finally:
+            deactivate_context(token)
+        return [e for e in events if e.get("kind") == "slice_past_end"]
+
+    def tone(self, samples=330, rate=100, channels=1):
+        return numpy.full((channels, samples), 0.5, dtype=numpy.float32)
+
+    def test_a_slice_past_the_end_is_reported(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        warnings = self.events_from(
+            lambda: slice_audio(
+                self.tone(),
+                start_frame=0,
+                num_frames=372,
+                fps=24,
+                sample_rate=100,
+            )
+        )
+
+        assert len(warnings) == 1
+        warning = warnings[0]
+        assert warning["command"] == "slice_audio"
+        assert warning["source_seconds"] == pytest.approx(3.3)
+        assert warning["requested_seconds"] == pytest.approx(15.5)
+        assert warning["padded_seconds"] == pytest.approx(12.2)
+        # The remedy is a task that already exists and is not mentioned
+        # anywhere near slice_audio
+        assert "loop_audio" in warning["message"]
+        assert "silence" in warning["message"]
+
+    def test_the_padding_itself_is_unchanged(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        sliced = slice_audio(
+            self.tone(), start_seconds=0, duration_seconds=10.0, sample_rate=100
+        )
+
+        assert samples(sliced).shape == (1000, 1)
+        assert numpy.all(numpy.asarray(sliced.audio)[:, 330:] == 0)
+
+    def test_a_slice_inside_the_track_says_nothing(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        assert (
+            self.events_from(
+                lambda: slice_audio(
+                    self.tone(),
+                    start_seconds=0,
+                    duration_seconds=3.3,
+                    sample_rate=100,
+                )
+            )
+            == []
+        )
+
+    def test_slicing_to_the_end_of_the_track_says_nothing(self):
+        """No duration means 'to the end', which cannot overrun."""
+        from dw.tasks.audio_utils import slice_audio
+
+        assert (
+            self.events_from(
+                lambda: slice_audio(self.tone(), start_seconds=1.0, sample_rate=100)
+            )
+            == []
+        )
+
+    def test_a_few_samples_of_rounding_are_not_a_warning(self):
+        """Frame-aligned slicing lands a sample or two past the end all the
+        time; a warning fired on that is noise nobody can act on."""
+        from dw.tasks.audio_utils import slice_audio
+
+        assert (
+            self.events_from(
+                lambda: slice_audio(
+                    self.tone(samples=1000),
+                    start_seconds=0,
+                    duration_seconds=10.002,
+                    sample_rate=100,
+                )
+            )
+            == []
+        )
+
+    def test_a_start_beyond_the_end_is_reported_as_all_padding(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        warnings = self.events_from(
+            lambda: slice_audio(
+                self.tone(),
+                start_seconds=10.0,
+                duration_seconds=2.0,
+                sample_rate=100,
+            )
+        )
+
+        assert len(warnings) == 1
+        assert warnings[0]["padded_seconds"] == pytest.approx(2.0)
