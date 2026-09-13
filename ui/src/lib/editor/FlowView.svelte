@@ -23,6 +23,40 @@
 
   const graph = $derived(dataFlowGraph(workflow))
 
+  // SVG text neither wraps nor takes text-overflow, so a label longer than
+  // the box ran out of its right edge. Budgets are characters at the box's
+  // inner width (BOX_W less the 10px inset each side) for each line's font
+  // - bold 12px sans for the name, 10px mono for the detail - and the
+  // clipPath below catches what a wider glyph set still pushes past.
+  const NAME_CHARS = 20
+  const NAME_CHARS_WITH_TAG = 15 // the entry tag sits in the top-right corner
+  const DETAIL_CHARS = 26
+
+  /** The text cut to `max` characters with an ellipsis where it was cut: a
+   * name is told apart by how it starts, a path by how it ends. */
+  function fit(text: string, max: number, keep: 'head' | 'tail'): string {
+    if (text.length <= max) return text
+    return keep === 'head'
+      ? text.slice(0, max - 1) + '…'
+      : '…' + text.slice(text.length - max + 1)
+  }
+  /** The parts of a node's labels that did not fit, in full, for its tooltip. */
+  function overflowTitle(node: FlowNode): string {
+    const nameShown = fit(
+      node.name,
+      node.isEntryPoint ? NAME_CHARS_WITH_TAG : NAME_CHARS,
+      'head',
+    )
+    return [
+      nameShown === node.name ? null : node.name,
+      fit(node.detail, DETAIL_CHARS, 'tail') === node.detail
+        ? null
+        : node.detail,
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+
   // Layered left-to-right layout: a node's layer is one past the deepest
   // producer that feeds it directly, so entry points (no previous_result
   // input) sit in the first column and depth reads as real dependency
@@ -157,6 +191,9 @@
           >
             <path d="M 0 0 L 10 5 L 0 10 z" class="arrowhead" />
           </marker>
+          <clipPath id="flow-nodebox">
+            <rect width={BOX_W} height={BOX_H} rx="8" />
+          </clipPath>
         </defs>
 
         {#each layout.edgeLines ?? [] as edge, i (i)}
@@ -180,14 +217,26 @@
               class:active={node.name === activeStep}
               class:done={stateOf(node.name) === 'done'}
               transform={`translate(${pos.x}, ${pos.y})`}
+              clip-path="url(#flow-nodebox)"
               aria-label={`step ${node.name}, ${kindLabel(node.kind)}${stateOf(node.name) ? ', ' + stateOf(node.name) : ''}${node.isEntryPoint ? ', entry point' : ''}${fanIn ? ', fan-in: ' + fanIn.label : ''}`}
               {...nodeAttributes(node.name)}
             >
+              {#if overflowTitle(node)}
+                <title>{overflowTitle(node)}</title>
+              {/if}
               <rect width={BOX_W} height={BOX_H} rx="8" class="box" />
-              <text x="10" y="20" class="stepname">{node.name}</text>
+              <text x="10" y="20" class="stepname"
+                >{fit(
+                  node.name,
+                  node.isEntryPoint ? NAME_CHARS_WITH_TAG : NAME_CHARS,
+                  'head',
+                )}</text
+              >
               <text x="10" y="37" class="stepkind">{kindLabel(node.kind)}</text>
               {#if node.detail}
-                <text x="10" y="52" class="stepdetail">{node.detail}</text>
+                <text x="10" y="52" class="stepdetail"
+                  >{fit(node.detail, DETAIL_CHARS, 'tail')}</text
+                >
               {/if}
               {#if node.isEntryPoint}
                 <text x={BOX_W - 8} y="14" class="entrytag" text-anchor="end"
