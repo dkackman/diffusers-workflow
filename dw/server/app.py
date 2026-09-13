@@ -900,13 +900,32 @@ def create_app(
                 current,
             )
 
-    def _candidate_for(workflow_path, workflow, base_dir, output_dir, workflow_dir):
-        """The Workflow a job spec names, built as the worker will build it."""
+    def _candidate_for(
+        workflow_path, workflow, base_dir, output_dir, workflow_dir, arguments
+    ):
+        """The Workflow a job spec names, built and checked as submit() will
+        build and check it - schema first, then the caller's arguments -
+        so a bound acknowledgement never turns the caller's 400 into a 409
+        telling them to acknowledge with true and find out.
+
+        Raises what submit() raises (ValueError, SecurityError, ...), which
+        the routes already answer as 400.
+        """
         if workflow_path is not None:
-            return workflow_from_file(workflow_path, output_dir, workflow_dir)
-        return workflow_from_definition(
-            copy.deepcopy(workflow), output_dir, base_dir, workflow_dir
-        )
+            candidate = workflow_from_file(workflow_path, output_dir, workflow_dir)
+        else:
+            candidate = workflow_from_definition(
+                copy.deepcopy(workflow), output_dir, base_dir, workflow_dir
+            )
+        candidate.validate()
+        problems = argument_errors(candidate.workflow_definition, arguments)
+        if problems:
+            raise ValueError(
+                "; ".join(
+                    f"{problem['path']}: {problem['message']}" for problem in problems
+                )
+            )
+        return candidate
 
     @app.post("/api/jobs", status_code=201)
     def submit_job(request: JobRequest, ws: Workspace = Depends(selected_workspace)):
@@ -947,6 +966,7 @@ def create_app(
                     request.base_dir,
                     workspace.outputs,
                     source.root if source else workspace.workflows,
+                    request.arguments,
                 )
                 _check_bound_acknowledgement(
                     candidate, request.arguments, request.acknowledged_cost, workspace
@@ -1097,6 +1117,7 @@ def create_app(
                     spec.get("base_dir"),
                     spec.get("output_dir") or manager.output_dir,
                     spec.get("workflow_dir"),
+                    arguments,
                 )
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))

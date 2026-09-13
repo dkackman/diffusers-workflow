@@ -4007,6 +4007,39 @@ class TestBoundAcknowledgement:
         assert flagged.json()["acknowledged"] == "boolean"
         assert off.json()["acknowledged"] == "none"
 
+    def test_a_bad_argument_is_still_a_400_under_a_bound_acknowledgement(
+        self, server, no_hub
+    ):
+        """The argument and schema checks come first, as they do on the
+        boolean path - a typo in an argument name is the caller's 400, not
+        a 409 telling them to acknowledge with true and try again."""
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": list_workflow(),
+                    "arguments": {"shotz": []},
+                    "acknowledged_cost": bound(plan),
+                },
+            )
+            assert response.status_code == 400
+            assert "shotz" in response.json()["detail"]
+
+    def test_an_invalid_workflow_is_still_a_400_under_a_bound_acknowledgement(
+        self, server, no_hub
+    ):
+        with server(success_script) as client:
+            broken = {"id": "broken", "steps": "no"}
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": broken,
+                    "acknowledged_cost": {"fingerprint": "sha256:0", "downloads": []},
+                },
+            )
+            assert response.status_code == 400
+
     def test_a_bound_form_without_a_fingerprint_is_a_422(self, server):
         with server(success_script) as client:
             response = client.post(
