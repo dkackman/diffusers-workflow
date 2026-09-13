@@ -312,7 +312,10 @@ def build_server(client):
         an mps or cpu server, and `directories` is what a path passed to
         run_workflow or download_output is relative to. If this session
         works in a named workspace, `directories` are scoped to that
-        workspace."""
+        workspace. `trust_workflows` reports the posture a submitted
+        workflow is read under: false - the default - means the file is
+        untrusted input, so an out-of-ecosystem import, remote code, and a
+        media location outside the workspace's roots are all refused."""
         return workspaces.server_info(client)
 
     def list_jobs(

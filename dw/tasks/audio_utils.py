@@ -219,7 +219,9 @@ def load_audio(location, base_dir=None):
     if location.startswith(("http://", "https://")):
         import requests
 
-        validated_url = validate_url(location)
+        from ..locations import validate_media_url
+
+        validated_url = validate_media_url(location, "an audio argument")
         logger.debug(f"Downloading audio from {validated_url}")
         response = requests.get(validated_url, timeout=60)
         response.raise_for_status()
@@ -227,7 +229,9 @@ def load_audio(location, base_dir=None):
             io.BytesIO(response.content), dtype="float32"
         )
     else:
-        validated_path = validate_path(location, base_dir=base_dir, allow_create=False)
+        from ..locations import validate_media_path
+
+        validated_path = validate_media_path(location, base_dir, "an audio argument")
         validate_file_extension(validated_path, ALLOWED_AUDIO_EXTENSIONS)
         logger.debug(f"Reading audio from {validated_path}")
         data, sample_rate = soundfile.read(validated_path, dtype="float32")

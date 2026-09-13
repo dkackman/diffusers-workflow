@@ -27,6 +27,7 @@ from .previous_results import (
     StepResults,
     previous_result_reference_errors,
 )
+from .locations import location_errors
 from .subfolders import step_subfolder, subfolder_errors
 from .step import Step
 from .step_cache import (
@@ -583,9 +584,15 @@ class Workflow:
             # reported against 'variables' as a whole rather than escaping
             # as an unhandled exception
             return [{"path": "variables", "message": str(e)}]
+        base_dir = (
+            os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
+        )
         return (
             previous_result_reference_errors(expanded, source_indices)
             + subfolder_errors(expanded, source_indices)
+            # A location policy refuses before a model load is spent on the
+            # run rather than after it (dw/locations.py)
+            + location_errors(expanded, source_indices, base_dir)
             + self.sub_workflow_errors(expanded, source_indices, composing)
         )
 

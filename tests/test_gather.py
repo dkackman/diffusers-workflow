@@ -78,10 +78,10 @@ class TestGatherImages:
         ]
 
     @patch("dw.tasks.gather.load_image")
-    @patch("dw.tasks.gather.validate_url")
+    @patch("dw.tasks.gather.validate_media_url")
     def test_gather_images_from_urls(self, mock_validate_url, mock_load_image):
         """Test gathering images from URLs"""
-        mock_validate_url.side_effect = lambda x: x
+        mock_validate_url.side_effect = lambda url, what=None: url
         mock_image = Image.new("RGB", (100, 100))
         mock_load_image.return_value = mock_image
 
@@ -104,7 +104,7 @@ class TestGatherImages:
             glob_pattern = os.path.join(temp_dir, "*.jpg")
 
             with patch("dw.tasks.gather.load_image") as mock_load:
-                with patch("dw.tasks.gather.validate_url") as mock_validate:
+                with patch("dw.tasks.gather.validate_media_url") as mock_validate:
                     mock_validate.return_value = "https://example.com/remote.jpg"
                     mock_load.side_effect = [
                         Image.new("RGB", (50, 50)),  # For file
