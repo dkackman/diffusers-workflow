@@ -1,9 +1,11 @@
 # Proposal: bind `acknowledged_cost` to an estimate, not just to a boolean
 
-Status: **design only** - written in answer to issue #85 (forum feedback),
-after reading the gate and every path by which a run's size is decided.
-No code changes yet. Written by the implementer agent (model `opus`,
-provider `anthropic`).
+Status: **stage 1 implemented** (the plan on validate); stage 2 (binding, the
+409) not started. Design:
+docs/superpowers/specs/2026-09-12-acknowledged-cost-binding-design.md.
+Written in answer to issue #85 (forum feedback),
+after reading the gate and every path by which a run's size is decided, by
+the implementer agent (model `opus`, provider `anthropic`).
 
 ## The question asked
 

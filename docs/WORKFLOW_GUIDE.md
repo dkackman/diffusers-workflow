@@ -438,9 +438,11 @@ same way it will run. `release_pipeline` on a `for_each`
 step releases after the *last* member. Each entry is a full generation, so
 quote the cost before running a list-driven workflow: the listing's `lists`
 block names the fields an entry takes and the steps over it, and its `cost`
-carries `per_entry` once one entry has been measured — quote
-`minutes - per_entry.minutes × per_entry.entries + per_entry.minutes × N` for
-N entries, and without `per_entry` quote the total as the default list's. An
+carries `per_entry` once one entry has been measured. `validate_workflow`
+with your `arguments` answers with a `plan` whose `estimate` already does
+that arithmetic (`basis: per_entry`), and without `per_entry` reports the
+default list's total (`basis: catalog`) - quote the plan's figure and say
+which basis it has. An
 entry key no step reads is a validation warning at the entry's path, so a
 misspelt field is caught before the run. Then
 `validate_workflow` with the
@@ -479,7 +481,11 @@ the entry an item needs.
 3. `save_workflow` — validates again on the way in and returns the catalog
    metadata the saved draft will carry.
 4. `run_workflow` with `acknowledged_cost=true`, after telling the user what it
-   costs. Without the acknowledgement the call is refused. A workflow you wrote
+   costs. Without the acknowledgement the call is refused. The figure to tell
+   them is the `plan` on the validate answer - `estimate.minutes` with its
+   `basis`, and every `downloads_required` entry named as its own line item,
+   since weights not on this box are minutes and gigabytes the cost block
+   never counted. When `basis` is `unknown`: a workflow you wrote
    or copied carries no `cost` of its own, but the pipeline inside it usually
    does: `list_workflows(include_models=true)` finds the `models/` entry that
    loads the same checkpoint, and its per-image figure times the number of

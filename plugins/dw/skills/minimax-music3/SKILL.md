@@ -128,8 +128,8 @@ Control" section.
 
 1. `validate_workflow` first - free, and it catches arguments the pipeline
    does not accept.
-2. Quote the listing's `cost` (warm minutes on the card it was measured on;
-   a first load is longer). When the listing declares none, say so and give
+2. Quote `plan.estimate` from the validate answer (warm minutes on the card it
+   was measured on; a first load is longer). When `basis` is `unknown`, say so and give
    the shape of the spend: the autoregressive stage runs at 25 frames per
    second of audio and dominates, so time scales with the length the model
    actually sings, not the ceiling. Get the user's go-ahead before

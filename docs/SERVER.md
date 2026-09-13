@@ -268,6 +268,25 @@ The editor's forms come from these; they are just as usable from scripts:
   was covered, since without arguments the verdict is about the stored
   defaults only.
 
+  A valid answer also carries `plan`, what the run will execute for those
+  arguments: `fingerprint` (`sha256:…` over the realized, expanded
+  definition with the seed and the documentation keys removed and
+  `output:…/latest/…` left unpinned - the same work hashes the same, a
+  longer list or an edited stored prompt does not); `steps`, the expanded
+  member count; `list_entries`, `{variable: length}` for each `for_each`
+  over a list variable; `cached_steps`, reserved (`null`);
+  `downloads_required`, each `model_name` the hub cache does not hold as
+  `{repo, gb}` (`gb` from the hub, `null` when it could not be asked -
+  `?sizes=false` skips the hub) and each `from_single_file` URL as
+  `{repo: null, url, gb: null}`; and `estimate`, `{minutes, basis,
+  device, measured_on, partial}` from the workflow's own `cost` block -
+  `basis` is `catalog` (the stored total), `per_entry` (re-priced for the
+  list passed, when the entry carries `per_entry`), `other_device` (no
+  entry for the serving backend; the first entry's figure, which is a
+  warning rather than a quote) or `unknown`; a composed child's cost is
+  added and `partial` is true when a child has none. `plan` is `null` when
+  it could not be built; an invalid answer carries no `plan` key.
+
 ## Files and models
 
 - `GET /api/workflows` — the stored workflow names, plus a `details` entry

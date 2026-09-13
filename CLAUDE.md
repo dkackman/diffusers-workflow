@@ -282,7 +282,10 @@ same reason - default setup cannot load a pack.
   the workspace) so the free pre-flight covers the part the caller wrote.
   A workflow that declares no variables takes no arguments at all - those were
   dropped in silence, since `Workflow.run` only substitutes when a `variables`
-  block exists
+  block exists. A valid `POST /api/validate` answer also carries `plan`
+  (`dw/plan.py`): the fingerprint of the work, step and list counts,
+  `downloads_required` and a cost `estimate` with its `basis` - the number an
+  agent quotes; `plan: null` when it could not be built, never a changed verdict
 - **A failed run still reports what it wrote** — the worker carries its partial
   manifest on the error and cancelled messages as well as on success, and the
   "Previous result not found" error names the steps that ran even after

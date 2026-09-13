@@ -125,9 +125,9 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
 
 1. `validate_workflow` first - free, and it catches arguments the pipeline
    rejects.
-2. Quote the listing's `cost` - the run's whole wall clock, model loading
-   included. Only `templates/ltx2/text-to-video` and `templates/ltx2/two-stage`
-   declare one; for the other six say so and give the shape of the spend
+2. Quote `plan.estimate` from the validate answer (whole wall clock, loading
+   included) and name any `downloads_required`. Only `text-to-video` and
+   `two-stage` carry a `cost`; for the other six say so and give the shape
    instead - a 121-frame clip at 960x544 is under two minutes cold on a 24 GB
    card, of which a minute is loading, the two-stage flow about eight, and
    extend and chain multiply by their passes. Either way get the go-ahead
