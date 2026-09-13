@@ -168,19 +168,40 @@ class TestResult:
             assert len(files) == 0
 
     def test_save_with_custom_base_name(self):
+        """A file_base_name replaces the derived name rather than prefixing
+        it - the whole point of setting one is a name the caller can predict
+        without reading it back out of the manifest (#100)."""
         with tempfile.TemporaryDirectory() as temp_dir:
             result_def = {
                 "content_type": "application/json",
                 "save": True,
-                "file_base_name": "custom_",
+                "file_base_name": "ep5-episode",
             }
             result = Result(result_def)
             result.add_result({"data": "test"})
 
-            result.save(temp_dir, "output")
+            result.save(temp_dir, "qa-ep5-episode-episode.0")
 
-            output_file = os.path.join(temp_dir, "custom_output-0.json")
+            output_file = os.path.join(temp_dir, "ep5-episode-0.json")
             assert os.path.exists(output_file)
+            assert os.listdir(temp_dir) == ["ep5-episode-0.json"]
+
+    def test_two_steps_sharing_a_base_name_do_not_overwrite_each_other(self):
+        """Replacing the derived name drops what made it unique per step, so
+        the existing de-duplication is what keeps a second step's file (#100)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for step in ("a", "b"):
+                result = Result(
+                    {
+                        "content_type": "application/json",
+                        "save": True,
+                        "file_base_name": "shared",
+                    }
+                )
+                result.add_result({"step": step})
+                result.save(temp_dir, f"wf-{step}.0")
+
+            assert sorted(os.listdir(temp_dir)) == ["shared-0-2.json", "shared-0.json"]
 
     def test_a_traversing_file_base_name_cannot_escape_the_output_directory(self):
         """Every part of a result's file name comes from the workflow - a

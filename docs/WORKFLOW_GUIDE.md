@@ -567,7 +567,11 @@ underscore; `..`, a backslash and a leading `.` are refused - so every
 subfolder written is one a later workflow can name:
 `output:dialogue-short/latest/final/episode.mp4`. A bad value is a
 validation error at its JSON path. `file_base_name` is a name, not a path:
-a separator there is refused, and `subfolder` is the way to place a file.
+a separator there is refused, and `subfolder` is the way to place a file. It
+replaces the name the engine would derive from the workflow and step rather
+than prefixing it, so `"file_base_name": "episode"` in a `final` subfolder
+writes `final/episode-0.0.mp4` - name each step that sets one differently, or
+the second collides and picks up a `-2`.
 
 ### Composing a stored workflow
 
@@ -615,14 +619,14 @@ never derived — leave it absent until a run has been measured.
 "result": {
     "content_type": "image/jpeg",
     "save": true,
-    "file_base_name": "custom_prefix",
+    "file_base_name": "episode",
     "subfolder": "final"
 }
 ```
 
 Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `audio/wav`, `audio/flac`, `audio/mpeg` (mp3), `audio/ogg`, `audio/opus`, `audio/aiff`, `application/json`, `text/plain` (plus the common aliases `audio/x-wav`, `audio/mp3`, `audio/vorbis`).
 
-`subfolder` places the step's files in a subfolder of the run directory - see *Saying which output is the deliverable* above. `file_base_name` may not contain a path separator.
+`subfolder` places the step's files in a subfolder of the run directory - see *Saying which output is the deliverable* above. `file_base_name` is the base name the step's files are written under, replacing the name derived from the workflow and step; it may not contain a path separator.
 
 For video, add `"fps": 8`. For audio, add `"sample_rate": 44100` when the waveform doesn't
 already carry a rate of its own (a declared rate always wins). Setting `embed_metadata: true`
@@ -655,12 +659,14 @@ Audio is written through soundfile, so both lossless and compressed containers w
 `audio/opus` writes an Opus stream in an ogg container, and only encodes at sample rates
 of 8000, 12000, 16000, 24000 or 48000.
 
-Output files are saved as `{output_dir}/{file_base_name}{workflow_id}-{step_name}.{step_index}-{result_index}.{artifact_index}.{ext}`,
-where `step_index` is the step's position in the workflow, `result_index` counts the
-argument-combination iterations the step ran (see cartesian product, above), and
-`artifact_index` counts multiple artifacts within one result (`num_images_per_prompt > 1`,
-or a dict result saved key by key). `file_base_name`, when set, is prepended to the
-default name rather than replacing it.
+Output files are saved as `{output_dir}/{base_name}-{result_index}.{artifact_index}.{ext}`,
+where `base_name` is `{workflow_id}-{step_name}.{step_index}` unless the step's result sets
+`file_base_name`, which replaces it entirely. `step_index` is the step's position in the
+workflow, `result_index` counts the argument-combination iterations the step ran (see
+cartesian product, above), and `artifact_index` counts multiple artifacts within one result
+(`num_images_per_prompt > 1`, or a dict result saved key by key). The derived name is what
+makes two steps' files distinct, so when you replace it on more than one step in the same
+subfolder, give each a different name - otherwise the second one gets a `-2` counter.
 
 ## Pipeline Configuration
 
