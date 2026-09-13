@@ -481,6 +481,43 @@ class TestWarningsReachTheCaller:
 
         assert [e for e in events if e["event"] == "warning"] == []
 
+    def test_the_resample_warning_is_emitted_as_an_event(self):
+        """#108 again: the conversion shipped, the warning that says it
+        happened only reached the server's log, so a caller had every track
+        resampled on their behalf with nothing in the job saying so."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            with patch(
+                "dw.tasks.concat_videos.load_audio_video",
+                return_value=audio_video(8, 0.5),
+            ):
+                concat_videos(["first.mp4", audio_video(8, 0.5, sample_rate=200)])
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e.get("kind") == "sample_rate_mismatch"]
+        assert len(warnings) == 1
+        assert warnings[0]["command"] == "concat_videos"
+        assert warnings[0]["sample_rate"] == 200
+        assert warnings[0]["sample_rates"] == {"first.mp4": 100, "video 2": 200}
+        assert "resampling them all to 200 Hz" in warnings[0]["message"]
+        assert "resample_audio" in warnings[0]["message"]
+
+    def test_one_rate_emits_no_resample_warning(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([audio_video(4, 0.5), audio_video(4, 0.5)])
+        finally:
+            deactivate_context(token)
+
+        assert [e for e in events if e.get("kind") == "sample_rate_mismatch"] == []
+
 
 class TestFrameRateTravelsWithTheJoin:
     """result.fps defaults to 8, so a 24 fps cut that says nothing there

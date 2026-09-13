@@ -108,7 +108,10 @@ One policy now answers all of it, untrusted:
 - **A path** must resolve inside a root this installation already works in -
   the workflow file's own directory, the asset libraries on the search path,
   the output root. `validate_path` already refuses `..`, so in practice this
-  closes the absolute path that pointed somewhere else entirely. The remedy
+  closes the absolute path that pointed somewhere else entirely; a relative
+  one that climbs out is refused on its `..` segments, at validation time as
+  well as at the loader, so both spellings are answered at the same moment
+  rather than one of them three seconds into a queued job (#124). The remedy
   for a file outside is to put it in the asset library and use an `asset:`
   reference. Containment is checked **before** existence, so the refusal
   cannot be used as a file-existence oracle.
@@ -122,7 +125,9 @@ One policy now answers all of it, untrusted:
   attached only for `huggingface.co`, `huggingface.cloud` and `hf.space`. An
   endpoint elsewhere is still reachable; it just does not get the credential.
 - **`model_name`** must be a Hub repo id or a path inside a root - the same
-  shape check `download_model` has always applied to `repo_id`.
+  shape check `download_model` has always applied to `repo_id`. A URL is
+  neither, and is refused as such rather than resolving into the workflow's
+  own directory as a path-shaped name (#117).
 
 Enforced twice: `location_errors` runs inside `validation_errors`, so
 `validate_workflow` refuses before a model load is spent on the run, and the

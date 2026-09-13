@@ -71,6 +71,10 @@
             "pattern": "^variable:",
             "format": "int64"
         },
+        "argument_template": {
+            "description": "Engine-injected: the arguments a parent workflow passed to this one when it ran it as a sub-workflow. Written by create_step_action from the step's 'arguments' block, not authored - a workflow file carrying one is read, but a sub-workflow step is how they are meant to be supplied.",
+            "type": "object"
+        },
         "steps": {
             "type": "array",
             "minItems": 1,
@@ -79,6 +83,7 @@
             }
         }
     },
+    "additionalProperties": false,
     "required": [
         "id",
         "steps"
@@ -451,6 +456,19 @@
                 "arguments": {
                     "$ref": "#/$defs/arguments"
                 }
+            },
+            "additionalProperties": {
+                "description": "Any other key names a pipeline component to load. Diffusers grows component names faster than this schema does, so a key whose value is a component definition - an object carrying 'from_pretrained_arguments' - is loaded under that name. Anything else is a mistyped or misplaced key and is refused rather than ignored.",
+                "unknownPropertyMessage": "the engine reads the properties this object declares, plus any other key whose value is a component definition (an object carrying 'from_pretrained_arguments') - anything else would be silently ignored",
+                "type": "object",
+                "required": [
+                    "from_pretrained_arguments"
+                ],
+                "allOf": [
+                    {
+                        "$ref": "#/$defs/pipeline_component"
+                    }
+                ]
             },
             "required": [
                 "configuration",
@@ -1163,17 +1181,13 @@
                     "description": "Whether to embed generation parameters as metadata in saved images (PNG info chunks or EXIF). Only applies to image content types.",
                     "type": "boolean",
                     "default": false
+                },
+                "format": {
+                    "description": "Audio container format handed to the writer, e.g. 'WAV' or 'FLAC'. Derived from content_type unless set. Only used when output is audio.",
+                    "type": "string"
                 }
             },
-            "additionalProperties": {
-                "type": [
-                    "string",
-                    "number",
-                    "object",
-                    "array",
-                    "boolean"
-                ]
-            },
+            "additionalProperties": false,
             "required": [
                 "content_type"
             ]

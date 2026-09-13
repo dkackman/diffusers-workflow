@@ -300,6 +300,17 @@ class TestModelName:
         os.makedirs(local)
         assert validate_model_name(local, workflow_dir)
 
+    @pytest.mark.parametrize(
+        "name",
+        ["http://127.0.0.1:8765/", "https://evil.example.com/model", "file:///etc"],
+    )
+    def test_a_url_shaped_name_is_refused(self, untrusted, workflow_dir, name):
+        """#117: joined onto the workflow directory a URL resolved inside a
+        root, so the one shape download_model refuses that reached
+        model_name went on validating clean."""
+        with pytest.raises(InvalidInputError):
+            validate_model_name(name, workflow_dir)
+
 
 class TestValidationTimeErrors:
     """Refused by validate_workflow rather than after a pipeline load."""
@@ -397,6 +408,56 @@ class TestValidationTimeErrors:
             ]
         }
         assert location_errors(definition, base_dir=workflow_dir) == []
+
+    @pytest.mark.parametrize(
+        "location",
+        [
+            "../../../../../usr/share/pixmaps/debian-logo.png",
+            "../../../../etc/hostname",
+        ],
+    )
+    def test_a_relative_traversal_is_an_error_too(
+        self, untrusted, workflow_dir, location
+    ):
+        """#124: the absolute spelling was refused here and the relative one
+        only when the loader reached it - three seconds into a queued job,
+        after validate_workflow had said to go ahead."""
+        definition = {
+            "steps": [
+                {
+                    "name": "probe",
+                    "task": {
+                        "command": "get_image_size",
+                        "arguments": {"image": location},
+                    },
+                }
+            ]
+        }
+
+        errors = location_errors(definition, base_dir=workflow_dir)
+
+        assert [error["path"] for error in errors] == ["steps[0].task.arguments.image"]
+        assert "'..'" in errors[0]["message"]
+
+    def test_a_url_shaped_model_name_is_an_error(self, untrusted, workflow_dir):
+        """#117 at validation time, where the tester found it."""
+        definition = {
+            "steps": [
+                {
+                    "name": "load",
+                    "pipeline": {
+                        "from_pretrained_arguments": {
+                            "model_name": "http://127.0.0.1:8765/"
+                        }
+                    },
+                }
+            ]
+        }
+
+        assert [
+            error["path"]
+            for error in location_errors(definition, base_dir=workflow_dir)
+        ] == ["steps[0].pipeline.from_pretrained_arguments.model_name"]
 
     def test_the_error_carries_the_authored_step_index(self, untrusted, workflow_dir):
         """A for_each member reports against the step the author wrote."""

@@ -336,17 +336,27 @@ in braces keeps it a plain string — `"{nf4}"` is the string `nf4`. Getting thi
 wrong fails at load time, after validation has already passed, so a value that
 is meant as text under one of those keys must be braced.
 
-### A step takes only the keys the engine reads
+### A workflow takes only the keys the engine reads
 
-`step`, `task`, `workflow` and `pipeline_reference` are closed objects: a
-property the engine does not read is a validation error naming the step and
-the key, not a warning. There is no `when`, no `retry`, no `select` - if a
-draft reaches for one, the shape it wants is a different arrangement of
-steps, not a flag. The error exists because a plausible invented key used to
-validate cleanly and then do nothing, so the expensive work ran with the
-input silently having had no effect. `result` and `from_pretrained_arguments`
-are open on purpose; `pipeline` is open because a component's name is one of
-its keys.
+The workflow object itself, `step`, `task`, `workflow`,
+`pipeline_reference` and `result` are closed: a property the engine does not
+read is a validation error naming the object and the key, not a warning.
+There is no `when`, no `retry`, no `select` - if a draft reaches for one, the
+shape it wants is a different arrangement of steps, not a flag. The error
+exists because a plausible invented key used to validate cleanly and then do
+nothing, so the expensive work ran with the input silently having had no
+effect - a mistyped `sedd` left the run unseeded while validation advised
+setting a seed, and a mistyped `subfoldr` put the deliverable at the run
+root rather than in `final/`.
+
+`pipeline` is closed to the same rule with one opening: any key whose value
+is a *component definition* - an object carrying `from_pretrained_arguments` -
+names a component to load, because diffusers grows component names faster
+than the schema does (`latent_upsampler`, `prompt_enhancer` and `processor`
+all appear that way in shipped templates). A pipeline key that is not one of
+those is refused, which is what catches `pipeline_type` or `model_name`
+written a level too high. `from_pretrained_arguments` stays open - it passes
+its keys through to `from_pretrained`.
 
 ### Where a workflow may read and reach
 
