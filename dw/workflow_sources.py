@@ -251,9 +251,10 @@ def resolve_sub_workflow(path, base_dir, confine_to):
 
     for root in roots:
         source = WorkflowSource(root, EXAMPLES_ORIGIN, False)
-        # resolve_in_source supplies '.json' itself, and refuses a name that
-        # would traverse out of the root
-        candidate = resolve_in_source(source, path)
+        # allow_create, because what is being asked is where the name would
+        # land rather than whether something is there - None means the name
+        # traverses out of the root, and the file check is the next line
+        candidate = resolve_in_source(source, path, allow_create=True)
         if candidate is None:
             tried.append(f"{os.path.join(root, path)} (outside the root)")
             continue

@@ -989,6 +989,10 @@ class TestSubWorkflowNameResolution:
         message = str(exc_info.value)
         assert "does-not-exist" in message
         assert "Looked in" in message
+        # every candidate is a real path it looked at, '.json' supplied -
+        # not a name reported as refused when it was simply absent
+        assert "does-not-exist.json" in message
+        assert "outside the root" not in message
 
     def test_a_relative_path_beside_the_file_still_wins(self, tmp_path):
         """The '../models/x.json' form every template uses is unchanged."""
