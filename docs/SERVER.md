@@ -202,11 +202,22 @@ to learn where a long render is:
 | `denoise_step`, `denoise_total_steps` | the denoise loop's counter, `null` until it starts |
 
 A null `denoise_step` under `generating` is the pipeline's lead-in - encoding
-the prompt and any reference image or audio - which emits nothing and runs
-well over a minute on a large video model (~90 s on MiniMax H3). The keys are
-always present so that lead-in can be told from a loop that has stopped
+the prompt and every reference - which emits nothing and runs well over a
+minute on a large video model. How long it runs follows what it has to
+encode: on MiniMax H3, ~90 s for a prompt with an image or audio reference,
+but ~10 min once a *video* reference is among them - a measured run encoding
+one 5 s 960x544 clip on an RTX 3090 sat silent from 94 s to 723 s. The keys
+are always present so that lead-in can be told from a loop that has stopped
 advancing: `seconds_since_event` is a stall signal once `denoise_step` is a
 number, or in any phase other than `generating`.
+
+It is a coarse one even then. A step's cost is not uniform when the pipeline
+configures a transformer block cache (`"cache": {"type": "first_block"}`):
+most steps are served from it in seconds and every few steps one is computed
+in full, so the same healthy run emits four `pipeline_step` events in 20 s
+and then nothing for 133 s. Liveness is `denoise_step` having moved between
+polls minutes apart, not silence measured against a fixed threshold - on H3
+that threshold would have to exceed ~140 s to mean anything.
 
 ## Introspection API
 

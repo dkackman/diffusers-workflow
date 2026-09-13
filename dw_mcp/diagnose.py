@@ -174,11 +174,20 @@ def wait_for_job(client, job_id, timeout_seconds=20):
     `seconds_since_event` climbs is a stuck one.
 
     `denoise_step: null` under `generating` is neither: it is the lead-in
-    the pipeline runs before the loop - encoding the prompt and any
-    reference image or audio - which emits nothing and is well over a
-    minute on a large video model (~90 s on MiniMax H3). Silence there is
-    expected; `seconds_since_event` only says something once
-    `denoise_step` is a number, or in any other phase."""
+    the pipeline runs before the loop - encoding the prompt and every
+    reference - which emits nothing and is well over a minute on a large
+    video model. Its length follows what it has to encode: ~90 s on
+    MiniMax H3 for a prompt with an image or audio reference, ~10 min once
+    a *video* reference is among them (measured 629 s for one 5 s 960x544
+    clip on an RTX 3090). Silence there is expected; `seconds_since_event`
+    only says something once `denoise_step` is a number, or in any other
+    phase.
+
+    Even then it is coarse: where a transformer block cache is configured
+    the denoise steps are uneven - several cheap ones, then a full one -
+    so on H3 a 140 s gap between steps is a healthy run. Read liveness as
+    `denoise_step` having moved between polls minutes apart rather than as
+    silence under a fixed threshold."""
     requested = max(0.0, float(timeout_seconds))
     applied = min(requested, float(MAX_WAIT_SECONDS))
     capped = applied < requested

@@ -797,9 +797,18 @@ def build_server(client):
         `denoise_step`/`denoise_total_steps`, null until the denoise loop
         starts - which is how a slow run and a stuck one tell apart between
         two otherwise identical polls. A null `denoise_step` under
-        `generating` is the pipeline's lead-in (encoding the prompt and any
-        reference image or audio, ~90 s on MiniMax H3), which emits
-        nothing: wait it out rather than reading the silence as a hang."""
+        `generating` is the pipeline's lead-in - encoding the prompt and
+        every reference - which emits nothing, and its length depends on
+        what it has to encode: on MiniMax H3 ~90 s for a prompt with an
+        image or audio reference, but ~10 min once a *video* reference is
+        among them (measured 629 s for one 5 s 960x544 clip on an RTX
+        3090). Wait it out rather than reading the silence as a hang.
+        Gaps between denoise steps are uneven too where a transformer
+        block cache is configured - most steps cheap, every few steps a
+        full one - so on H3 `seconds_since_event` of ~140 s with a number
+        in `denoise_step` is still healthy. The signal is whether
+        `denoise_step` has moved since a poll minutes ago, not silence
+        past a fixed threshold."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states
