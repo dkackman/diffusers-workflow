@@ -2985,6 +2985,7 @@ def _finished_job_with_events(job_id, events):
         error = None
         run_id = None
         run_dir = None
+        acknowledged = "none"
         spec = {"arguments": {}, "workflow_path": "w.json"}
 
     job = FinishedJob()
@@ -3761,3 +3762,84 @@ class TestProbeCache:
             manager.worker_manager.ensure_worker()
             manager.worker_manager.send_command = lambda command: None
             assert manager.probe_cache(PROBE, timeout=0.05) is None
+
+
+class TestAcknowledgementRecord:
+    """Every job says which form of cost acknowledgement queued it (#85), so
+    'was this run consented to at its actual size' is answerable later."""
+
+    def test_a_submit_records_none_by_default(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            job = manager.submit(workflow=valid_workflow(), arguments={})
+            assert job.acknowledged == "none"
+            assert manager.describe(job)["acknowledged"] == "none"
+            assert manager.describe(job)["acknowledged_cost"] is None
+
+    def test_a_bound_submit_records_the_object(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": []}
+            job = manager.submit(
+                workflow=valid_workflow(),
+                arguments={},
+                acknowledged="bound",
+                acknowledged_cost=bound,
+            )
+            detail = manager.describe(job)
+            assert detail["acknowledged"] == "bound"
+            assert detail["acknowledged_cost"] == bound
+            assert job.summary()["acknowledged"] == "bound"
+
+    def test_history_keeps_the_form_and_the_object(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": ["org/x"]}
+            job = manager.submit(
+                workflow=valid_workflow(),
+                arguments={},
+                acknowledged="bound",
+                acknowledged_cost=bound,
+            )
+            wait_for_status(client, job.id, TERMINAL_STATES)
+            row = manager.history.get(job.id)
+            assert row["acknowledged"] == "bound"
+            assert row["acknowledged_cost"] == bound
+            assert row["spec"]["acknowledged_cost"] == bound
+            listed = [s for s in manager.history.recent_summaries() if s["id"] == job.id]
+            assert listed[0]["acknowledged"] == "bound"
+
+    def test_a_database_without_the_column_is_migrated(self, tmp_path):
+        import sqlite3
+
+        from dw.server.jobs import JobHistory
+
+        path = tmp_path / "old.sqlite"
+        with sqlite3.connect(path) as connection:
+            connection.execute(
+                "CREATE TABLE jobs (id TEXT PRIMARY KEY, workflow TEXT, status TEXT,"
+                " created_at REAL, started_at REAL, finished_at REAL, arguments TEXT,"
+                " spec TEXT, manifest TEXT, warnings TEXT, error TEXT)"
+            )
+            connection.execute(
+                "INSERT INTO jobs (id, workflow, status, created_at, spec) VALUES"
+                " ('old1', 'w', 'succeeded', 1.0, '{}')"
+            )
+        history = JobHistory(str(path))
+        assert history.get("old1")["acknowledged"] == "none"
+        assert history.get("old1")["acknowledged_cost"] is None
+
+    def test_a_rerun_carries_the_original_object_for_the_record(self, server):
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+            bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": []}
+            job = manager.submit(
+                workflow=valid_workflow(),
+                arguments={},
+                acknowledged="bound",
+                acknowledged_cost=bound,
+            )
+            wait_for_status(client, job.id, TERMINAL_STATES)
+            rerun = manager.rerun(job.id)
+            assert rerun.acknowledged == "none"
+            assert rerun.spec["acknowledged_cost"] == bound
