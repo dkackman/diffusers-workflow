@@ -70,7 +70,7 @@ from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..hub_cache import scan_models, delete_model, DownloadManager
-from ..plan import build_plan
+from ..plan import build_plan, unseeded_cache_warnings
 from ..runs import is_output_reference, resolve_output_reference, split_run_path
 from ..workspace import (
     ASSETS_SUBDIR,
@@ -1580,6 +1580,9 @@ def create_app(
             "errors": [],
             "warnings": workflow_argument_warnings(definition)
             + entry_field_warnings(definition, request.arguments)
+            # Why `plan.cached_steps` is 0 for a workflow with no seed - the
+            # cache is off, not empty
+            + unseeded_cache_warnings(definition, request.arguments)
             # An argument a sub-workflow step passes to a workflow that
             # declares no variable for it - dropped in silence at run time
             + candidate.sub_workflow_warnings(),

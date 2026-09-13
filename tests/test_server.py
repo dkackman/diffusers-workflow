@@ -879,6 +879,21 @@ def test_validate_endpoint_flags_signature_typos(server):
         assert result["valid"] is False and result["error"]
 
 
+def test_validate_explains_why_an_unseeded_workflow_caches_nothing(server):
+    """`cached_steps: 0` on an unseeded workflow means the cache is off, not
+    that it was probed and missed - which is not readable from the number
+    alone (#107)."""
+    with server(success_script) as client:
+        workflow = valid_workflow()
+        result = client.post("/api/validate", json={"workflow": workflow}).json()
+        assert result["valid"] is True
+        assert any("seed" in w and "cached_steps" in w for w in result["warnings"])
+
+        workflow["seed"] = 1
+        result = client.post("/api/validate", json={"workflow": workflow}).json()
+        assert not any("cached_steps" in w for w in result["warnings"])
+
+
 def test_submission_carries_argument_warnings(server):
     with server(success_script) as client:
         workflow = valid_workflow()

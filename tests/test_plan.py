@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from dw.plan import build_plan
+from dw.plan import build_plan, unseeded_cache_warnings
 from dw.runs import new_run_id
 from dw.workflow import workflow_from_definition
 
@@ -575,3 +575,23 @@ class TestCachedSteps:
         spec = definition()
         spec["variables"]["seed"] = None
         assert plan(spec, cache_probe=probe)["cached_steps"] == 0
+
+
+class TestUnseededCacheWarning:
+    """`cached_steps: 0` reads as 'probed, nothing hit' from outside; the
+    warning is what says the cache is off entirely (#107)."""
+
+    def test_a_seeded_workflow_says_nothing(self):
+        assert unseeded_cache_warnings(definition()) == []
+
+    def test_an_unseeded_workflow_explains_the_zero(self):
+        spec = definition()
+        del spec["seed"]
+        del spec["variables"]["seed"]
+        (warning,) = unseeded_cache_warnings(spec)
+        assert "seed" in warning and "cached_steps" in warning
+
+    def test_a_seed_passed_as_an_argument_counts(self):
+        spec = definition()
+        spec["variables"]["seed"] = None
+        assert unseeded_cache_warnings(spec, {"seed": 7}) == []
