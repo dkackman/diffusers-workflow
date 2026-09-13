@@ -285,7 +285,9 @@ same reason - default setup cannot load a pack.
   block exists. A valid `POST /api/validate` answer also carries `plan`
   (`dw/plan.py`): the fingerprint of the work, step and list counts,
   `downloads_required` and a cost `estimate` with its `basis` - the number an
-  agent quotes; `plan: null` when it could not be built, never a changed
+  agent quotes, with `basis` saying whether it was measured for this list
+  (`catalog`/`per_entry`) or extrapolated over one the caller resized
+  (`derived`); `plan: null` when it could not be built, never a changed
   verdict. `acknowledged_cost` on `POST /api/jobs` / `rerun` takes `true`
   (recorded) or the plan's `{fingerprint, minutes, downloads}` (checked - 409
   with the current plan when the fingerprint or the required downloads

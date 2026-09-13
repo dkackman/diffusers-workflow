@@ -1,6 +1,7 @@
 """HTTP access to a running dw.serve, and the single place an API failure
 becomes a message a non-developer can act on."""
 
+import json
 import os
 import tempfile
 from urllib.parse import quote
@@ -364,7 +365,19 @@ class DwClient:
                 ]
                 if downloads:
                     formatted += f", and would download {', '.join(downloads)} first"
-                formatted += f"; new fingerprint {plan.get('fingerprint')}."
+                # The shape to resend, not just the new fingerprint: a
+                # client reading only the message can re-acknowledge from it
+                minutes = estimate.get("minutes")
+                repos = [
+                    entry.get("repo")
+                    for entry in plan.get("downloads_required") or []
+                    if entry.get("repo")
+                ]
+                formatted += (
+                    f'. Re-acknowledge with {{"fingerprint": '
+                    f'"{plan.get("fingerprint")}", "minutes": {minutes}, '
+                    f'"downloads": {json.dumps(repos)}}}.'
+                )
             return formatted
         if isinstance(detail, list):
             messages = []

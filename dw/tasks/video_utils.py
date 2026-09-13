@@ -205,6 +205,43 @@ def _to_pil(frame):
     raise TypeError(f"Cannot convert a {type(frame).__name__} to an image")
 
 
+class FrameList(list):
+    """The frames of a video file, carrying the rate the file plays at.
+
+    `load_video` answers a plain list of images, which is what every
+    pipeline argument and every task wants - and which says nothing about
+    how fast those frames are meant to run. A step handed a 24 fps file
+    then wrote it back at `result.fps`'s default of 8, three times long,
+    with its soundtrack finishing a third of the way in and nothing said
+    about it (#104, the file-loading half of #84). A list subclass keeps
+    every consumer working unchanged while `getattr(video, "fps", None)` -
+    the question AudioVideo, concat_videos and interpolate_frames already
+    ask - gets a real answer.
+    """
+
+    def __init__(self, frames, fps=None):
+        super().__init__(frames)
+        self.fps = fps
+
+
+def file_fps(path):
+    """The rate a video file declares, or None - a container that will not
+    open, carries no video stream or states no rate is a rate we do not
+    know, never an error: the caller is loading frames it has already read.
+    """
+    try:
+        import av
+
+        with av.open(path) as container:
+            stream = container.streams.video[0] if container.streams.video else None
+            return (
+                float(stream.average_rate) if stream and stream.average_rate else None
+            )
+    except Exception as e:
+        logger.debug(f"No frame rate for {path}: {e}")
+        return None
+
+
 def load_audio_video(location, base_dir=None):
     """Load a video file - frames and the audio muxed with them - as an AudioVideo.
 

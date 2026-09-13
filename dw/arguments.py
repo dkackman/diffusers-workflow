@@ -951,6 +951,22 @@ def fetch_image(img_spec, base_dir=None):
         raise
 
 
+def _with_frame_rate(frames, location):
+    """The loaded frames carrying the rate their file declares.
+
+    `load_video` reads frames and drops the rate, so a step that paired a
+    24 fps file with a soundtrack wrote it back at 8 - three times long,
+    silently (#104). The rate is read from the container without decoding
+    anything, and a file that will not say stays a plain list.
+    """
+    from .tasks.video_utils import FrameList, file_fps
+
+    if not isinstance(frames, list):
+        return frames
+    fps = file_fps(location)
+    return FrameList(frames, fps) if fps else frames
+
+
 def fetch_video(video_spec, base_dir=None):
     """
     Load video from file path or URL with security validation.
@@ -1013,7 +1029,7 @@ def fetch_video(video_spec, base_dir=None):
             video_spec.startswith("http://") or video_spec.startswith("https://")
         ):
             validated_url = validate_url(video_spec)
-            return load_video(validated_url)
+            return _with_frame_rate(load_video(validated_url), validated_url)
         else:
             # Treat as file path, relative to the workflow file
             validated_path = validate_path(
@@ -1023,7 +1039,7 @@ def fetch_video(video_spec, base_dir=None):
             ext = os.path.splitext(validated_path)[1].lower()
             if ext not in ALLOWED_VIDEO_EXTENSIONS:
                 raise SecurityError(f"Video file extension not allowed: {ext}")
-            return load_video(validated_path)
+            return _with_frame_rate(load_video(validated_path), validated_path)
 
     except SecurityError:
         raise

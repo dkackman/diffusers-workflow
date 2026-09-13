@@ -50,7 +50,13 @@ from ..introspection import (
     workflow_argument_warnings,
 )
 from ..for_each import entry_field_warnings
-from ..schema import load_schema, validate_data, format_validation_errors
+from ..schema import (
+    load_schema,
+    schema_section,
+    validate_data,
+    format_validation_errors,
+    SchemaSectionError,
+)
 from ..prompts import (
     PROMPT_PREFIX,
     RESERVED_TEXT_PREFIXES,
@@ -883,7 +889,7 @@ def create_app(
         if current["fingerprint"] != acknowledged.fingerprint:
             refuse(
                 "The run's shape changed since it was acknowledged: the "
-                "workflow or its arguments differ from what was validated",
+                "workflow or its arguments differ from what was validated.",
                 "fingerprint",
                 current,
             )
@@ -1337,9 +1343,22 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Could not load {name}: {e}")
 
     @app.get("/api/schema")
-    def workflow_schema():
-        """The workflow JSON schema, for schema-aware JSON editing."""
-        return JSONResponse(load_schema("workflow"))
+    def workflow_schema(section: Optional[str] = None):
+        """The workflow JSON schema, for schema-aware JSON editing.
+
+        `?section=` answers one part of it - `steps`, `pipelines`, `tasks`,
+        `result`, `variables` or `configuration` - as
+        `{section, sections, elsewhere, schema}`, for a reader that wants
+        the shape of a result block and not 36 KB of quantization configs
+        (#101). Additive: the no-argument call is the whole schema, as it
+        was. An unknown section is a 404 naming the ones that exist."""
+        schema = load_schema("workflow")
+        if section is None:
+            return JSONResponse(schema)
+        try:
+            return JSONResponse(schema_section(schema, section))
+        except SchemaSectionError as e:
+            raise HTTPException(status_code=404, detail=str(e))
 
     # ------------------------------------------------------------ guides
 

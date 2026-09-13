@@ -524,14 +524,25 @@ def test_run_forwards_a_bound_acknowledgement_verbatim():
     assert json.loads(seen[0]["body"])["acknowledged_cost"] == BOUND
 
 
-def test_run_does_not_send_a_bare_true():
-    """The boolean path is the MCP layer's gate, not the server's - the body
-    stays what it was."""
+def test_run_sends_a_bare_true_so_the_job_records_the_form():
+    """The boolean gate is this layer's, but the server still has to record
+    which form queued the job - it read `none` for a bare true while the
+    body omitted it (#85)."""
     import json
 
     client, seen = submitting()
     diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost=True)
-    assert "acknowledged_cost" not in json.loads(seen[0]["body"])
+    assert json.loads(seen[0]["body"])["acknowledged_cost"] is True
+
+
+def test_rerun_sends_a_bare_true_so_the_job_records_the_form():
+    import json
+
+    client, seen = scripted(
+        {("POST", "/api/jobs/job-1/rerun"): (201, {"id": "job-2", "status": "queued"})}
+    )
+    diagnose.rerun_job(client, "job-1", acknowledged_cost=True)
+    assert json.loads(seen[0]["body"])["acknowledged_cost"] is True
 
 
 def test_run_refuses_a_bound_form_without_a_fingerprint():
@@ -587,6 +598,10 @@ def test_a_409_surfaces_with_the_new_estimate():
     assert "shape changed" in message
     assert "19.0" in message and "per_entry" in message
     assert "org/y" in message
+    # The shape to resend, not just the new fingerprint (#85)
+    assert '"fingerprint": "sha256:def"' in message
+    assert '"minutes": 19.0' in message
+    assert '"downloads": ["org/y"]' in message
     assert "sha256:def" in message
 
 

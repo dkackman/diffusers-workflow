@@ -120,7 +120,44 @@ def test_list_gallery_sends_a_subfolder_only_when_given():
 def test_a_pass_through_tool_returns_the_body_unchanged():
     client, _seen = recording_client({"workflows": ["a"], "details": {}})
 
-    assert catalog.list_workflows(client) == {"workflows": ["a"], "details": {}}
+    assert catalog.list_workflows(client)["workflows"] == ["a"]
+
+
+FULL_ENTRY = {
+    "summary": "a cut sequence",
+    "shape": "sequence",
+    "traits": ["has-audio"],
+    "cost": [{"device": "cuda", "minutes": 42}],
+    "kinds": ["video/mp4"],
+    "variable_names": ["shots", "seed"],
+    "lists": {"shots": ["name", "prompt"]},
+}
+
+
+def test_an_unfiltered_listing_is_summarised():
+    """The whole catalog in full detail is ~6.8k tokens for a question
+    that is really 'which shape do I want' (#101)."""
+    client, _seen = recording_client(
+        {"workflows": ["a"], "details": {"a": dict(FULL_ENTRY)}}
+    )
+
+    answer = catalog.list_workflows(client)
+
+    assert answer["details"]["a"] == {"summary": "a cut sequence", "shape": "sequence"}
+    assert answer["view"] == "summary"
+    assert "shape" in answer["note"]
+    assert answer["workflows"] == ["a"]
+
+
+def test_a_listing_asked_for_by_shape_comes_back_whole():
+    client, _seen = recording_client(
+        {"workflows": ["a"], "details": {"a": dict(FULL_ENTRY)}}
+    )
+
+    answer = catalog.list_workflows(client, shape="sequence")
+
+    assert answer["details"]["a"] == FULL_ENTRY
+    assert "note" not in answer
 
 
 def test_list_workflows_always_asks_for_the_compact_view():

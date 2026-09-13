@@ -624,19 +624,50 @@ async def test_wait_for_job_names_the_cap_it_applies():
 
 
 @pytest.mark.asyncio
-async def test_wait_for_job_scales_the_lead_in_to_the_references():
+async def test_wait_for_job_says_silence_is_not_a_hang():
     """#95: the description is the documented way to tell a slow run from a
-    hung one, and a consumer following its ~90 s figure would have been
-    entitled to cancel a healthy video-reference run at the 3 minute mark -
-    that lead-in measured 629 s. It has to name the video reference and its
-    own order of magnitude, and say that the denoise steps are uneven once
-    they start, or the silence between them reads as a stall too."""
+    hung one, and a consumer that reads the reference encode's silence as a
+    stall cancels a healthy run. The *rules* stay here - a video reference
+    makes the lead-in long, the denoise gaps are uneven, judge by whether
+    `denoise_step` moved - while the family's measured figures moved to the
+    model skill, which loads exactly when that model is in play (#101)."""
     tools = await tools_of(server_over(ok({})))
 
     description = tools["wait_for_job"].description
-    assert "video" in description
-    assert "90 s" in description and "10 min" in description
-    assert "140 s" in description
+    assert "video" in description and "minutes" in description
+    assert "uneven" in description
+    assert "denoise_step` has moved" in description
+
+
+def test_the_h3_skill_carries_the_measured_lead_in():
+    """The other half of that move: the numbers are not lost, they are in
+    the skill that loads when H3 is in play (#101)."""
+    import os
+
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "plugins",
+        "dw",
+        "skills",
+        "minimax-h3",
+        "SKILL.md",
+    )
+    with open(path) as handle:
+        text = handle.read()
+
+    assert "629 s" in text and "90 s" in text
+
+
+@pytest.mark.asyncio
+async def test_get_memory_points_at_the_guide_for_the_pinned_cache():
+    """The pinned-host-cache explanation moved to the `acceleration` guide;
+    the field names stay in the description, so a reader still knows what
+    they are looking at (#101)."""
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["get_memory"].description
+    assert "host_pinned_reserved_mb" in description
+    assert "acceleration" in description
 
 
 @pytest.mark.asyncio
@@ -763,6 +794,7 @@ WRAPPER_HANDLER_MAP = {
     "download_output": (media, "download_output"),
     "get_gallery_metadata": (catalog, "get_gallery_metadata"),
     "get_workflow": (catalog, "get_workflow"),
+    "get_schema": (catalog, "get_schema"),
     "delete_output": (media, "delete_output"),
 }
 

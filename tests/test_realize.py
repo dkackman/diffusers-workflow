@@ -305,3 +305,40 @@ class TestReadSubWorkflow:
             read_sub_workflow("../outside/child.json", str(confined), str(confined))
             is None
         )
+
+    def test_a_child_climbing_out_of_the_catalog_reads_as_none_unconfined(
+        self, tmp_path
+    ):
+        """An unconfined run (no workflow_dir - a bare CLI run) still confines
+        a relative reference to the catalog root, so the read refuses the same
+        climb the run does rather than reaching outside it - the read the
+        unguarded stat used to allow."""
+        from dw.realize import read_sub_workflow
+
+        catalog = tmp_path / "workflows"
+        (catalog / "templates").mkdir(parents=True)
+        (tmp_path / "Outside.json").write_text(json.dumps({"id": "c", "steps": []}))
+
+        assert (
+            read_sub_workflow("../../Outside.json", str(catalog / "templates"), None)
+            is None
+        )
+
+    def test_a_child_climbing_to_a_sibling_catalog_folder_still_reads(self, tmp_path):
+        """The confinement is the catalog root, not the referencing file's own
+        directory - '../models/x.json' from templates/ is the form every
+        template uses, and stays readable."""
+        from dw.realize import read_sub_workflow
+
+        catalog = tmp_path / "workflows"
+        (catalog / "templates").mkdir(parents=True)
+        (catalog / "models").mkdir()
+        (catalog / "models" / "Child.json").write_text(
+            json.dumps({"id": "c", "steps": []})
+        )
+
+        raw = read_sub_workflow(
+            "../models/Child.json", str(catalog / "templates"), None
+        )
+
+        assert json.loads(raw) == {"id": "c", "steps": []}

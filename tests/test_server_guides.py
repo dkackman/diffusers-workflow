@@ -95,10 +95,32 @@ class TestWhereTheyComeFrom:
 
 
 class TestFetching:
-    def test_a_guide_comes_back_whole_by_default(self, checkout):
+    def test_no_section_answers_the_index_not_the_whole_file(self, checkout):
+        """A whole guide is ~19.6k tokens in one call - more than the entire
+        tool surface costs to connect - and the call that spends it is the
+        one an agent makes by accident (#101). The opening and the first
+        section come back; the rest is named, not sent."""
         guide = guides.get_guide("tasks")
 
-        assert guide == {"name": "tasks", "section": None, "content": TASKS_TEXT}
+        assert guide["section"] is None
+        assert (
+            guide["content"] == "# Tasks\n\n## Speech Generation\n\ngenerate_speech\n"
+        )
+        assert guide["sections"] == ["Speech Generation", "Frame Interpolation"]
+        assert guide["withheld"] == ["Frame Interpolation"]
+        assert "Frame Interpolation" in guide["sections"]
+        assert "section=" in guide["note"]
+
+    def test_a_guide_with_no_sections_comes_back_whole(self, checkout, tmp_path):
+        """Nothing to index, so there is nothing to withhold."""
+        (tmp_path / "checkout" / "docs" / "TASKS.md").write_text(
+            "# Tasks\n\nall of it\n"
+        )
+
+        guide = guides.get_guide("tasks")
+
+        assert guide["content"] == "# Tasks\n\nall of it\n"
+        assert guide["withheld"] == [] and "note" not in guide
 
     def test_one_section_comes_back_alone_with_its_heading(self, checkout):
         guide = guides.get_guide("tasks", section="Speech Generation")
@@ -221,10 +243,12 @@ class TestRoutes:
         assert tasks["sections"] == ["Speech Generation", "Frame Interpolation"]
         assert tasks["summary"].strip()
 
-    def test_a_whole_guide(self, client):
+    def test_no_section_answers_the_index(self, client):
         body = client.get("/api/guides/tasks").json()
 
-        assert body == {"name": "tasks", "section": None, "content": TASKS_TEXT}
+        assert body["section"] is None
+        assert body["withheld"] == ["Frame Interpolation"]
+        assert "Frame Interpolation" not in body["content"]
 
     def test_one_section_matched_loosely(self, client):
         body = client.get(

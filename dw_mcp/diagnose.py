@@ -37,11 +37,12 @@ COST_REFUSAL = (
 
 
 def _acknowledgement_body(acknowledged_cost):
-    """What a bound acknowledgement adds to a request body: the dict itself,
-    verbatim, so the server compares what the agent quoted. A dict without
-    a fingerprint is a mistake caught here, before anything is queued; a
-    bare true adds nothing - the boolean gate is this layer's, not the
-    server's."""
+    """What an acknowledgement adds to a request body: a bound one is the
+    dict itself, verbatim, so the server compares what the agent quoted; a
+    bare true is sent as true, so the job records `acknowledged: boolean`
+    rather than reading as one that never passed a gate at all (#85). A
+    dict without a fingerprint is a mistake caught here, before anything is
+    queued."""
     if isinstance(acknowledged_cost, dict):
         if not acknowledged_cost.get("fingerprint"):
             raise DwApiError(
@@ -58,7 +59,7 @@ def _acknowledgement_body(acknowledged_cost):
                 "downloads": [repo for repo in downloads if repo],
             }
         return {"acknowledged_cost": acknowledged_cost}
-    return {}
+    return {"acknowledged_cost": bool(acknowledged_cost)}
 
 
 def run_workflow(
