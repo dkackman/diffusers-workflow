@@ -35,7 +35,7 @@
         },
         "cost": {
             "type": "array",
-            "description": "Measured runs, one per device the maintainer measured on. Never derived; absent means unknown.",
+            "description": "Measured runs, one per device the maintainer measured on. Never derived; absent means unknown. 'minutes' is the whole run's wall clock on a worker that has to load the models - what a consumer actually waits through, not the denoise loop alone; on a video template the two differ by minutes.",
             "items": {
                 "type": "object",
                 "required": ["device", "vram_gb", "minutes"],

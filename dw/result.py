@@ -54,6 +54,42 @@ def _file_size_mb(path):
         return 0.0
 
 
+def frames_for_encoding(frames):
+    """Generated frames in the form `encode_video` encodes without first
+    inspecting them.
+
+    A pipeline that returns `output_type="np"` hands back float frames in
+    [0, 1], and diffusers' `encode_video` establishes that range with three
+    full-size temporaries - `np.zeros_like`, `np.ones_like` and the bool
+    mask - before converting. On a 121-frame 960x544 clip that is ~3 GB of
+    allocation and 16 s of wall clock on an idle box, against 2.4 s for the
+    encode itself, and it is the bulk of a 'saving' phase that ran for 53 s
+    with nothing else in it (#97, measured on lem 2026-09-14).
+
+    Converting here is a pass and a half and hands back a torch tensor,
+    which `encode_video` takes as given - so the check never runs. Frames
+    outside [0, 1] are left exactly as they were: that is the branch where
+    diffusers warns and treats them as pixel values already, and it is not
+    a path any pipeline here produces or that this can be tested against.
+
+    The source array is never written to - a later step may still read this
+    result through a `previous_result:` reference, and the step cache
+    retains it.
+    """
+    if not isinstance(frames, numpy.ndarray) or frames.size == 0:
+        return frames
+    if not numpy.issubdtype(frames.dtype, numpy.floating):
+        return frames
+    if float(frames.min()) < 0.0 or float(frames.max()) > 1.0:
+        return frames
+    denormalized = numpy.empty(frames.shape, dtype=numpy.uint8)
+    # Frame by frame: the whole-array form allocates another copy the size
+    # of the video, which is the cost this exists to avoid
+    for index in range(frames.shape[0]):
+        denormalized[index] = numpy.round(frames[index] * 255.0)
+    return torch.from_numpy(denormalized)
+
+
 def output_file_path(output_dir, file_name):
     """The path a result file is written to, confined to the output directory.
 
@@ -626,7 +662,7 @@ class Result:
 
         logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")
         encode_video(
-            artifact.frames,
+            frames_for_encoding(artifact.frames),
             fps=fps,
             output_path=output_path,
             audio=as_audio_track(artifact.audio),

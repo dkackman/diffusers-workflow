@@ -35,7 +35,12 @@ import torch
 from diffusers.utils import encode_video, is_av_available
 
 from .. import empty_device_cache
-from ..result import AudioVideo, get_artifact_list, output_file_path
+from ..result import (
+    AudioVideo,
+    frames_for_encoding,
+    get_artifact_list,
+    output_file_path,
+)
 from ..tasks.audio_utils import (
     as_channels_samples,
     equal_power_crossfade_join,
@@ -260,7 +265,7 @@ class SegmentSpill:
             audio_track = torch.from_numpy(numpy.ascontiguousarray(audio))
 
         encode_video(
-            frames,
+            frames_for_encoding(frames),
             fps=self.fps,
             output_path=path,
             audio=audio_track,
