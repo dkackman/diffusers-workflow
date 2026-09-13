@@ -167,9 +167,14 @@ def build_server(client):
         further (comma-separated, all must match): has-audio, chained,
         image-conditioned, identity-referenced, needs-input-media,
         composes-workflows. Each entry carries a one-line `summary`, its
-        `shape` and `traits` (what it needs supplied), `cost` (measured
-        runs per device; null means unknown - call `get_memory` and say
-        so), output kinds and variable names. `lists`, present for a
+        `shape` and `traits` (what it needs supplied), `cost` (curated:
+        figures a maintainer measured once on the devices named and wrote
+        into the workflow, never derived from this server's job history -
+        so null means nobody wrote one down, not that the run is cheap;
+        the answer's `cost_basis` says as much. For a null one, earlier
+        runs of the same template in `list_jobs` carry
+        `started_at`/`finished_at`, which is the measurement this box
+        actually holds), output kinds and variable names. `lists`, present for a
         list-driven workflow, names per list variable the fields an entry
         takes, the steps run over it and the default's length; there
         `cost[].per_entry`, when present, is the measured cost of one

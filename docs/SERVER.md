@@ -265,7 +265,11 @@ The editor's forms come from these; they are just as usable from scripts:
   the maintainer-measured `{device, name, vram_gb, minutes}` runs, or `null`
   when nobody has measured it - a list-driven workflow's `cost` entry may
   also carry a measured `per_entry` (`{variable, minutes, entries}`), the
-  cost of one entry of the list it was measured against. A `models/` entry
+  cost of one entry of the list it was measured against. The response's
+  `cost_basis` says what that is - `curated`: figures a maintainer measured
+  once and wrote into the workflow, never derived from this server's own job
+  history, so `null` means nobody wrote one down rather than "this box has
+  never run it". A `models/` entry
   takes its `shape` and `traits` from the template it configures and keeps
   its own `cost`. A list-driven workflow (one with a `for_each` step) also
   carries `lists`: per list variable, the fields an entry takes, the steps

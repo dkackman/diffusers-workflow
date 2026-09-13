@@ -13,7 +13,16 @@ def list_workflows(
     shape, traits, cost, output kinds and variable names per workflow -
     what choosing one needs and nothing that reading one needs. Templates
     only unless `include_models` or `configures` asks for the model configs
-    of one template. `get_workflow` has the full definition."""
+    of one template. `get_workflow` has the full definition.
+
+    `cost_basis` in the answer says what a `cost` is: `curated` means a
+    maintainer measured it once, on the devices the entry names, and wrote
+    it into the workflow. Nothing derives one from this server's own job
+    history, so `cost: null` means nobody wrote a figure down - not that
+    the run is cheap, and not that this box has never run it. For a
+    template with no figure, `list_jobs` on earlier runs of it carries
+    `started_at`/`finished_at`, which is the measurement this server
+    actually holds."""
     params = {"view": "compact"}
     if shape:
         params["shape"] = shape

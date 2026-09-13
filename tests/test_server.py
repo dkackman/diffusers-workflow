@@ -516,6 +516,16 @@ def test_validate_accepts_a_stored_workflow_name(server, tmp_path):
         assert any("guidance_scael" in w for w in result["warnings"])
 
 
+def test_the_listing_says_what_a_cost_is(server):
+    """`cost: null` covered both "nobody measured it" and "not measured for
+    your device"; the listing now says which kind of figure a cost is
+    (#91)."""
+    with server(success_script) as client:
+        answer = client.get("/api/workflows").json()
+
+        assert answer["cost_basis"] == "curated"
+
+
 def test_validate_reports_a_sub_workflow_path_that_resolves_nowhere(server):
     """The pre-flight is documented as "this will run", and a composed step
     naming a workflow the server cannot reach used to come back valid and
