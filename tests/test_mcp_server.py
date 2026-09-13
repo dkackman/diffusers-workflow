@@ -925,3 +925,16 @@ async def test_the_instructions_name_the_vocabulary():
     server = server_over(ok({}))
     for word in ("image-set", "sequence", "has-audio", "list_workflows(shape="):
         assert word in server.instructions
+
+
+@pytest.mark.asyncio
+async def test_validate_workflow_teaches_quoting_from_the_plan():
+    """The number an agent says out loud is the plan's - priced for the
+    arguments it will run with, naming the weights this box lacks - not the
+    listing's defaults-only cost (#85)."""
+    tools = await tools_of(server_over(ok({})))
+    doc = tools["validate_workflow"].description
+    assert "plan" in doc
+    assert "downloads_required" in doc
+    assert "estimate" in doc
+    assert "basis" in doc

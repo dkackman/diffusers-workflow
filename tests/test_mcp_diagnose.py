@@ -504,3 +504,10 @@ def test_run_sends_the_session_workspace_when_none_is_named():
     diagnose.run_workflow(client, workflow_path="w", acknowledged_cost=True)
 
     assert seen[0]["params"]["workspace"] == "music-video"
+
+
+def test_the_refusal_says_to_quote_the_plan():
+    from dw_mcp.diagnose import COST_REFUSAL
+
+    assert "plan" in COST_REFUSAL
+    assert "validate_workflow" in COST_REFUSAL
