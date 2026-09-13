@@ -429,8 +429,8 @@ returns frames without it, and this puts it back:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `video` | Yes | The frames - a frame list, a frame array or tensor, or an audio+video pair whose own soundtrack is replaced |
-| `audio` | Yes | The soundtrack - a waveform, the earlier step whose video carried one, or the path or URL of an audio or video file; the last two bring their sample rate along |
+| `video` | Yes | The frames - a frame list, a frame array or tensor, or an audio+video pair whose own soundtrack is replaced; their own rate is carried through to the output, so `result.fps` is only needed to override it (frames that carry none are written at 8 fps) |
+| `audio` | Yes | The soundtrack - a waveform, the earlier step whose video carried one, or the path or URL of an audio or video file; the last two bring their sample rate along. A mono track is fine: an mp4 audio stream takes stereo and nothing else, so saving duplicates the one channel into two and warns that it did |
 | `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
 
 **Example:** [assemble-and-score.json](../workflows/templates/assemble-and-score.json)

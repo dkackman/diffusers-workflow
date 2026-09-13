@@ -145,6 +145,25 @@ def cached_steps(definition, realized, arguments, cache_probe):
     return len(answer) if isinstance(answer, list) else None
 
 
+def unseeded_cache_warnings(definition, arguments=None):
+    """Say once, where a caller is already looking, that an unseeded workflow
+    gets no step cache at all.
+
+    `cached_steps: 0` is indistinguishable from 'probed, nothing hit' out
+    there, and the difference is the one that matters: without a `seed` the
+    cache is off, so nothing is ever reused however many times the same
+    workflow runs (#107).
+    """
+    if _is_seeded(definition, arguments):
+        return []
+    return [
+        "This workflow sets no 'seed', so the step cache is disabled and "
+        "'cached_steps' is 0 without being probed - every step regenerates "
+        "on every run. Set a top-level 'seed' to make a repeat run reuse "
+        "what it already produced"
+    ]
+
+
 def _is_seeded(definition, arguments):
     """Whether a run of this workflow has a seed before it draws one - read
     from the definition as written and the caller's arguments, since

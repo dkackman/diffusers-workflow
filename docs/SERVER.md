@@ -287,7 +287,9 @@ The editor's forms come from these; they are just as usable from scripts:
   member count; `list_entries`, `{variable: length}` for each `for_each`
   over a list variable; `cached_steps`, how many of those steps the
   worker's step cache would serve (`0` for an unseeded workflow, `null`
-  when the worker is busy or did not answer);
+  when the worker is busy or did not answer - a workflow with no `seed`
+  also gets a warning saying so, since `0` alone does not distinguish a
+  disabled cache from an empty one);
   `downloads_required`, each `model_name` the hub cache does not hold as
   `{repo, gb}` (`gb` from the hub, `null` when it could not be asked -
   `?sizes=false` skips the hub) and each `from_single_file` URL as

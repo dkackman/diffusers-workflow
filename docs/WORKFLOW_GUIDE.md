@@ -1632,7 +1632,9 @@ which brings its sample rate along; here it is an earlier step's waveform, so
 `sample_rate` is given explicitly. The frames keep the rate they arrived
 with - `video` given a file or an `asset:` carries that file's fps through
 to the saved mp4 - so `result.fps` is only needed for frames that bring no
-rate of their own.
+rate of their own. A mono track needs no preparation: an mp4 audio stream
+takes stereo and nothing else, so saving duplicates the single channel into
+two and emits a warning saying it did.
 
 Which shape a pipeline argument wants is the pipeline's business, and the two LTX-2
 paths differ: a keyframe condition is mapped from 0-255, so it takes the `video_frames`

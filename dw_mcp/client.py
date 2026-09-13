@@ -373,10 +373,20 @@ class DwClient:
                     for entry in plan.get("downloads_required") or []
                     if entry.get("repo")
                 ]
+                # json.dumps for the whole object, not an f-string per field:
+                # an inline workflow has no measured estimate, so `minutes` is
+                # None far more often than not, and Python's repr of it is not
+                # JSON a client could paste back (#107)
                 formatted += (
-                    f'. Re-acknowledge with {{"fingerprint": '
-                    f'"{plan.get("fingerprint")}", "minutes": {minutes}, '
-                    f'"downloads": {json.dumps(repos)}}}.'
+                    ". Re-acknowledge with "
+                    + json.dumps(
+                        {
+                            "fingerprint": plan.get("fingerprint"),
+                            "minutes": minutes,
+                            "downloads": repos,
+                        }
+                    )
+                    + "."
                 )
             return formatted
         if isinstance(detail, list):
