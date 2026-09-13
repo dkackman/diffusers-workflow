@@ -14,6 +14,7 @@ import numpy
 import soundfile
 import torch
 
+from ..events import emit_warning
 from ..security import (
     validate_path,
     validate_url,
@@ -656,10 +657,17 @@ def warn_on_level_spread(waveforms, command="concat_videos", measure="rms"):
         return None
     spread = max(levels) - min(levels)
     if spread >= LEVEL_SPREAD_WARN_DB:
-        logger.warning(
+        # emit_warning rather than logger.warning: this is a property of the
+        # file the run is about to write, and the caller reading the job is
+        # the one who can act on it (#82)
+        emit_warning(
             f"{command}: the tracks being joined span {spread:.1f} dB "
             f"({measure} {min(levels):.1f} to {max(levels):.1f} dBFS) - the cut "
-            f"will be audible as a level jump. Pass match_levels to even them out"
+            f"will be audible as a level jump. Pass match_levels to even them out",
+            kind="level_spread",
+            command=command,
+            spread_db=round(spread, 1),
+            measure=measure,
         )
     return spread
 

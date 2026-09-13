@@ -342,7 +342,9 @@ class Job:
         self.started_at = None
         self.finished_at = None
         self.manifest = []
-        self.warnings = spec.get("warnings", [])
+        # A copy: run-time warnings are appended to this list (see
+        # _note_progress) and the spec is what a rerun is built from
+        self.warnings = list(spec.get("warnings", []))
         self.error = None
         self.traceback = None
         # Which run this job turned out to be - reported by the worker's
@@ -361,6 +363,7 @@ class Job:
         self.phase_detail = None
         self.phase_started_at = None
         self.step_name = None
+        self.parent_step = None
         self.step_index = None
         self.total_steps = None
         self.denoise_step = None
@@ -400,10 +403,27 @@ class Job:
         elif kind == "pipeline_step":
             self.denoise_step = event.get("step")
             self.denoise_total_steps = event.get("total_steps")
+        elif kind == "warning":
+            # Both channels, on purpose: the event log keeps the moment it
+            # happened, `warnings` keeps it where a caller who polled the
+            # finished job will actually look, since a warning about the
+            # artifact outlives the run that noticed it (#82). The step it
+            # fired in is the run's, not the warning's - the engine warns
+            # from inside a step without knowing which one it is
+            message = event.get("message")
+            if message:
+                named = f"{self.step_name}: {message}" if self.step_name else message
+                if named not in self.warnings:
+                    self.warnings.append(named)
         elif kind == "step_start":
             self.step_name = event.get("step")
-            self.step_index = event.get("index")
-            self.total_steps = event.get("total_steps")
+            # A sub-workflow counts its own steps from zero; what a caller
+            # watching a composed run needs is where the run it queued has
+            # got to, so the parent's counter wins when the event carries
+            # one and the step name stays the child's (#90)
+            self.parent_step = event.get("parent_step")
+            self.step_index = event.get("parent_index", event.get("index"))
+            self.total_steps = event.get("parent_total_steps", event.get("total_steps"))
             # A new step's denoise loop has not started; the previous step's
             # count would read as this one's progress
             self.denoise_step = None
@@ -418,6 +438,9 @@ class Job:
         now = time.time()
         summary = {
             "step": self.step_name,
+            # The step of the queued workflow the one above is running
+            # inside, for a composed run; null when they are the same thing
+            "parent_step": self.parent_step,
             "step_index": self.step_index,
             "total_steps": self.total_steps,
             "phase": self.phase,

@@ -14,6 +14,8 @@ import pytest
 from PIL import Image
 from tqdm.auto import tqdm
 
+from diffusers.modular_pipelines.modular_pipeline import SequentialPipelineBlocks
+
 from dw.events import RunContext, WorkflowCancelled
 
 from .test_phase_events import _pipeline_workflow, _run
@@ -171,3 +173,153 @@ def test_the_pipeline_is_handed_back_unpatched():
 
     assert "progress_bar" not in vars(fake.denoise)
     assert isinstance(fake.denoise.progress_bar(total=1), tqdm)
+
+
+class FakeSequentialBlocks(SequentialPipelineBlocks):
+    """The dispatch a real `SequentialPipelineBlocks` performs: it walks its
+    named sub-blocks in order, calling each with the pipeline and the state.
+    `__call__` lives on the class, which is why the patch cannot be
+    per-instance the way the progress-bar one is - and the real base class
+    is what it subclasses, because only a sequence may be narrated by
+    walking its sub-blocks."""
+
+    def __init__(self, sub_blocks):
+        self.sub_blocks = sub_blocks
+
+    def __call__(self, pipeline, state):
+        for block in self.sub_blocks.values():
+            pipeline, state = block(pipeline, state)
+        return pipeline, state
+
+
+class FakeNamedBlock:
+    def __init__(self, on_call=None):
+        self.on_call = on_call
+
+    def __call__(self, pipeline, state):
+        if self.on_call is not None:
+            self.on_call()
+        return pipeline, state
+
+
+class FakeBlockedPipeline:
+    """A modular pipeline that runs its blocks the way the real one does:
+    text encode, then reference encode, then the denoise loop."""
+
+    def __init__(self, steps=3, on_encode=None):
+        self.denoise = FakeDenoiseBlock(steps)
+        self._blocks = FakeSequentialBlocks(
+            {
+                "text_encoder": FakeNamedBlock(),
+                "vae_encoder": FakeNamedBlock(on_encode),
+                "denoise": FakeNamedBlock(self.denoise.run),
+            }
+        )
+
+    @property
+    def blocks(self):
+        return copy.deepcopy(self._blocks)
+
+    def __call__(self, prompt=None, num_inference_steps=None, generator=None):
+        self._blocks(self, None)
+        return FakeOutput()
+
+
+def _logs(events):
+    return [event["message"] for event in events if event["event"] == "log"]
+
+
+def test_each_block_of_the_lead_in_says_it_started():
+    """#95: the encode that runs before the denoise loop emitted nothing, so
+    a video reference - which takes minutes of it - looked exactly like a
+    hang. The blocks have names, and naming each one as it starts is the
+    difference between silence and 'it is encoding the reference'."""
+    events = _events(FakeBlockedPipeline())
+
+    assert _logs(events) == [
+        "acme/model: text_encoder",
+        "acme/model: vae_encoder",
+        "acme/model: denoise",
+    ]
+
+
+def test_a_block_is_named_before_it_runs_rather_than_after():
+    """After is no use: the whole point is the event that lands while the
+    long block is still going, which is where the ten minutes go."""
+    timeline = []
+    pipeline = FakeBlockedPipeline(on_encode=lambda: timeline.append("encoding"))
+
+    def record(context, event):
+        if event["event"] == "log":
+            timeline.append(event["message"])
+
+    _events(pipeline, record)
+
+    assert timeline == [
+        "acme/model: text_encoder",
+        "acme/model: vae_encoder",
+        "encoding",
+        "acme/model: denoise",
+    ]
+
+
+def test_the_block_dispatch_is_handed_back_unpatched():
+    """The patch is on the class, so leaving it in place would outlive the
+    run and report blocks into whatever context came next."""
+    pipeline = FakeBlockedPipeline()
+    original = FakeSequentialBlocks.__call__
+
+    _events(pipeline)
+
+    assert FakeSequentialBlocks.__call__ is original
+
+
+def test_a_pipeline_with_no_blocks_still_runs():
+    """Not every pipeline without a step callback is modular."""
+    assert _steps(_events(FakeModularPipeline())) == [(1, 3), (2, 3), (3, 3)]
+
+
+class FakeConditionalBlocks:
+    """What `AutoPipelineBlocks` does: it *picks* one sub-block on its
+    inputs rather than running them all. Not a `SequentialPipelineBlocks`,
+    and that is the whole point."""
+
+    def __init__(self, sub_blocks, chosen):
+        self.sub_blocks = sub_blocks
+        self.chosen = chosen
+
+    def __call__(self, pipeline, state):
+        return self.sub_blocks[self.chosen](pipeline, state)
+
+
+class FakeConditionalPipeline:
+    def __init__(self):
+        self.ran = []
+        self.denoise = FakeDenoiseBlock(3)
+        self._blocks = FakeConditionalBlocks(
+            {
+                "image_branch": FakeNamedBlock(lambda: self.ran.append("image")),
+                "video_branch": FakeNamedBlock(lambda: self.ran.append("video")),
+            },
+            chosen="video_branch",
+        )
+
+    @property
+    def blocks(self):
+        return copy.deepcopy(self._blocks)
+
+    def __call__(self, prompt=None, num_inference_steps=None, generator=None):
+        self._blocks(self, None)
+        return FakeOutput()
+
+
+def test_a_container_that_chooses_one_block_is_left_alone():
+    """Narrating by walking `sub_blocks` is only correct for a sequence. A
+    conditional container runs one branch, so the same walk would run every
+    branch of it - a wrong answer bought with a progress message."""
+    pipeline = FakeConditionalPipeline()
+
+    events = _events(pipeline)
+
+    assert pipeline.ran == ["video"]
+    assert _logs(events) == []

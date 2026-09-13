@@ -545,6 +545,11 @@ class Pipeline:
                 # drive a tqdm bar, and a bar that reports each advance is
                 # the difference between a slow run and a hung one
                 stack.enter_context(reported_progress_bars(self.pipeline))
+                # The bar only covers the denoise loop; the blocks around it
+                # are where a reference encode's minutes go (#95)
+                stack.enter_context(
+                    reported_blocks(self.pipeline, self.segment_label or self.name)
+                )
 
             return self.pipeline(**arguments)
 
@@ -1931,6 +1936,98 @@ def reported_progress_bars(pipeline):
                     del holder.progress_bar
                 except AttributeError:
                     holder.progress_bar = original
+
+
+def _runs_its_blocks_in_sequence(blocks):
+    """Whether a modular block container runs every sub-block in order.
+
+    diffusers' own `SequentialPipelineBlocks` is the answer; the import is
+    local and forgiving because a pipeline that is not modular at all never
+    reaches here, and a diffusers without the class is one with no modular
+    pipelines to narrate.
+    """
+    try:
+        from diffusers.modular_pipelines.modular_pipeline import (
+            SequentialPipelineBlocks,
+        )
+    except ImportError:  # pragma: no cover - a diffusers without modular
+        return False
+    return isinstance(blocks, SequentialPipelineBlocks)
+
+
+@contextlib.contextmanager
+def reported_blocks(pipeline, label):
+    """Name each of a modular pipeline's top-level blocks as it starts.
+
+    The denoise loop is only one of them, and on a reference-conditioned
+    model it is not the long one: encoding a video reference runs for
+    minutes inside `vae_encoder` before a single bar advances, so the whole
+    lead-in went by with nothing emitted and a consumer could not tell it
+    from a hang (#95). The blocks are named - `before_encode`,
+    `text_encoder`, `vae_encoder`, `denoise`, `decode` on H3 - and naming
+    each one as it begins turns that silence into "it is encoding the
+    reference", plus a `seconds_since_event` that resets at every boundary.
+
+    Reported as `log` events rather than phases: `PHASES` is a closed set a
+    consumer switches on, and a block name is a detail, not a new state.
+
+    The patch is on the class because `block(pipeline, state)` resolves
+    `__call__` on the type, not the instance - so it is guarded by identity
+    (only the pipeline's own top-level blocks report) and undone on the way
+    out.
+    """
+    blocks = getattr(pipeline, "_blocks", None)
+    sub_blocks = getattr(blocks, "sub_blocks", None)
+    if blocks is None or not hasattr(sub_blocks, "items"):
+        yield
+        return
+    # Only a sequence runs all of its sub-blocks. A conditional container
+    # (AutoPipelineBlocks, which is what several of H3's own steps are)
+    # *picks* one on its inputs, so narrating it by walking the mapping
+    # would run every branch - hence the check for the one dispatch this
+    # reproduces rather than a duck-typed `sub_blocks`
+    if not _runs_its_blocks_in_sequence(blocks):
+        yield
+        return
+
+    holder = type(blocks)
+    original = holder.__call__
+    was_own = "__call__" in vars(holder)
+    run_context = get_context()
+
+    @torch.no_grad()
+    def reporting(self, pipe, state):
+        # A nested SequentialPipelineBlocks shares the class; only the
+        # pipeline's own top-level sequence is the one worth narrating
+        if self is not blocks:
+            return original(self, pipe, state)
+        for name, block in self.sub_blocks.items():
+            run_context.emit("log", message=f"{label}: {name}")
+            # A block boundary is a cancellation checkpoint the lead-in
+            # otherwise has none of
+            run_context.check_cancelled()
+            try:
+                pipe, state = block(pipe, state)
+            except WorkflowCancelled:
+                raise
+            except Exception:
+                # What diffusers' own dispatch logs, kept because this
+                # replaces that loop
+                logger.error(f"Error in block: ({name}, {block.__class__.__name__})")
+                raise
+        return pipe, state
+
+    holder.__call__ = reporting
+    try:
+        yield
+    finally:
+        if was_own:
+            holder.__call__ = original
+        else:
+            try:
+                del holder.__call__
+            except AttributeError:
+                holder.__call__ = original
 
 
 @contextlib.contextmanager

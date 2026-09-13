@@ -62,7 +62,9 @@ def delete_asset(client, name):
     return client.delete_json(api_path("api", "assets", name))
 
 
-def keep_output(client, name, asset_name=None, overwrite=False, shared=False):
+def keep_output(
+    client, name, asset_name=None, overwrite=False, shared=False, workspace=None
+):
     """Keep a generated file as an input asset, under a stable name.
 
     A run's files are named by the run that made them, which is the wrong
@@ -86,6 +88,7 @@ def keep_output(client, name, asset_name=None, overwrite=False, shared=False):
             "overwrite": overwrite,
             "shared": shared,
         },
+        workspace=workspace,
     )
 
 

@@ -288,7 +288,11 @@ def _decode_audio_video(handle):
         f"Decoded {len(frames)} frames and "
         f"{audio.shape[1] if audio is not None else 0} audio samples"
     )
-    return AudioVideo(frames, audio, sample_rate if audio is not None else None)
+    # The file's own rate travels with it: a step that joins videos read
+    # from disk knows what to write them back at without being told (#84)
+    return AudioVideo(
+        frames, audio, sample_rate if audio is not None else None, fps=frame_rate
+    )
 
 
 # How far a decoded track may be off the frames' own duration and still be

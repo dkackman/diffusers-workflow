@@ -35,7 +35,7 @@
         },
         "cost": {
             "type": "array",
-            "description": "Measured runs, one per device the maintainer measured on. Never derived; absent means unknown.",
+            "description": "Measured runs, one per device the maintainer measured on. Never derived; absent means unknown. 'minutes' is the whole run's wall clock on a worker that has to load the models - what a consumer actually waits through, not the denoise loop alone; on a video template the two differ by minutes.",
             "items": {
                 "type": "object",
                 "required": ["device", "vram_gb", "minutes"],
@@ -1090,7 +1090,7 @@
             "type": "object",
             "properties": {
                 "path": {
-                    "description": "The path to the workflow file. Use 'builtin:' for built-in workflows.",
+                    "description": "The workflow this step composes: a catalog name as list_workflows reports it (with or without '.json'), a path relative to the workflow that names it ('../models/x.json'), or 'builtin:name.json' for one of the packaged fragments. A name is resolved first beside the referencing file, then against this run's own workflows directory, then against each read-only source on the server's search path - so a stored template can be composed without copying it into the workspace. A path outside every source is refused. When the composing step declares a 'result', that is where the composed output is saved and the composed workflow's own last step does not save it again.",
                     "type": "string"
                 },
                 "arguments": {
@@ -1119,7 +1119,7 @@
                     "type": "string"
                 },
                 "fps": {
-                    "description": "Frames per second - only used when output is video",
+                    "description": "Frames per second - only used when output is video. Defaults to the rate the frames themselves carry (a chain's 'fps', a join's own rate, the rate of the file a task read) and to 8 only when nothing knows better. Set it to write at a rate other than the source's - a deliberate slow motion - which the run then warns about.",
                     "type": "integer",
                     "default": 8
                 },

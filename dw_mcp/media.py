@@ -30,14 +30,16 @@ MIN_DIMENSION = 64
 MAX_RETURNED_CHARACTERS = 20000
 
 
-def get_output_image(client, name, max_dimension=768):
+def get_output_image(client, name, max_dimension=768, workspace=None):
     """One image from the output directory, downscaled, as base64 plus the
     sizes it went in and came out at."""
 
     def is_image(content_type):
         return not content_type or content_type.startswith("image/")
 
-    body, content_type = client.get_bytes_if(api_path("outputs", name), is_image)
+    body, content_type = client.get_bytes_if(
+        api_path("outputs", name), is_image, workspace=workspace
+    )
     if body is None:
         raise DwApiError(
             f"{name} is {content_type}, not an image - this tool returns "
@@ -101,7 +103,9 @@ def _fit(image, limit):
     )
 
 
-def get_output_text(client, name, max_characters=MAX_RETURNED_CHARACTERS):
+def get_output_text(
+    client, name, max_characters=MAX_RETURNED_CHARACTERS, workspace=None
+):
     """One text output from the output directory - the form a prompt
     enhancement and any `text/plain` result arrive in."""
 
@@ -109,7 +113,9 @@ def get_output_text(client, name, max_characters=MAX_RETURNED_CHARACTERS):
         kind = content_type.split(";")[0].strip().lower()
         return kind.startswith("text/") or kind == "application/json"
 
-    body, content_type = client.get_bytes_if(api_path("outputs", name), is_text)
+    body, content_type = client.get_bytes_if(
+        api_path("outputs", name), is_text, workspace=workspace
+    )
     if body is None:
         raise DwApiError(
             f"{name} is {content_type or 'of no declared type'}, not text - "
@@ -129,13 +135,13 @@ def get_output_text(client, name, max_characters=MAX_RETURNED_CHARACTERS):
     }
 
 
-def delete_output(client, name):
+def delete_output(client, name, workspace=None):
     """Remove one file from the output directory. The gallery is the output
     directory read back, so this is where a delete belongs."""
-    return client.delete_json(api_path("api", "gallery", name))
+    return client.delete_json(api_path("api", "gallery", name), workspace=workspace)
 
 
-def download_output(client, name, destination=None, overwrite=False):
+def download_output(client, name, destination=None, overwrite=False, workspace=None):
     """Fetch one output file and save it to local disk, for an agent that
     wants the artifact itself rather than a description of it.
 
@@ -175,7 +181,7 @@ def download_output(client, name, destination=None, overwrite=False):
         if parent:
             os.makedirs(parent, exist_ok=True)
         content_type, bytes_written = client.stream_to_file(
-            api_path("outputs", name), destination
+            api_path("outputs", name), destination, workspace=workspace
         )
     except OSError as e:
         # A client-side path handed to a `dw.serve --mcp` endpoint lands

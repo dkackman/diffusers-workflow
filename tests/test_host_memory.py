@@ -95,3 +95,115 @@ def test_the_repl_prints_host_memory_either_way(capsys, gpu_available):
     out = capsys.readouterr().out
     assert "Worker RSS: 1234.5 MB" in out
     assert "32000.0 MB of 64000.0 MB" in out
+
+
+def test_the_peak_is_never_below_the_resident_figure(monkeypatch):
+    """peak - rss is what the pair exists to answer; a small negative there
+    reads as 'these fields are not comparable' - see issue #83."""
+    monkeypatch.setattr(host_memory, "_peak_rss_mb", lambda: 764.1484375)
+    monkeypatch.setattr(
+        host_memory,
+        "_psutil_stats",
+        lambda: {"rss_mb": 764.79296875, "total_mb": 64000.0, "available_mb": 32000.0},
+    )
+
+    stats = host_memory.host_memory_stats()
+
+    assert stats["peak_rss_mb"] == stats["rss_mb"] == 764.79296875
+
+
+def test_a_genuine_peak_is_left_alone(monkeypatch):
+    monkeypatch.setattr(host_memory, "_peak_rss_mb", lambda: 33044.98)
+    monkeypatch.setattr(
+        host_memory,
+        "_psutil_stats",
+        lambda: {"rss_mb": 2561.69, "total_mb": 64000.0, "available_mb": 32000.0},
+    )
+
+    assert host_memory.host_memory_stats()["peak_rss_mb"] == 33044.98
+
+
+class TestReleasingHostCaches:
+    """What a full cleanup hands back to the OS, and what it reports (#98).
+
+    A worker that had released every model still sat on 14.5 GB of anonymous
+    memory on the box this was measured on, which is the whole margin a
+    template needing 96% of host RAM has.
+    """
+
+    def test_it_empties_the_pinned_cache_and_trims_the_heap(self, monkeypatch):
+        called = []
+
+        class FakeC:
+            @staticmethod
+            def _host_emptyCache():
+                called.append("pinned")
+
+        monkeypatch.setitem(
+            __import__("sys").modules, "torch", type("torch", (), {"_C": FakeC})
+        )
+        monkeypatch.setattr(
+            host_memory, "trim_host_memory", lambda: called.append("trim")
+        )
+        readings = iter([20000.0, 14000.0])
+        monkeypatch.setattr(
+            host_memory, "host_memory_stats", lambda: {"rss_mb": next(readings)}
+        )
+
+        released = host_memory.release_host_caches()
+
+        assert called == ["pinned", "trim"]
+        assert released == 6000.0
+
+    def test_a_reading_it_cannot_take_is_not_a_number_it_invents(self, monkeypatch):
+        monkeypatch.setattr(host_memory, "trim_host_memory", lambda: 0.0)
+        monkeypatch.setattr(host_memory, "host_memory_stats", lambda: {"rss_mb": None})
+
+        assert host_memory.release_host_caches() == 0.0
+
+    def test_a_torch_without_the_hook_is_not_an_error(self, monkeypatch):
+        monkeypatch.setitem(
+            __import__("sys").modules, "torch", type("torch", (), {"_C": object})
+        )
+        monkeypatch.setattr(host_memory, "trim_host_memory", lambda: 0.0)
+        monkeypatch.setattr(host_memory, "host_memory_stats", lambda: {"rss_mb": 100.0})
+
+        assert host_memory.release_host_caches() == 0.0
+
+    def test_the_pinned_figures_are_reported_in_mb(self, monkeypatch):
+        class FakeCuda:
+            @staticmethod
+            def host_memory_stats():
+                return {
+                    "allocated_bytes.all.current": 512 * 1024 * 1024,
+                    "reserved_bytes.all.current": 2048 * 1024 * 1024,
+                }
+
+        monkeypatch.setitem(
+            __import__("sys").modules, "torch", type("torch", (), {"cuda": FakeCuda})
+        )
+
+        assert host_memory.pinned_host_memory_fields() == {
+            "host_pinned_allocated_mb": 512.0,
+            "host_pinned_reserved_mb": 2048.0,
+        }
+
+    def test_no_pinned_allocator_reports_nothing_rather_than_zero(self, monkeypatch):
+        """A key that is absent says 'not measurable here'; a zero would say
+        'measured, and there is none' - the same rule the host fields follow."""
+
+        class FakeCuda:
+            @staticmethod
+            def host_memory_stats():
+                raise RuntimeError("no CUDA")
+
+        monkeypatch.setitem(
+            __import__("sys").modules, "torch", type("torch", (), {"cuda": FakeCuda})
+        )
+
+        assert host_memory.pinned_host_memory_fields() == {}
+
+    def test_trim_is_a_no_op_off_linux(self, monkeypatch):
+        monkeypatch.setattr(__import__("sys"), "platform", "darwin")
+
+        assert host_memory.trim_host_memory() == 0.0

@@ -127,3 +127,15 @@ class TestLevelMatching:
 
         assert abs(result.audio[0][-1]) == pytest.approx(0.05)
         assert "level jump" in caplog.text
+
+
+class TestFrameRateTravelsWithTheDissolve:
+    """As with concat_videos - the rate the step was told is the rate the
+    file is written at, rather than result.fps's default of 8 (#84)."""
+
+    def test_the_tasks_fps_is_carried_to_the_result(self):
+        result = dissolve_videos(
+            [frames(8, 0), frames(8, 255)], dissolve_frames=2, fps=24
+        )
+
+        assert result.fps == 24

@@ -151,7 +151,22 @@ Invoke another workflow file:
 }
 ```
 
-Paths can be relative to the current file or use `builtin:` to reference built-in workflows in `dw/workflows/`.
+`path` is read the way `run_workflow`'s `workflow_path` is: a catalog name as
+`list_workflows` reports it (`templates/minimax/reference-to-video`), with or
+without `.json`; a path relative to the file that names it (`../models/x.json`);
+or `builtin:name.json` for the packaged fragments in `dw/workflows/`. A name
+resolves beside the referencing file first, then against the run's own
+`workflows/` directory, then against each read-only source the server lists -
+so a stored template can be composed without copying it into the workspace. A
+path that lands outside every source is refused, and one that resolves nowhere
+is a validation error rather than a run that fails on its first step.
+
+When the composing step declares a `result`, that is where the composed output
+is written, once: the child's own last step does not save it a second time
+under its own name. A composing step that declares no `result` (or one with no
+`content_type`) leaves the saving to the child, as before. The child's other
+steps write into the same run directory, with the composing step's name
+leading their file names.
 
 ## Cross-Step Data Flow
 
@@ -542,6 +557,28 @@ subfolder written is one a later workflow can name:
 `output:dialogue-short/latest/final/episode.mp4`. A bad value is a
 validation error at its JSON path. `file_base_name` is a name, not a path:
 a separator there is refused, and `subfolder` is the way to place a file.
+
+### Composing a stored workflow
+
+A step with a `workflow` block runs another workflow as one step of this one,
+with `arguments` handed down as that workflow's variables. Its `path` is read
+the way `run_workflow`'s `workflow_path` is - a catalog name from
+`list_workflows`, with or without `.json`, a path relative to the file that
+names it, or `builtin:name.json` - and resolves beside the referencing file
+first, then in this workspace's `workflows/`, then in each read-only source
+the server lists. A stored template is composed by its catalog name; copying
+it into the workspace to reach it is no longer necessary, and a copy silently
+stops tracking the original.
+
+Declare a `result` on the composing step and the composed output is saved
+there, once, under that step's name and subfolder - the composed workflow's
+own last step does not write a second copy. Its other steps write into the
+same run directory, prefixed with the composing step's name.
+
+`validate_workflow` resolves the path, so a name that reaches nothing is an
+error at `steps[N].workflow.path` before anything is queued; it also validates
+the workflow named, refuses a composition cycle, and warns about an argument
+the composed workflow declares no variable for.
 
 ### Being found next time
 

@@ -270,7 +270,7 @@ def _per_frame(image, process):
     frames = [process(frame) for frame in frames_as_pil_list(image)]
     audio = getattr(image, "audio", None)
     sample_rate = getattr(image, "sample_rate", None)
-    return AudioVideo(frames, audio, sample_rate)
+    return AudioVideo(frames, audio, sample_rate, fps=getattr(image, "fps", None))
 
 
 @register_command("upscale", implementation="dw.tasks.upscale.upscale_image")

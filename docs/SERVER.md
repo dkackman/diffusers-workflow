@@ -164,7 +164,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | event | when | payload |
 | --- | --- | --- |
 | `job_status` | queued/running/terminal transitions | `status` |
-| `log` | worker output lines | `message` |
+| `log` | worker output lines; each top-level block of a `ModularPipeline` as it starts (`MiniMaxAI/MiniMax-H3: vae_encoder`) - the lead-in before the denoise loop is where a reference encode's minutes go, and the block name is what says which one it is in; and each file the `saving` phase writes, named as it starts (`writing shot.mp4 (121 frames)`) and costed as it finishes (`wrote shot.mp4 in 1.3s (1.4 MB)`), which is the other stretch a step spends with its denoise counter frozen | `message`, and for a file `file` plus `seconds` on the closing one |
 | `memory` | device memory after a run | `info` |
 | `run_start` | the run directory is chosen, before the first step | `run_id`, `identity`, `run_dir` |
 | `workflow_start` | the run begins | `workflow`, `total_steps`, `steps`, `seed` |
@@ -173,6 +173,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | `pipeline_step` | each denoise step | `step`, `total_steps`. Emitted for a pipeline that takes a `callback_on_step_end`, and for a `ModularPipeline` (H3, LTX-2, Qwen-Image), which takes none - there the denoise block's own progress bar is what reports |
 | `phase` | the step changes what it is doing | `phase`, `detail` |
 | `pipeline_released` | a step with `release_pipeline` drops its pipeline | `step`, `index`, `gpu_memory_allocated_mb` and `gpu_memory_allocated_before_mb` (both `null` where the backend cannot say). Emitted between the step's generation and its files being written, which is where the release happens - so the ordering is readable off the event stream rather than by trying to poll memory through a sub-second write |
+| `warning` | a step finds something wrong with what it is about to write | `message`, plus a `kind` and the figures behind it (`level_spread`: `spread_db`, `measure`, `command`; `fps_mismatch`: `declared_fps`, `source_fps`). Also appended to the job's `warnings`, prefixed with the step it fired in - the event keeps the moment, `warnings` keeps it where a caller polling the finished job will look, since a warning about the artifact outlives the run that noticed it |
 | `workflow_end` | the run finishes | `manifest` |
 
 A step spends most of its wall clock outside the denoise loop, and
@@ -181,7 +182,9 @@ A step spends most of its wall clock outside the denoise loop, and
 pipeline as a previous run - milliseconds, not minutes), `generating`
 (the denoise loop, or a chain's `segment N/M` - which is why the counter
 restarts), `decoding` (latents, after the last denoise step), `saving`
-(writing files, including video encode) and `task` (a task step, named in
+(writing files, including video encode - it names each file on the `log`
+stream rather than running silent, since the denoise counter is frozen at its
+last step throughout) and `task` (a task step, named in
 `detail`). Emits are a handful per step, not per denoise tick.
 
 ### Progress on a running job
@@ -201,11 +204,30 @@ to learn where a long render is:
 | `denoise_step`, `denoise_total_steps` | the denoise loop's counter, `null` until it starts |
 
 A null `denoise_step` under `generating` is the pipeline's lead-in - encoding
-the prompt and any reference image or audio - which emits nothing and runs
-well over a minute on a large video model (~90 s on MiniMax H3). The keys are
-always present so that lead-in can be told from a loop that has stopped
+the prompt and every reference - which emits nothing and runs well over a
+minute on a large video model. How long it runs follows what it has to
+encode: on MiniMax H3, ~90 s for a prompt with an image or audio reference,
+but ~10 min once a *video* reference is among them - a measured run encoding
+one 5 s 960x544 clip on an RTX 3090 sat silent from 94 s to 723 s. The keys
+are always present so that lead-in can be told from a loop that has stopped
 advancing: `seconds_since_event` is a stall signal once `denoise_step` is a
 number, or in any phase other than `generating`.
+
+The lead-in is no longer silent, though: each of a modular pipeline's
+top-level blocks emits a `log` naming it as it starts (`before_encode`,
+`text_encoder`, `vae_encoder`, `denoise`, `decode` on H3), so the last event
+says which one the run is inside. Only a `SequentialPipelineBlocks` is
+narrated this way - a conditional container picks one branch rather than
+running them all, and walking its sub-blocks would be a wrong answer bought
+with a progress message.
+
+It is a coarse one even then. A step's cost is not uniform when the pipeline
+configures a transformer block cache (`"cache": {"type": "first_block"}`):
+most steps are served from it in seconds and every few steps one is computed
+in full, so the same healthy run emits four `pipeline_step` events in 20 s
+and then nothing for 133 s. Liveness is `denoise_step` having moved between
+polls minutes apart, not silence measured against a fixed threshold - on H3
+that threshold would have to exceed ~140 s to mean anything.
 
 ## Introspection API
 
@@ -264,7 +286,11 @@ The editor's forms come from these; they are just as usable from scripts:
   the maintainer-measured `{device, name, vram_gb, minutes}` runs, or `null`
   when nobody has measured it - a list-driven workflow's `cost` entry may
   also carry a measured `per_entry` (`{variable, minutes, entries}`), the
-  cost of one entry of the list it was measured against. A `models/` entry
+  cost of one entry of the list it was measured against. The response's
+  `cost_basis` says what that is - `curated`: figures a maintainer measured
+  once and wrote into the workflow, never derived from this server's own job
+  history, so `null` means nobody wrote one down rather than "this box has
+  never run it". A `models/` entry
   takes its `shape` and `traits` from the template it configures and keeps
   its own `cost`. A list-driven workflow (one with a `for_each` step) also
   carries `lists`: per list variable, the fields an entry takes, the steps

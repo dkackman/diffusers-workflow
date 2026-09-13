@@ -1,4 +1,5 @@
 import os
+import time
 import numpy
 import torch
 import soundfile
@@ -12,7 +13,7 @@ from diffusers.utils import (
     is_av_available,
 )
 from collections.abc import Mapping
-from .events import emit_phase
+from .events import emit_log, emit_phase, emit_warning
 from .security import (
     SecurityError,
     validate_file_base_name,
@@ -25,6 +26,68 @@ logger = logging.getLogger("dw")
 # Result saving constants
 MAX_BASE_NAME_LENGTH = 200
 DEFAULT_AUDIO_SAMPLE_RATE = 44100
+# The rate a video is written at when neither the workflow nor the artifact
+# says - a diffusers convention old enough that changing it would restate
+# every existing workflow's output
+DEFAULT_VIDEO_FPS = 8
+
+
+def _artifact_size(artifact):
+    """How much there is to write, said the way the thing itself counts -
+    frames for a video, samples for a waveform. Best effort: it is narration
+    beside a file name, so anything it cannot measure it does not mention."""
+    try:
+        frames = getattr(artifact, "frames", None)
+        if frames is not None:
+            return f"{len(frames)} frames"
+        if hasattr(artifact, "__len__") and not isinstance(artifact, (str, bytes)):
+            return f"{len(artifact)} frames"
+    except Exception:
+        pass
+    return ""
+
+
+def _file_size_mb(path):
+    try:
+        return os.path.getsize(path) / (1024 * 1024)
+    except OSError:
+        return 0.0
+
+
+def frames_for_encoding(frames):
+    """Generated frames in the form `encode_video` encodes without first
+    inspecting them.
+
+    A pipeline that returns `output_type="np"` hands back float frames in
+    [0, 1], and diffusers' `encode_video` establishes that range with three
+    full-size temporaries - `np.zeros_like`, `np.ones_like` and the bool
+    mask - before converting. On a 121-frame 960x544 clip that is ~3 GB of
+    allocation and 16 s of wall clock on an idle box, against 2.4 s for the
+    encode itself, and it is the bulk of a 'saving' phase that ran for 53 s
+    with nothing else in it (#97, measured on lem 2026-09-14).
+
+    Converting here is a pass and a half and hands back a torch tensor,
+    which `encode_video` takes as given - so the check never runs. Frames
+    outside [0, 1] are left exactly as they were: that is the branch where
+    diffusers warns and treats them as pixel values already, and it is not
+    a path any pipeline here produces or that this can be tested against.
+
+    The source array is never written to - a later step may still read this
+    result through a `previous_result:` reference, and the step cache
+    retains it.
+    """
+    if not isinstance(frames, numpy.ndarray) or frames.size == 0:
+        return frames
+    if not numpy.issubdtype(frames.dtype, numpy.floating):
+        return frames
+    if float(frames.min()) < 0.0 or float(frames.max()) > 1.0:
+        return frames
+    denormalized = numpy.empty(frames.shape, dtype=numpy.uint8)
+    # Frame by frame: the whole-array form allocates another copy the size
+    # of the video, which is the cost this exists to avoid
+    for index in range(frames.shape[0]):
+        denormalized[index] = numpy.round(frames[index] * 255.0)
+    return torch.from_numpy(denormalized)
 
 
 def output_file_path(output_dir, file_name):
@@ -109,16 +172,24 @@ class AudioVideo:
     the result mux them into one file instead of dropping the audio on the floor.
     """
 
-    def __init__(self, frames, audio, sample_rate):
+    def __init__(self, frames, audio, sample_rate, fps=None):
         """
         Args:
             frames: The video, as PIL images or an array of frames
             audio: Waveform for this video, shaped (channels, samples)
             sample_rate: Sample rate of the waveform, or None if the pipeline did not report one
+            fps: Frame rate these frames are meant to play at, when something
+                knows it - a joined video's own rate, or the rate of the file
+                a task read. Carried for the same reason AudioTrack carries
+                its sample rate: `result.fps` defaults to 8, and a step that
+                joins 24 fps shots writing them at 8 is three times slow with
+                its audio still the right length (#84). A declared
+                `result.fps` still wins over this
         """
         self.frames = frames
         self.audio = audio
         self.sample_rate = sample_rate
+        self.fps = fps
 
 
 class AudioTrack:
@@ -396,19 +467,29 @@ class Result:
 
         output_path = output_file_path(output_dir, f"{file_base_name}{extension}")
         logger.info(f"Saving artifact to {output_path}")
+        # Writing one file is the whole of the 'saving' phase's wall clock,
+        # and on a video it is minutes of it with nothing else to report -
+        # the denoise counter is frozen at its last step and there is no
+        # further event until step_end, so a healthy run is indistinguishable
+        # from a hung one (#97). Name the file as it starts and report what
+        # it cost as it finishes, the same shape the modular block lead-in
+        # got in #95
+        emit_log(
+            f"writing {os.path.basename(output_path)}"
+            + (f" ({_artifact_size(artifact)})" if _artifact_size(artifact) else ""),
+            file=os.path.basename(output_path),
+            content_type=content_type,
+        )
+        started = time.monotonic()
 
         try:
             if content_type.startswith("video"):
                 if isinstance(artifact, AudioVideo):
                     self.save_audio_video(artifact, output_path, content_type)
                 else:
-                    export_to_video(
-                        artifact, output_path, fps=self.result_definition.get("fps", 8)
-                    )
+                    export_to_video(artifact, output_path, fps=self.video_fps(artifact))
             elif content_type == "image/gif":
-                export_to_gif(
-                    artifact, output_path, fps=self.result_definition.get("fps", 8)
-                )
+                export_to_gif(artifact, output_path, fps=self.video_fps(artifact))
             elif content_type.startswith("audio"):
                 waveforms = normalize_audio(artifact)
                 # Declared rate > the rate a generated track carries > default
@@ -470,7 +551,45 @@ class Result:
             )
             raise
 
+        emit_log(
+            f"wrote {os.path.basename(output_path)} in "
+            f"{time.monotonic() - started:.1f}s ({_file_size_mb(output_path):.1f} MB)",
+            file=os.path.basename(output_path),
+            seconds=round(time.monotonic() - started, 1),
+        )
         return [output_path]
+
+    def video_fps(self, artifact):
+        """The frame rate this video is written at.
+
+        Declared `result.fps` first, then the rate the artifact carries (a
+        join's own rate, or the rate of the files it read), then 8.
+
+        The order matters more than it looks: `result.fps` and a task's own
+        `fps` argument are separate knobs, and the one an author thinks to
+        set is the task's. A step that told `concat_videos` its shots are 24
+        fps and said nothing on `result` used to write them at 8 - the
+        picture three times long against an audio track still the right
+        length, with nothing said about it (#84). A workflow that does
+        declare `result.fps` still wins, so writing at a rate other than the
+        source's - a deliberate slow motion - stays available, and says so.
+        """
+        declared = self.result_definition.get("fps")
+        carried = getattr(artifact, "fps", None)
+        if declared is None:
+            return carried or DEFAULT_VIDEO_FPS
+        if carried and abs(declared - carried) > 0.01:
+            emit_warning(
+                f"Writing video at {declared} fps, but the frames it was "
+                f"given run at {carried} fps - the file will play "
+                f"{declared / carried:.2g}x speed "
+                f"({carried / declared:.2g} times as long). Drop 'fps' from "
+                f"the step's result to keep the source rate",
+                kind="fps_mismatch",
+                declared_fps=declared,
+                source_fps=carried,
+            )
+        return declared
 
     def save_audio_video(self, artifact, output_path, content_type):
         """Write a video and the audio generated with it into a single file.
@@ -484,7 +603,7 @@ class Result:
             output_path: Path of the file to write
             content_type: MIME type of the video being written
         """
-        fps = self.result_definition.get("fps", 8)
+        fps = self.video_fps(artifact)
         # The pipeline reports the sample rate of what it generated - the result
         # definition can still override it
         sample_rate = self.result_definition.get(
@@ -543,7 +662,7 @@ class Result:
 
         logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")
         encode_video(
-            artifact.frames,
+            frames_for_encoding(artifact.frames),
             fps=fps,
             output_path=output_path,
             audio=as_audio_track(artifact.audio),

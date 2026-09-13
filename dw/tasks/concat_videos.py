@@ -61,7 +61,9 @@ def concat_videos(
             hard cut on tonal material, which a bleed would only stutter. It is
             the wrong tool for a continuous bed such as a laugh track or room
             tone: a fade only deepens the hole a bleed is there to cover
-        fps: Frame rate of the videos - required to join audio when trimming
+        fps: Frame rate of the videos - required to join audio when
+            trimming, and the rate the joined file is written at unless
+            the step's result.fps overrides it
         match_levels: Even the shots' loudness out before joining -
             "rms" matches perceived level (the measurement
             get_gallery_metadata reports as mean_dbfs), "peak" matches the
@@ -147,4 +149,10 @@ def concat_videos(
             )
 
     logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
-    return AudioVideo(frames, audio, sample_rate)
+    # The rate the caller declared, else the rate the first input carries -
+    # either beats the result's 8 fps default (#84)
+    written_fps = fps or next(
+        (v.fps for v in videos if getattr(v, "fps", None)),
+        None,
+    )
+    return AudioVideo(frames, audio, sample_rate, fps=written_fps)
