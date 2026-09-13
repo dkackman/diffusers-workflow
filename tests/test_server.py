@@ -3598,3 +3598,86 @@ def test_an_old_history_database_gains_the_column(tmp_path):
         history_path=str(db),
     )
     assert manager.get("old1")["workflow_name"] is None
+
+
+EMPTY_PLAN = {
+    "fingerprint": "sha256:0",
+    "steps": 0,
+    "list_entries": {},
+    "cached_steps": None,
+    "downloads_required": [],
+    "estimate": None,
+}
+
+
+class TestValidatePlan:
+    """A valid pre-flight answers with the run's plan (#85): what these
+    arguments will execute, fingerprinted, priced and with the weights the
+    box lacks named. Best effort - the verdict is never the planner's."""
+
+    def test_a_valid_answer_carries_a_plan(self, server, monkeypatch):
+        import dw.plan
+
+        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+        with server(success_script) as client:
+            result = client.post(
+                "/api/validate?sizes=false",
+                json={"workflow": video_workflow("planned", with_cost=True)},
+            ).json()
+        assert result["valid"] is True
+        plan = result["plan"]
+        assert set(plan) == set(EMPTY_PLAN)
+        assert plan["steps"] == 1
+        assert plan["estimate"]["basis"] in {"catalog", "other_device"}
+        assert plan["estimate"]["minutes"] == 2.0
+        assert plan["downloads_required"] == [{"repo": "m", "gb": None}]
+
+    def test_an_invalid_answer_carries_no_plan(self, server):
+        with server(success_script) as client:
+            result = client.post(
+                "/api/validate", json={"workflow": {"id": "broken", "steps": "no"}}
+            ).json()
+        assert result["valid"] is False
+        assert "plan" not in result
+
+    def test_a_planner_failure_is_a_null_plan_not_a_verdict(self, server, monkeypatch):
+        import dw.server.app as app_module
+
+        def boom(*a, **k):
+            raise RuntimeError("planner broke")
+
+        monkeypatch.setattr(app_module, "build_plan", boom)
+        with server(success_script) as client:
+            result = client.post(
+                "/api/validate", json={"workflow": valid_workflow("v")}
+            ).json()
+        assert result["valid"] is True
+        assert result["plan"] is None
+
+    def test_sizes_reaches_the_planner(self, server, monkeypatch):
+        import dw.server.app as app_module
+
+        seen = []
+
+        def spy(candidate, arguments, **kwargs):
+            seen.append(kwargs["lookup_sizes"])
+            return dict(EMPTY_PLAN)
+
+        monkeypatch.setattr(app_module, "build_plan", spy)
+        with server(success_script) as client:
+            client.post("/api/validate", json={"workflow": valid_workflow("v")})
+            client.post(
+                "/api/validate?sizes=false", json={"workflow": valid_workflow("v")}
+            )
+        assert seen == [True, False]
+
+    def test_the_plan_sees_the_callers_arguments(self, server, monkeypatch):
+        import dw.plan
+
+        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+        with server(success_script) as client:
+            body = {"workflow": valid_workflow("v")}
+            one = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+            body["arguments"] = {"prompt": "something else"}
+            two = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+        assert one["fingerprint"] != two["fingerprint"]
