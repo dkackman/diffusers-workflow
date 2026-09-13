@@ -763,6 +763,7 @@ WRAPPER_HANDLER_MAP = {
     "download_output": (media, "download_output"),
     "get_gallery_metadata": (catalog, "get_gallery_metadata"),
     "get_workflow": (catalog, "get_workflow"),
+    "delete_output": (media, "delete_output"),
 }
 
 
