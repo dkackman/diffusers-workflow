@@ -19,6 +19,7 @@ import logging
 import os
 
 from huggingface_hub import model_info
+from huggingface_hub.utils import HFValidationError, validate_repo_id
 
 from .hub_cache import scan_models
 from .realize import (
@@ -72,7 +73,7 @@ def build_plan(
         if candidate.file_spec
         else None
     )
-    realized, _ = realize_workflow(
+    realized, annotations = realize_workflow(
         definition,
         arguments,
         seed=0,
@@ -89,7 +90,7 @@ def build_plan(
     ).expanded_definition()
     entries = list_entries(definition, realized)
     return {
-        "fingerprint": fingerprint(expanded, definition),
+        "fingerprint": fingerprint(expanded, definition, annotations),
         "steps": len(expanded.get("steps") or []),
         "list_entries": entries,
         "cached_steps": cached_steps(definition, realized, arguments, cache_probe),
@@ -145,15 +146,20 @@ def _is_seeded(definition, arguments):
     return seed is not None
 
 
-def fingerprint(expanded, definition):
+def fingerprint(expanded, definition, annotations=None):
     """SHA-256 over the expanded definition with everything that is not
     work removed: the seed wherever it sits, and the documentation keys.
 
     `definition` is the workflow as written, consulted for whether the
     top-level seed named a variable - if it did, that variable's folded
-    value is the seed too and is blanked at its source.
+    value is the seed too and is blanked at its source. `annotations` is
+    what realization recorded beside the copy; its sub-workflow digests go
+    into the hash, since a composed child edited between the quote and the
+    call is different work the parent's text cannot show.
     """
     doc = copy.deepcopy(expanded)
+    if annotations and annotations.get("sub_workflows"):
+        doc["__sub_workflows__"] = dict(annotations["sub_workflows"])
     doc.pop("seed", None)
     for key in DOCUMENTATION_KEYS:
         doc.pop(key, None)
@@ -284,7 +290,10 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
     required = []
     for name in names:
-        if name in present or os.path.isdir(name):
+        # A name not shaped like a hub id is a local checkout - decided by
+        # shape, never by touching the disk: the name came from the request
+        # body, and a free pre-flight must not be a directory-existence oracle
+        if name in present or not _is_repo_id(name):
             continue
         required.append({"repo": name, "gb": _size_gb(name) if lookup_sizes else None})
     for url in urls:
@@ -308,6 +317,14 @@ def _collect_sources(tree, names, urls):
     elif isinstance(tree, list):
         for value in tree:
             _collect_sources(value, names, urls)
+
+
+def _is_repo_id(name):
+    try:
+        validate_repo_id(name)
+        return True
+    except HFValidationError:
+        return False
 
 
 def _is_url(value):

@@ -168,6 +168,15 @@ class TestFingerprintIsStableAcross:
 
 
 class TestFingerprintChangesWith:
+    def test_an_edited_composed_child(self, plan, tmp_path):
+        child = {"id": "child", "steps": []}
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        spec = composing("child.json")
+        before = plan(spec)["fingerprint"]
+        child["steps"].append({"name": "x", "task": {"command": "x", "arguments": {}}})
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        assert plan(spec)["fingerprint"] != before
+
     def test_a_longer_list(self, plan):
         longer = [{"name": n, "prompt": n} for n in "abc"]
         assert plan()["fingerprint"] != plan(arguments={"shots": longer})["fingerprint"]
@@ -363,14 +372,28 @@ class TestDownloadsRequired:
         plan(cache_dir="/somewhere")
         assert seen == ["/somewhere"]
 
-    def test_a_local_directory_is_not_a_download(self, plan, tmp_path):
-        local = tmp_path / "weights"
-        local.mkdir()
-        spec = definition()
-        spec["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = str(
-            local
+    def test_a_local_path_is_not_a_download_and_is_not_probed(
+        self, plan, tmp_path, monkeypatch
+    ):
+        """A model_name that is not shaped like a hub id is a local checkout
+        and never a download - decided by shape, never by touching the disk,
+        since the free pre-flight takes the name from the request body and
+        must not become a directory-existence oracle."""
+        import os
+
+        probed = []
+        real_isdir = os.path.isdir
+        monkeypatch.setattr(
+            os.path, "isdir", lambda path: probed.append(path) or real_isdir(path)
         )
-        assert plan(spec)["downloads_required"] == []
+        names = (str(tmp_path / "weights"), "/Users/someone/.ssh", "./weights")
+        for local in names:
+            spec = definition()
+            spec["steps"][0]["pipeline"]["from_pretrained_arguments"][
+                "model_name"
+            ] = local
+            assert plan(spec)["downloads_required"] == [], local
+        assert not set(names) & set(probed)
 
     def test_a_single_file_url_is_listed_without_a_size(self, plan):
         spec = definition()
