@@ -31,6 +31,7 @@ from .runs import (
     resolve_output_reference,
 )
 from .security import SecurityError, validate_workflow_path
+from .workflow_sources import resolve_sub_workflow, SubWorkflowNotFound
 from .variables import set_variables
 
 logger = logging.getLogger("dw")
@@ -210,20 +211,18 @@ def _record_sub_workflows(steps, annotations, base_dir, workflow_dir):
 def _digest(path, base_dir, workflow_dir):
     """The SHA-256 of a sub-workflow file, or None when it cannot be read.
 
-    Resolved the way `Workflow.create_step_action` resolves it - relative to
-    the referencing file's directory, then through `validate_workflow_path`
-    confined to `workflow_dir` - so a path this run could not have loaded is
-    not one realization reads either.
+    Resolved the way `Workflow.create_step_action` resolves it - beside the
+    referencing file, then across the workflow search path, then through
+    `validate_workflow_path` confined to the root it came from - so a path
+    this run could not have loaded is not one realization reads either, and
+    a catalog name the run composed is digested rather than recorded as
+    unreadable (#90).
     """
     try:
-        candidate = (
-            path
-            if os.path.isabs(path)
-            else os.path.normpath(os.path.join(base_dir or ".", path))
-        )
-        validated = validate_workflow_path(candidate, workflow_dir)
+        candidate, root = resolve_sub_workflow(path, base_dir or ".", workflow_dir)
+        validated = validate_workflow_path(candidate, root)
         with open(validated, "rb") as file:
             return hashlib.sha256(file.read()).hexdigest()
-    except (SecurityError, OSError, ValueError) as e:
+    except (SecurityError, OSError, ValueError, SubWorkflowNotFound) as e:
         logger.debug(f"No digest for sub-workflow {path}: {e}")
         return None

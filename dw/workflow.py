@@ -449,7 +449,9 @@ class Workflow:
                 or "/" in builtin_name
                 or "\\" in builtin_name
             ):
-                raise InvalidInputError(f"Invalid builtin workflow name: {builtin_name}")
+                raise InvalidInputError(
+                    f"Invalid builtin workflow name: {builtin_name}"
+                )
             confine_to = builtin_root()
             resolved = os.path.join(confine_to, builtin_name)
             if not os.path.isfile(resolved):
@@ -502,9 +504,7 @@ class Workflow:
             try:
                 child = workflow_from_file(resolved, self.output_dir, root)
             except Exception as e:
-                errors.append(
-                    {"path": where, "message": f"Sub-workflow '{path}': {e}"}
-                )
+                errors.append({"path": where, "message": f"Sub-workflow '{path}': {e}"})
                 continue
             for error in child.validation_errors(composing=composing + [resolved]):
                 errors.append(
@@ -521,9 +521,7 @@ class Workflow:
         and composition is exactly where a name drifts (#89)."""
         warnings = []
         try:
-            expanded = (
-                expanded if expanded is not None else self.expanded_definition()
-            )
+            expanded = expanded if expanded is not None else self.expanded_definition()
         except Exception:
             return warnings
         for index, step in enumerate(expanded.get("steps", []) or []):

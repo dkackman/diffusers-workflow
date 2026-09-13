@@ -423,9 +423,7 @@ class Job:
             # one and the step name stays the child's (#90)
             self.parent_step = event.get("parent_step")
             self.step_index = event.get("parent_index", event.get("index"))
-            self.total_steps = event.get(
-                "parent_total_steps", event.get("total_steps")
-            )
+            self.total_steps = event.get("parent_total_steps", event.get("total_steps"))
             # A new step's denoise loop has not started; the previous step's
             # count would read as this one's progress
             self.denoise_step = None

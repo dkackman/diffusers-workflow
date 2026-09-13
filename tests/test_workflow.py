@@ -1066,7 +1066,9 @@ class TestComposedStepSavesOnce:
     def test_a_composed_file_carries_the_parent_step_name(self, tmp_path):
         self._compose(tmp_path, parent_result=False)
 
-        assert os.path.basename(self._written(tmp_path)[0]).startswith("sub.child-write")
+        assert os.path.basename(self._written(tmp_path)[0]).startswith(
+            "sub.child-write"
+        )
 
 
 class TestSubWorkflowValidation:
@@ -1101,9 +1103,7 @@ class TestSubWorkflowValidation:
         )
 
     def test_a_path_that_resolves_nowhere_is_an_error(self, tmp_path):
-        workflow = self._parent(
-            self._tree(tmp_path), "templates/does-not-exist-at-all"
-        )
+        workflow = self._parent(self._tree(tmp_path), "templates/does-not-exist-at-all")
 
         errors = workflow.validation_errors()
 
@@ -1148,9 +1148,7 @@ class TestSubWorkflowValidation:
 
         assert any("cycle" in e["message"] for e in errors), errors
 
-    def test_a_child_that_does_not_validate_is_reported_under_the_step(
-        self, tmp_path
-    ):
+    def test_a_child_that_does_not_validate_is_reported_under_the_step(self, tmp_path):
         import json
 
         workflows = self._tree(tmp_path)
@@ -1217,7 +1215,5 @@ class TestSubWorkflowValidation:
 
         warnings = workflow.sub_workflow_warnings()
 
-        assert [w["path"] for w in warnings] == [
-            "steps[0].workflow.arguments.promt"
-        ]
+        assert [w["path"] for w in warnings] == ["steps[0].workflow.arguments.promt"]
         assert "declares no variable" in warnings[0]["message"]
