@@ -326,7 +326,8 @@ def build_server(client):
         them - queued, running, succeeded, failed, cancelled. `workspace`
         lists one workspace's jobs; without it, a named workspace lists its
         own and the default workspace lists every job the server holds,
-        whichever workspace ran it."""
+        whichever workspace ran it. Each job carries `acknowledged` - `none`,
+        `boolean` or `bound` - which form of cost acknowledgement queued it."""
         return catalog.list_jobs(
             client, limit=limit, status=status, workspace=workspace
         )
@@ -837,7 +838,10 @@ def build_server(client):
         the scratch work, and '' a step that said nothing. A step served
         from the step cache is marked `reused` and reports the earlier run's
         files. When a job failed, the error and traceback here are what to
-        read before changing anything."""
+        read before changing anything. `acknowledged` says which form of
+        cost acknowledgement queued the job (`none`, `boolean`, `bound`) and
+        `acknowledged_cost` is the bound `{fingerprint, minutes, downloads}`
+        when there was one."""
         return diagnose.get_job(client, job_id)
 
     def get_job_workflow(job_id: str) -> dict:

@@ -212,13 +212,24 @@ skills can teach the bound form as the normal one.
 Roughly a two-stage piece of work: stage 1 the plan on validate (useful on
 its own), stage 2 the binding and the 409.
 
-## Open questions for approval
+## Decisions taken (2026-09-13)
 
-1. Is the bound form worth it at all, given that a human is already in the
-   loop on every acknowledgement? (Doing nothing is a legitimate answer;
-   stage 1 alone is another.)
-2. Tolerance: 25% of the acknowledged minutes, or a fingerprint-only check
-   with no numeric comparison at all? A numeric one needs `per_entry` on the
-   templates to be meaningful, and today no template carries it.
-3. Should `POST /api/jobs` grow the gate for HTTP callers too, or stay an
-   MCP-layer concept? (The web UI would have to send something.)
+The three questions the proposal left open were settled by building it:
+
+1. **The bound form was built.** Both stages shipped (b37f033, d447f7d): the
+   plan on validate, and an `acknowledged_cost` object that `POST /api/jobs`
+   and `/rerun` check. The human-in-the-loop argument for doing nothing was
+   real, but cases 1, 4 and 6 above are exactly where the human consented to
+   one size and got another, and the check costs a free pre-flight.
+2. **Fingerprint-only; no numeric tolerance.** `minutes` is carried and
+   recorded but never compared. A tolerance needs `per_entry` measured on the
+   list-driven templates, and neither carries one yet; until they do, every
+   list-driven estimate has `basis: catalog` - the default list's total - and
+   a 25% band around it would be a band around the wrong number. The
+   `downloads` list is the one non-fingerprint thing compared, because a repo
+   that appeared since the quote is a cost the fingerprint cannot see.
+3. **HTTP takes it, never requires it.** The web UI and every existing caller
+   send nothing and are recorded as `acknowledged: none`; `true` is
+   `boolean`; only the object is checked. The gate stays the MCP layer's -
+   the server's part is to refuse a *bound* acknowledgement that no longer
+   matches, which only the server can judge.
