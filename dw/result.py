@@ -1,4 +1,5 @@
 import os
+import time
 import numpy
 import torch
 import soundfile
@@ -12,7 +13,7 @@ from diffusers.utils import (
     is_av_available,
 )
 from collections.abc import Mapping
-from .events import emit_phase, emit_warning
+from .events import emit_log, emit_phase, emit_warning
 from .security import (
     SecurityError,
     validate_file_base_name,
@@ -29,6 +30,28 @@ DEFAULT_AUDIO_SAMPLE_RATE = 44100
 # says - a diffusers convention old enough that changing it would restate
 # every existing workflow's output
 DEFAULT_VIDEO_FPS = 8
+
+
+def _artifact_size(artifact):
+    """How much there is to write, said the way the thing itself counts -
+    frames for a video, samples for a waveform. Best effort: it is narration
+    beside a file name, so anything it cannot measure it does not mention."""
+    try:
+        frames = getattr(artifact, "frames", None)
+        if frames is not None:
+            return f"{len(frames)} frames"
+        if hasattr(artifact, "__len__") and not isinstance(artifact, (str, bytes)):
+            return f"{len(artifact)} frames"
+    except Exception:
+        pass
+    return ""
+
+
+def _file_size_mb(path):
+    try:
+        return os.path.getsize(path) / (1024 * 1024)
+    except OSError:
+        return 0.0
 
 
 def output_file_path(output_dir, file_name):
@@ -408,6 +431,20 @@ class Result:
 
         output_path = output_file_path(output_dir, f"{file_base_name}{extension}")
         logger.info(f"Saving artifact to {output_path}")
+        # Writing one file is the whole of the 'saving' phase's wall clock,
+        # and on a video it is minutes of it with nothing else to report -
+        # the denoise counter is frozen at its last step and there is no
+        # further event until step_end, so a healthy run is indistinguishable
+        # from a hung one (#97). Name the file as it starts and report what
+        # it cost as it finishes, the same shape the modular block lead-in
+        # got in #95
+        emit_log(
+            f"writing {os.path.basename(output_path)}"
+            + (f" ({_artifact_size(artifact)})" if _artifact_size(artifact) else ""),
+            file=os.path.basename(output_path),
+            content_type=content_type,
+        )
+        started = time.monotonic()
 
         try:
             if content_type.startswith("video"):
@@ -478,6 +515,12 @@ class Result:
             )
             raise
 
+        emit_log(
+            f"wrote {os.path.basename(output_path)} in "
+            f"{time.monotonic() - started:.1f}s ({_file_size_mb(output_path):.1f} MB)",
+            file=os.path.basename(output_path),
+            seconds=round(time.monotonic() - started, 1),
+        )
         return [output_path]
 
     def video_fps(self, artifact):

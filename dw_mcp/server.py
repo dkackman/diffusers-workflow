@@ -273,6 +273,14 @@ def build_server(client):
         show what a run is holding or failing to release. A host field is
         absent, rather than null, on a platform that cannot measure it.
 
+        `host_pinned_reserved_mb` / `host_pinned_allocated_mb`, when
+        present, are torch's pinned-host cache - the staging buffers group
+        offloading moves weights through. They are part of
+        `host_memory_rss_mb` and invisible in every `gpu_*` figure, so a
+        worker that has released every model and still holds GB is usually
+        holding them (#98); they are returned when the worker switches to a
+        different workflow.
+
         `live: true` means `info` was measured now and is the worker's own
         memory - only these readings are comparable with each other.
         `live: false` means it was not: `info: null` (with `stale: false`)

@@ -22,7 +22,19 @@ from dw.settings import load_settings, resolve_path
 from dw.security import validate_output_path
 from dw.events import RunContext, WorkflowCancelled
 from dw import get_device_type, empty_device_cache, device_memory_stats
-from dw.host_memory import host_memory_fields
+from dw.host_memory import (
+    host_memory_fields,
+    host_memory_stats,
+    pinned_host_memory_fields,
+    release_host_caches,
+)
+
+
+def _mb(value):
+    """A host memory reading for a message, or 'unknown' where the platform
+    could not take one."""
+    return f"{value:.0f} MB" if value is not None else "unknown"
+
 
 logger = logging.getLogger("dw.worker")
 
@@ -199,7 +211,9 @@ class WorkflowWorker:
                             "message": "Workflow changed - releasing cached models...",
                         }
                     )
-                    self._cleanup_all()
+                    self.result_queue.put(
+                        {"type": "output", "message": self._cleanup_all()}
+                    )
                 self.workflow_identity = identity
 
             self.result_queue.put(
@@ -426,6 +440,12 @@ class WorkflowWorker:
         """
         Complete cleanup - clear all cached models and components.
         Called when workflow changes or on shutdown.
+
+        Returns:
+            One line saying what host memory looks like on the other side of
+            it. The caller decides whether that reaches the client: on a
+            workflow switch it is the answer to "what did the last job leave
+            behind", which is the question a later OOM is asked (#98).
         """
         import gc
         from .tasks.model_cache import clear_model_cache
@@ -467,7 +487,24 @@ class WorkflowWorker:
         except Exception as e:
             logger.warning(f"Could not perform GPU cleanup: {e}")
 
-        logger.info("Full cleanup complete")
+        # Dropping the references above frees the weights inside this
+        # process; it does not hand the arenas they were read into back to
+        # the kernel. On a template that needs 96% of host RAM the residue of
+        # the *previous* job is what the OOM killer arrives for, minutes into
+        # a run that is itself perfectly legal (#98) - so ask for it back
+        # here, where a different model family is about to be loaded, and say
+        # what came back rather than leaving it to be inferred from a later
+        # reading
+        released = release_host_caches()
+        stats = host_memory_stats()
+        summary = (
+            f"Released cached models: host RSS {_mb(stats.get('rss_mb'))}, "
+            f"{_mb(stats.get('available_mb'))} available"
+            + (f" ({released:.0f} MB returned to the OS)" if released else "")
+        )
+
+        logger.info(f"Full cleanup complete. {summary}")
+        return summary
 
     def _parent_is_dead(self) -> bool:
         """
@@ -519,6 +556,11 @@ class WorkflowWorker:
         # else. Measured inside the worker, so the process figures are the
         # worker's own
         info.update(host_memory_fields())
+        # And what torch's pinned-host allocator is sitting on, which
+        # `rss_mb` includes without saying so: on a group-offloaded workflow
+        # it is GB of staging buffers, and it is the half of a worker's host
+        # residency no figure named before (#98)
+        info.update(pinned_host_memory_fields())
 
         try:
             stats = device_memory_stats()
