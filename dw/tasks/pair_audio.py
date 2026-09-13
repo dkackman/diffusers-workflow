@@ -37,7 +37,10 @@ def pair_audio(video, audio, sample_rate=None):
             reported wrong
 
     Returns:
-        One AudioVideo holding the frames and the track
+        One AudioVideo holding the frames and the track, at the rate the
+        frames carry - a file loaded for the `video` argument brings its
+        own, so the saved mp4 plays at the rate that went in and
+        `result.fps` is only needed to write it at a different one (#104)
 
     Raises:
         ValueError: If no waveform was given, or if no sample rate can be
