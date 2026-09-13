@@ -28,10 +28,15 @@ def pair_audio(video, audio, sample_rate=None):
 
     Args:
         video: The frames - a frame list, a frame array or tensor, or an
-            AudioVideo whose own soundtrack is replaced by this one
+            AudioVideo whose own soundtrack is replaced by this one; the
+            frames' own rate is carried through to the output, so set
+            `result.fps` only to override it (a loaded file brings its rate
+            along; frames that carry none are written at 8 fps)
         audio: The soundtrack - a waveform, an AudioVideo (or any object
             carrying '.audio') to take it from, or the path or URL of an
-            audio or video file; the last two bring their sample rate along
+            audio or video file; the last two bring their sample rate along.
+            A mono track is fine - saving as mp4 duplicates it into the two
+            channels the audio stream takes, and warns that it did
         sample_rate: Sample rate of the waveform. Required unless `audio`
             carries one; given here it wins, for a track whose rate was
             reported wrong
