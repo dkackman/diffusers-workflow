@@ -89,7 +89,16 @@ def error_message(error):
             return f'unknown property "{error.absolute_path[-1]}" - {explanation}'
         return error.message
 
-    allowed = sorted((error.schema or {}).get("properties") or {})
+    properties = (error.schema or {}).get("properties") or {}
+    # An engine-injected key is legal but is not something an author writes,
+    # so listing it as one of the properties on offer only invites its use
+    allowed = sorted(
+        name
+        for name, subschema in properties.items()
+        if not str((subschema or {}).get("description", "")).startswith(
+            "Engine-injected"
+        )
+    )
     instance = error.instance if isinstance(error.instance, dict) else {}
     unknown = sorted(key for key in instance if key not in allowed)
     name = instance.get("name")

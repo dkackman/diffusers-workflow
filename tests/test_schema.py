@@ -707,6 +707,22 @@ class TestClosedObjects:
         assert list(stray)[0] in errors[0]["message"]
         assert "subfolder" in errors[0]["message"]
 
+    def test_the_engine_injected_key_is_not_advertised(self):
+        """'argument_template' is written onto a sub-workflow by the engine,
+        so it is legal - but listing it among the properties on offer would
+        invite an author to write it by hand (#123)."""
+        schema = load_schema("workflow")
+        errors = validate_data_all(
+            {
+                "id": "probe",
+                "sedd": 1,
+                "steps": [{"name": "s", "task": {"command": "x", "arguments": {}}}],
+            },
+            schema,
+        )
+        assert "argument_template" not in errors[0]["message"]
+        assert "seed" in errors[0]["message"]
+
     def test_the_later_swept_objects_are_closed_in_the_schema(self):
         """#123: the three the #118 sweep left open."""
         schema = load_schema("workflow")
