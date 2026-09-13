@@ -299,6 +299,65 @@ class TestEstimate:
         answer = plan(spec)["estimate"]
         assert (answer["minutes"], answer["basis"]) == (10.0, "other_device")
 
+    def test_a_longer_list_re_prices_the_catalog_figure(self, plan):
+        """The failure #85 was re-opened for: 10 minutes measured on the
+        2-shot default was quoted verbatim for a 10-shot run. Linear over
+        the entry count, and labelled `derived` so it is not read as a
+        measurement."""
+        spec = definition()
+        shots = [{"name": f"s{n}", "prompt": "x"} for n in range(10)]
+        answer = plan(spec, arguments={"shots": shots})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (50.0, "derived")
+
+    def test_a_shorter_list_re_prices_downward(self, plan):
+        spec = definition()
+        one = [{"name": "a", "prompt": "a"}]
+        answer = plan(spec, arguments={"shots": one})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (5.0, "derived")
+
+    def test_the_stored_list_is_still_the_catalog_figure(self, plan):
+        """The figure was measured with these defaults, so nothing is
+        extrapolated when the caller does not change them."""
+        answer = plan(definition())["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+
+    def test_a_measured_per_entry_rate_beats_the_extrapolation(self, plan):
+        spec = definition()
+        spec["cost"] = [
+            cost("cuda", 10, {"variable": "shots", "minutes": 3, "entries": 2})
+        ]
+        shots = [{"name": f"s{n}", "prompt": "x"} for n in range(10)]
+        answer = plan(spec, arguments={"shots": shots})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (34.0, "per_entry")
+
+    def test_two_changed_lists_withhold_the_figure(self, plan):
+        """Nothing honest to extrapolate along, so the number is withheld
+        rather than quoted for one of the two lists."""
+        spec = definition()
+        spec["variables"]["angles"] = [{"name": "wide"}]
+        spec["steps"].append(
+            {
+                "name": "angle",
+                "for_each": "variable:angles",
+                "task": {"command": "x", "arguments": {"name": "item:name"}},
+            }
+        )
+        arguments = {
+            "shots": [{"name": f"s{n}", "prompt": "x"} for n in range(4)],
+            "angles": [{"name": "wide"}, {"name": "tight"}],
+        }
+        answer = plan(spec, arguments=arguments)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+
+    def test_another_devices_figure_is_not_extrapolated(self, plan):
+        """`other_device` already says the figure is not this machine's -
+        re-pricing it would dress a guess as arithmetic."""
+        spec = definition()
+        spec["cost"] = [cost("mps", 40, name="M2")]
+        shots = [{"name": f"s{n}", "prompt": "x"} for n in range(10)]
+        answer = plan(spec, arguments={"shots": shots})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (40.0, "other_device")
+
     def test_minutes_is_rounded_to_one_decimal(self, plan):
         spec = definition()
         spec["cost"] = [cost("cuda", 10.04)]

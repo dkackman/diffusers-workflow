@@ -237,7 +237,7 @@ export interface Plan {
   downloads_required: { repo: string | null; url?: string; gb: number | null }[]
   estimate: {
     minutes: number | null
-    basis: 'per_entry' | 'catalog' | 'other_device' | 'unknown'
+    basis: 'per_entry' | 'catalog' | 'derived' | 'other_device' | 'unknown'
     device: string
     measured_on: string | null
     partial: boolean

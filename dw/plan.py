@@ -89,6 +89,7 @@ def build_plan(
         realized, candidate.output_dir, candidate.file_spec, candidate.workflow_dir
     ).expanded_definition()
     entries = list_entries(definition, realized)
+    measured_entries = list_entries(definition, definition)
     return {
         "fingerprint": fingerprint(expanded, definition, annotations),
         "steps": len(expanded.get("steps") or []),
@@ -98,15 +99,26 @@ def build_plan(
             expanded, base_dir, candidate.workflow_dir, cache_dir, lookup_sizes
         ),
         "estimate": estimate(
-            definition, expanded, entries, device, base_dir, candidate.workflow_dir
+            definition,
+            expanded,
+            entries,
+            device,
+            base_dir,
+            candidate.workflow_dir,
+            measured_entries=measured_entries,
         ),
     }
 
 
 def list_entries(definition, realized):
     """{variable: length} for every `for_each` that names a list variable,
-    read from the folded variables - a literal list is not an argument and
-    is not listed."""
+    read from `realized`'s folded variables - a literal list is not an
+    argument and is not listed.
+
+    Passing `definition` as both arguments answers the lengths the
+    workflow's *stored defaults* carry, which is the list a catalog `cost`
+    figure was measured against (`estimate`).
+    """
     variables = realized.get("variables") or {}
     entries = {}
     for step in definition.get("steps") or []:
@@ -186,21 +198,39 @@ def fingerprint(expanded, definition, annotations=None):
 UNKNOWN = "unknown"
 CATALOG = "catalog"
 PER_ENTRY = "per_entry"
+DERIVED = "derived"
 OTHER_DEVICE = "other_device"
 
 
-def estimate(definition, expanded, list_entries, device, base_dir, workflow_dir):
-    """Minutes from the workflow's own cost block, scaled by the caller's
-    list when the block was measured per entry, plus each composed child's.
+def estimate(
+    definition,
+    expanded,
+    list_entries,
+    device,
+    base_dir,
+    workflow_dir,
+    measured_entries=None,
+):
+    """Minutes from the workflow's own cost block, re-priced for the
+    caller's list, plus each composed child's.
 
     `basis` names where the figure came from - the honesty is in the field,
-    not in a fabricated number: 'unknown' is no cost block at all,
-    'other_device' a figure measured on a backend other than the one
-    serving (reported so the agent has something to scale, flagged so it
-    is not quoted as a measurement), 'catalog' the stored total, and
-    'per_entry' that total re-priced for the list actually passed.
+    not in a fabricated number: 'unknown' is no cost block at all (or a
+    list this figure cannot honestly be re-priced for), 'other_device' a
+    figure measured on a backend other than the one serving (reported so
+    the agent has something to scale, flagged so it is not quoted as a
+    measurement), 'catalog' the stored total for a run whose lists are the
+    ones it was measured with, 'per_entry' that total re-priced from a
+    measured per-entry rate, and 'derived' re-priced by extrapolating the
+    stored total linearly over a list whose length the caller changed
+    (#85) - an estimate, not a measurement, and the only alternative to
+    quoting a 5-shot figure for a 10-shot run.
+
+    `measured_entries` is what the stored defaults carry, which is the
+    list the catalog figure was measured against; without it a catalog
+    figure is taken at face value.
     """
-    own = _price(definition.get("cost"), device, list_entries)
+    own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
     minutes = own["minutes"]
     partial = False
     for path in _sub_workflow_paths(expanded):
@@ -212,7 +242,7 @@ def estimate(definition, expanded, list_entries, device, base_dir, workflow_dir)
                 child_cost = json.loads(raw).get("cost")
             except (ValueError, AttributeError):
                 child_cost = None
-        child = _price(child_cost, device, {})
+        child = _price(child_cost, device, {}, {})
         if child["minutes"] is None:
             partial = True
         elif minutes is not None:
@@ -237,9 +267,17 @@ def _sub_workflow_paths(expanded):
             yield path
 
 
-def _price(cost, device, list_entries):
+def _price(cost, device, list_entries, measured_entries):
     """One cost list priced for `device` and `list_entries`, as
-    {minutes, basis, measured_on}."""
+    {minutes, basis, measured_on}.
+
+    `measured_entries` is the list length the figure was measured with -
+    the workflow's stored defaults. When the caller's list differs and the
+    entry carries no measured `per_entry` rate, the total is extrapolated
+    linearly over it and reported as 'derived'; when more than one list
+    changed there is nothing honest to extrapolate along, so the figure is
+    withheld rather than quoted for the wrong list.
+    """
     entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
     if not entries:
         return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
@@ -260,7 +298,36 @@ def _price(cost, device, list_entries):
         measured_with = int(per.get("entries", 0))
         minutes = max(0.0, (minutes - each * measured_with) + each * count)
         basis = PER_ENTRY
+    elif basis == CATALOG:
+        minutes, basis = _repriced(minutes, list_entries, measured_entries)
     return {"minutes": minutes, "basis": basis, "measured_on": chosen.get("name")}
+
+
+def _repriced(minutes, list_entries, measured_entries):
+    """A catalog total re-priced for a list the caller lengthened or
+    shortened, as (minutes, basis).
+
+    Linear in the entry count: the figure was measured over
+    `measured_entries` entries and the run does `list_entries` of them, so
+    a 42-minute 5-shot figure quotes 84 for 10 shots rather than 42. It
+    over-counts fixed setup at the long end and under-counts it at the
+    short end - which is why it is labelled `derived` rather than
+    `catalog`, and why a template that measures a real `per_entry` rate
+    beats it.
+    """
+    changed = [
+        (count, measured_entries[name])
+        for name, count in list_entries.items()
+        if name in measured_entries and count != measured_entries[name]
+    ]
+    if not changed:
+        return minutes, CATALOG
+    if len(changed) > 1:
+        return None, UNKNOWN
+    count, measured_with = changed[0]
+    if measured_with <= 0:
+        return None, UNKNOWN
+    return minutes * count / measured_with, DERIVED
 
 
 FROM_PRETRAINED_KEY = "from_pretrained_arguments"

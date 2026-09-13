@@ -44,6 +44,17 @@ describe('describePlan', () => {
     )
   })
 
+  it('an extrapolated figure says it is an estimate, not a measurement', () => {
+    const [, figure] = describePlan({
+      ...base,
+      estimate: { ...base.estimate, basis: 'derived' },
+    })
+    expect(figure.text).toBe(
+      '~42 min on cuda - estimated for 5 shots, from a figure measured on RTX 3090',
+    )
+    expect(figure.tone).toBe('warn')
+  })
+
   it('a figure from another accelerator is a warning, not a quote', () => {
     const [, figure] = describePlan({
       ...base,

@@ -66,12 +66,18 @@ function figure(plan: Plan): PlanLine {
       tone: 'warn',
     }
   }
-  const scaled =
-    basis === 'per_entry'
-      ? `re-priced for ${Object.entries(plan.list_entries)
-          .map(([name, count]) => `${count} ${name}`)
-          .join(', ')}, `
-      : ''
+  const forList = Object.entries(plan.list_entries)
+    .map(([name, count]) => `${count} ${name}`)
+    .join(', ')
+  // `derived` is the stored total stretched over a list the caller
+  // resized - an estimate, so it is said to be one rather than quoted
+  if (basis === 'derived') {
+    return {
+      text: `~${minutes} min on ${device} - estimated for ${forList}, from a figure ${card}${missing}`,
+      tone: 'warn',
+    }
+  }
+  const scaled = basis === 'per_entry' ? `re-priced for ${forList}, ` : ''
   return {
     text: `~${minutes} min on ${device} - ${scaled}${card}${missing}`,
     tone: 'plain',
