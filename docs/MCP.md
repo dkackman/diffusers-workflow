@@ -282,14 +282,14 @@ references written in the same session.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `run_workflow(workflow_path=None, inline_workflow=None, arguments=None, acknowledged_cost=False, workspace=None)` | exactly one of `workflow_path` (a catalog name from `list_workflows`, with or without `.json`, or a path to a workflow file on the server) or `inline_workflow`, optional `arguments`, `acknowledged_cost`, `workspace` | Queue a workflow for generation. Returns as soon as the job is queued. `workspace` names the workspace for this one call without switching the session to it - use it to pin a job whose `output:` or `asset:` references live in a workspace other than the session's |
+| `run_workflow(workflow_path=None, inline_workflow=None, arguments=None, acknowledged_cost=False, workspace=None)` | exactly one of `workflow_path` (a catalog name from `list_workflows`, with or without `.json`, or a path to a workflow file on the server) or `inline_workflow`, optional `arguments`, `acknowledged_cost`, `workspace` | Queue a workflow for generation. Returns as soon as the job is queued. `workspace` names the workspace for this one call without switching the session to it - use it to pin a job whose `output:` or `asset:` references live in a workspace other than the session's - `acknowledged_cost` is `true` or the bound `{fingerprint, minutes, downloads}` from the validate plan; a 409 means the plan changed and the message carries the new estimate |
 | `get_job(job_id)` | `job_id` | Get a job's status, warnings, output manifest, error and traceback; each manifest entry's `subfolder` is the in-run subfolder the step declared - by convention `final` for the deliverable, `intermediate` for scratch, `''` for none. A running job also carries `progress` (below) |
 | `get_job_workflow(job_id)` | `job_id` | The workflow the job actually ran. `realized: true` means every mutable input is pinned (arguments, seed, prompts, `output:latest`); `false` means the job predates run tracking and this is the definition as submitted. Pass it to `save_workflow` to keep it under a name |
 | `export_job(job_id, overwrite=False)` | `job_id`, `overwrite` | Gather one finished job into `<workspace>/exports/<job id>/` on the server: the realized workflow, the run's manifest, the job row, a README, and copies of the assets, earlier-run inputs and outputs. Returns the directory, a zip URL, the file list with sizes and the total. The three JSON files are in the zip, not repeated here - get_job_workflow and get_job serve them individually. **The directory is on the machine running the server**, like `download_output`'s destination - fetch the zip URL and unpack it into `exports/` under the session's working directory (a deliverable, not a temp file); the archive already unpacks into one folder named after the job id |
 | `get_job_events(job_id, after=-1, limit=200)` | `job_id`, `after`, `limit` | Get a page of a job's progress events |
 | `wait_for_job(job_id, timeout_seconds=20)` | `job_id`, `timeout_seconds` | Block until a job reaches a terminal status, or `timeout_seconds` elapses. **One call blocks for at most 55 seconds** — a larger `timeout_seconds` is clamped, not honoured, because no MCP client holds a tool call open for a generation's real runtime, so budget one call per ~55s of the job. Every reply carries `waited_seconds`, `timeout_requested_seconds`, `timeout_applied_seconds` and `timeout_capped`, so a capped return is distinguishable from an elapsed one. Use instead of hand-polling `get_job`/`get_job_events` in a loop; if it returns `still_running: true`, call it again. Returns a slim job - status, warnings, error, and the manifest once finished - without the arguments; `get_job` has those. A running job also carries `progress` (below) |
 | `cancel_job(job_id)` | `job_id` | Ask a queued or running job to stop |
-| `rerun_job(job_id, acknowledged_cost=False, new_seed=False)` | `job_id`, `acknowledged_cost`, `new_seed` | Queue a fresh job from a previous job's stored specification. Costs GPU time, so it passes the same gate as `run_workflow`. `new_seed=true` draws a fresh seed into the workflow's seed variable — without it a seeded workflow's rerun repeats its arguments exactly and the step cache serves the whole run from the earlier one's files (`reused: true`), generating nothing. `get_job_workflow`'s `seed_variable` says whether there is one |
+| `rerun_job(job_id, acknowledged_cost=False, new_seed=False)` | `job_id`, `acknowledged_cost`, `new_seed` | Queue a fresh job from a previous job's stored specification. Costs GPU time, so it passes the same gate as `run_workflow`. `new_seed=true` draws a fresh seed into the workflow's seed variable — without it a seeded workflow's rerun repeats its arguments exactly and the step cache serves the whole run from the earlier one's files (`reused: true`), generating nothing. `get_job_workflow`'s `seed_variable` says whether there is one - `acknowledged_cost` is `true` or the bound `{fingerprint, minutes, downloads}` from the validate plan; a 409 means the plan changed and the message carries the new estimate |
 | `move_job(job_id, direction)` | `job_id`, `direction` (`up`\|`down`\|`front`\|`back`) | Reorder a queued job |
 
 ### Models
@@ -333,6 +333,15 @@ job id from `list_jobs` would buy a way around it. `cancel_job` and
 `cancel_download` are deliberately *not* gated: they end a cost rather than
 starting one, and gating them would make the safe direction the harder one.
 
+The acknowledgement can be bound to what was quoted. `validate_workflow`
+answers with a `plan`; pass `acknowledged_cost={"fingerprint":
+plan.fingerprint, "minutes": plan.estimate.minutes, "downloads": [...]}` and
+the server refuses with 409 if the run's shape changed between the quote and
+the call - a longer list, a stored prompt edited meanwhile, weights that now
+have to be downloaded - naming the new plan so the agent re-quotes. Bare
+`true` still works and is for a `plan` that came back null; the job records
+which form it got (`acknowledged: none | boolean | bound`).
+
 Passing the flag does not make a tool wait. The five that start work return
 as soon as it is queued or started, the same way queuing a job from the web UI
 does not block the browser tab; `delete_model` and `delete_workspace` are
@@ -346,7 +355,8 @@ The intended loop:
    values you wrote, and its `plan` is the number to say out loud:
    `estimate.minutes` with its `basis`, plus each `downloads_required`
    entry as a line item of its own
-2. `run_workflow` with `acknowledged_cost=true` — pass a name straight from
+2. `run_workflow` with `acknowledged_cost` bound to the plan (`{fingerprint,
+   minutes, downloads}`), or `true` when there was no plan — pass a name straight from
    `list_workflows` as `workflow_path`; queues the job and returns
    immediately with a `job_id`
 3. `wait_for_job(job_id)` to block for a bounded interval instead of
@@ -456,4 +466,4 @@ default) for any server an MCP client can reach.
 | A config change seems to have no effect | A running session holds the old config. Start a new session |
 | It worked, then broke after rebuilding the venv | Re-run `pip install -e ".[server,mcp]"`. If the repo moved or was renamed, re-register the server with the new absolute path |
 | A tool call times out | Usually a model loading into VRAM/RAM for the first time; retry, or raise `--timeout` |
-| `run_workflow` or `rerun_job` refuses with a cost message | Not an error — it is the `acknowledged_cost` gate. Confirm with the user and call again with `acknowledged_cost=true` |
+| `run_workflow` or `rerun_job` refuses with a cost message | Not an error — it is the `acknowledged_cost` gate. Confirm with the user and call again with `acknowledged_cost` bound to the plan (or `true`); a 409 "shape changed" answer means the run grew since the quote - re-validate, re-quote, pass the new plan |

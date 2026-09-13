@@ -1,7 +1,7 @@
 # Proposal: bind `acknowledged_cost` to an estimate, not just to a boolean
 
-Status: **stage 1 implemented** (the plan on validate); stage 2 (binding, the
-409) not started. Design:
+Status: **implemented** (stage 1 at b37f033, stage 2 on `cost-binding`).
+Design:
 docs/superpowers/specs/2026-09-12-acknowledged-cost-binding-design.md.
 Written in answer to issue #85 (forum feedback),
 after reading the gate and every path by which a run's size is decided, by
