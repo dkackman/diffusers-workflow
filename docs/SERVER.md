@@ -164,7 +164,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | event | when | payload |
 | --- | --- | --- |
 | `job_status` | queued/running/terminal transitions | `status` |
-| `log` | worker output lines, and each top-level block of a `ModularPipeline` as it starts (`MiniMaxAI/MiniMax-H3: vae_encoder`) - the lead-in before the denoise loop is where a reference encode's minutes go, and the block name is what says which one it is in | `message` |
+| `log` | worker output lines; each top-level block of a `ModularPipeline` as it starts (`MiniMaxAI/MiniMax-H3: vae_encoder`) - the lead-in before the denoise loop is where a reference encode's minutes go, and the block name is what says which one it is in; and each file the `saving` phase writes, named as it starts (`writing shot.mp4 (121 frames)`) and costed as it finishes (`wrote shot.mp4 in 1.3s (1.4 MB)`), which is the other stretch a step spends with its denoise counter frozen | `message`, and for a file `file` plus `seconds` on the closing one |
 | `memory` | device memory after a run | `info` |
 | `run_start` | the run directory is chosen, before the first step | `run_id`, `identity`, `run_dir` |
 | `workflow_start` | the run begins | `workflow`, `total_steps`, `steps`, `seed` |
@@ -182,7 +182,9 @@ A step spends most of its wall clock outside the denoise loop, and
 pipeline as a previous run - milliseconds, not minutes), `generating`
 (the denoise loop, or a chain's `segment N/M` - which is why the counter
 restarts), `decoding` (latents, after the last denoise step), `saving`
-(writing files, including video encode) and `task` (a task step, named in
+(writing files, including video encode - it names each file on the `log`
+stream rather than running silent, since the denoise counter is frozen at its
+last step throughout) and `task` (a task step, named in
 `detail`). Emits are a handful per step, not per denoise tick.
 
 ### Progress on a running job

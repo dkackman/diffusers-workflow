@@ -125,21 +125,19 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
 
 1. `validate_workflow` first - free, and it catches arguments the pipeline
    rejects.
-2. Quote the listing's `cost`. Only `templates/ltx2/text-to-video` and
-   `templates/ltx2/two-stage` declare one; for the other six say so and give
-   the shape of the spend instead - a 121-frame clip at 960x544 is under a
-   minute warm on a 24 GB card, the two-stage flow about eight, and extend and
-   chain multiply by their passes. Either way get the go-ahead before
-   `run_workflow` with `acknowledged_cost=true`.
+2. Quote the listing's `cost` - the run's whole wall clock, model loading
+   included. Only `templates/ltx2/text-to-video` and `templates/ltx2/two-stage`
+   declare one; for the other six say so and give the shape of the spend
+   instead - a 121-frame clip at 960x544 is under two minutes cold on a 24 GB
+   card, of which a minute is loading, the two-stage flow about eight, and
+   extend and chain multiply by their passes. Either way get the go-ahead
+   before `run_workflow` with `acknowledged_cost=true`.
 3. `wait_for_job`, then `get_job` for the manifest. The write-out runs after
-   the last step ends, reports nothing while it does, and is not free: roughly
-   4 s per frame at 1536x896 - about 8 minutes for 121 frames, about half an
-   hour for 481. Scale by frame count from that rate rather than reading
-   "minutes" as a constant, and expect it to fall with the frame size. The job
-   is not stuck.
-4. Every step that writes pays that, so only the ones worth writing should:
-   `"result": {"save": false}` on the rest, as `two-stage` does for `base` and
-   `upscale`. On a long chain it is the largest saving there is, and missing
+   the last step ends and names each file as it starts it - seconds for a
+   121-frame clip since 2026-09-14, minutes before that (#97).
+4. Writing is still not free on a long chain, so only the steps worth writing
+   should: `"result": {"save": false}` on the rest, as `two-stage` does for
+   `base` and `upscale`. It saves disk as much as time now, and missing
    it is silent. What does write carries a `subfolder` in the manifest: the step the user will be
    shown is `final` and every other saving step `intermediate`, the way
    `generative-upscale` keeps `upscaled` in `final` and its low-resolution

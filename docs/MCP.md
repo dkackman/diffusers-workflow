@@ -384,6 +384,13 @@ read liveness as the counter moving between polls minutes apart rather than
 as silence under a threshold. `cancel_job` stops at the next denoise or
 step boundary, which `denoise_step` is also the measure of.
 
+The other frozen-counter stretch is at the end: under `saving`, `denoise_step`
+sits at a completed-looking `8/8` and cannot move again, because the step is
+writing files. `get_job_events` carries a `log` per file there too - named as
+the write starts (`writing shot.mp4 (121 frames)`) and costed as it finishes
+(`wrote shot.mp4 in 1.3s (1.4 MB)`) - so that stretch is attributable rather
+than silent (#97).
+
 ## Security
 
 The MCP server adds no authentication of its own — it inherits the REST
