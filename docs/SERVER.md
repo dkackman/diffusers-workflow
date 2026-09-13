@@ -164,7 +164,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | event | when | payload |
 | --- | --- | --- |
 | `job_status` | queued/running/terminal transitions | `status` |
-| `log` | worker output lines | `message` |
+| `log` | worker output lines, and each top-level block of a `ModularPipeline` as it starts (`MiniMaxAI/MiniMax-H3: vae_encoder`) - the lead-in before the denoise loop is where a reference encode's minutes go, and the block name is what says which one it is in | `message` |
 | `memory` | device memory after a run | `info` |
 | `run_start` | the run directory is chosen, before the first step | `run_id`, `identity`, `run_dir` |
 | `workflow_start` | the run begins | `workflow`, `total_steps`, `steps`, `seed` |
@@ -210,6 +210,14 @@ one 5 s 960x544 clip on an RTX 3090 sat silent from 94 s to 723 s. The keys
 are always present so that lead-in can be told from a loop that has stopped
 advancing: `seconds_since_event` is a stall signal once `denoise_step` is a
 number, or in any phase other than `generating`.
+
+The lead-in is no longer silent, though: each of a modular pipeline's
+top-level blocks emits a `log` naming it as it starts (`before_encode`,
+`text_encoder`, `vae_encoder`, `denoise`, `decode` on H3), so the last event
+says which one the run is inside. Only a `SequentialPipelineBlocks` is
+narrated this way - a conditional container picks one branch rather than
+running them all, and walking its sub-blocks would be a wrong answer bought
+with a progress message.
 
 It is a coarse one even then. A step's cost is not uniform when the pipeline
 configures a transformer block cache (`"cache": {"type": "first_block"}`):

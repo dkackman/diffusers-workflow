@@ -179,9 +179,10 @@ def wait_for_job(client, job_id, timeout_seconds=20):
     video model. Its length follows what it has to encode: ~90 s on
     MiniMax H3 for a prompt with an image or audio reference, ~10 min once
     a *video* reference is among them (measured 629 s for one 5 s 960x544
-    clip on an RTX 3090). Silence there is expected; `seconds_since_event`
-    only says something once `denoise_step` is a number, or in any other
-    phase.
+    clip on an RTX 3090). Silence there is expected, and `get_job_events`
+    says which block it is inside while it lasts - one `log` line per
+    top-level block of a modular pipeline. `seconds_since_event` only says
+    something once `denoise_step` is a number, or in any other phase.
 
     Even then it is coarse: where a transformer block cache is configured
     the denoise steps are uneven - several cheap ones, then a full one -
