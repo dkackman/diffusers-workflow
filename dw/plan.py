@@ -62,8 +62,9 @@ def build_plan(
         cache_dir: The hub cache to check downloads against; None for the
             default.
         lookup_sizes: Whether to ask the hub how large a missing repo is.
-        cache_probe: Stage 2's step-cache probe; unused, `cached_steps` is
-            always None until then.
+        cache_probe: A callable taking the run's arguments and answering the
+            step names the worker's cache would serve, or None when it
+            cannot say; without one `cached_steps` is None.
     """
     definition = candidate.workflow_definition
     base_dir = (
@@ -91,7 +92,7 @@ def build_plan(
         "fingerprint": fingerprint(expanded, definition),
         "steps": len(expanded.get("steps") or []),
         "list_entries": entries,
-        "cached_steps": None,
+        "cached_steps": cached_steps(definition, realized, arguments, cache_probe),
         "downloads_required": downloads_required(
             expanded, base_dir, candidate.workflow_dir, cache_dir, lookup_sizes
         ),
@@ -117,6 +118,31 @@ def list_entries(definition, realized):
             if isinstance(value, list):
                 entries[name] = len(value)
     return entries
+
+
+def cached_steps(definition, realized, arguments, cache_probe):
+    """How many steps the step cache would answer for this run: 0 without
+    asking when the workflow is unseeded (the cache is off then), None
+    when there is no probe or the probe cannot answer, else the count."""
+    if not _is_seeded(definition, arguments):
+        return 0
+    if cache_probe is None:
+        return None
+    answer = cache_probe(arguments or {})
+    return len(answer) if isinstance(answer, list) else None
+
+
+def _is_seeded(definition, arguments):
+    """Whether a run of this workflow has a seed before it draws one - read
+    from the definition as written and the caller's arguments, since
+    realization pins a seed of its own into the copy."""
+    seed = definition.get("seed")
+    if isinstance(seed, str) and seed.startswith(VARIABLE_PREFIX):
+        name = seed.removeprefix(VARIABLE_PREFIX)
+        if name in (arguments or {}):
+            return arguments[name] is not None
+        return (definition.get("variables") or {}).get(name) is not None
+    return seed is not None
 
 
 def fingerprint(expanded, definition):

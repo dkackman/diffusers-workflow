@@ -511,3 +511,95 @@ def test_the_refusal_says_to_quote_the_plan():
 
     assert "plan" in COST_REFUSAL
     assert "validate_workflow" in COST_REFUSAL
+
+
+BOUND = {"fingerprint": "sha256:abc", "minutes": 4.0, "downloads": ["org/x"]}
+
+
+def test_run_forwards_a_bound_acknowledgement_verbatim():
+    import json
+
+    client, seen = submitting()
+    diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost=BOUND)
+    assert json.loads(seen[0]["body"])["acknowledged_cost"] == BOUND
+
+
+def test_run_does_not_send_a_bare_true():
+    """The boolean path is the MCP layer's gate, not the server's - the body
+    stays what it was."""
+    import json
+
+    client, seen = submitting()
+    diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost=True)
+    assert "acknowledged_cost" not in json.loads(seen[0]["body"])
+
+
+def test_run_refuses_a_bound_form_without_a_fingerprint():
+    client, seen = submitting()
+    with pytest.raises(DwApiError, match="fingerprint"):
+        diagnose.run_workflow(
+            client, workflow_path="w.json", acknowledged_cost={"minutes": 4}
+        )
+    assert seen == []
+
+
+def test_run_refuses_an_empty_dict_as_unacknowledged():
+    client, seen = submitting()
+    with pytest.raises(DwApiError, match="acknowledged_cost"):
+        diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost={})
+    assert seen == []
+
+
+def test_a_409_surfaces_with_the_new_estimate():
+    client, _seen = scripted(
+        {
+            ("POST", "/api/jobs"): (
+                409,
+                {
+                    "detail": {
+                        "message": "The run's shape changed since it was "
+                        "acknowledged: the workflow or its arguments differ "
+                        "from what was validated",
+                        "reason": "fingerprint",
+                        "acknowledged": BOUND,
+                        "plan": {
+                            "fingerprint": "sha256:def",
+                            "steps": 6,
+                            "list_entries": {"shots": 5},
+                            "cached_steps": None,
+                            "downloads_required": [{"repo": "org/y", "gb": 3.5}],
+                            "estimate": {
+                                "minutes": 19.0,
+                                "basis": "per_entry",
+                                "device": "cuda",
+                                "measured_on": "card",
+                                "partial": False,
+                            },
+                        },
+                    }
+                },
+            )
+        }
+    )
+    with pytest.raises(DwApiError) as caught:
+        diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost=BOUND)
+    message = str(caught.value)
+    assert "shape changed" in message
+    assert "19.0" in message and "per_entry" in message
+    assert "org/y" in message
+    assert "sha256:def" in message
+
+
+def test_rerun_forwards_a_bound_acknowledgement():
+    import json
+
+    client, seen = scripted({("POST", "/api/jobs/job-1/rerun"): (201, SUBMITTED)})
+    diagnose.rerun_job(client, "job-1", acknowledged_cost=BOUND, new_seed=True)
+    body = json.loads(seen[0]["body"])
+    assert body["acknowledged_cost"] == BOUND and body["new_seed"] is True
+
+
+def test_the_refusal_teaches_the_bound_form():
+    from dw_mcp.diagnose import COST_REFUSAL
+
+    assert "fingerprint" in COST_REFUSAL

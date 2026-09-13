@@ -42,6 +42,13 @@ FAILED = "failed"
 CANCELLED = "cancelled"
 TERMINAL_STATES = (SUCCEEDED, FAILED, CANCELLED)
 
+# Which form of cost acknowledgement a job was queued with (#85): none (the
+# web UI and every HTTP caller that sends nothing), a bare boolean, or one
+# bound to the plan that was validated
+ACK_NONE = "none"
+ACK_BOOLEAN = "boolean"
+ACK_BOUND = "bound"
+
 # The spec fields a rerun needs - shared by persistence and live rerun
 RERUN_SPEC_KEYS = (
     "workflow_path",
@@ -55,6 +62,9 @@ RERUN_SPEC_KEYS = (
     # so a rerun is attributed to the same catalog entry
     "catalog_name",
     "workflow_dir",
+    # what the original run was consented to, kept for the record - a
+    # rerun's own request decides its form
+    "acknowledged_cost",
 )
 
 # Finished jobs kept in memory for SSE replay grace; older ones live in
@@ -123,6 +133,12 @@ class JobHistory:
                 connection.execute("ALTER TABLE jobs ADD COLUMN run_id TEXT")
             if "run_dir" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN run_dir TEXT")
+            # Which form of cost acknowledgement queued the job. Rows before
+            # the column are 'none' - nothing recorded is nothing recorded
+            if "acknowledged" not in columns:
+                connection.execute(
+                    "ALTER TABLE jobs ADD COLUMN acknowledged TEXT DEFAULT 'none'"
+                )
 
     def _connect(self):
         return sqlite3.connect(self.db_path, timeout=5)
@@ -134,8 +150,9 @@ class JobHistory:
             connection.execute(
                 "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
                 " started_at, finished_at, arguments, spec, manifest, warnings,"
-                " error, events, workspace, workflow_name, run_id, run_dir) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " error, events, workspace, workflow_name, run_id, run_dir,"
+                " acknowledged) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -153,6 +170,7 @@ class JobHistory:
                     job.catalog_name,
                     job.run_id,
                     job.run_dir,
+                    job.acknowledged,
                 ),
             )
 
@@ -168,7 +186,7 @@ class JobHistory:
         """
         query = (
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
-            " workspace, workflow_name, run_id FROM jobs"
+            " workspace, workflow_name, run_id, acknowledged FROM jobs"
         )
         params = []
         clauses = []
@@ -197,6 +215,7 @@ class JobHistory:
                 "workspace": row[6] or DEFAULT_WORKSPACE_NAME,
                 "workflow_name": row[7],
                 "run_id": row[8],
+                "acknowledged": row[9] or ACK_NONE,
                 "historical": True,
             }
             for row in rows
@@ -207,7 +226,7 @@ class JobHistory:
             row = connection.execute(
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
                 " arguments, spec, manifest, warnings, error, workspace,"
-                " workflow_name, run_id, run_dir FROM jobs WHERE id = ?",
+                " workflow_name, run_id, run_dir, acknowledged FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
@@ -307,6 +326,7 @@ class JobHistory:
             except (TypeError, ValueError):
                 return fallback
 
+        spec = parse(row[7], {})
         return {
             "id": row[0],
             "workflow": row[1],
@@ -315,7 +335,7 @@ class JobHistory:
             "started_at": row[4],
             "finished_at": row[5],
             "arguments": parse(row[6], {}),
-            "spec": parse(row[7], {}),
+            "spec": spec,
             "manifest": parse(row[8], []),
             "warnings": parse(row[9], []),
             "error": row[10],
@@ -323,6 +343,8 @@ class JobHistory:
             "workflow_name": row[12],
             "run_id": row[13],
             "run_dir": row[14],
+            "acknowledged": row[15] or ACK_NONE,
+            "acknowledged_cost": (spec or {}).get("acknowledged_cost"),
             "traceback": None,
             "event_count": 0,
             "historical": True,
@@ -352,6 +374,8 @@ class Job:
         # never got that far
         self.run_id = None
         self.run_dir = None
+        # Which form of cost acknowledgement queued this job (#85)
+        self.acknowledged = spec.get("acknowledged") or ACK_NONE
         self.events = []
         # The running summary a poll reads - see _note_progress. Kept as the
         # events arrive rather than derived from the log on request, because
@@ -500,6 +524,7 @@ class Job:
             # so it defaults the same way history's column does
             "workspace": self.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
             "run_id": self.run_id,
+            "acknowledged": self.acknowledged,
         }
 
     def detail(self):
@@ -512,6 +537,7 @@ class Job:
             "traceback": self.traceback,
             "event_count": len(self.events),
             "run_dir": self.run_dir,
+            "acknowledged_cost": self.spec.get("acknowledged_cost"),
             "progress": self.progress(),
         }
 
@@ -566,6 +592,8 @@ class JobManager:
         asset_dir=None,
         workspace=None,
         catalog_name=None,
+        acknowledged=ACK_NONE,
+        acknowledged_cost=None,
     ):
         """Validate a job request and queue it. Raises ValueError on a bad
         request so the HTTP layer can answer 400 before anything runs.
@@ -583,6 +611,10 @@ class JobManager:
 
         `catalog_name` is the listing name the caller resolved `workflow_path`
         from, kept for history; None for an inline definition.
+
+        `acknowledged` is the form of cost acknowledgement the caller gave
+        (none/boolean/bound) and `acknowledged_cost` the bound object - both
+        recorded, neither checked here; the route checks (#85).
         """
         arguments = arguments or {}
         if (workflow_path is None) == (workflow is None):
@@ -633,6 +665,11 @@ class JobManager:
         # rerun all agree without re-deriving them
         spec["workspace"] = workspace
         spec["catalog_name"] = catalog_name
+        # The acknowledgement form travels with the job so history can say
+        # whether this run was consented to at its actual size (#85)
+        spec["acknowledged"] = acknowledged
+        if acknowledged_cost is not None:
+            spec["acknowledged_cost"] = acknowledged_cost
         spec["output_dir"] = job_output_dir
         if asset_dir:
             spec["asset_dir"] = asset_dir
@@ -758,7 +795,25 @@ class JobManager:
         name = seed.removeprefix(VARIABLE_PREFIX)
         return name if name in (definition.get("variables") or {}) else None
 
-    def rerun(self, job_id, new_seed=False):
+    def rerun_spec(self, job_id):
+        """The spec and arguments a rerun of `job_id` would submit, as
+        (spec, arguments), or None for an unknown job - split from rerun()
+        so a route can plan the run before queuing it (#85)."""
+        job = self.jobs.get(job_id)
+        if job is not None:
+            spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
+            return spec, job.spec.get("arguments", {})
+        historical = self.history.get(job_id)
+        if historical is None:
+            return None
+        spec = {
+            key: historical["spec"][key]
+            for key in RERUN_SPEC_KEYS
+            if key in historical["spec"]
+        }
+        return spec, historical["arguments"]
+
+    def rerun(self, job_id, new_seed=False, acknowledged=ACK_NONE, acknowledged_cost=None):
         """Queue a fresh job from a previous job's spec.
 
         Every root the original ran against (workflow_dir/output_dir/
@@ -773,21 +828,15 @@ class JobManager:
         cache doing its job - the same seed and the same inputs would produce
         the same pixels - so the way to actually get another image is to
         change the seed, and this is that.
+
+        `acknowledged` and `acknowledged_cost` are this request's own; the
+        original's bound object rides along in the spec for the record when
+        the request brought none.
         """
-        job = self.jobs.get(job_id)
-        if job is not None:
-            spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
-            arguments = job.spec.get("arguments", {})
-        else:
-            historical = self.history.get(job_id)
-            if historical is None:
-                return None
-            spec = {
-                key: historical["spec"][key]
-                for key in RERUN_SPEC_KEYS
-                if key in historical["spec"]
-            }
-            arguments = historical["arguments"]
+        prepared = self.rerun_spec(job_id)
+        if prepared is None:
+            return None
+        spec, arguments = prepared
 
         if new_seed:
             variable = self.seed_variable(job_id)
@@ -820,6 +869,12 @@ class JobManager:
             asset_dir=spec.get("asset_dir"),
             workspace=workspace,
             catalog_name=spec.get("catalog_name"),
+            acknowledged=acknowledged,
+            acknowledged_cost=(
+                acknowledged_cost
+                if acknowledged_cost is not None
+                else spec.get("acknowledged_cost")
+            ),
         )
 
     def queue_position(self, job_id):
@@ -1150,6 +1205,36 @@ class JobManager:
             "reason": reason,
             "age_seconds": age,
         }
+
+    def probe_cache(self, command, timeout=5):
+        """Which steps the worker's step cache would serve for `command` (the
+        fields an execute command carries, minus its type), or None when the
+        answer cannot be had right now - a job is running, the worker is
+        busy, or it did not answer in time. Never blocks a request behind a
+        running job, for the same reason memory_status does not.
+
+        No worker running is a definite answer, not an unknown one: the
+        cache lives in the worker process, so a worker that is not running
+        holds nothing.
+        """
+        if self._current_job_id is not None:
+            return None
+        if not self.worker_manager.worker_active:
+            return []
+        if not self._worker_lock.acquire(timeout=2):
+            return None
+        try:
+            self.worker_manager.send_command({"type": "probe_cache", **command})
+            result = self.worker_manager.get_result(timeout=timeout)
+        except (RuntimeError, queue.Empty) as e:
+            logger.debug(f"Worker did not answer the cache probe: {e}")
+            return None
+        finally:
+            self._worker_lock.release()
+        if result.get("type") != "probe_cache":
+            return None
+        cached = result.get("cached")
+        return list(cached) if isinstance(cached, list) else None
 
     def memory_status(self, timeout=5):
         """Live memory stats when the worker is idle; the run's last report

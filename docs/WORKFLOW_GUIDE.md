@@ -485,7 +485,12 @@ the entry an item needs.
    them is the `plan` on the validate answer - `estimate.minutes` with its
    `basis`, and every `downloads_required` entry named as its own line item,
    since weights not on this box are minutes and gigabytes the cost block
-   never counted. When `basis` is `unknown`: a workflow you wrote
+   never counted. Then pass that plan back:
+   `acknowledged_cost={"fingerprint": plan.fingerprint, "minutes":
+   plan.estimate.minutes, "downloads": [...]}` - the server refuses with 409
+   if the run's shape changed since the quote, and the refusal carries the
+   new plan to quote from. `true` is for a plan that was null. When `basis`
+   is `unknown`: a workflow you wrote
    or copied carries no `cost` of its own, but the pipeline inside it usually
    does: `list_workflows(include_models=true)` finds the `models/` entry that
    loads the same checkpoint, and its per-image figure times the number of

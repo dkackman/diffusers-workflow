@@ -28,8 +28,29 @@ COST_REFUSAL = (
     "with (free): its `plan` says what will execute - `estimate.minutes` with "
     "its `basis`, and any weights in `downloads_required` this box has to "
     "fetch first. Tell the user that number, get their go-ahead, then call "
-    "again with acknowledged_cost=true."
+    'again with acknowledged_cost bound to the plan: {"fingerprint": '
+    'plan.fingerprint, "minutes": plan.estimate.minutes, "downloads": '
+    "[each downloads_required repo]} - the server then refuses (409) if the "
+    "run's shape changed since. acknowledged_cost=true is for a `plan` that "
+    "was null."
 )
+
+
+def _acknowledgement_body(acknowledged_cost):
+    """What a bound acknowledgement adds to a request body: the dict itself,
+    verbatim, so the server compares what the agent quoted. A dict without
+    a fingerprint is a mistake caught here, before anything is queued; a
+    bare true adds nothing - the boolean gate is this layer's, not the
+    server's."""
+    if isinstance(acknowledged_cost, dict):
+        if not acknowledged_cost.get("fingerprint"):
+            raise DwApiError(
+                "A bound acknowledged_cost needs `fingerprint` - the "
+                "plan.fingerprint the validate answer carried. Validate again "
+                "and pass {fingerprint, minutes, downloads} from its plan."
+            )
+        return {"acknowledged_cost": acknowledged_cost}
+    return {}
 
 
 def run_workflow(
@@ -43,7 +64,12 @@ def run_workflow(
     """Queue a workflow. `workflow_path` is either a catalog name from
     `list_workflows` or a path to a workflow file on the server. Returns as
     soon as it is queued - it does not wait for the job to finish. Poll
-    `get_job_events` for progress."""
+    `get_job_events` for progress.
+
+    `acknowledged_cost` is true or, better, the plan it was quoted from:
+    {fingerprint, minutes, downloads} from `validate_workflow` - see
+    COST_REFUSAL. A bound one the server checks; a 409 means the run's
+    shape changed since the quote and the message carries the new plan."""
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
     if (workflow_path is None) == (inline_workflow is None):
@@ -53,6 +79,7 @@ def run_workflow(
             "definition to run as-is)."
         )
     payload = {"arguments": arguments or {}}
+    payload.update(_acknowledgement_body(acknowledged_cost))
     if workflow_path is not None:
         payload["workflow_path"] = workflow_path
     else:
@@ -256,11 +283,16 @@ def rerun_job(client, job_id, acknowledged_cost=False, new_seed=False):
     it the arguments repeat exactly, and a seeded workflow's rerun is served
     whole from the step cache - the earlier run's files, republished in a
     fraction of a second, with `reused: true`. Ask for a new seed when the
-    point is a different image rather than the same one again."""
+    point is a different image rather than the same one again.
+
+    `acknowledged_cost` takes the same bound form as `run_workflow`; a
+    fresh seed never changes a fingerprint, so the original plan still
+    binds a new-seed rerun."""
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
     return client.post_json(
-        api_path("api", "jobs", job_id, "rerun"), {"new_seed": new_seed}
+        api_path("api", "jobs", job_id, "rerun"),
+        {"new_seed": new_seed, **_acknowledgement_body(acknowledged_cost)},
     )
 
 

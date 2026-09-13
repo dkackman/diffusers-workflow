@@ -133,7 +133,8 @@ Control" section.
    the shape of the spend: the autoregressive stage runs at 25 frames per
    second of audio and dominates, so time scales with the length the model
    actually sings, not the ceiling. Get the user's go-ahead before
-   `run_workflow` with `acknowledged_cost=true`.
+   `run_workflow` with `acknowledged_cost` set to the plan's
+   `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, then `get_job` for the manifest. Each manifest entry
    carries `subfolder`: `templates/minimax/music-video` puts the cut in
    `final` and the song, the singer's portrait and each shot in

@@ -131,7 +131,8 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
    instead - a 121-frame clip at 960x544 is under two minutes cold on a 24 GB
    card, of which a minute is loading, the two-stage flow about eight, and
    extend and chain multiply by their passes. Either way get the go-ahead
-   before `run_workflow` with `acknowledged_cost=true`.
+   before `run_workflow` with `acknowledged_cost` set to the plan's
+   `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, then `get_job` for the manifest. The write-out runs after
    the last step ends and names each file as it starts it - seconds for a
    121-frame clip since 2026-09-14, minutes before that (#97).

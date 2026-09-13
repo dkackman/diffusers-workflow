@@ -285,7 +285,14 @@ same reason - default setup cannot load a pack.
   block exists. A valid `POST /api/validate` answer also carries `plan`
   (`dw/plan.py`): the fingerprint of the work, step and list counts,
   `downloads_required` and a cost `estimate` with its `basis` - the number an
-  agent quotes; `plan: null` when it could not be built, never a changed verdict
+  agent quotes; `plan: null` when it could not be built, never a changed
+  verdict. `acknowledged_cost` on `POST /api/jobs` / `rerun` takes `true`
+  (recorded) or the plan's `{fingerprint, minutes, downloads}` (checked - 409
+  with the current plan when the fingerprint or the required downloads
+  changed; `minutes` never compared), and the job records `acknowledged:
+  none | boolean | bound`. `cached_steps` is the worker's answer to a
+  `probe_cache` command (`Workflow.cache_hits`, which shares
+  `_prepare_definition` / `_cache_lookup` with `run` so the two cannot drift)
 - **A failed run still reports what it wrote** — the worker carries its partial
   manifest on the error and cancelled messages as well as on success, and the
   "Previous result not found" error names the steps that ran even after

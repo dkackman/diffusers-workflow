@@ -155,16 +155,16 @@ inherits the portrait's composition.
 ## Run and judge
 
 1. `validate_workflow` first - free, and it catches arguments the pipeline
-   does not accept.
+   rejects.
 2. Quote `plan.estimate` from the validate answer (warm minutes; a first
-   load, and any `downloads_required`, is longer). When `basis` is
-   `unknown`, say so and give the shape
-   instead: a 124-frame turbo clip is a few minutes on a 24 GB card, 345
+   load or a `downloads_required` is longer). When `basis` is `unknown`,
+   say so and give the shape instead: a 124-frame turbo clip is a few minutes on a 24 GB card, 345
    frames three times that, an image reference twice a turbo clip, a video
    reference beside it 3.4x again, and a chain multiplies by its segments.
-   Get the user's go-ahead before `run_workflow` with `acknowledged_cost=true`.
+   Get the go-ahead, then `run_workflow` with `acknowledged_cost` = the
+   plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, then `get_job` for the manifest. A cancelled H3 job runs
-   on to its next step boundary, minutes on this model. Silence is not a hang:
+   on to its next step boundary, minutes on this model. Silence is no hang:
    `denoise_step` is null through the reference encode (~90 s, ~10 min with a
    video reference), and the block cache makes later steps uneven - two-minute
    gaps are healthy. Each entry carries
