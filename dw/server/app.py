@@ -2137,6 +2137,29 @@ def create_app(
             raise HTTPException(status_code=404, detail="Unknown file")
         return path
 
+    def _asset_file(reference, ws):
+        """The file an 'asset:' reference names in this workspace, or a 404.
+
+        Looked for down the same search path a run resolves 'asset:' in
+        (_asset_roots), so what the API can read is what a job would load.
+        The first root's failure is the one reported: it names the
+        workspace's own library, which is where a caller expects their
+        asset to be, rather than an examples directory they never wrote to.
+        """
+        first = None
+        for root in _asset_roots(ws) or [ws.assets]:
+            if not root:
+                continue
+            try:
+                return resolve_asset_reference(reference, asset_dir=root)
+            except (SecurityError, ValueError) as e:
+                first = first or e
+        raise HTTPException(
+            status_code=404,
+            detail=str(first)
+            or f"Unknown asset {reference!r}: this workspace has no asset library",
+        )
+
     def _static_files_for(root):
         """The StaticFiles instance bound to one root, built on first use and
         cached on app.state - see the comment where the cache is created."""
@@ -2347,23 +2370,43 @@ def create_app(
         is what says *where* in a track something is - whether a shot is
         still voiced at its last frame, how deep the hole at a seam goes.
         Opt-in: a ten-minute track is 600 numbers, and the default call has
-        to stay small."""
-        path = _output_file(name, ws.outputs)
+        to stay small.
+
+        `name` may also be an 'asset:' reference, and then it is the input
+        asset of that name that is described rather than an output (#127).
+        The numbers here - duration, frame count, fps, sample rate - are
+        what decide whether a call will work at all, and for a file the
+        caller is about to *consume* they were previously unobtainable:
+        the only way to read a wav's length was to run a job that copied it
+        into the output directory. `job` is null for an asset (nothing here
+        produced it) and `source` says which of the two roots answered."""
+        if is_asset_reference(name):
+            path = _asset_file(name, ws)
+            source, job = "asset", None
+        else:
+            path = _output_file(name, ws.outputs)
+            source = "output"
+            try:
+                # Scoped to this workspace: two workspaces can each write a
+                # file with the same relative name, and an unscoped lookup
+                # could attribute this one to the wrong workspace's job
+                job = manager.history.job_for_file(name, workspace=ws.name)
+            except Exception:
+                job = None
         metadata = read_embedded_metadata(path)
-        try:
-            # Scoped to this workspace: two workspaces can each write a file
-            # with the same relative name, and an unscoped lookup could
-            # attribute this one to the wrong workspace's job
-            job = manager.history.job_for_file(name, workspace=ws.name)
-        except Exception:
-            job = None
         extension = os.path.splitext(path)[1].lower()
         media = (
             probe_media(path, envelope=envelope)
             if MEDIA_KINDS.get(extension) in ("audio", "video")
             else None
         )
-        return {"name": name, "metadata": metadata, "job": job, "media": media}
+        return {
+            "name": name,
+            "source": source,
+            "metadata": metadata,
+            "job": job,
+            "media": media,
+        }
 
     @app.get("/api/gallery/{name:path}/thumbnail")
     @query_token_ok
