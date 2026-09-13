@@ -9,6 +9,10 @@ export interface JobSummary {
   queue_position?: number
   /** The workspace this job ran in - 'default' for the default one. */
   workspace: string
+  /** Which form of cost acknowledgement queued the job: none (the web UI
+   * and any caller that sent nothing), a bare boolean, or one bound to the
+   * plan a validate answered with. Absent on rows from older servers. */
+  acknowledged?: 'none' | 'boolean' | 'bound'
 }
 
 export interface ManifestEntry {
@@ -30,6 +34,14 @@ export interface JobDetail extends JobSummary {
   error: string | null
   traceback: string | null
   event_count: number
+  /** The plan the caller bound its acknowledgement to, when it did. */
+  acknowledged_cost?: AcknowledgedCost | null
+}
+
+export interface AcknowledgedCost {
+  fingerprint: string
+  minutes?: number | null
+  downloads?: string[]
 }
 
 export interface JobEvent {
@@ -207,6 +219,29 @@ export interface ValidationResult {
   /** Every schema violation with its JSON path; empty when valid. */
   errors: { path: string | null; message: string }[]
   warnings: string[]
+  /** What the run will execute for the definition validated - on a valid
+   * answer; null when the server could not build it, absent from older
+   * servers and from an invalid answer. */
+  plan?: Plan | null
+}
+
+/** A validate answer's plan: the work a run will do, priced from the
+ * workflow's own cost block, with the weights this box lacks named. */
+export interface Plan {
+  fingerprint: string
+  steps: number
+  list_entries: Record<string, number>
+  /** How many steps the worker's step cache would serve; null when the
+   * worker was busy or did not answer. */
+  cached_steps: number | null
+  downloads_required: { repo: string | null; url?: string; gb: number | null }[]
+  estimate: {
+    minutes: number | null
+    basis: 'per_entry' | 'catalog' | 'other_device' | 'unknown'
+    device: string
+    measured_on: string | null
+    partial: boolean
+  }
 }
 
 export interface GalleryFile {

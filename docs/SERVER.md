@@ -69,7 +69,11 @@ load entirely.
   and three views — form, split, and raw JSON — edit the same definition.
   The split view puts the form beside the JSON with both sides editable;
   changes apply when a side loses focus. Validate, save, and run from the
-  same screen. A Monaco editor with the workflow JSON schema backs the
+  same screen; a valid verdict is followed by the run's plan - the step
+  and list counts, the minutes from the workflow's `cost` block with its
+  basis, how many steps the step cache would serve, and the weights this
+  server would download first (`describePlan`, `ui/src/lib/plan.ts`,
+  reading `POST /api/validate`'s `plan`). A Monaco editor with the workflow JSON schema backs the
   JSON views. A fourth view, **flow**, renders the workflow's data-flow
   graph read-only: one box per step, arrows for each `previous_result`
   reference labeled with the argument it feeds, entry-point steps marked

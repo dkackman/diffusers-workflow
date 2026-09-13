@@ -20,6 +20,26 @@ vi.mock('../api', () => ({
       .fn()
       .mockResolvedValue({ workflows: [], workflow_dir: 'workflows' }),
     listPrompts: vi.fn().mockResolvedValue({ prompts: [], details: {} }),
+    validate: vi.fn().mockResolvedValue({
+      valid: true,
+      error: null,
+      errors: [],
+      warnings: [],
+      plan: {
+        fingerprint: 'sha256:abc',
+        steps: 3,
+        list_entries: { shots: 2 },
+        cached_steps: 0,
+        downloads_required: [{ repo: 'org/model', gb: 41.2 }],
+        estimate: {
+          minutes: 12,
+          basis: 'catalog',
+          device: 'cuda',
+          measured_on: 'card',
+          partial: false,
+        },
+      },
+    }),
   },
 }))
 
@@ -54,5 +74,25 @@ describe('EditorPage view switch', () => {
     await waitFor(() =>
       expect(screen.queryByText(/Read-only data-flow view/)).toBeNull(),
     )
+  })
+})
+
+describe('EditorPage validation plan', () => {
+  it('shows what a run will do under a valid verdict', async () => {
+    render(EditorPage, { name: '' })
+    await waitFor(() =>
+      expect(screen.getByLabelText('workflow id')).toBeTruthy(),
+    )
+
+    await screen.getByRole('button', { name: /validate/i }).click()
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('what a run will do')).toBeTruthy(),
+    )
+    const plan = screen.getByLabelText('what a run will do')
+    expect(plan.textContent).toContain('3 steps (shots: 2)')
+    expect(plan.textContent).toContain('~12 min on cuda')
+    expect(plan.textContent).toContain('0 of 3 steps cached')
+    expect(plan.textContent).toContain('needs download: org/model (41.2 GB)')
   })
 })
