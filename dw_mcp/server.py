@@ -906,7 +906,14 @@ def build_server(client):
         are uneven too where a transformer block cache is configured. Both
         are normal, and the model family's own skill carries the measured
         figures. The signal is whether `denoise_step` has moved since a
-        poll minutes ago, not silence past a fixed threshold."""
+        poll minutes ago, not silence past a fixed threshold.
+
+        `denoise_total_steps` is the schedule the pipeline actually runs,
+        which is not always the `num_inference_steps` that was asked for:
+        MiniMax H3's scheduler counts sigma grid points including the
+        terminal zero, so it runs N-1 model evaluations for N (9 reports 8,
+        20 reports 19). That is the vendor's convention, not a dropped step -
+        raising the number still buys the steps it looks like it does."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states

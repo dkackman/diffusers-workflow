@@ -206,7 +206,9 @@ def wait_for_job(client, job_id, timeout_seconds=20):
     (`loading`, `generating`, `decoding`, `saving`) with the model or step
     named in `phase_detail`, `seconds_in_phase`, `seconds_since_event`, and
     `denoise_step`/`denoise_total_steps`, which are null until the denoise
-    loop starts. Two calls with the same phase and a growing
+    loop starts. `denoise_total_steps` is the schedule that actually runs,
+    which is not always the `num_inference_steps` asked for - MiniMax H3
+    runs N-1 evaluations for N (#110). Two calls with the same phase and a growing
     `seconds_in_phase` but a moving `denoise_step` is a slow run; one where
     `denoise_step` is a number that does not move while
     `seconds_since_event` climbs is a stuck one.
