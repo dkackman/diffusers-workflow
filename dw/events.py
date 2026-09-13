@@ -131,3 +131,18 @@ def emit_phase(phase, detail=None):
     context = get_context()
     context.note_phase(phase)
     context.emit("phase", phase=phase, detail=detail)
+
+
+def emit_log(message, **data):
+    """Narrate one step of a long, otherwise silent stretch of a run.
+
+    A `log` event rather than a phase: `PHASES` is a closed set a consumer
+    switches on, and "which file is being written" is a detail inside one of
+    them, not a new state. The modular block lead-in (#95) is the same shape
+    at the other end of a step.
+
+    Logged as well as emitted, because the CLI and the REPL have no event
+    sink and the log is the whole of their surface.
+    """
+    logger.info(message)
+    get_context().emit("log", message=message, **data)

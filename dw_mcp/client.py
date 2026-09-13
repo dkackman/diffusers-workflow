@@ -123,39 +123,51 @@ class DwClient:
 
     # ------------------------------------------------------------- requests
 
-    def get_json(self, path, params=None):
-        return self._json(self._request("GET", path, params=params), path)
+    def get_json(self, path, params=None, workspace=None):
+        return self._json(
+            self._request("GET", path, params=params, workspace=workspace), path
+        )
 
-    def post_json(self, path, payload=None, params=None):
+    def post_json(self, path, payload=None, params=None, workspace=None):
         """`params` is for a route whose options are query parameters rather
         than a body - the export route, which takes `overwrite` beside the
         workspace selector `_scoped` adds."""
         return self._json(
-            self._request("POST", path, json=payload or {}, params=params), path
+            self._request(
+                "POST", path, json=payload or {}, params=params, workspace=workspace
+            ),
+            path,
         )
 
-    def put_json(self, path, payload):
-        return self._json(self._request("PUT", path, json=payload), path)
+    def put_json(self, path, payload, workspace=None):
+        return self._json(
+            self._request("PUT", path, json=payload, workspace=workspace), path
+        )
 
-    def delete_json(self, path, params=None):
-        return self._json(self._request("DELETE", path, params=params), path)
+    def delete_json(self, path, params=None, workspace=None):
+        return self._json(
+            self._request("DELETE", path, params=params, workspace=workspace), path
+        )
 
-    def post_bytes(self, path, data, params=None):
+    def post_bytes(self, path, data, params=None, workspace=None):
         """Send a file's bytes as the request body - the shape
         POST /api/uploads takes, so a single file needs no multipart
         parser at either end."""
         return self._json(
-            self._request("POST", path, content=data, params=params), path
+            self._request(
+                "POST", path, content=data, params=params, workspace=workspace
+            ),
+            path,
         )
 
-    def get_bytes(self, path):
+    def get_bytes(self, path, workspace=None):
         """Raw body plus content type - for the output media served from the
         /outputs static mount rather than an /api route."""
-        response = self._request("GET", path)
+        response = self._request("GET", path, workspace=workspace)
         self._raise_for_status(response, path)
         return response.content, response.headers.get("content-type", "")
 
-    def get_bytes_if(self, path, accept_content_type):
+    def get_bytes_if(self, path, accept_content_type, workspace=None):
         """Like `get_bytes`, but the body is only downloaded when
         `accept_content_type(content_type)` is true.
 
@@ -166,7 +178,7 @@ class DwClient:
         on acceptance. An error status is still raised either way, since the
         body has to be read to report it.
         """
-        response = self._stream_request("GET", path)
+        response = self._stream_request("GET", path, workspace=workspace)
         try:
             content_type = response.headers.get("content-type", "")
             if response.status_code < 400 and not accept_content_type(content_type):
@@ -177,7 +189,7 @@ class DwClient:
         finally:
             response.close()
 
-    def stream_to_file(self, path, destination):
+    def stream_to_file(self, path, destination, workspace=None):
         """Stream `path`'s body straight to `destination` on disk, in
         chunks, rather than buffering it whole - for a body too large to
         hold in memory (the videos `get_bytes` can't return). Returns
@@ -190,7 +202,7 @@ class DwClient:
         a torn partial file at `destination` - which would otherwise
         "exist" for a later `overwrite=False` caller and mask the failure.
         """
-        response = self._stream_request("GET", path)
+        response = self._stream_request("GET", path, workspace=workspace)
         try:
             if response.status_code >= 400:
                 self._call_httpx(response.read, path)
@@ -222,28 +234,36 @@ class DwClient:
 
     # ------------------------------------------------------------ internals
 
-    def _request(self, method, path, **kwargs):
+    def _request(self, method, path, workspace=None, **kwargs):
         return self._call_httpx(
-            lambda: self._http.request(method, path, **self._scoped(kwargs)), path
+            lambda: self._http.request(method, path, **self._scoped(kwargs, workspace)),
+            path,
         )
 
-    def _scoped(self, kwargs):
-        """Add the session's workspace to a request's query string.
+    def _scoped(self, kwargs, workspace=None):
+        """Add the workspace a request is for to its query string.
 
         One place rather than a parameter on every handler: routes that are
         not workspace-scoped (prompts, models, system) ignore an unknown
         query parameter, and the server treats a missing selector as its
         default - so the default workspace sends nothing and every request
         looks exactly as it did before workspaces existed.
+
+        `workspace` is the per-call pin - "for this one call, without
+        switching the session" - and wins over the session's own. Naming the
+        default explicitly is the way to reach it from a session that is
+        somewhere else, so it sends no selector rather than the session's
+        (#99).
         """
-        if self.workspace == DEFAULT_WORKSPACE:
+        name = workspace or self.workspace
+        if name == DEFAULT_WORKSPACE:
             return kwargs
         params = dict(kwargs.get("params") or {})
-        params.setdefault("workspace", self.workspace)
+        params.setdefault("workspace", name)
         return {**kwargs, "params": params}
 
-    def _stream_request(self, method, path, **kwargs):
-        scoped = self._scoped(kwargs)
+    def _stream_request(self, method, path, workspace=None, **kwargs):
+        scoped = self._scoped(kwargs, workspace)
         return self._call_httpx(
             lambda: self._http.send(
                 self._http.build_request(method, path, **scoped), stream=True

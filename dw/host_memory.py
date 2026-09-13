@@ -18,7 +18,13 @@ import os
 
 logger = logging.getLogger("dw")
 
-__all__ = ["host_memory_stats", "host_memory_fields"]
+__all__ = [
+    "host_memory_stats",
+    "host_memory_fields",
+    "trim_host_memory",
+    "release_host_caches",
+    "pinned_host_memory_fields",
+]
 
 _MB = 1024.0 * 1024.0
 
@@ -149,3 +155,104 @@ def host_memory_fields():
     return {
         FIELD_NAMES[key]: value for key, value in stats.items() if value is not None
     }
+
+
+def trim_host_memory():
+    """Hand memory the process has already freed back to the operating
+    system, and report how much that was in MB (0.0 when the platform has no
+    way to ask).
+
+    Dropping the last reference to a model frees it inside the process, not
+    back to the kernel: glibc keeps the arenas the weights were read into and
+    hands them out again to *this* process. That is normally invisible and
+    correct - until a template needs 96% of host RAM to run at all, at which
+    point the several GB the previous job's arenas are sitting on is the
+    difference between a run and a SIGKILL five minutes in (#98). The
+    templates here load tens of GB of weights through host memory, so the
+    arenas in question are large ones and the fragmentation that keeps
+    `malloc_trim` from returning them is the exception rather than the rule.
+
+    Linux/glibc only: `malloc_trim` is a GNU extension. Everywhere else -
+    macOS included - this is a no-op that reports 0.0, because there is
+    nothing to ask and a fabricated number would be worse than none.
+    """
+    import ctypes
+    import ctypes.util
+    import sys
+
+    if not sys.platform.startswith("linux"):
+        return 0.0
+    before = host_memory_stats()["rss_mb"]
+    try:
+        libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
+        libc.malloc_trim(ctypes.c_size_t(0))
+    except (OSError, AttributeError) as e:
+        # musl and friends have no malloc_trim; not having one is not an error
+        logger.debug(f"malloc_trim unavailable: {e}")
+        return 0.0
+    after = host_memory_stats()["rss_mb"]
+    if before is None or after is None:
+        return 0.0
+    return max(0.0, before - after)
+
+
+def pinned_host_memory_fields():
+    """What CUDA's pinned-host allocator is holding, in MB, or {} where
+    there is none to report.
+
+    Group offloading with `use_stream` stages a component's weights through
+    *pinned* host memory, which torch caches per process exactly as it
+    caches device memory: freeing the tensors returns the blocks to that
+    cache, not to the OS, so they stay in this process's RSS and count
+    against the next job's host budget. It is invisible in every figure the
+    memory payload carried before - `rss_mb` includes it without saying so
+    and `gpu_memory_*` does not see it at all (#98).
+    """
+    try:
+        import torch
+
+        stats = torch.cuda.host_memory_stats()
+    except Exception:
+        return {}
+    fields = {}
+    for key, name in (
+        ("allocated_bytes.all.current", "host_pinned_allocated_mb"),
+        ("reserved_bytes.all.current", "host_pinned_reserved_mb"),
+    ):
+        value = stats.get(key)
+        if value is not None:
+            fields[name] = value / _MB
+    return fields
+
+
+def release_host_caches():
+    """Give back host memory this process is holding but no longer using,
+    and report what came back in MB.
+
+    Two caches, neither of which `gc.collect()` touches:
+
+    - torch's pinned-host allocator, where group offloading's staging
+      buffers live. `_host_emptyCache` frees the blocks nothing is using;
+      blocks a still-loaded pipeline is staging through are in use and are
+      not touched, so this is safe to call with models resident.
+    - glibc's heap arenas, via `malloc_trim`. Freeing a large block inside
+      the process does not hand its pages back to the kernel.
+
+    Together they are why a worker that has released every model still sat
+    on 14.5 GB, which is the difference between the next job running and
+    being OOM-killed five minutes in on a template that needs 96% of host
+    RAM (#98).
+    """
+    before = host_memory_stats()["rss_mb"]
+    try:
+        import torch
+
+        if hasattr(torch._C, "_host_emptyCache"):
+            torch._C._host_emptyCache()
+    except Exception as e:  # a cleanup is never worth failing the run for
+        logger.debug(f"Could not empty the pinned host cache: {e}")
+    trim_host_memory()
+    after = host_memory_stats()["rss_mb"]
+    if before is None or after is None:
+        return 0.0
+    return max(0.0, before - after)

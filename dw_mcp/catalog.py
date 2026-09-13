@@ -146,17 +146,17 @@ def list_jobs(client, limit=20, status=None, workspace=None):
     return answer
 
 
-def list_gallery(client, limit=50, subfolder=None):
+def list_gallery(client, limit=50, subfolder=None, workspace=None):
     """Generated media in the output directory, newest first. `subfolder`
     narrows to one in-run subfolder ('final', 'intermediate', '' for files
     at a run's root); None means every file."""
     params = {"limit": limit}
     if subfolder is not None:
         params["subfolder"] = subfolder
-    return client.get_json("/api/gallery", params=params)
+    return client.get_json("/api/gallery", params=params, workspace=workspace)
 
 
-def get_gallery_metadata(client, name, envelope=False):
+def get_gallery_metadata(client, name, envelope=False, workspace=None):
     """Metadata embedded in a saved file: the full workflow that made it,
     plus the job that produced it when history remembers one, plus for
     audio and video what the file holds - duration, sample rate, channels,
@@ -169,6 +169,7 @@ def get_gallery_metadata(client, name, envelope=False):
     body = client.get_json(
         api_path("api", "gallery", name, "metadata"),
         params={"envelope": "true"} if envelope else None,
+        workspace=workspace,
     )
     media = body.get("media")
     if media and media.get("kind") in ("audio", "video"):
