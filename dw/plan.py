@@ -92,7 +92,9 @@ def build_plan(
         "steps": len(expanded.get("steps") or []),
         "list_entries": entries,
         "cached_steps": None,
-        "downloads_required": [],
+        "downloads_required": downloads_required(
+            expanded, base_dir, candidate.workflow_dir, cache_dir, lookup_sizes
+        ),
         "estimate": estimate(
             definition, expanded, entries, device, base_dir, candidate.workflow_dir
         ),
@@ -227,3 +229,80 @@ def _price(cost, device, list_entries):
         minutes = max(0.0, (minutes - each * measured_with) + each * count)
         basis = PER_ENTRY
     return {"minutes": minutes, "basis": basis, "measured_on": chosen.get("name")}
+
+
+FROM_PRETRAINED_KEY = "from_pretrained_arguments"
+MODEL_NAME_KEY = "model_name"
+SINGLE_FILE_KEY = "from_single_file"
+
+
+def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes):
+    """The hub repos and checkpoint URLs the run would fetch before its
+    first step: every `model_name` in the expanded definition (and in each
+    composed child) that `scan_models` does not find, plus every
+    `from_single_file` that is a URL. Sizes come from the hub when asked
+    and are None whenever it does not answer - an offline box is a state,
+    not an error, so nothing here raises or logs above debug.
+    """
+    names = []
+    urls = []
+    _collect_sources(expanded, names, urls)
+    for path in _sub_workflow_paths(expanded):
+        raw = read_sub_workflow(path, base_dir, workflow_dir)
+        if raw is None:
+            continue
+        try:
+            _collect_sources(json.loads(raw), names, urls)
+        except ValueError:
+            continue
+    present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
+    required = []
+    for name in names:
+        if name in present or os.path.isdir(name):
+            continue
+        required.append({"repo": name, "gb": _size_gb(name) if lookup_sizes else None})
+    for url in urls:
+        required.append({"repo": None, "url": url, "gb": None})
+    return required
+
+
+def _collect_sources(tree, names, urls):
+    """Every from_pretrained source in a tree, first-seen order, deduplicated."""
+    if isinstance(tree, dict):
+        source = tree.get(FROM_PRETRAINED_KEY)
+        if isinstance(source, dict):
+            name = source.get(MODEL_NAME_KEY)
+            if isinstance(name, str) and name not in names:
+                names.append(name)
+            single = source.get(SINGLE_FILE_KEY)
+            if isinstance(single, str) and _is_url(single) and single not in urls:
+                urls.append(single)
+        for value in tree.values():
+            _collect_sources(value, names, urls)
+    elif isinstance(tree, list):
+        for value in tree:
+            _collect_sources(value, names, urls)
+
+
+def _is_url(value):
+    if not value.startswith(("http://", "https://")):
+        return False
+    try:
+        validate_url(value)
+        return True
+    except Exception:
+        return False
+
+
+def _size_gb(name):
+    """A repo's size in GiB to one decimal, or None when the hub does not
+    say - unreachable, gated without a token, or a file with no size."""
+    try:
+        info = model_info(name, files_metadata=True, timeout=SIZE_LOOKUP_TIMEOUT)
+        total = sum(
+            s.size for s in (info.siblings or []) if getattr(s, "size", None)
+        )
+    except Exception as e:
+        logger.debug(f"No size for {name}: {e}")
+        return None
+    return round(total / GIB, 1) if total else None
