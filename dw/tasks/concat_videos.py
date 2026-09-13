@@ -61,7 +61,9 @@ def concat_videos(
             hard cut on tonal material, which a bleed would only stutter. It is
             the wrong tool for a continuous bed such as a laugh track or room
             tone: a fade only deepens the hole a bleed is there to cover
-        fps: Frame rate of the videos - required to join audio when trimming
+        fps: Frame rate of the videos - required to join audio when
+            trimming, and the rate the joined file is written at unless
+            the step's result.fps overrides it
         match_levels: Even the shots' loudness out before joining -
             "rms" matches perceived level (the measurement
             get_gallery_metadata reports as mean_dbfs), "peak" matches the

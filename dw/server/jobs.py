@@ -363,6 +363,7 @@ class Job:
         self.phase_detail = None
         self.phase_started_at = None
         self.step_name = None
+        self.parent_step = None
         self.step_index = None
         self.total_steps = None
         self.denoise_step = None
@@ -416,8 +417,15 @@ class Job:
                     self.warnings.append(named)
         elif kind == "step_start":
             self.step_name = event.get("step")
-            self.step_index = event.get("index")
-            self.total_steps = event.get("total_steps")
+            # A sub-workflow counts its own steps from zero; what a caller
+            # watching a composed run needs is where the run it queued has
+            # got to, so the parent's counter wins when the event carries
+            # one and the step name stays the child's (#90)
+            self.parent_step = event.get("parent_step")
+            self.step_index = event.get("parent_index", event.get("index"))
+            self.total_steps = event.get(
+                "parent_total_steps", event.get("total_steps")
+            )
             # A new step's denoise loop has not started; the previous step's
             # count would read as this one's progress
             self.denoise_step = None
@@ -432,6 +440,9 @@ class Job:
         now = time.time()
         summary = {
             "step": self.step_name,
+            # The step of the queued workflow the one above is running
+            # inside, for a composed run; null when they are the same thing
+            "parent_step": self.parent_step,
             "step_index": self.step_index,
             "total_steps": self.total_steps,
             "phase": self.phase,

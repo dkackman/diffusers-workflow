@@ -1161,6 +1161,10 @@ class TestVideoFrameRate:
         assert warning["kind"] == "fps_mismatch"
         assert warning["declared_fps"] == 8
         assert warning["source_fps"] == 24
+        # 24 fps frames written at 8 play in slow motion, not fast - the
+        # factor is declared/source, and it pointed the other way (#88)
+        assert "0.33x speed" in warning["message"]
+        assert "3 times as long" in warning["message"]
 
     def test_declaring_the_rate_the_frames_carry_warns_about_nothing(self):
         from dw.events import RunContext, activate_context, deactivate_context

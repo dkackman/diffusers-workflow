@@ -595,7 +595,15 @@ def build_server(client):
 
         A `result.subfolder` or `file_base_name` that cannot be written (a
         `..`, a backslash, a separator in `file_base_name`) is reported here
-        at its JSON path, after `for_each` expansion."""
+        at its JSON path, after `for_each` expansion.
+
+        A sub-workflow step is resolved too: a `workflow.path` that names
+        nothing this server can reach is an error at
+        `steps[N].workflow.path` (the message lists where it looked), the
+        workflow it names is validated in turn under that path, a
+        composition cycle is refused, and an argument passed down that the
+        composed workflow declares no variable for comes back as a
+        warning."""
         return authoring.validate_workflow(
             client,
             workflow=workflow,

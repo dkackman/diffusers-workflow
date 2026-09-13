@@ -503,8 +503,9 @@ class Result:
             emit_warning(
                 f"Writing video at {declared} fps, but the frames it was "
                 f"given run at {carried} fps - the file will play "
-                f"{carried / declared:.2g}x speed. Drop 'fps' from the step's "
-                f"result to keep the source rate",
+                f"{declared / carried:.2g}x speed "
+                f"({carried / declared:.2g} times as long). Drop 'fps' from "
+                f"the step's result to keep the source rate",
                 kind="fps_mismatch",
                 declared_fps=declared,
                 source_fps=carried,

@@ -165,3 +165,6 @@ workflows/*/assets/
 /output/
 /*.mp4
 /*.wav
+
+# Claude Code worktrees
+.claude/worktrees/

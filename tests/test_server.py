@@ -516,6 +516,50 @@ def test_validate_accepts_a_stored_workflow_name(server, tmp_path):
         assert any("guidance_scael" in w for w in result["warnings"])
 
 
+def test_validate_reports_a_sub_workflow_path_that_resolves_nowhere(server):
+    """The pre-flight is documented as "this will run", and a composed step
+    naming a workflow the server cannot reach used to come back valid and
+    fail 0.6 s into the job (#89)."""
+    with server(success_script) as client:
+        workflow = {
+            "id": "QaSubPathProbe",
+            "steps": [
+                {
+                    "name": "sub",
+                    "workflow": {
+                        "path": "templates/does-not-exist-at-all",
+                        "arguments": {},
+                    },
+                    "result": {"content_type": "image/jpeg"},
+                }
+            ],
+        }
+
+        result = client.post("/api/validate", json={"workflow": workflow}).json()
+
+        assert result["valid"] is False
+        assert [e["path"] for e in result["errors"]] == ["steps[0].workflow.path"]
+        assert "does-not-exist-at-all" in result["errors"][0]["message"]
+
+
+def test_validate_accepts_a_sub_workflow_step_naming_a_stored_workflow(server):
+    with server(success_script) as client:
+        workflow = {
+            "id": "QaSubPathProbe",
+            "steps": [
+                {
+                    "name": "sub",
+                    "workflow": {"path": "Basic", "arguments": {}},
+                    "result": {"content_type": "image/jpeg"},
+                }
+            ],
+        }
+
+        result = client.post("/api/validate", json={"workflow": workflow}).json()
+
+        assert result["valid"] is True, result
+
+
 def test_validate_requires_exactly_one_workflow_source(server):
     with server(success_script) as client:
         assert client.post("/api/validate", json={}).status_code == 400

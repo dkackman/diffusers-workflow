@@ -863,3 +863,361 @@ def test_a_variable_cycle_is_a_validation_error_at_variables(tmp_path):
 
     assert [e["path"] for e in errors] == ["variables"]
     assert "a -> b -> a" in errors[0]["message"]
+
+
+class TestSubWorkflowNameResolution:
+    """A sub-workflow step's path reads like run_workflow's workflow_path:
+    a catalog name, with or without .json, resolved across the same search
+    path the server lists (#90)."""
+
+    def _catalog(self, tmp_path, parent_path_value):
+        import json
+
+        workflows = tmp_path / "workflows"
+        (workflows / "minimax").mkdir(parents=True)
+        child = {
+            "id": "child",
+            "steps": [
+                {
+                    "name": "noop",
+                    "task": {
+                        "command": "get_dict_value",
+                        "arguments": {"dict": {"k": 1}, "key": "k"},
+                    },
+                }
+            ],
+        }
+        (workflows / "minimax" / "ref2va.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {
+                    "name": "sub",
+                    "workflow": {"path": parent_path_value, "arguments": {}},
+                }
+            ],
+        }
+        parent_path = workflows / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+        return workflows, parent_path
+
+    def _resolve(self, tmp_path, path_value, workflow_dir=None):
+        from dw.workflow import workflow_from_file
+
+        workflows, parent_path = self._catalog(tmp_path, path_value)
+        workflow = workflow_from_file(
+            str(parent_path),
+            str(tmp_path / "outputs"),
+            str(workflow_dir) if workflow_dir else str(workflows),
+        )
+        return workflow.create_step_action(
+            workflow.workflow_definition["steps"][0],
+            shared_components={},
+            previous_pipelines={},
+            default_seed=42,
+            device="cpu",
+        )
+
+    def test_a_catalog_name_without_the_extension_resolves(self, tmp_path):
+        action = self._resolve(tmp_path, "minimax/ref2va")
+
+        assert action.name == "child"
+
+    def test_a_name_in_a_read_only_source_resolves(self, tmp_path, monkeypatch):
+        """The examples tree list_workflows reports as a source - reachable
+        without copying the template into the workspace."""
+        import json
+
+        from dw.workspace import WORKFLOW_PATH_ENV_VAR
+
+        examples = tmp_path / "examples"
+        (examples / "templates").mkdir(parents=True)
+        (examples / "templates" / "stored.json").write_text(
+            json.dumps(
+                {
+                    "id": "stored",
+                    "steps": [
+                        {
+                            "name": "noop",
+                            "task": {
+                                "command": "get_dict_value",
+                                "arguments": {"dict": {"k": 1}, "key": "k"},
+                            },
+                        }
+                    ],
+                }
+            )
+        )
+        workspace = tmp_path / "space" / "workflows"
+        workspace.mkdir(parents=True)
+        parent = {
+            "id": "parent",
+            "steps": [
+                {
+                    "name": "sub",
+                    "workflow": {"path": "templates/stored", "arguments": {}},
+                }
+            ],
+        }
+        parent_path = workspace / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+        monkeypatch.setenv(WORKFLOW_PATH_ENV_VAR, str(examples))
+
+        from dw.workflow import workflow_from_file
+
+        workflow = workflow_from_file(
+            str(parent_path), str(tmp_path / "outputs"), str(workspace)
+        )
+        action = workflow.create_step_action(
+            workflow.workflow_definition["steps"][0],
+            shared_components={},
+            previous_pipelines={},
+            default_seed=42,
+            device="cpu",
+        )
+
+        assert action.name == "stored"
+        # confined to the root it was read from, not to the workspace
+        assert action.workflow_dir == str(examples)
+
+    def test_a_name_that_resolves_nowhere_says_where_it_looked(self, tmp_path):
+        from dw.workflow_sources import SubWorkflowNotFound
+
+        with pytest.raises(SubWorkflowNotFound) as exc_info:
+            self._resolve(tmp_path, "minimax/does-not-exist")
+
+        message = str(exc_info.value)
+        assert "does-not-exist" in message
+        assert "Looked in" in message
+
+    def test_a_relative_path_beside_the_file_still_wins(self, tmp_path):
+        """The '../models/x.json' form every template uses is unchanged."""
+        action = self._resolve(tmp_path, "minimax/ref2va.json")
+
+        assert action.name == "child"
+
+
+class TestComposedStepSavesOnce:
+    """A sub-workflow step that declares a result owns the file: the child's
+    last step used to save the same artifact a second time, under its own
+    step name, into the run root (#92)."""
+
+    def _compose(self, tmp_path, parent_result=True):
+        import json
+
+        workflows = tmp_path / "workflows"
+        workflows.mkdir()
+        child = {
+            "id": "child",
+            "steps": [
+                {
+                    "name": "write",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["hello"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                }
+            ],
+        }
+        (workflows / "child.json").write_text(json.dumps(child))
+        step = {"name": "sub", "workflow": {"path": "child.json", "arguments": {}}}
+        if parent_result:
+            step["result"] = {"content_type": "text/plain", "subfolder": "final"}
+        parent = {"id": "parent", "steps": [step]}
+        parent_path = workflows / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+
+        from dw.workflow import workflow_from_file
+
+        workflow = workflow_from_file(
+            str(parent_path), str(tmp_path / "outputs"), str(workflows)
+        )
+        workflow.run({}, {})
+        return workflow
+
+    def _written(self, tmp_path):
+        return sorted(
+            os.path.relpath(os.path.join(directory, name), str(tmp_path / "outputs"))
+            for directory, _dirs, files in os.walk(str(tmp_path / "outputs"))
+            for name in files
+            if name.endswith(".txt")
+        )
+
+    def test_the_artifact_is_written_once(self, tmp_path):
+        self._compose(tmp_path)
+
+        written = self._written(tmp_path)
+        assert len(written) == 1, written
+        assert "final" in written[0]
+
+    def test_the_manifest_names_only_the_step_the_caller_wrote(self, tmp_path):
+        workflow = self._compose(tmp_path)
+
+        assert [entry["step"] for entry in workflow.manifest] == ["sub"]
+
+    def test_a_parent_that_declares_no_result_leaves_the_child_saving(self, tmp_path):
+        workflow = self._compose(tmp_path, parent_result=False)
+
+        written = self._written(tmp_path)
+        assert len(written) == 1, written
+        assert [entry["step"] for entry in workflow.manifest] == ["sub", "write"]
+
+    def test_a_composed_file_carries_the_parent_step_name(self, tmp_path):
+        self._compose(tmp_path, parent_result=False)
+
+        assert os.path.basename(self._written(tmp_path)[0]).startswith("sub.child-write")
+
+
+class TestSubWorkflowValidation:
+    """A sub-workflow path that cannot resolve is a validation error, not a
+    run that fails 0.6 s in after the pre-flight said valid (#89)."""
+
+    def _tree(self, tmp_path):
+        workflows = tmp_path / "workflows"
+        workflows.mkdir()
+        return workflows
+
+    def _parent(self, workflows, path_value, arguments=None):
+        import json
+
+        parent = {
+            "id": "parent",
+            "steps": [
+                {
+                    "name": "sub",
+                    "workflow": {"path": path_value, "arguments": arguments or {}},
+                    "result": {"content_type": "image/jpeg"},
+                }
+            ],
+        }
+        parent_path = workflows / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+
+        from dw.workflow import workflow_from_file
+
+        return workflow_from_file(
+            str(parent_path), str(workflows.parent / "outputs"), str(workflows)
+        )
+
+    def test_a_path_that_resolves_nowhere_is_an_error(self, tmp_path):
+        workflow = self._parent(
+            self._tree(tmp_path), "templates/does-not-exist-at-all"
+        )
+
+        errors = workflow.validation_errors()
+
+        assert [e["path"] for e in errors] == ["steps[0].workflow.path"]
+        assert "does-not-exist-at-all" in errors[0]["message"]
+
+    def test_a_path_outside_the_root_is_an_error(self, tmp_path):
+        import json
+
+        workflows = self._tree(tmp_path)
+        outside = tmp_path / "outside.json"
+        outside.write_text(json.dumps({"id": "x", "steps": []}))
+        workflow = self._parent(workflows, str(outside))
+
+        errors = workflow.validation_errors()
+
+        assert [e["path"] for e in errors] == ["steps[0].workflow.path"]
+
+    def test_a_workflow_that_composes_itself_is_a_cycle(self, tmp_path):
+        import json
+
+        workflows = self._tree(tmp_path)
+        definition = {
+            "id": "loop",
+            "steps": [
+                {
+                    "name": "sub",
+                    "workflow": {"path": "loop.json", "arguments": {}},
+                    "result": {"content_type": "image/jpeg"},
+                }
+            ],
+        }
+        path = workflows / "loop.json"
+        path.write_text(json.dumps(definition))
+
+        from dw.workflow import workflow_from_file
+
+        workflow = workflow_from_file(
+            str(path), str(tmp_path / "outputs"), str(workflows)
+        )
+        errors = workflow.validation_errors()
+
+        assert any("cycle" in e["message"] for e in errors), errors
+
+    def test_a_child_that_does_not_validate_is_reported_under_the_step(
+        self, tmp_path
+    ):
+        import json
+
+        workflows = self._tree(tmp_path)
+        (workflows / "child.json").write_text(
+            json.dumps({"id": "child", "steps": [{"name": "broken"}]})
+        )
+        workflow = self._parent(workflows, "child")
+
+        errors = workflow.validation_errors()
+
+        assert errors
+        assert errors[0]["path"].startswith("steps[0].workflow.path -> ")
+
+    def test_a_resolvable_child_validates_clean(self, tmp_path):
+        import json
+
+        workflows = self._tree(tmp_path)
+        (workflows / "child.json").write_text(
+            json.dumps(
+                {
+                    "id": "child",
+                    "variables": {"prompt": "a cat"},
+                    "steps": [
+                        {
+                            "name": "noop",
+                            "task": {
+                                "command": "compose_text",
+                                "arguments": {"parts": ["variable:prompt"]},
+                            },
+                            "result": {"content_type": "text/plain"},
+                        }
+                    ],
+                }
+            )
+        )
+        workflow = self._parent(workflows, "child", {"prompt": "a dog"})
+
+        assert workflow.validation_errors() == []
+        assert workflow.sub_workflow_warnings() == []
+
+    def test_an_argument_the_child_does_not_declare_warns(self, tmp_path):
+        import json
+
+        workflows = self._tree(tmp_path)
+        (workflows / "child.json").write_text(
+            json.dumps(
+                {
+                    "id": "child",
+                    "variables": {"prompt": "a cat"},
+                    "steps": [
+                        {
+                            "name": "noop",
+                            "task": {
+                                "command": "compose_text",
+                                "arguments": {"parts": ["variable:prompt"]},
+                            },
+                            "result": {"content_type": "text/plain"},
+                        }
+                    ],
+                }
+            )
+        )
+        workflow = self._parent(workflows, "child", {"promt": "a dog"})
+
+        warnings = workflow.sub_workflow_warnings()
+
+        assert [w["path"] for w in warnings] == [
+            "steps[0].workflow.arguments.promt"
+        ]
+        assert "declares no variable" in warnings[0]["message"]

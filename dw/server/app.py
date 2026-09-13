@@ -1353,7 +1353,10 @@ def create_app(
             "error": None,
             "errors": [],
             "warnings": workflow_argument_warnings(definition)
-            + entry_field_warnings(definition, request.arguments),
+            + entry_field_warnings(definition, request.arguments)
+            # An argument a sub-workflow step passes to a workflow that
+            # declares no variable for it - dropped in silence at run time
+            + candidate.sub_workflow_warnings(),
         }
         if request.arguments:
             # Naming what was checked is the difference between 'the stored
