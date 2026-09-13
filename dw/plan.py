@@ -342,9 +342,7 @@ def _size_gb(name):
     say - unreachable, gated without a token, or a file with no size."""
     try:
         info = model_info(name, files_metadata=True, timeout=SIZE_LOOKUP_TIMEOUT)
-        total = sum(
-            s.size for s in (info.siblings or []) if getattr(s, "size", None)
-        )
+        total = sum(s.size for s in (info.siblings or []) if getattr(s, "size", None))
     except Exception as e:
         logger.debug(f"No size for {name}: {e}")
         return None

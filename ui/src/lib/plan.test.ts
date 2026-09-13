@@ -93,7 +93,11 @@ describe('describePlan', () => {
   })
 
   it('every cached step means a rerun generates nothing', () => {
-    const lines = describePlan({ ...base, cached_steps: 8, downloads_required: [] })
+    const lines = describePlan({
+      ...base,
+      cached_steps: 8,
+      downloads_required: [],
+    })
     expect(lines[2].text).toBe('all 8 steps cached - a run generates nothing')
   })
 

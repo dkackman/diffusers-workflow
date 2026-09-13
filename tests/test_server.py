@@ -3629,7 +3629,9 @@ class TestValidatePlan:
     def test_a_valid_answer_carries_a_plan(self, server, monkeypatch):
         import dw.plan
 
-        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
         with server(success_script) as client:
             result = client.post(
                 "/api/validate?sizes=false",
@@ -3685,7 +3687,9 @@ class TestValidatePlan:
     def test_cached_steps_comes_from_the_worker(self, server, monkeypatch):
         import dw.plan
 
-        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
         with server(success_script) as client:
             manager = client.app.state.job_manager
             manager.worker_manager.ensure_worker()
@@ -3708,7 +3712,9 @@ class TestValidatePlan:
     def test_an_unseeded_workflow_does_not_probe(self, server, monkeypatch):
         import dw.plan
 
-        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
         with server(success_script) as client:
             manager = client.app.state.job_manager
             manager.worker_manager.ensure_worker()
@@ -3721,7 +3727,9 @@ class TestValidatePlan:
     def test_the_plan_sees_the_callers_arguments(self, server, monkeypatch):
         import dw.plan
 
-        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
         with server(success_script) as client:
             body = {"workflow": valid_workflow("v")}
             one = client.post("/api/validate?sizes=false", json=body).json()["plan"]
@@ -3830,7 +3838,11 @@ class TestAcknowledgementRecord:
     def test_history_keeps_the_form_and_the_object(self, server):
         with server(success_script) as client:
             manager = client.app.state.job_manager
-            bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": ["org/x"]}
+            bound = {
+                "fingerprint": "sha256:abc",
+                "minutes": 3.0,
+                "downloads": ["org/x"],
+            }
             job = manager.submit(
                 workflow=valid_workflow(),
                 arguments={},
@@ -3842,7 +3854,9 @@ class TestAcknowledgementRecord:
             assert row["acknowledged"] == "bound"
             assert row["acknowledged_cost"] == bound
             assert row["spec"]["acknowledged_cost"] == bound
-            listed = [s for s in manager.history.recent_summaries() if s["id"] == job.id]
+            listed = [
+                s for s in manager.history.recent_summaries() if s["id"] == job.id
+            ]
             assert listed[0]["acknowledged"] == "bound"
 
     def test_a_database_without_the_column_is_migrated(self, tmp_path):
@@ -3980,14 +3994,19 @@ class TestBoundAcknowledgement:
             acknowledgement["downloads"] = []  # the caller left the repo out
             response = client.post(
                 "/api/jobs",
-                json={"workflow": list_workflow(), "acknowledged_cost": acknowledgement},
+                json={
+                    "workflow": list_workflow(),
+                    "acknowledged_cost": acknowledgement,
+                },
             )
             assert response.status_code == 409
             detail = response.json()["detail"]
             assert detail["reason"] == "downloads"
             assert "m" in detail["message"]
 
-    def test_a_download_that_vanished_is_not_a_refusal(self, server, no_hub, monkeypatch):
+    def test_a_download_that_vanished_is_not_a_refusal(
+        self, server, no_hub, monkeypatch
+    ):
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
             assert bound(plan)["downloads"] == ["m"]
@@ -4004,7 +4023,9 @@ class TestBoundAcknowledgement:
             )
             assert response.status_code == 201
 
-    def test_an_unplannable_run_is_refused_not_passed(self, server, no_hub, monkeypatch):
+    def test_an_unplannable_run_is_refused_not_passed(
+        self, server, no_hub, monkeypatch
+    ):
         import dw.server.app as app_module
 
         with server(success_script) as client:
@@ -4080,7 +4101,10 @@ class TestBoundAcknowledgement:
         with server(success_script) as client:
             response = client.post(
                 "/api/jobs",
-                json={"workflow": valid_workflow(), "acknowledged_cost": {"minutes": 3}},
+                json={
+                    "workflow": valid_workflow(),
+                    "acknowledged_cost": {"minutes": 3},
+                },
             )
             assert response.status_code == 422
 
@@ -4094,7 +4118,8 @@ class TestBoundAcknowledgement:
             plan = plan_for(client, workflow)
             (tmp_path / "prompts" / "p.json").write_text(json.dumps({"text": "after"}))
             response = client.post(
-                "/api/jobs", json={"workflow": workflow, "acknowledged_cost": bound(plan)}
+                "/api/jobs",
+                json={"workflow": workflow, "acknowledged_cost": bound(plan)},
             )
             assert response.status_code == 409
             assert response.json()["detail"]["reason"] == "fingerprint"
@@ -4124,7 +4149,8 @@ class TestBoundRerun:
             wait_for_status(client, first["id"], TERMINAL_STATES)
             other = plan_for(client, valid_workflow("other"))
             response = client.post(
-                f"/api/jobs/{first['id']}/rerun", json={"acknowledged_cost": bound(other)}
+                f"/api/jobs/{first['id']}/rerun",
+                json={"acknowledged_cost": bound(other)},
             )
             assert response.status_code == 409
             assert response.json()["detail"]["reason"] == "fingerprint"

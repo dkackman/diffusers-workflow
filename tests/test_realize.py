@@ -248,12 +248,10 @@ class TestUnpinnedOutputs:
     def test_pin_outputs_false_leaves_latest_as_written(self, output_root):
         root, _ = output_root
         spec = definition()
-        spec["steps"][0]["pipeline"]["arguments"]["image"] = (
-            "output:ltx2/Gyre/latest/still.png"
-        )
-        realized, _ = realize_workflow(
-            spec, {}, 7, output_root=root, pin_outputs=False
-        )
+        spec["steps"][0]["pipeline"]["arguments"][
+            "image"
+        ] = "output:ltx2/Gyre/latest/still.png"
+        realized, _ = realize_workflow(spec, {}, 7, output_root=root, pin_outputs=False)
         assert (
             realized["steps"][0]["pipeline"]["arguments"]["image"]
             == "output:ltx2/Gyre/latest/still.png"
@@ -271,9 +269,9 @@ class TestUnpinnedOutputs:
     def test_the_default_still_pins(self, output_root):
         root, run_id = output_root
         spec = definition()
-        spec["steps"][0]["pipeline"]["arguments"]["image"] = (
-            "output:ltx2/Gyre/latest/still.png"
-        )
+        spec["steps"][0]["pipeline"]["arguments"][
+            "image"
+        ] = "output:ltx2/Gyre/latest/still.png"
         realized, _ = realize_workflow(spec, {}, 7, output_root=root)
         assert (
             realized["steps"][0]["pipeline"]["arguments"]["image"]

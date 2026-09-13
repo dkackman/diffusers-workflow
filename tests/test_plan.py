@@ -411,9 +411,7 @@ class TestDownloadsRequired:
         }
         assert plan(spec)["downloads_required"] == []
 
-    def test_components_and_children_are_scanned_and_deduplicated(
-        self, plan, tmp_path
-    ):
+    def test_components_and_children_are_scanned_and_deduplicated(self, plan, tmp_path):
         spec = definition()
         spec["steps"][0]["pipeline"]["components"] = {
             "vae": {"from_pretrained_arguments": {"model_name": "org/vae"}}

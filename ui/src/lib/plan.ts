@@ -44,7 +44,10 @@ export function describePlan(plan: Plan): PlanLine[] {
     return entry.gb === null ? name : `${name} (${entry.gb} GB)`
   })
   if (downloads.length) {
-    lines.push({ text: `needs download: ${downloads.join(', ')}`, tone: 'warn' })
+    lines.push({
+      text: `needs download: ${downloads.join(', ')}`,
+      tone: 'warn',
+    })
   }
 
   return lines

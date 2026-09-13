@@ -813,7 +813,9 @@ class JobManager:
         }
         return spec, historical["arguments"]
 
-    def rerun(self, job_id, new_seed=False, acknowledged=ACK_NONE, acknowledged_cost=None):
+    def rerun(
+        self, job_id, new_seed=False, acknowledged=ACK_NONE, acknowledged_cost=None
+    ):
         """Queue a fresh job from a previous job's spec.
 
         Every root the original ran against (workflow_dir/output_dir/
