@@ -697,8 +697,11 @@ class TestSubfolders:
         }
         Workflow(parent, str(tmp_path / "out"), str(tree / "Parent.json")).run({})
         (run,) = (tmp_path / "out" / "Parent").iterdir()
-        assert (run / "runs_test-gen0.0-0.0.png").is_file()
-        assert not (run / "final" / "runs_test-gen0.0-0.0.png").exists()
+        # The parent step's name leads a composed child's file names, so two
+        # steps composing one workflow are told apart by the step that made
+        # them rather than by a '-2' suffix (#92)
+        assert (run / "child.runs_test-gen0.0-0.0.png").is_file()
+        assert not (run / "final" / "child.runs_test-gen0.0-0.0.png").exists()
 
     def test_a_chain_spill_lands_in_the_steps_subfolder(self, tmp_path, fake_pipeline):
         # save_segments writes through the pipeline wrapper's output_dir,

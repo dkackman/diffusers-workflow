@@ -292,10 +292,15 @@ def set_workspace(workspace):
 # DW_PROMPT_DIR and DW_ASSET_DIR
 PROMPT_PATH_ENV_VAR = "DW_PROMPT_PATH"
 ASSET_PATH_ENV_VAR = "DW_ASSET_PATH"
+# The same idea for workflows, which a sub-workflow step names: a stored
+# template lives in an examples tree the workspace's own workflows/ cannot
+# reach, so composing one used to mean copying it in (#90)
+WORKFLOW_PATH_ENV_VAR = "DW_WORKFLOW_PATH"
 
 LIBRARY_PATH_ENV_VARS = {
     PROMPTS_SUBDIR: PROMPT_PATH_ENV_VAR,
     ASSETS_SUBDIR: ASSET_PATH_ENV_VAR,
+    WORKFLOWS_SUBDIR: WORKFLOW_PATH_ENV_VAR,
 }
 
 
