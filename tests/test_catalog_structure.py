@@ -498,6 +498,7 @@ def test_every_readme_link_resolves(path):
 COSTED = {
     "workflows/templates/minimax/music-video.json": 35,
     "workflows/templates/minimax/dialogue-short.json": 42,
+    "workflows/templates/minimax/composable-references.json": 27.4,
     "workflows/templates/assemble-and-score.json": 0.2,
     "workflows/templates/dissolve-between-shots.json": 0.2,
 }
@@ -505,8 +506,11 @@ COSTED = {
 
 @pytest.mark.parametrize("path,minutes", sorted(COSTED.items()))
 def test_the_cut_templates_quote_a_measured_cost(path, minutes):
-    """Measured on an RTX 3090, 2026-09-10; without a figure an agent
-    cannot quote a price before spending 40 minutes of GPU."""
+    """Measured on an RTX 3090 (the cut templates 2026-09-10,
+    composable-references 2026-09-13); without a figure an agent cannot
+    quote a price before spending 40 minutes of GPU. A video reference is
+    the expensive one - the same 124-frame shot is 7.8 min with an image
+    reference alone and 27.4 with a video reference beside it."""
     definition = json.load(open(os.path.join(REPO_ROOT, path), encoding="utf-8"))
     entry = definition["cost"][0]
     assert entry["name"] == "RTX 3090"

@@ -624,6 +624,22 @@ async def test_wait_for_job_names_the_cap_it_applies():
 
 
 @pytest.mark.asyncio
+async def test_wait_for_job_scales_the_lead_in_to_the_references():
+    """#95: the description is the documented way to tell a slow run from a
+    hung one, and a consumer following its ~90 s figure would have been
+    entitled to cancel a healthy video-reference run at the 3 minute mark -
+    that lead-in measured 629 s. It has to name the video reference and its
+    own order of magnitude, and say that the denoise steps are uneven once
+    they start, or the silence between them reads as a stall too."""
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["wait_for_job"].description
+    assert "video" in description
+    assert "90 s" in description and "10 min" in description
+    assert "140 s" in description
+
+
+@pytest.mark.asyncio
 async def test_export_job_warns_the_copy_costs_disk_and_names_total_bytes():
     tools = await tools_of(server_over(ok({})))
 

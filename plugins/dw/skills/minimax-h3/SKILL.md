@@ -23,8 +23,8 @@ not from here.
 ## Which shape is the request
 
 - **One clip, up to 14.4 seconds, from text**: `templates/minimax/video-with-audio`.
-  From a one-line idea: `templates/minimax/enhance-prompt` writes the prompt
-  with the built-in Context-IR enhancer first.
+  From a one-line idea: `templates/minimax/enhance-prompt` writes it with the
+  built-in Context-IR enhancer first.
 - **Pinned to a picture**: first frame `templates/minimax/image-to-video`;
   first and last `templates/minimax/first-and-last-frame`; last only
   `templates/minimax/last-frame-only`; a one-line idea plus a picture
@@ -32,14 +32,15 @@ not from here.
 - **A subject that must look the same**: `templates/minimax/reference-to-video`
   (an image fixes appearance, an audio clip fixes voice);
   `templates/minimax/composable-references` adds a video reference for framing
-  and camera; `templates/minimax/generated-subject-reference` draws the subject
+  and camera, at about 3.4x the cost;
+  `templates/minimax/generated-subject-reference` draws the subject
   with Z-Image first and references it in the same workflow;
   `templates/minimax/voice-timbre-reference` fixes a voice from a Bark-spoken line.
 - **Several boards in one generation, one unbroken score**:
   `templates/minimax/storyboard` - H3 cuts between the boards inside a single
   generation, which no concat of separate clips can match for continuous audio.
-  It is one beat with fixed cut points, not a building block: four of them
-  concatenated give twelve equal-length shots and a cast redrawn four times.
+  It is one beat with fixed cut points, not a building block: four
+  concatenated give twelve equal shots and a cast redrawn four times.
   Past one beat with a recurring cast, use the cuts pattern below.
 - **Longer than 14.4 seconds**: decide first whether the seam is a cut or a
   continuation. Chain when the same action or line of speech has to cross the
@@ -78,8 +79,8 @@ not from here.
   drifts. Each entry's `num_frames` is its own, so pace the cut. The
   reference carries delivery as well as timbre: a flat read gives a flat
   performance. Bark's presets are conversational; for a narrator with
-  gravitas, `upload_asset` a recorded read in that register and reference
-  the same file in every shot.
+  gravitas, `upload_asset` a read in that register and reference it in
+  every shot.
 - **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3` skill.
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and
@@ -88,9 +89,9 @@ read the `workflows` guide's authoring section first.
 ## Hard rules
 
 - `num_frames` is `17n + 5`, from 124 to 345, at a fixed 24 fps: 5.17 to 14.4
-  seconds in one clip. Most templates default to 124 for fast iteration (storyboard uses 192); `num_frames=345`
-  is the full length and fits the same 24 GB configuration. The 5-second floor
-  is diffusers'; the model card says 4.
+  seconds in one clip. Most default to 124 for fast iteration (storyboard 192);
+  `num_frames=345` is the full length and fits the same 24 GB configuration.
+  The 5-second floor is diffusers'; the model card says 4.
 - Canvas: a 768-pixel short edge, at most 768x1344 pixels, dimensions in multiples of 32,
   aspect from 1:4 to 4:1. Output audio is 32 kHz stereo.
 - The text- and frame-conditioned templates render at 960x544 with the 544p
@@ -100,8 +101,7 @@ read the `workflows` guide's authoring section first.
   `generated-subject-reference`, `chain-matched-to-audio`,
   `chain-video-continuity`) carry no LoRA and run 20 steps, because the turbo
   LoRA is distilled against the base transformer and they load the reference
-  one; such a run is about twice the time of a turbo one at the same length.
-  `storyboard`, `dialogue-short`, `music-video` and
+  one. `storyboard`, `dialogue-short`, `music-video` and
   `chain-matched-and-aligned` pass references *and* keep the turbo LoRA at
   nine steps; say nine for those, not 20.
 - Nothing carries between generations except what is passed as a reference:
@@ -112,14 +112,14 @@ read the `workflows` guide's authoring section first.
 - H3 is guidance-distilled: no `guidance_scale`, no negative prompt. Say what is
   there, never what is not.
 - When deriving a variant, keep `release_pipeline` on the step the template
-  puts it on: it frees the Z-Image boards before H3 loads. A run killed by
-  SIGKILL near the end, in a worker warm from a previous job, that succeeds
-  on a retry in a fresh worker is host memory, not the prompt.
+  puts it on: it frees the Z-Image boards before H3 loads. A run SIGKILLed near
+  the end in a warm worker that succeeds on a retry in a fresh one is host
+  memory, not the prompt.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in the order passed.
 - Music3 reads `audio_duration` as a ceiling, not a target: ask for more than
-  the song needs and trim with `templates/audio-trim-fade`. The `minimax-music3`
-  skill has the rest of that family.
+  the song needs and trim with `templates/audio-trim-fade`; the
+  `minimax-music3` skill has the rest.
 - Write the prompt for the length being generated: shot timestamps should span
   the duration, or a five-second script conditions a five-second story
   whatever the frame count.
@@ -130,8 +130,8 @@ H3 wants Context-IR, MiniMax's own format. Do not invent it and do not
 paraphrase it from examples:
 
 1. If the `h3-prompt-writing` skill is installed (MiniMax ships it in
-   https://github.com/MiniMax-AI/MiniMax-H3 under `skills/`), use it. If it
-   is not, tell the user once that
+   https://github.com/MiniMax-AI/MiniMax-H3 under `skills/`), use it. If not,
+   say once that
    `npx skills add MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing` installs
    it - only that skill; the repo's other eight are style packs - and go on
    without it.
@@ -157,14 +157,16 @@ inherits the portrait's composition.
 1. `validate_workflow` first - free, and it catches arguments the pipeline
    does not accept.
 2. Quote the listing's `cost` (warm minutes on the card it was measured on;
-   a first load is longer). When the listing declares none, say so and give the
-   shape of the spend instead: a 124-frame turbo clip is a few minutes on a
-   24 GB card, the full 345 frames about three times that, a
-   reference-conditioned clip about twice a turbo one, and a chain multiplies
-   by its segment count. Get the user's go-ahead before `run_workflow` with
-   `acknowledged_cost=true`.
+   a first load is longer). When it declares none, say so and give the shape
+   instead: a 124-frame turbo clip is a few minutes on a 24 GB card, 345
+   frames three times that, an image reference twice a turbo clip, a video
+   reference beside it 3.4x again, and a chain multiplies by its segments.
+   Get the user's go-ahead before `run_workflow` with `acknowledged_cost=true`.
 3. `wait_for_job`, then `get_job` for the manifest. A cancelled H3 job runs
-   on to its next step boundary, minutes on this model. Each entry carries
+   on to its next step boundary, minutes on this model. Silence is not a hang:
+   `denoise_step` is null through the reference encode (~90 s, ~10 min with a
+   video reference), and the block cache makes later steps uneven - two-minute
+   gaps are healthy. Each entry carries
    `subfolder`: `final` is the deliverable (`episode`, `music_video`,
    `voyage`), `intermediate` the scratch; keep that split in anything you
    compose.
@@ -183,13 +185,12 @@ inherits the portrait's composition.
    a voice-over without affect (the reference's delivery came through), every
    shot the same length, a look word repeated on every board (shallow depth
    of field) softening every shot.
-5. After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
-   so the next run is by name rather than by pasting JSON; `export_job` bundles
-   the run — workflow, manifest, job row and media — for git. The bundle is on
-   the server: fetch its zip URL and unpack it into `exports/` under the
-   session's working directory, never a temp directory, and do not make a
-   folder named after the job id first, since the archive already unpacks
-   into one.
+5. After an inline run worth keeping, `get_job_workflow` and `save_workflow`
+   it, so the next run is by name rather than pasted JSON; `export_job` bundles
+   the run — workflow, manifest, job row and media — for git. It is on the
+   server: fetch its zip URL and unpack it into `exports/` under the session's
+   working directory, never a temp directory; the archive already unpacks into
+   a job-id folder, so do not make one first.
 
 ## Sources
 

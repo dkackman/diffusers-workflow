@@ -370,9 +370,18 @@ one phase, so two polls otherwise come back identical: read `denoise_step`
 moving (slow but healthy) against a `denoise_step` that is a number and
 stays put while `seconds_since_event` climbs (nothing is happening). A null
 `denoise_step` under `generating` is neither - it is the lead-in the
-pipeline runs before the loop, encoding the prompt and any reference image
-or audio, ~90 s on MiniMax H3 with nothing emitted, so silence there is
-expected. `cancel_job` stops at the next denoise or
+pipeline runs before the loop, encoding the prompt and every reference, with
+nothing emitted, so silence there is expected. Its length follows what it
+encodes: ~90 s on MiniMax H3 for a prompt with an image or audio reference,
+~10 min once a *video* reference is among them (measured: 629 s for one 5 s
+960x544 clip on an RTX 3090). `get_job_events` names the block it is in
+while that runs - a `log` line per top-level block of a modular pipeline
+(`MiniMaxAI/MiniMax-H3: vae_encoder`), which is the difference between
+silence and knowing it is encoding the reference. And once the counter is a number the gaps
+between steps are uneven wherever a transformer block cache is configured -
+cheap cached steps, then a full one - so a 140 s gap on H3 is a healthy run;
+read liveness as the counter moving between polls minutes apart rather than
+as silence under a threshold. `cancel_job` stops at the next denoise or
 step boundary, which `denoise_step` is also the measure of.
 
 ## Security
