@@ -131,7 +131,8 @@ def test_the_subfolder_is_the_last_key_of_the_result(template):
 
 
 @pytest.mark.parametrize(
-    "builtin", sorted(name for name in os.listdir(BUILTIN_DIR) if name.endswith(".json"))
+    "builtin",
+    sorted(name for name in os.listdir(BUILTIN_DIR) if name.endswith(".json")),
 )
 def test_the_packaged_builtins_stay_unmarked(builtin):
     with open(os.path.join(BUILTIN_DIR, builtin), encoding="utf-8") as file:
@@ -141,7 +142,9 @@ def test_the_packaged_builtins_stay_unmarked(builtin):
         for step in definition.get("steps", [])
         if "subfolder" in (step.get("result") or {})
     ]
-    assert not marked, f"dw/workflows/{builtin} marks {marked}; a role is the parent's to assign"
+    assert not marked, (
+        f"dw/workflows/{builtin} marks {marked}; a role is the parent's to assign"
+    )
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -279,7 +282,9 @@ def test_the_h3_skill_names_the_intermediate_steps_the_templates_mark():
     must change with it."""
     text = skill_text(H3_SKILL)
     for name in ("dialogue-short", "music-video", "storyboard"):
-        path = os.path.join(REPO_ROOT, "workflows", "templates", "minimax", name + ".json")
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", name + ".json"
+        )
         with open(path, encoding="utf-8") as f:
             spec = json.load(f)
         finals = [
@@ -288,7 +293,9 @@ def test_the_h3_skill_names_the_intermediate_steps_the_templates_mark():
             if (step.get("result") or {}).get("subfolder") == "final"
         ]
         assert len(finals) == 1, (name, finals)
-        assert f"`{finals[0]}`" in text, f"the skill does not name {name}'s final step {finals[0]}"
+        assert f"`{finals[0]}`" in text, (
+            f"the skill does not name {name}'s final step {finals[0]}"
+        )
 ```
 
 - [ ] **Step 2: Run them to verify they fail**

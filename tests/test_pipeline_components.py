@@ -94,7 +94,9 @@ class TestFasterCacheWiring:
     def test_an_explicit_callback_is_left_alone(self):
         from diffusers import FasterCacheConfig
 
-        callback = lambda: 3
+        def callback():
+            return 3
+
         config = FasterCacheConfig(current_timestep_callback=callback)
 
         enable_cache_on_transformer(MagicMock(), config)

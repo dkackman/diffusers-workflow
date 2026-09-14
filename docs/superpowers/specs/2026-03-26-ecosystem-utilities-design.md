@@ -46,6 +46,7 @@ A new `segment` task command that takes an image + text prompt and returns a bin
 # In task.py
 from .segment import segment_image
 
+
 @register_command("segment")
 def _handle_segment(task, arguments, previous_pipelines):
     """Segment objects in an image using text prompt"""
@@ -159,6 +160,7 @@ A new `interpolate_frames` task that takes video frames and returns interpolated
 ```python
 # In task.py
 from .interpolate_frames import interpolate_frames
+
 
 @register_command("interpolate_frames")
 def _handle_interpolate_frames(task, arguments, previous_pipelines):

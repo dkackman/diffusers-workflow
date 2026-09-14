@@ -61,7 +61,9 @@ def configuration_keys_read_by_the_code():
             name = (
                 target.id
                 if isinstance(target, ast.Name)
-                else target.attr if isinstance(target, ast.Attribute) else None
+                else target.attr
+                if isinstance(target, ast.Attribute)
+                else None
             )
             if name not in ("configuration", "component_configuration"):
                 continue

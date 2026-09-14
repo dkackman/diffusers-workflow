@@ -590,9 +590,9 @@ async def test_optional_parameters_are_declared_nullable():
     for name, tool in tools.items():
         for parameter, schema in tool.input_schema["properties"].items():
             if schema.get("default", "missing") is None:
-                assert (
-                    "anyOf" in schema or schema.get("type") == "null"
-                ), f"{name}.{parameter} defaults to null but is not nullable"
+                assert "anyOf" in schema or schema.get("type") == "null", (
+                    f"{name}.{parameter} defaults to null but is not nullable"
+                )
 
 
 @pytest.mark.asyncio

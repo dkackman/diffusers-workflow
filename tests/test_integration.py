@@ -8,7 +8,6 @@ import os
 import json
 import tempfile
 from dw.workflow import Workflow, workflow_from_file
-from dw.result import Result
 
 
 @pytest.fixture

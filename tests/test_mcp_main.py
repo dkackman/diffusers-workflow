@@ -1,7 +1,5 @@
 """`dw-mcp` startup: what it refuses, what it checks, what it prints."""
 
-import json
-
 import httpx
 import pytest
 

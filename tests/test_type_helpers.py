@@ -6,7 +6,6 @@ Tests dynamic type loading and method checking
 import pytest
 from dw.type_helpers import (
     get_type,
-    load_type_from_name,
     load_type_from_full_name,
     has_method,
 )
@@ -18,7 +17,6 @@ class TestGetType:
     def test_get_type_from_diffusers(self):
         # This would work if diffusers is installed
         # For testing, we'll use a built-in type
-        import sys
 
         result = get_type("sys", "version")
         assert result is not None

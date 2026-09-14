@@ -53,8 +53,9 @@ class TestProcessVideo:
 
     def test_get_last_frame_ignores_a_frame_index(self, video):
         # get_last_frame computes its own index; a stray argument must not win
-        assert process_video(video, "get_last_frame", "cpu", {"frame_index": 0}) is (
-            video[3]
+        assert (
+            process_video(video, "get_last_frame", "cpu", {"frame_index": 0})
+            is (video[3])
         )
 
     @pytest.mark.parametrize("name", ["GET_LAST_FRAME", "Get_Last_Frame"])

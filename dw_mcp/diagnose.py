@@ -256,8 +256,7 @@ def wait_for_job(client, job_id, timeout_seconds=20):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             next_step = (
-                "Call wait_for_job again, or get_job_events for incremental "
-                "progress."
+                "Call wait_for_job again, or get_job_events for incremental progress."
             )
             if capped:
                 next_step = (

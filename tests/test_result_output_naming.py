@@ -1,5 +1,3 @@
-import os
-
 from dw.result import output_file_path
 
 

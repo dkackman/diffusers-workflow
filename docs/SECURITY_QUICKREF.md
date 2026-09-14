@@ -13,9 +13,16 @@ and [REMOTE.md](REMOTE.md).
 
 ```python
 from dw.security import (
-    validate_path, validate_workflow_path, validate_output_path,
-    validate_url, validate_variable_name, validate_string_input,
-    sanitize_command_args, SecurityError, PathTraversalError, InvalidInputError
+    validate_path,
+    validate_workflow_path,
+    validate_output_path,
+    validate_url,
+    validate_variable_name,
+    validate_string_input,
+    sanitize_command_args,
+    SecurityError,
+    PathTraversalError,
+    InvalidInputError,
 )
 ```
 
@@ -28,11 +35,11 @@ anything a workflow names:
 
 ```python
 from dw.locations import (
-    validate_media_path,    # confined to the workflow dir / assets / outputs
-    validate_media_glob,    # the same, on a pattern's fixed prefix
-    contained_matches,      # each match re-checked on its real path
-    validate_media_url,     # no loopback / link-local / private host
-    validate_model_name,    # a Hub repo id, or a contained path
+    validate_media_path,  # confined to the workflow dir / assets / outputs
+    validate_media_glob,  # the same, on a pattern's fixed prefix
+    contained_matches,  # each match re-checked on its real path
+    validate_media_url,  # no loopback / link-local / private host
+    validate_model_name,  # a Hub repo id, or a contained path
 )
 ```
 
@@ -49,13 +56,14 @@ workflow_path = validate_workflow_path("workflow.json")
 output_path = validate_output_path(user_path, base_output_dir)
 
 # User input
-var_name = validate_variable_name("prompt")          # OK
-var_name = validate_variable_name("bad;name")        # raises InvalidInputError
+var_name = validate_variable_name("prompt")  # OK
+var_name = validate_variable_name("bad;name")  # raises InvalidInputError
 value = validate_string_input(user_input, max_length=1000)
-url = validate_url(user_url)                         # http/https only
+url = validate_url(user_url)  # http/https only
 
 # Subprocess (dw/ doesn't currently shell out anywhere - pattern for if/when it does)
 import subprocess
+
 cmd = sanitize_command_args(["python", "-m", "dw.run", validated_path])
 subprocess.Popen(cmd, shell=False)
 ```

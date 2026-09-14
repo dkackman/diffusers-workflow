@@ -112,9 +112,7 @@ class DyingWorkerManager(ScriptedWorkerManager):
     """A worker killed by a signal: it sends nothing, and get_result raises
     the way the real WorkerManager's liveness poll does."""
 
-    def __init__(
-        self, detail="killed by SIGKILL (typically the " "out-of-memory killer)"
-    ):
+    def __init__(self, detail="killed by SIGKILL (typically the out-of-memory killer)"):
         super().__init__(script=lambda command: [])
         self.detail = detail
         self.crashed = False
@@ -514,9 +512,9 @@ def test_validate_accepts_a_stored_workflow_name(server, tmp_path):
 
         # the stored file is what gets checked, warnings and all
         typo = valid_workflow("typo")
-        typo["steps"][0]["pipeline"]["configuration"][
-            "component_type"
-        ] = "ZImagePipeline"
+        typo["steps"][0]["pipeline"]["configuration"]["component_type"] = (
+            "ZImagePipeline"
+        )
         typo["steps"][0]["pipeline"]["arguments"]["guidance_scael"] = 3
         (tmp_path / "workflows" / "Typo.json").write_text(json.dumps(typo))
 
@@ -863,9 +861,9 @@ def test_introspection_endpoints(server):
 def test_validate_endpoint_flags_signature_typos(server):
     with server(success_script) as client:
         workflow = valid_workflow()
-        workflow["steps"][0]["pipeline"]["configuration"][
-            "component_type"
-        ] = "ZImagePipeline"
+        workflow["steps"][0]["pipeline"]["configuration"]["component_type"] = (
+            "ZImagePipeline"
+        )
         workflow["steps"][0]["pipeline"]["arguments"]["guidance_scael"] = 3
 
         result = client.post("/api/validate", json={"workflow": workflow}).json()
@@ -897,9 +895,9 @@ def test_validate_explains_why_an_unseeded_workflow_caches_nothing(server):
 def test_submission_carries_argument_warnings(server):
     with server(success_script) as client:
         workflow = valid_workflow()
-        workflow["steps"][0]["pipeline"]["configuration"][
-            "component_type"
-        ] = "ZImagePipeline"
+        workflow["steps"][0]["pipeline"]["configuration"]["component_type"] = (
+            "ZImagePipeline"
+        )
         workflow["steps"][0]["pipeline"]["arguments"]["guidance_scael"] = 3
         job = client.post("/api/jobs", json={"workflow": workflow}).json()
         assert any("guidance_scael" in w for w in job["warnings"])

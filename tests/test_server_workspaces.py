@@ -2,7 +2,6 @@
 root, each with its own workflows, assets and outputs, all sharing the one
 prompt library."""
 
-import json
 import os
 
 import pytest

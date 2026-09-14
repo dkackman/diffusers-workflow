@@ -58,9 +58,7 @@ class TestUnpinnedOutputs:
         spec["steps"][0]["pipeline"]["arguments"]["image"] = (
             "output:ltx2/Gyre/latest/still.png"
         )
-        realized, _ = realize_workflow(
-            spec, {}, 7, output_root=root, pin_outputs=False
-        )
+        realized, _ = realize_workflow(spec, {}, 7, output_root=root, pin_outputs=False)
         assert (
             realized["steps"][0]["pipeline"]["arguments"]["image"]
             == "output:ltx2/Gyre/latest/still.png"
@@ -225,14 +223,14 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ```python
 def build_plan(
-    candidate,            # a dw.workflow.Workflow, as the route constructed it
-    arguments,            # the caller's dict, already past argument_errors
+    candidate,  # a dw.workflow.Workflow, as the route constructed it
+    arguments,  # the caller's dict, already past argument_errors
     *,
-    device,               # "cuda" | "mps" | "cpu" - the serving backend
+    device,  # "cuda" | "mps" | "cpu" - the serving backend
     prompt_dir=None,
     cache_dir=None,
     lookup_sizes=True,
-    cache_probe=None,     # stage 2; ignored here, cached_steps is always None
+    cache_probe=None,  # stage 2; ignored here, cached_steps is always None
 ):
     """What a run of `candidate` with `arguments` will execute and cost."""
 ```
@@ -245,8 +243,8 @@ returning
     "steps": int,
     "list_entries": {variable: int},
     "cached_steps": None,
-    "downloads_required": [...],   # Task 4; [] until then
-    "estimate": {...},             # Task 3; placeholder until then
+    "downloads_required": [...],  # Task 4; [] until then
+    "estimate": {...},  # Task 3; placeholder until then
 }
 ```
 
@@ -312,7 +310,9 @@ def definition():
 def prompt_library(tmp_path):
     library = tmp_path / "prompts"
     (library / "scenic").mkdir(parents=True)
-    (library / "scenic" / "dusk.json").write_text(json.dumps({"text": "a harbour at dusk"}))
+    (library / "scenic" / "dusk.json").write_text(
+        json.dumps({"text": "a harbour at dusk"})
+    )
     return library
 
 
@@ -333,7 +333,9 @@ def plan(tmp_path, prompt_library, output_root, monkeypatch):
 
     monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
     monkeypatch.setattr(
-        dw.plan, "model_info", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("offline"))
+        dw.plan,
+        "model_info",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("offline")),
     )
 
     def make(spec=None, arguments=None, **overrides):
@@ -352,8 +354,12 @@ class TestShape:
     def test_the_documented_keys(self, plan):
         answer = plan()
         assert set(answer) == {
-            "fingerprint", "steps", "list_entries", "cached_steps",
-            "downloads_required", "estimate",
+            "fingerprint",
+            "steps",
+            "list_entries",
+            "cached_steps",
+            "downloads_required",
+            "estimate",
         }
         assert answer["fingerprint"].startswith("sha256:")
         assert len(answer["fingerprint"]) == len("sha256:") + 64
@@ -443,9 +449,20 @@ class TestFingerprintChangesWith:
         removed = definition()
         del removed["steps"][1]
         added = definition()
-        added["steps"].append({"name": "extra", "task": {"command": "x", "arguments": {}}})
-        assert len({base, plan(renamed)["fingerprint"], plan(removed)["fingerprint"],
-                    plan(added)["fingerprint"]}) == 4
+        added["steps"].append(
+            {"name": "extra", "task": {"command": "x", "arguments": {}}}
+        )
+        assert (
+            len(
+                {
+                    base,
+                    plan(renamed)["fingerprint"],
+                    plan(removed)["fingerprint"],
+                    plan(added)["fingerprint"],
+                }
+            )
+            == 4
+        )
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -479,7 +496,12 @@ import os
 from huggingface_hub import model_info
 
 from .hub_cache import scan_models
-from .realize import BUILTIN_PREFIX, VARIABLE_PREFIX, read_sub_workflow, realize_workflow
+from .realize import (
+    BUILTIN_PREFIX,
+    VARIABLE_PREFIX,
+    read_sub_workflow,
+    realize_workflow,
+)
 from .security import validate_url
 from .workflow import Workflow
 
@@ -643,8 +665,11 @@ class TestEstimate:
         spec = definition()
         del spec["cost"]
         assert plan(spec)["estimate"] == {
-            "minutes": None, "basis": "unknown", "device": "cuda",
-            "measured_on": None, "partial": False,
+            "minutes": None,
+            "basis": "unknown",
+            "device": "cuda",
+            "measured_on": None,
+            "partial": False,
         }
 
     def test_an_empty_cost_list_is_unknown(self, plan):
@@ -656,22 +681,30 @@ class TestEstimate:
         spec = definition()
         spec["cost"] = [cost("mps", 40, name="M2"), cost("cuda", 10, name="4090")]
         assert plan(spec)["estimate"] == {
-            "minutes": 10.0, "basis": "catalog", "device": "cuda",
-            "measured_on": "4090", "partial": False,
+            "minutes": 10.0,
+            "basis": "catalog",
+            "device": "cuda",
+            "measured_on": "4090",
+            "partial": False,
         }
 
     def test_another_devices_entry_is_reported_as_such(self, plan):
         spec = definition()
         spec["cost"] = [cost("mps", 40, name="M2")]
         assert plan(spec)["estimate"] == {
-            "minutes": 40.0, "basis": "other_device", "device": "cuda",
-            "measured_on": "M2", "partial": False,
+            "minutes": 40.0,
+            "basis": "other_device",
+            "device": "cuda",
+            "measured_on": "M2",
+            "partial": False,
         }
 
     def test_per_entry_scales_by_the_callers_list(self, plan):
         spec = definition()
         # 10 minutes for the 2-entry default, of which 3 per entry: 4 fixed
-        spec["cost"] = [cost("cuda", 10, {"variable": "shots", "minutes": 3, "entries": 2})]
+        spec["cost"] = [
+            cost("cuda", 10, {"variable": "shots", "minutes": 3, "entries": 2})
+        ]
         shots = [{"name": n, "prompt": n} for n in "abcde"]
         answer = plan(spec, arguments={"shots": shots})["estimate"]
         assert answer["minutes"] == 4 + 3 * 5
@@ -679,18 +712,24 @@ class TestEstimate:
 
     def test_per_entry_floors_at_zero(self, plan):
         spec = definition()
-        spec["cost"] = [cost("cuda", 1, {"variable": "shots", "minutes": 3, "entries": 2})]
+        spec["cost"] = [
+            cost("cuda", 1, {"variable": "shots", "minutes": 3, "entries": 2})
+        ]
         assert plan(spec)["estimate"]["minutes"] == 0.0
 
     def test_per_entry_naming_no_list_falls_back_to_catalog(self, plan):
         spec = definition()
-        spec["cost"] = [cost("cuda", 10, {"variable": "other", "minutes": 3, "entries": 2})]
+        spec["cost"] = [
+            cost("cuda", 10, {"variable": "other", "minutes": 3, "entries": 2})
+        ]
         answer = plan(spec)["estimate"]
         assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
 
     def test_other_device_beats_per_entry(self, plan):
         spec = definition()
-        spec["cost"] = [cost("mps", 10, {"variable": "shots", "minutes": 3, "entries": 2})]
+        spec["cost"] = [
+            cost("mps", 10, {"variable": "shots", "minutes": 3, "entries": 2})
+        ]
         answer = plan(spec)["estimate"]
         assert (answer["minutes"], answer["basis"]) == (10.0, "other_device")
 
@@ -820,7 +859,11 @@ def _price(cost, device, list_entries):
         basis = OTHER_DEVICE
     minutes = float(chosen.get("minutes", 0))
     per = chosen.get("per_entry")
-    if basis == CATALOG and isinstance(per, dict) and per.get("variable") in list_entries:
+    if (
+        basis == CATALOG
+        and isinstance(per, dict)
+        and per.get("variable") in list_entries
+    ):
         count = list_entries[per["variable"]]
         each = float(per.get("minutes", 0))
         measured_with = int(per.get("entries", 0))
@@ -868,7 +911,8 @@ class TestDownloadsRequired:
         import dw.plan
 
         monkeypatch.setattr(
-            dw.plan, "scan_models",
+            dw.plan,
+            "scan_models",
             lambda cache_dir=None: {"repos": [{"repo_id": "org/still-model"}]},
         )
         assert plan()["downloads_required"] == []
@@ -878,7 +922,9 @@ class TestDownloadsRequired:
 
         seen = []
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: seen.append(cache_dir) or {"repos": []}
+            dw.plan,
+            "scan_models",
+            lambda cache_dir=None: seen.append(cache_dir) or {"repos": []},
         )
         plan(cache_dir="/somewhere")
         assert seen == ["/somewhere"]
@@ -887,7 +933,9 @@ class TestDownloadsRequired:
         local = tmp_path / "weights"
         local.mkdir()
         spec = definition()
-        spec["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = str(local)
+        spec["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = str(
+            local
+        )
         assert plan(spec)["downloads_required"] == []
 
     def test_a_single_file_url_is_listed_without_a_size(self, plan):
@@ -913,16 +961,24 @@ class TestDownloadsRequired:
         }
         child = {
             "id": "child",
-            "steps": [{"name": "c", "pipeline": {
-                "configuration": {"component_type": "{Fake}"},
-                "from_pretrained_arguments": {"model_name": "org/still-model"},
-                "arguments": {},
-            }}],
+            "steps": [
+                {
+                    "name": "c",
+                    "pipeline": {
+                        "configuration": {"component_type": "{Fake}"},
+                        "from_pretrained_arguments": {"model_name": "org/still-model"},
+                        "arguments": {},
+                    },
+                }
+            ],
         }
         (tmp_path / "child.json").write_text(json.dumps(child))
-        spec["steps"].append({"name": "sub", "workflow": {"path": "child.json", "arguments": {}}})
+        spec["steps"].append(
+            {"name": "sub", "workflow": {"path": "child.json", "arguments": {}}}
+        )
         assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
-            "org/still-model", "org/vae",
+            "org/still-model",
+            "org/vae",
         ]
 
     def test_sizes_come_from_the_hub_in_gib(self, plan, monkeypatch):
@@ -1101,7 +1157,9 @@ class TestValidatePlan:
     def test_a_valid_answer_carries_a_plan(self, server, monkeypatch):
         import dw.plan
 
-        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
         with server(success_script) as client:
             result = client.post(
                 "/api/validate?sizes=false",
@@ -1110,8 +1168,12 @@ class TestValidatePlan:
         assert result["valid"] is True
         plan = result["plan"]
         assert set(plan) == {
-            "fingerprint", "steps", "list_entries", "cached_steps",
-            "downloads_required", "estimate",
+            "fingerprint",
+            "steps",
+            "list_entries",
+            "cached_steps",
+            "downloads_required",
+            "estimate",
         }
         assert plan["steps"] == 1
         assert plan["estimate"]["basis"] in {"catalog", "other_device"}
@@ -1147,19 +1209,29 @@ class TestValidatePlan:
 
         def spy(candidate, arguments, **kwargs):
             seen.append(kwargs["lookup_sizes"])
-            return {"fingerprint": "sha256:0", "steps": 0, "list_entries": {},
-                    "cached_steps": None, "downloads_required": [], "estimate": None}
+            return {
+                "fingerprint": "sha256:0",
+                "steps": 0,
+                "list_entries": {},
+                "cached_steps": None,
+                "downloads_required": [],
+                "estimate": None,
+            }
 
         monkeypatch.setattr(app_module, "build_plan", spy)
         with server(success_script) as client:
             client.post("/api/validate", json={"workflow": valid_workflow("v")})
-            client.post("/api/validate?sizes=false", json={"workflow": valid_workflow("v")})
+            client.post(
+                "/api/validate?sizes=false", json={"workflow": valid_workflow("v")}
+            )
         assert seen == [True, False]
 
     def test_the_plan_sees_the_callers_arguments(self, server, monkeypatch):
         import dw.plan
 
-        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
         with server(success_script) as client:
             body = {"workflow": valid_workflow("v")}
             one = client.post("/api/validate?sizes=false", json=body).json()["plan"]

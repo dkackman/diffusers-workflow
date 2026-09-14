@@ -38,8 +38,9 @@ that workflow and can export one job as a git-ready directory and a zip.
 New `dw/realize.py`:
 
 ```python
-def realize_workflow(definition, arguments, seed, base_dir=None,
-                     prompt_dir=None, output_root=None):
+def realize_workflow(
+    definition, arguments, seed, base_dir=None, prompt_dir=None, output_root=None
+):
     """A copy of `definition` with every mutable input pinned.
     Returns (realized, annotations)."""
 ```
@@ -77,8 +78,12 @@ In `Workflow.run`, immediately after the run directory is chosen
 
 ```python
 realized, annotations = realize_workflow(
-    self.workflow_definition, arguments, resolved_seed,
-    base_dir=self.base_dir, output_root=self.output_dir)
+    self.workflow_definition,
+    arguments,
+    resolved_seed,
+    base_dir=self.base_dir,
+    output_root=self.output_dir,
+)
 write_realized_workflow(self._run_dir, realized)
 ```
 

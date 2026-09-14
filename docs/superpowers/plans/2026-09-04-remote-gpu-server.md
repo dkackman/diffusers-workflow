@@ -364,7 +364,12 @@ def no_stdio(monkeypatch):
 def healthy(request):
     return httpx.Response(
         200,
-        json={"status": "ok", "hostname": "gpu-box", "version": "1.2.3", "device": "cuda"},
+        json={
+            "status": "ok",
+            "hostname": "gpu-box",
+            "version": "1.2.3",
+            "device": "cuda",
+        },
     )
 
 
@@ -434,7 +439,9 @@ def test_a_successful_probe_prints_the_server_identity(no_stdio, capsys):
     seen = []
 
     def handler(request):
-        seen.append((request.method, request.url.path, request.headers.get("authorization")))
+        seen.append(
+            (request.method, request.url.path, request.headers.get("authorization"))
+        )
         return healthy(request)
 
     code = cli.main(
@@ -710,7 +717,9 @@ def test_mcp_is_not_mounted_by_default(tmp_path):
     app = make_app(tmp_path, mcp=False)
     with TestClient(app, base_url="http://localhost") as client:
         assert client.get("/api/health").json()["mcp"] is False
-        assert client.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS).status_code == 404
+        assert (
+            client.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS).status_code == 404
+        )
 
 
 def test_mcp_mount_answers_initialize(tmp_path):
@@ -726,12 +735,16 @@ def test_mcp_mount_answers_initialize(tmp_path):
 def test_mcp_mount_is_gated_by_the_bearer_token(tmp_path):
     app = make_app(tmp_path, token="s3cr3t")
     with TestClient(app, base_url="http://localhost") as client:
-        assert client.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS).status_code == 401
+        assert (
+            client.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS).status_code == 401
+        )
         wrong = {**MCP_HEADERS, "Authorization": "Bearer nope"}
         assert client.post("/mcp", json=INITIALIZE, headers=wrong).status_code == 401
         # never as a query parameter - that allowance is for <img>/<a> only
         assert (
-            client.post("/mcp?token=s3cr3t", json=INITIALIZE, headers=MCP_HEADERS).status_code
+            client.post(
+                "/mcp?token=s3cr3t", json=INITIALIZE, headers=MCP_HEADERS
+            ).status_code
             == 401
         )
         right = {**MCP_HEADERS, "Authorization": "Bearer s3cr3t"}
@@ -759,7 +772,9 @@ async def test_a_real_mcp_client_lists_every_tool_over_http(tmp_path):
             async with streamable_http_client(
                 "http://localhost/mcp", http_client=http
             ) as streams:
-                async with ClientSession(streams.read_stream, streams.write_stream) as session:
+                async with ClientSession(
+                    streams.read_stream, streams.write_stream
+                ) as session:
                     await session.initialize()
                     tools = await session.list_tools()
     assert {t.name for t in tools.tools} == EXPECTED_TOOLS

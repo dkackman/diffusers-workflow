@@ -38,13 +38,12 @@ def main():
     parser.add_argument(
         "--workflow-dir",
         default=None,
-        help="Directory of workflow JSON files (default: the workspace's "
-        "workflows/)",
+        help="Directory of workflow JSON files (default: the workspace's workflows/)",
     )
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Directory results are written to (default: the workspace's " "outputs/)",
+        help="Directory results are written to (default: the workspace's outputs/)",
     )
     parser.add_argument(
         "--prompt-dir",

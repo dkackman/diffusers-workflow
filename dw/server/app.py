@@ -2108,8 +2108,6 @@ def create_app(
     # exactly once - the gallery had already drifted (.bmp, .mkv, .mov)
     from ..security import (
         ALLOWED_AUDIO_EXTENSIONS,
-        ALLOWED_IMAGE_EXTENSIONS,
-        ALLOWED_VIDEO_EXTENSIONS,
     )
 
     MEDIA_KINDS = {
@@ -2267,8 +2265,12 @@ def create_app(
                     folder, _run_id, subfolder = split_run_path(relative_name)
                 else:
                     folder, subfolder = directory, ""
-                yield relative_name, folder, subfolder, kind, os.path.join(
-                    current, name
+                yield (
+                    relative_name,
+                    folder,
+                    subfolder,
+                    kind,
+                    os.path.join(current, name),
                 )
 
     def _gallery_entries(root, ws):

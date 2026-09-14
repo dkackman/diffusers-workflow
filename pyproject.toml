@@ -95,7 +95,7 @@ dev = [
     "pytest-mock>=3.15.1",
     "pytest-asyncio>=1.4.0",
     "httpx>=0.28.1",
-    "black>=26.5.1",
+    "ruff>=0.15.0",
     "build",
     "mcp>=2.1.1",
 ]
@@ -111,8 +111,24 @@ dw-serve = "dw.serve:main"
 dw-test = "dw.test:main"
 dw-mcp = "dw_mcp.__main__:main"
 
-[tool.black]
-target-version = ["py310"]
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# Start conservative: pyflakes + pycodestyle only. Widen (e.g. add "I" for
+# import sorting) once the existing codebase is clean under those too.
+select = ["E", "F"]
+# The formatter already wraps code to the line length; E501 mostly flags
+# comments/strings/URLs that can't be split, so it's noise on top of that.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# These import a pytest fixture by name and reuse that name as a test
+# function's parameter (the idiomatic way to share a fixture across
+# modules) - pyflakes/ruff can't tell that from a genuine redefinition.
+"tests/test_jobs_listing.py" = ["F811"]
+"tests/test_server_downloads.py" = ["F811"]
+"tests/test_server_exports.py" = ["F811"]
 
 [tool.setuptools.packages.find]
 # tasks/, pipeline_processors/ and community_pipelines/ are namespace

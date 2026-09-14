@@ -76,7 +76,9 @@ class TestCacheHits:
             workflow.run({})
             probe = workflow.cache_hits({})
             workflow.run({})
-            reused = [entry["step"] for entry in workflow.manifest if entry.get("reused")]
+            reused = [
+                entry["step"] for entry in workflow.manifest if entry.get("reused")
+            ]
             assert probe == ["generate"]
             assert probe == reused
             assert call_count() == 1, "the probe executed nothing"
@@ -127,167 +129,166 @@ Expected: FAIL - `AttributeError: 'Workflow' object has no attribute 'cache_hits
 In `dw/workflow.py`, inside `class Workflow`, add two methods (place them just above `run`):
 
 ```python
-    def _prepare_definition(self, workflow_def, arguments, base_dir):
-        """The definition as a run works from it: constants realized,
-        arguments folded into the variables, list entries' own references
-        resolved, variable values realized (assets loaded), every
-        'variable:' substituted, every for_each expanded, and the seed read
-        and coerced. Returns (workflow_def, default_seed) - the seed is
-        None when the workflow names none, and the caller decides what
-        that means (run() draws one; cache_hits() reports no hits).
+def _prepare_definition(self, workflow_def, arguments, base_dir):
+    """The definition as a run works from it: constants realized,
+    arguments folded into the variables, list entries' own references
+    resolved, variable values realized (assets loaded), every
+    'variable:' substituted, every for_each expanded, and the seed read
+    and coerced. Returns (workflow_def, default_seed) - the seed is
+    None when the workflow names none, and the caller decides what
+    that means (run() draws one; cache_hits() reports no hits).
 
-        Shared by run() and cache_hits() so the probe prepares exactly what
-        the run prepares - the step cache keys on the realized step, and a
-        probe that prepared it differently would answer for a run that
-        never happens.
-        """
-        workflow_id = workflow_def["id"]
-        variables = workflow_def.get("variables", None)
-        if variables is not None:
-            logger.debug(f"Setting variables for workflow: {workflow_id}")
-            # a constant is the value a variable declares, so it resolves before
-            # anything is converted to the type of that declaration
-            realize_constants(variables)
-            # first set variable values base don the arguments passed to the workflow
-            # these may come form the command line or form a parent workflow
-            set_variables(arguments, variables)
-            # an entry of a list-valued variable may name another
-            # variable; resolve those before anything inside it is
-            # realized, so a reference type in an entry is a type name
-            variables = resolve_variable_values(variables)
-            # realize the variables, initialiting downloads of images etc
-            realize_args(variables, base_dir)
-            ## then replace any variable references in the workflow definition with the actual values
-            # replace_variables returns a new structure rather than mutating in
-            # place, so the result must be captured here
-            workflow_def = replace_variables(workflow_def, variables)
+    Shared by run() and cache_hits() so the probe prepares exactly what
+    the run prepares - the step cache keys on the realized step, and a
+    probe that prepared it differently would answer for a run that
+    never happens.
+    """
+    workflow_id = workflow_def["id"]
+    variables = workflow_def.get("variables", None)
+    if variables is not None:
+        logger.debug(f"Setting variables for workflow: {workflow_id}")
+        # a constant is the value a variable declares, so it resolves before
+        # anything is converted to the type of that declaration
+        realize_constants(variables)
+        # first set variable values base don the arguments passed to the workflow
+        # these may come form the command line or form a parent workflow
+        set_variables(arguments, variables)
+        # an entry of a list-valued variable may name another
+        # variable; resolve those before anything inside it is
+        # realized, so a reference type in an entry is a type name
+        variables = resolve_variable_values(variables)
+        # realize the variables, initialiting downloads of images etc
+        realize_args(variables, base_dir)
+        ## then replace any variable references in the workflow definition with the actual values
+        # replace_variables returns a new structure rather than mutating in
+        # place, so the result must be captured here
+        workflow_def = replace_variables(workflow_def, variables)
 
-        # One ordinary step per entry of every for_each list, before the
-        # seed, the run id and the realized workflow are computed, so
-        # each covers what actually runs. A ForEachError here fails the
-        # run before anything loads
-        workflow_def = expand_for_each(workflow_def)
+    # One ordinary step per entry of every for_each list, before the
+    # seed, the run id and the realized workflow are computed, so
+    # each covers what actually runs. A ForEachError here fails the
+    # run before anything loads
+    workflow_def = expand_for_each(workflow_def)
 
-        # Set up random seed for reproducibility. Resolved lazily - as a
-        # dict.get default, torch.seed() would run on every call and reseed
-        # the global RNG even when the workflow names an explicit seed
-        default_seed = workflow_def.get("seed")
-        # The schema lets 'seed' be a string so it can hold a 'variable:'
-        # reference, which the substitution above has already resolved -
-        # but a variable overridden from the command line arrives as a
-        # string whenever the workflow declared no integer default to
-        # coerce against, and manual_seed would fail deep inside the run
-        if isinstance(default_seed, str):
-            try:
-                default_seed = int(default_seed)
-            except ValueError:
-                raise ValueError(
-                    f"Workflow {workflow_id} seed must be an integer, "
-                    f"got {default_seed!r}"
-                )
-            workflow_def["seed"] = default_seed
-        return workflow_def, default_seed
-
-    def _cache_lookup(
-        self, workflow_id, steps, index, step_data, step_seed, hits_this_run, cache_enabled
-    ):
-        """Whether the step cache serves step `index`, as
-        (cached_result or None, the step_data snapshot the entry is keyed
-        on or None). Shared by run() and cache_hits() - see
-        _prepare_definition for why.
-        """
-        # What later steps still read, which decides both whether this
-        # step's result has to be kept alive after the step and whether a
-        # cached entry that kept none can serve this run
-        remaining_refs = referenced_result_names(steps[index + 1 :])
-        result_needed = index == len(steps) - 1 or any(
-            reference_resolves_to(ref, step_data["name"]) for ref in remaining_refs
-        )
-        # create_step_action (and the pipeline load it triggers) mutates
-        # step_data in place - injecting a "generator" key - so the cache
-        # must key off a snapshot taken before that happens, and that same
-        # snapshot must be reused for the put() later. A sub-workflow step
-        # is never cacheable: its files roll up from the child's own
-        # manifest, which a hit does not rebuild.
-        is_cacheable = "workflow" not in step_data and cache_enabled
-        # The last step of a composed child whose parent does the saving
-        # (#92) - its files are the parent step's, written once, under the
-        # parent's name and subfolder
-        parent_saves_this = self._final_save_owned_by_parent and index == len(steps) - 1
-        step_data_snapshot = None
-        if is_cacheable:
-            try:
-                step_data_snapshot = copy.deepcopy(step_data)
-                if parent_saves_this:
-                    # Keyed apart from the same step run standalone: this
-                    # entry's result was never saved here, so a standalone
-                    # hit on it would report no files
-                    step_data_snapshot["__saved_by_parent__"] = True
-            except Exception as ex:
-                # A realized argument that cannot be deep-copied (an open
-                # handle, a live model object) just means this step is not
-                # cacheable - never a failed run
-                logger.debug(
-                    f"Step '{step_data['name']}' arguments are not copyable "
-                    f"({ex}) - skipping the step cache for it"
-                )
-                is_cacheable = False
-        if not is_cacheable:
-            return None, None
-        cached_result = step_cache.get(
-            workflow_id,
-            step_data_snapshot,
-            step_seed,
-            hits_this_run,
-            # The root, not this run's directory: a hit reports the earlier
-            # run's files and writes nothing new, so keying on a directory
-            # that is new every run would mean the cache could never hit
-            # again. What the root still guards is a run redirected
-            # somewhere else, where the earlier files are not what the
-            # caller asked for
-            self.output_dir,
-            needs_result=result_needed,
-        )
-        return cached_result, step_data_snapshot
-
-    def cache_hits(self, arguments):
-        """The steps the step cache would serve for a run with `arguments`,
-        in step order - what the plan reports as cached_steps (#85).
-
-        Prepares the definition exactly as run() does and asks the cache the
-        question run() asks, step by step with the hits so far, and executes
-        nothing: no run directory, no events, no pipeline. An unseeded
-        workflow has no cache, so it answers [] without asking.
-        """
-        output_root_token = activate_output_root(self.output_dir)
+    # Set up random seed for reproducibility. Resolved lazily - as a
+    # dict.get default, torch.seed() would run on every call and reseed
+    # the global RNG even when the workflow names an explicit seed
+    default_seed = workflow_def.get("seed")
+    # The schema lets 'seed' be a string so it can hold a 'variable:'
+    # reference, which the substitution above has already resolved -
+    # but a variable overridden from the command line arrives as a
+    # string whenever the workflow declared no integer default to
+    # coerce against, and manual_seed would fail deep inside the run
+    if isinstance(default_seed, str):
         try:
-            workflow_def = copy.deepcopy(self.workflow_definition)
-            workflow_id = workflow_def["id"]
-            base_dir = (
-                os.path.dirname(os.path.abspath(self.file_spec))
-                if self.file_spec
-                else None
+            default_seed = int(default_seed)
+        except ValueError:
+            raise ValueError(
+                f"Workflow {workflow_id} seed must be an integer, got {default_seed!r}"
             )
-            workflow_def, default_seed = self._prepare_definition(
-                workflow_def, arguments or {}, base_dir
+        workflow_def["seed"] = default_seed
+    return workflow_def, default_seed
+
+
+def _cache_lookup(
+    self, workflow_id, steps, index, step_data, step_seed, hits_this_run, cache_enabled
+):
+    """Whether the step cache serves step `index`, as
+    (cached_result or None, the step_data snapshot the entry is keyed
+    on or None). Shared by run() and cache_hits() - see
+    _prepare_definition for why.
+    """
+    # What later steps still read, which decides both whether this
+    # step's result has to be kept alive after the step and whether a
+    # cached entry that kept none can serve this run
+    remaining_refs = referenced_result_names(steps[index + 1 :])
+    result_needed = index == len(steps) - 1 or any(
+        reference_resolves_to(ref, step_data["name"]) for ref in remaining_refs
+    )
+    # create_step_action (and the pipeline load it triggers) mutates
+    # step_data in place - injecting a "generator" key - so the cache
+    # must key off a snapshot taken before that happens, and that same
+    # snapshot must be reused for the put() later. A sub-workflow step
+    # is never cacheable: its files roll up from the child's own
+    # manifest, which a hit does not rebuild.
+    is_cacheable = "workflow" not in step_data and cache_enabled
+    # The last step of a composed child whose parent does the saving
+    # (#92) - its files are the parent step's, written once, under the
+    # parent's name and subfolder
+    parent_saves_this = self._final_save_owned_by_parent and index == len(steps) - 1
+    step_data_snapshot = None
+    if is_cacheable:
+        try:
+            step_data_snapshot = copy.deepcopy(step_data)
+            if parent_saves_this:
+                # Keyed apart from the same step run standalone: this
+                # entry's result was never saved here, so a standalone
+                # hit on it would report no files
+                step_data_snapshot["__saved_by_parent__"] = True
+        except Exception as ex:
+            # A realized argument that cannot be deep-copied (an open
+            # handle, a live model object) just means this step is not
+            # cacheable - never a failed run
+            logger.debug(
+                f"Step '{step_data['name']}' arguments are not copyable "
+                f"({ex}) - skipping the step cache for it"
             )
-            if default_seed is None or not self._cache_enabled_by_parent:
-                return []
-            steps = workflow_def.get("steps", [])
-            realize_args(steps, base_dir)
-            hits_this_run = set()
-            hits = []
-            for index, step_data in enumerate(steps):
-                step_seed = step_data.get("seed", default_seed)
-                cached_result, _ = self._cache_lookup(
-                    workflow_id, steps, index, step_data, step_seed, hits_this_run, True
-                )
-                if cached_result is not None:
-                    hits_this_run.add(step_data["name"])
-                    hits.append(step_data["name"])
-            return hits
-        finally:
-            deactivate_output_root(output_root_token)
+            is_cacheable = False
+    if not is_cacheable:
+        return None, None
+    cached_result = step_cache.get(
+        workflow_id,
+        step_data_snapshot,
+        step_seed,
+        hits_this_run,
+        # The root, not this run's directory: a hit reports the earlier
+        # run's files and writes nothing new, so keying on a directory
+        # that is new every run would mean the cache could never hit
+        # again. What the root still guards is a run redirected
+        # somewhere else, where the earlier files are not what the
+        # caller asked for
+        self.output_dir,
+        needs_result=result_needed,
+    )
+    return cached_result, step_data_snapshot
+
+
+def cache_hits(self, arguments):
+    """The steps the step cache would serve for a run with `arguments`,
+    in step order - what the plan reports as cached_steps (#85).
+
+    Prepares the definition exactly as run() does and asks the cache the
+    question run() asks, step by step with the hits so far, and executes
+    nothing: no run directory, no events, no pipeline. An unseeded
+    workflow has no cache, so it answers [] without asking.
+    """
+    output_root_token = activate_output_root(self.output_dir)
+    try:
+        workflow_def = copy.deepcopy(self.workflow_definition)
+        workflow_id = workflow_def["id"]
+        base_dir = (
+            os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
+        )
+        workflow_def, default_seed = self._prepare_definition(
+            workflow_def, arguments or {}, base_dir
+        )
+        if default_seed is None or not self._cache_enabled_by_parent:
+            return []
+        steps = workflow_def.get("steps", [])
+        realize_args(steps, base_dir)
+        hits_this_run = set()
+        hits = []
+        for index, step_data in enumerate(steps):
+            step_seed = step_data.get("seed", default_seed)
+            cached_result, _ = self._cache_lookup(
+                workflow_id, steps, index, step_data, step_seed, hits_this_run, True
+            )
+            if cached_result is not None:
+                hits_this_run.add(step_data["name"])
+                hits.append(step_data["name"])
+        return hits
+    finally:
+        deactivate_output_root(output_root_token)
 ```
 
 Then in `run()`:
@@ -295,9 +296,7 @@ Then in `run()`:
 - Replace the block from `# Handle variable substitution if variables are defined` through the `workflow_def["seed"] = default_seed` line that follows the `int(default_seed)` coercion (lines ~710-752, ending just before `# A workflow that names no seed gets a fresh one every run`) with:
 
 ```python
-            workflow_def, default_seed = self._prepare_definition(
-                workflow_def, arguments, base_dir
-            )
+workflow_def, default_seed = self._prepare_definition(workflow_def, arguments, base_dir)
 ```
 
   Keep everything from `cache_enabled_this_run = (...)` onward unchanged (the random draw, `workflow_def["seed"] = default_seed`, `resolved_seed`).
@@ -381,7 +380,12 @@ def test_probe_cache_reports_a_failure_as_unknown_not_as_a_crash():
     worker = _make_worker()
     with patch("dw.worker.workflow_from_file", side_effect=ValueError("bad file")):
         worker._handle_probe_cache(
-            {"type": "probe_cache", "workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}
+            {
+                "type": "probe_cache",
+                "workflow_path": "x.json",
+                "arguments": {},
+                "output_dir": "/tmp",
+            }
         )
     [answer] = _drain(worker.result_queue)
     assert answer["type"] == "probe_cache"
@@ -444,7 +448,12 @@ class TestProbeCache:
         with server(success_script) as client:
             manager = client.app.state.job_manager
             assert manager.worker_manager.worker_active is False
-            assert manager.probe_cache({"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}) == []
+            assert (
+                manager.probe_cache(
+                    {"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}
+                )
+                == []
+            )
             assert manager.worker_manager.commands == []
 
     def test_a_running_job_means_unknown(self, server):
@@ -453,7 +462,12 @@ class TestProbeCache:
             job_id = response.json()["id"]
             wait_for_status(client, job_id, ("running",))
             manager = client.app.state.job_manager
-            assert manager.probe_cache({"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}) is None
+            assert (
+                manager.probe_cache(
+                    {"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}
+                )
+                is None
+            )
             client.post(f"/api/jobs/{job_id}/cancel")
 
     def test_an_unanswered_probe_is_unknown(self, server):
@@ -461,9 +475,13 @@ class TestProbeCache:
             manager = client.app.state.job_manager
             manager.worker_manager.ensure_worker()
             manager.worker_manager.send_command = lambda command: None  # swallow it
-            assert manager.probe_cache(
-                {"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}, timeout=0.05
-            ) is None
+            assert (
+                manager.probe_cache(
+                    {"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"},
+                    timeout=0.05,
+                )
+                is None
+            )
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -483,31 +501,29 @@ Expected: FAIL - no `_handle_probe_cache`, no `probe_cache`.
 and beside `_handle_memory_status`:
 
 ```python
-    def _handle_probe_cache(self, command: Dict[str, Any]):
-        """Which steps the step cache would serve for a run of this command
-        - the plan's cached_steps (#85). Same fields as an execute command;
-        loads the workflow, executes nothing. A failure answers
-        cached: null with the reason rather than an error message, since
-        an unknown answer is a valid plan and a crashed probe is not.
-        """
+def _handle_probe_cache(self, command: Dict[str, Any]):
+    """Which steps the step cache would serve for a run of this command
+    - the plan's cached_steps (#85). Same fields as an execute command;
+    loads the workflow, executes nothing. A failure answers
+    cached: null with the reason rather than an error message, since
+    an unknown answer is a valid plan and a crashed probe is not.
+    """
+    try:
+        workflow, _ = self._load_workflow(command, command["output_dir"])
+        asset_token = (
+            activate_asset_dir(command["asset_dir"])
+            if command.get("asset_dir")
+            else None
+        )
         try:
-            workflow, _ = self._load_workflow(command, command["output_dir"])
-            asset_token = (
-                activate_asset_dir(command["asset_dir"])
-                if command.get("asset_dir")
-                else None
-            )
-            try:
-                cached = workflow.cache_hits(command.get("arguments") or {})
-            finally:
-                if asset_token is not None:
-                    deactivate_asset_dir(asset_token)
-            self.result_queue.put({"type": "probe_cache", "cached": cached})
-        except Exception as e:
-            logger.debug(f"Cache probe failed: {e}")
-            self.result_queue.put(
-                {"type": "probe_cache", "cached": None, "error": str(e)}
-            )
+            cached = workflow.cache_hits(command.get("arguments") or {})
+        finally:
+            if asset_token is not None:
+                deactivate_asset_dir(asset_token)
+        self.result_queue.put({"type": "probe_cache", "cached": cached})
+    except Exception as e:
+        logger.debug(f"Cache probe failed: {e}")
+        self.result_queue.put({"type": "probe_cache", "cached": None, "error": str(e)})
 ```
 
 `dw/server/jobs.py`, beside `memory_status`:
@@ -615,38 +631,40 @@ class TestCachedSteps:
 Append to `tests/test_server.py` inside `TestValidatePlan`:
 
 ```python
-    def test_cached_steps_comes_from_the_worker(self, server, monkeypatch):
-        import dw.plan
+def test_cached_steps_comes_from_the_worker(self, server, monkeypatch):
+    import dw.plan
 
-        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
-        with server(success_script) as client:
-            manager = client.app.state.job_manager
-            manager.worker_manager.ensure_worker()
-            manager.worker_manager.cached_steps = ["gen"]
-            seeded = valid_workflow("seeded")
-            seeded["seed"] = 7
-            result = client.post(
-                "/api/validate?sizes=false", json={"workflow": seeded, "arguments": {"prompt": "x"}}
-            ).json()
-        assert result["plan"]["cached_steps"] == 1
-        probe = [c for c in manager.worker_manager.commands if c["type"] == "probe_cache"]
-        assert len(probe) == 1
-        assert probe[0]["arguments"] == {"prompt": "x"}
-        assert probe[0]["workflow"] == seeded
-        assert probe[0]["output_dir"] == manager.output_dir
+    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.worker_manager.ensure_worker()
+        manager.worker_manager.cached_steps = ["gen"]
+        seeded = valid_workflow("seeded")
+        seeded["seed"] = 7
+        result = client.post(
+            "/api/validate?sizes=false",
+            json={"workflow": seeded, "arguments": {"prompt": "x"}},
+        ).json()
+    assert result["plan"]["cached_steps"] == 1
+    probe = [c for c in manager.worker_manager.commands if c["type"] == "probe_cache"]
+    assert len(probe) == 1
+    assert probe[0]["arguments"] == {"prompt": "x"}
+    assert probe[0]["workflow"] == seeded
+    assert probe[0]["output_dir"] == manager.output_dir
 
-    def test_an_unseeded_workflow_does_not_probe(self, server, monkeypatch):
-        import dw.plan
 
-        monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
-        with server(success_script) as client:
-            manager = client.app.state.job_manager
-            manager.worker_manager.ensure_worker()
-            result = client.post(
-                "/api/validate?sizes=false", json={"workflow": valid_workflow("v")}
-            ).json()
-        assert result["plan"]["cached_steps"] == 0
-        assert all(c["type"] != "probe_cache" for c in manager.worker_manager.commands)
+def test_an_unseeded_workflow_does_not_probe(self, server, monkeypatch):
+    import dw.plan
+
+    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+        manager.worker_manager.ensure_worker()
+        result = client.post(
+            "/api/validate?sizes=false", json={"workflow": valid_workflow("v")}
+        ).json()
+    assert result["plan"]["cached_steps"] == 0
+    assert all(c["type"] != "probe_cache" for c in manager.worker_manager.commands)
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -768,7 +786,10 @@ class TestAcknowledgementRecord:
             manager = client.app.state.job_manager
             bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": []}
             job = manager.submit(
-                workflow=valid_workflow(), arguments={}, acknowledged="bound", acknowledged_cost=bound
+                workflow=valid_workflow(),
+                arguments={},
+                acknowledged="bound",
+                acknowledged_cost=bound,
             )
             detail = manager.describe(job)
             assert detail["acknowledged"] == "bound"
@@ -778,15 +799,24 @@ class TestAcknowledgementRecord:
     def test_history_keeps_the_form_and_the_object(self, server, tmp_path):
         with server(success_script) as client:
             manager = client.app.state.job_manager
-            bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": ["org/x"]}
+            bound = {
+                "fingerprint": "sha256:abc",
+                "minutes": 3.0,
+                "downloads": ["org/x"],
+            }
             job = manager.submit(
-                workflow=valid_workflow(), arguments={}, acknowledged="bound", acknowledged_cost=bound
+                workflow=valid_workflow(),
+                arguments={},
+                acknowledged="bound",
+                acknowledged_cost=bound,
             )
             wait_for_status(client, job.id, TERMINAL_STATES)
             row = manager.history.get(job.id)
             assert row["acknowledged"] == "bound"
             assert row["spec"]["acknowledged_cost"] == bound
-            listed = [s for s in manager.history.recent_summaries() if s["id"] == job.id]
+            listed = [
+                s for s in manager.history.recent_summaries() if s["id"] == job.id
+            ]
             assert listed[0]["acknowledged"] == "bound"
 
     def test_a_database_without_the_column_is_migrated(self, tmp_path):
@@ -813,7 +843,10 @@ class TestAcknowledgementRecord:
             manager = client.app.state.job_manager
             bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": []}
             job = manager.submit(
-                workflow=valid_workflow(), arguments={}, acknowledged="bound", acknowledged_cost=bound
+                workflow=valid_workflow(),
+                arguments={},
+                acknowledged="bound",
+                acknowledged_cost=bound,
             )
             wait_for_status(client, job.id, TERMINAL_STATES)
             rerun = manager.rerun(job.id)
@@ -848,12 +881,10 @@ ACK_BOUND = "bound"
 Schema migration, after the `run_dir` block:
 
 ```python
-            # Which form of cost acknowledgement queued the job. Rows before
-            # the column are 'none' - nothing recorded is nothing recorded
-            if "acknowledged" not in columns:
-                connection.execute(
-                    "ALTER TABLE jobs ADD COLUMN acknowledged TEXT DEFAULT 'none'"
-                )
+# Which form of cost acknowledgement queued the job. Rows before
+# the column are 'none' - nothing recorded is nothing recorded
+if "acknowledged" not in columns:
+    connection.execute("ALTER TABLE jobs ADD COLUMN acknowledged TEXT DEFAULT 'none'")
 ```
 
 `record`: add `acknowledged` to the column list and `job.acknowledged` to the values (17 placeholders). `recent_summaries`: add `acknowledged` to the SELECT and `"acknowledged": row[9] or ACK_NONE` to each summary. `get`: add `acknowledged` to the SELECT; `_to_detail`: `"acknowledged": row[15] or ACK_NONE, "acknowledged_cost": (parse(row[7], {}) or {}).get("acknowledged_cost")` - reuse the parsed spec rather than parsing twice.
@@ -963,7 +994,8 @@ class TestBoundAcknowledgement:
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
             response = client.post(
-                "/api/jobs", json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)}
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
             )
             assert response.status_code == 201, response.json()
             assert response.json()["acknowledged"] == "bound"
@@ -975,7 +1007,11 @@ class TestBoundAcknowledgement:
             longer = {"shots": [{"name": n, "prompt": n} for n in "abc"]}
             response = client.post(
                 "/api/jobs",
-                json={"workflow": list_workflow(), "arguments": longer, "acknowledged_cost": bound(plan)},
+                json={
+                    "workflow": list_workflow(),
+                    "arguments": longer,
+                    "acknowledged_cost": bound(plan),
+                },
             )
             assert response.status_code == 409
             detail = response.json()["detail"]
@@ -991,7 +1027,11 @@ class TestBoundAcknowledgement:
             plan = plan_for(client, list_workflow())
             response = client.post(
                 "/api/jobs",
-                json={"workflow": list_workflow(), "arguments": {"seed": 99}, "acknowledged_cost": bound(plan)},
+                json={
+                    "workflow": list_workflow(),
+                    "arguments": {"seed": 99},
+                    "acknowledged_cost": bound(plan),
+                },
             )
             assert response.status_code == 201
 
@@ -1001,28 +1041,39 @@ class TestBoundAcknowledgement:
             acknowledgement = bound(plan)
             acknowledgement["downloads"] = []  # the caller left the repo out
             response = client.post(
-                "/api/jobs", json={"workflow": list_workflow(), "acknowledged_cost": acknowledgement}
+                "/api/jobs",
+                json={
+                    "workflow": list_workflow(),
+                    "acknowledged_cost": acknowledgement,
+                },
             )
             assert response.status_code == 409
             detail = response.json()["detail"]
             assert detail["reason"] == "downloads"
             assert "m" in detail["message"]
 
-    def test_a_download_that_vanished_is_not_a_refusal(self, server, no_hub, monkeypatch):
+    def test_a_download_that_vanished_is_not_a_refusal(
+        self, server, no_hub, monkeypatch
+    ):
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
             assert bound(plan)["downloads"] == ["m"]
             import dw.plan
 
             monkeypatch.setattr(
-                dw.plan, "scan_models", lambda cache_dir=None: {"repos": [{"repo_id": "m"}]}
+                dw.plan,
+                "scan_models",
+                lambda cache_dir=None: {"repos": [{"repo_id": "m"}]},
             )
             response = client.post(
-                "/api/jobs", json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)}
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
             )
             assert response.status_code == 201
 
-    def test_an_unplannable_run_is_refused_not_passed(self, server, no_hub, monkeypatch):
+    def test_an_unplannable_run_is_refused_not_passed(
+        self, server, no_hub, monkeypatch
+    ):
         import dw.server.app as app_module
 
         with server(success_script) as client:
@@ -1033,7 +1084,8 @@ class TestBoundAcknowledgement:
 
             monkeypatch.setattr(app_module, "build_plan", boom)
             response = client.post(
-                "/api/jobs", json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)}
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
             )
             assert response.status_code == 409
             assert response.json()["detail"]["reason"] == "unplannable"
@@ -1049,10 +1101,12 @@ class TestBoundAcknowledgement:
         with server(success_script) as client:
             plain = client.post("/api/jobs", json={"workflow": valid_workflow("p")})
             flagged = client.post(
-                "/api/jobs", json={"workflow": valid_workflow("f"), "acknowledged_cost": True}
+                "/api/jobs",
+                json={"workflow": valid_workflow("f"), "acknowledged_cost": True},
             )
             off = client.post(
-                "/api/jobs", json={"workflow": valid_workflow("o"), "acknowledged_cost": False}
+                "/api/jobs",
+                json={"workflow": valid_workflow("o"), "acknowledged_cost": False},
             )
         assert plain.json()["acknowledged"] == "none"
         assert flagged.json()["acknowledged"] == "boolean"
@@ -1061,11 +1115,17 @@ class TestBoundAcknowledgement:
     def test_a_bound_form_without_a_fingerprint_is_a_422(self, server):
         with server(success_script) as client:
             response = client.post(
-                "/api/jobs", json={"workflow": valid_workflow(), "acknowledged_cost": {"minutes": 3}}
+                "/api/jobs",
+                json={
+                    "workflow": valid_workflow(),
+                    "acknowledged_cost": {"minutes": 3},
+                },
             )
             assert response.status_code == 422
 
-    def test_a_stored_prompt_edited_after_validation_is_refused(self, server, no_hub, tmp_path):
+    def test_a_stored_prompt_edited_after_validation_is_refused(
+        self, server, no_hub, tmp_path
+    ):
         (tmp_path / "prompts" / "p.json").write_text(json.dumps({"text": "before"}))
         workflow = valid_workflow("prompted")
         workflow["variables"]["prompt"] = "prompt:p"
@@ -1073,18 +1133,22 @@ class TestBoundAcknowledgement:
             plan = plan_for(client, workflow)
             (tmp_path / "prompts" / "p.json").write_text(json.dumps({"text": "after"}))
             response = client.post(
-                "/api/jobs", json={"workflow": workflow, "acknowledged_cost": bound(plan)}
+                "/api/jobs",
+                json={"workflow": workflow, "acknowledged_cost": bound(plan)},
             )
             assert response.status_code == 409
             assert response.json()["detail"]["reason"] == "fingerprint"
 
 
 class TestBoundRerun:
-    def test_a_rerun_with_the_original_plan_queues_even_with_a_new_seed(self, server, no_hub):
+    def test_a_rerun_with_the_original_plan_queues_even_with_a_new_seed(
+        self, server, no_hub
+    ):
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
             first = client.post(
-                "/api/jobs", json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)}
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
             ).json()
             wait_for_status(client, first["id"], TERMINAL_STATES)
             response = client.post(
@@ -1100,7 +1164,8 @@ class TestBoundRerun:
             wait_for_status(client, first["id"], TERMINAL_STATES)
             other = plan_for(client, valid_workflow("other"))
             response = client.post(
-                f"/api/jobs/{first['id']}/rerun", json={"acknowledged_cost": bound(other)}
+                f"/api/jobs/{first['id']}/rerun",
+                json={"acknowledged_cost": bound(other)},
             )
             assert response.status_code == 409
             assert response.json()["detail"]["reason"] == "fingerprint"
@@ -1109,14 +1174,17 @@ class TestBoundRerun:
         with server(success_script) as client:
             first = client.post("/api/jobs", json={"workflow": list_workflow()}).json()
             wait_for_status(client, first["id"], TERMINAL_STATES)
-            response = client.post(f"/api/jobs/{first['id']}/rerun", json={"acknowledged_cost": True})
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun", json={"acknowledged_cost": True}
+            )
             assert response.status_code == 201
             assert response.json()["acknowledged"] == "boolean"
 
     def test_an_unknown_job_is_still_404(self, server):
         with server(success_script) as client:
             response = client.post(
-                "/api/jobs/nope/rerun", json={"acknowledged_cost": {"fingerprint": "sha256:0"}}
+                "/api/jobs/nope/rerun",
+                json={"acknowledged_cost": {"fingerprint": "sha256:0"}},
             )
             assert response.status_code == 404
 ```
@@ -1165,95 +1233,100 @@ ACKNOWLEDGED_COST_FIELD = Field(
 Helpers inside `create_app`, beside `_argument_reference_errors`:
 
 ```python
-    def _acknowledgement_form(value):
-        """none | boolean | bound - classified once, here, so the check and
-        the record agree."""
-        if isinstance(value, AcknowledgedCost):
-            return ACK_BOUND
-        return ACK_BOOLEAN if value is True else ACK_NONE
+def _acknowledgement_form(value):
+    """none | boolean | bound - classified once, here, so the check and
+    the record agree."""
+    if isinstance(value, AcknowledgedCost):
+        return ACK_BOUND
+    return ACK_BOOLEAN if value is True else ACK_NONE
 
-    def _check_bound_acknowledgement(candidate, arguments, acknowledged, workspace):
-        """Refuse with 409 when the run `candidate` + `arguments` will
-        execute is not the one `acknowledged` was bound to: a different
-        fingerprint, or a download the caller did not acknowledge. The body
-        carries the current plan so the agent re-quotes from it without a
-        second validate call. A plan that cannot be built is a refusal too -
-        never a silent pass (#85).
-        """
-        record = acknowledged.model_dump()
-        try:
-            from .. import get_device, get_device_type
 
-            current = build_plan(
-                candidate,
-                arguments,
-                device=get_device_type(get_device()),
-                prompt_dir=workspace.prompts,
-                lookup_sizes=False,
-            )
-        except Exception:
-            logger.exception("Plan could not be built for a bound acknowledgement")
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": "The run could not be planned, so a bound "
-                    "acknowledgement cannot be checked; acknowledge with true "
-                    "or validate again",
-                    "reason": "unplannable",
-                    "acknowledged": record,
-                    "plan": None,
-                },
-            )
-        if current["fingerprint"] != acknowledged.fingerprint:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": "The run's shape changed since it was acknowledged: "
-                    "the workflow or its arguments differ from what was validated",
-                    "reason": "fingerprint",
-                    "acknowledged": record,
-                    "plan": current,
-                },
-            )
-        missing = [
-            entry["repo"]
-            for entry in current["downloads_required"]
-            if entry.get("repo") and entry["repo"] not in acknowledged.downloads
-        ]
-        if missing:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": "The run's shape changed since it was acknowledged: "
-                    f"it now has to download {', '.join(missing)} first",
-                    "reason": "downloads",
-                    "acknowledged": record,
-                    "plan": current,
-                },
-            )
+def _check_bound_acknowledgement(candidate, arguments, acknowledged, workspace):
+    """Refuse with 409 when the run `candidate` + `arguments` will
+    execute is not the one `acknowledged` was bound to: a different
+    fingerprint, or a download the caller did not acknowledge. The body
+    carries the current plan so the agent re-quotes from it without a
+    second validate call. A plan that cannot be built is a refusal too -
+    never a silent pass (#85).
+    """
+    record = acknowledged.model_dump()
+    try:
+        from .. import get_device, get_device_type
 
-    def _candidate_for(workflow_path, workflow, base_dir, output_dir, workflow_dir):
-        """The Workflow a job spec names, built as the worker will build it."""
-        if workflow_path is not None:
-            return workflow_from_file(workflow_path, output_dir, workflow_dir)
-        return workflow_from_definition(
-            copy.deepcopy(workflow), output_dir, base_dir, workflow_dir
+        current = build_plan(
+            candidate,
+            arguments,
+            device=get_device_type(get_device()),
+            prompt_dir=workspace.prompts,
+            lookup_sizes=False,
         )
+    except Exception:
+        logger.exception("Plan could not be built for a bound acknowledgement")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "The run could not be planned, so a bound "
+                "acknowledgement cannot be checked; acknowledge with true "
+                "or validate again",
+                "reason": "unplannable",
+                "acknowledged": record,
+                "plan": None,
+            },
+        )
+    if current["fingerprint"] != acknowledged.fingerprint:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "The run's shape changed since it was acknowledged: "
+                "the workflow or its arguments differ from what was validated",
+                "reason": "fingerprint",
+                "acknowledged": record,
+                "plan": current,
+            },
+        )
+    missing = [
+        entry["repo"]
+        for entry in current["downloads_required"]
+        if entry.get("repo") and entry["repo"] not in acknowledged.downloads
+    ]
+    if missing:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "The run's shape changed since it was acknowledged: "
+                f"it now has to download {', '.join(missing)} first",
+                "reason": "downloads",
+                "acknowledged": record,
+                "plan": current,
+            },
+        )
+
+
+def _candidate_for(workflow_path, workflow, base_dir, output_dir, workflow_dir):
+    """The Workflow a job spec names, built as the worker will build it."""
+    if workflow_path is not None:
+        return workflow_from_file(workflow_path, output_dir, workflow_dir)
+    return workflow_from_definition(
+        copy.deepcopy(workflow), output_dir, base_dir, workflow_dir
+    )
 ```
 
 In `submit_job`, after the `reference_problems` check and before `manager.submit(...)`:
 
 ```python
-            form = _acknowledgement_form(request.acknowledged_cost)
-            if form == ACK_BOUND:
-                confinement = source.root if source else workspace.workflows
-                candidate = _candidate_for(
-                    resolved, request.workflow, request.base_dir,
-                    workspace.outputs, confinement,
-                )
-                _check_bound_acknowledgement(
-                    candidate, request.arguments, request.acknowledged_cost, workspace
-                )
+form = _acknowledgement_form(request.acknowledged_cost)
+if form == ACK_BOUND:
+    confinement = source.root if source else workspace.workflows
+    candidate = _candidate_for(
+        resolved,
+        request.workflow,
+        request.base_dir,
+        workspace.outputs,
+        confinement,
+    )
+    _check_bound_acknowledgement(
+        candidate, request.arguments, request.acknowledged_cost, workspace
+    )
 ```
 
 and pass to `manager.submit`: `acknowledged=form, acknowledged_cost=(request.acknowledged_cost.model_dump() if form == ACK_BOUND else None)`. The `except HTTPException: raise` already precedes the catch-all, so the 409 passes through.
@@ -1261,36 +1334,41 @@ and pass to `manager.submit`: `acknowledged=form, acknowledged_cost=(request.ack
 In `rerun_job`:
 
 ```python
-        form = _acknowledgement_form(body.acknowledged_cost)
-        if form == ACK_BOUND:
-            prepared = manager.rerun_spec(job_id)
-            if prepared is None:
-                raise HTTPException(status_code=404, detail="Unknown job")
-            spec, arguments = prepared
-            try:
-                candidate = _candidate_for(
-                    spec.get("workflow_path"), spec.get("workflow"), spec.get("base_dir"),
-                    spec.get("output_dir") or manager.output_dir, spec.get("workflow_dir"),
-                )
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            _check_bound_acknowledgement(
-                candidate, arguments, body.acknowledged_cost,
-                _workspace_for(spec.get("workspace")),
-            )
-        try:
-            job = manager.rerun(
-                job_id,
-                new_seed=body.new_seed,
-                acknowledged=form,
-                acknowledged_cost=(
-                    body.acknowledged_cost.model_dump() if form == ACK_BOUND else None
-                ),
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+form = _acknowledgement_form(body.acknowledged_cost)
+if form == ACK_BOUND:
+    prepared = manager.rerun_spec(job_id)
+    if prepared is None:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    spec, arguments = prepared
+    try:
+        candidate = _candidate_for(
+            spec.get("workflow_path"),
+            spec.get("workflow"),
+            spec.get("base_dir"),
+            spec.get("output_dir") or manager.output_dir,
+            spec.get("workflow_dir"),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _check_bound_acknowledgement(
+        candidate,
+        arguments,
+        body.acknowledged_cost,
+        _workspace_for(spec.get("workspace")),
+    )
+try:
+    job = manager.rerun(
+        job_id,
+        new_seed=body.new_seed,
+        acknowledged=form,
+        acknowledged_cost=(
+            body.acknowledged_cost.model_dump() if form == ACK_BOUND else None
+        ),
+    )
+except HTTPException:
+    raise
+except Exception as e:
+    raise HTTPException(status_code=400, detail=str(e))
 ```
 
 (`_workspace_for(None)` is the default workspace - see its first line.) Update the route docstring: `Pass acknowledged_cost as on POST /api/jobs; a bound one is checked against the stored spec's plan - the fresh seed of new_seed does not change a fingerprint.`
@@ -1350,7 +1428,9 @@ def test_run_does_not_send_a_bare_true():
 def test_run_refuses_a_bound_form_without_a_fingerprint():
     client, seen = submitting()
     with pytest.raises(DwApiError, match="fingerprint"):
-        diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost={"minutes": 4})
+        diagnose.run_workflow(
+            client, workflow_path="w.json", acknowledged_cost={"minutes": 4}
+        )
     assert seen == []
 
 
@@ -1377,7 +1457,13 @@ def test_a_409_surfaces_with_the_new_estimate():
                             "list_entries": {"shots": 5},
                             "cached_steps": None,
                             "downloads_required": [{"repo": "org/y", "gb": 3.5}],
-                            "estimate": {"minutes": 19.0, "basis": "per_entry", "device": "cuda", "measured_on": "card", "partial": False},
+                            "estimate": {
+                                "minutes": 19.0,
+                                "basis": "per_entry",
+                                "device": "cuda",
+                                "measured_on": "card",
+                                "partial": False,
+                            },
                         },
                     }
                 },
@@ -1427,8 +1513,8 @@ COST_REFUSAL = (
     "with (free): its `plan` says what will execute - `estimate.minutes` with "
     "its `basis`, and any weights in `downloads_required` this box has to "
     "fetch first. Tell the user that number, get their go-ahead, then call "
-    "again with acknowledged_cost bound to the plan: {\"fingerprint\": "
-    "plan.fingerprint, \"minutes\": plan.estimate.minutes, \"downloads\": "
+    'again with acknowledged_cost bound to the plan: {"fingerprint": '
+    'plan.fingerprint, "minutes": plan.estimate.minutes, "downloads": '
     "[each downloads_required repo]} - the server then refuses (409) if the "
     "run's shape changed since. Pass true instead only when `plan` was null."
 )

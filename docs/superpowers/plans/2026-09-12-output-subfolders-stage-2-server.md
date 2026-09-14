@@ -84,7 +84,9 @@ def test_gallery_reports_and_filters_by_subfolder(server, tmp_path):
         final = by_name[f"dialogue/{run_id}/final/dialogue-assemble.0-0.0.png"]
         assert final["folder"] == "dialogue"
         assert final["subfolder"] == "final"
-        nested = by_name[f"dialogue/{run_id}/intermediate/shots/dialogue-slice.0-0.0.png"]
+        nested = by_name[
+            f"dialogue/{run_id}/intermediate/shots/dialogue-slice.0-0.0.png"
+        ]
         assert nested["subfolder"] == "intermediate/shots"
         assert by_name[f"dialogue/{run_id}/dialogue-still.0-0.0.png"]["subfolder"] == ""
         assert by_name["ltx/flat.png"]["folder"] == "ltx"
@@ -115,7 +117,12 @@ def test_job_for_file_attributes_a_file_in_a_subfolder(tmp_path):
     history = JobHistory(str(tmp_path / "jobs.sqlite"))
     name = "dialogue/20260912-120000-abcdef01/final/dialogue-assemble.0-0.0.png"
 
-    _record(history, "writer", 1.0, [{"step": "assemble", "files": [name], "subfolder": "final"}])
+    _record(
+        history,
+        "writer",
+        1.0,
+        [{"step": "assemble", "files": [name], "subfolder": "final"}],
+    )
 
     assert history.job_for_file(name)["id"] == "writer"
 ```
@@ -499,56 +506,62 @@ No engine change. Both tests pin behaviour that is correct by inspection; if eit
 Add to `TestSubfolders`:
 
 ```python
-    def test_a_parents_subfolder_does_not_move_a_childs_files(
-        self, tmp_path, fake_pipeline
-    ):
-        # A 'workflow' step's own result block governs what the parent saves
-        # from the child's return value; the child's steps place their own
-        # files, into the run directory they inherit
-        from dw.workflow import Workflow
+def test_a_parents_subfolder_does_not_move_a_childs_files(
+    self, tmp_path, fake_pipeline
+):
+    # A 'workflow' step's own result block governs what the parent saves
+    # from the child's return value; the child's steps place their own
+    # files, into the run directory they inherit
+    from dw.workflow import Workflow
 
-        tree = tmp_path / "workflows"
-        tree.mkdir()
-        (tree / "child.json").write_text(json.dumps(_workflow_definition()))
-        parent = {
-            "id": "parent",
-            "seed": 7,
-            "steps": [
-                {
-                    "name": "child",
-                    "workflow": {"path": "child.json"},
-                    "result": {"subfolder": "final"},
-                }
-            ],
-        }
-        Workflow(parent, str(tmp_path / "out"), str(tree / "Parent.json")).run({})
-        (run,) = (tmp_path / "out" / "Parent").iterdir()
-        assert (run / "runs_test-gen0.0-0.0.png").is_file()
-        assert not (run / "final" / "runs_test-gen0.0-0.0.png").exists()
+    tree = tmp_path / "workflows"
+    tree.mkdir()
+    (tree / "child.json").write_text(json.dumps(_workflow_definition()))
+    parent = {
+        "id": "parent",
+        "seed": 7,
+        "steps": [
+            {
+                "name": "child",
+                "workflow": {"path": "child.json"},
+                "result": {"subfolder": "final"},
+            }
+        ],
+    }
+    Workflow(parent, str(tmp_path / "out"), str(tree / "Parent.json")).run({})
+    (run,) = (tmp_path / "out" / "Parent").iterdir()
+    assert (run / "runs_test-gen0.0-0.0.png").is_file()
+    assert not (run / "final" / "runs_test-gen0.0-0.0.png").exists()
 
-    def test_a_chain_spill_lands_in_the_steps_subfolder(self, tmp_path, fake_pipeline):
-        # save_segments writes through the pipeline wrapper's output_dir,
-        # which create_step_action points at the step's subfolder
-        from dw.pipeline_processors.chain import run_chain
-        from dw.workflow import Workflow
-        from tests.test_chain import FakePipeline, video_output
 
-        workflow = Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json")
-        workflow._run_dir = str(tmp_path / "Gyre" / "run")
-        action = workflow.create_step_action(
-            workflow.workflow_definition["steps"][0], {}, {}, 7, "cpu"
-        )
-        spilling = FakePipeline(
-            video_output, output_dir=action.output_dir, file_prefix=action.file_prefix
-        )
-        run_chain(
-            spilling,
-            {"segments": 2, "trim_frames": 1, "fps": 4, "save_segments": True,
-             "keep_segments": True},
-            {},
-        )
-        segments = sorted((tmp_path / "Gyre" / "run" / "final").glob("*.segment-*.mp4"))
-        assert len(segments) == 2
+def test_a_chain_spill_lands_in_the_steps_subfolder(self, tmp_path, fake_pipeline):
+    # save_segments writes through the pipeline wrapper's output_dir,
+    # which create_step_action points at the step's subfolder
+    from dw.pipeline_processors.chain import run_chain
+    from dw.workflow import Workflow
+    from tests.test_chain import FakePipeline, video_output
+
+    workflow = Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json")
+    workflow._run_dir = str(tmp_path / "Gyre" / "run")
+    action = workflow.create_step_action(
+        workflow.workflow_definition["steps"][0], {}, {}, 7, "cpu"
+    )
+    spilling = FakePipeline(
+        video_output, output_dir=action.output_dir, file_prefix=action.file_prefix
+    )
+    run_chain(
+        spilling,
+        {
+            "segments": 2,
+            "trim_frames": 1,
+            "fps": 4,
+            "save_segments": True,
+            "keep_segments": True,
+        },
+        {},
+    )
+    segments = sorted((tmp_path / "Gyre" / "run" / "final").glob("*.segment-*.mp4"))
+    assert len(segments) == 2
 ```
 
 Before running, check: (a) that `Workflow` resolves a sub-workflow's `path` relative to the parent's `file_spec` directory (read the `workflow` branch of `create_step_action`); if it needs the parent file to exist, write `parent` to `tree / "Parent.json"` and load it with `workflow_from_file`; (b) the exact child file name — the child's id is `runs_test`, its step `gen0` — and adjust the asserted name to what the run wrote if the workflow-step naming differs, keeping the assertion that it is at the run root and not under `final/`; (c) that `tests/test_chain.py` exports `FakePipeline` and `video_output` at module level and `FakePipeline` accepts `output_dir`/`file_prefix` kwargs (it does in `TestSaveSegments.make_pipeline`); (d) the attribute name the `Pipeline` wrapper stores its file prefix under (`file_prefix` per the constructor kwarg — confirm in `dw/pipeline_processors/pipeline.py`).

@@ -7,7 +7,6 @@ import copy
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from dw.events import RunContext
 from dw.step_cache import step_cache

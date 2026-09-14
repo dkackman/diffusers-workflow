@@ -7,7 +7,7 @@ This addresses the bug where changing arguments between runs didn't work.
 import os
 import sys
 import logging
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -52,8 +52,6 @@ def test_cached_pipeline_uses_new_arguments():
     captured_arguments = []
 
     original_pipeline_init = Pipeline.__init__
-    original_pipeline_load = Pipeline.load
-    original_pipeline_run = Pipeline.run
 
     def mock_pipeline_init(self, *args, **kwargs):
         original_pipeline_init(self, *args, **kwargs)
@@ -73,7 +71,6 @@ def test_cached_pipeline_uses_new_arguments():
     with patch.object(Pipeline, "__init__", mock_pipeline_init):
         with patch.object(Pipeline, "load", mock_pipeline_load):
             with patch.object(Pipeline, "run", mock_pipeline_run):
-
                 pipeline_cache = {}
 
                 # First run - should create and cache pipeline
@@ -88,7 +85,7 @@ def test_cached_pipeline_uses_new_arguments():
                 # Simulate step.run() calling action.run()
                 action1.run({"prompt": "a cat", "num_inference_steps": 20}, {})
 
-                logger.info(f"✅ Run 1 complete")
+                logger.info("✅ Run 1 complete")
                 logger.info(f"   Prompt passed: '{captured_arguments[-1]['prompt']}'")
                 logger.info(
                     f"   Steps passed: {captured_arguments[-1]['num_inference_steps']}"
@@ -112,7 +109,7 @@ def test_cached_pipeline_uses_new_arguments():
                 # Simulate step.run() calling action.run()
                 action2.run({"prompt": "a dog", "num_inference_steps": 30}, {})
 
-                logger.info(f"✅ Run 2 complete")
+                logger.info("✅ Run 2 complete")
                 logger.info(f"   Prompt passed: '{captured_arguments[-1]['prompt']}'")
                 logger.info(
                     f"   Steps passed: {captured_arguments[-1]['num_inference_steps']}"
@@ -123,28 +120,28 @@ def test_cached_pipeline_uses_new_arguments():
                 logger.info("VERIFICATION")
                 logger.info("=" * 60)
 
-                assert (
-                    len(captured_arguments) == 2
-                ), f"Expected 2 runs, got {len(captured_arguments)}"
-                logger.info(f"✅ Both runs executed")
+                assert len(captured_arguments) == 2, (
+                    f"Expected 2 runs, got {len(captured_arguments)}"
+                )
+                logger.info("✅ Both runs executed")
 
                 run1_prompt = captured_arguments[0].get("prompt")
                 run2_prompt = captured_arguments[1].get("prompt")
 
-                assert (
-                    run1_prompt == "a cat"
-                ), f"Run 1 should have 'a cat', got '{run1_prompt}'"
+                assert run1_prompt == "a cat", (
+                    f"Run 1 should have 'a cat', got '{run1_prompt}'"
+                )
                 logger.info(f"✅ Run 1 used correct prompt: '{run1_prompt}'")
 
-                assert (
-                    run2_prompt == "a dog"
-                ), f"Run 2 should have 'a dog', got '{run2_prompt}'"
+                assert run2_prompt == "a dog", (
+                    f"Run 2 should have 'a dog', got '{run2_prompt}'"
+                )
                 logger.info(f"✅ Run 2 used NEW prompt: '{run2_prompt}'")
 
-                assert (
-                    run1_prompt != run2_prompt
-                ), "Arguments should be different between runs!"
-                logger.info(f"✅ Arguments changed between runs")
+                assert run1_prompt != run2_prompt, (
+                    "Arguments should be different between runs!"
+                )
+                logger.info("✅ Arguments changed between runs")
 
                 run1_steps = captured_arguments[0].get("num_inference_steps")
                 run2_steps = captured_arguments[1].get("num_inference_steps")
@@ -184,7 +181,6 @@ def test_generator_seed_updates():
     pipeline_cache = {}
 
     original_pipeline_init = Pipeline.__init__
-    original_pipeline_load = Pipeline.load
 
     def mock_pipeline_init(self, *args, **kwargs):
         original_pipeline_init(self, *args, **kwargs)
@@ -195,13 +191,12 @@ def test_generator_seed_updates():
 
     with patch.object(Pipeline, "__init__", mock_pipeline_init):
         with patch.object(Pipeline, "load", mock_pipeline_load):
-
             logger.info("\n" + "=" * 60)
             logger.info("SEED TEST")
             logger.info("=" * 60)
 
             # Run 1 with seed 100
-            action1 = workflow.create_step_action(
+            workflow.create_step_action(
                 workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
             )
             seed1 = workflow_def["steps"][0]["pipeline"].get("seed", 42)
@@ -216,9 +211,9 @@ def test_generator_seed_updates():
             logger.info(f"Run 2: seed={seed2}")
 
             # Check that action2 has the new pipeline definition with seed 200
-            assert (
-                action2.pipeline_definition["seed"] == 200
-            ), f"Expected seed 200, got {action2.pipeline_definition.get('seed')}"
+            assert action2.pipeline_definition["seed"] == 200, (
+                f"Expected seed 200, got {action2.pipeline_definition.get('seed')}"
+            )
 
             logger.info("✅ Pipeline wrapper gets updated seed")
 

@@ -141,11 +141,12 @@ Example:
 import pytest
 from dw.my_module import my_function
 
+
 class TestMyFunction:
     def test_normal_case(self):
         result = my_function("input")
         assert result == "expected"
-    
+
     def test_error_case(self):
         with pytest.raises(ValueError):
             my_function("invalid")

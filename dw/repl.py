@@ -261,7 +261,7 @@ class DiffusersWorkflowREPL(cmd.Cmd):
             self._print_host_memory(info)
             return
 
-        print(f"\nGPU Memory Status:")
+        print("\nGPU Memory Status:")
         print(f"  Device: {info.get('gpu_device_name', 'Unknown')}")
         print(f"  Allocated: {info.get('gpu_memory_allocated_mb', 0):.1f} MB")
         print(f"  Reserved: {info.get('gpu_memory_reserved_mb', 0):.1f} MB")
@@ -279,7 +279,7 @@ class DiffusersWorkflowREPL(cmd.Cmd):
         weights the card says very little about what a run is holding."""
         if "host_memory_rss_mb" not in info:
             return
-        print(f"\nHost Memory:")
+        print("\nHost Memory:")
         print(f"  Worker RSS: {info['host_memory_rss_mb']:.1f} MB")
         if "host_memory_peak_rss_mb" in info:
             print(f"  Worker peak RSS: {info['host_memory_peak_rss_mb']:.1f} MB")

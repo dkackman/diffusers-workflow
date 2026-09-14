@@ -104,7 +104,9 @@ class TestResolveVariableValues:
 class TestUndeclaredReferencesInsideVariableValues:
     def test_a_reference_inside_a_list_value_is_found_with_its_path(self):
         definition = {
-            "variables": {"shots": [{"references": [{}, {"from_file": "variable:nope"}]}]},
+            "variables": {
+                "shots": [{"references": [{}, {"from_file": "variable:nope"}]}]
+            },
             "steps": [],
         }
         assert undeclared_variable_references(definition) == [
@@ -533,12 +535,17 @@ class TestMusicVideoTemplate:
     def expanded(self):
         from dw.workflow import Workflow
 
-        return Workflow(load_template("music-video.json"), TEMPLATES).expanded_definition()
+        return Workflow(
+            load_template("music-video.json"), TEMPLATES
+        ).expanded_definition()
 
     def test_the_template_validates_as_it_will_run(self):
         from dw.workflow import Workflow
 
-        assert Workflow(load_template("music-video.json"), TEMPLATES).validation_errors() == []
+        assert (
+            Workflow(load_template("music-video.json"), TEMPLATES).validation_errors()
+            == []
+        )
 
     def test_one_slice_and_one_shot_per_entry_in_list_order(self):
         names = [s["name"] for s in self.expanded()["steps"]]
@@ -552,7 +559,9 @@ class TestMusicVideoTemplate:
 
     def test_each_slice_starts_where_its_entry_says(self):
         got = steps_by_name(self.expanded())
-        starts = [got[f"slice@{k}"]["task"]["arguments"]["start_frame"] for k in self.KEYS]
+        starts = [
+            got[f"slice@{k}"]["task"]["arguments"]["start_frame"] for k in self.KEYS
+        ]
         assert starts == [0, 124, 248, 372]
 
     def test_each_shot_reads_its_own_slice_and_the_one_portrait(self):
@@ -592,7 +601,10 @@ class TestMusicVideoTemplate:
         'shots' variable, not the expanded members."""
         template = load_template("music-video.json")
         assert "shots" in template["variables"]
-        assert [s["name"] for s in template["steps"] if "for_each" in s] == ["slice", "shot"]
+        assert [s["name"] for s in template["steps"] if "for_each" in s] == [
+            "slice",
+            "shot",
+        ]
 ```
 
 Check `Workflow.__init__`'s signature (`dw/workflow.py`, `class Workflow`) before writing: if it takes `(workflow_definition, base_dir, ...)` in a different order or by keyword, match it. If the file's `without_pipeline_reference` helper is now unused by any test, delete it.
@@ -767,11 +779,11 @@ class TestOptionalVoices:
 
     def test_every_entry_names_the_voice_variables_rather_than_a_file(self, definition):
         for entry in definition["variables"]["shots"]:
-            voices = [
-                r["from_file"] for r in entry["references"] if "from_file" in r
-            ]
+            voices = [r["from_file"] for r in entry["references"] if "from_file" in r]
             assert voices, entry["name"]
-            assert all(v.startswith("variable:character_") for v in voices), entry["name"]
+            assert all(v.startswith("variable:character_") for v in voices), entry[
+                "name"
+            ]
 
     def test_no_voice_named_leaves_only_the_portraits(self, definition):
         for name, references in shot_references(definition, {}).items():
@@ -798,20 +810,30 @@ class TestOptionalVoices:
     def test_the_tag_runs_longer(self, definition):
         frames = {e["name"]: e["num_frames"] for e in definition["variables"]["shots"]}
         assert frames == {
-            "cold_open": 124, "deflect": 124, "react": 124, "button": 124, "tag": 141
+            "cold_open": 124,
+            "deflect": 124,
+            "react": 124,
+            "button": 124,
+            "tag": 141,
         }
 
     def test_the_variable_names_are_roles_rather_than_a_cast(self, definition):
         """Every run carried howie_portrait_prompt and shot_3_howie_incredulous
         through its arguments, manifest and export whatever the cast was."""
-        names = " ".join(definition["variables"]) + " ".join(
-            step["name"] for step in definition["steps"]
-        ) + " ".join(e["name"] for e in definition["variables"]["shots"])
+        names = (
+            " ".join(definition["variables"])
+            + " ".join(step["name"] for step in definition["steps"])
+            + " ".join(e["name"] for e in definition["variables"]["shots"])
+        )
         assert "howie" not in names.lower()
         assert "pat_" not in names.lower()
         assert "character_a_portrait_prompt" in definition["variables"]
         assert [e["name"] for e in definition["variables"]["shots"]] == [
-            "cold_open", "deflect", "react", "button", "tag"
+            "cold_open",
+            "deflect",
+            "react",
+            "button",
+            "tag",
         ]
 ```
 
@@ -830,12 +852,19 @@ class TestDialogueShortTemplate:
     def expanded(self):
         from dw.workflow import Workflow
 
-        return Workflow(load_template("dialogue-short.json"), TEMPLATES).expanded_definition()
+        return Workflow(
+            load_template("dialogue-short.json"), TEMPLATES
+        ).expanded_definition()
 
     def test_the_template_validates_as_it_will_run(self):
         from dw.workflow import Workflow
 
-        assert Workflow(load_template("dialogue-short.json"), TEMPLATES).validation_errors() == []
+        assert (
+            Workflow(
+                load_template("dialogue-short.json"), TEMPLATES
+            ).validation_errors()
+            == []
+        )
 
     def test_one_shot_per_entry_between_the_cast_and_the_edit(self):
         names = [s["name"] for s in self.expanded()["steps"]]
@@ -873,14 +902,19 @@ class TestDialogueShortTemplate:
 
     def test_the_tag_runs_longer(self):
         got = steps_by_name(self.expanded())
-        frames = [got[f"shot@{k}"]["pipeline"]["arguments"]["num_frames"] for k in self.KEYS]
+        frames = [
+            got[f"shot@{k}"]["pipeline"]["arguments"]["num_frames"] for k in self.KEYS
+        ]
         assert frames == [124, 124, 124, 124, 141]
 
     def test_every_shot_is_the_same_pipeline(self):
         from dw.workflow import pipeline_cache_key
 
         got = steps_by_name(self.expanded())
-        assert len({pipeline_cache_key(got[f"shot@{k}"]["pipeline"]) for k in self.KEYS}) == 1
+        assert (
+            len({pipeline_cache_key(got[f"shot@{k}"]["pipeline"]) for k in self.KEYS})
+            == 1
+        )
 
     def test_the_episode_gathers_the_shots_in_order(self):
         got = steps_by_name(self.expanded())

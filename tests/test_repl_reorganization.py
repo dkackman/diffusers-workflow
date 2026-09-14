@@ -32,11 +32,11 @@ def test_command_equivalence():
     for test in tests:
         repl = DiffusersWorkflowREPL()  # Fresh REPL for each test
 
-        print(f"\n{'-'*70}")
+        print(f"\n{'-' * 70}")
         print(f"Test: {test['description']}")
         print(f"Old command: {test['old']}")
         print(f"New command: {test['new']}")
-        print(f"{'-'*70}")
+        print(f"{'-' * 70}")
 
         # The output should be the same
         print("Old command output:")
@@ -64,9 +64,9 @@ def test_help_system():
     commands = ["workflow", "arg", "model", "memory", "config"]
 
     for cmd in commands:
-        print(f"\n{'-'*70}")
+        print(f"\n{'-' * 70}")
         print(f"Testing: {cmd} ?")
-        print(f"{'-'*70}")
+        print(f"{'-' * 70}")
         repl.onecmd(f"{cmd} ?")
         print(f"✅ Help for '{cmd}' works")
 
@@ -93,10 +93,10 @@ def test_command_flow():
     ]
 
     for cmd, description in flow:
-        print(f"\n{'-'*70}")
+        print(f"\n{'-' * 70}")
         print(f"Step: {description}")
         print(f"Command: {cmd}")
-        print(f"{'-'*70}")
+        print(f"{'-' * 70}")
         repl.onecmd(cmd)
         print(f"✅ {description} - OK")
 
