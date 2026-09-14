@@ -451,6 +451,23 @@ same reason - default setup cannot load a pack.
   normalizes only the track going into the mux, not the slices that condition
   the shots, so the picture is unchanged; `music`'s deliverable moves to the
   new `balanced` step, which renames the file an `output:` reference names
+- **A deliverable is measured as written, not as handed to the writer** —
+  `warn_without_headroom` reads the waveform, and the encoder sits downstream
+  of it: a song normalized to exactly -1.0 dBFS came back out of
+  `music-video`'s AAC mux at **+0.94**, so a clean default run shipped a
+  clipped file and nothing warned (#161). `warn_if_written_above_full_scale`
+  (`dw/result.py`, kind `audio_clipped`) probes the file it just wrote and
+  warns when it decodes at or above 0 dBFS — whatever the encoder did, that
+  is the number a consumer's decoder sees. Only for a file that can carry a
+  soundtrack, and silent when `warn_without_headroom` already spoke for that
+  file, since two warnings would be two answers to one mistake. The encode's
+  overshoot is material-dependent — about 0.1 dB on an mp3 and about 1.9 dB
+  on the AAC mux of the same song — so no target chosen up front can be
+  *known* to be enough, which is why reading the file back is the half that
+  stops the next instance. The half that fixes this one: every template
+  whose deliverable ends in a `pair_audio` mux (`music-video`,
+  `assemble-and-score`, `dissolve-between-shots`) normalizes to **-3 dBFS**;
+  `music`, an mp3, keeps -1
 - **A variable's bound is declared by the author, checked three times** — a
   model's own rule about a value (H3's `num_frames` is `17 * n + 5` from 124
   to 345) is a property of the model, so it lives in the workflow rather than
