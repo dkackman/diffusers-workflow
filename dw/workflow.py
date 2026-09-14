@@ -29,6 +29,7 @@ from .previous_results import (
 )
 from .locations import location_errors
 from .reference_limits import reference_limit_errors
+from .task_domains import task_argument_errors
 from .subfolders import step_subfolder, subfolder_errors
 from .step import Step
 from .step_cache import (
@@ -597,6 +598,12 @@ class Workflow:
             # A reference set the pipeline would refuse costs a checkpoint
             # load to find out about otherwise (dw/reference_limits.py, #136)
             + reference_limit_errors(expanded, source_indices)
+            # A number outside a task argument's declared domain is refused
+            # here rather than interpreted at run time - a negative frame
+            # count was a Python slice from the end of the track and a zero
+            # sample rate a silent fallback to 44100 (dw/task_domains.py,
+            # #139, #140)
+            + task_argument_errors(expanded, source_indices)
             + self.sub_workflow_errors(expanded, source_indices, composing)
         )
 

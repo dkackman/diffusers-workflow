@@ -447,6 +447,18 @@ def describe_task(command):
     if not any(p["name"] == "device" for p in parameters):
         parameters.append(device_parameter)
 
+    # A signature carries no range, so a declared domain is reported beside
+    # the parameter it constrains - an agent reading get_task saw
+    # 'annotation: null' and no domain at all, and wrote the negative frame
+    # count validation now refuses (dw/task_domains.py, #139, #140)
+    from .task_domains import TASK_ARGUMENT_DOMAINS
+
+    domains = TASK_ARGUMENT_DOMAINS.get(command, {})
+    for parameter in parameters:
+        domain = domains.get(parameter["name"])
+        if domain is not None:
+            parameter["domain"] = domain
+
     summary = _first_paragraph(inspect.getdoc(implementation))
     if not summary:
         from .tasks.task import _COMMAND_REGISTRY
