@@ -61,6 +61,11 @@ dependencies = [
     "controlnet-aux>=0.0.10",
     "opencv-python-headless>=5.0.0.93",
     "kornia>=0.8.3",
+    # Hub-hosted compiled kernels, fetched at runtime by a model that asks for
+    # one - LTX-2.5's diffusion decoder reaches NATTEN's na3d this way, and
+    # without it that decoder falls back to a FlexAttention path diffusers' own
+    # docstring calls larger than device memory at production grids
+    "kernels>=0.17.0",
     # Upscaling and face restoration tasks
     "spandrel>=0.4.2",
     "facexlib>=0.3.0",

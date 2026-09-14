@@ -795,6 +795,12 @@ def configure_components(pipeline, configuration, default_device, reused_compone
         # in one allocation unless it is told to tile
         enable_tiling(component, component_name, component_configuration)
 
+        # The attention processor this component runs, for a component that is
+        # neither the unet nor the transformer (both covered by their own
+        # pipeline-level blocks) - LTX-2.5's diffusion decoder, whose default
+        # processor is a portable fallback rather than the path it was trained to run
+        set_attn_processor(component, component_name, component_configuration)
+
         device = resolve_device(component_configuration.get("device", None))
         residency = component_configuration.get("residency", "resident")
         if residency == "on_demand":
@@ -866,6 +872,44 @@ def enable_tiling(component, component_name, component_configuration):
         + (f" with {', '.join(arguments)}" if arguments else "")
     )
     component.enable_tiling(**arguments)
+
+
+def set_attn_processor(component, component_name, component_configuration):
+    """Swap a component's attention processor for the one its configuration names.
+
+    The pipeline-level `unet` and `transformer` blocks cover those two components.
+    This covers any other one that carries attention - LTX-2.5's
+    `diffusion_decoder`, whose default `LTX2VideoVaeNeighborhoodAttnProcessor` is a
+    portable FlexAttention fallback rather than the NATTEN path the decoder was
+    built around, and which diffusers' own docstring calls larger than device memory
+    at production grids.
+
+    The value is a type, resolved by the `_type` suffix convention, and is
+    constructed with no arguments - the same shape the `unet`/`transformer` blocks
+    have used since they were written.
+
+    Args:
+        component: The loaded component
+        component_name: Its name, for logging and errors
+        component_configuration: That component's configuration block
+
+    Raises:
+        ValueError: If the component has no set_attn_processor() to call
+    """
+    attn_processor_type = component_configuration.get("attn_processor_type", None)
+    if attn_processor_type is None:
+        return
+
+    if not has_method(component, "set_attn_processor"):
+        raise ValueError(
+            f"'{component_name}' does not take an attention processor - "
+            f"{type(component).__name__} has no set_attn_processor()"
+        )
+
+    logger.info(
+        f"Setting {component_name} attention processor: {attn_processor_type.__name__}"
+    )
+    component.set_attn_processor(attn_processor_type())
 
 
 def _resolve_submodule(component, component_name, path):

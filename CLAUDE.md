@@ -427,7 +427,13 @@ same reason - default setup cannot load a pack.
   had `peak_dbfs` with no rule to read it against — `get_gallery_metadata`'s
   hint taught the near-silent end of the range only (#158). A warning, not a
   gain change: what level a deliverable sits at is the workflow's to decide,
-  and `normalize_audio` is the step that decides it
+  and `normalize_audio` is the step that decides it. The two Music 3
+  templates decide it now (#159) - `music` and `music-video` peak-normalize
+  to -1 dBFS, the level `assemble-and-score` has always used, because the
+  warning was firing on their own defaults every run. `music-video`
+  normalizes only the track going into the mux, not the slices that condition
+  the shots, so the picture is unchanged; `music`'s deliverable moves to the
+  new `balanced` step, which renames the file an `output:` reference names
 - **A variable's bound is declared by the author, checked three times** — a
   model's own rule about a value (H3's `num_frames` is `17 * n + 5` from 124
   to 345) is a property of the model, so it lives in the workflow rather than

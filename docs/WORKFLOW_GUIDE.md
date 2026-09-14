@@ -862,6 +862,11 @@ For components the pipeline loads itself — which is all of a modular pipeline'
   `diffusion_decoder`, for example).
 - `attention_backend` — a persistent `set_attention_backend` on one component, which a
   compiled component needs (the pipeline-level `attention_backend` applies per call).
+- `attn_processor_type` — the attention processor the component runs, constructed with no
+  arguments and handed to `set_attn_processor`. The `unet` and `transformer` blocks cover
+  those two; this covers any other component that carries attention (LTX-2.5's
+  `diffusion_decoder`, whose default processor is a portable fallback rather than the
+  NATTEN path the decoder was built around).
 - `compile`, `truncate_layers`, `remove_modules` — see
   [ACCELERATION.md](ACCELERATION.md).
 - A dotted key reaches a module inside a component, for a component that holds the model

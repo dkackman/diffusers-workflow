@@ -111,7 +111,11 @@ class TestTheTemplateItself:
         steps = {s["name"]: s for s in definition["steps"]}
         assert "soundtrack" not in steps, "the hardcoded 496-frame slice is gone"
         arguments = steps["music_video"]["task"]["arguments"]
-        assert arguments["audio"] == "previous_result:write_song"
+        # The whole song, by way of the gain step that gives the mux headroom (#159)
+        assert arguments["audio"] == "previous_result:balanced"
+        assert steps["balanced"]["task"]["arguments"]["audio"] == (
+            "previous_result:write_song"
+        )
         assert arguments["fit"] == "video"
 
     def test_no_template_hardcodes_a_soundtrack_length(self):
