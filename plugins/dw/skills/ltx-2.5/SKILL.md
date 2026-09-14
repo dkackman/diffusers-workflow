@@ -42,10 +42,10 @@ Lightricks' own caption spec, quoted below from diffusers.
   flow - eight sigmas at 768x448, a 2x latent upsample, then renoise and three
   stage-two sigmas at 1536x896 carrying the audio latents through. The upsample
   alone is soft; the refine pass is where the detail comes from.
-- **Comparing decoders**: `templates/ltx2/diffusion-decode` is `text-to-video`
-  stopped at latents and given to LTX-2.5's diffusion decoder instead of the
-  conv VAE; same seed and sigmas, so comparable frame for frame. Offer only
-  when asked: unmeasured, and silent (its audio stays latent).
+- **Comparing decoders**: `templates/ltx2/diffusion-decode` hands
+  `text-to-video`'s latents to LTX-2.5's diffusion decoder. Do not offer it: it
+  needs a `shi-labs/natten` build for the installed torch, and without one the
+  FlexAttention fallback OOMs on 24GB at any size (#153).
 - **A generative 2x render**: `templates/ltx2/generative-upscale` draws its own
   low-resolution pass and has the IC-LoRA re-render it twice the size,
   inventing detail rather than interpolating. `base_width` and `base_height`

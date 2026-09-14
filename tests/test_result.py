@@ -1417,3 +1417,41 @@ class TestNoHeadroom:
 
     def test_a_video_with_a_quiet_track_is_not_warned_about(self):
         assert self.events_from(lambda: self.save_muxed(torch.zeros((2, 100)))) == []
+
+
+class TestTheMusicTemplatesLeaveHeadroom:
+    """#159: the warning #158 added fired on the default path of the two
+    Music 3 templates, every run - a caller who did nothing wrong got a
+    clipped deliverable and a note telling them to add a step. The templates
+    carry the step now, at the same -1 dBFS `assemble-and-score` has always
+    used."""
+
+    def steps_of(self, path):
+        with open(path) as definition_file:
+            definition = json.load(definition_file)
+        return {step["name"]: step for step in definition["steps"]}
+
+    @pytest.mark.parametrize(
+        "path,source",
+        [
+            ("workflows/templates/minimax/music.json", "generate_music"),
+            ("workflows/templates/minimax/music-video.json", "write_song"),
+        ],
+    )
+    def test_the_song_is_normalized_before_it_is_delivered(self, path, source):
+        steps = self.steps_of(path)
+        balanced = steps["balanced"]["task"]
+        assert balanced["command"] == "normalize_audio"
+        assert balanced["arguments"]["audio"] == f"previous_result:{source}"
+        assert balanced["arguments"]["peak_dbfs"] == -1.0
+
+    def test_the_music_videos_conditioning_slices_are_the_untouched_song(self):
+        """Only the mux is normalized. The slices condition the shots, so a
+        gain change there would change the picture rather than its level."""
+        steps = self.steps_of("workflows/templates/minimax/music-video.json")
+        assert steps["slice"]["task"]["arguments"]["audio"] == (
+            "previous_result:write_song"
+        )
+        assert steps["music_video"]["task"]["arguments"]["audio"] == (
+            "previous_result:balanced"
+        )

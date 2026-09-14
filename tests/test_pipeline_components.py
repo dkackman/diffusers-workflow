@@ -382,6 +382,70 @@ class TestComponentTiling:
             )
 
 
+class TestComponentAttnProcessor:
+    """The attention processor of a component that is not the unet or transformer"""
+
+    class _Processor:
+        pass
+
+    class _Decoder:
+        def __init__(self):
+            self.processor = None
+
+        def set_attn_processor(self, processor):
+            self.processor = processor
+
+        def to(self, device):
+            return self
+
+    class _Pipeline:
+        def __init__(self, **components):
+            for name, component in components.items():
+                setattr(self, name, component)
+
+    def test_the_named_type_is_constructed_and_set(self):
+        from dw.pipeline_processors.pipeline import configure_components
+
+        decoder = self._Decoder()
+        configure_components(
+            self._Pipeline(diffusion_decoder=decoder),
+            {
+                "components": {
+                    "diffusion_decoder": {"attn_processor_type": self._Processor}
+                }
+            },
+            "cpu",
+        )
+
+        assert isinstance(decoder.processor, self._Processor)
+
+    def test_omitted_leaves_the_component_alone(self):
+        from dw.pipeline_processors.pipeline import configure_components
+
+        decoder = self._Decoder()
+        configure_components(
+            self._Pipeline(diffusion_decoder=decoder),
+            {"components": {"diffusion_decoder": {"device": "cpu"}}},
+            "cpu",
+        )
+
+        assert decoder.processor is None
+
+    def test_a_component_that_takes_no_processor_says_so(self):
+        from dw.pipeline_processors.pipeline import configure_components
+
+        class Plain:
+            def to(self, device):
+                return self
+
+        with pytest.raises(ValueError, match="does not take an attention processor"):
+            configure_components(
+                self._Pipeline(connectors=Plain()),
+                {"components": {"connectors": {"attn_processor_type": self._Processor}}},
+                "cpu",
+            )
+
+
 class TestDefinitionIsNotMutatedByLoading:
     """A loaded component belongs to the load, not to the workflow definition.
 

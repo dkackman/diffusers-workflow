@@ -663,6 +663,10 @@
                                 "description": "Pin this component's attention backend persistently via set_attention_backend, e.g. 'flash', 'sage', '_flash_3_hub'. Use this instead of the pipeline-level attention_backend when the component is compiled - the per-call context manager forces recompiles.",
                                 "type": "string"
                             },
+                            "attn_processor_type": {
+                                "description": "The attention processor this component runs, by type name, constructed with no arguments and handed to set_attn_processor(). The pipeline-level 'unet' and 'transformer' blocks cover those two components; this covers any other one that carries attention - LTX-2.5's 'diffusion_decoder', whose default processor is a portable FlexAttention fallback rather than the NATTEN path the decoder was built around.",
+                                "type": "string"
+                            },
                             "truncate_layers": {
                                 "description": "Drop the tail of a ModuleList inside this component that the run never reads, before any offload hooks are installed. Keys are dotted paths relative to the component, values the number of entries to keep. For an encoder used for its hidden states: MiniMax-H3 conditions on hidden_states[50] of its 64-layer Qwen3-VL, so { 'language_model.layers': 51 } drops the 13 layers whose output nothing consumes while leaving hidden_states[50] bit-identical (keeping only 50 would hand back the final-norm output instead, a different tensor).",
                                 "type": "object",
