@@ -42,7 +42,7 @@ Read them in this order and each introduces one new idea on top of the last.
 | ------- | ------------------ |
 | [two-stage.json](two-stage.json) | The distilled two-stage flow in its three moves: render at half size, double the latents, renoise and refine at full size. Lightricks' newer DFR pipeline is the follow-up |
 | [generative-upscale.json](generative-upscale.json) | A generative 2x upscale: an in-context LoRA re-renders a clip at twice the size, inventing detail |
-| [diffusion-decode.json](diffusion-decode.json) | LTX-2.5's other video decoder: a small diffusion model in place of the convolutional VAE, held against `text-to-video` frame for frame. An experiment, not a recommendation - it is silent (audio comes back as latents), and it needs a `shi-labs/natten` build for the installed torch: the FlexAttention fallback cannot decode even the smallest canvas its kernel accepts on 24GB (#153) |
+| [diffusion-decode.json](diffusion-decode.json) | LTX-2.5's other video decoder: a small diffusion model in place of the convolutional VAE, held against `text-to-video` frame for frame. An experiment, not a recommendation - it is silent (audio comes back as latents), and it needs a `shi-labs/natten` build for the installed torch: the FlexAttention fallback needs ~25.5GiB for the smallest canvas its kernel accepts, so on 24GB it decodes nothing at all (#153) |
 
 ## Going long
 
