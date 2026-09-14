@@ -10,6 +10,7 @@
             "minutes": 8.2
         }
     ],
+    "cost_drivers": ["num_frames", "width", "height", "full_width", "full_height"],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",

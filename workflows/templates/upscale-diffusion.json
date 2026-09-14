@@ -4,6 +4,7 @@
   "cost": [
     {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 0.2}
   ],
+  "cost_drivers": ["num_inference_steps"],
   "variables": {
     "input_image": {
       "location": "https://example.com/image.jpg"

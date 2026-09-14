@@ -65,6 +65,7 @@ from ..prompts import (
 )
 from ..assets import is_asset_reference, resolve_asset_reference
 from ..variable_constraints import constraint_errors, constraint_warnings
+from .observed_cost import ObservedCosts, declared_drivers
 from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
@@ -235,6 +236,35 @@ def catalog_name_for(path, source):
     return os.path.splitext(relative)[0].replace(os.sep, "/")
 
 
+def attach_observed(details, observed_costs):
+    """Fold this box's own history into each detail, as `observed`.
+
+    Separate from `workflow_details` because that cache is keyed on a file's
+    mtime and this figure changes when no file has: a job finishing moves
+    every number here. A detail carries `cost_drivers` and the defaults they
+    take, which is everything the aggregate needs - the file is not read a
+    second time.
+    """
+    if observed_costs is None:
+        return details
+    for name, detail in details.items():
+        drivers = detail.get("cost_drivers") or {}
+        # The shape `observed_for` reads: the drivers with their defaults,
+        # and the variable names, which is what the no-drivers fallback
+        # (default-arguments-only runs) compares a job's arguments against
+        surrogate = {
+            "cost_drivers": sorted(drivers),
+            "variables": {
+                **{variable: None for variable in detail.get("variable_names") or []},
+                **drivers,
+            },
+        }
+        observed = observed_costs.observed(name, surrogate)
+        if observed:
+            detail["observed"] = observed
+    return details
+
+
 def workflow_details(sources_by_name):
     """Per-workflow card metadata: output kinds, step and variable counts,
     and the variable names themselves - enough for an agent to pick a
@@ -297,6 +327,14 @@ def workflow_details(sources_by_name):
                 # What a variable's value is allowed to be, so the rule is
                 # read rather than guessed at (#96)
                 "constraints": definition.get("variable_constraints") or {},
+                # The variables the author says move this workflow's cost,
+                # with what they default to - what buckets this box's own
+                # runs into comparable ones (#93). Carried here so an
+                # observed figure needs no second read of the file
+                "cost_drivers": {
+                    name: (definition.get("variables") or {}).get(name)
+                    for name in declared_drivers(definition)
+                },
                 "cost": cost if isinstance(cost, list) and cost else None,
             }
         except Exception:
@@ -312,6 +350,7 @@ def workflow_details(sources_by_name):
                 "summary": "",
                 "lists": {},
                 "constraints": {},
+                "cost_drivers": {},
                 "cost": None,
             }
         _workflow_detail_cache[path] = (mtime, detail)
@@ -652,6 +691,10 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.job_manager = manager
+    # This box's own job history as a cost, recomputed when the jobs table
+    # moves rather than when a file does - a job landing changes every
+    # figure and changes no workflow file (#93)
+    app.state.observed_costs = ObservedCosts(getattr(manager, "history", None))
     app.state.workflow_dir = workflow_dir
     # The search path: the writable directory first, then read-only roots -
     # any --examples-dir, then the packaged builtins. Reads span all of it,
@@ -1769,7 +1812,10 @@ def create_app(
         found = listing(sources)
         try:
             details = project_listing(
-                workflow_details(found),
+                attach_observed(
+                    workflow_details(found),
+                    getattr(app.state, "observed_costs", None),
+                ),
                 shape=shape,
                 traits=[t.strip() for t in (traits or "").split(",") if t.strip()],
                 configures=configures,
@@ -1789,7 +1835,10 @@ def create_app(
             # wrote into the workflow - nothing derives them from this
             # server's own job history, so null means nobody wrote one
             # down, not that the run is cheap or that this box has never
-            # run it (#91)
+            # run it (#91). A detail's `observed` block, when present, is the
+            # other kind of number: this box's own finished runs of that
+            # workflow, derived rather than claimed, and never a substitute
+            # for `cost` (#93)
             "cost_basis": "curated",
         }
 
@@ -1928,7 +1977,19 @@ def create_app(
         constraints = definition.get("variable_constraints")
         if isinstance(constraints, dict) and constraints:
             answer["constraints"] = constraints
+        # What this box's own runs of it actually took, beside the defaults
+        # they were run with - derived, never the curated `cost` (#93)
+        observed = _observed_for_name(name, definition)
+        if observed:
+            answer["observed"] = observed
         return answer
+
+    def _observed_for_name(name, definition):
+        """One workflow's `observed` block, from the same aggregate the
+        listing uses - so the figure a caller reads in the listing and the
+        one they read here are the same figure."""
+        costs = getattr(app.state, "observed_costs", None)
+        return costs.observed(name, definition) if costs else None
 
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str, ws: Workspace = Depends(selected_workspace)):

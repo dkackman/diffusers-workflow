@@ -174,6 +174,7 @@ SCHEMA_SECTIONS = {
             "traits",
             "configures",
             "cost",
+            "cost_drivers",
             "variables",
             "variable_constraints",
             "seed",

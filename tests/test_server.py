@@ -1885,6 +1885,7 @@ def test_workflow_listing_carries_details(server):
             "summary": "Renders a small test image.",
             "lists": {},
             "constraints": {},
+            "cost_drivers": {},
             "cost": None,
             # where it came from, and whether a client should offer save and
             # delete for it or only save-a-copy

@@ -10,6 +10,7 @@
             "minutes": 42
         }
     ],
+    "cost_drivers": ["shots", "num_inference_steps", "width", "height"],
     "variables": {
         "character_a_portrait_prompt": "a 3/4-length studio portrait of a wiry man in his early 30s with short curly dark hair and expressive eyebrows, wearing a mustard-yellow sweater vest over a white button-down shirt, standing in a 1990s multi-camera sitcom apartment set with a sagging olive-green couch and a brick wall behind him, warm even studio lighting, sharp focus, photographic",
         "character_b_portrait_prompt": "a 3/4-length studio portrait of a heavyset man in his mid 40s with a shaved head and a calm, heavy-lidded expression, wearing an open gray flannel shirt over a dark t-shirt, standing in a 1990s multi-camera sitcom apartment set with a sagging olive-green couch and a brick wall behind him, warm even studio lighting, sharp focus, photographic",

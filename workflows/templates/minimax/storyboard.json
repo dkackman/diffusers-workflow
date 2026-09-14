@@ -4,6 +4,7 @@
     "cost": [
         {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 10.1}
     ],
+    "cost_drivers": ["num_frames", "num_inference_steps", "width", "height"],
     "variables": {
         "board_1_launch": "close-up at puddle level on a rain-wet cobblestone street: a child's small hand in a yellow raincoat sleeve setting a folded white paper boat onto a wide rain puddle, raindrops ringing the water, blurred umbrellas and shopfront lights reflected in it, overcast soft daylight, photographic, sharp focus on the boat",
         "board_2_gutter": "low angle photograph of a folded white paper boat racing along a rushing rain-swollen stone gutter between cobblestones, white water splashing around its bow, wet grey street and blurred passing legs beyond, rainy afternoon light, photographic, sharp focus on the boat",

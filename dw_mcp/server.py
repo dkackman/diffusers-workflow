@@ -171,10 +171,14 @@ def build_server(client):
         figures a maintainer measured once on the devices named and wrote
         into the workflow, never derived from this server's job history -
         so null means nobody wrote one down, not that the run is cheap;
-        the answer's `cost_basis` says as much. For a null one, earlier
-        runs of the same template in `list_jobs` carry
-        `started_at`/`finished_at`, which is the measurement this box
-        actually holds), output kinds and variable names. `lists`, present for a
+        the answer's `cost_basis` says as much. `observed_minutes` and
+        `observed_runs`, when present, are this box's *own* finished runs
+        of that workflow - the cold median, model load included, and how
+        many runs are behind it. Prefer it when quoting a price for this
+        machine, fall back to `cost`, and say "unknown" only when neither
+        is there; say which one you used, since a figure a maintainer
+        measured on their card and one this box averaged last week are
+        different claims), output kinds and variable names. `lists`, present for a
         list-driven workflow, names per list variable the fields an entry
         takes, the steps run over it and the default's length; there
         `cost[].per_entry`, when present, is the measured cost of one
@@ -204,7 +208,13 @@ def build_server(client):
         nothing else, which is a fraction of the definition; long defaults
         come back cut to 200 characters with the cut ones named in
         `truncated`, reaching into a list default too - a shot's prompt
-        is named `shots[0].prompt`. A variable the workflow bounds is
+        is named `shots[0].prompt`. `observed`, when this box has run the
+        workflow, is the whole derived-cost block: `cold_minutes` /
+        `cold_runs` (model load included) and `warm_minutes` /
+        `warm_runs` (model already resident), the `drivers` the figure is
+        for, `since`, and `unclassified_runs` when a run's event tail was
+        trimmed too far to tell which it was. Step-cache-only runs are
+        excluded. A variable the workflow bounds is
         reported under `constraints` beside its default - the range and the
         step it has to land on - so a frame count is read rather than
         guessed at."""

@@ -333,7 +333,25 @@ The editor's forms come from these; they are just as usable from scripts:
   `cost_basis` says what that is - `curated`: figures a maintainer measured
   once and wrote into the workflow, never derived from this server's own job
   history, so `null` means nobody wrote one down rather than "this box has
-  never run it". A `models/` entry
+  never run it". Beside it, `observed` is the derived figure the same
+  listing is allowed to carry (#93): what *this* box's own finished runs of
+  that workflow took, as `cold_minutes`/`cold_runs` (model load included,
+  so comparable to a curated `cost`) and `warm_minutes`/`warm_runs` (model
+  already resident), with the `drivers` the figure is for, `since`, and
+  `unclassified_runs` when a run's persisted events were trimmed past its
+  `loading` phase. Runs are bucketed by the workflow's declared
+  `cost_drivers` - the variables that move its cost - so a 345-frame run
+  never informs a 124-frame figure; a list driver buckets on its length. A
+  workflow declaring no drivers falls back to runs that overrode nothing at
+  all, and a run whose every step was a step-cache hit is excluded. The
+  compact view carries only `observed_minutes` (cold) and `observed_runs`;
+  `GET /api/workflows/{name}/variables` carries the whole block beside the
+  defaults. Derived from the job rows in one query - so the figures outlive
+  a pruned run directory - and cached against the jobs table's high-water
+  mark rather than a file mtime, because a job landing changes every figure
+  and changes no file. `observed` never replaces `cost`: a maintainer's
+  claim on a named card and this machine's last week are different things.
+  A `models/` entry
   takes its `shape` and `traits` from the template it configures and keeps
   its own `cost`. A list-driven workflow (one with a `for_each` step) also
   carries `lists`: per list variable, the fields an entry takes, the steps

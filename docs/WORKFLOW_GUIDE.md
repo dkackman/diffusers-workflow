@@ -719,6 +719,19 @@ gets it wrong; a declaration that merely repeats the derivation is noise that
 rots when the rules change, and the repo's catalog tests refuse it. `cost` is
 never derived — leave it absent until a run has been measured.
 
+`cost_drivers` is the other half of saying what a workflow costs, and it *is*
+for derivation: the variables that move the wall clock — a frame count, a
+step count, a segment count, the list a `for_each` runs over — never a prompt
+or a seed. The server buckets its own finished runs by those values and
+reports the result as `observed` beside the curated `cost`, so a 345-frame
+run never informs a 124-frame figure and a list driver buckets on its length.
+Declaring none is not neutral: the figure then falls back to runs that
+overrode nothing at all, which most real runs do, so a measured workflow with
+no drivers keeps answering "unknown". Each name must be a variable the
+workflow declares — `tests/test_observed_cost.py` sweeps the catalog for one
+that is not, since a driver bucketing on nothing looks exactly like a driver
+that works.
+
 ## Result Configuration
 
 ```json

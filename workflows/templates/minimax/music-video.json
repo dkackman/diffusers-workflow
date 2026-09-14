@@ -9,6 +9,7 @@
             "minutes": 35
         }
     ],
+    "cost_drivers": ["shots", "num_frames", "audio_duration", "num_inference_steps", "width", "height"],
     "variables": {
         "singer_portrait_prompt": "prompt:zimage/otter_singer_portrait",
         "song_prompt": "prompt:minimax/otter_soul_song",

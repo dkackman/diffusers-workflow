@@ -1,4 +1,5 @@
 {
+    "cost_drivers": ["num_images_per_prompt"],
     "variables": {
         "prompt": "an apple",
         "num_images_per_prompt": 1

@@ -59,6 +59,12 @@
                 "additionalProperties": false
             }
         },
+        "cost_drivers": {
+            "description": "The variables that move this workflow's cost, by name - a frame count, a step count, a segment count, not a prompt or a seed. Runs of this workflow are bucketed by these values when the server reports what its own history observed, so a 141-frame run never informs a 124-frame figure. Each name must be a variable this workflow declares. Declaring none is not neutral: the observed figure then falls back to runs that overrode nothing at all, which most real runs do not.",
+            "type": "array",
+            "items": {"type": "string"},
+            "uniqueItems": true
+        },
         "variables": {
             "$ref": "#/$defs/arguments"
         },

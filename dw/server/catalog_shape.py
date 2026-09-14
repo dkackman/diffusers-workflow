@@ -431,6 +431,15 @@ def project_listing(
                     variable: terse_constraint(rule)
                     for variable, rule in slim["constraints"].items()
                 }
+            # This box's own history, at its two-key budget (#93/#101): the
+            # cold median, which is the one comparable to a curated `cost`,
+            # and how many runs stand behind it. The block with the
+            # cold/warm split, the drivers and `since` is in the full
+            # listing and in `get_workflow`
+            observed = detail.get("observed") or {}
+            if observed.get("cold_minutes") is not None:
+                slim["observed_minutes"] = observed["cold_minutes"]
+                slim["observed_runs"] = observed["cold_runs"]
             if detail.get("configures_missing"):
                 slim["configures_missing"] = detail["configures_missing"]
             projected[name] = slim

@@ -1,4 +1,5 @@
 {
+    "cost_drivers": ["num_images_per_prompt", "num_inference_steps"],
     "variables": {
         "prompt": "combine the two images into a Photorealistic photograph of two friends posing together in front of the Eiffel Tower in Paris. On the left: a realistic bird creature with full anthropomorphic body, standing upright, wearing casual clothes and multi colored reflective sunglasses. On the right: a realistic Cthulhu-inspired humanoid with tentacled face, full body visible, wearing modern casual attire. Both are smiling/friendly, arms around each other's shoulders in buddy pose. Natural daylight, tourist photo style, full body shot, realistic textures and lighting, high detail, DSLR quality.",
         "num_images_per_prompt": 1,
