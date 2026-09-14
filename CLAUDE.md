@@ -83,6 +83,11 @@ common` by `GET /api/assets`, and is written to only when a call says so
 Reserved names: `workflows`, `prompts`, `assets`, `outputs`, `exports`,
 `common`.
 
+The web UI has a page for it: `ui/src/lib/pages/AssetsPage.svelte` (#165)
+reads `GET /api/assets` and shows the library the way the gallery shows
+outputs, tagged by `origin` so a shadowed or read-only entry is visible
+before a 403 explains it.
+
 ### Workflow sources
 
 `dw/workflow_sources.py` is the server's workflow search path: the writable
