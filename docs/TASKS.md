@@ -23,6 +23,17 @@ implementation's real signature, the web editor builds task forms from them,
 and workflow validation flags task-argument typos the same way it flags
 pipeline ones.
 
+A signature carries no domain, though, so the numbers whose domain is not a
+judgement call are declared separately (`dw/task_domains.py`) and validation
+reports one outside it as an error at its JSON path: a count of frames or
+seconds to cut, and a sample rate or frame rate, have to be above zero, and an
+offset to start at zero or above. Those are refused rather than interpreted -
+`num_frames: -10` used to answer with the track minus its last ten frames and
+`target_sample_rate: 0` with the original samples under a 44100 Hz header, both
+reported as clean successes. The commands refuse the same values at run time,
+which is what catches one that arrived from a `variable:` or an earlier step
+rather than being written in the file.
+
 ## Image Processing
 
 ### ControlNet Preprocessors
