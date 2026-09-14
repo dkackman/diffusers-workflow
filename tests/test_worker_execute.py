@@ -25,7 +25,10 @@ class StubWorkflow:
     def validate(self):
         pass
 
-    def run(self, arguments, previous_pipelines=None, context=None):
+    def run(
+        self, arguments, previous_pipelines=None, context=None, prior_step_keys=None
+    ):
+        self.seen_prior_step_keys = dict(prior_step_keys or {})
         if self.behavior == "wait_for_cancel":
             for _ in range(200):
                 if context.cancelled:
@@ -170,7 +173,9 @@ def test_failure_carries_the_manifest_of_the_steps_that_ran():
     that omits them reads as 'this run produced nothing'."""
 
     class FailingWorkflow(StubWorkflow):
-        def run(self, arguments, previous_pipelines=None, context=None):
+        def run(
+            self, arguments, previous_pipelines=None, context=None, prior_step_keys=None
+        ):
             raise KeyError("Previous result 'first_renamed' not found")
 
     worker = _make_worker()
@@ -207,7 +212,9 @@ def test_a_failed_run_reclaims_memory_and_drops_untouched_pipelines():
     """
 
     class FailingWorkflow(StubWorkflow):
-        def run(self, arguments, previous_pipelines=None, context=None):
+        def run(
+            self, arguments, previous_pipelines=None, context=None, prior_step_keys=None
+        ):
             context.touch_pipeline("kept-key")
             raise RuntimeError("CUDA out of memory")
 
@@ -245,7 +252,9 @@ def test_a_failed_run_drops_the_traceback_before_reclaiming():
     alive_at_cleanup = []
 
     class FailingWorkflow(StubWorkflow):
-        def run(self, arguments, previous_pipelines=None, context=None):
+        def run(
+            self, arguments, previous_pipelines=None, context=None, prior_step_keys=None
+        ):
             half_loaded = Weight()
             held.append(weakref.ref(half_loaded))
             raise RuntimeError("load failed partway")
@@ -335,3 +344,51 @@ def test_probe_cache_activates_the_jobs_asset_dir(tmp_path):
             }
         )
     assert seen["asset_dir"] == str(tmp_path)
+
+
+def test_prior_step_keys_carry_from_one_command_to_the_next():
+    """A same-workflow rerun must know what its steps loaded last time.
+
+    The release path that frees a superseded pipeline before its replacement
+    loads is keyed on the step's previous cache key, and a command builds a
+    fresh Workflow every time - so without the worker carrying the map, a
+    rerun of the same workflow with different arguments reloads on top of the
+    resident stack and is OOM-killed (#150).
+    """
+    worker = _make_worker()
+
+    first = StubWorkflow()
+    _execute(worker, first)
+    assert first.seen_prior_step_keys == {}
+    first_keys = {"gen": "key-a"}
+    worker.prior_step_keys.update(first_keys)
+
+    second = StubWorkflow()
+    _execute(worker, second)
+    assert second.seen_prior_step_keys == first_keys
+
+
+def test_the_worker_records_what_each_run_loaded_even_when_it_fails():
+    """A run that died partway still leaves its loads to be released."""
+    worker = _make_worker()
+
+    class Dying(StubWorkflow):
+        def run(self, *args, **kwargs):
+            self._pipeline_keys_by_step = {"gen": "key-a"}
+            raise RuntimeError("boom")
+
+    _execute(worker, Dying())
+    assert worker.prior_step_keys == {"gen": "key-a"}
+
+
+def test_a_workflow_switch_forgets_the_prior_keys():
+    """Cleanup dropped the pipelines those keys addressed."""
+    worker = _make_worker()
+    _execute(worker, StubWorkflow())
+    worker.prior_step_keys.update({"gen": "key-a"})
+    _execute(
+        worker,
+        StubWorkflow(),
+        command={"workflow_path": "other.json", "arguments": {}, "output_dir": "/tmp"},
+    )
+    assert worker.prior_step_keys == {}

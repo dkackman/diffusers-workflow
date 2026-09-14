@@ -1446,9 +1446,22 @@ class Workflow:
                     f"Step '{step_name}' was redefined - releasing its previous "
                     "pipeline before loading the new one"
                 )
+                before = _allocated_mb()
                 previous_pipelines.pop(prior_key, None)
                 gc.collect()
                 empty_device_cache()
+                # Say so on the event stream, for the same reason the explicit
+                # release does: without it a reload-on-top-of-a-resident-model
+                # is indistinguishable from a cold load, and the difference is
+                # whether the next thing that happens is an OOM kill (#150).
+                # 'reason' separates it from the release a step asked for
+                get_context().emit(
+                    "pipeline_released",
+                    step=step_name,
+                    reason="superseded",
+                    gpu_memory_allocated_mb=_allocated_mb(),
+                    gpu_memory_allocated_before_mb=before,
+                )
 
             logger.debug(f"Creating pipeline for step: {step_name}")
             pipeline = Pipeline(

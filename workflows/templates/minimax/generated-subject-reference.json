@@ -2,14 +2,26 @@
     "id": "MiniMaxH3Ref2VAGeneratedSubject",
     "description": "Generating the subject and then referencing it. The first step draws a character with Z-Image and the second conditions MiniMax-H3's 'ref2va' on it, with 'from_previous_result' naming the step whose output the reference is built from instead of a file on disk - so nothing is written out and read back, and the whole thing is one workflow rather than two runs. An image reference takes the picture as it is; a video reference built the same way brings the frames and the soundtrack generated with them. 'release_pipeline' frees the drawing pipeline before the video model loads, since the two never need the device at once.",
     "summary": "H3 video of a character Z-Image draws first, referenced in-workflow rather than from a file.",
-    "cost_drivers": ["num_frames", "num_inference_steps", "width", "height"],
+    "cost_drivers": [
+        "num_frames",
+        "num_inference_steps",
+        "width",
+        "height"
+    ],
     "variables": {
         "subject_prompt": "prompt:zimage/deep_sea_diver_portrait",
         "prompt": "subject_definitions:\n<Subject 1> is the deep-sea diver in <Picture 1>, in a heavy canvas suit and a brass helmet with the faceplate open, whose face, helmet, suit and proportions define their appearance for the whole video.\n\nsummary:\n[reference generation] The target video shows <Subject 1> speaking directly to camera in the setting of <Picture 1>, in one continuous take.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, helmet, suit and proportions of <Picture 1> are kept exactly, with the head, jaw and shoulders newly animated to speak.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium close-up frames <Subject 1> from the chest up, centred and facing camera in the setting of <Picture 1>, held as one continuous shot. The lighting of <Picture 1> is kept exactly as it is, the warm rim light steady along the brass of the helmet and the background staying dark and well behind in shallow focus. <Subject 1> (S1), a low and gravelled male voice, unhurried and worn, says <d>[English] Down there the light gives out first. Everything else follows.</d> The jaw and lips move in natural synchronisation with the speech and settle closed at the end of the line. Between phrases <Subject 1> shifts weight very slightly and the head drifts a few degrees off centre and back, with the eyes staying on the lens and blinking at a natural rate. The camera holds a static shot throughout.\n\noverall_soundscape:\nA quiet, close room tone at an even level from the first frame to the last, with a faint creak of canvas as <Subject 1> shifts weight and a single soft knock of a glove against the brass collar.\n\nnon_diegetic_music:\nN/A",
         "num_frames": 124,
         "width": 960,
         "height": 544,
-        "num_inference_steps": 20,
+        "num_inference_steps": 9,
+        "video_shift": 12.0,
+        "audio_shift": 3.0,
+        "lora_scale": 1.0,
+        "lora_alpha": null,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
+        "lora_adapter_name": "turbo",
         "weights_dtype": "{int4}"
     },
     "variable_constraints": {
@@ -154,6 +166,21 @@
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",
                     "workflow": "ref2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
                 },
                 "arguments": {
                     "prompt": "variable:prompt",

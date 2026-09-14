@@ -491,3 +491,46 @@ def test_pipeline_released_is_reported_on_the_event_stream():
         "the release is reported before the step reports its files - which is "
         "the ordering the event exists to make visible"
     )
+
+
+def test_superseded_release_is_reported_on_the_event_stream():
+    """A release the caller never asked for still reaches the event stream.
+
+    Without it a reload on top of a resident model looks exactly like a cold
+    load, which is what made #150 take three jobs to diagnose.
+    """
+    from dw.events import RunContext, activate_context, deactivate_context
+    from dw.workflow import pipeline_cache_key
+
+    old_def = {
+        "configuration": {"component_type": "{Mock}"},
+        "from_pretrained_arguments": {"model_name": "old-model"},
+        "arguments": {},
+    }
+    new_step = {
+        "name": "gen",
+        "pipeline": {
+            "configuration": {"component_type": "{Mock}"},
+            "from_pretrained_arguments": {"model_name": "new-model"},
+            "arguments": {},
+        },
+    }
+    old_key = pipeline_cache_key(old_def)
+    cache = {old_key: MagicMock()}
+
+    workflow = Workflow({"id": "swap", "steps": []}, "/tmp/test_output", "t.json")
+    workflow._prior_step_keys = {"gen": old_key}
+
+    events = []
+    context = RunContext(on_event=lambda event: events.append(event))
+    token = activate_context(context)
+    try:
+        with patch.object(Pipeline, "load", lambda self, shared: None):
+            workflow.create_step_action(new_step, {}, cache, 1, "cpu")
+    finally:
+        deactivate_context(token)
+
+    released = [e for e in events if e["event"] == "pipeline_released"]
+    assert len(released) == 1, f"expected one release event, got {events}"
+    assert released[0]["step"] == "gen"
+    assert released[0]["reason"] == "superseded"

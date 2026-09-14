@@ -34,6 +34,7 @@ Read them in this order and each introduces one new idea on top of the last.
 | ------- | ------------------ |
 | [music.json](music.json) | The minimal modular pipeline: a `components_manager` owns device placement, and the output is audio, not video |
 | [video-with-audio.json](video-with-audio.json) | The baseline text-to-video-audio run: per-component SDNQ quantization, mixed offload, the turbo LoRA, and muxing video + audio into one file |
+| [video-with-audio-768p.json](video-with-audio-768p.json) | The same run at 1344x768 on the 768p turbo LoRA's own schedule: what a checkpoint swap costs in arguments (shift, alpha, canvas) |
 
 A note on `audio_duration`: Music3 reads it as a ceiling rather than a target.
 The language model stops when the song ends, so the track is usually shorter
@@ -57,15 +58,37 @@ conditions a five-second story regardless of the frame count. Reach for chains
 and cuts when you need to go past 14 seconds.
 
 A note on the canvas: H3 draws on a 768-pixel short edge, dimensions are
-multiples of 32, and aspect ratios run from 1:4 to 4:1. Every example renders at
-960x544, the speed choice. The text- and frame-conditioned ones couple it to the
-544p turbo LoRA and its nine steps - change one and change the others. The six
+multiples of 32, and aspect ratios run from 1:4 to 4:1. Almost every example
+renders at 960x544, the speed choice, and it is not an independent one: a
+checkpoint comes with the canvas it was trained at, the sigma shift it was
+distilled against and the alpha it is meant to run at, and changing one means
+changing all of them. That is why `video_shift`, `audio_shift` and `lora_alpha`
+are variables on every template here - a checkpoint swap is arguments rather
+than a new file. Three combinations are known good:
+
+| Checkpoint | Canvas | Shift (video/audio) | Alpha | Steps | Where |
+| --- | --- | --- | --- | --- | --- |
+| `minimax_h3_fl2v_turbo_8step_v1.0_bf16` | 960x544 | 12 / 3 | the file's own 8 | 9 | the text- and frame-conditioned templates |
+| `minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16` | 1344x768 | **6** / 3 | **128** | 9 | [video-with-audio-768p.json](video-with-audio-768p.json) |
+| `minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16` | 960x544 | 12 / 3 | the file's own 8 | 9 | every `ref2va` template |
+
+The shift differs between the two 768p LoRAs; do not generalise from one to the
+other. The alpha matters as much: peft scales an adapter by `scale * alpha /
+rank`, and all three files record `alpha: 8` at rank 128 in their
+`__metadata__`, which diffusers honors - so the 768p FL2VA path, which upstream
+runs at `--lora-alpha 128`, needs that stated or it loads at a sixteenth of its
+trained strength. Nine steps rather than eight because the scheduler counts
+sigma grid points and the terminal zero is one of them.
+
+Never put an FL2VA LoRA on a reference template: a `ref2va` step holds
+`transformer_ref` alone, so diffusers routes whatever it is handed straight
+there and nothing complains - the output simply degrades. The six templates
 conditioned on references alone (`reference-to-video`, `composable-references`,
 `voice-timbre-reference`, `generated-subject-reference`, `chain-matched-to-audio`,
-`chain-video-continuity`) load no LoRA and run 20 steps, because the turbo LoRA is
-distilled against the base transformer and they load the reference one;
-`storyboard`, `dialogue-short`, `music-video` and `chain-matched-and-aligned` pass
-references and still keep the turbo LoRA at nine. The 5-second floor is diffusers' constraint; the model card and
+`chain-video-continuity`) carried no LoRA and ran 20 steps until a Ref2VA turbo
+LoRA existed to put on them.
+
+The 5-second floor is diffusers' constraint; the model card and
 the hosted API accept 4. Output audio is 32 kHz stereo.
 
 ## Conditioning on frames

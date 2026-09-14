@@ -1,31 +1,26 @@
 {
-    "id": "MiniMaxH3I2VChained",
-    "description": "Getting past the model's fixed clip length by running one pipeline repeatedly and stitching the output. The simplest form of 'chain': a fixed segment count with 'last_frame' continuity, where each segment's final frame becomes the next segment's keyframe. Also shows the bookkeeping a stitched video needs - 'frame_snap' to keep every segment a length the model accepts, 'trim_frames' to drop the duplicated keyframe at each seam, and a crossfade over the generated audio so the joins are not audible.",
-    "summary": "A long H3 clip from a supplied still, chained by last frame past the model's fixed clip length.",
+    "id": "MiniMaxH3768p",
+    "description": "The 768p counterpart to 'video-with-audio'. Same pipeline, same offload and quantization; what differs is the checkpoint and the four numbers that go with it. 'lightx2v/Minimax-h3-Turbo' carries an 8-step FL2VA/T2VA turbo LoRA trained at exactly 1344x768 with a training shift of 6 for video and 3 for audio, and LightX2V's own hosted Studio runs it. Those move together: the base scheduler ships shift 12.0, which is the 544p figure, so the same weights on the default schedule spend a short sigma grid near sigma 1 and then drop to zero in one step. The alpha moves with them too - the file records 'alpha: 8' in its '__metadata__' at rank 128 and diffusers honors that, while upstream's own 768p invocation passes '--lora-alpha 128', sixteen times the strength the file asks for. 'num_inference_steps' is 9 for an 8-step checkpoint because the scheduler counts sigma grid points and the terminal zero is one of them. Keep 'video-with-audio' for fast iteration at 544p; this is the render. It does not lift the memory ceiling: peak attention memory is per step, so 1344x768 buys quality and, at 9 steps rather than 20, time - but a 24 GB card still runs out of room long before 345 frames at this canvas, and the frame count is where to give ground.",
+    "summary": "The MiniMax H3 quality path: text to video with audio at 1344x768, on the 768p turbo LoRA's own schedule.",
     "cost_drivers": [
-        "segments",
         "num_frames",
         "num_inference_steps",
         "width",
         "height"
     ],
     "variables": {
-        "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field, one continuous shot. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles writhe without pause, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, speaks steadily throughout, <d>[English] Rise now. The old ones are listening.</d> Its central mass swells and contracts with the cadence of the words, and the caustics on the surface below ripple in time. The camera holds a static shot, letting the tentacles move through the frame edges.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch, continuous and unhurried from the first frame to the last.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, holding an even intensity with no discernible melody or pulse.",
-        "image": {
-            "location": "https://pbs.twimg.com/profile_images/1961215773080211456/nILQt5Fv_400x400.jpg"
-        },
+        "prompt": "prompt:minimax/fox_dawn_context_ir",
         "num_frames": 124,
-        "segments": 3,
-        "width": 960,
-        "height": 544,
+        "width": 1344,
+        "height": 768,
         "num_inference_steps": 9,
-        "video_shift": 12.0,
+        "video_shift": 6.0,
         "audio_shift": 3.0,
         "weights_dtype": "{int4}",
         "lora_scale": 1.0,
-        "lora_alpha": null,
+        "lora_alpha": 128,
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
-        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo"
     },
     "variable_constraints": {
@@ -38,9 +33,10 @@
             "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
         }
     },
+    "seed": 42,
     "steps": [
         {
-            "name": "chained_keyframe_to_video_audio",
+            "name": "text_to_video_audio",
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",
@@ -138,7 +134,7 @@
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",
-                    "workflow": "fl2va"
+                    "workflow": "t2va"
                 },
                 "loras": [
                     {
@@ -149,15 +145,6 @@
                         "alpha": "variable:lora_alpha"
                     }
                 ],
-                "chain": {
-                    "segments": "variable:segments",
-                    "continuity": "last_frame",
-                    "segment_argument": "image",
-                    "trim_frames": 2,
-                    "crossfade_ms": 80,
-                    "fps": 24,
-                    "frame_snap": "constraint:num_frames"
-                },
                 "scheduler": {
                     "shift": "variable:video_shift"
                 },
@@ -166,7 +153,6 @@
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
-                    "image": "variable:image",
                     "num_frames": "variable:num_frames",
                     "width": "variable:width",
                     "height": "variable:height",
