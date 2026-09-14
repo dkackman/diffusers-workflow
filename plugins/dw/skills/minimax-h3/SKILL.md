@@ -21,7 +21,8 @@ and the arguments; the prompt format is MiniMax's, from their text not here.
 
 ## Which shape is the request
 
-- **One clip, up to 14.4 seconds, from text**: `templates/minimax/video-with-audio`.
+- **One clip, up to 14.4 seconds, from text**: `templates/minimax/video-with-audio`
+  (960x544, fast), or `templates/minimax/video-with-audio-768p` for the render.
   From a one-line idea: `templates/minimax/enhance-prompt` writes it with the
   built-in Context-IR enhancer first.
 - **Pinned to a picture**: first frame `templates/minimax/image-to-video`;
@@ -57,7 +58,9 @@ and the arguments; the prompt format is MiniMax's, from their text not here.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
   `shots` entry on one loaded model, `concat_videos` splices) and
   `templates/minimax/music-video` (a song, one slice and one lip-synced shot
-  per entry). `shots` is one list argument: a dialogue entry is `name`,
+  per entry; its singer is the `singer_reference` argument - a `from_file`
+  reference uses a cast portrait that exists and elides the drawing).
+  `shots` is one list argument: a dialogue entry is `name`,
   `prompt`, `references` (portraits and voices: `from_previous_result` for
   one drawn here, `from_file` for an `asset:` cast that already exists) and
   `num_frames`; a music-video entry is `name`, `prompt` and `start_frame`.
@@ -73,14 +76,12 @@ and the arguments; the prompt format is MiniMax's, from their text not here.
   afterwards: `templates/minimax/music` writes the track and
   `templates/assemble-and-score` shows the `pair_audio` step that mixes it
   under the world sound (it takes three shots; for more, author the concat
-  and score steps the same way). A character who speaks in several shots
-  keeps one voice by passing the same clip as an audio reference in each
-  (the `voice-timbre-reference` pattern); a repeated voice description alone
-  drifts. Each entry's `num_frames` is its own, so pace the cut. The
-  reference carries delivery as well as timbre: a flat read gives a flat
-  performance. Bark's presets are conversational; for a narrator with
-  gravitas, `upload_asset` a read in that register and reference it in
-  every shot.
+  and score steps the same way). A character who speaks in several
+  shots keeps one voice by passing the same clip as an audio reference in each
+  (the `voice-timbre-reference` pattern); a repeated description alone drifts.
+  That clip carries delivery as well as timbre, and Bark's presets are
+  conversational - for gravitas, `upload_asset` a read in that register.
+  Each entry's `num_frames` is its own, so pace the cut.
 - **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3` skill.
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and
@@ -92,39 +93,38 @@ read the `workflows` guide's authoring section first.
   seconds in one clip. Most default to 124 for fast iteration (storyboard 192);
   `num_frames=345` is the full length and fits the same 24 GB configuration.
   The 5-second floor is diffusers'; the model card says 4.
-- Canvas: a 768-pixel short edge, at most 768x1344 pixels, dimensions in multiples of 32,
-  aspect from 1:4 to 4:1. Output audio is 32 kHz stereo.
-- The text- and frame-conditioned templates render at 960x544 with the 544p
-  turbo LoRA in nine steps, and those three go together - change one, change
-  all three. Six templates that condition on references alone
-  (`reference-to-video`, `composable-references`, `voice-timbre-reference`,
-  `generated-subject-reference`, `chain-matched-to-audio`,
-  `chain-video-continuity`) carry no LoRA and run 20 steps, because the turbo
-  LoRA is distilled against the base transformer and they load the reference
-  one. `storyboard`, `dialogue-short`, `music-video` and
-  `chain-matched-and-aligned` pass references *and* keep the turbo LoRA at
-  nine steps; say nine for those, not 20. `denoise_total_steps` comes back one
-  less (9 reports 8): the scheduler counts sigma grid points, terminal zero
-  included. Expected.
+- Canvas: 768-pixel short edge, at most 768x1344, in multiples of 32, aspect
+  1:4 to 4:1. Output audio is 32 kHz stereo.
+- A checkpoint comes with a canvas, a sigma shift and an alpha, and they move
+  together - change one, change all. `video_shift`, `audio_shift` and
+  `lora_alpha` are variables everywhere, so a swap is arguments, not a file.
+  Three combinations are tested, nothing else: 544p FL2VA turbo, 960x544,
+  shift 12/3, alpha unset - the default; 768p FL2VA turbo, 1344x768, shift
+  **6**/3, **alpha 128** - `video-with-audio-768p`; 768p Ref2VA turbo, shift
+  12/3, alpha unset - every `ref2va` template. The two 768p LoRAs differ in
+  shift; do not generalise. Never put an FL2VA LoRA on a reference template:
+  a `ref2va` step holds `transformer_ref` alone, diffusers routes whatever it
+  is handed there, and nothing complains - the output just degrades.
+- Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
+  terminal zero included, so `denoise_total_steps` reports 8. Expected. Do not
+  read upstream's `--inference-steps 8` literally.
 - Nothing carries between generations except what is passed as a reference:
   no latent memory and no extension mode, in the checkpoint, the API or
   diffusers. Identity rides on a picture, voice on an audio clip, motion and
   camera on a video tail (what a chain passes forward), and a score across
   cuts is laid under the concat.
 - H3 is guidance-distilled: no `guidance_scale`, no negative prompt. Say what
-  is there, never what is not.
+  is there, not what is not.
 - When deriving a variant, keep `release_pipeline` where the template puts it:
   it frees the Z-Image boards before H3 loads. A run SIGKILLed near the end in
-  a warm worker that succeeds on a retry in a fresh one is host memory, not
-  the prompt.
+  a warm worker that succeeds in a fresh one is host memory, not the prompt.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in the order passed.
 - Music3 reads `audio_duration` as a ceiling, not a target: ask for more than
-  the song needs and trim with `templates/audio-trim-fade`; see the
-  `minimax-music3` skill.
-- Write the prompt for the length being generated: shot timestamps should
-  span the duration, or a five-second script conditions a five-second story
-  whatever the frame count.
+  the song needs and trim with `templates/audio-trim-fade`.
+- Write the prompt for the length generated: timestamps should span the
+  duration, or a five-second script conditions a five-second story whatever
+  the frame count.
 
 ## Prompts
 
@@ -147,12 +147,11 @@ paraphrase it from examples:
    framed as `Task: T2VA. Duration: 5.17 seconds. Idea: ...`.
 
 Whichever route: write the whole script before the first shot - the lines in
-order, read once, should carry the piece - then place them.
-Repeat a speaker's voice description verbatim across shots,
-and when a reference picture should fix identity but not framing, say so in
-the prompt itself - in a reference-conditioned request, in the lines that
-define the subject and state what each reference keeps - or every shot
-inherits the portrait's composition.
+order, read once, should carry the piece - then place them. Repeat a speaker's
+voice description verbatim across shots, and when a reference picture should
+fix identity but not framing, say so in the prompt itself, in the lines that
+define the subject and what each reference keeps - or every shot inherits the
+portrait's composition.
 
 ## Run and judge
 
@@ -177,17 +176,14 @@ inherits the portrait's composition.
    the gallery `url` (`list_gallery`, or the manifest's file name) and ask them
    to look, and check what you can yourself - `get_job` for the manifest and
    its warnings, `get_gallery_metadata` for duration, size and whether audio
-   is present. `get_output_image` works only on image steps, which in
-   this family are the Z-Image portraits and boards of
-   `templates/minimax/dialogue-short`, `templates/minimax/storyboard`,
-   `templates/minimax/generated-subject-reference` and
-   `templates/minimax/music-video`. Ask the user to look for the family's
-   failure modes: a character that changes between shots (reference the same
-   portraits in every shot), a reference portrait imposing its framing on every
-   shot, a storyboard skipped, drift sharpening into noise late in a chain,
-   a voice-over without affect (the reference's delivery came through), every
-   shot the same length, a look word repeated on every board (shallow depth
-   of field) softening every shot.
+   is present. `get_output_image` works only on image steps - in this family
+   the Z-Image portraits and boards of `dialogue-short`, `storyboard`,
+   `generated-subject-reference` and `music-video`. Ask them to look for the
+   family's failure modes: a character that changes between shots (reference
+   the same portraits everywhere), a portrait imposing its framing on every
+   shot, a storyboard skipped, drift sharpening into noise late in a chain, a
+   voice-over without affect (the reference's delivery came through), every
+   shot the same length, one look word on every board softening all of them.
 5. After an inline run worth keeping, `get_job_workflow` and `save_workflow`
    it, so the next run is by name rather than pasted JSON; `export_job` bundles
    the run — workflow, manifest, job row and media — for git. It is on the

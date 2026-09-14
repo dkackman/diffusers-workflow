@@ -10,7 +10,12 @@
             "minutes": 42
         }
     ],
-    "cost_drivers": ["shots", "num_inference_steps", "width", "height"],
+    "cost_drivers": [
+        "shots",
+        "num_inference_steps",
+        "width",
+        "height"
+    ],
     "variables": {
         "character_a_portrait_prompt": "a 3/4-length studio portrait of a wiry man in his early 30s with short curly dark hair and expressive eyebrows, wearing a mustard-yellow sweater vest over a white button-down shirt, standing in a 1990s multi-camera sitcom apartment set with a sagging olive-green couch and a brick wall behind him, warm even studio lighting, sharp focus, photographic",
         "character_b_portrait_prompt": "a 3/4-length studio portrait of a heavyset man in his mid 40s with a shaved head and a calm, heavy-lidded expression, wearing an open gray flannel shirt over a dark t-shirt, standing in a 1990s multi-camera sitcom apartment set with a sagging olive-green couch and a brick wall behind him, warm even studio lighting, sharp focus, photographic",
@@ -117,10 +122,13 @@
         "width": 960,
         "height": 544,
         "num_inference_steps": 9,
+        "video_shift": 12.0,
+        "audio_shift": 3.0,
         "weights_dtype": "{int4}",
         "lora_scale": 1.0,
+        "lora_alpha": null,
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
-        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo"
     },
     "seed": 42,
@@ -287,9 +295,16 @@
                         "model_name": "variable:lora_model_name",
                         "weight_name": "variable:lora_weight_name",
                         "adapter_name": "variable:lora_adapter_name",
-                        "scale": "variable:lora_scale"
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
                     }
                 ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
                 "arguments": {
                     "prompt": "item:prompt",
                     "references": "item:references",

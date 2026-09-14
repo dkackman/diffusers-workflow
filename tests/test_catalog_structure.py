@@ -361,8 +361,19 @@ def test_no_stale_entry_in_the_allowlist():
 # the running server overran it. Two numeric keys rather than one terse
 # phrase (the shape `constraints` uses) costs 179 tokens and is worth them:
 # an agent quoting a price should read a number, not parse a sentence, and
-# the curated `cost` beside it is structured too.
-COMPACT_BUDGET = 7_100
+# the curated `cost` beside it is structured too. Then to 7_600 for the H3
+# checkpoint knobs (#147/#148/#149), measured at 7_484 here: `video_shift`,
+# `audio_shift` and `lora_alpha` across seventeen templates, the five adapter
+# names the six reference templates gained with the Ref2VA turbo LoRA, and the
+# 768p entry. They earn it because they are what makes a checkpoint swap an
+# argument rather than a new template - a 768p turbo LoRA on the 544p sigma
+# schedule is a silent quality failure that costs a full run to discover, and
+# the alpha a file declares is not always the alpha upstream runs it at.
+# Worth noting that variable *names* are now the largest single share of this
+# listing; if it needs raising again, the question to ask first is whether
+# every name belongs in the compact view or only the ones a caller is likely
+# to set.
+COMPACT_BUDGET = 7_600
 FILTERED_BUDGET = 1_500
 
 
@@ -537,7 +548,6 @@ def test_every_readme_link_resolves(path):
 COSTED = {
     "workflows/templates/minimax/music-video.json": 35,
     "workflows/templates/minimax/dialogue-short.json": 42,
-    "workflows/templates/minimax/composable-references.json": 27.4,
     "workflows/templates/assemble-and-score.json": 0.2,
     "workflows/templates/dissolve-between-shots.json": 0.2,
 }
@@ -545,11 +555,15 @@ COSTED = {
 
 @pytest.mark.parametrize("path,minutes", sorted(COSTED.items()))
 def test_the_cut_templates_quote_a_measured_cost(path, minutes):
-    """Measured on an RTX 3090 (the cut templates 2026-09-10,
-    composable-references 2026-09-13); without a figure an agent cannot
-    quote a price before spending 40 minutes of GPU. A video reference is
-    the expensive one - the same 124-frame shot is 7.8 min with an image
-    reference alone and 27.4 with a video reference beside it."""
+    """Measured on an RTX 3090 (the cut templates 2026-09-10); without a
+    figure an agent cannot quote a price before spending 40 minutes of GPU.
+
+    composable-references (27.4 min) and reference-to-video (8.0) were
+    measured at 20 steps against no adapter, and #149 put the Ref2VA turbo
+    LoRA on those templates at 9 - so their figures went with the schedule
+    they described rather than being scaled, `cost` being measured and never
+    derived. The three here kept their step count and their canvas; only
+    which adapter loads changed, at the same rank and file size."""
     definition = json.load(open(os.path.join(REPO_ROOT, path), encoding="utf-8"))
     entry = definition["cost"][0]
     assert entry["name"] == "RTX 3090"
