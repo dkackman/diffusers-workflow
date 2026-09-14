@@ -87,8 +87,7 @@ def test_a_reference_naming_no_variable_is_warned_about_before_anything_loads():
     warnings = workflow_argument_warnings(workflow)
     assert len(warnings) == 2
     assert warnings[0] == (
-        "seed: 'variable:seed' names no declared variable; "
-        "declared: base_prompt, steps"
+        "seed: 'variable:seed' names no declared variable; declared: base_prompt, steps"
     )
     assert warnings[1].startswith(
         "steps[0].pipeline.arguments.prompt: 'variable:base_prompt, clear sky' "

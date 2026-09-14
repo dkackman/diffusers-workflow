@@ -41,10 +41,10 @@
     loadPromptLibrary()
     api
       .getWorkflow(name)
-      .then((definition) => {
-        workflow = definition
-        origin = definition.origin
-        writable = definition.writable
+      .then((fetched) => {
+        workflow = fetched.definition
+        origin = fetched.origin
+        writable = fetched.writable
       })
       .catch((e) => (error = e.message))
   })

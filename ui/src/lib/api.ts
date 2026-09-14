@@ -273,11 +273,14 @@ export const api = {
       >
     }>('/api/workflows'),
   /** The workflow plus where it came from, read off the response headers
-   * rather than a separate `listWorkflows` lookup. */
+   * rather than a separate `listWorkflows` lookup. Beside the definition,
+   * the way `getPrompt` keeps a prompt's: the object the caller holds is
+   * what validate, save and run send back, and the schema refuses unknown
+   * root keys, so the transport metadata must not ride inside it. */
   getWorkflow: (name: string) =>
     fetchJson<WorkflowDefinition>(`/api/workflows/${encodePath(name)}`).then(
       ({ body, response }): WorkflowWithOrigin => ({
-        ...body,
+        definition: body,
         origin: response.headers.get('X-Workflow-Origin') ?? '',
         writable: response.headers.get('X-Workflow-Writable') !== 'false',
       }),

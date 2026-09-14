@@ -110,19 +110,23 @@ there is no UI-style "paste the token" gate in front of it.
 
 ```python
 def mount_mcp(app, *, port, token):
-    from dw_mcp.client import DwClient          # dw_mcp is a pure HTTP client
-    from dw_mcp.server import build_server      # only module importing the SDK
+    from dw_mcp.client import DwClient  # dw_mcp is a pure HTTP client
+    from dw_mcp.server import build_server  # only module importing the SDK
     from mcp.server.transport_security import TransportSecuritySettings
+
     client = DwClient(base_url=f"http://127.0.0.1:{port}", token=token)
     server = build_server(client)
     asgi = server.streamable_http_app(
-        streamable_http_path="/",   # the SDK app routes at "/" ...
+        streamable_http_path="/",  # the SDK app routes at "/" ...
         stateless_http=True,
         transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=False),   # app.py's checks own this
+            enable_dns_rebinding_protection=False
+        ),  # app.py's checks own this
     )
-    app.mount("/mcp", asgi)         # ... so the mount makes it "/mcp" (verified against mcp 2.1.1)
-    return client                   # closed in the app's lifespan
+    app.mount(
+        "/mcp", asgi
+    )  # ... so the mount makes it "/mcp" (verified against mcp 2.1.1)
+    return client  # closed in the app's lifespan
 ```
 
 The import of `mcp` is inside the function; a missing package produces

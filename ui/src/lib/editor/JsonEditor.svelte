@@ -60,6 +60,7 @@
         guides: { indentation: false },
         automaticLayout: true,
         scrollBeyondLastLine: false,
+        wordWrap: 'on',
         fontSize: 13,
         tabSize: 2,
         fixedOverflowWidgets: true,

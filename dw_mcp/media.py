@@ -137,8 +137,63 @@ def get_output_text(
 
 def delete_output(client, name, workspace=None):
     """Remove one file from the output directory. The gallery is the output
-    directory read back, so this is where a delete belongs."""
+    directory read back, so this is where a delete belongs.
+
+    The run directory goes too once its last media file is gone, sidecars
+    included, and a `<workflow>/<run id>` name removes a whole run - what a
+    failed run, which has a manifest and nothing else, needs (#134)."""
     return client.delete_json(api_path("api", "gallery", name), workspace=workspace)
+
+
+def _remote_root(client):
+    """The workspace a remote write is confined to, or None when local.
+
+    Only the mounted MCP surface is remote: there the tool runs inside
+    dw.serve, so the path a caller names is a path on the operator's box
+    rather than on its own machine. A stdio `dw-mcp` returns None and keeps
+    writing wherever the user can.
+    """
+    if not getattr(client, "mounted", False):
+        return None
+
+    directories = (client.get_json("/api/server").get("directories")) or {}
+    root = directories.get("workspace")
+    if not root:
+        raise DwApiError(
+            "This server cannot say where its workspace is, so it will not "
+            "write a file for you. Use the url list_gallery reports, "
+            "get_output_image / get_output_text, or keep_output."
+        )
+    return os.path.realpath(os.path.abspath(os.path.expanduser(str(root))))
+
+
+def _confine(destination, root):
+    """Refuse a destination outside `root`, on the resolved real path.
+
+    Containment is on realpath, not on a substring: an absolute path or a
+    '~' needs no '..' to reach anywhere the server process can write (#113),
+    and a symlink inside the workspace would otherwise carry the write out.
+    """
+    # realpath of the nearest existing ancestor: the file itself usually does
+    # not exist yet, and realpath of a missing path leaves symlinks in its
+    # existing prefix unresolved on some platforms
+    probe = destination
+    while not os.path.exists(probe) and os.path.dirname(probe) != probe:
+        probe = os.path.dirname(probe)
+    resolved = os.path.join(
+        os.path.realpath(probe), os.path.relpath(destination, probe)
+    )
+    resolved = os.path.normpath(resolved)
+    if resolved != root and not resolved.startswith(root + os.sep):
+        raise DwApiError(
+            f"Refusing to write {destination} - this MCP endpoint is served "
+            f"by dw.serve, so the file would land on the server, where a "
+            f"destination is confined to the workspace ({root}). Pass a "
+            f"relative destination, or - to see the file where you are - use "
+            f"the url list_gallery reports, get_output_image / "
+            f"get_output_text for inline content, or keep_output to make it "
+            f"an asset for a later workflow."
+        )
 
 
 def download_output(client, name, destination=None, overwrite=False, workspace=None):
@@ -158,6 +213,12 @@ def download_output(client, name, destination=None, overwrite=False, workspace=N
     directory. Missing parent directories are created. A `destination`
     containing a '..' path segment is refused. An existing file at the
     resolved path is left alone unless `overwrite=True`.
+
+    Over a `dw.serve --mcp` endpoint the file lands on the *server*, not on
+    the calling agent's machine, so there the destination is confined to that
+    workspace: an absolute or '~' path outside it is refused rather than
+    written (#113). A stdio `dw-mcp` keeps writing anywhere the user can,
+    because there "local disk" is genuinely their own.
     """
     if destination is None:
         destination = os.path.basename(name)
@@ -169,7 +230,18 @@ def download_output(client, name, destination=None, overwrite=False, workspace=N
         )
     if os.path.isdir(destination) or destination.endswith(os.sep):
         destination = os.path.join(destination, os.path.basename(name))
-    destination = os.path.abspath(destination)
+    # A relative destination is joined onto whichever directory is "here" for
+    # this transport: the caller's own working directory for stdio, the
+    # server's workspace when the tool runs inside dw.serve - where the
+    # process's cwd is an implementation detail the caller never chose
+    root = _remote_root(client)
+    destination = (
+        os.path.abspath(os.path.join(root, destination))
+        if root and not os.path.isabs(destination)
+        else os.path.abspath(destination)
+    )
+    if root:
+        _confine(destination, root)
 
     if os.path.exists(destination) and not overwrite:
         raise DwApiError(

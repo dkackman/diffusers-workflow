@@ -39,6 +39,7 @@ from ..security import (
     validate_commit_hash,
     InvalidInputError,
     SecurityError,
+    workflows_are_trusted,
 )
 from ..introspection import (
     describe_class,
@@ -71,7 +72,14 @@ from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..plan import build_plan, unseeded_cache_warnings
-from ..runs import is_output_reference, resolve_output_reference, split_run_path
+from ..runs import (
+    MANIFEST_FILE_NAME,
+    REALIZED_FILE_NAME,
+    is_output_reference,
+    is_run_id,
+    resolve_output_reference,
+    split_run_path,
+)
 from ..workspace import (
     ASSETS_SUBDIR,
     DEFAULT_WORKSPACE_NAME,
@@ -2107,8 +2115,6 @@ def create_app(
     # exactly once - the gallery had already drifted (.bmp, .mkv, .mov)
     from ..security import (
         ALLOWED_AUDIO_EXTENSIONS,
-        ALLOWED_IMAGE_EXTENSIONS,
-        ALLOWED_VIDEO_EXTENSIONS,
     )
 
     MEDIA_KINDS = {
@@ -2135,6 +2141,29 @@ def create_app(
         if not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="Unknown file")
         return path
+
+    def _asset_file(reference, ws):
+        """The file an 'asset:' reference names in this workspace, or a 404.
+
+        Looked for down the same search path a run resolves 'asset:' in
+        (_asset_roots), so what the API can read is what a job would load.
+        The first root's failure is the one reported: it names the
+        workspace's own library, which is where a caller expects their
+        asset to be, rather than an examples directory they never wrote to.
+        """
+        first = None
+        for root in _asset_roots(ws) or [ws.assets]:
+            if not root:
+                continue
+            try:
+                return resolve_asset_reference(reference, asset_dir=root)
+            except (SecurityError, ValueError) as e:
+                first = first or e
+        raise HTTPException(
+            status_code=404,
+            detail=str(first)
+            or f"Unknown asset {reference!r}: this workspace has no asset library",
+        )
 
     def _static_files_for(root):
         """The StaticFiles instance bound to one root, built on first use and
@@ -2243,8 +2272,12 @@ def create_app(
                     folder, _run_id, subfolder = split_run_path(relative_name)
                 else:
                     folder, subfolder = directory, ""
-                yield relative_name, folder, subfolder, kind, os.path.join(
-                    current, name
+                yield (
+                    relative_name,
+                    folder,
+                    subfolder,
+                    kind,
+                    os.path.join(current, name),
                 )
 
     def _gallery_entries(root, ws):
@@ -2346,23 +2379,43 @@ def create_app(
         is what says *where* in a track something is - whether a shot is
         still voiced at its last frame, how deep the hole at a seam goes.
         Opt-in: a ten-minute track is 600 numbers, and the default call has
-        to stay small."""
-        path = _output_file(name, ws.outputs)
+        to stay small.
+
+        `name` may also be an 'asset:' reference, and then it is the input
+        asset of that name that is described rather than an output (#127).
+        The numbers here - duration, frame count, fps, sample rate - are
+        what decide whether a call will work at all, and for a file the
+        caller is about to *consume* they were previously unobtainable:
+        the only way to read a wav's length was to run a job that copied it
+        into the output directory. `job` is null for an asset (nothing here
+        produced it) and `source` says which of the two roots answered."""
+        if is_asset_reference(name):
+            path = _asset_file(name, ws)
+            source, job = "asset", None
+        else:
+            path = _output_file(name, ws.outputs)
+            source = "output"
+            try:
+                # Scoped to this workspace: two workspaces can each write a
+                # file with the same relative name, and an unscoped lookup
+                # could attribute this one to the wrong workspace's job
+                job = manager.history.job_for_file(name, workspace=ws.name)
+            except Exception:
+                job = None
         metadata = read_embedded_metadata(path)
-        try:
-            # Scoped to this workspace: two workspaces can each write a file
-            # with the same relative name, and an unscoped lookup could
-            # attribute this one to the wrong workspace's job
-            job = manager.history.job_for_file(name, workspace=ws.name)
-        except Exception:
-            job = None
         extension = os.path.splitext(path)[1].lower()
         media = (
             probe_media(path, envelope=envelope)
             if MEDIA_KINDS.get(extension) in ("audio", "video")
             else None
         )
-        return {"name": name, "metadata": metadata, "job": job, "media": media}
+        return {
+            "name": name,
+            "source": source,
+            "metadata": metadata,
+            "job": job,
+            "media": media,
+        }
 
     @app.get("/api/gallery/{name:path}/thumbnail")
     @query_token_ok
@@ -2458,13 +2511,110 @@ def create_app(
             background=BackgroundTask(os.unlink, handle.name),
         )
 
+    # What a run directory holds besides its media: the engine writes them to
+    # describe the run, and the gallery - which lists media - never shows them
+    RUN_SIDECARS = (MANIFEST_FILE_NAME, REALIZED_FILE_NAME)
+
+    def _prune_empty_run_directory(name, root):
+        """Drop the run directory a just-deleted output belonged to, once no
+        media is left in it.
+
+        A run writes `manifest.json` and `workflow.json` beside its files, and
+        nothing in the gallery addresses either one. Deleting every output of a
+        run therefore used to leave the directory behind forever: a consumer
+        that removed everything it made still could not put a workspace back
+        the way it found it, and nothing it could call would even show the
+        residue (#134). Tying the sidecars' lifetime to the outputs they
+        describe is what makes "delete what you made" true.
+
+        Only the sidecars may remain - any other leftover file means something
+        is still there to describe, and the directory stays.
+
+        Returns:
+            The run id swept, or None if nothing was
+        """
+        identity, run_id, _ = split_run_path(name)
+        if not run_id:
+            # The flat layout writes no run directory and no sidecars
+            return None
+        relative = f"{identity}/{run_id}" if identity else run_id
+        try:
+            run_dir = validate_path(
+                os.path.join(root, relative), root, allow_create=False
+            )
+        except SecurityError:
+            return None
+        if not os.path.isdir(run_dir):
+            return None
+
+        for directory, _subdirectories, files in os.walk(run_dir):
+            for file_name in files:
+                if directory == run_dir and file_name in RUN_SIDECARS:
+                    continue
+                return None
+
+        shutil.rmtree(run_dir, ignore_errors=True)
+        # And the identity folders above it, while they are empty - a swept
+        # workspace should not keep one directory per workflow it once ran
+        parent = os.path.dirname(run_dir)
+        while os.path.normpath(parent) != os.path.normpath(root):
+            try:
+                os.rmdir(parent)
+            except OSError:
+                break
+            parent = os.path.dirname(parent)
+        logger.info(f"Swept empty run directory {relative}")
+        return run_id
+
+    def _run_directory(name, root):
+        """The run directory `<identity>/<run id>` names, or None.
+
+        A run that failed before it wrote anything still has a directory and a
+        manifest, and no gallery name addresses it - so the name of the
+        directory itself is the only handle there can be (#134).
+        """
+        parts = [part for part in (name or "").split("/") if part]
+        if not parts or not is_run_id(parts[-1]):
+            return None
+        try:
+            path = validate_path(
+                os.path.join(root, "/".join(parts)), root, allow_create=False
+            )
+        except SecurityError:
+            return None
+        return path if os.path.isdir(path) else None
+
     @app.delete("/api/gallery/{name:path}")
     def delete_output(name: str, ws: Workspace = Depends(selected_workspace)):
-        """Remove one file from the output directory."""
+        """Remove one file from the output directory.
+
+        When that was the last media file of its run, the run directory goes
+        with it, sidecars included. `name` may also be a run directory
+        (`<identity>/<run id>`), which removes the whole run - the only handle
+        on a run that failed before it wrote any media (#134).
+        """
+        run_dir = _run_directory(name, ws.outputs)
+        if run_dir is not None:
+            shutil.rmtree(run_dir, ignore_errors=True)
+            parent = os.path.dirname(run_dir)
+            while os.path.normpath(parent) != os.path.normpath(ws.outputs):
+                try:
+                    os.rmdir(parent)
+                except OSError:
+                    break
+                parent = os.path.dirname(parent)
+            logger.info(f"Deleted run directory {name}")
+            return {
+                "name": name,
+                "deleted": True,
+                "run_swept": os.path.basename(run_dir),
+            }
+
         path = _output_file(name, ws.outputs)
         os.remove(path)
         logger.info(f"Deleted output file {name}")
-        return {"name": name, "deleted": True}
+        swept = _prune_empty_run_directory(name, ws.outputs)
+        return {"name": name, "deleted": True, "run_swept": swept}
 
     # ---------------------------------------------------------------- uploads
 
@@ -2981,6 +3131,13 @@ def create_app(
             "port": port,
             "wildcard_bind": wildcard_bind,
             "auth_required": bool(token),
+            # The posture a security check has to know it is testing: with
+            # this off, a workflow file is untrusted input - no arbitrary
+            # imports, no remote code, no location outside the workspace's
+            # roots. It is not a secret (the refusals name the flag), and
+            # without it the posture could only be inferred from behavior
+            # (#120)
+            "trust_workflows": workflows_are_trusted(),
             "mcp": {"mounted": bool(app.state.mcp_mounted), "path": MCP_PATH},
             "addresses": addresses,
             "directories": {

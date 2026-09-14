@@ -312,7 +312,10 @@ def build_server(client):
         an mps or cpu server, and `directories` is what a path passed to
         run_workflow or download_output is relative to. If this session
         works in a named workspace, `directories` are scoped to that
-        workspace."""
+        workspace. `trust_workflows` reports the posture a submitted
+        workflow is read under: false - the default - means the file is
+        untrusted input, so an out-of-ecosystem import, remote code, and a
+        media location outside the workspace's roots are all refused."""
         return workspaces.server_info(client)
 
     def list_jobs(
@@ -377,6 +380,16 @@ def build_server(client):
         frame, how deep the hole at a seam goes, where a score goes quiet.
         Leave it off unless you are asking a question about a position in
         the track - a long track is a long list.
+
+        `name` may be an "asset:" reference instead of a gallery name, and
+        then it describes that input asset. This is how you learn what an
+        asset you are about to pass to a workflow actually holds - how many
+        frames a shot is, whether two shots share an fps, whether a score
+        reaches the length of the cut you are about to lay it under. Do
+        that before running rather than after: a workflow's frame counts
+        and rates are arguments the caller supplies, and getting one wrong
+        is discovered as a failed job or, worse, as silence padded onto the
+        end of a track.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
@@ -485,7 +498,13 @@ def build_server(client):
         """Permanently remove one generated file from the output directory.
         Not recoverable: rerunning the job that made it is the only way
         back, and any "output:" reference pointing at it stops resolving.
-        Prefer `keep_output` first if it is worth keeping.
+        Prefer `keep_output` first if it is worth keeping. When it was the
+        last media file of its run, the run directory goes with it -
+        `manifest.json` and `workflow.json` included - so deleting what you
+        made leaves the workspace as you found it. `name` may also be a run
+        directory ("<workflow>/<run id>", the first two parts of a gallery
+        name), which removes the whole run: the only way to clear a run that
+        failed before it wrote any media.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
@@ -541,7 +560,10 @@ def build_server(client):
     def list_assets() -> dict:
         """List the input media on the server, each with the "asset:"
         reference a workflow argument carries. Look here before asking for
-        a file: what a workflow needs may already be there."""
+        a file: what a workflow needs may already be there. Entries carry
+        name, kind, size and origin only - for one asset's duration, frame
+        count, fps, sample rate or channels, pass its reference to
+        `get_gallery_metadata`, which reads inputs as well as outputs."""
         return assets.list_assets(client)
 
     def upload_asset(
@@ -560,7 +582,9 @@ def build_server(client):
         the workflows that carry them. Pass `shared=true` to put it in the
         library every workspace shares rather than this session's own -
         where a recurring cast belongs, since a workspace's own assets are
-        invisible from the next workspace."""
+        invisible from the next workspace. When this MCP surface is served
+        by dw.serve itself, "this machine" is the engine's own box, so
+        `file_path` is confined to the directories it works in."""
         return assets.upload_asset(
             client, file_path, asset_name=asset_name, shared=shared
         )
@@ -903,7 +927,14 @@ def build_server(client):
         are uneven too where a transformer block cache is configured. Both
         are normal, and the model family's own skill carries the measured
         figures. The signal is whether `denoise_step` has moved since a
-        poll minutes ago, not silence past a fixed threshold."""
+        poll minutes ago, not silence past a fixed threshold.
+
+        `denoise_total_steps` is the schedule the pipeline actually runs,
+        which is not always the `num_inference_steps` that was asked for:
+        MiniMax H3's scheduler counts sigma grid points including the
+        terminal zero, so it runs N-1 model evaluations for N (9 reports 8,
+        20 reports 19). That is the vendor's convention, not a dropped step -
+        raising the number still buys the steps it looks like it does."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states

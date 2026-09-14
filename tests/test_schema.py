@@ -507,3 +507,229 @@ class TestSections:
     def test_an_unknown_section_names_the_ones_there_are(self, schema):
         with pytest.raises(SchemaSectionError, match="steps"):
             schema_section(schema, "pipline")
+
+
+class TestClosedObjects:
+    """#118: a step is the one object an agent could invent control flow on
+    and be told it validates. `when`, `retry`, a typo'd `relase_pipeline` -
+    the engine reads none of them, so the expensive work ran with the input
+    silently having had no effect. Closed, with a message that says what the
+    object does take, because "Additional properties are not allowed ('when'
+    was unexpected)" does not.
+    """
+
+    def workflow(self, **step_keys):
+        return {
+            "id": "probe",
+            "steps": [
+                {
+                    "name": "video",
+                    "task": {"command": "gather_inputs", "arguments": {}},
+                    **step_keys,
+                }
+            ],
+        }
+
+    @pytest.mark.parametrize(
+        "stray",
+        [
+            {"when": "previous_result:judge.pass"},
+            {"retry": 3},
+            {"select": "argmax"},
+            {"relase_pipeline": True},
+        ],
+    )
+    def test_an_unknown_step_property_is_an_error(self, stray):
+        schema = load_schema("workflow")
+        errors = validate_data_all(self.workflow(**stray), schema)
+        assert [error["path"] for error in errors] == ["steps[0]"]
+        message = errors[0]["message"]
+        assert list(stray)[0] in message
+        # names the step and what a step actually takes
+        assert '"video"' in message
+        assert "release_pipeline" in message and "for_each" in message
+
+    def test_several_stray_keys_are_reported_together(self):
+        schema = load_schema("workflow")
+        errors = validate_data_all(self.workflow(when="x", retry=3), schema)
+        assert len(errors) == 1
+        assert "unknown properties" in errors[0]["message"]
+        assert '"retry"' in errors[0]["message"]
+        assert '"when"' in errors[0]["message"]
+
+    def test_a_well_formed_step_still_validates(self):
+        schema = load_schema("workflow")
+        assert validate_data_all(self.workflow(), schema) == []
+
+    @pytest.mark.parametrize(
+        "definition",
+        [
+            {"task": {"command": "gather_inputs", "arguments": {}, "inupts": {}}},
+            {"workflow": {"path": "builtin:x.json", "argumnets": {}}},
+            {"pipeline_reference": {"reference_name": "draw", "chian": []}},
+        ],
+    )
+    def test_the_other_swept_objects_are_closed_too(self, definition):
+        """task, workflow_reference and pipeline_reference carried no stray
+        key anywhere in the catalog, so closing them breaks nothing. The
+        pipeline object is deliberately left open - component names are its
+        keys (latent_upsampler, prompt_enhancer, processor all appear in
+        shipped templates), so it cannot be swept the same way."""
+        schema = load_schema("workflow")
+        workflow = {"id": "probe", "steps": [{"name": "s", **definition}]}
+        errors = validate_data_all(workflow, schema)
+        assert errors, f"{definition} should not have validated"
+
+    def test_the_pipeline_object_is_open_only_to_a_component(self):
+        """#123: `pipeline` cannot be closed outright - a component's name is
+        one of its keys, and `latent_upsampler`, `prompt_enhancer` and
+        `processor` all appear that way in shipped templates. So it takes the
+        rule `declared_component_names` applies: any other key whose value is
+        a component definition, and nothing else."""
+        schema = load_schema("workflow")
+        extra = schema["$defs"]["pipeline"]["additionalProperties"]
+        assert extra["required"] == ["from_pretrained_arguments"]
+        assert extra["type"] == "object"
+        # pipeline_component itself stays open - its own keys are the
+        # from_pretrained kwargs a component takes
+        assert (
+            schema["$defs"]["pipeline_component"].get("additionalProperties")
+            is not False
+        )
+
+    @pytest.mark.parametrize(
+        "stray",
+        [
+            {"pipeline_type": "diffusers.Whatever"},
+            {"model_name": "org/typo"},
+            {"trasformer": {}},
+        ],
+    )
+    def test_a_key_that_is_not_a_component_is_an_error(self, stray):
+        """#123: `pipeline_type` and `model_name` are real names from the
+        wrong level and `trasformer` is a typo; all three used to validate
+        and be ignored, and the `model_name` one ran against whatever
+        `from_pretrained_arguments` said."""
+        schema = load_schema("workflow")
+        workflow = {
+            "id": "probe",
+            "steps": [
+                {
+                    "name": "draw",
+                    "pipeline": {
+                        "configuration": {"component_type": "StableDiffusionPipeline"},
+                        "from_pretrained_arguments": {"model_name": "org/model"},
+                        "arguments": {"prompt": "x"},
+                        **stray,
+                    },
+                    "result": {"content_type": "image/jpeg"},
+                }
+            ],
+        }
+
+        errors = validate_data_all(workflow, schema)
+
+        assert [error["path"] for error in errors] == [
+            f"steps[0].pipeline.{list(stray)[0]}"
+        ]
+        # one message per stray key, and it is the one that says what is
+        # wrong rather than a complaint about the component it is not
+        assert errors[0]["message"].startswith(f'unknown property "{list(stray)[0]}"')
+        assert "from_pretrained_arguments" in errors[0]["message"]
+
+    def test_a_component_named_by_a_key_still_validates(self):
+        schema = load_schema("workflow")
+        workflow = {
+            "id": "probe",
+            "steps": [
+                {
+                    "name": "draw",
+                    "pipeline": {
+                        "configuration": {"component_type": "LTXPipeline"},
+                        "from_pretrained_arguments": {"model_name": "org/model"},
+                        "arguments": {"prompt": "x"},
+                        "latent_upsampler": {
+                            "configuration": {"component_type": "LatentUpsampler"},
+                            "from_pretrained_arguments": {"model_name": "org/up"},
+                        },
+                    },
+                    "result": {"content_type": "video/mp4"},
+                }
+            ],
+        }
+
+        assert validate_data_all(workflow, schema) == []
+
+    @pytest.mark.parametrize(
+        "stray",
+        [{"varaibles": {"x": 1}}, {"sedd": 42}, {"when": "always"}],
+    )
+    def test_an_unknown_top_level_property_is_an_error(self, stray):
+        """#123: `sedd` was the sharp one - validation answered that the
+        workflow set no seed and advised setting one, with the misspelling
+        of it in front of it."""
+        schema = load_schema("workflow")
+        workflow = {
+            "id": "probe",
+            "steps": [
+                {"name": "s", "task": {"command": "gather_inputs", "arguments": {}}}
+            ],
+            **stray,
+        }
+
+        errors = validate_data_all(workflow, schema)
+
+        assert [error["path"] for error in errors] == [None]
+        assert list(stray)[0] in errors[0]["message"]
+        assert "steps" in errors[0]["message"]
+
+    @pytest.mark.parametrize(
+        "stray", [{"subfoldr": "final"}, {"fille_base_name": "x"}, {"fsp": 24}]
+    )
+    def test_an_unknown_result_property_is_an_error(self, stray):
+        """#123: a mistyped `subfoldr` means the deliverable quietly lands at
+        the run root rather than in the `final/` the convention promises."""
+        schema = load_schema("workflow")
+        workflow = {
+            "id": "probe",
+            "steps": [
+                {
+                    "name": "s",
+                    "task": {"command": "gather_inputs", "arguments": {}},
+                    "result": {"content_type": "text/plain", **stray},
+                }
+            ],
+        }
+
+        errors = validate_data_all(workflow, schema)
+
+        assert [error["path"] for error in errors] == ["steps[0].result"]
+        assert list(stray)[0] in errors[0]["message"]
+        assert "subfolder" in errors[0]["message"]
+
+    def test_the_engine_injected_key_is_not_advertised(self):
+        """'argument_template' is written onto a sub-workflow by the engine,
+        so it is legal - but listing it among the properties on offer would
+        invite an author to write it by hand (#123)."""
+        schema = load_schema("workflow")
+        errors = validate_data_all(
+            {
+                "id": "probe",
+                "sedd": 1,
+                "steps": [{"name": "s", "task": {"command": "x", "arguments": {}}}],
+            },
+            schema,
+        )
+        assert "argument_template" not in errors[0]["message"]
+        assert "seed" in errors[0]["message"]
+
+    def test_the_later_swept_objects_are_closed_in_the_schema(self):
+        """#123: the three the #118 sweep left open."""
+        schema = load_schema("workflow")
+        assert schema["additionalProperties"] is False
+        assert schema["$defs"]["result"]["additionalProperties"] is False
+
+    def test_the_swept_objects_are_closed_in_the_schema(self):
+        schema = load_schema("workflow")
+        for name in ("step", "task", "workflow_reference", "pipeline_reference"):
+            assert schema["$defs"][name]["additionalProperties"] is False

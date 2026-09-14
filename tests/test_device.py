@@ -3,7 +3,6 @@ Unit tests for device selection
 Tests the configured device override and device type resolution
 """
 
-import pytest
 import dw
 
 

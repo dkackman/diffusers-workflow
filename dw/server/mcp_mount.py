@@ -75,6 +75,10 @@ def build_mcp_app(*, host, port, token):
     from dw_mcp.server import build_server
 
     client = DwClient(base_url=client_base_url(host, port), token=token)
+    # The tools now run *on* the server rather than on the agent's machine,
+    # so a tool that writes a local file is writing on the GPU box. It has to
+    # know that to confine where it writes (#113)
+    client.mounted = True
     server = build_server(client)
     asgi = server.streamable_http_app(
         # the SDK app routes at "/"; the parent routes /mcp here and

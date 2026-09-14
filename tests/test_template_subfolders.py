@@ -60,9 +60,9 @@ def test_every_saving_step_of_a_multi_step_template_names_its_role(template):
     roles = {step["name"]: step["result"].get("subfolder") for step in steps}
 
     unmarked = sorted(name for name, role in roles.items() if role not in CONVENTION)
-    assert (
-        not unmarked
-    ), f"{template}: saving steps without a final/intermediate subfolder: {unmarked}"
+    assert not unmarked, (
+        f"{template}: saving steps without a final/intermediate subfolder: {unmarked}"
+    )
     assert "final" in roles.values(), f"{template}: no step is marked final"
 
 
@@ -70,9 +70,9 @@ def test_every_saving_step_of_a_multi_step_template_names_its_role(template):
 def test_the_subfolder_is_the_last_key_of_the_result(template):
     """One added line per step, and every template reads alike."""
     for step in saving_steps(load(template)):
-        assert (
-            list(step["result"])[-1] == "subfolder"
-        ), f"{template}: step {step['name']!r} does not end its result with subfolder"
+        assert list(step["result"])[-1] == "subfolder", (
+            f"{template}: step {step['name']!r} does not end its result with subfolder"
+        )
 
 
 @pytest.mark.parametrize(
@@ -87,6 +87,6 @@ def test_the_packaged_builtins_stay_unmarked(builtin):
         for step in definition.get("steps", [])
         if "subfolder" in (step.get("result") or {})
     ]
-    assert (
-        not marked
-    ), f"dw/workflows/{builtin} marks {marked}; a role is the parent's to assign"
+    assert not marked, (
+        f"dw/workflows/{builtin} marks {marked}; a role is the parent's to assign"
+    )

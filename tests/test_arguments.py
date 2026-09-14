@@ -63,7 +63,7 @@ class TestFetchImage:
             assert loaded_image.size == (100, 100)
 
     @patch("dw.arguments.load_image")
-    @patch("dw.arguments.validate_url")
+    @patch("dw.arguments.validate_media_url")
     def test_fetch_image_from_url(self, mock_validate_url, mock_load_image):
         mock_validate_url.return_value = "https://example.com/image.jpg"
         mock_image = Image.new("RGB", (100, 100))
@@ -71,7 +71,8 @@ class TestFetchImage:
 
         result = fetch_image("https://example.com/image.jpg")
 
-        mock_validate_url.assert_called_once_with("https://example.com/image.jpg")
+        mock_validate_url.assert_called_once()
+        assert mock_validate_url.call_args[0][0] == "https://example.com/image.jpg"
         mock_load_image.assert_called_once_with("https://example.com/image.jpg")
         assert result == mock_image
 
@@ -161,7 +162,7 @@ class TestFetchVideo:
     def test_fetch_video_dict_format(self):
         """Test that video can be specified as dict with 'location' key"""
         with patch("dw.arguments.load_video") as mock_load:
-            with patch("dw.arguments.validate_url") as mock_validate:
+            with patch("dw.arguments.validate_media_url") as mock_validate:
                 mock_validate.return_value = "https://example.com/video.mp4"
                 mock_load.return_value = ["frame1", "frame2"]
 
@@ -175,7 +176,7 @@ class TestFetchVideo:
         assert "location" in str(exc_info.value).lower()
 
     @patch("dw.arguments.load_video")
-    @patch("dw.arguments.validate_url")
+    @patch("dw.arguments.validate_media_url")
     def test_fetch_video_from_url(self, mock_validate_url, mock_load_video):
         mock_validate_url.return_value = "https://example.com/video.mp4"
         mock_frames = ["frame1", "frame2"]
@@ -183,7 +184,8 @@ class TestFetchVideo:
 
         result = fetch_video("https://example.com/video.mp4")
 
-        mock_validate_url.assert_called_once_with("https://example.com/video.mp4")
+        mock_validate_url.assert_called_once()
+        assert mock_validate_url.call_args[0][0] == "https://example.com/video.mp4"
         mock_load_video.assert_called_once_with("https://example.com/video.mp4")
         assert result == mock_frames
 
@@ -199,10 +201,10 @@ class TestFetchVideo:
             assert "extension not allowed" in str(exc_info.value)
 
     @patch("dw.arguments.load_video")
-    @patch("dw.arguments.validate_url")
+    @patch("dw.arguments.validate_media_url")
     def test_fetch_video_list(self, mock_validate_url, mock_load_video):
         """Test that fetch_video can handle a list of video specifications"""
-        mock_validate_url.side_effect = lambda x: x
+        mock_validate_url.side_effect = lambda url, what=None: url
         mock_load_video.side_effect = [["frames1"], ["frames2"]]
 
         result = fetch_video(
@@ -215,10 +217,10 @@ class TestFetchVideo:
         assert result[1] == ["frames2"]
 
     @patch("dw.arguments.load_video")
-    @patch("dw.arguments.validate_url")
+    @patch("dw.arguments.validate_media_url")
     def test_fetch_video_list_with_dicts(self, mock_validate_url, mock_load_video):
         """Test that fetch_video can handle a list of dict specifications"""
-        mock_validate_url.side_effect = lambda x: x
+        mock_validate_url.side_effect = lambda url, what=None: url
         mock_load_video.side_effect = [["frames1"], ["frames2"]]
 
         result = fetch_video(
@@ -460,7 +462,7 @@ class TestRealizeObject:
 
             assert args["reference"].arguments == {"fps": 30.0}
 
-    @patch("dw.arguments.validate_url")
+    @patch("dw.arguments.validate_media_url")
     def test_object_is_constructed_from_a_url(self, mock_validate_url):
         url = "https://example.com/subject.jpg"
         mock_validate_url.return_value = url

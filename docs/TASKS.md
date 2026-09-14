@@ -23,6 +23,17 @@ implementation's real signature, the web editor builds task forms from them,
 and workflow validation flags task-argument typos the same way it flags
 pipeline ones.
 
+A signature carries no domain, though, so the numbers whose domain is not a
+judgement call are declared separately (`dw/task_domains.py`) and validation
+reports one outside it as an error at its JSON path: a count of frames or
+seconds to cut, and a sample rate or frame rate, have to be above zero, and an
+offset to start at zero or above. Those are refused rather than interpreted -
+`num_frames: -10` used to answer with the track minus its last ten frames and
+`target_sample_rate: 0` with the original samples under a 44100 Hz header, both
+reported as clean successes. The commands refuse the same values at run time,
+which is what catches one that arrived from a `variable:` or an earlier step
+rather than being written in the file.
+
 ## Image Processing
 
 ### ControlNet Preprocessors
@@ -438,8 +449,14 @@ returns frames without it, and this puts it back:
 ### slice_audio
 
 Cut a slice out of an audio track, addressed in seconds or in video frames.
-Slices reaching past the end of the track are zero-padded. Either half of a pair
-may be left out - an omitted start begins at the head of the track, an omitted
+Slices reaching past the end of the track are zero-padded — asking for more
+than the source holds returns a track of the length you asked for whose tail is
+digital silence, not a shorter track and not an error. Anything past a few
+milliseconds of that padding is reported as a `slice_past_end` warning on the
+job, because a score laid under a longer cut goes silent for the rest of the
+film without anything else saying so; to fill a cut longer than the recording,
+build a bed with [`loop_audio`](#loop_audio) first and slice that. Either half
+of a pair may be left out - an omitted start begins at the head of the track, an omitted
 duration runs to the end of it - so a workflow that trims only when it is given
 a length still passes the whole track along:
 

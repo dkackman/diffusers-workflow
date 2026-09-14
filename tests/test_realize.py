@@ -4,7 +4,6 @@ file beside a run's manifest reproduces that run whatever changes later."""
 import copy
 import hashlib
 import json
-import os
 
 import pytest
 
@@ -101,9 +100,9 @@ class TestPrompts:
     def test_a_name_is_annotated_once_in_first_seen_order(self, prompt_library):
         source = definition()
         source["steps"][0]["pipeline"]["arguments"]["prompt"] = "prompt:scenic/dusk"
-        source["steps"][0]["pipeline"]["arguments"][
-            "negative_prompt"
-        ] = "prompt:scenic/dusk"
+        source["steps"][0]["pipeline"]["arguments"]["negative_prompt"] = (
+            "prompt:scenic/dusk"
+        )
 
         _, annotations = realize_workflow(source, {}, 7, prompt_dir=prompt_library)
 
@@ -127,9 +126,9 @@ class TestOutputReferences:
     def test_latest_is_pinned_to_the_run_it_resolved_to(self, output_root):
         root, run_id = output_root
         source = definition()
-        source["steps"][0]["pipeline"]["arguments"][
-            "image"
-        ] = "output:ltx2/Gyre/latest/still.png"
+        source["steps"][0]["pipeline"]["arguments"]["image"] = (
+            "output:ltx2/Gyre/latest/still.png"
+        )
 
         realized, _ = realize_workflow(source, {}, 7, output_root=root)
 
@@ -248,9 +247,9 @@ class TestUnpinnedOutputs:
     def test_pin_outputs_false_leaves_latest_as_written(self, output_root):
         root, _ = output_root
         spec = definition()
-        spec["steps"][0]["pipeline"]["arguments"][
-            "image"
-        ] = "output:ltx2/Gyre/latest/still.png"
+        spec["steps"][0]["pipeline"]["arguments"]["image"] = (
+            "output:ltx2/Gyre/latest/still.png"
+        )
         realized, _ = realize_workflow(spec, {}, 7, output_root=root, pin_outputs=False)
         assert (
             realized["steps"][0]["pipeline"]["arguments"]["image"]
@@ -269,9 +268,9 @@ class TestUnpinnedOutputs:
     def test_the_default_still_pins(self, output_root):
         root, run_id = output_root
         spec = definition()
-        spec["steps"][0]["pipeline"]["arguments"][
-            "image"
-        ] = "output:ltx2/Gyre/latest/still.png"
+        spec["steps"][0]["pipeline"]["arguments"]["image"] = (
+            "output:ltx2/Gyre/latest/still.png"
+        )
         realized, _ = realize_workflow(spec, {}, 7, output_root=root)
         assert (
             realized["steps"][0]["pipeline"]["arguments"]["image"]

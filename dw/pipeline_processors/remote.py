@@ -1,18 +1,35 @@
+import io
+import logging
+from urllib.parse import urlparse
+
+import requests
 import torch
 from huggingface_hub import get_token
-import requests
-import io
+
+from ..locations import (
+    HF_TOKEN_HOST_SUFFIXES,
+    token_host_allowed,
+    validate_remote_encoder_url,
+)
+from ..security import workflows_are_trusted
+
+logger = logging.getLogger("dw")
 
 
 def remote_text_encoder(prompts, url, device):
-    response = requests.post(
-        url,
-        json={"prompt": prompts},
-        headers={
-            "Authorization": f"Bearer {get_token()}",
-            "Content-Type": "application/json",
-        },
-    )
+    url = validate_remote_encoder_url(url)
+    headers = {"Content-Type": "application/json"}
+    host = urlparse(url).hostname
+    if token_host_allowed(host) or workflows_are_trusted():
+        headers["Authorization"] = f"Bearer {get_token()}"
+    else:
+        logger.warning(
+            f"Not sending the HuggingFace token to {host}: it is outside "
+            f"{', '.join(HF_TOKEN_HOST_SUFFIXES)}. If the endpoint needs the "
+            f"token, run with --trust-workflows."
+        )
+
+    response = requests.post(url, json={"prompt": prompts}, headers=headers)
     content_type = response.headers.get("Content-Type", "")
     # An endpoint that has moved or been retired answers with an HTML page,
     # and torch.load's unpickling error about it names nothing a reader

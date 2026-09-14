@@ -231,3 +231,29 @@ def test_gallery_metadata_passes_the_media_block_through_and_says_how_to_read_it
 
     assert result["media"]["duration_seconds"] == 45.05
     assert "audio_duration" in result["next"]
+
+
+def test_gallery_metadata_reads_an_asset_and_says_the_numbers_are_inputs():
+    """#127: the same tool answers for an input asset, and the hint it
+    carries is the one that matters before a run rather than after."""
+    body = {
+        "name": "asset:uploads/room-bed.wav",
+        "source": "asset",
+        "metadata": None,
+        "job": None,
+        "media": {"kind": "audio", "duration_seconds": 3.3, "sample_rate": 32000},
+    }
+    client, _ = scripted(
+        {
+            (
+                "GET",
+                "/api/gallery/asset:uploads/room-bed.wav/metadata",
+            ): (200, body)
+        }
+    )
+
+    result = catalog.get_gallery_metadata(client, "asset:uploads/room-bed.wav")
+
+    assert result["media"]["duration_seconds"] == 3.3
+    assert "loop_audio" in result["next"]
+    assert "audio_duration" not in result["next"]

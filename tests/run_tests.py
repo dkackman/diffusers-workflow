@@ -4,7 +4,6 @@ Run: python -m tests.run_tests
 """
 
 import sys
-import subprocess
 
 
 def main():
@@ -33,7 +32,7 @@ def main():
 
     # Add coverage if pytest-cov is available
     try:
-        import pytest_cov
+        import pytest_cov  # noqa: F401 - presence is the check
 
         args.extend(
             [

@@ -17,6 +17,7 @@ from .security import (
     ALLOWED_VIDEO_EXTENSIONS,
     ALLOWED_AUDIO_EXTENSIONS,
 )
+from .locations import validate_media_path, validate_media_url
 
 logger = logging.getLogger("dw")
 
@@ -905,7 +906,7 @@ def fetch_image(img_spec, base_dir=None):
 
     # If already a PIL Image, return as-is (allows multiple realize_args calls)
     if hasattr(img_spec, "mode") and hasattr(img_spec, "size"):
-        logger.debug(f"Image already loaded, returning as-is")
+        logger.debug("Image already loaded, returning as-is")
         return img_spec
 
     # Handle dict format: {"location": "url_or_path"}
@@ -931,12 +932,13 @@ def fetch_image(img_spec, base_dir=None):
         if isinstance(img_spec, str) and (
             img_spec.startswith("http://") or img_spec.startswith("https://")
         ):
-            validated_url = validate_url(img_spec)
+            validated_url = validate_media_url(img_spec, "an image argument")
             return load_image(validated_url)
         else:
-            # Treat as file path, relative to the workflow file
-            validated_path = validate_path(
-                resolve_relative_path(str(img_spec), base_dir), allow_create=False
+            # Treat as file path, relative to the workflow file, and confined
+            # to the directories this workflow may read (dw/locations.py)
+            validated_path = validate_media_path(
+                str(img_spec), base_dir, "an image argument"
             )
             # Validate file extension
             ext = os.path.splitext(validated_path)[1].lower()
@@ -995,12 +997,12 @@ def fetch_video(video_spec, base_dir=None):
             return [fetch_video(vid, base_dir) for vid in video_spec]
         # Otherwise assume it's already loaded video frames
         else:
-            logger.debug(f"Video frames already loaded, returning as-is")
+            logger.debug("Video frames already loaded, returning as-is")
             return video_spec
 
     # If already loaded video frames (tuple), return as-is
     if isinstance(video_spec, tuple):
-        logger.debug(f"Video frames already loaded, returning as-is")
+        logger.debug("Video frames already loaded, returning as-is")
         return video_spec
 
     # Handle dict format: {"location": "url_or_path"}
@@ -1028,12 +1030,13 @@ def fetch_video(video_spec, base_dir=None):
         if isinstance(video_spec, str) and (
             video_spec.startswith("http://") or video_spec.startswith("https://")
         ):
-            validated_url = validate_url(video_spec)
+            validated_url = validate_media_url(video_spec, "a video argument")
             return _with_frame_rate(load_video(validated_url), validated_url)
         else:
-            # Treat as file path, relative to the workflow file
-            validated_path = validate_path(
-                resolve_relative_path(str(video_spec), base_dir), allow_create=False
+            # Treat as file path, relative to the workflow file, and confined
+            # to the directories this workflow may read (dw/locations.py)
+            validated_path = validate_media_path(
+                str(video_spec), base_dir, "a video argument"
             )
             # Validate file extension
             ext = os.path.splitext(validated_path)[1].lower()

@@ -7,8 +7,7 @@ description: Use when a dw MCP server is connected and the user wants MiniMax H3
 
 H3 generates video and audio together: speech with lip sync, ambient sound,
 score. Every template here fits a 24 GB card. This skill chooses the template
-and the arguments; the prompt format is MiniMax's and comes from their text,
-not from here.
+and the arguments; the prompt format is MiniMax's, from their text not here.
 
 ## Before anything
 
@@ -30,45 +29,46 @@ not from here.
   `templates/minimax/last-frame-only`; a one-line idea plus a picture
   `templates/minimax/enhance-prompt-with-image`.
 - **A subject that must look the same**: `templates/minimax/reference-to-video`
-  (an image fixes appearance, an audio clip fixes voice);
+  (an image fixes appearance, an audio clip voice);
   `templates/minimax/composable-references` adds a video reference for framing
   and camera, at about 3.4x the cost;
-  `templates/minimax/generated-subject-reference` draws the subject
-  with Z-Image first and references it in the same workflow;
+  `templates/minimax/generated-subject-reference` draws the subject with
+  Z-Image first and references it in the same workflow;
   `templates/minimax/voice-timbre-reference` fixes a voice from a Bark-spoken line.
 - **Several boards in one generation, one unbroken score**:
   `templates/minimax/storyboard` - H3 cuts between the boards inside a single
   generation, which no concat of separate clips can match for continuous audio.
-  It is one beat with fixed cut points, not a building block: four
-  concatenated give twelve equal shots and a cast redrawn four times.
-  Past one beat with a recurring cast, use the cuts pattern below.
+  It is one beat with fixed cut points, not a building block; past one beat
+  with a recurring cast, use the cuts pattern below.
 - **Longer than 14.4 seconds**: decide first whether the seam is a cut or a
-  continuation. Chain when the same action or line of speech has to cross the
-  seam; cut when the scene changes, and treat each cut as its own generation.
-  Six distinct scenes are a cuts piece, not a chain.
+  continuation. Chain when the same action or line of speech crosses the seam;
+  cut when the scene changes, and treat each cut as its own generation. Six
+  distinct scenes are a cuts piece, not a chain.
 - **Longer than 14.4 seconds as one take**: a chain. `templates/minimax/chained-segments`
   (last-frame continuity), `templates/minimax/chain-video-continuity` (the
   previous segment's tail rides along as a video reference - motion, camera and
   voice carry across the seam), `templates/minimax/chain-matched-to-audio` (a
   supplied track sets the length and is muxed back seamless),
-  `templates/minimax/chain-matched-and-aligned` (all of it, per-segment prompts).
-  Drift compounds per seam: reference the subject picture in every segment,
-  prefer `last_segment` continuity, and use the longest segments memory allows.
+  `templates/minimax/chain-matched-and-aligned` (all of it, per-segment
+  prompts). Drift compounds per seam: reference the subject picture in every
+  segment, prefer `last_segment` continuity, use the longest segments memory
+  allows.
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
-  entry of its `shots` list on one loaded model, `concat_videos` splices) and
+  `shots` entry on one loaded model, `concat_videos` splices) and
   `templates/minimax/music-video` (a song, one slice and one lip-synced shot
   per entry). `shots` is one list argument: a dialogue entry is `name`,
-  `prompt`, `references` (which portraits and voices this shot uses) and
+  `prompt`, `references` (portraits and voices: `from_previous_result` for
+  one drawn here, `from_file` for an `asset:` cast that already exists) and
   `num_frames`; a music-video entry is `name`, `prompt` and `start_frame`.
-  A six-shot piece is one more entry, not another file.
-  The listing's `lists` block says what an entry carries; its `cost`
-  carries `per_entry` when one shot was measured: quote
+  A six-shot piece is one more entry, not another file. The listing's
+  `lists` block says what an entry carries; its `cost` carries
+  `per_entry` when one shot was measured: quote
   `minutes - per_entry.minutes × per_entry.entries + per_entry.minutes × N`
   for N entries. Without `per_entry`, quote the total and say it is the
   default list's.
-  A cut erases drift; the last shot is as clean as the first. Write shots,
-  not takes. Each shot generates its own audio, so write
+  A cut erases drift: the last shot is as clean as the first. Each shot
+  generates its own audio, so write
   `non_diegetic_music: N/A` in every shot and lay one score under the concat
   afterwards: `templates/minimax/music` writes the track and
   `templates/assemble-and-score` shows the `pair_audio` step that mixes it
@@ -103,25 +103,27 @@ read the `workflows` guide's authoring section first.
   LoRA is distilled against the base transformer and they load the reference
   one. `storyboard`, `dialogue-short`, `music-video` and
   `chain-matched-and-aligned` pass references *and* keep the turbo LoRA at
-  nine steps; say nine for those, not 20.
+  nine steps; say nine for those, not 20. `denoise_total_steps` comes back one
+  less (9 reports 8): the scheduler counts sigma grid points, terminal zero
+  included. Expected.
 - Nothing carries between generations except what is passed as a reference:
-  no latent memory and no extension mode, in the checkpoint, the hosted API or
+  no latent memory and no extension mode, in the checkpoint, the API or
   diffusers. Identity rides on a picture, voice on an audio clip, motion and
   camera on a video tail (what a chain passes forward), and a score across
-  cuts is laid under the concat afterwards.
-- H3 is guidance-distilled: no `guidance_scale`, no negative prompt. Say what is
-  there, never what is not.
-- When deriving a variant, keep `release_pipeline` on the step the template
-  puts it on: it frees the Z-Image boards before H3 loads. A run SIGKILLed near
-  the end in a warm worker that succeeds on a retry in a fresh one is host
-  memory, not the prompt.
+  cuts is laid under the concat.
+- H3 is guidance-distilled: no `guidance_scale`, no negative prompt. Say what
+  is there, never what is not.
+- When deriving a variant, keep `release_pipeline` where the template puts it:
+  it frees the Z-Image boards before H3 loads. A run SIGKILLed near the end in
+  a warm worker that succeeds on a retry in a fresh one is host memory, not
+  the prompt.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in the order passed.
 - Music3 reads `audio_duration` as a ceiling, not a target: ask for more than
-  the song needs and trim with `templates/audio-trim-fade`; the
-  `minimax-music3` skill has the rest.
-- Write the prompt for the length being generated: shot timestamps should span
-  the duration, or a five-second script conditions a five-second story
+  the song needs and trim with `templates/audio-trim-fade`; see the
+  `minimax-music3` skill.
+- Write the prompt for the length being generated: shot timestamps should
+  span the duration, or a five-second script conditions a five-second story
   whatever the frame count.
 
 ## Prompts
@@ -145,7 +147,7 @@ paraphrase it from examples:
    framed as `Task: T2VA. Duration: 5.17 seconds. Idea: ...`.
 
 Whichever route: write the whole script before the first shot - the lines in
-order, read once, should carry the piece on their own - then place them.
+order, read once, should carry the piece - then place them.
 Repeat a speaker's voice description verbatim across shots,
 and when a reference picture should fix identity but not framing, say so in
 the prompt itself - in a reference-conditioned request, in the lines that
@@ -158,9 +160,9 @@ inherits the portrait's composition.
    rejects.
 2. Quote `plan.estimate` from the validate answer (warm minutes; a first
    load or a `downloads_required` is longer). When `basis` is `unknown`,
-   say so and give the shape instead: a 124-frame turbo clip is a few minutes on a 24 GB card, 345
-   frames three times that, an image reference twice a turbo clip, a video
-   reference beside it 3.4x again, and a chain multiplies by its segments.
+   say so and give the shape instead: a 124-frame turbo clip is a few minutes
+   on a 24 GB card, 345 frames three times that, an image reference twice a
+   turbo clip, a video reference 3.4x again, a chain times its segments.
    Get the go-ahead, then `run_workflow` with `acknowledged_cost` = the
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, then `get_job` for the manifest. A cancelled H3 job runs

@@ -277,7 +277,12 @@ The editor's forms come from these; they are just as usable from scripts:
   makes the same check and answers 400 rather than queuing a job that would
   fail on its first step; `checked_arguments` on a valid answer names what
   was covered, since without arguments the verdict is about the stored
-  defaults only.
+  defaults only. A reference set a pipeline would refuse is an error here
+  too - too many images, videos or audio clips for the family, or, for
+  MiniMax-H3, audio as the only reference - because the pipeline enforces
+  those only once its checkpoint is loaded, minutes into an acknowledged
+  run (`dw/reference_limits.py`, which reads each limit off the diffusers
+  block that enforces it rather than restating it).
 
   A valid answer also carries `plan`, what the run will execute for those
   arguments: `fingerprint` (`sha256:…` over the realized, expanded

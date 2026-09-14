@@ -2,7 +2,8 @@ import glob as glob_lib
 import logging
 from diffusers.utils import load_image
 from ..arguments import fetch_image
-from ..security import validate_url, SecurityError
+from ..security import SecurityError
+from ..locations import contained_matches, validate_media_glob, validate_media_url
 from .video_utils import load_audio_video
 
 logger = logging.getLogger("dw")
@@ -30,10 +31,17 @@ def gather_images(glob=None, urls=None):
     # Load local images matching glob pattern
     if glob is not None:
         logger.debug(f"Searching for images matching pattern: {glob}")
+        # The pattern is a location like any other, and goes through the same
+        # policy: it may only expand inside the directories this workflow may
+        # read, and each match is re-checked because a wildcard can leave the
+        # tree through a symlink (dw/locations.py)
+        pattern = validate_media_glob(glob, what="the images glob")
         # Sorted, because glob returns filesystem order: a numbered sequence
         # of images gathered for concatenation has to come back in its own
         # order, not in whatever order the directory happens to hold
-        image_paths = sorted(glob_lib.glob(glob))
+        image_paths = contained_matches(
+            sorted(glob_lib.glob(pattern)), what="the images glob"
+        )
         logger.info(f"Found {len(image_paths)} local images")
 
         for path in image_paths:
@@ -52,7 +60,7 @@ def gather_images(glob=None, urls=None):
     for url in urls:
         try:
             logger.debug(f"Loading image from URL: {url}")
-            validated_url = validate_url(url)
+            validated_url = validate_media_url(url, "a gathered image url")
             images.append(load_image(validated_url))
         except SecurityError:
             raise
@@ -102,10 +110,14 @@ def gather_videos(glob=None, urls=None):
     # Load local videos matching glob pattern
     if glob is not None:
         logger.debug(f"Searching for videos matching pattern: {glob}")
+        # Same containment as gather_images - one policy, two tasks
+        pattern = validate_media_glob(glob, what="the videos glob")
         # Sorted, because glob returns filesystem order: a numbered sequence
         # of videos gathered for concatenation has to come back in its own
         # order, not in whatever order the directory happens to hold
-        video_paths = sorted(glob_lib.glob(glob))
+        video_paths = contained_matches(
+            sorted(glob_lib.glob(pattern)), what="the videos glob"
+        )
         logger.info(f"Found {len(video_paths)} local videos")
 
         for path in video_paths:

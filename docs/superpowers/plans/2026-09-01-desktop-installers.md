@@ -139,7 +139,9 @@ def settings_dir():
     runs dw/__init__.py and pulls in torch, which this pure HTTP client has
     no use for (test_mcp_server.py::TestStartupWeight guards the boundary).
     """
-    return Path(os.environ.get("DIFFUSERS_HELPER_ROOT") or "~/.diffusers_helper/").expanduser()
+    return Path(
+        os.environ.get("DIFFUSERS_HELPER_ROOT") or "~/.diffusers_helper/"
+    ).expanduser()
 
 
 def _base_url_from_server_file():

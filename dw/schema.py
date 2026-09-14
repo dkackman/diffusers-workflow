@@ -13,7 +13,7 @@ def validate_data(data, schema):
     except ValidationError as ve:
         path = json_path(ve.absolute_path)
         location = f" at {path}" if path else ""
-        return False, f"Validation error{location}: {ve.message}"
+        return False, f"Validation error{location}: {error_message(ve)}"
     except json.JSONDecodeError as je:
         return False, f"JSON parsing error: {str(je)}"
     except Exception as e:
@@ -38,13 +38,77 @@ def validate_data_all(data, schema):
     seen = {}
     for error in validator.iter_errors(data):
         chosen = best_match([error])
-        key = (json_path(chosen.absolute_path), chosen.message)
+        key = (json_path(chosen.absolute_path), error_message(chosen))
         seen.setdefault(key, None)
-    ordered = sorted(seen, key=lambda key: (key[0] or "", key[1]))
+    ordered = sorted(
+        _only_unknown_property(seen), key=lambda key: (key[0] or "", key[1])
+    )
     return [
         {"path": path, "message": message}
         for path, message in ordered[:MAX_VALIDATION_ERRORS]
     ]
+
+
+def _only_unknown_property(keys):
+    """Drop the shape complaints about a key that is simply unknown.
+
+    A key refused by a typed `additionalProperties` fails that shape's own
+    'type' and 'required' checks too, so one mistyped 'trasformer' arrives
+    as three errors, two of which describe the component definition the
+    author never meant to write. Where a path has the unknown-property
+    message, it is the whole story (#123).
+    """
+    unknown = {
+        path for path, message in keys if message.startswith('unknown property "')
+    }
+    return [
+        (path, message)
+        for path, message in keys
+        if path not in unknown or message.startswith('unknown property "')
+    ]
+
+
+def error_message(error):
+    """The message an agent can act on for one schema violation.
+
+    Only `additionalProperties` is rewritten. jsonschema says "Additional
+    properties are not allowed ('when' was unexpected)", which does not say
+    what the object *does* take - and the whole point of closing these
+    objects is that an invented key ('when', 'retry') or a mistyped real one
+    ('relase_pipeline') is a silent no-op the engine never reads (#118). So
+    the message names the object, the key, and the full set that is read.
+    """
+    if error.validator != "additionalProperties":
+        # An object that is closed except for one shape of key - the pipeline,
+        # where any other key may name a component - refuses an unknown key
+        # through that shape's own 'type'/'required' rather than through
+        # additionalProperties, and jsonschema then reports the shape rather
+        # than the key. The schema carries the sentence to say instead (#123)
+        explanation = (error.schema or {}).get("unknownPropertyMessage")
+        if explanation and error.absolute_path:
+            return f'unknown property "{error.absolute_path[-1]}" - {explanation}'
+        return error.message
+
+    properties = (error.schema or {}).get("properties") or {}
+    # An engine-injected key is legal but is not something an author writes,
+    # so listing it as one of the properties on offer only invites its use
+    allowed = sorted(
+        name
+        for name, subschema in properties.items()
+        if not str((subschema or {}).get("description", "")).startswith(
+            "Engine-injected"
+        )
+    )
+    instance = error.instance if isinstance(error.instance, dict) else {}
+    unknown = sorted(key for key in instance if key not in allowed)
+    name = instance.get("name")
+    named = f'"{name}": ' if isinstance(name, str) and name else ""
+    keys = ", ".join(f'"{key}"' for key in unknown) or "a property"
+    plural = "properties" if len(unknown) > 1 else "property"
+    return (
+        f"{named}unknown {plural} {keys} - the engine reads only "
+        f"{', '.join(allowed)}, so anything else would be silently ignored"
+    )
 
 
 def format_validation_errors(errors):

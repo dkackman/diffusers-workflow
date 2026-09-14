@@ -279,3 +279,65 @@ describe('for_each references', () => {
     ])
   })
 })
+
+describe('for_each members', () => {
+  it("lists a declared variable list's entry names as the step's members", () => {
+    // What a realized workflow carries: for_each still names the variable,
+    // and the run's actual list sits in variables (dw/realize.py)
+    const wf = {
+      variables: { shots: [{ name: 'open' }, { name: 'reveal' }] },
+      steps: [
+        {
+          name: 'shot',
+          for_each: 'variable:shots',
+          task: { command: 'render' },
+        },
+      ],
+    }
+    const node = dataFlowGraph(wf).nodes[0]
+    expect(node.forEach).toBe(true)
+    expect(node.members).toEqual(['open', 'reveal'])
+  })
+
+  it('keys unnamed entries by index, the way the engine names members', () => {
+    const wf = {
+      variables: { items: ['a', 'b'] },
+      steps: [
+        { name: 'run', for_each: 'variable:items', task: { command: 'x' } },
+      ],
+    }
+    expect(dataFlowGraph(wf).nodes[0].members).toEqual(['0', '1'])
+  })
+
+  it('reads a literal for_each list written on the step itself', () => {
+    const wf = {
+      steps: [
+        {
+          name: 'run',
+          for_each: [{ name: 'a' }, { name: 'b' }],
+          task: { command: 'x' },
+        },
+      ],
+    }
+    expect(dataFlowGraph(wf).nodes[0].members).toEqual(['a', 'b'])
+  })
+
+  it('marks a list-driven step whose list cannot be read, and leaves plain steps alone', () => {
+    const wf = {
+      variables: { other: 3 },
+      steps: [
+        {
+          name: 'run',
+          for_each: 'variable:missing',
+          task: { command: 'x' },
+        },
+        step('plain', {}),
+      ],
+    }
+    const graph = dataFlowGraph(wf)
+    expect(graph.nodes[0].forEach).toBe(true)
+    expect(graph.nodes[0].members).toBeNull()
+    expect(graph.nodes[1].forEach).toBe(false)
+    expect(graph.nodes[1].members).toBeNull()
+  })
+})

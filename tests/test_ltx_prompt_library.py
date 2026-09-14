@@ -45,9 +45,9 @@ def test_a_prompt_is_one_paragraph_of_caption_length(path):
 
     assert "\n" not in text.strip(), f"{path} is more than one paragraph"
     words = len(text.split())
-    assert (
-        140 <= words <= 240
-    ), f"{path} is {words} words; the trained caption is 150-220"
+    assert 140 <= words <= 240, (
+        f"{path} is {words} words; the trained caption is 150-220"
+    )
 
 
 @pytest.mark.parametrize("path", PROMPTS, ids=os.path.basename)

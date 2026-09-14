@@ -118,6 +118,29 @@ describe('name encoding', () => {
   })
 })
 
+describe('workflow definition fetch', () => {
+  it('keeps the definition exactly as served, with origin and writable beside it', async () => {
+    const body = { id: 'z-image', steps: [] }
+    stubFetch({
+      ok: true,
+      body,
+      headers: {
+        'X-Workflow-Origin': 'workspace',
+        'X-Workflow-Writable': 'true',
+      },
+    })
+    const result = await api.getWorkflow('models/z-image')
+    expect(result.definition).toEqual(body)
+    // The transport metadata rides beside the definition, not inside it -
+    // a workflow opened by name must validate and save as the file it
+    // came from, and the schema refuses unknown root keys
+    expect(result.definition).not.toHaveProperty('origin')
+    expect(result.definition).not.toHaveProperty('writable')
+    expect(result.origin).toBe('workspace')
+    expect(result.writable).toBe(true)
+  })
+})
+
 describe('gallery listing and thumbnails', () => {
   it('fetches the whole listing in one request', async () => {
     const calls = stubFetch({ ok: true, body: {} })

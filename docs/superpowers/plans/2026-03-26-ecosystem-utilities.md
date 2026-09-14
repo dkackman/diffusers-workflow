@@ -229,7 +229,9 @@ class TestSegmentImage:
             torch.zeros(1, 1, 480, 640)
         ]
         # Set the mask area to 1
-        mock_sam_proc_instance.post_process_masks.return_value[0][0, 0, 100:300, 100:300] = 1.0
+        mock_sam_proc_instance.post_process_masks.return_value[0][
+            0, 0, 100:300, 100:300
+        ] = 1.0
 
         image = _make_test_image()
         result = segment_image(image, "dog")
@@ -787,9 +789,7 @@ def interpolate_frames(video, device="cpu", **kwargs):
         )
 
     if len(video) < 2:
-        raise ValueError(
-            f"Need at least 2 frames to interpolate, got {len(video)}"
-        )
+        raise ValueError(f"Need at least 2 frames to interpolate, got {len(video)}")
 
     logger.info(
         f"Interpolating {len(video)} frames with {multiplier}x multiplier on {device}"
@@ -836,7 +836,9 @@ def _load_rife_model(device, model_name=None):
         )
 
     if model_name is None:
-        model_name = "skytnt/anime-seg"  # Placeholder — replace with actual RIFE HF repo
+        model_name = (
+            "skytnt/anime-seg"  # Placeholder — replace with actual RIFE HF repo
+        )
 
     logger.info(f"Loading RIFE model from {model_name} to {device}")
 
@@ -1026,14 +1028,20 @@ class TestMetadataEmbedding:
     def test_png_metadata_embedded(self):
         """When embed_metadata is true, PNG should contain parameters text chunk."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            result_def = {"content_type": "image/png", "save": True, "embed_metadata": True}
+            result_def = {
+                "content_type": "image/png",
+                "save": True,
+                "embed_metadata": True,
+            }
             result = Result(result_def)
-            result.set_metadata({
-                "workflow_id": "test_workflow",
-                "step_name": "generate",
-                "model_name": "test/model",
-                "arguments": {"prompt": "a cat", "num_inference_steps": 25},
-            })
+            result.set_metadata(
+                {
+                    "workflow_id": "test_workflow",
+                    "step_name": "generate",
+                    "model_name": "test/model",
+                    "arguments": {"prompt": "a cat", "num_inference_steps": 25},
+                }
+            )
 
             # Add a real PIL image
             img = Image.new("RGB", (64, 64), color=(128, 64, 32))
@@ -1163,45 +1171,45 @@ Replace it with metadata-aware saving:
 Add the `_save_image_with_metadata` method to the Result class (after `save_artifact`):
 
 ```python
-    def _save_image_with_metadata(self, image, output_path, content_type):
-        """Save an image with embedded generation metadata.
+def _save_image_with_metadata(self, image, output_path, content_type):
+    """Save an image with embedded generation metadata.
 
-        Args:
-            image: PIL Image to save
-            output_path: File path to save to
-            content_type: MIME type (determines embedding method)
-        """
-        metadata_json = json.dumps(self.metadata, default=str)
+    Args:
+        image: PIL Image to save
+        output_path: File path to save to
+        content_type: MIME type (determines embedding method)
+    """
+    metadata_json = json.dumps(self.metadata, default=str)
 
-        if content_type == "image/png":
-            from PIL.PngImagePlugin import PngInfo
+    if content_type == "image/png":
+        from PIL.PngImagePlugin import PngInfo
 
-            png_info = PngInfo()
-            png_info.add_text("parameters", metadata_json)
-            image.save(output_path, pnginfo=png_info)
-            logger.debug(f"Embedded PNG metadata in {output_path}")
-        elif content_type in ("image/jpeg", "image/webp"):
-            try:
-                import piexif
+        png_info = PngInfo()
+        png_info.add_text("parameters", metadata_json)
+        image.save(output_path, pnginfo=png_info)
+        logger.debug(f"Embedded PNG metadata in {output_path}")
+    elif content_type in ("image/jpeg", "image/webp"):
+        try:
+            import piexif
 
-                exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}}
-                if hasattr(image, "info") and "exif" in image.info:
-                    exif_dict = piexif.load(image.info["exif"])
-                exif_dict["Exif"][
-                    piexif.ExifIFD.UserComment
-                ] = piexif.helper.UserComment.dump(metadata_json)
-                exif_bytes = piexif.dump(exif_dict)
-                image.save(output_path, exif=exif_bytes)
-                logger.debug(f"Embedded EXIF metadata in {output_path}")
-            except ImportError:
-                logger.warning(
-                    "piexif not installed - saving without metadata. "
-                    "Install with: pip install piexif"
-                )
-                image.save(output_path)
-        else:
-            # Unsupported image format for metadata - save normally
+            exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}}
+            if hasattr(image, "info") and "exif" in image.info:
+                exif_dict = piexif.load(image.info["exif"])
+            exif_dict["Exif"][piexif.ExifIFD.UserComment] = (
+                piexif.helper.UserComment.dump(metadata_json)
+            )
+            exif_bytes = piexif.dump(exif_dict)
+            image.save(output_path, exif=exif_bytes)
+            logger.debug(f"Embedded EXIF metadata in {output_path}")
+        except ImportError:
+            logger.warning(
+                "piexif not installed - saving without metadata. "
+                "Install with: pip install piexif"
+            )
             image.save(output_path)
+    else:
+        # Unsupported image format for metadata - save normally
+        image.save(output_path)
 ```
 
 - [ ] **Step 3: Run metadata tests**

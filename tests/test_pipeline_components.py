@@ -94,7 +94,9 @@ class TestFasterCacheWiring:
     def test_an_explicit_callback_is_left_alone(self):
         from diffusers import FasterCacheConfig
 
-        callback = lambda: 3
+        def callback():
+            return 3
+
         config = FasterCacheConfig(current_timestep_callback=callback)
 
         enable_cache_on_transformer(MagicMock(), config)
@@ -483,6 +485,28 @@ class TestSafetyCheckerWarning:
             warn_if_safety_checker_blanked(output)
 
         assert caplog.text == ""
+
+    def test_it_reaches_the_run_as_a_warning_event(self):
+        """The job's status is 'succeeded' and its file is solid black, so a
+        consumer over the API or MCP - which sees the warnings list and
+        nothing else - is the one party that cannot tell the difference
+        (#133). The log alone never got there."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            output = MagicMock()
+            output.nsfw_content_detected = [True]
+            warn_if_safety_checker_blanked(output)
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e["event"] == "warning"]
+        assert len(warnings) == 1
+        assert warnings[0]["kind"] == "safety_checker_blanked"
+        assert warnings[0]["blanked"] == 1
+        assert "solid black" in warnings[0]["message"]
 
 
 class TestAudiosSampleRate:

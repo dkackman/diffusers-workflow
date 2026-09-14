@@ -350,6 +350,24 @@ same reason - default setup cannot load a pack.
   items beside the `shots` list change. Gallery names for a template's runs now read
   `<template>/<run id>/final/<file>`, so an `output:` reference built from one carries the
   `final/` segment
+- **A task argument's numeric domain is declared, not inferred** — a task
+  command's argument schema is its implementation's signature, which says
+  nothing about range, so `dw/task_domains.py` declares the domains that are
+  not a judgement call (a count or a rate above zero, an offset zero or above)
+  and `validation_errors` reports a literal outside one at its JSON path. The
+  commands check the same table at run time (`check_arguments`), which is the
+  only layer that sees a value arriving from a `variable:` or an earlier step.
+  Both defects it closed were silent successes rather than failures:
+  `slice_audio(num_frames=-10)` reached Python's slice semantics and returned
+  the track minus its last ten frames (#139), and
+  `resample_audio(target_sample_rate=0)` left the samples alone and then hit
+  `DEFAULT_AUDIO_SAMPLE_RATE` at save, writing a 44100 Hz header over a 32 kHz
+  waveform (#140) — which is why `_as_track` now refuses a non-positive rate
+  outright: relabelling a waveform changes its speed and pitch, and the save
+  default makes a missing rate look like a valid one. Adding a domain means
+  one entry in the table; `tests/test_task_domains.py` pins every entry to a
+  real parameter of a real command so a rename cannot leave one checking
+  nothing
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image

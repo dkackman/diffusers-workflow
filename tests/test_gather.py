@@ -6,7 +6,7 @@ Tests image/video gathering from files and URLs
 import pytest
 import os
 import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from PIL import Image
 from dw.tasks.gather import gather_images, gather_videos, gather_inputs
 from dw.result import AudioVideo
@@ -78,10 +78,10 @@ class TestGatherImages:
         ]
 
     @patch("dw.tasks.gather.load_image")
-    @patch("dw.tasks.gather.validate_url")
+    @patch("dw.tasks.gather.validate_media_url")
     def test_gather_images_from_urls(self, mock_validate_url, mock_load_image):
         """Test gathering images from URLs"""
-        mock_validate_url.side_effect = lambda x: x
+        mock_validate_url.side_effect = lambda url, what=None: url
         mock_image = Image.new("RGB", (100, 100))
         mock_load_image.return_value = mock_image
 
@@ -104,7 +104,7 @@ class TestGatherImages:
             glob_pattern = os.path.join(temp_dir, "*.jpg")
 
             with patch("dw.tasks.gather.load_image") as mock_load:
-                with patch("dw.tasks.gather.validate_url") as mock_validate:
+                with patch("dw.tasks.gather.validate_media_url") as mock_validate:
                     mock_validate.return_value = "https://example.com/remote.jpg"
                     mock_load.side_effect = [
                         Image.new("RGB", (50, 50)),  # For file
@@ -207,7 +207,7 @@ class TestGatherVideos:
         step that consumed them out over frames instead of videos."""
         from dw.result import get_artifact_list
 
-        path = write_video(tmp_path / "shot.mp4")
+        write_video(tmp_path / "shot.mp4")
 
         videos = gather_videos(glob=os.path.join(str(tmp_path), "*.mp4"))
 
@@ -218,7 +218,7 @@ class TestGatherVideos:
     def test_a_gathered_video_keeps_its_audio(self, tmp_path):
         """The audio muxed into the file is what an earlier run generated
         alongside the picture - gathering it silent loses that run's work."""
-        path = write_video(tmp_path / "shot.mp4", sample_rate=8000)
+        write_video(tmp_path / "shot.mp4", sample_rate=8000)
 
         video = gather_videos(glob=os.path.join(str(tmp_path), "*.mp4"))[0]
 

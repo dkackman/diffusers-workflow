@@ -448,9 +448,9 @@ class TestDownloadsRequired:
         names = (str(tmp_path / "weights"), "/Users/someone/.ssh", "./weights")
         for local in names:
             spec = definition()
-            spec["steps"][0]["pipeline"]["from_pretrained_arguments"][
-                "model_name"
-            ] = local
+            spec["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+                local
+            )
             assert plan(spec)["downloads_required"] == [], local
         assert not set(names) & set(probed)
 

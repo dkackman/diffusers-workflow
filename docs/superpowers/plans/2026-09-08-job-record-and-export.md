@@ -149,9 +149,7 @@ def output_root(tmp_path):
 
 class TestVariablesAndSeed:
     def test_arguments_become_the_variable_defaults(self):
-        realized, _ = realize_workflow(
-            definition(), {"prompt": "a cat", "steps": 4}, 7
-        )
+        realized, _ = realize_workflow(definition(), {"prompt": "a cat", "steps": 4}, 7)
         assert realized["variables"] == {"prompt": "a cat", "steps": 4}
 
     def test_variable_references_are_left_alone(self):
@@ -309,9 +307,7 @@ def test_the_realized_file_validates_against_the_schema(prompt_library):
     source = definition()
     source["steps"][0]["pipeline"]["arguments"]["prompt"] = "prompt:scenic/dusk"
 
-    realized, _ = realize_workflow(
-        source, {"steps": 4}, 991, prompt_dir=prompt_library
-    )
+    realized, _ = realize_workflow(source, {"steps": 4}, 991, prompt_dir=prompt_library)
 
     ok, message = validate_data(realized, load_schema("workflow"))
     assert ok, message
@@ -408,9 +404,7 @@ def realize_workflow(
 
     realized["seed"] = seed
     realized = _pin(realized, annotations, base_dir, prompt_dir, output_root)
-    _record_sub_workflows(
-        realized.get("steps"), annotations, base_dir, workflow_dir
-    )
+    _record_sub_workflows(realized.get("steps"), annotations, base_dir, workflow_dir)
     return realized, annotations
 
 
@@ -435,8 +429,7 @@ def _pin(value, annotations, base_dir, prompt_dir, output_root):
         }
     if isinstance(value, list):
         return [
-            _pin(item, annotations, base_dir, prompt_dir, output_root)
-            for item in value
+            _pin(item, annotations, base_dir, prompt_dir, output_root) for item in value
         ]
     return value
 
@@ -738,27 +731,25 @@ Then, immediately after the `if not self._run_dir_inherited:` block that sets
 between steps`), insert:
 
 ```python
-            # The record of what actually ran, written before the first step
-            # so a crash or a cancel still leaves it. A sub-workflow inherits
-            # the parent's directory and writes none of its own, as with the
-            # manifest, and the flat layout has no directory to write into
-            if self._run_dir and not self._run_dir_inherited:
-                try:
-                    realized, annotations = realize_workflow(
-                        self.workflow_definition,
-                        arguments,
-                        default_seed,
-                        base_dir=base_dir,
-                        output_root=self.output_dir,
-                        workflow_dir=self.workflow_dir,
-                    )
-                    if write_realized_workflow(self._run_dir, realized):
-                        realized_name = REALIZED_FILE_NAME
-                except Exception as e:
-                    # Never fatal: the record is worth less than the run
-                    logger.warning(
-                        f"Could not realize workflow {workflow_id}: {e}"
-                    )
+# The record of what actually ran, written before the first step
+# so a crash or a cancel still leaves it. A sub-workflow inherits
+# the parent's directory and writes none of its own, as with the
+# manifest, and the flat layout has no directory to write into
+if self._run_dir and not self._run_dir_inherited:
+    try:
+        realized, annotations = realize_workflow(
+            self.workflow_definition,
+            arguments,
+            default_seed,
+            base_dir=base_dir,
+            output_root=self.output_dir,
+            workflow_dir=self.workflow_dir,
+        )
+        if write_realized_workflow(self._run_dir, realized):
+            realized_name = REALIZED_FILE_NAME
+    except Exception as e:
+        # Never fatal: the record is worth less than the run
+        logger.warning(f"Could not realize workflow {workflow_id}: {e}")
 ```
 
 Note the arguments: `self.workflow_definition` (the original, before `run`'s
@@ -1028,17 +1019,15 @@ In `dw/workflow.py`, immediately after the realization block added in Task 2
 indentation as the `try:` it contains), add:
 
 ```python
-                # Which run this is, so a server job can find the directory
-                # it wrote. Emitted even when the realized file did not land:
-                # the manifest is still there, and so are the files
-                run_context.emit(
-                    "run_start",
-                    run_id=run_id,
-                    identity=workflow_identity(self.file_spec, workflow_id),
-                    run_dir=os.path.relpath(
-                        self._run_dir, self.output_dir
-                    ).replace(os.sep, "/"),
-                )
+# Which run this is, so a server job can find the directory
+# it wrote. Emitted even when the realized file did not land:
+# the manifest is still there, and so are the files
+run_context.emit(
+    "run_start",
+    run_id=run_id,
+    identity=workflow_identity(self.file_spec, workflow_id),
+    run_dir=os.path.relpath(self._run_dir, self.output_dir).replace(os.sep, "/"),
+)
 ```
 
 The worker already forwards every emitted event as a `progress` message, so no
@@ -1075,17 +1064,18 @@ In `JobHistory.__init__`, after the `workflow_name` migration:
 In `record`, extend the column list, the placeholders and the values tuple:
 
 ```python
-                "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
-                " started_at, finished_at, arguments, spec, manifest, warnings,"
-                " error, events, workspace, workflow_name, run_id, run_dir) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+"INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
+
+" started_at, finished_at, arguments, spec, manifest, warnings,"
+" error, events, workspace, workflow_name, run_id, run_dir) VALUES"
+(" (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",)
 ```
 
 and, after `job.catalog_name` in the tuple:
 
 ```python
-                    job.run_id,
-                    job.run_dir,
+(job.run_id,)
+(job.run_dir,)
 ```
 
 In `recent_summaries`, add `run_id` to the SELECT and the dict, so a live
@@ -1107,9 +1097,10 @@ summary and a historical one keep the same shape:
 In `get`, extend the SELECT:
 
 ```python
-                "SELECT id, workflow, status, created_at, started_at, finished_at,"
-                " arguments, spec, manifest, warnings, error, workspace,"
-                " workflow_name, run_id, run_dir FROM jobs WHERE id = ?",
+"SELECT id, workflow, status, created_at, started_at, finished_at,"
+
+" arguments, spec, manifest, warnings, error, workspace,"
+(" workflow_name, run_id, run_dir FROM jobs WHERE id = ?",)
 ```
 
 and in `_to_detail`, after `"workflow_name": row[12],`:
@@ -1153,40 +1144,36 @@ branch, between building `event` and `job.add_event(event)`:
 And add `realized` beside `definition`:
 
 ```python
-    def realized(self, job_id):
-        """The realized workflow a job ran, or None when the job predates
-        run tracking or its run directory no longer holds the file.
+def realized(self, job_id):
+    """The realized workflow a job ran, or None when the job predates
+    run tracking or its run directory no longer holds the file.
 
-        Read from the job's own output directory, not the manager's: one
-        server holds several workspaces, and a job carries the root it ran
-        against. The join is confined to that root, so a run_dir read back
-        out of the database cannot name anything outside it.
-        """
-        job = self.jobs.get(job_id)
-        if job is not None:
-            run_dir = job.run_dir
-            output_dir = job.spec.get("output_dir") or self.output_dir
-        else:
-            historical = self.history.get(job_id)
-            if historical is None:
-                return None
-            run_dir = historical.get("run_dir")
-            output_dir = (
-                historical.get("spec") or {}
-            ).get("output_dir") or self.output_dir
-        if not run_dir:
+    Read from the job's own output directory, not the manager's: one
+    server holds several workspaces, and a job carries the root it ran
+    against. The join is confined to that root, so a run_dir read back
+    out of the database cannot name anything outside it.
+    """
+    job = self.jobs.get(job_id)
+    if job is not None:
+        run_dir = job.run_dir
+        output_dir = job.spec.get("output_dir") or self.output_dir
+    else:
+        historical = self.history.get(job_id)
+        if historical is None:
             return None
-        try:
-            root = validate_output_path(output_dir, None)
-            path = validate_path(
-                os.path.join(root, run_dir, REALIZED_FILE_NAME), root
-            )
-            validate_json_size(path)
-            with open(path, "r") as file:
-                return json.load(file)
-        except (SecurityError, OSError, ValueError) as e:
-            logger.debug(f"No realized workflow for job {job_id}: {e}")
-            return None
+        run_dir = historical.get("run_dir")
+        output_dir = (historical.get("spec") or {}).get("output_dir") or self.output_dir
+    if not run_dir:
+        return None
+    try:
+        root = validate_output_path(output_dir, None)
+        path = validate_path(os.path.join(root, run_dir, REALIZED_FILE_NAME), root)
+        validate_json_size(path)
+        with open(path, "r") as file:
+            return json.load(file)
+    except (SecurityError, OSError, ValueError) as e:
+        logger.debug(f"No realized workflow for job {job_id}: {e}")
+        return None
 ```
 
 - [ ] **Step 5: Add the flag to the route**
@@ -1510,9 +1497,7 @@ def exporting_script(command):
         "type": "success",
         "message": "ok",
         "run_count": 1,
-        "manifest": [
-            {"step": "gen", "files": [os.path.join(run_dir, "still.png")]}
-        ],
+        "manifest": [{"step": "gen", "files": [os.path.join(run_dir, "still.png")]}],
     }
 
 
@@ -1577,9 +1562,7 @@ class TestExportDirectory:
             job_id = finished(client)
             body = client.post(f"/api/jobs/{job_id}/export").json()
 
-        recorded = json.loads(
-            open(os.path.join(body["directory"], "job.json")).read()
-        )
+        recorded = json.loads(open(os.path.join(body["directory"], "job.json")).read())
         assert recorded["realized"] is True
         assert "traceback" not in recorded and "event_count" not in recorded
         assert body["workflow"]["seed"] == 7
@@ -1659,7 +1642,9 @@ class TestReservedName:
         with server() as client:
             job_id = finished(client)
             client.post(f"/api/jobs/{job_id}/export")
-            names = [w["name"] for w in client.get("/api/workspaces").json()["workspaces"]]
+            names = [
+                w["name"] for w in client.get("/api/workspaces").json()["workspaces"]
+            ]
         assert names == ["default"]
 ```
 
@@ -2213,46 +2198,44 @@ Add beside the `/outputs` route (ungated for the same reason it is: the auth
 middleware only gates `/api/`):
 
 ```python
-    @app.get("/exports/{job_id}.zip")
-    def export_zip(job_id: str, ws: Workspace = Depends(selected_workspace)):
-        """One job's export as a zip, built on request from the directory
-        rather than kept as a second copy. Entries are named
-        '<job id>/<relative path>', so unzipping anywhere gives the same tree
-        the server holds."""
-        try:
-            directory = export_directory(ws.root, job_id)
-        except SecurityError:
-            raise HTTPException(status_code=404, detail="No export for this job")
-        if not os.path.isdir(directory):
-            raise HTTPException(status_code=404, detail="No export for this job")
+@app.get("/exports/{job_id}.zip")
+def export_zip(job_id: str, ws: Workspace = Depends(selected_workspace)):
+    """One job's export as a zip, built on request from the directory
+    rather than kept as a second copy. Entries are named
+    '<job id>/<relative path>', so unzipping anywhere gives the same tree
+    the server holds."""
+    try:
+        directory = export_directory(ws.root, job_id)
+    except SecurityError:
+        raise HTTPException(status_code=404, detail="No export for this job")
+    if not os.path.isdir(directory):
+        raise HTTPException(status_code=404, detail="No export for this job")
 
-        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-        handle.close()
-        with zipfile.ZipFile(handle.name, "w", zipfile.ZIP_DEFLATED) as archive:
-            for current, _dirs, names in os.walk(directory):
-                for name in sorted(names):
-                    path = os.path.join(current, name)
-                    entry = os.path.relpath(path, directory).replace(os.sep, "/")
-                    archive.write(path, f"{job_id}/{entry}")
+    handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    handle.close()
+    with zipfile.ZipFile(handle.name, "w", zipfile.ZIP_DEFLATED) as archive:
+        for current, _dirs, names in os.walk(directory):
+            for name in sorted(names):
+                path = os.path.join(current, name)
+                entry = os.path.relpath(path, directory).replace(os.sep, "/")
+                archive.write(path, f"{job_id}/{entry}")
 
-        def stream():
-            with open(handle.name, "rb") as file:
-                while True:
-                    chunk = file.read(64 * 1024)
-                    if not chunk:
-                        return
-                    yield chunk
+    def stream():
+        with open(handle.name, "rb") as file:
+            while True:
+                chunk = file.read(64 * 1024)
+                if not chunk:
+                    return
+                yield chunk
 
-        return StreamingResponse(
-            stream(),
-            media_type="application/zip",
-            headers={
-                "content-disposition": f'attachment; filename="{job_id}.zip"'
-            },
-            # The archive is a temp file, not a second permanent copy - it
-            # goes as soon as the response has been sent
-            background=BackgroundTask(os.unlink, handle.name),
-        )
+    return StreamingResponse(
+        stream(),
+        media_type="application/zip",
+        headers={"content-disposition": f'attachment; filename="{job_id}.zip"'},
+        # The archive is a temp file, not a second permanent copy - it
+        # goes as soon as the response has been sent
+        background=BackgroundTask(os.unlink, handle.name),
+    )
 ```
 
 - [ ] **Step 6: Run the tests to verify they pass**
@@ -2355,9 +2338,7 @@ def scripted(routes):
 
 
 def exporting(status=201, body=None):
-    return scripted(
-        {("POST", "/api/jobs/job-1/export"): (status, body or SUMMARY)}
-    )
+    return scripted({("POST", "/api/jobs/job-1/export"): (status, body or SUMMARY)})
 
 
 def test_it_returns_the_directory_the_zip_and_the_file_list():

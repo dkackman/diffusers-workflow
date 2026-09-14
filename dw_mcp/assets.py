@@ -41,6 +41,69 @@ ALLOWED_UPLOAD_EXTENSIONS = frozenset(
 )
 
 
+def _remote_roots(client):
+    """The directories a remote read is confined to, or None when local.
+
+    The mirror of media.py's `_remote_root` (#113), for the other direction.
+    Only the mounted MCP surface is remote: there `upload_asset` runs inside
+    dw.serve, so `file_path` names a file on the operator's box rather than
+    on the calling agent's machine, and an unconfined read is an arbitrary
+    file read plus a path-existence oracle (#138). A stdio `dw-mcp` returns
+    None and keeps reading whatever the user can, because there "local file"
+    is genuinely their own.
+    """
+    if not getattr(client, "mounted", False):
+        return None
+
+    directories = (client.get_json("/api/server").get("directories")) or {}
+    roots = []
+    for key in ("workspace", "workflows", "assets", "outputs", "prompts"):
+        value = directories.get(key)
+        if not value:
+            continue
+        resolved = os.path.normpath(
+            os.path.realpath(os.path.abspath(os.path.expanduser(str(value))))
+        )
+        if resolved not in roots:
+            roots.append(resolved)
+    if not roots:
+        raise DwApiError(
+            "This server cannot say which directories it works in, so it "
+            "will not read a file off its own disk for you. Upload the "
+            "bytes through the web UI's file picker, or keep a generated "
+            "file with keep_output."
+        )
+    return roots
+
+
+def _confine_source(path, roots, named):
+    """Refuse a source outside `roots`, before anything looks at the file.
+
+    Ordered ahead of the existence and extension checks on purpose: a
+    refusal that depends on whether the file is there turns the tool into a
+    path-existence oracle for the whole box, which is the condition this
+    closes as much as the read itself (#138). Containment is on the resolved
+    real path, so a symlink cannot carry the read out.
+    """
+    probe = path
+    while not os.path.exists(probe) and os.path.dirname(probe) != probe:
+        probe = os.path.dirname(probe)
+    resolved = os.path.normpath(
+        os.path.join(os.path.realpath(probe), os.path.relpath(path, probe))
+    )
+    if any(resolved == root or resolved.startswith(root + os.sep) for root in roots):
+        return
+    raise DwApiError(
+        f"Refusing to read {named} - this MCP endpoint is served by "
+        f"dw.serve, so the file would be read off the server, where a "
+        f"source is confined to the directories it works in "
+        f"({', '.join(roots)}). A file that is already there is reachable "
+        f"as an 'asset:' reference; to put a new one there, upload it "
+        f"through the web UI's file picker, or promote a generated file "
+        f"with keep_output."
+    )
+
+
 def list_assets(client):
     """The input media on the server, each with the 'asset:' reference a
     workflow argument carries.
@@ -100,6 +163,12 @@ def upload_asset(client, file_path, asset_name=None, shared=False):
     necessarily the machine dw.serve runs on - that is the point of the
     tool.
 
+    Over a `dw.serve --mcp` endpoint that machine *is* the server, so there
+    `file_path` is confined to the directories the server works in, and the
+    refusal comes before the file is looked for so it cannot be used to
+    probe which paths exist (#138). A stdio `dw-mcp` is unconfined, because
+    there the file really is the caller's own.
+
     `asset_name` is the name it is stored under - 'cast/priya-voice.wav'
     rather than the random one an upload gets by default. A recurring cast
     referenced as 'asset:uploads/084eaecc....wav' in every workflow cannot
@@ -113,6 +182,9 @@ def upload_asset(client, file_path, asset_name=None, shared=False):
     invisible from the workspace episode four was made in.
     """
     path = os.path.abspath(os.path.expanduser(str(file_path)))
+    roots = _remote_roots(client)
+    if roots is not None:
+        _confine_source(path, roots, file_path)
     if not os.path.isfile(path):
         raise DwApiError(f"No such file: {file_path}")
 

@@ -112,9 +112,7 @@ class DyingWorkerManager(ScriptedWorkerManager):
     """A worker killed by a signal: it sends nothing, and get_result raises
     the way the real WorkerManager's liveness poll does."""
 
-    def __init__(
-        self, detail="killed by SIGKILL (typically the " "out-of-memory killer)"
-    ):
+    def __init__(self, detail="killed by SIGKILL (typically the out-of-memory killer)"):
         super().__init__(script=lambda command: [])
         self.detail = detail
         self.crashed = False
@@ -514,9 +512,9 @@ def test_validate_accepts_a_stored_workflow_name(server, tmp_path):
 
         # the stored file is what gets checked, warnings and all
         typo = valid_workflow("typo")
-        typo["steps"][0]["pipeline"]["configuration"][
-            "component_type"
-        ] = "ZImagePipeline"
+        typo["steps"][0]["pipeline"]["configuration"]["component_type"] = (
+            "ZImagePipeline"
+        )
         typo["steps"][0]["pipeline"]["arguments"]["guidance_scael"] = 3
         (tmp_path / "workflows" / "Typo.json").write_text(json.dumps(typo))
 
@@ -863,9 +861,9 @@ def test_introspection_endpoints(server):
 def test_validate_endpoint_flags_signature_typos(server):
     with server(success_script) as client:
         workflow = valid_workflow()
-        workflow["steps"][0]["pipeline"]["configuration"][
-            "component_type"
-        ] = "ZImagePipeline"
+        workflow["steps"][0]["pipeline"]["configuration"]["component_type"] = (
+            "ZImagePipeline"
+        )
         workflow["steps"][0]["pipeline"]["arguments"]["guidance_scael"] = 3
 
         result = client.post("/api/validate", json={"workflow": workflow}).json()
@@ -897,9 +895,9 @@ def test_validate_explains_why_an_unseeded_workflow_caches_nothing(server):
 def test_submission_carries_argument_warnings(server):
     with server(success_script) as client:
         workflow = valid_workflow()
-        workflow["steps"][0]["pipeline"]["configuration"][
-            "component_type"
-        ] = "ZImagePipeline"
+        workflow["steps"][0]["pipeline"]["configuration"]["component_type"] = (
+            "ZImagePipeline"
+        )
         workflow["steps"][0]["pipeline"]["arguments"]["guidance_scael"] = 3
         job = client.post("/api/jobs", json={"workflow": workflow}).json()
         assert any("guidance_scael" in w for w in job["warnings"])
@@ -4187,3 +4185,190 @@ class TestBoundRerun:
                 json={"acknowledged_cost": {"fingerprint": "sha256:0"}},
             )
             assert response.status_code == 404
+
+
+def test_gallery_metadata_reads_an_asset_reference(asset_server, tmp_path):
+    """#127: an input asset's duration, fps, sample rate and channel count
+    were unreadable over the API - the one tool that reports them resolved
+    its name against the outputs root only, so the numbers that decide
+    whether a call will work were obtainable for a file the caller had
+    already generated and not for one it was about to consume. Reading them
+    took a job that copied the asset into outputs."""
+    from PIL import Image
+    from tests.test_media_info import write_mp4, write_wav
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        (assets / "uploads" / "qa-cast").mkdir(parents=True)
+        write_wav(assets / "uploads" / "qa-cast" / "room-bed.wav", seconds=3.3)
+        write_mp4(assets / "shot.mp4", frames=12, fps=6)
+        Image.new("RGB", (4, 4)).save(assets / "still.png")
+
+        # percent-encoded exactly as the MCP client sends it (api_path
+        # quotes every segment, slashes included), which is the form the
+        # tester's calls arrive in
+        bed = client.get(
+            "/api/gallery/asset%3Auploads%2Fqa-cast%2Froom-bed.wav/metadata"
+        ).json()
+        assert bed["source"] == "asset"
+        assert bed["name"] == "asset:uploads/qa-cast/room-bed.wav"
+        assert bed["media"]["kind"] == "audio"
+        assert bed["media"]["duration_seconds"] == pytest.approx(3.3, abs=0.02)
+        # an asset was not produced by a job of this server's, and saying so
+        # is honest rather than an error
+        assert bed["job"] is None
+
+        shot = client.get("/api/gallery/asset:shot.mp4/metadata").json()
+        assert shot["media"]["frame_count"] == 12
+        assert shot["media"]["fps"] == pytest.approx(6.0, abs=0.01)
+
+        # an image asset carries no media block, the same as an image output
+        still = client.get("/api/gallery/asset:still.png/metadata").json()
+        assert still["source"] == "asset"
+        assert still["media"] is None
+
+        # and an output is unchanged - it still says where it came from
+        write_wav(tmp_path / "outputs" / "score-gen.0-0.0.wav", seconds=1.0)
+        output = client.get("/api/gallery/score-gen.0-0.0.wav/metadata").json()
+        assert output["source"] == "output"
+        assert output["media"]["duration_seconds"] == pytest.approx(1.0, abs=0.02)
+
+
+def test_gallery_metadata_takes_an_envelope_of_an_asset(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        from tests.test_media_info import write_wav
+
+        write_wav(tmp_path / "assets" / "bed.wav", seconds=3.0)
+
+        body = client.get(
+            "/api/gallery/asset:bed.wav/metadata", params={"envelope": "true"}
+        ).json()
+        assert len(body["media"]["envelope"]["rms_dbfs"]) == 3
+
+
+def test_gallery_metadata_refuses_an_asset_that_escapes_the_library(
+    asset_server, tmp_path
+):
+    (tmp_path / "secret.wav").write_bytes(b"x")
+
+    with asset_server(success_script) as client:
+        assert (
+            client.get("/api/gallery/asset:..%2Fsecret.wav/metadata").status_code == 404
+        )
+        missing = client.get("/api/gallery/asset:nothing.wav/metadata")
+        assert missing.status_code == 404
+        assert "asset library" in missing.json()["detail"]
+
+
+def test_gallery_metadata_finds_an_asset_an_examples_tree_brought(tmp_path):
+    """Assets are looked for down the same search path 'asset:' resolves in,
+    so an example's own media is readable too."""
+    from tests.test_media_info import write_wav
+
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    examples = tmp_path / "examples"
+    (examples / "assets").mkdir(parents=True)
+    write_wav(examples / "assets" / "example-bed.wav", seconds=1.5)
+
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(workflows),
+    )
+    app = create_app(
+        workflow_dir=str(workflows),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        asset_dir=str(tmp_path / "assets"),
+        examples_dirs=[str(examples)],
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        body = client.get("/api/gallery/asset:example-bed.wav/metadata").json()
+        assert body["media"]["duration_seconds"] == pytest.approx(1.5, abs=0.02)
+
+
+def test_deleting_the_last_output_of_a_run_sweeps_its_run_directory(server, tmp_path):
+    """A run's manifest.json/workflow.json have no gallery name of their own,
+    so deleting every output of a run used to leave the directory behind for
+    good - a consumer that removed everything it made still could not put the
+    workspace back the way it found it (#134)."""
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        run = outputs / "t2i" / "20260913-120000-aabbccdd"
+        (run / "final").mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "final" / "still-0.png")
+        Image.new("RGB", (2, 2)).save(run / "final" / "still-1.png")
+        (run / "manifest.json").write_text("{}")
+        (run / "workflow.json").write_text("{}")
+
+        first = client.delete(
+            "/api/gallery/t2i/20260913-120000-aabbccdd/final/still-0.png"
+        ).json()
+        # one file left, so the run still describes something
+        assert first["run_swept"] is None
+        assert (run / "manifest.json").exists()
+
+        last = client.delete(
+            "/api/gallery/t2i/20260913-120000-aabbccdd/final/still-1.png"
+        ).json()
+        assert last["run_swept"] == "20260913-120000-aabbccdd"
+        assert not run.exists()
+        # and the workflow folder above it, now that it holds no runs
+        assert not (outputs / "t2i").exists()
+        assert outputs.exists()
+
+
+def test_a_run_with_other_files_left_is_not_swept(server, tmp_path):
+    """Only the sidecars may remain: anything else is still something the
+    manifest describes, so the directory stays."""
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        run = outputs / "t2i" / "20260913-120000-aabbccdd"
+        run.mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "still-0.png")
+        (run / "manifest.json").write_text("{}")
+        (run / "notes.txt").write_text("kept")
+
+        body = client.delete(
+            "/api/gallery/t2i/20260913-120000-aabbccdd/still-0.png"
+        ).json()
+        assert body["run_swept"] is None
+        assert (run / "notes.txt").exists()
+
+
+def test_deleting_a_run_directory_clears_a_run_that_wrote_no_media(server, tmp_path):
+    """A run that failed before writing anything has a manifest and no gallery
+    name at all - the directory's own name is the only handle (#134)."""
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        run = outputs / "t2i" / "20260913-120000-deadbeef"
+        run.mkdir(parents=True)
+        (run / "manifest.json").write_text("{}")
+
+        body = client.delete("/api/gallery/t2i/20260913-120000-deadbeef").json()
+        assert body["deleted"] is True
+        assert body["run_swept"] == "20260913-120000-deadbeef"
+        assert not run.exists()
+
+        # a directory that is not a run is still a 404, not a recursive delete
+        (outputs / "keepme").mkdir()
+        assert client.delete("/api/gallery/keepme").status_code == 404
+        assert (outputs / "keepme").exists()
+
+
+def test_deleting_a_run_directory_stays_inside_the_output_root(server, tmp_path):
+    """The run-directory form takes the same containment as every other
+    gallery path: it cannot name a directory outside the workspace."""
+    outside = tmp_path / "20260913-120000-cafebabe"
+    outside.mkdir()
+
+    with server(success_script) as client:
+        response = client.delete("/api/gallery/..%2F20260913-120000-cafebabe")
+        assert response.status_code == 404
+        assert outside.exists()

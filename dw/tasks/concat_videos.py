@@ -10,6 +10,7 @@ outgoing tail ring on across the seam - see `audio_bleed_ms`.
 
 import logging
 
+from ..events import emit_warning
 from ..result import AudioVideo
 from .audio_utils import (
     as_channels_samples,
@@ -17,11 +18,26 @@ from .audio_utils import (
     equal_power_crossfade_join,
     frames_to_samples,
     match_levels as match_track_levels,
+    resample_waveform,
     warn_on_level_spread,
 )
 from .video_utils import check_same_frame_size, frames_as_pil_list, load_audio_video
 
 logger = logging.getLogger("dw")
+
+
+def video_names(videos):
+    """A name per video, for an error or a warning that has to say which one.
+
+    A caller passes a path, or a previous step's result; only the path says
+    anything by itself, so the rest are named by position - which is what a
+    six-entry `shots` list needs to be actionable ("24000 then 32000" does
+    not say which entry to fix).
+    """
+    return [
+        original if isinstance(original, str) else f"video {index + 1}"
+        for index, original in enumerate(videos)
+    ]
 
 
 def concat_videos(
@@ -33,6 +49,7 @@ def concat_videos(
     fps=None,
     match_levels=None,
     match_levels_dbfs=None,
+    sample_rate=None,
 ):
     """Concatenate a list of videos into a single AudioVideo.
 
@@ -76,6 +93,13 @@ def concat_videos(
             defaults to -1 dBFS for "peak" and -20 dBFS for "rms". A shot
             that would clip at the target is held just below full scale
             instead
+        sample_rate: The rate the joined soundtrack is at. Shots that come
+            from different sources routinely carry different rates - a 24 kHz
+            voice clip paired onto a 32 kHz generation - and unlike a level
+            jump that difference has no editorial meaning, so by default the
+            highest rate among the inputs is chosen and the rest are
+            resampled up to it, with a warning naming which. Give this to pin
+            the target instead (#108)
 
     Returns:
         One AudioVideo; its audio is None when no input video carries any
@@ -83,6 +107,9 @@ def concat_videos(
     if not isinstance(videos, list) or not videos:
         raise ValueError("concat_videos needs a non-empty list of videos")
 
+    # Named before they are loaded: a path is the only thing that names
+    # itself, and the load below replaces it with what it holds
+    names = video_names(videos)
     # A shot an earlier run already wrote is loaded here rather than by
     # gather_videos, which reads frames only and would join it silent
     videos = [load_audio_video(v) if isinstance(v, str) else v for v in videos]
@@ -100,6 +127,48 @@ def concat_videos(
         )
         for video in videos
     ]
+    # One rate before anything is joined. Shots assembled from different
+    # sources disagree routinely, and the disagreement carries no meaning -
+    # so it is converted rather than refused, which is what made an agent
+    # invent a resample_audio step by hand (#108)
+    rates = [
+        video.sample_rate
+        for video, waveform in zip(videos, waveforms)
+        if waveform is not None and video.sample_rate
+    ]
+    sample_rate = sample_rate or (max(rates) if rates else None)
+    if rates and any(rate != sample_rate for rate in rates):
+        # emit_warning rather than logger.warning, for the reason the level
+        # spread below is emitted: resampling every track is an audio
+        # decision made on the caller's behalf, and a caller reading the job
+        # over the API or MCP sees the warnings list and nothing else - the
+        # conversion landing silently is worse than the loud failure it
+        # replaced (#108)
+        per_video = {
+            name: video.sample_rate
+            for name, video in zip(names, videos)
+            if isinstance(video, AudioVideo) and video.audio is not None
+        }
+        emit_warning(
+            "concat_videos: videos carry audio at different sample rates ("
+            + ", ".join(f"{name}: {rate} Hz" for name, rate in per_video.items())
+            + f") - resampling them all to {sample_rate} Hz. Pass "
+            "'sample_rate' to pin a different target, or resample ahead of "
+            "this step with the 'resample_audio' task.",
+            kind="sample_rate_mismatch",
+            command="concat_videos",
+            sample_rate=sample_rate,
+            sample_rates=per_video,
+        )
+        waveforms = [
+            (
+                waveform
+                if waveform is None or video.sample_rate == sample_rate
+                else resample_waveform(waveform, video.sample_rate, sample_rate)
+            )
+            for video, waveform in zip(videos, waveforms)
+        ]
+
     if match_levels:
         waveforms = match_track_levels(waveforms, match_levels, match_levels_dbfs)
     else:
@@ -107,7 +176,6 @@ def concat_videos(
 
     frames = []
     audio = None
-    sample_rate = None
 
     for index, (video, clip) in enumerate(zip(videos, clips)):
         head_trim = trim_frames if index > 0 else 0
@@ -118,14 +186,9 @@ def concat_videos(
 
         waveform = waveforms[index]
         if audio is None:
-            audio, sample_rate = waveform, video.sample_rate
+            audio = waveform
             continue
 
-        if video.sample_rate != sample_rate:
-            raise ValueError(
-                f"Videos carry audio at different sample rates: "
-                f"{sample_rate} then {video.sample_rate}"
-            )
         if head_trim > 0 and fps is None:
             raise ValueError(
                 "concat_videos needs 'fps' to trim audio in step with the frames"

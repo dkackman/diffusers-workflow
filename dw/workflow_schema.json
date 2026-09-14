@@ -71,6 +71,10 @@
             "pattern": "^variable:",
             "format": "int64"
         },
+        "argument_template": {
+            "description": "Engine-injected: the arguments a parent workflow passed to this one when it ran it as a sub-workflow. Written by create_step_action from the step's 'arguments' block, not authored - a workflow file carrying one is read, but a sub-workflow step is how they are meant to be supplied.",
+            "type": "object"
+        },
         "steps": {
             "type": "array",
             "minItems": 1,
@@ -79,6 +83,7 @@
             }
         }
     },
+    "additionalProperties": false,
     "required": [
         "id",
         "steps"
@@ -111,6 +116,8 @@
         },
         "step": {
             "type": "object",
+            "additionalProperties": false,
+            "$comment": "A step is closed: the engine reads only the properties above, so an invented control-flow key ('when', 'retry') or a mistyped real one ('relase_pipeline') is a hard error rather than a silent no-op.",
             "properties": {
                 "name": {
                     "type": "string"
@@ -199,6 +206,8 @@
         },
         "pipeline_reference": {
             "type": "object",
+            "additionalProperties": false,
+            "$comment": "Closed - see 'step'.",
             "properties": {
                 "reference_name": {
                     "type": "string"
@@ -447,6 +456,19 @@
                 "arguments": {
                     "$ref": "#/$defs/arguments"
                 }
+            },
+            "additionalProperties": {
+                "description": "Any other key names a pipeline component to load. Diffusers grows component names faster than this schema does, so a key whose value is a component definition - an object carrying 'from_pretrained_arguments' - is loaded under that name. Anything else is a mistyped or misplaced key and is refused rather than ignored.",
+                "unknownPropertyMessage": "the engine reads the properties this object declares, plus any other key whose value is a component definition (an object carrying 'from_pretrained_arguments') - anything else would be silently ignored",
+                "type": "object",
+                "required": [
+                    "from_pretrained_arguments"
+                ],
+                "allOf": [
+                    {
+                        "$ref": "#/$defs/pipeline_component"
+                    }
+                ]
             },
             "required": [
                 "configuration",
@@ -1051,6 +1073,8 @@
         },
         "task": {
             "type": "object",
+            "additionalProperties": false,
+            "$comment": "Closed - see 'step'. A task's own arguments are open; it is the task object itself that is fixed.",
             "properties": {
                 "command": {
                     "type": "string"
@@ -1088,6 +1112,8 @@
         },
         "workflow_reference": {
             "type": "object",
+            "additionalProperties": false,
+            "$comment": "Closed - see 'step'.",
             "properties": {
                 "path": {
                     "description": "The workflow this step composes: a catalog name as list_workflows reports it (with or without '.json'), a path relative to the workflow that names it ('../models/x.json'), or 'builtin:name.json' for one of the packaged fragments. A name is resolved first beside the referencing file, then against this run's own workflows directory, then against each read-only source on the server's search path - so a stored template can be composed without copying it into the workspace. A path outside every source is refused. When the composing step declares a 'result', that is where the composed output is saved and the composed workflow's own last step does not save it again.",
@@ -1155,17 +1181,13 @@
                     "description": "Whether to embed generation parameters as metadata in saved images (PNG info chunks or EXIF). Only applies to image content types.",
                     "type": "boolean",
                     "default": false
+                },
+                "format": {
+                    "description": "Audio container format handed to the writer, e.g. 'WAV' or 'FLAC'. Derived from content_type unless set. Only used when output is audio.",
+                    "type": "string"
                 }
             },
-            "additionalProperties": {
-                "type": [
-                    "string",
-                    "number",
-                    "object",
-                    "array",
-                    "boolean"
-                ]
-            },
+            "additionalProperties": false,
             "required": [
                 "content_type"
             ]

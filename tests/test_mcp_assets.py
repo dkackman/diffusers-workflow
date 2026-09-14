@@ -223,3 +223,90 @@ class TestDeleting:
 
         with pytest.raises(DwApiError, match="read-only"):
             delete_asset(client_over(handler), "iris.png")
+
+
+class TestUploadContainmentOverAMountedEndpoint:
+    """Served by dw.serve, 'local file' means the operator's box - so an
+    unconfined file_path is an arbitrary read of the server's filesystem plus
+    a path-existence oracle for it (#138), the mirror of download_output's
+    write direction (#113). A stdio dw-mcp keeps reading the user's own disk."""
+
+    def _mounted_client(self, workspace, tmp_path):
+        def handler(request):
+            if request.url.path == "/api/server":
+                return httpx.Response(
+                    200,
+                    json={
+                        "directories": {
+                            "workspace": str(workspace),
+                            "workflows": str(workspace / "workflows"),
+                            "assets": str(workspace / "assets"),
+                            "outputs": str(workspace / "outputs"),
+                            "prompts": None,
+                        }
+                    },
+                )
+            return httpx.Response(
+                201,
+                json={
+                    "path": "asset:uploads/deadbeef.png",
+                    "url": "/inputs/uploads/deadbeef.png",
+                },
+            )
+
+        client = client_over(handler)
+        client.mounted = True
+        return client
+
+    def test_a_file_outside_the_roots_is_refused(self, tmp_path):
+        workspace = tmp_path / "workspace"
+        (workspace / "assets").mkdir(parents=True)
+        outside = tmp_path / "elsewhere" / "secret.png"
+        outside.parent.mkdir()
+        outside.write_bytes(b"png-bytes")
+
+        client = self._mounted_client(workspace, tmp_path)
+        with pytest.raises(DwApiError, match="Refusing to read"):
+            upload_asset(client, str(outside))
+
+    def test_the_refusal_does_not_say_whether_the_file_exists(self, tmp_path):
+        """The containment check comes before the existence and extension
+        checks, so the tool cannot be used to probe the box for paths."""
+        workspace = tmp_path / "workspace"
+        (workspace / "assets").mkdir(parents=True)
+        present = tmp_path / "elsewhere" / "there.png"
+        present.parent.mkdir()
+        present.write_bytes(b"png-bytes")
+        client = self._mounted_client(workspace, tmp_path)
+
+        with pytest.raises(DwApiError) as there:
+            upload_asset(client, str(present))
+        with pytest.raises(DwApiError) as not_there:
+            upload_asset(client, str(tmp_path / "elsewhere" / "missing.png"))
+        assert str(there.value).replace("there.png", "X") == str(
+            not_there.value
+        ).replace("missing.png", "X")
+
+        # and a non-media extension outside the roots reads the same way, so
+        # the allowlist is not an oracle either
+        with pytest.raises(DwApiError, match="Refusing to read"):
+            upload_asset(client, "/etc/hostname")
+
+    def test_a_file_inside_the_roots_still_uploads(self, tmp_path):
+        workspace = tmp_path / "workspace"
+        (workspace / "assets").mkdir(parents=True)
+        source = workspace / "assets" / "iris.png"
+        source.write_bytes(b"png-bytes")
+
+        client = self._mounted_client(workspace, tmp_path)
+        result = upload_asset(client, str(source))
+        assert result["reference"] == "asset:uploads/deadbeef.png"
+
+    def test_a_stdio_client_is_unconfined(self, tmp_path):
+        """There 'local' is genuinely the caller's own machine."""
+        source = tmp_path / "elsewhere" / "iris.png"
+        source.parent.mkdir()
+        source.write_bytes(b"png-bytes")
+        client, _seen = recording()
+
+        assert upload_asset(client, str(source))["uploaded"] == "iris.png"

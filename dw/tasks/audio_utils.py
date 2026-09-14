@@ -15,9 +15,8 @@ import soundfile
 import torch
 
 from ..events import emit_warning
+from ..task_domains import as_number, check_arguments
 from ..security import (
-    validate_path,
-    validate_url,
     validate_file_extension,
     ALLOWED_AUDIO_EXTENSIONS,
 )
@@ -27,6 +26,10 @@ logger = logging.getLogger("dw")
 # A few milliseconds of fade applied on each side of a butt-joined seam so the
 # discontinuity does not click
 DECLICK_MS = 3.0
+
+# Padding shorter than this at the end of a slice is the rounding that
+# frame-aligned slicing produces, not a slice that overran its source
+SLICE_PAD_WARN_MS = 10.0
 
 
 def as_channels_samples(audio):
@@ -219,7 +222,9 @@ def load_audio(location, base_dir=None):
     if location.startswith(("http://", "https://")):
         import requests
 
-        validated_url = validate_url(location)
+        from ..locations import validate_media_url
+
+        validated_url = validate_media_url(location, "an audio argument")
         logger.debug(f"Downloading audio from {validated_url}")
         response = requests.get(validated_url, timeout=60)
         response.raise_for_status()
@@ -227,7 +232,9 @@ def load_audio(location, base_dir=None):
             io.BytesIO(response.content), dtype="float32"
         )
     else:
-        validated_path = validate_path(location, base_dir=base_dir, allow_create=False)
+        from ..locations import validate_media_path
+
+        validated_path = validate_media_path(location, base_dir, "an audio argument")
         validate_file_extension(validated_path, ALLOWED_AUDIO_EXTENSIONS)
         logger.debug(f"Reading audio from {validated_path}")
         data, sample_rate = soundfile.read(validated_path, dtype="float32")
@@ -236,7 +243,7 @@ def load_audio(location, base_dir=None):
     return as_channels_samples(data), sample_rate
 
 
-def _as_track(waveform, sample_rate):
+def _as_track(waveform, sample_rate, command="an audio task"):
     """An audio task's return value: the waveform with the rate it is at.
 
     Every one of these commands already knows the rate - it was given, or it
@@ -246,22 +253,35 @@ def _as_track(waveform, sample_rate):
     had read and thrown away (2026-09-11). An AudioTrack carries it, and
     everything downstream of audio reads '.audio'/'.sample_rate' already; a
     'sample_rate' the workflow declares on the result still wins at save.
+
+    A rate that is not a rate stops here. Saving falls back to 44100 Hz for a
+    track that carries none (DEFAULT_AUDIO_SAMPLE_RATE in result.py), so a
+    zero handed through would have been written as a 44100 Hz header over
+    samples at some other rate - the same audio at the wrong speed and pitch,
+    reported as a success (#140). There is no waveform whose rate is zero, so
+    the only thing to do with one is refuse it.
     """
     from ..result import AudioTrack
 
-    return AudioTrack(numpy.ascontiguousarray(waveform), int(sample_rate))
+    rate = int(sample_rate) if sample_rate is not None else 0
+    if rate <= 0:
+        raise ValueError(
+            f"{command} ended up with a sample rate of {sample_rate!r}, which "
+            f"is not a rate. Labelling a waveform with a rate it is not at "
+            f"changes its speed and pitch, so it is refused rather than "
+            f"written"
+        )
+    return AudioTrack(numpy.ascontiguousarray(waveform), rate)
 
 
-def _as_number(value, kind, name):
-    """Coerce a numeric slice argument given as a string, leaving None alone."""
+def _as_number(value, kind, name, command="slice_audio"):
+    """Coerce a numeric task argument given as a string, leaving None alone."""
     if not isinstance(value, str):
         return value
     try:
         return kind(value)
     except ValueError as e:
-        raise ValueError(
-            f"slice_audio needs a number for '{name}', got {value!r}"
-        ) from e
+        raise ValueError(f"{command} needs a number for '{name}', got {value!r}") from e
 
 
 def slice_audio(
@@ -276,8 +296,15 @@ def slice_audio(
     """Task command: cut a slice out of an audio track.
 
     The slice is addressed either in seconds (start_seconds + duration_seconds)
-    or in video frames (start_frame + num_frames + fps). Slices reaching past
-    the end of the track are zero-padded.
+    or in video frames (start_frame + num_frames + fps).
+
+    A slice reaching past the end of the track is zero-padded to the length
+    asked for - it does not fail and it is not shortened - and the padding is
+    digital silence, so asking for more than the source holds returns a track
+    that is partly empty. Anything past a few milliseconds of that is
+    reported as a 'slice_past_end' warning on the job. To fill a cut longer
+    than the recording, make a bed with the 'loop_audio' task first
+    ('target_frames' + 'fps' matches one exactly) and slice that.
 
     Either half of a pair may be left out: with no start the slice begins at the
     head of the track, and with no duration it runs to the end of it. A workflow
@@ -305,6 +332,21 @@ def slice_audio(
     num_frames = _as_number(num_frames, int, "num_frames")
     fps = _as_number(fps, Fraction, "fps")
 
+    # A count or an offset outside its domain is refused rather than handed to
+    # Python's slice semantics, which answered a negative 'num_frames' with
+    # the track minus its last N frames and called it a success (#139).
+    # validate_workflow refuses a literal one for free; this is the same
+    # refusal for a value that arrived from a variable or an earlier step
+    check_arguments(
+        "slice_audio",
+        start_seconds=start_seconds,
+        duration_seconds=duration_seconds,
+        start_frame=start_frame,
+        num_frames=num_frames,
+        fps=fps,
+        sample_rate=sample_rate,
+    )
+
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "slice_audio")
     total = waveform.shape[1]
 
@@ -330,7 +372,89 @@ def slice_audio(
             "'start_frame'/'num_frames'/'fps'"
         )
 
-    return _as_track(slice_samples(waveform, start, length), sample_rate)
+    _warn_on_slice_past_end(total, start, length, sample_rate)
+    return _as_track(slice_samples(waveform, start, length), sample_rate, "slice_audio")
+
+
+def _warn_on_slice_past_end(total, start, length, sample_rate):
+    """Say when a slice asked for more material than its source holds.
+
+    slice_samples zero-pads the shortfall, which is what makes frame-aligned
+    chunking near the end of a track work at all - but the same padding is
+    how a score shorter than the film it is laid under leaves the film
+    unscored for the rest of its length, with nothing anywhere saying so
+    (#126). emit_warning rather than logger.warning for the reason the
+    concat_videos resample warning is emitted: silently substituting silence
+    for four fifths of a track is an audio decision made on the caller's
+    behalf, and a caller reading the job over the API or MCP sees the
+    warnings list and nothing else (#82, #108).
+    """
+    available = max(0, min(total - start, length))
+    padded = length - available
+    if padded <= 0 or not sample_rate:
+        return
+    padded_seconds = padded / float(sample_rate)
+    if padded_seconds * 1000.0 < SLICE_PAD_WARN_MS:
+        # Frame-aligned slicing lands a sample or two past the end routinely;
+        # that is rounding, not a decision anyone can act on
+        return
+    emit_warning(
+        f"slice_audio: the requested slice runs "
+        f"{padded_seconds:.2f} s past the end of a "
+        f"{total / float(sample_rate):.2f} s source, so that much of the "
+        f"{length / float(sample_rate):.2f} s returned is digital silence. "
+        f"If you meant to fill a cut of this length, make a bed with the "
+        f"'loop_audio' task ('target_frames' + 'fps' matches one exactly) "
+        f"and slice that; if you meant the tail pad, nothing is wrong.",
+        kind="slice_past_end",
+        command="slice_audio",
+        source_seconds=round(total / float(sample_rate), 3),
+        requested_seconds=round(length / float(sample_rate), 3),
+        padded_seconds=round(padded_seconds, 3),
+        sample_rate=sample_rate,
+    )
+
+
+def resample_waveform(waveform, sample_rate, target_sample_rate):
+    """A waveform at a different rate, as a plain (channels, samples) array.
+
+    The conversion resample_audio performs, without the task's argument
+    handling or its AudioTrack return, so a task that has waveforms in hand
+    already can reach the rate conversion directly.
+    """
+    # PyAV's resampler accepts a zero rate and answers with the samples
+    # unchanged, which is indistinguishable from a conversion that happened
+    # (#140) - so neither rate is allowed to be one that cannot be a rate
+    for name, rate in (("sample_rate", sample_rate), ("target", target_sample_rate)):
+        if as_number(rate) is None or as_number(rate) <= 0:
+            raise ValueError(
+                f"resample_waveform needs a {name} above zero, got {rate!r}"
+            )
+    if sample_rate == target_sample_rate:
+        return waveform
+
+    import av
+    from av.audio.resampler import AudioResampler
+
+    channels = waveform.shape[0]
+    layout = {1: "mono", 2: "stereo"}.get(channels, f"{channels}c")
+    frame = av.AudioFrame.from_ndarray(
+        numpy.ascontiguousarray(waveform, dtype=numpy.float32),
+        format="fltp",
+        layout=layout,
+    )
+    frame.sample_rate = sample_rate
+    frame.pts = 0
+    frame.time_base = Fraction(1, sample_rate)
+
+    resampler = AudioResampler(format="fltp", layout=layout, rate=target_sample_rate)
+    converted = [f.to_ndarray() for f in resampler.resample(frame)]
+    converted += [f.to_ndarray() for f in resampler.resample(None)]
+    logger.debug(
+        f"Resampled {waveform.shape[1]} samples at {sample_rate}Hz "
+        f"to {target_sample_rate}Hz"
+    )
+    return numpy.concatenate(converted, axis=1).astype(numpy.float32)
 
 
 def resample_audio(audio, target_sample_rate, sample_rate=None):
@@ -354,34 +478,23 @@ def resample_audio(audio, target_sample_rate, sample_rate=None):
     Returns:
         An AudioTrack holding the resampled waveform and its new rate
     """
+    target_sample_rate = _as_number(
+        target_sample_rate, int, "target_sample_rate", "resample_audio"
+    )
+    # A zero or negative rate is not a rate. It used to reach PyAV's resampler,
+    # which left the samples alone, and then the save, which fell back to
+    # 44100 Hz - the original audio under a header 38% off, reported as a
+    # success (#140)
+    check_arguments(
+        "resample_audio",
+        target_sample_rate=target_sample_rate,
+        sample_rate=sample_rate,
+    )
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "resample_audio")
-
-    if sample_rate == target_sample_rate:
-        return _as_track(waveform, sample_rate)
-
-    import av
-    from av.audio.resampler import AudioResampler
-
-    channels = waveform.shape[0]
-    layout = {1: "mono", 2: "stereo"}.get(channels, f"{channels}c")
-    frame = av.AudioFrame.from_ndarray(
-        numpy.ascontiguousarray(waveform, dtype=numpy.float32),
-        format="fltp",
-        layout=layout,
-    )
-    frame.sample_rate = sample_rate
-    frame.pts = 0
-    frame.time_base = Fraction(1, sample_rate)
-
-    resampler = AudioResampler(format="fltp", layout=layout, rate=target_sample_rate)
-    converted = [f.to_ndarray() for f in resampler.resample(frame)]
-    converted += [f.to_ndarray() for f in resampler.resample(None)]
-    logger.debug(
-        f"Resampled {waveform.shape[1]} samples at {sample_rate}Hz "
-        f"to {target_sample_rate}Hz"
-    )
     return _as_track(
-        numpy.concatenate(converted, axis=1).astype(numpy.float32), target_sample_rate
+        resample_waveform(waveform, sample_rate, target_sample_rate),
+        target_sample_rate,
+        "resample_audio",
     )
 
 
@@ -481,7 +594,7 @@ def mix_audio(audios, gains=None, sample_rate=None):
     for index, waveform in enumerate(waveforms):
         gain = 1.0 if gains is None else float(gains[index])
         mixed[:, : waveform.shape[1]] += waveform * gain
-    return _as_track(mixed, sample_rate)
+    return _as_track(mixed, sample_rate, "mix_audio")
 
 
 def loop_audio(
@@ -560,7 +673,7 @@ def loop_audio(
         f"loop_audio: {waveform.shape[1]} samples at {sample_rate}Hz looped to "
         f"{length} ({bed.shape[1]} before trimming)"
     )
-    return _as_track(bed[:, :length], sample_rate)
+    return _as_track(bed[:, :length], sample_rate, "loop_audio")
 
 
 # Shots generated independently land at whatever level the model chose, and
@@ -612,8 +725,7 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
     """
     if measure not in MATCH_MEASURES:
         raise ValueError(
-            f"{command} 'match_levels' must be one of {MATCH_MEASURES}, "
-            f"got '{measure}'"
+            f"{command} 'match_levels' must be one of {MATCH_MEASURES}, got '{measure}'"
         )
     if target_dbfs is None:
         target_dbfs = DEFAULT_MATCH_DBFS[measure]
@@ -740,7 +852,7 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
     fade_out = min(int(round(fade_out_ms / 1000 * sample_rate)), length)
     if fade_out:
         faded[:, length - fade_out :] *= _fade_curve(fade_out)
-    return _as_track(faded, sample_rate)
+    return _as_track(faded, sample_rate, "fade_audio")
 
 
 def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
@@ -769,12 +881,14 @@ def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
     peak = float(numpy.abs(waveform).max()) if waveform.size else 0.0
     if peak == 0.0:
         logger.warning("normalize_audio: the track is silent - left unchanged")
-        return _as_track(waveform, sample_rate)
+        return _as_track(waveform, sample_rate, "normalize_audio")
     gain = 10 ** (peak_dbfs / 20) / peak
     logger.debug(
         f"normalize_audio: peak {peak:.3f}, gain {20 * numpy.log10(gain):+.1f} dB"
     )
-    return _as_track((waveform * gain).astype(numpy.float32), sample_rate)
+    return _as_track(
+        (waveform * gain).astype(numpy.float32), sample_rate, "normalize_audio"
+    )
 
 
 def _fade_curve(window):

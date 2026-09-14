@@ -138,13 +138,13 @@
     const timer = setTimeout(() => {
       api
         .getWorkflow(resolved.slice(0, -'.json'.length))
-        .then((definition) => {
-          workflowVariables = Object.entries(definition.variables ?? {}).map(
-            ([name, value]) => ({
-              name,
-              hint: typeof value === 'string' ? value : JSON.stringify(value),
-            }),
-          )
+        .then((fetched) => {
+          workflowVariables = Object.entries(
+            fetched.definition.variables ?? {},
+          ).map(([name, value]) => ({
+            name,
+            hint: typeof value === 'string' ? value : JSON.stringify(value),
+          }))
         })
         .catch(() => {})
     }, 300)

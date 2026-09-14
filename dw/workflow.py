@@ -27,6 +27,9 @@ from .previous_results import (
     StepResults,
     previous_result_reference_errors,
 )
+from .locations import location_errors
+from .reference_limits import reference_limit_errors
+from .task_domains import task_argument_errors
 from .subfolders import step_subfolder, subfolder_errors
 from .step import Step
 from .step_cache import (
@@ -583,9 +586,24 @@ class Workflow:
             # reported against 'variables' as a whole rather than escaping
             # as an unhandled exception
             return [{"path": "variables", "message": str(e)}]
+        base_dir = (
+            os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
+        )
         return (
             previous_result_reference_errors(expanded, source_indices)
             + subfolder_errors(expanded, source_indices)
+            # A location policy refuses before a model load is spent on the
+            # run rather than after it (dw/locations.py)
+            + location_errors(expanded, source_indices, base_dir)
+            # A reference set the pipeline would refuse costs a checkpoint
+            # load to find out about otherwise (dw/reference_limits.py, #136)
+            + reference_limit_errors(expanded, source_indices)
+            # A number outside a task argument's declared domain is refused
+            # here rather than interpreted at run time - a negative frame
+            # count was a Python slice from the end of the track and a zero
+            # sample rate a silent fallback to 44100 (dw/task_domains.py,
+            # #139, #140)
+            + task_argument_errors(expanded, source_indices)
             + self.sub_workflow_errors(expanded, source_indices, composing)
         )
 
@@ -1002,7 +1020,7 @@ class Workflow:
             # Execute each step in sequence
             for i, step_data in enumerate(steps):
                 run_context.check_cancelled()
-                logger.debug(f"Running step {i+1}/{len(steps)}: {step_data['name']}")
+                logger.debug(f"Running step {i + 1}/{len(steps)}: {step_data['name']}")
                 run_context.emit(
                     "step_start",
                     workflow=workflow_id,
@@ -1357,11 +1375,11 @@ class Workflow:
                     logger.debug(
                         "Setting up generator for cached pipeline with new arguments"
                     )
-                    new_pipeline_wrapper.argument_template[
-                        "generator"
-                    ] = torch.Generator(new_pipeline_wrapper.device).manual_seed(
-                        new_pipeline_wrapper.pipeline_definition.get(
-                            "seed", default_seed
+                    new_pipeline_wrapper.argument_template["generator"] = (
+                        torch.Generator(new_pipeline_wrapper.device).manual_seed(
+                            new_pipeline_wrapper.pipeline_definition.get(
+                                "seed", default_seed
+                            )
                         )
                     )
 
@@ -1390,6 +1408,11 @@ class Workflow:
                 output_dir=self.step_output_dir(step_definition),
                 file_prefix=self.step_file_prefix(step_name),
             )
+            # Before the marker, not after it: a definition refused by the
+            # trust gate must not have announced a load it never began, or a
+            # consumer reading job events cannot tell 'refused before load'
+            # from 'loaded, then refused' (#137)
+            pipeline.check_trusted()
             # Loading is the longest silence in a run: weights, quantization,
             # adapters and placement all happen inside this call
             emit_phase("loading", detail=pipeline.name)

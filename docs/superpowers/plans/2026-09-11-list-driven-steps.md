@@ -456,7 +456,8 @@ def _entry_keys(entries, path):
         else:
             hint = ""
         raise ForEachError(
-            _render_path(path), f"for_each must be a list, got {type(entries).__name__}{hint}"
+            _render_path(path),
+            f"for_each must be a list, got {type(entries).__name__}{hint}",
         )
     if len(entries) > MAX_FOR_EACH_ENTRIES:
         raise ForEachError(
@@ -707,7 +708,10 @@ class TestGather:
             self.group(
                 {
                     "name": "score",
-                    "workflow": {"path": "builtin:x.json", "arguments": {"clips": "gather:shot"}},
+                    "workflow": {
+                        "path": "builtin:x.json",
+                        "arguments": {"clips": "gather:shot"},
+                    },
                 }
             )
         )
@@ -784,7 +788,9 @@ class TestGroupReferences:
             definition(
                 {
                     "name": "edit",
-                    "task": {"arguments": {"r": [{"from_previous_result": "variable:x"}]}},
+                    "task": {
+                        "arguments": {"r": [{"from_previous_result": "variable:x"}]}
+                    },
                 }
             )
         )
@@ -956,8 +962,16 @@ class TestMusicVideoTemplate:
         template = load_template("music-video.json")
         today = steps_by_name(template)
         shots = [
-            {"name": "wide_open", "prompt": "variable:shot_1_wide_open", "start_frame": 0},
-            {"name": "closeup", "prompt": "variable:shot_2_closeup", "start_frame": 124},
+            {
+                "name": "wide_open",
+                "prompt": "variable:shot_1_wide_open",
+                "start_frame": 0,
+            },
+            {
+                "name": "closeup",
+                "prompt": "variable:shot_2_closeup",
+                "start_frame": 124,
+            },
             {"name": "room", "prompt": "variable:shot_3_room", "start_frame": 248},
             {"name": "finale", "prompt": "variable:shot_4_finale", "start_frame": 372},
         ]
@@ -979,8 +993,13 @@ class TestMusicVideoTemplate:
 
         expanded = expand_for_each(
             definition(
-                today["draw_singer"], today["write_song"], slice_template,
-                today["soundtrack"], shot_template, edit, today["music_video"],
+                today["draw_singer"],
+                today["write_song"],
+                slice_template,
+                today["soundtrack"],
+                shot_template,
+                edit,
+                today["music_video"],
             )
         )
         got = steps_by_name(expanded)
@@ -993,8 +1012,15 @@ class TestMusicVideoTemplate:
 
         # Each expanded shot is today's shot (as a full pipeline block) with
         # the new name and its slice renamed
-        hand_written = ["shot_1_wide_open", "shot_2_closeup", "shot_3_room", "shot_4_finale"]
-        for key, old, index in zip(["wide_open", "closeup", "room", "finale"], hand_written, range(1, 5)):
+        hand_written = [
+            "shot_1_wide_open",
+            "shot_2_closeup",
+            "shot_3_room",
+            "shot_4_finale",
+        ]
+        for key, old, index in zip(
+            ["wide_open", "closeup", "room", "finale"], hand_written, range(1, 5)
+        ):
             step = today[old]
             if "pipeline_reference" in step:
                 step = without_pipeline_reference(step, today["shot_1_wide_open"])
@@ -1006,7 +1032,8 @@ class TestMusicVideoTemplate:
             assert got[f"shot@{key}"] == expected
 
         assert got["edit"]["task"]["arguments"]["videos"] == [
-            f"previous_result:shot@{k}" for k in ["wide_open", "closeup", "room", "finale"]
+            f"previous_result:shot@{k}"
+            for k in ["wide_open", "closeup", "room", "finale"]
         ]
 ```
 
@@ -1040,16 +1067,27 @@ class TestDialogueShortTemplate:
         ]
         first = today["shot_1_cold_open"]
         full = {
-            old: (step if "pipeline_reference" not in step else without_pipeline_reference(step, first))
+            old: (
+                step
+                if "pipeline_reference" not in step
+                else without_pipeline_reference(step, first)
+            )
             for old, step in today.items()
             if old.startswith("shot_")
         }
         shots = []
         for key, old in hand_written:
             arguments = full[old]["pipeline"]["arguments"]
-            entry = {"name": key, "prompt": arguments["prompt"], "references": arguments["references"]}
+            entry = {
+                "name": key,
+                "prompt": arguments["prompt"],
+                "references": arguments["references"],
+            }
             # Only the tag shot has its own frame count in the template
-            if arguments.get("num_frames") != first["pipeline"]["arguments"]["num_frames"]:
+            if (
+                arguments.get("num_frames")
+                != first["pipeline"]["arguments"]["num_frames"]
+            ):
                 entry["num_frames"] = arguments["num_frames"]
             shots.append(entry)
 
@@ -1060,7 +1098,9 @@ class TestDialogueShortTemplate:
         shot_template["pipeline"]["arguments"]["references"] = "item:references"
 
         expanded = expand_for_each(
-            definition(today["draw_character_a"], today["draw_character_b"], shot_template)
+            definition(
+                today["draw_character_a"], today["draw_character_b"], shot_template
+            )
         )
         got = steps_by_name(expanded)
         for key, old in hand_written:
@@ -1071,8 +1111,14 @@ class TestDialogueShortTemplate:
                 # what the hand-written shot has too
                 pass
             got_step = got[f"shot@{key}"]
-            assert got_step["pipeline"]["arguments"]["prompt"] == expected["pipeline"]["arguments"]["prompt"]
-            assert got_step["pipeline"]["arguments"]["references"] == expected["pipeline"]["arguments"]["references"]
+            assert (
+                got_step["pipeline"]["arguments"]["prompt"]
+                == expected["pipeline"]["arguments"]["prompt"]
+            )
+            assert (
+                got_step["pipeline"]["arguments"]["references"]
+                == expected["pipeline"]["arguments"]["references"]
+            )
 ```
 
 Then read `dialogue-short.json` (`python3 -c "import json; d=json.load(open('workflows/templates/minimax/dialogue-short.json')); [print(s['name'], json.dumps(s)[:600]) for s in d['steps']]"`) and extend the entry to carry every argument that differs between shots (the template's `num_frames` vs `tag_num_frames` is one; there may be others), mapping each to an `item:` in `shot_template`. The final assertion should compare the *whole* step: `assert got[f"shot@{key}"] == expected`, with `expected["name"]` set as above. Replace the two field assertions with that once the entry shape is right.
@@ -1175,17 +1221,25 @@ Append to `tests/test_workflow.py` (it already imports `Workflow`/`workflow_from
 def _for_each_workflow(**overrides):
     definition = {
         "id": "fe",
-        "variables": {"shots": [{"name": "a", "text": "A"}, {"name": "b", "text": "B"}]},
+        "variables": {
+            "shots": [{"name": "a", "text": "A"}, {"name": "b", "text": "B"}]
+        },
         "steps": [
             {
                 "name": "shot",
                 "for_each": "variable:shots",
-                "task": {"command": "compose_text", "arguments": {"parts": ["item:text"]}},
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": ["item:text"]},
+                },
                 "result": {"content_type": "text/plain"},
             },
             {
                 "name": "edit",
-                "task": {"command": "compose_text", "arguments": {"parts": "gather:shot"}},
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": "gather:shot"},
+                },
                 "result": {"content_type": "text/plain"},
             },
         ],
@@ -1272,42 +1326,43 @@ from .variables import (
 Replace `validation_errors`:
 
 ```python
-    def expanded_definition(self, arguments=None):
-        """The definition as the run will see it: variables substituted -
-        the caller's `arguments` folded in when they are all good, else the
-        declared defaults - and every for_each step expanded.
+def expanded_definition(self, arguments=None):
+    """The definition as the run will see it: variables substituted -
+    the caller's `arguments` folded in when they are all good, else the
+    declared defaults - and every for_each step expanded.
 
-        Raises ForEachError for a for_each that cannot be expanded. A
-        'variable:' that names nothing is left in place rather than raised:
-        validate_workflow already reports that as a warning, and the
-        reference check is happy to skip a reference it cannot read.
-        """
-        definition = copy.deepcopy(self.workflow_definition)
-        variables = definition.get("variables")
-        if isinstance(variables, dict):
-            if arguments and not argument_errors(definition, arguments):
-                set_variables(arguments, variables)
-            try:
-                definition = replace_variables(definition, variables)
-            except VariableNotFoundError:
-                pass
-        return expand_for_each(definition)
-
-    def validation_errors(self, arguments=None):
-        """Every schema violation in the definition, as [{path, message}];
-        empty when it validates. `arguments` are the caller's, so a
-        for_each over a list the caller supplies is checked as it will run."""
-        errors = validate_data_all(self.workflow_definition, load_schema("workflow"))
-        # Only once the shape is known good: the passes below walk the
-        # steps array and a definition that fails the schema may have no
-        # such array to walk
-        if errors:
-            return errors
+    Raises ForEachError for a for_each that cannot be expanded. A
+    'variable:' that names nothing is left in place rather than raised:
+    validate_workflow already reports that as a warning, and the
+    reference check is happy to skip a reference it cannot read.
+    """
+    definition = copy.deepcopy(self.workflow_definition)
+    variables = definition.get("variables")
+    if isinstance(variables, dict):
+        if arguments and not argument_errors(definition, arguments):
+            set_variables(arguments, variables)
         try:
-            expanded = self.expanded_definition(arguments)
-        except ForEachError as e:
-            return [{"path": e.path, "message": str(e)}]
-        return previous_result_reference_errors(expanded)
+            definition = replace_variables(definition, variables)
+        except VariableNotFoundError:
+            pass
+    return expand_for_each(definition)
+
+
+def validation_errors(self, arguments=None):
+    """Every schema violation in the definition, as [{path, message}];
+    empty when it validates. `arguments` are the caller's, so a
+    for_each over a list the caller supplies is checked as it will run."""
+    errors = validate_data_all(self.workflow_definition, load_schema("workflow"))
+    # Only once the shape is known good: the passes below walk the
+    # steps array and a definition that fails the schema may have no
+    # such array to walk
+    if errors:
+        return errors
+    try:
+        expanded = self.expanded_definition(arguments)
+    except ForEachError as e:
+        return [{"path": e.path, "message": str(e)}]
+    return previous_result_reference_errors(expanded)
 ```
 
 `set_variables` may need `realize_constants` first when a default is `constant:` - it does not for the list case, and `argument_errors` already runs `set_variables` on the raw declared block, so this mirrors it.
@@ -1367,12 +1422,18 @@ def test_validate_expands_for_each_with_the_callers_list(client):
             {
                 "name": "shot",
                 "for_each": "variable:shots",
-                "task": {"command": "compose_text", "arguments": {"parts": ["item:text"]}},
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": ["item:text"]},
+                },
                 "result": {"content_type": "text/plain"},
             },
             {
                 "name": "edit",
-                "task": {"command": "compose_text", "arguments": {"parts": "gather:shot"}},
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": "gather:shot"},
+                },
                 "result": {"content_type": "text/plain"},
             },
         ],
@@ -1382,7 +1443,10 @@ def test_validate_expands_for_each_with_the_callers_list(client):
 
     bad = client.post(
         "/api/validate",
-        json={"workflow": workflow, "arguments": {"shots": [{"name": "x"}, {"name": "x"}]}},
+        json={
+            "workflow": workflow,
+            "arguments": {"shots": [{"name": "x"}, {"name": "x"}]},
+        },
     ).json()
     assert bad["valid"] is False
     assert bad["errors"][0]["path"] == "steps[0].for_each[1].name"
