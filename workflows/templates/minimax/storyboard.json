@@ -4,6 +4,7 @@
     "cost": [
         {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 10.1}
     ],
+    "cost_drivers": ["num_frames", "num_inference_steps", "width", "height"],
     "variables": {
         "board_1_launch": "close-up at puddle level on a rain-wet cobblestone street: a child's small hand in a yellow raincoat sleeve setting a folded white paper boat onto a wide rain puddle, raindrops ringing the water, blurred umbrellas and shopfront lights reflected in it, overcast soft daylight, photographic, sharp focus on the boat",
         "board_2_gutter": "low angle photograph of a folded white paper boat racing along a rushing rain-swollen stone gutter between cobblestones, white water splashing around its bow, wet grey street and blurred passing legs beyond, rainy afternoon light, photographic, sharp focus on the boat",
@@ -20,6 +21,16 @@
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
         "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
         "lora_adapter_name": "turbo"
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        }
     },
     "seed": 42,
     "steps": [

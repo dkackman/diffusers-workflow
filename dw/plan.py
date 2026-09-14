@@ -21,6 +21,7 @@ import os
 from huggingface_hub import model_info
 from huggingface_hub.utils import HFValidationError, validate_repo_id
 
+from .elision import elide_definition
 from .hub_cache import scan_models
 from .realize import (
     BUILTIN_PREFIX,
@@ -88,11 +89,17 @@ def build_plan(
     expanded = Workflow(
         realized, candidate.output_dir, candidate.file_spec, candidate.workflow_dir
     ).expanded_definition()
+    # The plan is what the run does, and a run does not execute a step
+    # nothing reads (dw/elision.py, #122) - so the step count, the downloads
+    # and the fingerprint are all taken after elision, and the acknowledged
+    # cost is the cost of the work that happens
+    elided = elide_definition(expanded)
     entries = list_entries(definition, realized)
     measured_entries = list_entries(definition, definition)
     return {
         "fingerprint": fingerprint(expanded, definition, annotations),
         "steps": len(expanded.get("steps") or []),
+        "elided_steps": elided,
         "list_entries": entries,
         "cached_steps": cached_steps(definition, realized, arguments, cache_probe),
         "downloads_required": downloads_required(

@@ -59,8 +59,21 @@
                 "additionalProperties": false
             }
         },
+        "cost_drivers": {
+            "description": "The variables that move this workflow's cost, by name - a frame count, a step count, a segment count, not a prompt or a seed. Runs of this workflow are bucketed by these values when the server reports what its own history observed, so a 141-frame run never informs a 124-frame figure. Each name must be a variable this workflow declares. Declaring none is not neutral: the observed figure then falls back to runs that overrode nothing at all, which most real runs do not.",
+            "type": "array",
+            "items": {"type": "string"},
+            "uniqueItems": true
+        },
         "variables": {
             "$ref": "#/$defs/arguments"
+        },
+        "variable_constraints": {
+            "description": "What each variable's value is allowed to be, by variable name. A rule the engine could only enforce after the weights were loaded costs minutes to discover; declared here it is a free refusal at validation time and a line in the catalog beside the default.",
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/$defs/variable_constraint"
+            }
         },
         "seed": {
             "description": "Default seed for the entire workflow. Accepts a 'variable:' reference.",
@@ -89,6 +102,47 @@
         "steps"
     ],
     "$defs": {
+        "variable_constraint": {
+            "description": "A rule the author declares for one variable's value, in the same field names a chain step's 'frame_snap' uses, so a model's frame rule is written once. Checked before anything is queued and reported beside the variable's default, so a consumer reads the rule rather than guessing it (#96).",
+            "type": "object",
+            "properties": {
+                "modulus": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "remainder": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "min_frames": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "max_frames": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "snap": {
+                    "description": "What to do with a value the rule refuses. 'up' rounds to the next value the rule accepts, and warns that it did; absent, the value is refused.",
+                    "enum": [
+                        "up"
+                    ]
+                },
+                "reason": {
+                    "description": "Why the rule exists, in the author's words - quoted in the refusal and reported beside the default.",
+                    "type": "string"
+                }
+            },
+            "dependentRequired": {
+                "modulus": [
+                    "remainder"
+                ],
+                "remainder": [
+                    "modulus"
+                ]
+            },
+            "additionalProperties": false
+        },
         "image": {
             "type": "object",
             "properties": {
@@ -294,31 +348,39 @@
                     "exclusiveMinimum": 0
                 },
                 "frame_snap": {
-                    "description": "Constraint the pipeline places on num_frames - counts must equal modulus * n + remainder within the bounds (MiniMax H3: modulus 17, remainder 5, min 124, max 345). Used to snap the final match_audio segment to a valid length.",
-                    "type": "object",
-                    "properties": {
-                        "modulus": {
-                            "type": "integer",
-                            "minimum": 1
+                    "description": "Constraint the pipeline places on num_frames - counts must equal modulus * n + remainder within the bounds (MiniMax H3: modulus 17, remainder 5, min 124, max 345). Used to snap the final match_audio segment to a valid length. May instead be the string 'constraint:<variable>', naming an entry of the workflow's 'variable_constraints' - so the rule is stated once rather than twice in one file.",
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "modulus": {
+                                    "type": "integer",
+                                    "minimum": 1
+                                },
+                                "remainder": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                },
+                                "min_frames": {
+                                    "type": "integer",
+                                    "minimum": 1
+                                },
+                                "max_frames": {
+                                    "type": "integer",
+                                    "minimum": 1
+                                }
+                            },
+                            "required": [
+                                "modulus",
+                                "remainder"
+                            ],
+                            "additionalProperties": false
                         },
-                        "remainder": {
-                            "type": "integer",
-                            "minimum": 0
-                        },
-                        "min_frames": {
-                            "type": "integer",
-                            "minimum": 1
-                        },
-                        "max_frames": {
-                            "type": "integer",
-                            "minimum": 1
+                        {
+                            "type": "string",
+                            "pattern": "^constraint:[a-zA-Z_][a-zA-Z0-9_-]*$"
                         }
-                    },
-                    "required": [
-                        "modulus",
-                        "remainder"
-                    ],
-                    "additionalProperties": false
+                    ]
                 },
                 "prompts": {
                     "description": "Per-segment prompt overrides; segment i uses prompts[min(i, len(prompts) - 1)].",

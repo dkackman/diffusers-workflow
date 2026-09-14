@@ -1884,6 +1884,8 @@ def test_workflow_listing_carries_details(server):
             "traits": [],
             "summary": "Renders a small test image.",
             "lists": {},
+            "constraints": {},
+            "cost_drivers": {},
             "cost": None,
             # where it came from, and whether a client should offer save and
             # delete for it or only save-a-copy
@@ -2579,8 +2581,11 @@ class TestTaskDescription:
         }
         with server(success_script) as client:
             result = client.post("/api/validate", json={"workflow": workflow}).json()
-            assert result["valid"]
-            assert any("trim_framse" in warning for warning in result["warnings"])
+            # An argument the command does not take reaches Python as an
+            # unexpected keyword, so it refuses the workflow rather than
+            # warning beside a `valid: true` (#141)
+            assert not result["valid"]
+            assert any("trim_framse" in error["message"] for error in result["errors"])
 
 
 class TestDiffusersUpdate:
@@ -3629,6 +3634,7 @@ EMPTY_PLAN = {
     "steps": 0,
     "list_entries": {},
     "cached_steps": None,
+    "elided_steps": [],
     "downloads_required": [],
     "estimate": None,
 }

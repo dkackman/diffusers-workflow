@@ -632,10 +632,18 @@ class TestMusicVideoTemplate:
         assert names == (
             ["draw_singer", "write_song"]
             + [f"slice@{k}" for k in self.KEYS]
-            + ["soundtrack"]
             + [f"shot@{k}" for k in self.KEYS]
             + ["edit", "music_video"]
         )
+
+    def test_the_soundtrack_is_cut_to_the_edit_rather_than_to_a_constant(self):
+        """There is no 'soundtrack' step: a slice of a fixed 496 frames was
+        right only for a four-entry list, so a two-shot run laid 20.7 s of
+        song over 10.3 s of picture (#142). pair_audio derives it now."""
+        got = steps_by_name(self.expanded())
+        arguments = got["music_video"]["task"]["arguments"]
+        assert arguments["audio"] == "previous_result:write_song"
+        assert arguments["fit"] == "video"
 
     def test_each_slice_starts_where_its_entry_says(self):
         got = steps_by_name(self.expanded())

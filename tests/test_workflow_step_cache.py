@@ -504,6 +504,10 @@ def _two_step_def(second_reads_first, workflow_id="test_step_cache_two"):
                     "from_pretrained_arguments": {"model_name": "model-a"},
                     "arguments": {"prompt": "variable:a_prompt"},
                 },
+                # A saves, so it runs whether or not B reads it - a step
+                # that saves nothing and which nothing reads is elided now
+                # (#122), and these are cache tests rather than elision ones
+                "result": {"content_type": "image/png"},
             },
             {
                 "name": "B",
@@ -512,6 +516,7 @@ def _two_step_def(second_reads_first, workflow_id="test_step_cache_two"):
                     "from_pretrained_arguments": {"model_name": "model-b"},
                     "arguments": b_arguments,
                 },
+                "result": {"content_type": "image/png"},
             },
         ],
     }

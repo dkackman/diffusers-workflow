@@ -13,7 +13,7 @@ import re
 
 import pytest
 
-from dw.server.app import workflow_details
+from dw.server.app import attach_observed, workflow_details
 from dw.server.catalog_shape import (
     SUMMARY_LIMIT,
     derive_catalog_metadata,
@@ -348,7 +348,21 @@ def test_no_stale_entry_in_the_allowlist():
 
 # Spec targets, as chars / 4. The listing is the first thing an agent reads;
 # these are the ceilings that keep it readable rather than skimmed.
-COMPACT_BUDGET = 6_000  # was 5_500; raised with the informative MiniMax/LTX-2 summaries, measured 5_552
+# was 5_500, then 6_000 with the informative MiniMax/LTX-2 summaries;
+# raised to 6_400 for the declared variable constraints (#96), which are what
+# stop a consumer picking a frame count the model refuses two minutes into a
+# run - carried terse (`17*n+5, 124-345, rounds up`), the reason only in the
+# full listing; then to 7_100 for `observed_minutes`/`observed_runs` (#93),
+# two keys per workflow this box has actually run. Measured 6_276 with no
+# history, 6_381 against a real server's (34 named workflows, 106 runs), and
+# 7_056 here, where every one of the 65 compact entries carries a figure -
+# which is the ceiling the budget has to hold, and why the measurement below
+# attaches one. A budget checked against an empty jobs table would pass while
+# the running server overran it. Two numeric keys rather than one terse
+# phrase (the shape `constraints` uses) costs 179 tokens and is worth them:
+# an agent quoting a price should read a number, not parse a sentence, and
+# the curated `cost` beside it is structured too.
+COMPACT_BUDGET = 7_100
 FILTERED_BUDGET = 1_500
 
 
@@ -356,11 +370,36 @@ def _tokens(payload):
     return len(json.dumps(payload)) / 4
 
 
+class _every_workflow_observed:
+    """An `ObservedCosts` that answers for every entry, so the budget is
+    measured against the widest listing the server can produce rather than
+    against the empty jobs table a test fixture has."""
+
+    def __init__(self, details):
+        self._names = set(details)
+
+    def observed(self, name, definition):
+        if name not in self._names:
+            return None
+        return {
+            "device": "cuda",
+            "name": "NVIDIA GeForce RTX 3090",
+            "runs": 10,
+            "comparable": "drivers",
+            "cold_minutes": 11.84,
+            "cold_runs": 10,
+            "cold_range_minutes": [10.03, 14.95],
+        }
+
+
 def test_the_compact_listing_fits_the_budget():
     found = listing(
         [WorkflowSource(os.path.join(REPO_ROOT, "workflows"), "workspace", True)]
     )
     details = workflow_details(found)
+    # As the server answers it: every workflow carrying the observed figures
+    # it would carry on a box that had run them all
+    attach_observed(details, _every_workflow_observed(details))
 
     compact = project_listing(details, view="compact")
     assert _tokens(compact) <= COMPACT_BUDGET, (

@@ -1,4 +1,5 @@
 {
+    "cost_drivers": ["num_images_per_prompt", "num_inference_steps"],
     "variables": {
         "prompt": "A realistic photograph of a mouse wearing a skirt playing volleyball against a team of professional volleyball players.",
         "num_images_per_prompt": 1,

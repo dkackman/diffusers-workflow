@@ -368,6 +368,50 @@ same reason - default setup cannot load a pack.
   one entry in the table; `tests/test_task_domains.py` pins every entry to a
   real parameter of a real command so a rename cannot leave one checking
   nothing
+- **`cost` is curated, `observed` is derived, and they are different fields** —
+  `dw/workflow_schema.json` defines `cost` as *"Never derived"*, so nothing
+  writes one; `dw/server/observed_cost.py` reports a sibling built from this
+  box's own `jobs.sqlite` rows (#93). Four rules, each a way the naive median
+  would lie: runs are bucketed by the workflow's declared `cost_drivers` (a
+  list driver on its *length*, so two four-shot runs are comparable however
+  different their prompts) and the bucket reported is the one the *defaults*
+  give, keeping it comparable to a curated figure; `cold_minutes` and
+  `warm_minutes` are separate, each with its own run count, and only the cold
+  one is comparable to `cost` (wall clock including model load); a run whose
+  every manifest entry is `reused` wrote nothing and is excluded; and a run
+  whose persisted events hit `MAX_PERSISTED_EVENTS` without a `loading` phase
+  is `unclassified_runs` rather than assumed warm. Everything comes off the
+  job row in one query, so a figure survives a pruned run directory, and the
+  aggregate caches against `JobHistory.watermark()` rather than a file mtime —
+  a job landing changes every figure and changes no file. The compact listing
+  carries only `observed_minutes`/`observed_runs` (#101 budget); the full
+  block is in the full listing and `GET /api/workflows/{name}/variables`. The
+  raw `GET /api/workflows/{name}` is left verbatim, since the editor saves
+  what it reads back. A `cost_drivers` entry naming no declared variable is
+  dropped, and `tests/test_observed_cost.py` sweeps the catalog for one
+- **A variable's bound is declared by the author, checked three times** — a
+  model's own rule about a value (H3's `num_frames` is `17 * n + 5` from 124
+  to 345) is a property of the model, so it lives in the workflow rather than
+  in engine code, as a `variable_constraints` entry (`dw/variable_constraints.py`).
+  One shape, not two: it takes a chain step's `frame_snap` field names, and a
+  chain writes `"frame_snap": "constraint:num_frames"` rather than repeating
+  the numbers. `snap: "up"` rounds an off-grid value to the next legal one
+  and warns (at validation *and* through `emit_warning`, so it reaches the
+  job's `warnings`); without `snap` an off-grid value is refused. The bounds
+  hold for the value the run will use, matching diffusers' own
+  `align_num_frames`, which snaps before it range-checks — so 108 is accepted
+  (it becomes 124) and 346 refused (it would become 362). LTX-2.5's templates
+  declare the `8 * n + 1` grid with *no* `snap`, because those pipelines floor
+  an off-grid count rather than raising: rounding up here would be a second
+  silent change to the length. Checked in `validation_errors` (so
+  `POST /api/validate`, `validate_workflow` and the pre-queue check all
+  refuse it at `arguments.<name>` / `variables.<name>`), at run time in
+  `apply_constraints` before anything loads, and reported beside the default
+  by `list_workflows` (terse) / `get_workflow(variables_only=true)` — that
+  last part is what stops the next consumer picking 61 (#96).
+  `tests/test_variable_constraints.py` sweeps the whole catalog and pins every
+  declared number to the diffusers symbol it derives from. A constraint reaches
+  a top-level variable only, not a field inside a `for_each` entry
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image

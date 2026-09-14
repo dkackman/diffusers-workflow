@@ -341,12 +341,39 @@ COMPACT_FIELDS = (
     "kinds",
     "variable_names",
     "lists",
+    "constraints",
     "configures",
 )
 
 # Carried in the compact view only when set: a template has no
-# `configures`, and most workflows have no list-driven step
-_COMPACT_WHEN_SET = frozenset({"configures", "lists"})
+# `configures`, most workflows have no list-driven step, and most declare
+# no bound on a variable
+_COMPACT_WHEN_SET = frozenset({"configures", "lists", "constraints"})
+
+
+def terse_constraint(rule):
+    """One variable's rule as a phrase, for the compact listing.
+
+    The block itself carries a `reason` in the author's words, which is what
+    a consumer reading one workflow wants and what the whole catalog cannot
+    afford - the compact listing has a token budget (#101), and the numbers
+    are the part that stops the next consumer picking 61 (#96).
+    """
+    if not isinstance(rule, dict):
+        return rule
+    parts = []
+    if rule.get("modulus"):
+        parts.append(f"{rule['modulus']}*n+{rule.get('remainder', 0)}")
+    low, high = rule.get("min_frames"), rule.get("max_frames")
+    if low is not None and high is not None:
+        parts.append(f"{low}-{high}")
+    elif low is not None:
+        parts.append(f"{low}+")
+    elif high is not None:
+        parts.append(f"up to {high}")
+    if rule.get("snap") == "up":
+        parts.append("rounds up")
+    return ", ".join(parts)
 
 
 def project_listing(
@@ -399,6 +426,20 @@ def project_listing(
                 for key in COMPACT_FIELDS
                 if key not in _COMPACT_WHEN_SET or detail.get(key)
             }
+            if slim.get("constraints"):
+                slim["constraints"] = {
+                    variable: terse_constraint(rule)
+                    for variable, rule in slim["constraints"].items()
+                }
+            # This box's own history, at its two-key budget (#93/#101): the
+            # cold median, which is the one comparable to a curated `cost`,
+            # and how many runs stand behind it. The block with the
+            # cold/warm split, the drivers and `since` is in the full
+            # listing and in `get_workflow`
+            observed = detail.get("observed") or {}
+            if observed.get("cold_minutes") is not None:
+                slim["observed_minutes"] = observed["cold_minutes"]
+                slim["observed_runs"] = observed["cold_runs"]
             if detail.get("configures_missing"):
                 slim["configures_missing"] = detail["configures_missing"]
             projected[name] = slim

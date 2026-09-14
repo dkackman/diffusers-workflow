@@ -520,6 +520,22 @@ class Task:
         """Get command name or 'unknown' if not specified"""
         return self.task_definition.get("command", "unknown")
 
+    def _check_required_arguments(self, arguments):
+        """Refuse a task whose required arguments are not all present, in the
+        validator's wording rather than Python's."""
+        if not isinstance(arguments, dict):
+            # An 'inputs' list template - consumed whole, no names to miss
+            return
+        from ..introspection import (
+            missing_task_argument_message,
+            missing_task_arguments,
+        )
+
+        missing = missing_task_arguments(self.command, arguments.keys())
+        if missing:
+            message = missing_task_argument_message(self.command, missing)
+            raise ValueError(message[0].upper() + message[1:])
+
     def run(self, arguments, previous_pipelines={}):
         """
         Execute the task with given arguments using the command registry.
@@ -547,6 +563,15 @@ class Task:
             # A task reports nothing of its own - a captioning model loading
             # and decoding is otherwise indistinguishable from a hang
             emit_phase("task", detail=self.command)
+
+            # A required argument that never arrived - because it was left
+            # out, or because a variable or an earlier step resolved to
+            # nothing - used to reach Python and come back as
+            # "resample_audio() missing 1 required positional argument:
+            # 'audio'", which names the calling convention rather than the
+            # workflow. The static pass in validation_errors refuses the
+            # literal case first; this is the backstop it cannot see (#141)
+            self._check_required_arguments(arguments)
 
             # Look up command in registry
             if self.command in _COMMAND_REGISTRY:

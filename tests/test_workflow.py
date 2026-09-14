@@ -254,7 +254,13 @@ class TestSubWorkflowSeedInheritance:
         return [
             {
                 "name": "noop",
-                "task": {"command": "get_image_size", "arguments": {}},
+                # A supplied 'image' - a task step that leaves a required
+                # argument unset no longer validates (#141), and this stub
+                # is about seed inheritance rather than about the task
+                "task": {
+                    "command": "get_image_size",
+                    "arguments": {"image": "asset:nothing.png"},
+                },
             }
         ]
 

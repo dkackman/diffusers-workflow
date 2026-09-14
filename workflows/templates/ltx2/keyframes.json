@@ -3,6 +3,7 @@
     "description": "Pinning the first and last frames and letting the model fill in the motion between them. The keyframes are conditions - objects built from the arguments the workflow names, each with the latent index it lands on.",
     "summary": "LTX-2.5 video with audio between two supplied stills, pinned as the first and last frames.",
     "traits": ["has-audio", "image-conditioned", "needs-input-media"],
+    "cost_drivers": ["num_frames", "width", "height"],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
@@ -17,6 +18,14 @@
         },
         "last_image": {
             "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/flf2v_input_last_frame.png"
+        }
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 8,
+            "remainder": 1,
+            "min_frames": 9,
+            "reason": "LTX-2.5's video VAE encodes 8 * n + 1 frames, so an off-grid count is not refused by the pipeline but floored to the grid below - a shorter clip than the one asked for. Refused here instead: no 'snap', because rounding a length the other way from the pipeline's own would be a second silent change"
         }
     },
     "seed": 42,

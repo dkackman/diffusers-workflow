@@ -25,10 +25,16 @@ def list_workflows(
     maintainer measured it once, on the devices the entry names, and wrote
     it into the workflow. Nothing derives one from this server's own job
     history, so `cost: null` means nobody wrote a figure down - not that
-    the run is cheap, and not that this box has never run it. For a
-    template with no figure, `list_jobs` on earlier runs of it carries
-    `started_at`/`finished_at`, which is the measurement this server
-    actually holds."""
+    the run is cheap, and not that this box has never run it.
+
+    `observed_minutes` / `observed_runs`, when present, are the other kind
+    of number: what *this* box's own finished runs of that workflow actually
+    took, cold (model load included, so comparable to a curated `cost`), and
+    how many runs stand behind the figure. Derived, never a substitute for
+    `cost` - a maintainer's claim on a named card and this machine's last
+    week are different things. `get_workflow(variables_only=true)` carries
+    the whole block: the cold/warm split, the argument values the figure is
+    for, and `since`."""
     params = {"view": "compact"}
     if shape:
         params["shape"] = shape

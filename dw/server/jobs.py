@@ -32,6 +32,7 @@ from ..realize import VARIABLE_PREFIX
 from ..runs import REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
+from .observed_cost import EVENT_CAP, LOADING_MARKER
 
 logger = logging.getLogger("dw")
 
@@ -230,6 +231,58 @@ class JobHistory:
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
+
+    def watermark(self):
+        """How far the table has got - what a derived figure caches against.
+
+        A job landing changes every observed cost and changes no file, so an
+        mtime cache cannot see it (dw/server/observed_cost.py). Count plus the
+        newest finish is enough: rows are only ever added, and a prune lowers
+        the count.
+        """
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*), MAX(finished_at) FROM jobs"
+            ).fetchone()
+        return (row[0], row[1]) if row else (0, None)
+
+    def finished_runs(self):
+        """Every successful, named run grouped by workflow name, as the rows
+        an observed cost is derived from.
+
+        One query for the whole catalog rather than one per workflow. The
+        cold/warm split is decided in SQL on the persisted event tail - a
+        `loading` phase as `json.dumps` wrote it - so 200 events per row are
+        never parsed to answer a yes/no question, and whether that tail hit
+        its cap comes back too, because a run whose `loading` phase was
+        trimmed away has to count as neither rather than as warm.
+
+        Rows with no `workflow_name` (recorded before the column existed, or
+        run from an inline definition) are unjoinable and left out.
+        """
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT workflow_name, started_at, finished_at, arguments,"
+                " manifest, INSTR(COALESCE(events, ''), ?) > 0,"
+                " COALESCE(json_array_length(COALESCE(events, '[]')), 0) >= ?"
+                " FROM jobs WHERE status = ? AND workflow_name IS NOT NULL"
+                " AND started_at IS NOT NULL AND finished_at IS NOT NULL",
+                (LOADING_MARKER, EVENT_CAP, SUCCEEDED),
+            ).fetchall()
+        grouped = {}
+        for name, started, finished, arguments, manifest, had_load, at_cap in rows:
+            grouped.setdefault(name, []).append(
+                {
+                    "started_at": started,
+                    "finished_at": finished,
+                    "duration": finished - started,
+                    "arguments": arguments,
+                    "manifest": manifest,
+                    "had_load": bool(had_load),
+                    "events_at_cap": bool(at_cap),
+                }
+            )
+        return grouped
 
     def events_for(self, job_id):
         """A finished job's persisted event tail. [] for a job recorded

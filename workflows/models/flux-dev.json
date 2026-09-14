@@ -1,4 +1,5 @@
 {
+    "cost_drivers": ["num_images_per_prompt", "num_inference_steps", "width", "height"],
     "variables": {
         "prompt": "prompt:flux/biomechanical_daffodil",
         "num_images_per_prompt": 1,

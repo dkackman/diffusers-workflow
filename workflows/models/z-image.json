@@ -1,4 +1,5 @@
 {
+    "cost_drivers": ["num_images_per_prompt", "num_inference_steps", "width", "height"],
     "variables": {
         "prompt": "prompt:zimage/kidney_trade_in",
         "negative_prompt": "colorful, photorealistic faces, modern UI, flat design, white background, sharp clean edges, high saturation, lens flare, bloom overexposed",

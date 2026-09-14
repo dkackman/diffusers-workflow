@@ -29,7 +29,15 @@ from .previous_results import (
 )
 from .locations import location_errors
 from .reference_limits import reference_limit_errors
+from .elision import elide_definition, warn_elided
+from .introspection import task_signature_errors
 from .task_domains import task_argument_errors
+from .variable_constraints import (
+    apply_constraints,
+    constraint_errors,
+    constraint_reference_errors,
+    resolve_constraint_references,
+)
 from .subfolders import step_subfolder, subfolder_errors
 from .step import Step
 from .step_cache import (
@@ -604,6 +612,18 @@ class Workflow:
             # sample rate a silent fallback to 44100 (dw/task_domains.py,
             # #139, #140)
             + task_argument_errors(expanded, source_indices)
+            # A required task argument left unset validated as `valid: true`
+            # and then failed the job on Python's own signature error, which
+            # is the one mistake a free pre-flight most obviously exists for
+            # (dw/introspection.py, #141)
+            + task_signature_errors(expanded, source_indices)
+            # A value outside a rule the workflow declares - the bound that
+            # cost 138 s of loading to discover, refused for free at the
+            # path the value sits at (dw/variable_constraints.py, #96)
+            + constraint_errors(
+                self.workflow_definition, arguments, supplied=set(arguments or {})
+            )
+            + constraint_reference_errors(self.workflow_definition)
             + self.sub_workflow_errors(expanded, source_indices, composing)
         )
 
@@ -673,6 +693,9 @@ class Workflow:
         the run prepares - the step cache keys on the realized step, and a
         probe that prepared it differently would answer for a run that
         never happens.
+
+        Records the steps elision dropped on `self._elided_steps` (#122) -
+        the same list run() warns about and writes into the manifest.
         """
         workflow_id = workflow_def["id"]
         variables = workflow_def.get("variables", None)
@@ -684,6 +707,11 @@ class Workflow:
             # first set variable values base don the arguments passed to the workflow
             # these may come form the command line or form a parent workflow
             set_variables(arguments, variables)
+            # A value outside a rule the workflow declares is refused, and
+            # one the rule rounds is rounded with a warning saying so -
+            # before anything loads, and before substitution puts the value
+            # everywhere it is referenced (dw/variable_constraints.py, #96)
+            apply_constraints(workflow_def, variables)
             # an entry of a list-valued variable may name another
             # variable; resolve those before anything inside it is
             # realized, so a reference type in an entry is a type name
@@ -699,7 +727,19 @@ class Workflow:
         # seed, the run id and the realized workflow are computed, so
         # each covers what actually runs. A ForEachError here fails the
         # run before anything loads
+        # A chain step's `frame_snap` may name the declared constraint
+        # rather than repeating its numbers, so a template states the rule
+        # once (#96)
+        resolve_constraint_references(workflow_def)
+
         workflow_def = expand_for_each(workflow_def)
+
+        # A step nothing after it reads, and which saves no file, does not
+        # run - after expansion, so a for_each member is judged like any
+        # other step, and before the seed and the run id, so everything
+        # downstream counts the steps that will actually execute
+        # (dw/elision.py, #122)
+        self._elided_steps = elide_definition(workflow_def)
 
         # Set up random seed for reproducibility. Resolved lazily - as a
         # dict.get default, torch.seed() would run on every call and reseed
@@ -868,6 +908,9 @@ class Workflow:
         # BEFORE its replacement loads, or the transition holds both at once
         self._prior_step_keys = prior_step_keys or {}
         self.manifest = []
+        # What elision dropped this run, filled by _prepare_definition and
+        # read by the warning pass and the manifest (#122)
+        self._elided_steps = []
         # Overwritten on the way out of the try below - a run that leaves
         # this alone died on an exception the manifest should say so about
         status = "failed"
@@ -902,6 +945,10 @@ class Workflow:
             workflow_def, default_seed = self._prepare_definition(
                 workflow_def, arguments, base_dir
             )
+            # Said out loud before anything loads: a step that vanishes
+            # because a reference to it is misspelled would otherwise show
+            # up only as a different picture (#122)
+            warn_elided(self._elided_steps)
             # A workflow that names no seed gets a fresh one every run, so no
             # step's cache entry can ever match again - skip the cache
             # wholesale rather than deep-copying every step's realized images
@@ -1306,6 +1353,9 @@ class Workflow:
                 },
                 "seed": seed,
                 "arguments": arguments or {},
+                # What did not run, and why - a run says what it did not do
+                # as well as what it did (#122)
+                "elided_steps": self._elided_steps,
                 "steps": [
                     {
                         **entry,
