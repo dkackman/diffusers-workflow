@@ -51,6 +51,7 @@ def build_plan(
     cache_dir=None,
     lookup_sizes=True,
     cache_probe=None,
+    observed=None,
 ):
     """What a run of `candidate` with `arguments` will execute and cost.
 
@@ -67,6 +68,11 @@ def build_plan(
         cache_probe: A callable taking the run's arguments and answering the
             step names the worker's cache would serve, or None when it
             cannot say; without one `cached_steps` is None.
+        observed: This box's own history for this workflow, as an `observed`
+            block (dw/server/observed_cost.py) or a callable taking the
+            run's arguments and answering one - what the estimate quotes in
+            preference to a curated figure (#154). None on a caller that has
+            no history to offer, which is every caller but the server.
     """
     definition = candidate.workflow_definition
     base_dir = (
@@ -93,7 +99,7 @@ def build_plan(
     # nothing reads (dw/elision.py, #122) - so the step count, the downloads
     # and the fingerprint are all taken after elision, and the acknowledged
     # cost is the cost of the work that happens
-    elided = elide_definition(expanded)
+    elided = elide_definition(expanded, definition)
     entries = list_entries(definition, realized)
     measured_entries = list_entries(definition, definition)
     return {
@@ -113,8 +119,24 @@ def build_plan(
             base_dir,
             candidate.workflow_dir,
             measured_entries=measured_entries,
+            observed=_observed_block(observed, arguments),
         ),
     }
+
+
+def _observed_block(observed, arguments):
+    """The `observed` block for this run, from a block or from a callable
+    the caller passed - best effort, since a figure is a nicety and a plan
+    that raised because history could not be read would cost the caller the
+    whole pre-flight."""
+    if not callable(observed):
+        return observed if isinstance(observed, dict) else None
+    try:
+        block = observed(arguments or {})
+    except Exception:
+        logger.debug("No observed history for the plan", exc_info=True)
+        return None
+    return block if isinstance(block, dict) else None
 
 
 def list_entries(definition, realized):
@@ -226,6 +248,7 @@ CATALOG = "catalog"
 PER_ENTRY = "per_entry"
 DERIVED = "derived"
 OTHER_DEVICE = "other_device"
+OBSERVED = "observed"
 
 
 def estimate(
@@ -236,9 +259,11 @@ def estimate(
     base_dir,
     workflow_dir,
     measured_entries=None,
+    observed=None,
 ):
-    """Minutes from the workflow's own cost block, re-priced for the
-    caller's list, plus each composed child's.
+    """Minutes from this box's own history when it has one, else from the
+    workflow's own cost block, re-priced for the caller's list, plus each
+    composed child's.
 
     `basis` names where the figure came from - the honesty is in the field,
     not in a fabricated number: 'unknown' is no cost block at all (or a
@@ -255,7 +280,22 @@ def estimate(
     `measured_entries` is what the stored defaults carry, which is the
     list the catalog figure was measured against; without it a catalog
     figure is taken at face value.
+
+    `observed` is this box's own history for the run being planned
+    (dw/server/observed_cost.py), and it wins: `list_workflows` already
+    tells a consumer to "prefer [observed] when quoting a price for this
+    machine, fall back to `cost`", and `basis: "observed"` says which one
+    was used, so the two claims stay distinguishable. It is quoted only
+    from the *cold* median - the one figure comparable to a curated `cost`,
+    wall clock including the model load - and only for the bucket the
+    caller's own arguments fall in, so a resized list falls back to the
+    curated figure rather than quoting the default list's minutes (#154).
+    A composed child is not added to it: an observed run is the whole run,
+    children included, already measured.
     """
+    measured = _observed(observed, device)
+    if measured is not None:
+        return measured
     own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
     minutes = own["minutes"]
     partial = False
@@ -281,6 +321,35 @@ def estimate(
         "device": device,
         "measured_on": own["measured_on"],
         "partial": partial,
+        "runs": None,
+    }
+
+
+def _observed(observed, device):
+    """This box's history as an estimate, or None when it has nothing to
+    quote from.
+
+    Withheld rather than quoted when the history is a different backend's
+    (a card swapped under the same jobs table), or when every comparable run
+    was warm: a warm run had the weights already resident and quoting it as
+    the cost of a run that has to load them would under-quote by the minutes
+    this estimate exists to name.
+    """
+    if not isinstance(observed, dict):
+        return None
+    minutes = observed.get("cold_minutes")
+    runs = observed.get("cold_runs")
+    if not isinstance(minutes, (int, float)) or not runs:
+        return None
+    if observed.get("device") not in (None, device):
+        return None
+    return {
+        "minutes": round(float(minutes), 1),
+        "basis": OBSERVED,
+        "device": device,
+        "measured_on": observed.get("name"),
+        "partial": False,
+        "runs": runs,
     }
 
 

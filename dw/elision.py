@@ -31,7 +31,13 @@ Four guardrails, all of them load-bearing:
   the step feeding it vanish and the failure moves from "previous result not
   found" to "the picture is wrong". The static reference check refuses an
   unresolvable literal reference, which contains most of it - the warning is
-  what covers the rest.
+  what covers the rest. The warning says which of the two happened: a step
+  the *written* definition reads through a variable the caller then
+  overrode was elided on purpose - it is `music-video`'s supplied singer
+  portrait, the saving the feature exists for - and telling that caller
+  their reference is probably misspelled puts a false positive on the
+  documented path, which is how the warnings channel stops being read
+  (#157). A step nothing ever read still gets the diagnosis.
 
 Elision is transitive: dropping a step can leave the step it read
 unreferenced in turn, so it runs to a fixed point.
@@ -40,6 +46,8 @@ unreferenced in turn, so it runs to a fixed point.
 import logging
 
 from .step_cache import reference_resolves_to, referenced_result_names
+
+VARIABLE_PREFIX = "variable:"
 
 logger = logging.getLogger("dw")
 
@@ -136,11 +144,63 @@ def _carry_release(elided, kept):
     return carried
 
 
-def elide_unreferenced_steps(steps):
+def overriding_variables(written, substituted_steps):
+    """{step name: variable name} for every step the workflow as *written*
+    reads only through a variable whose value no longer names it.
+
+    `music-video` declares `singer_reference` as
+    `{"from_previous_result": "draw_singer"}` and every shot references the
+    variable; a caller who passes a portrait instead replaces that value, and
+    `draw_singer` becomes unreferenced *because they said so*. Comparing the
+    two definitions is what tells that apart from a misspelling, and it costs
+    one walk of the variables block (#157).
+
+    `written` is the definition as the author wrote it - before substitution,
+    so the defaults are still there; `substituted_steps` is the expanded step
+    list elision is about to judge.
+    """
+    variables = (written or {}).get("variables")
+    if not isinstance(variables, dict):
+        return {}
+    written_steps = (written or {}).get("steps")
+    if not isinstance(written_steps, list):
+        return {}
+    still_read = referenced_result_names(substituted_steps)
+    overridden = {}
+    for variable, value in variables.items():
+        # A variable no step reads is not how the step was reached, so its
+        # disappearance is nobody's decision - the general diagnosis is
+        # right for that one
+        if not _reads_variable(written_steps, variable):
+            continue
+        for name in referenced_result_names([value]):
+            if any(reference_resolves_to(read, name) for read in still_read):
+                continue
+            overridden.setdefault(name, variable)
+    return overridden
+
+
+def _reads_variable(tree, name):
+    """Whether anything in `tree` references 'variable:<name>'."""
+    reference = VARIABLE_PREFIX + name
+    if isinstance(tree, str):
+        return tree == reference
+    if isinstance(tree, dict):
+        return any(_reads_variable(value, name) for value in tree.values())
+    if isinstance(tree, list):
+        return any(_reads_variable(value, name) for value in tree)
+    return False
+
+
+def elide_unreferenced_steps(steps, overridden=None):
     """The steps that will run, and what was dropped.
 
-    Returns (kept, elided) where `elided` is [{'step': name, 'reason': str}],
-    in the order the steps were written. `steps` is the expanded, substituted
+    Returns (kept, elided) where `elided` is
+    [{'step': name, 'reason': str, 'overridden_by': variable | absent}],
+    in the order the steps were written. `overridden` is
+    `overriding_variables`' answer: a step named there was dropped because a
+    caller replaced the reference that read it, which is a different event
+    from a step nothing reads by accident, and is reported as one. `steps` is the expanded, substituted
     list - a `for_each` member is a step like any other by then, and `gather:`
     has already become the `previous_result:` list it stands for.
 
@@ -163,10 +223,18 @@ def elide_unreferenced_steps(steps):
                 continue
             if _needed_by(step, kept[index + 1 :]):
                 continue
-            reason = "nothing after it reads its result and it saves no file"
+            variable = (overridden or {}).get(step.get("name"))
+            reason = (
+                f"'{variable}' was supplied, so nothing reads its result"
+                if variable
+                else "nothing after it reads its result and it saves no file"
+            )
             if _carry_release(step, kept[:index]):
                 reason += "; its release was carried onto the step before it"
-            elided.append({"step": step.get("name"), "reason": reason})
+            entry = {"step": step.get("name"), "reason": reason}
+            if variable:
+                entry["overridden_by"] = variable
+            elided.append(entry)
             del kept[index]
             changed = True
             break
@@ -181,15 +249,23 @@ def elide_unreferenced_steps(steps):
     return kept, elided
 
 
-def elide_definition(workflow_def):
+def elide_definition(workflow_def, written=None):
     """elide_unreferenced_steps over a whole definition, in place.
 
     Returns the elided-step records; the definition's `steps` is replaced
     when anything was dropped, so a caller that wants the untouched list must
-    keep its own copy.
+    keep its own copy. `written` is the same workflow before substitution,
+    which is what distinguishes a step a caller deliberately replaced from
+    one nothing reads by accident (#157); without it every elision reads as
+    the second.
     """
     steps = workflow_def.get("steps")
-    kept, elided = elide_unreferenced_steps(steps)
+    overridden = (
+        overriding_variables(written, steps if isinstance(steps, list) else [])
+        if written
+        else None
+    )
+    kept, elided = elide_unreferenced_steps(steps, overridden)
     if elided:
         workflow_def["steps"] = kept
     return elided
@@ -206,10 +282,19 @@ def warn_elided(elided):
     from .events import emit_warning
 
     for entry in elided:
+        # A step whose reference the caller replaced was elided on purpose -
+        # say what was saved, not what might be wrong with it (#157)
+        advice = (
+            ""
+            if entry.get("overridden_by")
+            else (
+                " If it was meant to, either a later step's reference to it "
+                "is misspelled or it needs a 'result' to save."
+            )
+        )
         emit_warning(
-            f"Step '{entry['step']}' did not run: {entry['reason']}. If it "
-            f"was meant to, either a later step's reference to it is "
-            f"misspelled or it needs a 'result' to save.",
+            f"Step '{entry['step']}' did not run: {entry['reason']}.{advice}",
             kind="step_elided",
             step=entry["step"],
+            overridden_by=entry.get("overridden_by"),
         )

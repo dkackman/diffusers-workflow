@@ -3664,6 +3664,69 @@ class TestValidatePlan:
         assert plan["estimate"]["minutes"] == 2.0
         assert plan["downloads_required"] == [{"repo": "m", "gb": None}]
 
+    def test_the_estimate_quotes_this_box_s_own_history(self, server, monkeypatch):
+        """#154: `basis: unknown` has to mean nobody has a number. A stored
+        workflow this server has finished eleven times is priced from those
+        runs, and the aggregate is asked with the caller's arguments."""
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+        from dw import get_device, get_device_type
+
+        serving = get_device_type(get_device())
+        asked = []
+
+        class History:
+            def observed(self, name, definition, arguments=None):
+                asked.append((name, arguments))
+                return {
+                    "device": serving,
+                    "name": "RTX 3090",
+                    "runs": 11,
+                    "cold_minutes": 8.04,
+                    "cold_runs": 11,
+                }
+
+        with server(success_script) as client:
+            client.app.state.observed_costs = History()
+            result = client.post(
+                "/api/validate?sizes=false",
+                json={"workflow_path": "Basic", "arguments": {"prompt": "x"}},
+            ).json()
+
+        assert result["plan"]["estimate"] == {
+            "minutes": 8.0,
+            "basis": "observed",
+            "device": serving,
+            "measured_on": "RTX 3090",
+            "partial": False,
+            "runs": 11,
+        }
+        assert asked == [("Basic", {"prompt": "x"})]
+
+    def test_an_inline_workflow_has_no_history_to_quote(self, server, monkeypatch):
+        """It has no catalog name, so nothing joins it to a job row."""
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+
+        class History:
+            def observed(self, name, definition, arguments=None):
+                raise AssertionError("an inline definition has no history")
+
+        with server(success_script) as client:
+            client.app.state.observed_costs = History()
+            result = client.post(
+                "/api/validate?sizes=false",
+                json={"workflow": video_workflow("planned", with_cost=True)},
+            ).json()
+
+        assert result["plan"]["estimate"]["basis"] in {"catalog", "other_device"}
+
     def test_an_invalid_answer_carries_no_plan(self, server):
         with server(success_script) as client:
             result = client.post(

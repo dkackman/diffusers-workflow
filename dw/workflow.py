@@ -29,6 +29,7 @@ from .previous_results import (
 )
 from .locations import location_errors
 from .reference_limits import reference_limit_errors
+from .adapter_compatibility import adapter_errors, warn_adapters
 from .elision import elide_definition, warn_elided
 from .introspection import task_signature_errors
 from .task_domains import task_argument_errors
@@ -606,6 +607,16 @@ class Workflow:
             # A reference set the pipeline would refuse costs a checkpoint
             # load to find out about otherwise (dw/reference_limits.py, #136)
             + reference_limit_errors(expanded, source_indices)
+            # An adapter trained for the other checkpoint partition, which
+            # the pipeline loads without complaint and answers worse for -
+            # the one H3 mistake that never shows in the output
+            # (dw/adapter_compatibility.py, #155)
+            + adapter_errors(
+                expanded,
+                source_indices,
+                written=self.workflow_definition,
+                supplied=set(arguments or {}),
+            )
             # A number outside a task argument's declared domain is refused
             # here rather than interpreted at run time - a negative frame
             # count was a Python slice from the end of the track and a zero
@@ -625,6 +636,29 @@ class Workflow:
             )
             + constraint_reference_errors(self.workflow_definition)
             + self.sub_workflow_errors(expanded, source_indices, composing)
+        )
+
+    def adapter_warnings(self, arguments=None):
+        """Every adapter whose file name says nothing about which checkpoint
+        partition it was trained for - valid, and worth saying, since
+        nothing at run time will (#155).
+
+        Best effort: a definition the schema or the expander refuses has its
+        own errors to report and none of them are this one.
+        """
+        from .adapter_compatibility import adapter_warnings
+
+        try:
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
+        except Exception:
+            logger.debug("No adapter warnings available", exc_info=True)
+            return []
+        return adapter_warnings(
+            expanded,
+            source_indices,
+            written=self.workflow_definition,
+            supplied=set(arguments or {}),
         )
 
     def _undeclared_variable_errors(self, arguments=None):
@@ -739,7 +773,10 @@ class Workflow:
         # other step, and before the seed and the run id, so everything
         # downstream counts the steps that will actually execute
         # (dw/elision.py, #122)
-        self._elided_steps = elide_definition(workflow_def)
+        # The definition as written is passed too: a step dropped because a
+        # caller replaced the variable that read it was elided on purpose,
+        # and says so, rather than being reported as a suspected typo (#157)
+        self._elided_steps = elide_definition(workflow_def, self.workflow_definition)
 
         # Set up random seed for reproducibility. Resolved lazily - as a
         # dict.get default, torch.seed() would run on every call and reseed
@@ -945,6 +982,10 @@ class Workflow:
             workflow_def, default_seed = self._prepare_definition(
                 workflow_def, arguments, base_dir
             )
+            # An adapter whose name says nothing about what it was trained
+            # for cannot be checked, and a run that started from the CLI or
+            # from a rerun never passed the validate route (#155)
+            warn_adapters(workflow_def)
             # Said out loud before anything loads: a step that vanishes
             # because a reference to it is misspelled would otherwise show
             # up only as a different picture (#122)

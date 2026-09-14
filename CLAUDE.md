@@ -388,7 +388,46 @@ same reason - default setup cannot load a pack.
   block is in the full listing and `GET /api/workflows/{name}/variables`. The
   raw `GET /api/workflows/{name}` is left verbatim, since the editor saves
   what it reads back. A `cost_drivers` entry naming no declared variable is
-  dropped, and `tests/test_observed_cost.py` sweeps the catalog for one
+  dropped, and `tests/test_observed_cost.py` sweeps the catalog for one.
+  `plan.estimate` quotes the observed figure ahead of the curated one
+  (`basis: "observed"`, with `runs`) — `basis: "unknown"` has to mean nobody
+  has a number, not nobody curated one (#154). Only the *cold* median, only
+  when the history is this backend's, and only for the bucket the caller's
+  own arguments fall in (`ObservedCosts.observed(name, definition,
+  arguments)`); a resized list finds no bucket and falls back to the curated
+  figure. Nothing is added for a composed child, since an observed run
+  already ran it. An inline definition has no catalog name, so no history
+- **An H3 adapter is checked against the partition its step denoises on** —
+  `ref2va` loads `transformer_ref` alone, so diffusers puts whatever
+  `lora_weight_name` names straight onto it: an FL2VA turbo LoRA on a
+  reference step runs, succeeds, and only retains identity worse (#149,
+  #155). `dw/adapter_compatibility.py` refuses the mispairing in
+  `validation_errors` (so `POST /api/validate` and the pre-queue check both
+  catch it, at `arguments.<name>` when the caller supplied it) and *warns*
+  on a file name carrying neither `ref2v` nor `fl2v` — the name of a future
+  reference-trained checkpoint cannot be predicted, so the escape hatch
+  stays open while the one documented mistake is closed. The workflow names
+  and the partition each denoises against are diffusers'
+  (`MiniMaxH3Blocks._workflow_map`, pinned by `tests/test_h3_adapters.py`);
+  the file-name convention is MiniMax's and is swept against the catalog's
+  own defaults
+- **An elided step says whether anyone decided it** — `warn_elided` used to
+  tell every caller their reference was probably misspelled, including the
+  one who deliberately passed `singer_reference` and so bought the elision
+  `music-video` advertises (#146, #157). `overriding_variables`
+  (`dw/elision.py`) compares the definition as *written* against the
+  substituted steps: a step reached only through a variable whose value no
+  longer names it was replaced on purpose, and its record carries
+  `overridden_by` and drops the diagnosis. A variable no step reads is not
+  how the step was reached, so that case keeps the old wording
+- **A deliverable with no audio headroom warns** — a track at or above
+  −0.5 dBFS is written anyway and said out loud (`warn_without_headroom`,
+  `dw/result.py`, kind `audio_no_headroom`), for both a saved audio file and
+  a muxed video: a clipped file succeeds, and a consumer that cannot listen
+  had `peak_dbfs` with no rule to read it against — `get_gallery_metadata`'s
+  hint taught the near-silent end of the range only (#158). A warning, not a
+  gain change: what level a deliverable sits at is the workflow's to decide,
+  and `normalize_audio` is the step that decides it
 - **A variable's bound is declared by the author, checked three times** — a
   model's own rule about a value (H3's `num_frames` is `17 * n + 5` from 124
   to 345) is a property of the model, so it lives in the workflow rather than

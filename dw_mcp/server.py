@@ -739,6 +739,8 @@ def build_server(client):
 
         A valid answer carries `plan`: what will execute for these
         arguments. Quote `plan.estimate.minutes` with its `basis` -
+        `observed` is this box's own finished runs of this shape (the cold
+        median over `runs` of them, preferred over any curated figure),
         `per_entry` is a measured per-entry rate re-priced for your list,
         `catalog` a measured total for a run whose lists are the ones it
         was measured with, `derived` that total extrapolated over a list

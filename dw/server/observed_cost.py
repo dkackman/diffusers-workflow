@@ -152,7 +152,7 @@ def _minutes_block(prefix, durations):
     }
 
 
-def observed_for(definition, rows, device=None, device_name=None):
+def observed_for(definition, rows, device=None, device_name=None, arguments=None):
     """This server's history for one workflow, as the `observed` block, or
     None when it has nothing comparable to report.
 
@@ -161,21 +161,29 @@ def observed_for(definition, rows, device=None, device_name=None):
     column, so a figure is about whatever accelerator this box has now - true
     for every box that has not had its card swapped, and `runs`/`since` are
     what let a reader notice if it has.
+
+    `arguments` are the run being asked about, and they choose the bucket:
+    the listing asks with none, so its figure is the one the *defaults* give
+    and stays comparable to a curated `cost`, while a plan asks with the
+    caller's own values and gets the figure for the run it is quoting, or
+    None when this box has never run that shape (#154).
     """
-    wanted = _bucket_key(definition, {})
-    if wanted is None:  # cannot happen for empty arguments, but be explicit
+    wanted = _bucket_key(definition, arguments or {})
+    if wanted is None:
+        # No declared drivers and the caller overrode something: nothing here
+        # is comparable to the run being asked about
         return None
     cold, warm, unclassified, earliest = [], [], 0, None
     for row in rows:
         if _every_step_was_reused(row["manifest"]):
             continue
         try:
-            arguments = json.loads(row["arguments"] or "{}")
+            row_arguments = json.loads(row["arguments"] or "{}")
         except (TypeError, ValueError):
             continue
-        if not isinstance(arguments, dict):
+        if not isinstance(row_arguments, dict):
             continue
-        if _bucket_key(definition, arguments) != wanted:
+        if _bucket_key(definition, row_arguments) != wanted:
             continue
         duration = row["duration"]
         if duration is None or duration <= 0:
@@ -207,13 +215,16 @@ def observed_for(definition, rows, device=None, device_name=None):
         # A list driver is reported as the length it buckets on, so the
         # figure says what it is a figure *for* without carrying a whole
         # default shot list into the listing
-        observed["drivers"] = {
-            name: (
-                len(variables[name])
-                if isinstance(variables.get(name), list)
-                else variables.get(name)
-            )
+        # The *effective* driver values - the caller's where they supplied
+        # one, else the stored default - so the block says which run it is a
+        # figure for rather than always describing the defaults
+        effective = {
+            name: (arguments or {}).get(name, variables.get(name))
             for name in sorted(drivers)
+        }
+        observed["drivers"] = {
+            name: len(value) if isinstance(value, list) else value
+            for name, value in effective.items()
         }
     if unclassified:
         # Says the numbers do not add up, and why, rather than letting a
@@ -292,14 +303,18 @@ class ObservedCosts:
             self._mark = mark
         return self._rows.get(name, [])
 
-    def observed(self, name, definition):
+    def observed(self, name, definition, arguments=None):
         rows = self.rows_for(name)
         if not rows:
             return None
         device, device_name = self.device()
         try:
             return observed_for(
-                definition, rows, device=device, device_name=device_name
+                definition,
+                rows,
+                device=device,
+                device_name=device_name,
+                arguments=arguments,
             )
         except Exception:
             # A figure is a nicety; a listing that 500s because one row had a

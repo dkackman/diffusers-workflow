@@ -1570,9 +1570,14 @@ def create_app(
                 source_root = source.root if source else workspace.workflows
                 candidate = workflow_from_file(resolved, workspace.outputs, source_root)
                 definition = candidate.workflow_definition
+                # The listing name the job history is keyed on, so the plan
+                # can quote what this box's own runs of it took (#154)
+                catalog_name = catalog_name_for(resolved, source)
             else:
                 definition = request.workflow
                 source_root = workspace.workflows
+                # An inline definition has no catalog name, so no history
+                catalog_name = None
                 candidate = workflow_from_definition(
                     copy.deepcopy(request.workflow),
                     workspace.outputs,
@@ -1648,6 +1653,11 @@ def create_app(
             # Why `plan.cached_steps` is 0 for a workflow with no seed - the
             # cache is off, not empty
             + unseeded_cache_warnings(definition, request.arguments)
+            # An adapter whose file name says nothing about which checkpoint
+            # partition it was trained for: valid, since the name of a
+            # future checkpoint cannot be predicted, but nothing at run time
+            # would say it loaded onto the wrong one (#155)
+            + candidate.adapter_warnings(request.arguments)
             # An argument a sub-workflow step passes to a workflow that
             # declares no variable for it - dropped in silence at run time
             + candidate.sub_workflow_warnings(),
@@ -1671,6 +1681,19 @@ def create_app(
                 lookup_sizes=sizes,
                 cache_probe=lambda arguments: manager.probe_cache(
                     {**command, "arguments": arguments}
+                ),
+                # What this box's own runs of this shape took, which is what
+                # the estimate quotes ahead of a curated figure (#154) - the
+                # same aggregate the listing reports, asked with the
+                # caller's arguments rather than the defaults
+                observed=(
+                    (
+                        lambda arguments: _observed_for_name(
+                            catalog_name, definition, arguments
+                        )
+                    )
+                    if catalog_name
+                    else None
                 ),
             )
         except Exception:
@@ -1984,12 +2007,16 @@ def create_app(
             answer["observed"] = observed
         return answer
 
-    def _observed_for_name(name, definition):
+    def _observed_for_name(name, definition, arguments=None):
         """One workflow's `observed` block, from the same aggregate the
         listing uses - so the figure a caller reads in the listing and the
-        one they read here are the same figure."""
+        one they read here are the same figure.
+
+        `arguments` narrow it to the bucket the run being planned falls in;
+        without them it is the figure the stored defaults give, which is the
+        listing's."""
         costs = getattr(app.state, "observed_costs", None)
-        return costs.observed(name, definition) if costs else None
+        return costs.observed(name, definition, arguments) if costs else None
 
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str, ws: Workspace = Depends(selected_workspace)):

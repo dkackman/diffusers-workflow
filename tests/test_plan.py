@@ -240,6 +240,7 @@ class TestEstimate:
             "device": "cuda",
             "measured_on": None,
             "partial": False,
+            "runs": None,
         }
 
     def test_an_empty_cost_list_is_unknown(self, plan):
@@ -256,6 +257,7 @@ class TestEstimate:
             "device": "cuda",
             "measured_on": "4090",
             "partial": False,
+            "runs": None,
         }
 
     def test_another_devices_entry_is_reported_as_such(self, plan):
@@ -267,6 +269,7 @@ class TestEstimate:
             "device": "cuda",
             "measured_on": "M2",
             "partial": False,
+            "runs": None,
         }
 
     def test_per_entry_scales_by_the_callers_list(self, plan):
@@ -368,6 +371,81 @@ class TestEstimate:
         spec = definition()
         spec["cost"] = [cost("cuda", 10.04)]
         assert plan(spec)["estimate"]["minutes"] == 10.0
+
+
+def observed(minutes=8.04, runs=11, device="cuda", name="RTX 3090", warm=False):
+    """This box's history for the workflow, as `observed_for` reports it."""
+    block = {"device": device, "name": name, "runs": runs}
+    prefix = "warm" if warm else "cold"
+    block[f"{prefix}_minutes"] = minutes
+    block[f"{prefix}_runs"] = runs
+    return block
+
+
+class TestObservedEstimate:
+    """#154: a figure this box measured beats one a maintainer curated, and
+    `basis` says which was used - `unknown` has to mean nobody has a number,
+    not nobody wrote one down."""
+
+    def test_history_is_quoted_when_there_is_no_cost_block(self, plan):
+        spec = definition()
+        del spec["cost"]
+        answer = plan(spec, observed=observed())["estimate"]
+        assert answer == {
+            "minutes": 8.0,
+            "basis": "observed",
+            "device": "cuda",
+            "measured_on": "RTX 3090",
+            "partial": False,
+            "runs": 11,
+        }
+
+    def test_history_beats_a_curated_figure(self, plan):
+        """The catalog says 10; this box has run it eleven times at 8."""
+        answer = plan(definition(), observed=observed())["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (8.0, "observed")
+
+    def test_a_callable_is_asked_with_the_run_s_arguments(self, plan):
+        asked = []
+
+        def history(arguments):
+            asked.append(arguments)
+            return observed()
+
+        shots = [{"name": "a", "prompt": "a"}]
+        plan(definition(), arguments={"shots": shots}, observed=history)
+        assert asked == [{"shots": shots}]
+
+    def test_a_callable_that_raises_falls_back_to_the_cost_block(self, plan):
+        def boom(arguments):
+            raise RuntimeError("no history")
+
+        answer = plan(definition(), observed=boom)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+
+    def test_no_history_falls_back_to_the_cost_block(self, plan):
+        answer = plan(definition(), observed=lambda arguments: None)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+
+    def test_only_warm_runs_are_not_quoted(self, plan):
+        """A warm run had the weights resident; quoting it as the cost of a
+        run that has to load them under-quotes by the load."""
+        answer = plan(definition(), observed=observed(warm=True))["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+
+    def test_another_backends_history_is_not_quoted(self, plan):
+        answer = plan(definition(), observed=observed(device="mps"))["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+
+    def test_a_composed_child_is_not_added_to_an_observed_figure(self, plan, tmp_path):
+        """An observed run already ran the child, so adding the child's
+        curated cost would count it twice."""
+        (tmp_path / "child.json").write_text(
+            json.dumps({"id": "child", "cost": [cost("cuda", 5)], "steps": []})
+        )
+        answer = plan(composing("child.json"), observed=observed(minutes=6))["estimate"]
+        assert answer["minutes"] == 6.0
+        assert answer["partial"] is False
 
 
 def composing(child_path):
