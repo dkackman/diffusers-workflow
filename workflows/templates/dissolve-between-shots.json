@@ -1,6 +1,6 @@
 {
     "id": "dissolve-between-shots",
-    "description": "assemble-and-score.json with the cuts softened into cross-dissolves. dissolve_videos overlaps each pair by 'dissolve_frames' rather than butting them together, which suits shots that share a composition - registered on the same centre at the same size, an overlap reads as one thing becoming another rather than as a fade between two pictures. Shots whose framing disagrees will read as a plain cross-fade, so use hard cuts there. As in assemble-and-score the shots are a list and go in untouched - a shot that drifts wants stabilize_video run on it first, as its own step, not on every shot by default. The audio bed is mixed the same way as in assemble-and-score.",
+    "description": "assemble-and-score.json with the cuts softened into cross-dissolves. dissolve_videos overlaps each pair by 'dissolve_frames' rather than butting them together, which suits shots that share a composition - registered on the same centre at the same size, an overlap reads as one thing becoming another rather than as a fade between two pictures. Shots whose framing disagrees will read as a plain cross-fade, so use hard cuts there. As in assemble-and-score the shots are a list and go in untouched - a shot that drifts wants stabilize_video run on it first, as its own step, not on every shot by default. The audio bed is mixed the same way as in assemble-and-score. Shots generated independently drift in loudness and no overlap can hide a level jump, because it is either side of the seam rather than at it; 'match_levels' ('rms' for perceived level, 'peak' for the loudest sample) evens the shots out before they are joined, and left null, as it is by default, a wide spread is warned about in the log rather than passing in silence. 'total_frames' is the length of the joined cut, which a dissolve shortens: every seam eats one 'dissolve_frames' overlap, so n shots of f frames joined with d-frame dissolves run n*f - (n-1)*d frames, not n*f. 'score' is a separate asset with its own length: it is sliced to 'total_frames' from 'score_start_frame', and a score that does not reach that far is padded to it with digital silence, which leaves the rest of the film unscored under the shots' own sound (the run says so as a 'slice_past_end' warning, but the film itself sounds plausible). A score must therefore be at least as long as the cut; to stretch a short bed to reach, make a longer one with the 'loop_audio' task first ('target_frames' and 'fps') and pass that as 'score'.",
     "cost": [
         {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 0.2}
     ],
@@ -11,6 +11,8 @@
             "asset:shot_3.mp4"
         ],
         "dissolve_frames": 12,
+        "match_levels": null,
+        "match_levels_dbfs": null,
         "score": "asset:score.wav",
         "sample_rate": 44100,
         "fps": 24,
@@ -27,7 +29,9 @@
                 "arguments": {
                     "videos": "variable:shots",
                     "dissolve_frames": "variable:dissolve_frames",
-                    "fps": "variable:fps"
+                    "fps": "variable:fps",
+                    "match_levels": "variable:match_levels",
+                    "match_levels_dbfs": "variable:match_levels_dbfs"
                 }
             }
         },

@@ -4289,3 +4289,88 @@ def test_gallery_metadata_finds_an_asset_an_examples_tree_brought(tmp_path):
     with TestClient(app, base_url="http://localhost") as client:
         body = client.get("/api/gallery/asset:example-bed.wav/metadata").json()
         assert body["media"]["duration_seconds"] == pytest.approx(1.5, abs=0.02)
+
+
+def test_deleting_the_last_output_of_a_run_sweeps_its_run_directory(server, tmp_path):
+    """A run's manifest.json/workflow.json have no gallery name of their own,
+    so deleting every output of a run used to leave the directory behind for
+    good - a consumer that removed everything it made still could not put the
+    workspace back the way it found it (#134)."""
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        run = outputs / "t2i" / "20260913-120000-aabbccdd"
+        (run / "final").mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "final" / "still-0.png")
+        Image.new("RGB", (2, 2)).save(run / "final" / "still-1.png")
+        (run / "manifest.json").write_text("{}")
+        (run / "workflow.json").write_text("{}")
+
+        first = client.delete(
+            "/api/gallery/t2i/20260913-120000-aabbccdd/final/still-0.png"
+        ).json()
+        # one file left, so the run still describes something
+        assert first["run_swept"] is None
+        assert (run / "manifest.json").exists()
+
+        last = client.delete(
+            "/api/gallery/t2i/20260913-120000-aabbccdd/final/still-1.png"
+        ).json()
+        assert last["run_swept"] == "20260913-120000-aabbccdd"
+        assert not run.exists()
+        # and the workflow folder above it, now that it holds no runs
+        assert not (outputs / "t2i").exists()
+        assert outputs.exists()
+
+
+def test_a_run_with_other_files_left_is_not_swept(server, tmp_path):
+    """Only the sidecars may remain: anything else is still something the
+    manifest describes, so the directory stays."""
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        run = outputs / "t2i" / "20260913-120000-aabbccdd"
+        run.mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "still-0.png")
+        (run / "manifest.json").write_text("{}")
+        (run / "notes.txt").write_text("kept")
+
+        body = client.delete(
+            "/api/gallery/t2i/20260913-120000-aabbccdd/still-0.png"
+        ).json()
+        assert body["run_swept"] is None
+        assert (run / "notes.txt").exists()
+
+
+def test_deleting_a_run_directory_clears_a_run_that_wrote_no_media(server, tmp_path):
+    """A run that failed before writing anything has a manifest and no gallery
+    name at all - the directory's own name is the only handle (#134)."""
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        run = outputs / "t2i" / "20260913-120000-deadbeef"
+        run.mkdir(parents=True)
+        (run / "manifest.json").write_text("{}")
+
+        body = client.delete("/api/gallery/t2i/20260913-120000-deadbeef").json()
+        assert body["deleted"] is True
+        assert body["run_swept"] == "20260913-120000-deadbeef"
+        assert not run.exists()
+
+        # a directory that is not a run is still a 404, not a recursive delete
+        (outputs / "keepme").mkdir()
+        assert client.delete("/api/gallery/keepme").status_code == 404
+        assert (outputs / "keepme").exists()
+
+
+def test_deleting_a_run_directory_stays_inside_the_output_root(server, tmp_path):
+    """The run-directory form takes the same containment as every other
+    gallery path: it cannot name a directory outside the workspace."""
+    outside = tmp_path / "20260913-120000-cafebabe"
+    outside.mkdir()
+
+    with server(success_script) as client:
+        response = client.delete("/api/gallery/..%2F20260913-120000-cafebabe")
+        assert response.status_code == 404
+        assert outside.exists()

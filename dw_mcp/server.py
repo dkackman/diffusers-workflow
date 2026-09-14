@@ -498,7 +498,13 @@ def build_server(client):
         """Permanently remove one generated file from the output directory.
         Not recoverable: rerunning the job that made it is the only way
         back, and any "output:" reference pointing at it stops resolving.
-        Prefer `keep_output` first if it is worth keeping.
+        Prefer `keep_output` first if it is worth keeping. When it was the
+        last media file of its run, the run directory goes with it -
+        `manifest.json` and `workflow.json` included - so deleting what you
+        made leaves the workspace as you found it. `name` may also be a run
+        directory ("<workflow>/<run id>", the first two parts of a gallery
+        name), which removes the whole run: the only way to clear a run that
+        failed before it wrote any media.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
@@ -576,7 +582,9 @@ def build_server(client):
         the workflows that carry them. Pass `shared=true` to put it in the
         library every workspace shares rather than this session's own -
         where a recurring cast belongs, since a workspace's own assets are
-        invisible from the next workspace."""
+        invisible from the next workspace. When this MCP surface is served
+        by dw.serve itself, "this machine" is the engine's own box, so
+        `file_path` is confined to the directories it works in."""
         return assets.upload_asset(
             client, file_path, asset_name=asset_name, shared=shared
         )
