@@ -16,6 +16,14 @@
             "location": "https://pbs.twimg.com/media/HPxFgsIXIAAjtUu?format=jpg&name=medium"
         }
     },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 8,
+            "remainder": 1,
+            "min_frames": 9,
+            "reason": "LTX-2.5's video VAE encodes 8 * n + 1 frames, so an off-grid count is not refused by the pipeline but floored to the grid below - a shorter clip than the one asked for. Refused here instead: no 'snap', because rounding a length the other way from the pipeline's own would be a second silent change"
+        }
+    },
     "steps": [
         {
             "name": "chained_image_to_video",

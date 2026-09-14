@@ -17,6 +17,16 @@
         "weights_dtype": "{int4}",
         "lora_scale": 1.0
     },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        }
+    },
     "steps": [
         {
             "name": "audio_aligned_chained_reference_to_video_audio",
@@ -127,12 +137,7 @@
                     "carry_audio": false,
                     "trim_frames": "variable:trim_frames",
                     "fps": 24,
-                    "frame_snap": {
-                        "modulus": 17,
-                        "remainder": 5,
-                        "min_frames": 124,
-                        "max_frames": 345
-                    },
+                    "frame_snap": "constraint:num_frames",
                     "prompts": [
                         "variable:first_segment_prompt",
                         "variable:continuation_prompt"

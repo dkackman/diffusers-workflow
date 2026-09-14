@@ -336,6 +336,55 @@ in braces keeps it a plain string — `"{nf4}"` is the string `nf4`. Getting thi
 wrong fails at load time, after validation has already passed, so a value that
 is meant as text under one of those keys must be braced.
 
+### What a variable is allowed to be
+
+A model's own rule about a value belongs in the workflow, not in engine code
+(CLAUDE.md) and not in a consumer's head. `variable_constraints` declares it
+per variable, in the same field names a chain step's `frame_snap` uses:
+
+```json
+"variable_constraints": {
+    "num_frames": {
+        "modulus": 17,
+        "remainder": 5,
+        "min_frames": 124,
+        "max_frames": 345,
+        "snap": "up",
+        "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+    }
+}
+```
+
+The value has to be `modulus * n + remainder` within `min_frames` to
+`max_frames`. With `snap: "up"` an off-grid value is rounded to the next one
+the rule accepts and the run *says so* - `130` becomes `141`, reported as a
+warning at validation time and again in the job's `warnings`; without `snap`
+it is refused. The bounds are checked against the value the run will use, so
+they hold for the rounded number: on the rule above `108` is accepted (it
+becomes `124`) and `346` is refused (it would become `362`).
+
+Checked three times, for the reasons the task-argument domains are: in
+`validation_errors`, so `POST /api/validate`, `validate_workflow` and the
+pre-queue check all refuse a bad value at `arguments.<name>` or
+`variables.<name>` for free; at run time before anything loads, which is the
+backstop for a value the static pass cannot see (an inline workflow, a value
+a parent passed down); and in the catalog, where `list_workflows` and
+`get_workflow(variables_only=true)` report the rule beside the default - the
+half that stops the next caller picking a number the model refuses.
+
+State the rule once. Where a template both declares a constraint and snaps a
+chain, the chain's `frame_snap` names it rather than repeating the numbers:
+
+```json
+"frame_snap": "constraint:num_frames"
+```
+
+Two limits, both accepted. A constraint cannot express a bound that depends
+on another variable (a maximum that is `fps * seconds` where a template
+exposes `fps`), and it reaches a top-level variable only - not a field inside
+a list entry, so a `for_each` template whose entries each carry their own
+`num_frames` is unconstrained and relies on the run-time check.
+
 ### A workflow takes only the keys the engine reads
 
 The workflow object itself, `step`, `task`, `workflow`,
@@ -1271,7 +1320,9 @@ joined into a single file:
 - `frame_snap` — the constraint the pipeline puts on `num_frames`, used to snap the
   final `match_audio` segment to a valid length. MiniMax H3 accepts `17n+5` frames
   between 124 and 345: `{ "modulus": 17, "remainder": 5, "min_frames": 124,
-  "max_frames": 345 }`.
+  "max_frames": 345 }`. Where the workflow already declares that rule as a
+  `variable_constraints` entry, write `"frame_snap": "constraint:num_frames"`
+  instead, so the numbers live in one place (*What a variable is allowed to be*).
 - `prompts` — optional per-segment prompt list for narrative progression; segment
   `i` uses `prompts[min(i, len - 1)]`.
 - `save_segments` — write each completed segment to the output directory as a

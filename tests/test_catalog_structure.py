@@ -348,7 +348,12 @@ def test_no_stale_entry_in_the_allowlist():
 
 # Spec targets, as chars / 4. The listing is the first thing an agent reads;
 # these are the ceilings that keep it readable rather than skimmed.
-COMPACT_BUDGET = 6_000  # was 5_500; raised with the informative MiniMax/LTX-2 summaries, measured 5_552
+# was 5_500, then 6_000 with the informative MiniMax/LTX-2 summaries;
+# raised again for the declared variable constraints (#96), which are what
+# stop a consumer picking a frame count the model refuses two minutes into a
+# run - carried terse (`17*n+5, 124-345, rounds up`), the reason only in the
+# full listing. Measured 6_289.
+COMPACT_BUDGET = 6_400
 FILTERED_BUDGET = 1_500
 
 

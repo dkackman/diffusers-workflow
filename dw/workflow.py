@@ -32,6 +32,12 @@ from .reference_limits import reference_limit_errors
 from .elision import elide_definition, warn_elided
 from .introspection import task_signature_errors
 from .task_domains import task_argument_errors
+from .variable_constraints import (
+    apply_constraints,
+    constraint_errors,
+    constraint_reference_errors,
+    resolve_constraint_references,
+)
 from .subfolders import step_subfolder, subfolder_errors
 from .step import Step
 from .step_cache import (
@@ -611,6 +617,13 @@ class Workflow:
             # is the one mistake a free pre-flight most obviously exists for
             # (dw/introspection.py, #141)
             + task_signature_errors(expanded, source_indices)
+            # A value outside a rule the workflow declares - the bound that
+            # cost 138 s of loading to discover, refused for free at the
+            # path the value sits at (dw/variable_constraints.py, #96)
+            + constraint_errors(
+                self.workflow_definition, arguments, supplied=set(arguments or {})
+            )
+            + constraint_reference_errors(self.workflow_definition)
             + self.sub_workflow_errors(expanded, source_indices, composing)
         )
 
@@ -694,6 +707,11 @@ class Workflow:
             # first set variable values base don the arguments passed to the workflow
             # these may come form the command line or form a parent workflow
             set_variables(arguments, variables)
+            # A value outside a rule the workflow declares is refused, and
+            # one the rule rounds is rounded with a warning saying so -
+            # before anything loads, and before substitution puts the value
+            # everywhere it is referenced (dw/variable_constraints.py, #96)
+            apply_constraints(workflow_def, variables)
             # an entry of a list-valued variable may name another
             # variable; resolve those before anything inside it is
             # realized, so a reference type in an entry is a type name
@@ -709,6 +727,11 @@ class Workflow:
         # seed, the run id and the realized workflow are computed, so
         # each covers what actually runs. A ForEachError here fails the
         # run before anything loads
+        # A chain step's `frame_snap` may name the declared constraint
+        # rather than repeating its numbers, so a template states the rule
+        # once (#96)
+        resolve_constraint_references(workflow_def)
+
         workflow_def = expand_for_each(workflow_def)
 
         # A step nothing after it reads, and which saves no file, does not

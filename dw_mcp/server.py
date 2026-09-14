@@ -179,8 +179,12 @@ def build_server(client):
         takes, the steps run over it and the default's length; there
         `cost[].per_entry`, when present, is the measured cost of one
         entry (`{variable, minutes, entries}`), so a run over a
-        different-length list can be priced from it. Templates only by
-        default; `configures=<template>` lists the checkpoint configs
+        different-length list can be priced from it. `constraints`, present
+        for a workflow that bounds a variable, is the rule each bounded one
+        has to satisfy, terse (`17*n+5, 124-345, rounds up`) - pass an
+        `arguments` value outside it and `validate_workflow` refuses it for
+        free, instead of the run failing after the weights are loaded.
+        Templates only by default; `configures=<template>` lists the checkpoint configs
         tuned for one, `include_models=true` lists them all. `get_workflow`
         has the full description and definition."""
         return catalog.list_workflows(
@@ -200,7 +204,10 @@ def build_server(client):
         nothing else, which is a fraction of the definition; long defaults
         come back cut to 200 characters with the cut ones named in
         `truncated`, reaching into a list default too - a shot's prompt
-        is named `shots[0].prompt`."""
+        is named `shots[0].prompt`. A variable the workflow bounds is
+        reported under `constraints` beside its default - the range and the
+        step it has to land on - so a frame count is read rather than
+        guessed at."""
         return catalog.get_workflow(client, name, variables_only=variables_only)
 
     def get_schema(section: str | None = None) -> dict:
@@ -698,6 +705,15 @@ def build_server(client):
         can reach - each with `arguments.<name>` as its path.
         `checked_arguments` lists what was checked, so a valid answer says
         whether it covered your values or only the stored defaults.
+
+        A value outside a bound the workflow declares for that variable is
+        an error here rather than a failed run: H3's frame count has to be
+        `17 * n + 5` between 124 and 345, and 61 used to validate and then
+        fail 138 s into the run, after the weights were loaded. A value the
+        workflow rounds up instead of refusing comes back as a warning
+        naming what it becomes, so a frame count the run changes is known
+        before the run. `get_workflow(variables_only=true)` and
+        `list_workflows` report the bound beside the default.
 
         A `result.subfolder` or `file_base_name` that cannot be written (a
         `..`, a backslash, a separator in `file_base_name`) is reported here

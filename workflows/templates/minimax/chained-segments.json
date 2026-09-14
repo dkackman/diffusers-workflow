@@ -18,6 +18,16 @@
         "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
         "lora_adapter_name": "turbo"
     },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        }
+    },
     "steps": [
         {
             "name": "chained_keyframe_to_video_audio",
@@ -135,12 +145,7 @@
                     "trim_frames": 2,
                     "crossfade_ms": 80,
                     "fps": 24,
-                    "frame_snap": {
-                        "modulus": 17,
-                        "remainder": 5,
-                        "min_frames": 124,
-                        "max_frames": 345
-                    }
+                    "frame_snap": "constraint:num_frames"
                 },
                 "arguments": {
                     "prompt": "variable:prompt",

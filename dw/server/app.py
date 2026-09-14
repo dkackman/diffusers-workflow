@@ -64,6 +64,7 @@ from ..prompts import (
     resolve_prompt_reference,
 )
 from ..assets import is_asset_reference, resolve_asset_reference
+from ..variable_constraints import constraint_errors, constraint_warnings
 from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
@@ -293,6 +294,9 @@ def workflow_details(sources_by_name):
                 "traits": metadata["traits"],
                 "summary": metadata["summary"],
                 "lists": metadata["lists"],
+                # What a variable's value is allowed to be, so the rule is
+                # read rather than guessed at (#96)
+                "constraints": definition.get("variable_constraints") or {},
                 "cost": cost if isinstance(cost, list) and cost else None,
             }
         except Exception:
@@ -307,6 +311,7 @@ def workflow_details(sources_by_name):
                 "traits": [],
                 "summary": "",
                 "lists": {},
+                "constraints": {},
                 "cost": None,
             }
         _workflow_detail_cache[path] = (mtime, detail)
@@ -933,6 +938,11 @@ def create_app(
             )
         candidate.validate()
         problems = argument_errors(candidate.workflow_definition, arguments)
+        # A value outside a rule the workflow declares, refused before the
+        # job id rather than after the weights are loaded (#96)
+        problems += constraint_errors(
+            candidate.workflow_definition, arguments, supplied=set(arguments or {})
+        )
         if problems:
             raise ValueError(
                 "; ".join(
@@ -1587,6 +1597,10 @@ def create_app(
             "error": None,
             "errors": [],
             "warnings": workflow_argument_warnings(definition)
+            # A value a declared constraint will round up - the silent half
+            # of #96: the run changed the caller's frame count and only the
+            # server's log said so
+            + constraint_warnings(definition, request.arguments)
             + entry_field_warnings(definition, request.arguments)
             # Why `plan.cached_steps` is 0 for a workflow with no seed - the
             # cache is off, not empty
@@ -1901,13 +1915,20 @@ def create_app(
         values, truncated = {}, []
         for variable, value in variables.items():
             values[variable] = value if full else preview(value, variable)
-        return {
+        answer = {
             "name": name,
             "variables": values,
             "truncated": truncated,
             "seed": definition.get("seed"),
             "origin": source.origin,
         }
+        # The rule beside the default it constrains: a consumer reading
+        # `num_frames: 124` with no range picked 61 and paid 138 s of
+        # loading to be told the rule was 17n + 5 from 124 (#96)
+        constraints = definition.get("variable_constraints")
+        if isinstance(constraints, dict) and constraints:
+            answer["constraints"] = constraints
+        return answer
 
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str, ws: Workspace = Depends(selected_workspace)):

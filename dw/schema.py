@@ -175,9 +175,10 @@ SCHEMA_SECTIONS = {
             "configures",
             "cost",
             "variables",
+            "variable_constraints",
             "seed",
         ],
-        "defs": [],
+        "defs": ["variable_constraint"],
     },
     "steps": {"properties": ["steps"], "defs": ["step", "workflow_reference"]},
     "pipelines": {
