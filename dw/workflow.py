@@ -28,6 +28,7 @@ from .previous_results import (
     previous_result_reference_errors,
 )
 from .locations import location_errors
+from .reference_limits import reference_limit_errors
 from .subfolders import step_subfolder, subfolder_errors
 from .step import Step
 from .step_cache import (
@@ -593,6 +594,9 @@ class Workflow:
             # A location policy refuses before a model load is spent on the
             # run rather than after it (dw/locations.py)
             + location_errors(expanded, source_indices, base_dir)
+            # A reference set the pipeline would refuse costs a checkpoint
+            # load to find out about otherwise (dw/reference_limits.py, #136)
+            + reference_limit_errors(expanded, source_indices)
             + self.sub_workflow_errors(expanded, source_indices, composing)
         )
 
@@ -1397,6 +1401,11 @@ class Workflow:
                 output_dir=self.step_output_dir(step_definition),
                 file_prefix=self.step_file_prefix(step_name),
             )
+            # Before the marker, not after it: a definition refused by the
+            # trust gate must not have announced a load it never began, or a
+            # consumer reading job events cannot tell 'refused before load'
+            # from 'loaded, then refused' (#137)
+            pipeline.check_trusted()
             # Loading is the longest silence in a run: weights, quantization,
             # adapters and placement all happen inside this call
             emit_phase("loading", detail=pipeline.name)

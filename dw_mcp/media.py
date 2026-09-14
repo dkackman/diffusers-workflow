@@ -137,7 +137,11 @@ def get_output_text(
 
 def delete_output(client, name, workspace=None):
     """Remove one file from the output directory. The gallery is the output
-    directory read back, so this is where a delete belongs."""
+    directory read back, so this is where a delete belongs.
+
+    The run directory goes too once its last media file is gone, sidecars
+    included, and a `<workflow>/<run id>` name removes a whole run - what a
+    failed run, which has a manifest and nothing else, needs (#134)."""
     return client.delete_json(api_path("api", "gallery", name), workspace=workspace)
 
 

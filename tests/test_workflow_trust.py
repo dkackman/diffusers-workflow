@@ -285,3 +285,111 @@ class TestRemoteCodeIsGated:
                 "cpu",
             )
         component_type.from_pretrained.assert_not_called()
+
+
+class TestTrustPreflightRunsBeforeTheLoadingMarker:
+    """The gates themselves are inside load()/load_component(), which is where
+    the boundary belongs - but load() is entered under a 'loading' phase
+    event, so a refused run emitted the same marker as one that loaded a model
+    and then failed, and job events could no longer tell 'refused before load'
+    from 'loaded, then refused' (#137)."""
+
+    def _pipeline(self, definition):
+        return Pipeline(definition, 0, "cpu")
+
+    def test_remote_code_refused_by_the_preflight(self, monkeypatch):
+        _untrust(monkeypatch)
+        pipeline = self._pipeline(
+            {
+                "configuration": {},
+                "from_pretrained_arguments": {
+                    "model_name": "a/b",
+                    "trust_remote_code": True,
+                },
+                "arguments": {},
+            }
+        )
+        with pytest.raises(UntrustedWorkflowError, match="trust_remote_code"):
+            pipeline.check_trusted()
+
+    def test_a_component_block_is_covered_too(self, monkeypatch):
+        _untrust(monkeypatch)
+        pipeline = self._pipeline(
+            {
+                "configuration": {},
+                "from_pretrained_arguments": {"model_name": "a/b"},
+                "transformer": {
+                    "configuration": {},
+                    "from_pretrained_arguments": {
+                        "model_name": "c/d",
+                        "custom_pipeline": "someone/repo",
+                    },
+                },
+                "arguments": {},
+            }
+        )
+        with pytest.raises(UntrustedWorkflowError, match="custom_pipeline"):
+            pipeline.check_trusted()
+
+    def test_pre_load_modules_are_covered_too(self, monkeypatch):
+        _untrust(monkeypatch)
+        pipeline = self._pipeline(
+            {
+                "configuration": {"pre_load_modules": ["json"]},
+                "from_pretrained_arguments": {"model_name": "a/b"},
+                "arguments": {},
+            }
+        )
+        with pytest.raises(UntrustedWorkflowError, match="pre_load_modules"):
+            pipeline.check_trusted()
+
+    def test_an_ordinary_definition_passes(self, monkeypatch):
+        _untrust(monkeypatch)
+        pipeline = self._pipeline(
+            {
+                "configuration": {"component_type": "StableDiffusionPipeline"},
+                "from_pretrained_arguments": {"model_name": "a/b"},
+                "arguments": {"prompt": "an apple"},
+            }
+        )
+        pipeline.check_trusted()
+
+    def test_a_refused_run_emits_no_loading_phase(self, monkeypatch, tmp_path):
+        """End to end through Workflow.run: the events a consumer reads carry
+        no 'loading' marker for a run the gate refused."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        _untrust(monkeypatch)
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            workflow = Workflow(
+                {
+                    "id": "untrusted_remote_code",
+                    "steps": [
+                        {
+                            "name": "main",
+                            "pipeline": {
+                                "configuration": {
+                                    "component_type": "StableDiffusionPipeline"
+                                },
+                                "from_pretrained_arguments": {
+                                    "model_name": "a/b",
+                                    "trust_remote_code": True,
+                                },
+                                "arguments": {"prompt": "an apple"},
+                            },
+                            "result": {"content_type": "image/jpeg"},
+                        }
+                    ],
+                },
+                str(tmp_path / "outputs"),
+                "",
+            )
+            with pytest.raises(UntrustedWorkflowError):
+                workflow.run({})
+        finally:
+            deactivate_context(token)
+
+        phases = [e for e in events if e.get("event") == "phase"]
+        assert not any(p.get("phase") == "loading" for p in phases), phases

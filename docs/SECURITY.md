@@ -177,14 +177,21 @@ validated there, exactly as it would be for a browser request from the web
 UI. A remote `dw.serve` is allowed only with a token — see
 [MCP Server](MCP.md#security) and [REMOTE.md](REMOTE.md).
 
-The one exception is `download_output`, which writes a local file for the
-MCP client rather than only reading through the API. It may write anywhere
-the client's own filesystem permissions allow (the machine running the MCP
-server — the GPU box when served by `dw.serve --mcp`) — a full path, a
-directory, or the current working directory by default, `~` expanded — since
-it acts for the local user the same way a shell redirect would; a `..` path segment in
-`destination` is refused regardless, and an existing file at the resolved
-path is left alone unless the caller passes `overwrite=True`.
+The two exceptions are `download_output`, which writes a local file for the
+MCP client, and `upload_asset(file_path=...)`, which reads one — neither goes
+through the API for that half of its work. Both turn on whose machine "local"
+is. Over a **stdio `dw-mcp`** it is the user's own, so both act for the local
+user the way a shell redirect would: `download_output` writes anywhere the
+process may (a full path, a directory, or the working directory by default,
+`~` expanded) and `upload_asset` reads anything it may. Over **`dw.serve
+--mcp`** it is the operator's box, which the caller never chose, so both are
+confined there: `download_output`'s `destination` to the workspace (#113) and
+`upload_asset`'s `file_path` to the directories the server works in — its
+workspace, workflows, assets, outputs and prompts (#138). `upload_asset`'s
+refusal is ordered ahead of the existence and extension checks so it cannot
+be used as a path-existence oracle. A `..` path segment in `destination` is
+refused regardless, and an existing file at the resolved path is left alone
+unless the caller passes `overwrite=True`.
 
 ## Exception Hierarchy
 

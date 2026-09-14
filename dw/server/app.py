@@ -72,7 +72,14 @@ from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..plan import build_plan, unseeded_cache_warnings
-from ..runs import is_output_reference, resolve_output_reference, split_run_path
+from ..runs import (
+    MANIFEST_FILE_NAME,
+    REALIZED_FILE_NAME,
+    is_output_reference,
+    is_run_id,
+    resolve_output_reference,
+    split_run_path,
+)
 from ..workspace import (
     ASSETS_SUBDIR,
     DEFAULT_WORKSPACE_NAME,
@@ -2502,13 +2509,110 @@ def create_app(
             background=BackgroundTask(os.unlink, handle.name),
         )
 
+    # What a run directory holds besides its media: the engine writes them to
+    # describe the run, and the gallery - which lists media - never shows them
+    RUN_SIDECARS = (MANIFEST_FILE_NAME, REALIZED_FILE_NAME)
+
+    def _prune_empty_run_directory(name, root):
+        """Drop the run directory a just-deleted output belonged to, once no
+        media is left in it.
+
+        A run writes `manifest.json` and `workflow.json` beside its files, and
+        nothing in the gallery addresses either one. Deleting every output of a
+        run therefore used to leave the directory behind forever: a consumer
+        that removed everything it made still could not put a workspace back
+        the way it found it, and nothing it could call would even show the
+        residue (#134). Tying the sidecars' lifetime to the outputs they
+        describe is what makes "delete what you made" true.
+
+        Only the sidecars may remain - any other leftover file means something
+        is still there to describe, and the directory stays.
+
+        Returns:
+            The run id swept, or None if nothing was
+        """
+        identity, run_id, _ = split_run_path(name)
+        if not run_id:
+            # The flat layout writes no run directory and no sidecars
+            return None
+        relative = f"{identity}/{run_id}" if identity else run_id
+        try:
+            run_dir = validate_path(
+                os.path.join(root, relative), root, allow_create=False
+            )
+        except SecurityError:
+            return None
+        if not os.path.isdir(run_dir):
+            return None
+
+        for directory, _subdirectories, files in os.walk(run_dir):
+            for file_name in files:
+                if directory == run_dir and file_name in RUN_SIDECARS:
+                    continue
+                return None
+
+        shutil.rmtree(run_dir, ignore_errors=True)
+        # And the identity folders above it, while they are empty - a swept
+        # workspace should not keep one directory per workflow it once ran
+        parent = os.path.dirname(run_dir)
+        while os.path.normpath(parent) != os.path.normpath(root):
+            try:
+                os.rmdir(parent)
+            except OSError:
+                break
+            parent = os.path.dirname(parent)
+        logger.info(f"Swept empty run directory {relative}")
+        return run_id
+
+    def _run_directory(name, root):
+        """The run directory `<identity>/<run id>` names, or None.
+
+        A run that failed before it wrote anything still has a directory and a
+        manifest, and no gallery name addresses it - so the name of the
+        directory itself is the only handle there can be (#134).
+        """
+        parts = [part for part in (name or "").split("/") if part]
+        if not parts or not is_run_id(parts[-1]):
+            return None
+        try:
+            path = validate_path(
+                os.path.join(root, "/".join(parts)), root, allow_create=False
+            )
+        except SecurityError:
+            return None
+        return path if os.path.isdir(path) else None
+
     @app.delete("/api/gallery/{name:path}")
     def delete_output(name: str, ws: Workspace = Depends(selected_workspace)):
-        """Remove one file from the output directory."""
+        """Remove one file from the output directory.
+
+        When that was the last media file of its run, the run directory goes
+        with it, sidecars included. `name` may also be a run directory
+        (`<identity>/<run id>`), which removes the whole run - the only handle
+        on a run that failed before it wrote any media (#134).
+        """
+        run_dir = _run_directory(name, ws.outputs)
+        if run_dir is not None:
+            shutil.rmtree(run_dir, ignore_errors=True)
+            parent = os.path.dirname(run_dir)
+            while os.path.normpath(parent) != os.path.normpath(ws.outputs):
+                try:
+                    os.rmdir(parent)
+                except OSError:
+                    break
+                parent = os.path.dirname(parent)
+            logger.info(f"Deleted run directory {name}")
+            return {
+                "name": name,
+                "deleted": True,
+                "run_swept": os.path.basename(run_dir),
+            }
+
         path = _output_file(name, ws.outputs)
         os.remove(path)
         logger.info(f"Deleted output file {name}")
-        return {"name": name, "deleted": True}
+        swept = _prune_empty_run_directory(name, ws.outputs)
+        return {"name": name, "deleted": True, "run_swept": swept}
 
     # ---------------------------------------------------------------- uploads
 

@@ -26,7 +26,7 @@ from diffusers import attention_backend
 # dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
 # imported where they are used - at module scope they add seconds to every startup
 
-from ..events import WorkflowCancelled, emit_phase, get_context
+from ..events import WorkflowCancelled, emit_phase, emit_warning, get_context
 from huggingface_hub.errors import HfHubHTTPError
 
 logger = logging.getLogger("dw")
@@ -218,6 +218,44 @@ class Pipeline:
             from_pretrained_arguments["text_encoder"] = None
 
         return from_pretrained_arguments
+
+    def check_trusted(self):
+        """Refuse an untrusted definition before anything says a load began.
+
+        The gates themselves live inside load() and load_component(), which is
+        where they have to be - that is the last point before the bytes are
+        fetched. But `load()` is entered under a 'loading' phase event, so a
+        run refused by them emitted the same marker as one that loaded a model
+        and then failed, and job events could no longer tell the two apart
+        (#137). This runs the same checks over the definition first, so the
+        caller emits 'loading' only once a load can actually begin. It is a
+        pre-flight, not the boundary: the in-load checks stay.
+
+        Raises:
+            UntrustedWorkflowError: If untrusted and the definition reaches
+                for remote code
+        """
+        require_trusted_pre_load_modules(self.configuration.get("pre_load_modules", []))
+        # Walk the whole definition rather than the component names this class
+        # knows: a gate that only covers what it remembers to enumerate stops
+        # covering a block added later
+        self._check_trusted_block(self.pipeline_definition, "pipeline")
+
+    @staticmethod
+    def _check_trusted_block(block, what):
+        if not isinstance(block, dict):
+            return
+        require_trusted_from_pretrained_arguments(
+            block.get("from_pretrained_arguments"), what
+        )
+        for key, value in block.items():
+            if key == "from_pretrained_arguments":
+                continue
+            if isinstance(value, dict):
+                Pipeline._check_trusted_block(value, key)
+            elif isinstance(value, list):
+                for entry in value:
+                    Pipeline._check_trusted_block(entry, key)
 
     def load(self, shared_components):
         """
@@ -1121,8 +1159,9 @@ def warn_if_safety_checker_blanked(output):
 
     Stable Diffusion 1.5's checker false-positives readily, and it returns a
     solid black image rather than an error. Run to run that reads as the seed
-    having no effect - the same result every time - so the reason belongs in
-    the log where the identical images do.
+    having no effect - the same result every time - so the reason belongs
+    where the identical images do: the run's warnings, which is the only
+    place a consumer of a `succeeded` job would ever see it.
 
     Args:
         output: The pipeline output, which may carry nsfw_content_detected
@@ -1133,11 +1172,19 @@ def warn_if_safety_checker_blanked(output):
 
     blanked = sum(1 for flag in flags if flag)
     if blanked:
-        logger.warning(
+        # emit_warning rather than logger.warning: a blanked image is a
+        # succeeded job whose file is solid black, and a consumer over the
+        # API or MCP sees the job's warnings list and nothing else - the log
+        # line never reaches the one party that cannot tell the picture apart
+        # from a rendered one (#133)
+        emit_warning(
             f"The safety checker blanked {blanked} of {len(flags)} generated "
             "images - they are solid black, and no seed will change that. "
             "Pass 'safety_checker': null in from_pretrained_arguments to "
-            "load the pipeline without it."
+            "load the pipeline without it.",
+            kind="safety_checker_blanked",
+            blanked=blanked,
+            images=len(flags),
         )
 
 
