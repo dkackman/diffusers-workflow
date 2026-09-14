@@ -235,6 +235,10 @@ def _release_workflow_def():
                 "from_pretrained_arguments": {"model_name": f"model-{name}"},
                 "arguments": {"prompt": "test"},
             },
+            # Both steps save, so both run: a step that saves nothing and
+            # which nothing reads is elided before the run (#122), and these
+            # are release tests rather than elision ones
+            "result": {"content_type": "image/png"},
         }
 
     return {
@@ -321,7 +325,11 @@ def _release_models_workflow_def(release):
                 "pipeline": {
                     "configuration": {"component_type": "{MockPipeline}"},
                     "from_pretrained_arguments": {"model_name": "model-generate"},
-                    "arguments": {"prompt": "test"},
+                    # Reads the expanded prompt, which is the shape this
+                    # exists for - and keeps the task step in the run, since
+                    # a step nothing reads and which saves nothing is elided
+                    # before the first step executes (#122)
+                    "arguments": {"prompt": "previous_result:expand_prompt"},
                 },
             },
         ],

@@ -39,6 +39,14 @@ export function describePlan(plan: Plan): PlanLine[] {
     })
   }
 
+  const elided = plan.elided_steps ?? []
+  if (elided.length) {
+    lines.push({
+      text: `skipped: ${elided.map((e) => e.step).join(', ')} - nothing reads them`,
+      tone: 'warn',
+    })
+  }
+
   const downloads = plan.downloads_required.map((entry) => {
     const name = entry.repo ?? entry.url ?? '?'
     return entry.gb === null ? name : `${name} (${entry.gb} GB)`

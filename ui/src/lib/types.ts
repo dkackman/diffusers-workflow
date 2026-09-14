@@ -239,6 +239,9 @@ export interface Plan {
   /** How many steps the worker's step cache would serve; null when the
    * worker was busy or did not answer. */
   cached_steps: number | null
+  /** The steps that will not run because nothing reads their result and
+   * they save no file - already excluded from `steps` (#122). */
+  elided_steps: { step: string; reason: string }[]
   downloads_required: { repo: string | null; url?: string; gb: number | null }[]
   estimate: {
     minutes: number | null

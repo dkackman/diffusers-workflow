@@ -38,11 +38,16 @@ def definition():
                         "num_frames": "variable:frames",
                     },
                 },
+                # Both steps declare a result: a step that saves nothing and
+                # which nothing reads does not run at all now (#122), and
+                # these fixtures are about the plan rather than about elision
+                "result": {"content_type": "image/png"},
             },
             {
                 "name": "shot",
                 "for_each": "variable:shots",
                 "task": {"command": "x", "arguments": {"prompt": "item:prompt"}},
+                "result": {"content_type": "video/mp4"},
             },
         ],
     }
@@ -96,6 +101,7 @@ PLAN_KEYS = {
     "steps",
     "list_entries",
     "cached_steps",
+    "elided_steps",
     "downloads_required",
     "estimate",
 }

@@ -29,6 +29,7 @@ from .previous_results import (
 )
 from .locations import location_errors
 from .reference_limits import reference_limit_errors
+from .elision import elide_definition, warn_elided
 from .introspection import task_signature_errors
 from .task_domains import task_argument_errors
 from .subfolders import step_subfolder, subfolder_errors
@@ -679,6 +680,9 @@ class Workflow:
         the run prepares - the step cache keys on the realized step, and a
         probe that prepared it differently would answer for a run that
         never happens.
+
+        Records the steps elision dropped on `self._elided_steps` (#122) -
+        the same list run() warns about and writes into the manifest.
         """
         workflow_id = workflow_def["id"]
         variables = workflow_def.get("variables", None)
@@ -706,6 +710,13 @@ class Workflow:
         # each covers what actually runs. A ForEachError here fails the
         # run before anything loads
         workflow_def = expand_for_each(workflow_def)
+
+        # A step nothing after it reads, and which saves no file, does not
+        # run - after expansion, so a for_each member is judged like any
+        # other step, and before the seed and the run id, so everything
+        # downstream counts the steps that will actually execute
+        # (dw/elision.py, #122)
+        self._elided_steps = elide_definition(workflow_def)
 
         # Set up random seed for reproducibility. Resolved lazily - as a
         # dict.get default, torch.seed() would run on every call and reseed
@@ -874,6 +885,9 @@ class Workflow:
         # BEFORE its replacement loads, or the transition holds both at once
         self._prior_step_keys = prior_step_keys or {}
         self.manifest = []
+        # What elision dropped this run, filled by _prepare_definition and
+        # read by the warning pass and the manifest (#122)
+        self._elided_steps = []
         # Overwritten on the way out of the try below - a run that leaves
         # this alone died on an exception the manifest should say so about
         status = "failed"
@@ -908,6 +922,10 @@ class Workflow:
             workflow_def, default_seed = self._prepare_definition(
                 workflow_def, arguments, base_dir
             )
+            # Said out loud before anything loads: a step that vanishes
+            # because a reference to it is misspelled would otherwise show
+            # up only as a different picture (#122)
+            warn_elided(self._elided_steps)
             # A workflow that names no seed gets a fresh one every run, so no
             # step's cache entry can ever match again - skip the cache
             # wholesale rather than deep-copying every step's realized images
@@ -1312,6 +1330,9 @@ class Workflow:
                 },
                 "seed": seed,
                 "arguments": arguments or {},
+                # What did not run, and why - a run says what it did not do
+                # as well as what it did (#122)
+                "elided_steps": self._elided_steps,
                 "steps": [
                     {
                         **entry,

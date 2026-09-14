@@ -616,6 +616,20 @@ than prefixing it, so `"file_base_name": "episode"` in a `final` subfolder
 writes `final/episode-0.0.mp4` - name each step that sets one differently, or
 the second collides and picks up a `-2`.
 
+A step that saves nothing and which no later step reads does not run at
+all: the engine drops it before the first step executes and warns once per
+dropped step. That is how a template whose portraits can be supplied as
+`asset:` files stops paying for the steps that would have drawn them. It
+follows from what the definition says, never from a value produced during
+the run, so it is decided at validate time too - the `plan` a validate call
+answers with counts only the steps that will run and lists the rest under
+`elided_steps`. Four things keep a step: a `result` with a `content_type`
+and `save` not `false`, being the last step, being read by a later step
+(`previous_result:`, `gather:`, a `pipeline_reference`, a shared component),
+or being read by a step that is itself kept - elision is transitive. If a
+step you meant to run is named in the warnings, a reference to it is
+misspelled somewhere later or it needs a `result`.
+
 ### Composing a stored workflow
 
 A step with a `workflow` block runs another workflow as one step of this one,
@@ -911,6 +925,37 @@ sub-workflow has finished. It clears every cached task model, not only this step
 later step needing one of them reloads it.
 
 **Example:** [enhance-prompt.json](../workflows/templates/minimax/enhance-prompt.json)
+
+#### A step nothing reads does not run
+
+Before the first step executes, the engine drops any step whose result no later step
+reads and which writes no file, and warns once per dropped step saying which and why.
+`dialogue-short` cast from portraits that already exist used to run its two Z-Image
+steps anyway and throw the pictures away - about a minute of GPU per episode on
+something nothing looked at (#122).
+
+Four things keep a step:
+
+- **it saves** - a `result` with a `content_type`, and `save` not `false`. A workflow
+  whose whole point is writing three images references nothing, so this is the rule that
+  keeps elision from being destructive. `"save": false` is how a step says it is
+  scaffolding.
+- **it is the last step** - it is the run's answer, whatever it declares.
+- **something reads it** - `previous_result:`/`from_previous_result` (including
+  `previous_result:step.property`), a `gather:` (which is a list of those by the time
+  this runs), a `pipeline_reference` naming it, or a `reused_components` entry naming a
+  component it shares.
+- Elision is transitive, so dropping a step can drop the step it read in turn.
+
+`release_pipeline` on an elided step moves onto the last surviving step before it when
+that step loaded the same pipeline, and `release_models` moves unconditionally - a
+release that vanished with its step would leak the memory it existed to free. The plan a
+validate call answers with is computed after elision, so `steps`, `downloads_required`
+and the cost it quotes are the work that will actually happen, and it lists what was
+dropped under `elided_steps`; the run manifest records the same list.
+
+If a step you expected to run is named in the warnings, the usual cause is a reference
+to it spelled wrong somewhere later, or a step that was meant to declare a `result`.
 
 ### VAE Options
 

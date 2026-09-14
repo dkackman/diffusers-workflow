@@ -3632,6 +3632,7 @@ EMPTY_PLAN = {
     "steps": 0,
     "list_entries": {},
     "cached_steps": None,
+    "elided_steps": [],
     "downloads_required": [],
     "estimate": None,
 }
