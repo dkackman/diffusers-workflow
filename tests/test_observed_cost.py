@@ -377,6 +377,29 @@ class TestOffTheJobRow:
 
         assert reads == [], "a warm cache re-queried the job table"
 
+    def test_the_device_is_read_from_symbols_that_exist(self):
+        """Caught in deployment: the lookup imported `get_memory_stats`,
+        which is spelled `device_memory_stats`, and one try around both
+        calls turned the ImportError into `device: null` on a box plainly
+        running on CUDA - the silent null this field exists to replace. This
+        asserts the symbols resolve rather than that any particular card is
+        present, since the suite runs on CUDA, MPS and CPU."""
+        from dw import device_memory_stats, get_device, get_device_type
+
+        assert callable(get_device) and callable(get_device_type)
+        assert "device_name" in device_memory_stats()
+
+        kind, _card = ObservedCosts(None).device()
+        assert kind == get_device_type(get_device())
+
+    def test_the_device_is_looked_up_once(self):
+        costs = ObservedCosts(None)
+        first = costs.device()
+
+        costs._device = ("sentinel", "sentinel")
+
+        assert costs.device() == ("sentinel", "sentinel") and first is not None
+
     def test_no_history_is_no_figure_rather_than_an_error(self):
         costs = ObservedCosts(None)
 

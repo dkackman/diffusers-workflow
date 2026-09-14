@@ -252,16 +252,24 @@ class ObservedCosts:
         reader notice.
         """
         if self._device is None:
-            try:
-                from .. import get_device, get_device_type, get_memory_stats
+            from .. import device_memory_stats, get_device, get_device_type
 
-                self._device = (
-                    get_device_type(get_device()),
-                    get_memory_stats().get("device_name"),
-                )
+            kind, card = None, None
+            try:
+                kind = get_device_type(get_device())
             except Exception:
-                logger.debug("observed cost: could not read the device")
-                self._device = (None, None)
+                logger.debug("observed cost: could not read the device type")
+            try:
+                # The card's marketing name, which only CUDA reports. Its
+                # absence is not the device's absence, so the two are asked
+                # for separately - one try around both let an ImportError on
+                # the second answer `device: null` for a box plainly running
+                # on CUDA, which is the silent-null shape this whole field
+                # exists to replace
+                card = device_memory_stats().get("device_name")
+            except Exception:
+                logger.debug("observed cost: could not read the device name")
+            self._device = (kind, card)
         return self._device
 
     def rows_for(self, name):
