@@ -505,3 +505,40 @@ class TestTheCatalogsNumbersAreTheLibrarys:
                     "repeats the numbers its 'variable_constraints' already state"
                 )
             assert constraint_reference_errors(definition) == [], path
+
+
+class TestTheCatalogReportsAnEntrysBound:
+    """#145's third consequence: a caller reading what a `shots` entry
+    carries reads the rule for `num_frames` there. Matching it to a key of
+    `constraints` that names no top-level variable is the step nobody
+    takes."""
+
+    def definition(self):
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "dialogue-short.json"
+        )
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def test_the_lists_block_carries_the_rule_beside_the_field(self):
+        from dw.server.catalog_shape import derive_catalog_metadata
+
+        lists = derive_catalog_metadata(self.definition())["lists"]
+
+        assert "num_frames" in lists["shots"]["fields"]
+        assert lists["shots"]["constraints"]["num_frames"] == (
+            "17*n+5, 124-345, rounds up"
+        )
+
+    def test_a_list_with_no_constrained_field_carries_no_block(self):
+        """`music-video`'s entries take `prompt` and `start_frame`, neither
+        of which any rule reaches - so the key is absent rather than empty."""
+        from dw.server.catalog_shape import derive_catalog_metadata
+
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "music-video.json"
+        )
+        with open(path, encoding="utf-8") as handle:
+            lists = derive_catalog_metadata(json.load(handle))["lists"]
+
+        assert "constraints" not in lists["shots"]

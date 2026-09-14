@@ -2000,6 +2000,14 @@ def create_app(
         constraints = definition.get("variable_constraints")
         if isinstance(constraints, dict) and constraints:
             answer["constraints"] = constraints
+        # What an entry of each list-driven variable carries, with any rule
+        # that reaches one of its fields stated beside that field: a caller
+        # reading what a `shots` entry takes reads the bound for
+        # `num_frames` there, rather than having to match it to a key of
+        # `constraints` that names no top-level variable (#145)
+        lists = derive_catalog_metadata(definition).get("lists")
+        if lists:
+            answer["lists"] = lists
         # What this box's own runs of it actually took, beside the defaults
         # they were run with - derived, never the curated `cost` (#93)
         observed = _observed_for_name(name, definition)
