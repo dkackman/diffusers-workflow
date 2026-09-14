@@ -420,12 +420,48 @@ def validate_variable_name(name: str) -> str:
 # and absolute paths without a second scan. Anchored with \Z, not $ - $ also
 # matches before a trailing newline, which would admit names no listing can
 # round-trip (the same reason the variable and constant patterns use \Z)
+PROMPT_REFERENCE_CHARACTERS = r"[\w.-]"
 PROMPT_REFERENCE_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*)?\Z"
 MAX_PROMPT_REFERENCE_LENGTH = 200
 
 
+def _name_fault(name: str, allowed: str) -> str:
+    """Which part of `name` the pattern objected to, as a clause, or ''.
+
+    A name that fails one of these patterns used to be echoed back beside a
+    description of a *valid* name and nothing else, so a caller who had
+    passed a name the server itself produced had to bisect it character by
+    character to find the objection (#162). Naming the character turns that
+    into a one-line fix.
+    """
+    if not allowed:
+        return ""
+    for position, character in enumerate(name):
+        if character == "/":
+            continue
+        if not re.fullmatch(allowed, character):
+            return (
+                f" - {character!r} (position {position}) is not a character "
+                f"this kind of name may contain"
+            )
+    for position, segment in enumerate(name.split("/")):
+        if not segment:
+            return f" - segment {position + 1} is empty"
+        if not re.fullmatch(r"\w", segment[0]):
+            return (
+                f" - segment {segment!r} starts with {segment[0]!r}, and every "
+                f"segment must start with a letter, digit or underscore"
+            )
+    return ""
+
+
 def _validate_name(
-    name: str, pattern: str, max_length: int, what: str, hint: str
+    name: str,
+    pattern: str,
+    max_length: int,
+    what: str,
+    hint: str,
+    allowed: str = "",
 ) -> str:
     """Shared body of the reference/name validators below: an empty check, a
     length check, then the pattern - length before pattern so a name that
@@ -450,7 +486,9 @@ def _validate_name(
         raise InvalidInputError(f"{what} too long: {len(name)} > {max_length}")
 
     if not re.match(pattern, name):
-        raise InvalidInputError(f"Invalid {what.lower()}: {name} - {hint}")
+        raise InvalidInputError(
+            f"Invalid {what.lower()}: {name}{_name_fault(name, allowed)} - {hint}"
+        )
 
     return name
 
@@ -479,6 +517,7 @@ def validate_prompt_reference(name: str) -> str:
         "Prompt name",
         "a prompt is named by its file under the prompt directory, at most "
         "one folder deep, like 'scenic_landscape' or 'minimax/fox_dawn'",
+        allowed=PROMPT_REFERENCE_CHARACTERS,
     )
 
 
@@ -488,7 +527,11 @@ def validate_prompt_reference(name: str) -> str:
 # is named without its extension and lives at most one folder deep - an asset
 # carries its extension, because which file it is depends on it, and media
 # libraries nest deeper than prompt libraries do
-ASSET_REFERENCE_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*){0,4}\Z"
+# '@' for the same reason OUTPUT_REFERENCE_PATTERN carries it: keeping a
+# `for_each` member's file as an asset defaults its name to that file's
+# base name, which carries the '@' the engine wrote (#162)
+ASSET_REFERENCE_CHARACTERS = r"[\w.@-]"
+ASSET_REFERENCE_PATTERN = r"^[\w][\w.@-]*(/[\w][\w.@-]*){0,4}\Z"
 MAX_ASSET_REFERENCE_LENGTH = 400
 
 
@@ -517,13 +560,22 @@ def validate_asset_reference(name: str) -> str:
         "an asset is named by its file under the asset directory, with its "
         "extension and at most four folders deep, like 'iris.jpg' or "
         "'gyre/frames/iris.jpg'",
+        allowed=ASSET_REFERENCE_CHARACTERS,
     )
 
 
 # A generated output's name: the workflow's identity, the run, and the file -
 # deeper than an asset name because the identity itself can nest, and the run
-# id is a segment of its own
-OUTPUT_REFERENCE_PATTERN = r"^[\w][\w.-]*(/[\w][\w.-]*){1,6}\Z"
+# id is a segment of its own.
+#
+# '@' is here because the engine writes it: a `for_each` member is named
+# '<group>@<entry>' and its files carry that in their base name, so a whole
+# class of files the server named could not be named back to it (#162). It
+# is safe in a path - not a separator, not '..', and containment is still
+# checked by the validate_path that joins the name onto the output root -
+# and a name still may not *start* with it.
+OUTPUT_REFERENCE_CHARACTERS = r"[\w.@-]"
+OUTPUT_REFERENCE_PATTERN = r"^[\w][\w.@-]*(/[\w][\w.@-]*){1,6}\Z"
 MAX_OUTPUT_REFERENCE_LENGTH = 500
 
 
@@ -552,6 +604,7 @@ def validate_output_reference(name: str) -> str:
         "Output name",
         "an output is named by the workflow that made it, the run, and the "
         "file, like 'ltx2/Gyre/latest/Gyre-still.0-0.0.png'",
+        allowed=OUTPUT_REFERENCE_CHARACTERS,
     )
 
 

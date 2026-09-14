@@ -373,7 +373,15 @@ def test_no_stale_entry_in_the_allowlist():
 # listing; if it needs raising again, the question to ask first is whether
 # every name belongs in the compact view or only the ones a caller is likely
 # to set.
-COMPACT_BUDGET = 7_600
+# Then to 7_650 for the bound a list entry's field carries (#145), measured
+# at 7_611: `dialogue-short`'s `shots` entries are where a frame count is
+# most likely typed by hand, and `17*n+5, 124-345, rounds up` beside
+# `num_frames` in the `lists` block is the half of #96 that stops the next
+# caller picking 61. It is the only such line in the catalog today, and a
+# rule that reaches only an entry field is no longer repeated in the
+# top-level `constraints` block of the compact view, so the net cost of the
+# feature here is eleven tokens.
+COMPACT_BUDGET = 7_650
 FILTERED_BUDGET = 1_500
 
 

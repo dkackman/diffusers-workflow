@@ -16,6 +16,7 @@ read structure (a concat step, a `references` argument), never checkpoints.
 import re
 
 from ..for_each import list_fields
+from ..variable_constraints import declared_constraints, entry_constraint_fields
 
 SHAPES = (
     "image",
@@ -314,11 +315,26 @@ def derive_catalog_metadata(definition):
         declared.add("summary")
     variables = definition.get("variables")
     variables = variables if isinstance(variables, dict) else {}
+    # A bound an entry field carries is reported beside that field, not
+    # only in the top-level `constraints` block: a caller reading what a
+    # `shots` entry takes reads the rule for `num_frames` there (#145)
+    rules = declared_constraints(definition)
+    entry_rules = entry_constraint_fields(definition)
     lists = {
         name: {
             **fields,
             "entries": (
                 len(variables[name]) if isinstance(variables.get(name), list) else None
+            ),
+            **(
+                {
+                    "constraints": {
+                        field: terse_constraint(rules[field])
+                        for field in entry_rules[name]
+                    }
+                }
+                if name in entry_rules
+                else {}
             ),
         }
         for name, fields in list_fields(definition).items()
@@ -427,10 +443,25 @@ def project_listing(
                 if key not in _COMPACT_WHEN_SET or detail.get(key)
             }
             if slim.get("constraints"):
+                # A rule that reaches only a list-entry field is reported
+                # beside that field under `lists`, so repeating it here
+                # would state it twice in one answer - and next to
+                # `variable_names`, which does not carry the name (#145).
+                # The full listing and `get_workflow` keep the block as the
+                # author wrote it
+                in_lists = {
+                    field
+                    for entry in (slim.get("lists") or {}).values()
+                    for field in (entry.get("constraints") or {})
+                }
+                declared = set(detail.get("variable_names") or ())
                 slim["constraints"] = {
                     variable: terse_constraint(rule)
                     for variable, rule in slim["constraints"].items()
+                    if variable in declared or variable not in in_lists
                 }
+                if not slim["constraints"]:
+                    del slim["constraints"]
             # This box's own history, at its two-key budget (#93/#101): the
             # cold median, which is the one comparable to a curated `cost`,
             # and how many runs stand behind it. The block with the

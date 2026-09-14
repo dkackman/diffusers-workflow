@@ -177,3 +177,40 @@ def test_a_prompt_may_not_masquerade_as_an_output_reference(tmp_path, monkeypatc
     monkeypatch.setenv("DW_PROMPT_DIR", str(library))
     with pytest.raises(ValueError, match="reference prefix"):
         fetch_prompt("prompt:sneaky")
+
+
+class TestAForEachMembersOwnFile:
+    """#162. A `for_each` step names its members '<group>@<entry>' and the
+    files it writes carry that '@' - the manifest and the gallery hand the
+    name back verbatim, so it has to be a name the language can take back."""
+
+    def test_the_at_of_a_member_file_name_resolves(self, outputs):
+        member = outputs / "ltx2" / "Gyre" / "20260905-111500-bbbbbbbb"
+        (member / "MiniMaxH3MusicVideo-shot@opening_statement.5-0.0.mp4").write_text(
+            "x"
+        )
+
+        resolved = resolve_output_reference(
+            "output:ltx2/Gyre/latest/"
+            "MiniMaxH3MusicVideo-shot@opening_statement.5-0.0.mp4"
+        )
+
+        assert resolved.endswith("shot@opening_statement.5-0.0.mp4")
+        assert os.path.exists(resolved)
+
+    def test_a_name_may_not_start_with_the_separator(self):
+        with pytest.raises(InvalidInputError):
+            resolve_output_reference("output:ltx2/Gyre/latest/@shot.mp4")
+
+    def test_a_refusal_names_the_character_it_objected_to(self):
+        """The old message described a *valid* name and nothing else, so the
+        only way to find the objection was to bisect the string."""
+        with pytest.raises(InvalidInputError) as caught:
+            resolve_output_reference("output:ltx2/Gyre/latest/two words.mp4")
+
+        assert "' '" in str(caught.value)
+        assert "position" in str(caught.value)
+
+    def test_traversal_is_still_refused(self):
+        with pytest.raises((InvalidInputError, SecurityError)):
+            resolve_output_reference("output:ltx2/../../etc/passwd")

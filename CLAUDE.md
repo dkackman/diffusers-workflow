@@ -266,6 +266,23 @@ same reason - default setup cannot load a pack.
   take `name=value` strings, and a string handed to a list variable is
   comma-split - so `shots` can only be supplied over the API/MCP (a JSON
   body); `python -m dw.run` runs the templates' default list
+- **A reference name is checked for its shape before the queue, and `@` is
+  part of it** — a `for_each` member is `<group>@<entry>` and the files it
+  writes carry that `@` in their base name, which `OUTPUT_REFERENCE_PATTERN`
+  and `ASSET_REFERENCE_PATTERN` refused: a whole class of files the server
+  itself named could not be named back to it, so `output:` on a shot a
+  list-driven template produced forced a re-render or an `upload_asset` round
+  trip (#162). `@` is safe in a path — not a separator, not `..`, and
+  containment is still `validate_path`'s — and a name still may not *start*
+  with one. The other half is that the refusal arrived at run time, after the
+  queue, from a message that described a *valid* name and never said which
+  character it objected to: `reference_name_errors` (`dw/reference_names.py`)
+  now checks the shape of every `asset:`/`prompt:`/`output:` reference in the
+  definition in `validation_errors`, and `_name_fault` (`dw/security.py`)
+  names the offending character and position. Shape only — *existence*
+  depends on the workspace and on what pruning has taken, so it stays where it
+  was: the validate route resolves the caller's `arguments` against the
+  workspace, and the definition's own references resolve at run time
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
@@ -455,8 +472,14 @@ same reason - default setup cannot load a pack.
   by `list_workflows` (terse) / `get_workflow(variables_only=true)` — that
   last part is what stops the next consumer picking 61 (#96).
   `tests/test_variable_constraints.py` sweeps the whole catalog and pins every
-  declared number to the diffusers symbol it derives from. A constraint reaches
-  a top-level variable only, not a field inside a `for_each` entry
+  declared number to the diffusers symbol it derives from. A constraint key is
+  a plain variable name and is matched wherever a value by that name sits -
+  top-level variable *or* a field of a `for_each` entry (#145), the latter only
+  where a step consumes that field as `item:<name>` (`entry_constraint_fields`),
+  so the bound follows the value into the pipeline argument rather than the
+  name into the JSON. An entry violation is reported at
+  `arguments.shots[0].num_frames`, and the rule is reported beside the field in
+  the catalog's `lists` block as well as in `constraints`
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image
