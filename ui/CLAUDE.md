@@ -75,4 +75,18 @@ and the focus ring. Resting meters (free disk, VRAM under pressure's
 threshold) stay `--muted`; selection is the user's state, not the machine's,
 so it reads as a heavier ink edge instead.
 
+## Assets
+
+`AssetsPage.svelte` is the input side of the gallery (#165), and deliberately
+the same UX: folder groups, a contact-sheet grid, a detail popout. It reads
+`GET /api/assets`, which spans the workspace's own library, the shared
+`common` one and any `--examples-dir` library, each entry already tagged with
+its `origin` - so the page never builds a path, only shows the `asset:`
+reference a workflow argument carries. The origin badge sits on the *tile*
+rather than only in the detail, because "why can I not delete this" has to be
+answerable at a glance: an `examples` asset is read-only and the server
+answers 403, so the page offers no delete for one at all. Uploads land in the
+workspace unless the `shared` toggle is on, which is the one thing about an
+upload that cannot be changed afterwards.
+
 See docs/SERVER.md.

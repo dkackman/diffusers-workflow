@@ -21,6 +21,7 @@ import pytest
 
 from dw.variable_constraints import (
     aligned,
+    entry_constraint_fields,
     apply_constraints,
     constraint_errors,
     constraint_reference_errors,
@@ -238,6 +239,119 @@ class TestOneShapeNotTwo:
         assert constraint_reference_errors(definition) == []
 
 
+def workflow_with_shots(constraints, shots, *, reads="num_frames"):
+    """A list-driven workflow shaped like `templates/minimax/dialogue-short`:
+    no top-level `num_frames`, a `shots` list whose entries carry one, and a
+    step that consumes it as `item:num_frames`."""
+    return {
+        "id": "listed",
+        "variable_constraints": constraints,
+        "variables": {"shots": shots},
+        "steps": [
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "task": {
+                    "command": "no_op",
+                    "arguments": {"frames": f"item:{reads}", "name": "item:name"},
+                },
+            }
+        ],
+    }
+
+
+SHOTS = [{"name": "cold_open", "num_frames": 124}, {"name": "tag", "num_frames": 141}]
+
+
+class TestAConstraintReachesAListEntry:
+    """#145. `dialogue-short` has no top-level `num_frames` - the value the
+    model is handed sits in an entry of the `shots` list, and the rule is
+    the model's either way. The key stays a plain variable name; it is
+    matched to an entry field only where a step consumes it as `item:`."""
+
+    def test_the_field_is_matched_by_what_a_step_consumes(self):
+        definition = workflow_with_shots({"num_frames": H3}, SHOTS)
+
+        assert entry_constraint_fields(definition) == {"shots": ["num_frames"]}
+
+    def test_a_field_no_step_reads_is_not_bound(self):
+        """An entry key nothing hands to a pipeline is already an
+        `entry_field_warnings` warning; binding it here would collide with
+        an unrelated key of the same name in an agent's inline workflow."""
+        definition = workflow_with_shots({"num_frames": H3}, SHOTS, reads="name")
+
+        assert entry_constraint_fields(definition) == {}
+
+    def test_an_illegal_entry_is_refused_at_the_entry_path(self):
+        shots = [dict(SHOTS[0], num_frames=61), SHOTS[1]]
+        definition = workflow_with_shots({"num_frames": H3}, SHOTS)
+
+        (problem,) = constraint_errors(
+            definition, {"shots": shots}, supplied={"shots"}
+        )
+
+        assert problem["path"] == "arguments.shots[0].num_frames"
+        assert "at least 124" in problem["message"]
+
+    def test_a_stored_entry_default_is_reported_at_variables(self):
+        definition = workflow_with_shots(
+            {"num_frames": H3}, [dict(SHOTS[0], num_frames=61)]
+        )
+
+        (problem,) = constraint_errors(definition)
+
+        assert problem["path"] == "variables.shots[0].num_frames"
+
+    def test_an_off_grid_entry_is_a_snap_warning_naming_the_entry(self):
+        shots = [dict(SHOTS[0], num_frames=130)]
+        definition = workflow_with_shots({"num_frames": H3}, SHOTS)
+
+        assert constraint_errors(definition, {"shots": shots}) == []
+        (notice,) = constraint_warnings(definition, {"shots": shots})
+        assert notice.startswith("shots[0]: ")
+        assert "141" in notice
+
+    def test_the_run_time_pass_rounds_the_entry_in_place(self):
+        variables = {"shots": [dict(SHOTS[0], num_frames=130)]}
+
+        apply_constraints(workflow_with_shots({"num_frames": H3}, SHOTS), variables)
+
+        assert variables["shots"][0]["num_frames"] == 141
+
+    def test_the_run_time_pass_refuses_an_illegal_entry(self):
+        variables = {"shots": [dict(SHOTS[0], num_frames=61)]}
+
+        with pytest.raises(ValueError) as caught:
+            apply_constraints(workflow_with_shots({"num_frames": H3}, SHOTS), variables)
+
+        assert "shots[0]" in str(caught.value)
+        assert "at least 124" in str(caught.value)
+
+    def test_a_legal_entry_is_untouched(self):
+        variables = {"shots": [dict(entry) for entry in SHOTS]}
+
+        apply_constraints(workflow_with_shots({"num_frames": H3}, SHOTS), variables)
+
+        assert [entry["num_frames"] for entry in variables["shots"]] == [124, 141]
+
+    def test_dialogue_short_declares_the_rule_its_entries_carry(self):
+        """The live case: the one H3 template where per-shot length is meant
+        to vary was the only place the rule was unreadable (#145)."""
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "dialogue-short.json"
+        )
+        with open(path, encoding="utf-8") as handle:
+            definition = json.load(handle)
+
+        assert entry_constraint_fields(definition) == {"shots": ["num_frames"]}
+        (problem,) = constraint_errors(
+            definition,
+            {"shots": [dict(definition["variables"]["shots"][0], num_frames=61)]},
+            supplied={"shots"},
+        )
+        assert problem["path"] == "arguments.shots[0].num_frames"
+
+
 class TestValidationReportsIt:
     def test_validation_errors_carries_the_refusal(self, tmp_path):
         definition = workflow_with({"num_frames": H3}, {"num_frames": 124})
@@ -277,17 +391,26 @@ class TestTheCatalogsNumbersAreTheLibrarys:
     def test_the_catalog_declares_some(self):
         assert declared_in_the_catalog(), "no template declares a constraint"
 
-    def test_every_constraint_names_a_variable_the_workflow_declares(self):
-        """A rule on a name nothing reads is checked against nothing."""
+    def test_every_constraint_names_a_value_the_workflow_carries(self):
+        """A rule on a name nothing reads is checked against nothing.
+
+        Since #145 that name may be a top-level variable *or* a field a
+        `for_each` entry carries and a step consumes as `item:<name>` -
+        `dialogue-short` has only the second kind.
+        """
         for path in TEMPLATES:
             with open(path, encoding="utf-8") as handle:
                 definition = json.load(handle)
             constraints = definition.get("variable_constraints") or {}
             variables = definition.get("variables") or {}
+            reached = set()
+            for fields in entry_constraint_fields(definition).values():
+                reached.update(fields)
             for variable in constraints:
-                assert variable in variables, (
+                assert variable in variables or variable in reached, (
                     f"{os.path.relpath(path, REPO_ROOT)} constrains '{variable}', "
-                    "which it does not declare as a variable"
+                    "which is neither a declared variable nor a list-entry "
+                    "field any step reads"
                 )
 
     def test_every_default_satisfies_its_own_constraint(self):

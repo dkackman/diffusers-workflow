@@ -1,0 +1,198 @@
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/svelte'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+// Hoisted above the imports for the reason GalleryPage.test.ts states: the
+// static import below is hoisted too, and must see an initialized mock
+import AssetsPage from './AssetsPage.svelte'
+import ConfirmDialog from '../ConfirmDialog.svelte'
+import type { AssetFile } from '../types'
+import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
+
+const asset = (
+  name: string,
+  origin: AssetFile['origin'] = 'workspace',
+  kind: AssetFile['kind'] = 'image',
+): AssetFile => ({
+  name,
+  reference: `asset:${name}`,
+  folder: name.includes('/') ? name.split('/')[0] : '',
+  kind,
+  size: 2048,
+  mtime: 1,
+  origin,
+  url: `/inputs/${name}`,
+})
+
+const listing = vi.hoisted(() => ({
+  assets: [] as AssetFile[],
+  asset_dir: '/ws/assets' as string | null,
+  asset_dirs: ['/ws/assets'] as string[],
+}))
+
+const listAssets = vi.hoisted(() =>
+  vi.fn(
+    () =>
+      new Promise<typeof listing>((resolve) =>
+        setTimeout(() => resolve({ ...listing, folders: [] } as never), 0),
+      ),
+  ),
+)
+const deleteAsset = vi.hoisted(() =>
+  vi.fn<(name: string) => Promise<void>>(() => Promise.resolve()),
+)
+const uploadMedia = vi.hoisted(() =>
+  vi.fn<(file: File, assetName?: string, shared?: boolean) => Promise<unknown>>(
+    () => Promise.resolve({ reference: 'asset:uploads/x.png' }),
+  ),
+)
+vi.mock('../api', () => ({
+  api: {
+    listAssets: () => listAssets(),
+    deleteAsset: (name: string) => deleteAsset(name),
+    uploadMedia: (file: File, assetName?: string, shared?: boolean) =>
+      uploadMedia(file, assetName, shared),
+  },
+}))
+
+const notifyError = vi.hoisted(() => vi.fn())
+const notifySuccess = vi.hoisted(() => vi.fn())
+vi.mock('../toast', () => ({
+  notify: { error: notifyError, success: notifySuccess },
+}))
+
+beforeEach(() => {
+  listing.assets = [asset('iris.png'), asset('cast/priya.jpg')]
+  listing.asset_dir = '/ws/assets'
+  listing.asset_dirs = ['/ws/assets']
+})
+afterEach(() => {
+  cleanup()
+  listAssets.mockClear()
+  deleteAsset.mockClear()
+  uploadMedia.mockClear()
+  notifyError.mockClear()
+  notifySuccess.mockClear()
+  vi.unstubAllGlobals()
+  workspace.current = DEFAULT_WORKSPACE
+})
+
+async function renderAssets(first = 'iris.png') {
+  render(ConfirmDialog)
+  render(AssetsPage)
+  await waitFor(() => expect(screen.getByText(first)).toBeTruthy())
+}
+
+async function answerConfirm(accept: boolean) {
+  const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  within(dialog)
+    .getByRole('button', { name: accept ? /^delete$/i : /^cancel$/i })
+    .click()
+}
+
+it('fetches the asset library exactly once on mount', async () => {
+  render(AssetsPage)
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 10))
+  expect(listAssets).toHaveBeenCalledTimes(1)
+})
+
+it('shows every asset, including one in a folder', async () => {
+  await renderAssets()
+
+  expect(screen.getByText('iris.png')).toBeTruthy()
+  expect(screen.getByText('priya.jpg')).toBeTruthy()
+})
+
+it('shows the reference, not the path, when an asset is selected', async () => {
+  await renderAssets()
+
+  screen.getByLabelText('show details for iris.png').click()
+
+  await waitFor(() => expect(screen.getByText('asset:iris.png')).toBeTruthy())
+})
+
+it('marks an asset that came from another library', async () => {
+  listing.assets = [asset('iris.png'), asset('shared/logo.png', 'common')]
+  await renderAssets()
+
+  // Specific to the badge on the tile: 'common' is also an option in the
+  // library pick, which two origins bring out
+  expect(
+    screen.getByTitle(
+      "from the common library - this workspace's own names shadow it",
+    ).textContent,
+  ).toContain('common')
+})
+
+it('offers no library pick when everything is the workspace own', async () => {
+  await renderAssets()
+
+  expect(screen.queryByLabelText('library')).toBeNull()
+})
+
+it('offers a library pick once more than one is on the path', async () => {
+  listing.assets = [asset('iris.png'), asset('demo/x.png', 'examples')]
+  await renderAssets()
+
+  expect(screen.getByLabelText('library')).toBeTruthy()
+})
+
+it('deletes an asset once the confirmation is answered', async () => {
+  await renderAssets()
+  screen.getByLabelText('show details for iris.png').click()
+  await waitFor(() =>
+    screen.getByLabelText('delete this asset from the library').click(),
+  )
+
+  await answerConfirm(true)
+
+  await waitFor(() => expect(deleteAsset).toHaveBeenCalledWith('iris.png'))
+})
+
+it('deletes nothing when the confirmation is declined', async () => {
+  await renderAssets()
+  screen.getByLabelText('show details for iris.png').click()
+  await waitFor(() =>
+    screen.getByLabelText('delete this asset from the library').click(),
+  )
+
+  await answerConfirm(false)
+
+  await new Promise((r) => setTimeout(r, 10))
+  expect(deleteAsset).not.toHaveBeenCalled()
+})
+
+it('offers no delete for a read-only examples asset', async () => {
+  listing.assets = [asset('demo/x.png', 'examples')]
+  await renderAssets('x.png')
+
+  screen.getByLabelText('show details for demo/x.png').click()
+
+  await waitFor(() => expect(screen.getByText('read-only')).toBeTruthy())
+  expect(
+    screen.queryByLabelText('delete this asset from the library'),
+  ).toBeNull()
+})
+
+it('filters by name', async () => {
+  await renderAssets()
+  const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  filter.value = 'priya'
+  filter.dispatchEvent(new Event('input', { bubbles: true }))
+
+  await waitFor(() => expect(screen.queryByText('iris.png')).toBeNull())
+  expect(screen.getByText('priya.jpg')).toBeTruthy()
+})
+
+it('refetches when the workspace changes', async () => {
+  await renderAssets()
+  expect(listAssets).toHaveBeenCalledTimes(1)
+
+  workspace.current = 'other'
+
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
+})

@@ -1,0 +1,172 @@
+{
+    "id": "LTX2Decompression",
+    "description": "Removes compression artefacts - macroblocking, chroma bleed, ringing, banding - from a low bit-rate clip by regenerating it clean, with the compressed clip attached as an in-context reference for the whole denoise, so identity, framing and geometry are the source's and only the artefacts go. A different trade from re-rendering: it reads footage it did not generate. The LoRA is a 0.9 preview weight and targets compression only - defocus blur is 'restore-deblur', and motion blur, grain and low resolution are outside what it was trained to invert. Trained at 960x544, 121 frames, 24 fps, which is what the defaults are; generating far above that bucket leaves artefacts in the high-frequency detail. The prompt follows the trained convention ('Reference shows ... heavily compressed ... ENHANCE QUALITY ... only compression artifacts and image quality differ'), describing the same scene in both halves.",
+    "summary": "Strips macroblocking and ringing from a low bit-rate clip, the compressed clip attached as an in-context reference.",
+    "cost_drivers": [
+        "num_frames",
+        "width",
+        "height"
+    ],
+    "variables": {
+        "transformer_weights_dtype": "{uint4}",
+        "text_encoder_weights_dtype": "{int8}",
+        "source_video": "asset:compressed.mp4",
+        "prompt": "prompt:ltx2/decompression_dual_panel",
+        "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
+        "width": 960,
+        "height": 544,
+        "num_frames": 121,
+        "frame_rate": 24.0,
+        "lora_scale": 1.0
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 8,
+            "remainder": 1,
+            "min_frames": 9,
+            "reason": "LTX-2.5's video VAE encodes 8 * n + 1 frames, so an off-grid count is not refused by the pipeline but floored to the grid below - a shorter clip than the one asked for. Refused here instead: no 'snap', because rounding a length the other way from the pipeline's own would be a second silent change"
+        }
+    },
+    "seed": 42,
+    "steps": [
+        {
+            "name": "restored",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "LTX2InContextPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "connectors": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        },
+                        "audio_vae": {
+                            "device": "cuda"
+                        },
+                        "vocoder": {
+                            "device": "cuda"
+                        },
+                        "duration_head": {
+                            "device": "cuda"
+                        }
+                    },
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Lightricks/LTX-2.5-Diffusers",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "transformer": {
+                    "configuration": {
+                        "component_type": "LTX2VideoTransformer3DModel",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:transformer_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cuda",
+                            "use_quantized_matmul": true,
+                            "dequantize_fp32": false
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "component_type": "transformers.Gemma4UnifiedForConditionalGeneration",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:text_encoder_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cpu",
+                            "dequantize_fp32": false,
+                            "modules_to_not_convert": [
+                                "embed_vision",
+                                "embed_audio",
+                                "lm_head"
+                            ]
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "negative_prompt": "variable:negative_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "frame_rate": "variable:frame_rate",
+                    "sigmas": "constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES",
+                    "guidance_scale": 1.0,
+                    "audio_guidance_scale": 1.0,
+                    "stg_scale": 0.0,
+                    "audio_stg_scale": 0.0,
+                    "modality_scale": 1.0,
+                    "audio_modality_scale": 1.0,
+                    "output_type": "{np}",
+                    "reference_conditions": [
+                        {
+                            "reference_type": "diffusers.pipelines.ltx2.pipeline_ltx2_ic_lora.LTX2ReferenceCondition",
+                            "from_arguments": {
+                                "frames": {
+                                    "media_type": "video",
+                                    "location": "variable:source_video"
+                                },
+                                "strength": 1.0
+                            }
+                        }
+                    ],
+                    "reference_downscale_factor": 1,
+                    "conditioning_attention_strength": 1.0
+                },
+                "loras": [
+                    {
+                        "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Decompression",
+                        "weight_name": "ltx-2.5-22b-ic-lora-decompression-0.9.safetensors",
+                        "adapter_name": "ic_lora",
+                        "scale": "variable:lora_scale"
+                    }
+                ]
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24
+            }
+        }
+    ]
+}

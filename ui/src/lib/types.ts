@@ -265,6 +265,23 @@ export interface GalleryFile {
   label: string
 }
 
+/** One file in the asset library - the input media an `asset:` reference
+ * names. Reported by reference rather than by path, so a client never has
+ * to build one. */
+export interface AssetFile {
+  name: string
+  reference: string
+  folder: string
+  kind: 'image' | 'video' | 'audio'
+  size: number
+  mtime: number
+  /** Which library it came from: this workspace's own, the `common` one
+   * every workspace shares, or a read-only examples tree. The last is why
+   * a delete can answer 403. */
+  origin: 'workspace' | 'common' | 'examples'
+  url: string
+}
+
 export interface ModelRevision {
   commit_hash: string
   size_on_disk: number

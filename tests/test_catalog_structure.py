@@ -373,7 +373,22 @@ def test_no_stale_entry_in_the_allowlist():
 # listing; if it needs raising again, the question to ask first is whether
 # every name belongs in the compact view or only the ones a caller is likely
 # to set.
-COMPACT_BUDGET = 7_600
+# Then to 7_650 for the bound a list entry's field carries (#145), measured
+# at 7_611: `dialogue-short`'s `shots` entries are where a frame count is
+# most likely typed by hand, and `17*n+5, 124-345, rounds up` beside
+# `num_frames` in the `lists` block is the half of #96 that stops the next
+# caller picking 61. It is the only such line in the catalog today, and a
+# rule that reaches only an entry field is no longer repeated in the
+# top-level `constraints` block of the compact view, so the net cost of the
+# feature here is eleven tokens.
+# Then to 8_100 for three new LTX-2.5 templates (#151, #152), measured at
+# 8_026: `reference-sheet`, `restore-deblur` and `restore-decompression` at
+# roughly 125 tokens each. This is the cost of catalog entries existing
+# rather than of anything said about them - the listing is what an agent
+# reads to find a shape, and before these the LTX-2.5 family had no
+# reference or identity route at all and no restoration route that was not
+# a re-render.
+COMPACT_BUDGET = 8_100
 FILTERED_BUDGET = 1_500
 
 

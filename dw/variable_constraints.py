@@ -22,6 +22,12 @@ own (CLAUDE.md). One shape, not two: a `variable_constraints` entry takes
 `"constraint:<variable>"` so a template states `17n + 5` once rather than
 twice in one file.
 
+A constraint key is a plain variable name, matched wherever a value by that
+name sits: a top-level variable, or a field of an entry of a `for_each` list
+where some step hands that field to a pipeline (#145). `dialogue-short` has
+no top-level `num_frames` at all - it has a `shots` list whose entries carry
+one - and the rule is the model's either way.
+
 Checked in three places for the reasons the task-argument domains are
 (dw/task_domains.py): statically in `validation_errors`, so a stored default
 or a caller's argument outside the rule is a free refusal at the JSON path it
@@ -49,6 +55,54 @@ def declared_constraints(definition):
     """The workflow's constraint block, or {}."""
     constraints = definition.get(CONSTRAINTS_KEY)
     return constraints if isinstance(constraints, dict) else {}
+
+
+def entry_constraint_fields(definition):
+    """Which declared constraints reach inside a list-driven variable, as
+    {variable: [constraint name, ...]}.
+
+    A bound is a property of the model the value is handed to, not of the
+    place the JSON put it: `dialogue-short` has no top-level `num_frames`
+    at all, it has a `shots` list whose entries carry one, and the same
+    `17 * n + 5` rule holds for each of them (#145). So a constraint key
+    stays a plain variable name and is matched wherever a value by that
+    name sits.
+
+    Matched by what a step *consumes* rather than by the key's spelling:
+    `list_fields` reads the `item:<field>` references the steps make, so a
+    constraint reaches an entry field only when some step hands that field
+    to a pipeline. An entry key nothing reads is already a warning
+    (`entry_field_warnings`) and is not silently bound here.
+    """
+    from .for_each import list_fields
+
+    constraints = declared_constraints(definition)
+    if not constraints:
+        return {}
+    matched = {}
+    for variable, spec in list_fields(definition).items():
+        fields = spec.get("fields")
+        if not fields:
+            continue
+        names = sorted(field for field in fields if field in constraints)
+        if names:
+            matched[variable] = names
+    return matched
+
+
+def entry_targets(definition, values):
+    """Every (variable, index, field name, entry) a list-entry constraint
+    applies to - the one walk the three checking layers share."""
+    for variable, names in sorted(entry_constraint_fields(definition).items()):
+        entries = values.get(variable)
+        if not isinstance(entries, list):
+            continue
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                continue
+            for name in names:
+                if name in entry:
+                    yield variable, index, name, entry
 
 
 def snap_block(constraint):
@@ -229,6 +283,14 @@ def constraint_errors(definition, arguments=None, supplied=()):
             continue
         where = "arguments" if name in (supplied or ()) else "variables"
         errors.append({"path": f"{where}.{name}", "message": message})
+    for variable, index, name, entry in entry_targets(definition, values):
+        message = refusal(name, entry[name], constraints[name])
+        if message is None:
+            continue
+        where = "arguments" if variable in (supplied or ()) else "variables"
+        errors.append(
+            {"path": f"{where}.{variable}[{index}].{name}", "message": message}
+        )
     return errors
 
 
@@ -252,6 +314,10 @@ def constraint_warnings(definition, arguments=None):
         notice = snap_notice(name, values[name], constraint)
         if notice is not None:
             notices.append(notice)
+    for variable, index, name, entry in entry_targets(definition, values):
+        notice = snap_notice(name, entry[name], constraints[name])
+        if notice is not None:
+            notices.append(f"{variable}[{index}]: {notice}")
     return notices
 
 
@@ -284,6 +350,24 @@ def apply_constraints(definition, variables):
         message = refusal(name, value, constraint)
         if message is not None:
             raise ValueError(message)
+    # The same three answers for a value sitting in a list entry, where the
+    # rule is the model's all the same (#145)
+    for variable, index, name, entry in entry_targets(definition, variables):
+        constraint = constraints[name]
+        value = entry[name]
+        notice = snap_notice(name, value, constraint)
+        if notice is not None:
+            entry[name] = snapped(value, constraint)
+            emit_warning(
+                f"{variable}[{index}]: {notice}",
+                kind="value_snapped",
+                variable=f"{variable}[{index}].{name}",
+                value=entry[name],
+            )
+            continue
+        message = refusal(name, value, constraint)
+        if message is not None:
+            raise ValueError(f"{variable}[{index}]: {message}")
 
 
 def resolve_constraint_references(definition):

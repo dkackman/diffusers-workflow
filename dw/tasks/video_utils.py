@@ -123,6 +123,58 @@ def frames_as_array(video):
     )
 
 
+def loop_frames(video, num_frames):
+    """Task command: a run of exactly `num_frames` frames, made by repeating
+    what it is given.
+
+    The video analogue of `loop_audio`, and it exists for the same reason: a
+    conditioning input has a length its model was trained to read, and the
+    material to hand is usually shorter. LTX-2.5's Ingredients IC-LoRA is
+    the live case - the reference is a single still sheet, and the model
+    wants it as a static video of at least 121 frames at the output's own
+    length, because a shorter reference misses the 121-frame read bucket it
+    was trained on.
+
+    A still is repeated; a run of frames laps round from its first frame.
+    No crossfade, unlike the audio version: these frames are read as
+    reference latents rather than watched, so a visible cut at the lap is
+    not a defect and blending two frames of a reference sheet would be.
+
+    Args:
+        video: A still image, or frames in any shape a result carries
+        num_frames: How many frames to hand back, one or more
+
+    Returns:
+        A (num_frames, height, width, channels) uint8 array - one artifact,
+        the shape an argument that takes frames wants
+    """
+    if isinstance(num_frames, str):
+        try:
+            num_frames = int(num_frames)
+        except ValueError:
+            raise ValueError(
+                f"loop_frames needs 'num_frames' as a whole number, got "
+                f"{num_frames!r}"
+            )
+    if not isinstance(num_frames, int) or isinstance(num_frames, bool):
+        raise ValueError(
+            f"loop_frames needs 'num_frames' as a whole number, got "
+            f"{num_frames!r}"
+        )
+    if num_frames < 1:
+        raise ValueError(
+            f"loop_frames needs 'num_frames' of at least 1, got {num_frames}"
+        )
+
+    # A lone still is the Ingredients case, and `_frames_of` does not take
+    # one - a reference sheet is an image, not a one-frame video
+    frames = frames_as_array([video] if _is_frame(video) else video)
+    if len(frames) == 0:
+        raise ValueError("loop_frames was given no frames to repeat")
+    laps = -(-num_frames // len(frames))  # ceiling, so the last lap is trimmed
+    return numpy.concatenate([frames] * laps, axis=0)[:num_frames]
+
+
 def is_video(value):
     """Whether a value is a run of frames rather than one image.
 
