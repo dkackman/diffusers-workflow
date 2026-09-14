@@ -303,3 +303,53 @@ class TestTheCatalogIsUnchanged:
             pytest.skip("not a workflow")
         expanded = Workflow(definition, "outputs", path).expanded_definition()
         assert elide_definition(expanded) == []
+
+
+class TestMusicVideo:
+    """#146: a standing cast member sings, without copying the template."""
+
+    PATH = "workflows/templates/minimax/music-video.json"
+
+    def definition(self):
+        return json.loads(pathlib.Path(self.PATH).read_text())
+
+    def expanded(self, definition):
+        return Workflow(definition, "outputs", self.PATH).expanded_definition()
+
+    def test_the_singer_reference_is_one_argument(self):
+        """The shot step reads it from a variable, so `arguments` reaches it.
+
+        It was written into steps[].pipeline.arguments.references, where no
+        argument could reach it, and reusing a portrait meant resubmitting the
+        whole template inline.
+        """
+        definition = self.definition()
+        assert definition["variables"]["singer_reference"] == {
+            "reference_type": "variable:image_reference_type",
+            "from_previous_result": "draw_singer",
+        }
+        shot = next(s for s in definition["steps"] if s["name"] == "shot")
+        assert shot["pipeline"]["arguments"]["references"][0] == (
+            "variable:singer_reference"
+        )
+
+    def test_the_portrait_saves_nothing(self):
+        """Same role as dialogue-short's draw steps, so the same rule: a
+        conditioning image is not a deliverable, and the guardrail would
+        otherwise keep the step a cast episode has no use for."""
+        steps = {s["name"]: s for s in self.definition()["steps"]}
+        assert steps["draw_singer"]["result"]["save"] is False
+
+    def test_a_cast_singer_draws_nothing(self):
+        definition = self.definition()
+        definition["variables"]["singer_reference"] = {
+            "reference_type": "variable:image_reference_type",
+            "from_file": "asset:qa-cast/priya-portrait.jpg",
+        }
+        expanded = self.expanded(definition)
+        assert [e["step"] for e in elide_definition(expanded)] == ["draw_singer"]
+
+    def test_the_default_run_still_draws(self):
+        expanded = self.expanded(self.definition())
+        assert elide_definition(expanded) == []
+        assert "draw_singer" in names(expanded["steps"])
