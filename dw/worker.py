@@ -83,6 +83,14 @@ class WorkflowWorker:
         # Pipeline cache - persists across runs
         self.loaded_pipelines = {}
         self.shared_components = {}
+        # Last run's step name -> pipeline cache key. Carried across commands
+        # so a rerun of the SAME workflow whose arguments changed what a step
+        # loads (a different LoRA scale, canvas or step count all change the
+        # identity) releases the old stack before the new one loads. Held on
+        # the worker rather than on the Workflow because a command builds a
+        # fresh Workflow every time, which is why the release never fired
+        # between jobs (#150)
+        self.prior_step_keys = {}
 
         # Memory tracking
         self.run_count = 0
@@ -245,8 +253,14 @@ class WorkflowWorker:
                 else None
             )
             try:
-                workflow.run(arguments, self.loaded_pipelines, context=context)
+                workflow.run(
+                    arguments,
+                    self.loaded_pipelines,
+                    context=context,
+                    prior_step_keys=self.prior_step_keys,
+                )
             finally:
+                self._record_step_keys(workflow)
                 watcher.stop()
                 if asset_token is not None:
                     deactivate_asset_dir(asset_token)
@@ -424,6 +438,20 @@ class WorkflowWorker:
                 }
             )
 
+    def _record_step_keys(self, workflow):
+        """Remember which pipeline each step loaded, for the next command.
+
+        Merged rather than replaced: a run that failed at step two never
+        reached step five, and forgetting step five's key would leave the
+        variant it loaded last time with nothing to release it. A stale entry
+        is harmless - the release only fires when that exact key is still
+        cached and differs from what the step now wants, which means it really
+        is a superseded variant of that step.
+        """
+        keys = getattr(workflow, "_pipeline_keys_by_step", None)
+        if keys:
+            self.prior_step_keys.update(keys)
+
     def _evict_untouched_pipelines(self, context):
         """Drop cached pipelines this run no longer touched.
 
@@ -492,6 +520,9 @@ class WorkflowWorker:
         # Clear pipeline cache and any models task handlers cached
         self.loaded_pipelines.clear()
         self.shared_components.clear()
+        # The keys addressed entries that are now gone; keeping them would
+        # have a later step chase a release that has already happened
+        self.prior_step_keys.clear()
         clear_model_cache()
         # Drop cached step results too - stale results would otherwise
         # survive a memory clear and keep getting served for steps whose
