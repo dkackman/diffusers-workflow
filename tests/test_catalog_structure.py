@@ -381,7 +381,14 @@ def test_no_stale_entry_in_the_allowlist():
 # rule that reaches only an entry field is no longer repeated in the
 # top-level `constraints` block of the compact view, so the net cost of the
 # feature here is eleven tokens.
-COMPACT_BUDGET = 7_650
+# Then to 8_100 for three new LTX-2.5 templates (#151, #152), measured at
+# 8_026: `reference-sheet`, `restore-deblur` and `restore-decompression` at
+# roughly 125 tokens each. This is the cost of catalog entries existing
+# rather than of anything said about them - the listing is what an agent
+# reads to find a shape, and before these the LTX-2.5 family had no
+# reference or identity route at all and no restoration route that was not
+# a re-render.
+COMPACT_BUDGET = 8_100
 FILTERED_BUDGET = 1_500
 
 

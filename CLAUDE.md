@@ -190,6 +190,25 @@ The same conventions, written for an agent composing a workflow over MCP, are
 the `Authoring a workflow from an agent` section of docs/WORKFLOW_GUIDE.md;
 change both when one changes.
 
+### LTX-2.5 IC-LoRAs
+
+`templates/ltx2/generative-upscale` was the only IC-LoRA use in the catalog;
+three more conditioning templates join it (#151, #152), all through
+`LTX2InContextPipeline` + `LTX2ReferenceCondition`, all at
+`reference_downscale_factor: 1` (the upscaler's is 2). `reference-sheet`
+drives Ingredients — the family's only identity route, and the first two
+templates here whose reference is a file the workflow did not make; the sheet
+is a still, so a `loop_frames` step (`dw/tasks/video_utils.py`, the video
+analogue of `loop_audio`) laps it into the static video the LoRA reads
+through its 121-frame bucket. `restore-deblur` and `restore-decompression`
+each invert one defect and no other. Every number in the three is the vendor
+card's and is pinned by `tests/test_ltx2_ic_loras.py`; the trained caption
+form is a *different* genre from a T2V shot caption, so those stored prompts
+are tagged `ic-lora` and `tests/test_ltx_prompt_library.py` checks them
+against their own convention rather than the 150-220-word paragraph rule.
+The weights are `gated: auto` on Hugging Face — per repo, so a box that pulls
+one can still 403 on another.
+
 ### Quantization Support
 
 Quantization configs are defined per-component in workflow JSON and instantiated in `config_objects.py`. Supported frameworks: BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto. The `config_type` field is a free-form string — new quantization backends work automatically via dynamic import.

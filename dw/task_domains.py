@@ -87,6 +87,7 @@ TASK_ARGUMENT_DOMAINS = {
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
     },
+    "loop_frames": {"num_frames": POSITIVE},
     "dissolve_videos": {
         "dissolve_frames": NON_NEGATIVE,
         "fade_in_frames": NON_NEGATIVE,

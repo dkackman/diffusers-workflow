@@ -178,6 +178,15 @@ def _handle_video_frames(task, arguments, previous_pipelines):
     return frames_as_array(**arguments)
 
 
+@register_command("loop_frames", implementation="dw.tasks.video_utils.loop_frames")
+def _handle_loop_frames(task, arguments, previous_pipelines):
+    """Repeat a still or a short clip into a run of a given length"""
+    logger.debug("Looping frames")
+    from .video_utils import loop_frames
+
+    return loop_frames(**arguments)
+
+
 @register_command("pair_audio", implementation="dw.tasks.pair_audio.pair_audio")
 def _handle_pair_audio(task, arguments, previous_pipelines):
     """Pair a video's frames with an audio track generated beside them"""

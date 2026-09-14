@@ -13,7 +13,13 @@ from PIL import Image
 
 from dw.result import AudioVideo
 from dw.tasks.task import _VIDEO_PROCESSOR_COMMANDS, Task
-from dw.tasks.video_utils import extract_frame, frame_count, get_frame, process_video
+from dw.tasks.video_utils import (
+    extract_frame,
+    frame_count,
+    get_frame,
+    loop_frames,
+    process_video,
+)
 
 
 @pytest.fixture
@@ -417,3 +423,48 @@ class TestIsVideo:
         assert not is_video([])
         assert not is_video(["a", "b"])
         assert not is_video("clip.mp4")
+
+
+class TestLoopFrames:
+    """#151. A conditioning input has a length its model was trained to
+    read: LTX-2.5's Ingredients IC-LoRA wants its reference sheet as a
+    static video of at least 121 frames, and a sheet is one still."""
+
+    def test_a_still_becomes_a_run_of_the_asked_for_length(self):
+        looped = loop_frames(Image.new("RGB", (8, 4), "red"), 121)
+
+        assert looped.shape == (121, 4, 8, 3)
+        assert (looped[0] == looped[120]).all()
+
+    def test_a_short_clip_laps_round_and_the_last_lap_is_trimmed(self):
+        frames = numpy.stack(
+            [numpy.full((2, 2, 3), value, dtype=numpy.uint8) for value in (1, 2, 3)]
+        )
+
+        looped = loop_frames(frames, 7)
+
+        assert [int(frame[0][0][0]) for frame in looped] == [1, 2, 3, 1, 2, 3, 1]
+
+    def test_a_clip_longer_than_the_request_is_trimmed(self):
+        frames = numpy.zeros((10, 2, 2, 3), dtype=numpy.uint8)
+
+        assert len(loop_frames(frames, 4)) == 4
+
+    def test_a_pil_list_is_taken_too(self):
+        looped = loop_frames([Image.new("RGB", (2, 2))] * 3, 5)
+
+        assert looped.shape == (5, 2, 2, 3)
+
+    def test_a_count_below_one_is_refused(self):
+        with pytest.raises(ValueError) as caught:
+            loop_frames(Image.new("RGB", (2, 2)), 0)
+
+        assert "at least 1" in str(caught.value)
+
+    def test_a_count_that_is_not_a_number_is_refused(self):
+        with pytest.raises(ValueError):
+            loop_frames(Image.new("RGB", (2, 2)), "many")
+
+    def test_a_numeric_string_is_taken(self):
+        """A count that arrived through a `variable:` may still be a string."""
+        assert len(loop_frames(Image.new("RGB", (2, 2)), "121")) == 121
