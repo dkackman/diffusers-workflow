@@ -492,6 +492,119 @@ def unknown_task_arguments(command, argument_names):
     return sorted(set(argument_names) - known)
 
 
+def unknown_task_argument_message(command, name):
+    """The wording for one argument a task command does not take."""
+    return (
+        f"task '{command}' does not accept argument '{name}' - its "
+        f"implementation's signature is the whole of what it takes, so the "
+        f"argument would reach Python as an unexpected keyword"
+    )
+
+
+def missing_task_arguments(command, argument_names):
+    """The arguments a task command requires that the given names do not supply.
+
+    A task step's `arguments` dict is the whole of what reaches the
+    implementation - nothing is injected around it, so a required parameter
+    absent from the dict is a run that cannot start. Unlike
+    unknown_task_arguments this does not stop at `accepts_kwargs`: **kwargs
+    says more names are allowed, never that a required one may be left out
+    (an image processor takes any keys and still needs its `image`).
+
+    Same never-wrong contract otherwise: empty for a command that cannot be
+    described at all, and 'device' is never required.
+    """
+    try:
+        description = describe_task(command)
+    except Exception:
+        return []
+    supplied = set(argument_names)
+    return sorted(
+        p["name"]
+        for p in description["parameters"]
+        if p.get("required") and p["name"] != "device" and p["name"] not in supplied
+    )
+
+
+def missing_task_argument_message(command, missing):
+    """The one wording both the static pass and the run-time guard use for a
+    task step that leaves a required argument unset."""
+    named = ", ".join(f"'{name}'" for name in missing)
+    return (
+        f"task '{command}' requires {named}, which the step does not supply. "
+        f"A task's 'arguments' are the whole of what reaches the command, so "
+        f"a required argument left out is a run that cannot start"
+    )
+
+
+def task_signature_errors(workflow_definition, source_indices=None):
+    """Every task step whose arguments its command's signature refuses, as
+    [{path, message}] - a required argument left unset, and an argument the
+    command does not take.
+
+    The one class of mistake a free pre-flight is most obviously for, and the
+    one it used to let through: `validate_workflow` answered `valid: true`
+    and the job then failed with Python's own
+    "resample_audio() missing 1 required positional argument: 'audio'"
+    (#141). An unknown argument was a warning beside it, so a step with every
+    argument it was given rejected and every argument it needs missing still
+    validated - both are a guaranteed TypeError at the same call, so both are
+    errors now.
+
+    The definition handed here has already been substituted and expanded, so
+    a for_each member is checked as it will run; `source_indices` maps each
+    expanded step back to the step the author wrote.
+    """
+    from .for_each import MEMBER_SEPARATOR, render_path
+
+    steps = workflow_definition.get("steps")
+    if not isinstance(steps, list):
+        return []
+
+    errors = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        task = step.get("task")
+        if not isinstance(task, dict):
+            continue
+        command = task.get("command")
+        # 'inputs' is a list template rather than a named-argument dict -
+        # the command consumes it whole, so there is no name to miss
+        arguments = task.get("arguments")
+        if not isinstance(command, str) or not isinstance(arguments, dict):
+            continue
+        missing = missing_task_arguments(command, arguments.keys())
+        unknown = unknown_task_arguments(command, arguments.keys())
+        if not missing and not unknown:
+            continue
+        source = (
+            source_indices[index]
+            if source_indices is not None and index < len(source_indices)
+            else index
+        )
+        name = step.get("name")
+        where = (
+            f" in member '{name}'"
+            if isinstance(name, str) and MEMBER_SEPARATOR in name
+            else ""
+        )
+
+        def report(key, message):
+            errors.append(
+                {
+                    "path": render_path(("steps", source, "task", "arguments", key)),
+                    "message": f"{message}{where}.",
+                }
+            )
+
+        if missing:
+            report(missing[0], missing_task_argument_message(command, missing))
+        for key in unknown:
+            report(key, unknown_task_argument_message(command, key))
+    return errors
+
+
 def _inert_crossfade_warnings(step, command, arguments):
     """concat_videos draws its crossfade from the trimmed-off material, so
     with nothing trimmed a `crossfade_ms` the author wrote does nothing. A
@@ -535,14 +648,9 @@ def workflow_argument_warnings(workflow_definition):
         task = step.get("task")
         if task and isinstance(task.get("arguments"), dict):
             command = task.get("command")
-            if isinstance(command, str):
-                for argument_name in unknown_task_arguments(
-                    command, task["arguments"].keys()
-                ):
-                    warnings.append(
-                        f"Step '{step.get('name')}': task '{command}' does not "
-                        f"accept argument '{argument_name}'"
-                    )
+            # An unknown or missing task argument is an error rather than a
+            # warning now (task_signature_errors, #141) - reported once, by
+            # the pass whose verdict it changes
             warnings.extend(_inert_crossfade_warnings(step, command, task["arguments"]))
         pipeline = step.get("pipeline")
         if not pipeline:

@@ -2579,8 +2579,11 @@ class TestTaskDescription:
         }
         with server(success_script) as client:
             result = client.post("/api/validate", json={"workflow": workflow}).json()
-            assert result["valid"]
-            assert any("trim_framse" in warning for warning in result["warnings"])
+            # An argument the command does not take reaches Python as an
+            # unexpected keyword, so it refuses the workflow rather than
+            # warning beside a `valid: true` (#141)
+            assert not result["valid"]
+            assert any("trim_framse" in error["message"] for error in result["errors"])
 
 
 class TestDiffusersUpdate:

@@ -1677,6 +1677,16 @@ rate of their own. A mono track needs no preparation: an mp4 audio stream
 takes stereo and nothing else, so saving duplicates the single channel into
 two and emits a warning saying it did.
 
+The track and the frames are two lengths a workflow used to have to keep equal by
+hand. `"fit": "video"` derives one from the other instead: the track is cut to
+exactly the frames it is laid over, or padded with silence and warned about when it
+is shorter than they are. That is what a soundtrack over a cut whose length is an
+argument needs - nothing in a workflow can multiply a list's length by a frame
+count, so `music-video.json` sliced a fixed 496 frames of song while its cut
+followed a `shots` list, and a two-shot run wrote 10.3 s of picture into a 20.7 s
+container and reported `succeeded` with no warnings (#142). Left unset the track is
+used as it is and a disagreement is warned about rather than passing in silence.
+
 Which shape a pipeline argument wants is the pipeline's business, and the two LTX-2
 paths differ: a keyframe condition is mapped from 0-255, so it takes the `video_frames`
 array, while an IC-LoRA reference goes through the video processor, which expects the

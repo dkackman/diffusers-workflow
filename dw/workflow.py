@@ -29,6 +29,7 @@ from .previous_results import (
 )
 from .locations import location_errors
 from .reference_limits import reference_limit_errors
+from .introspection import task_signature_errors
 from .task_domains import task_argument_errors
 from .subfolders import step_subfolder, subfolder_errors
 from .step import Step
@@ -604,6 +605,11 @@ class Workflow:
             # sample rate a silent fallback to 44100 (dw/task_domains.py,
             # #139, #140)
             + task_argument_errors(expanded, source_indices)
+            # A required task argument left unset validated as `valid: true`
+            # and then failed the job on Python's own signature error, which
+            # is the one mistake a free pre-flight most obviously exists for
+            # (dw/introspection.py, #141)
+            + task_signature_errors(expanded, source_indices)
             + self.sub_workflow_errors(expanded, source_indices, composing)
         )
 

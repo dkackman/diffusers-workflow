@@ -9,10 +9,16 @@ this does: it puts the two back together for the step that saves them.
 
 import logging
 
+from ..events import emit_warning
 from ..result import AudioVideo
 from .audio_utils import as_channels_samples
 
 logger = logging.getLogger("dw")
+
+# A track and a cut are frame-aligned by construction here, so a difference
+# smaller than this is rounding rather than a decision anyone can act on -
+# one video frame at 24 fps is 41 ms
+LENGTH_WARN_MS = 100.0
 
 
 class _Loaded:
@@ -23,7 +29,87 @@ class _Loaded:
         self.sample_rate = sample_rate
 
 
-def pair_audio(video, audio, sample_rate=None):
+def _frame_count(frames):
+    """How many frames the video is, or None when that cannot be told cheaply
+    (a lazily-decoded reader, an object with no length)."""
+    try:
+        return len(frames)
+    except TypeError:
+        shape = getattr(frames, "shape", None)
+        return int(shape[0]) if shape else None
+
+
+def _fit_to_video(waveform, rate, frames, fps, fit):
+    """Answer the track that goes with these frames, and say when the two do
+    not agree.
+
+    The lengths of a video and the track laid over it are two numbers a
+    workflow used to have to keep equal by hand, and nothing checked: the
+    music-video template sliced a soundtrack of a fixed 496 frames while its
+    cut followed a `shots` list, so a two-shot run wrote 10.3 s of picture
+    into a 20.7 s container and reported `succeeded` with no warnings (#142).
+    `fit: "video"` derives the length from the frames instead, and with no
+    `fit` the mismatch is at least said out loud.
+    """
+    from .audio_utils import frames_to_samples, slice_samples
+
+    if fit not in (None, "video"):
+        # Refused rather than ignored: a misspelled 'fit' that quietly did
+        # nothing is the silence this argument exists to end
+        raise ValueError(
+            f"pair_audio: 'fit' takes 'video' or nothing, got {fit!r}. "
+            f"'video' cuts or pads the track to the length of the frames"
+        )
+
+    count = _frame_count(frames)
+    if not count or not fps or not rate:
+        # Nothing to compare against - a frame count or a rate this layer
+        # cannot know is not a mismatch
+        return waveform
+
+    wanted = frames_to_samples(count, fps, rate)
+    have = waveform.shape[1]
+    if abs(have - wanted) / float(rate) * 1000.0 < LENGTH_WARN_MS:
+        return waveform
+
+    video_seconds = count / float(fps)
+    audio_seconds = have / float(rate)
+    if fit != "video":
+        emit_warning(
+            f"pair_audio: the track is {audio_seconds:.2f} s and the video it "
+            f"is laid over is {video_seconds:.2f} s ({count} frames at "
+            f"{fps:g} fps), so the saved file's duration and its frame count "
+            f"disagree. Pass 'fit': 'video' to cut or pad the track to the "
+            f"frames, or make the track the length of the cut.",
+            kind="audio_video_length_mismatch",
+            command="pair_audio",
+            audio_seconds=audio_seconds,
+            video_seconds=video_seconds,
+        )
+        return waveform
+
+    fitted = slice_samples(waveform, 0, wanted)
+    if wanted > have:
+        emit_warning(
+            f"pair_audio: 'fit' padded the {audio_seconds:.2f} s track with "
+            f"{(wanted - have) / float(rate):.2f} s of silence to reach the "
+            f"{video_seconds:.2f} s of video it is laid over - the last part "
+            f"of the cut has no soundtrack. A longer track, or fewer frames, "
+            f"is what covers it.",
+            kind="audio_padded_to_video",
+            command="pair_audio",
+            audio_seconds=audio_seconds,
+            video_seconds=video_seconds,
+        )
+    else:
+        logger.info(
+            f"pair_audio: trimmed the track from {audio_seconds:.2f} s to the "
+            f"{video_seconds:.2f} s of video it is laid over"
+        )
+    return fitted
+
+
+def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
     """Pair a video's frames with an audio track.
 
     Args:
@@ -40,6 +126,18 @@ def pair_audio(video, audio, sample_rate=None):
         sample_rate: Sample rate of the waveform. Required unless `audio`
             carries one; given here it wins, for a track whose rate was
             reported wrong
+        fps: The rate the frames play at, when the frames do not carry one -
+            only used to work out how long the video is, never written
+        fit: "video" cuts the track to the length of the frames, or pads it
+            with silence and warns when it is shorter than they are. This is
+            how a soundtrack follows a cut whose length is an argument
+            rather than a constant: nothing in a workflow can multiply a
+            list's length by a frame count, so a slice written to fit four
+            shots stayed 496 frames long when the list held two, and the
+            deliverable's audio ran twice as long as its picture with
+            `succeeded` and no warnings (#142). Left unset the track is used
+            as it is, and a length that disagrees with the frames' is
+            warned about rather than passing in silence
 
     Returns:
         One AudioVideo holding the frames and the track, at the rate the
@@ -75,7 +173,9 @@ def pair_audio(video, audio, sample_rate=None):
     # list, an array and a tensor alike, and converting a long video here would
     # cost a copy of the whole thing for nothing
     frames = video.frames if isinstance(video, AudioVideo) else video
+    frame_rate = fps if fps is not None else getattr(video, "fps", None)
     logger.debug(f"Pairing frames with audio at {rate} Hz")
-    return AudioVideo(
-        frames, as_channels_samples(waveform), rate, fps=getattr(video, "fps", None)
+    waveform = _fit_to_video(
+        as_channels_samples(waveform), rate, frames, frame_rate, fit
     )
+    return AudioVideo(frames, waveform, rate, fps=getattr(video, "fps", None))
