@@ -238,6 +238,137 @@ class TestTheWarning:
         assert "did not run" in warnings[0]["message"]
 
 
+class TestASuppliedReferenceIsNotAMisspelling:
+    """#157: `music-video`'s singer portrait is elided *because the caller
+    supplied one*, and the warning said their reference was probably
+    misspelled. The two cases are indistinguishable from `job.warnings`
+    otherwise, and one of them is the documented happy path."""
+
+    def written(self):
+        return {
+            "id": "w",
+            "variables": {"singer_reference": {"from_previous_result": "draw_singer"}},
+            "steps": [
+                task("draw_singer"),
+                step(
+                    "shot",
+                    task={
+                        "command": "fade_audio",
+                        "arguments": {"audio": "variable:singer_reference"},
+                    },
+                    result={"content_type": "video/mp4"},
+                ),
+            ],
+        }
+
+    def test_the_overriding_variable_is_named(self):
+        from dw.elision import overriding_variables
+
+        supplied = [task("draw_singer"), task("shot")]
+        assert overriding_variables(self.written(), supplied) == {
+            "draw_singer": "singer_reference"
+        }
+
+    def test_a_variable_still_reading_the_step_is_not_an_override(self):
+        from dw.elision import overriding_variables
+
+        still = [task("draw_singer"), task("shot", reads="draw_singer")]
+        assert overriding_variables(self.written(), still) == {}
+
+    def test_a_variable_no_step_reads_is_not_how_the_step_was_reached(self):
+        """A dead variable naming a step says nothing about why the step went
+        unread, so the general diagnosis stands."""
+        from dw.elision import overriding_variables
+
+        written = self.written()
+        written["steps"][1]["task"]["arguments"]["audio"] = "x"
+        assert overriding_variables(written, [task("draw_singer"), task("shot")]) == {}
+
+    def test_the_reason_says_what_was_supplied(self):
+        written = self.written()
+        definition = copy.deepcopy(written)
+        # As substitution leaves it once the caller passes a portrait
+        elided = elide_definition(definition, written)
+        assert elided == [
+            {
+                "step": "draw_singer",
+                "reason": "'singer_reference' was supplied, so nothing reads "
+                "its result",
+                "overridden_by": "singer_reference",
+            }
+        ]
+
+    def test_without_the_written_definition_it_is_the_old_diagnosis(self):
+        """Every other caller of elide_definition is unchanged."""
+        elided = elide_definition(copy.deepcopy(self.written()))
+        assert "nothing after it reads" in elided[0]["reason"]
+        assert "overridden_by" not in elided[0]
+
+    def test_the_warning_does_not_suggest_a_typo(self):
+        from dw.elision import warn_elided
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            warn_elided(
+                [
+                    {
+                        "step": "draw_singer",
+                        "reason": "'singer_reference' was supplied, so nothing "
+                        "reads its result",
+                        "overridden_by": "singer_reference",
+                    }
+                ]
+            )
+        finally:
+            deactivate_context(token)
+
+        warning = [e for e in events if e["event"] == "warning"][0]
+        assert "misspelled" not in warning["message"]
+        assert "singer_reference" in warning["message"]
+        assert warning["overridden_by"] == "singer_reference"
+
+    def test_an_orphan_still_gets_the_diagnosis(self):
+        """A step nothing ever read is the case the advice exists for."""
+        from dw.elision import warn_elided
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            warn_elided([{"step": "orphan", "reason": "nothing reads it"}])
+        finally:
+            deactivate_context(token)
+
+        assert (
+            "misspelled" in [e for e in events if e["event"] == "warning"][0]["message"]
+        )
+
+
+class TestTheMusicVideoSinger:
+    """#146's happy path, end to end through the template itself."""
+
+    PATH = "workflows/templates/minimax/music-video.json"
+
+    def definition(self):
+        return json.loads(pathlib.Path(self.PATH).read_text())
+
+    def test_a_supplied_portrait_elides_without_suggesting_a_mistake(self):
+        written = self.definition()
+        definition = copy.deepcopy(written)
+        definition["variables"]["singer_reference"] = {
+            "reference_type": "variable:image_reference_type",
+            "from_file": "asset:cast/priya.jpg",
+        }
+        expanded = Workflow(definition, "outputs", self.PATH).expanded_definition()
+
+        elided = elide_definition(expanded, written)
+
+        assert [e["step"] for e in elided] == ["draw_singer"]
+        assert elided[0]["overridden_by"] == "singer_reference"
+
+
 class TestDialogueShort:
     """The case that raised it."""
 

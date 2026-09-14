@@ -1336,3 +1336,84 @@ class TestMonoAudioForMuxing:
         )
         as_audio_track(torch.zeros((1, 100)))
         assert warnings and "mono" in warnings[0].lower()
+
+
+class TestNoHeadroom:
+    """#158: `music-video`'s deliverable came back at +3.26 dBFS and the job
+    warned about a 6.4 dB level jump between shots, which is the lesser
+    problem. A clipped file is invisible to a consumer that cannot listen -
+    it succeeds, and the documented metadata check only covers the quiet end
+    of the range."""
+
+    def events_from(self, save):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            save()
+        finally:
+            deactivate_context(token)
+        return [e for e in events if e["event"] == "warning"]
+
+    def track(self, peak):
+        waveform = numpy.zeros((2, 100), dtype=numpy.float32)
+        waveform[0][0] = peak
+        return waveform
+
+    def save_audio(self, waveform):
+        from dw.result import Result
+
+        result = Result({"content_type": "audio/wav", "sample_rate": 44100})
+        result.add_result(waveform)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result.save(temp_dir, "song")
+
+    def save_muxed(self, waveform):
+        from dw.result import AudioVideo, Result
+
+        result = Result({"content_type": "video/mp4"})
+        result.add_result(AudioVideo("frames", waveform, 48000))
+        with (
+            patch("dw.result.encode_video"),
+            patch("dw.result.is_av_available", return_value=True),
+            tempfile.TemporaryDirectory() as temp_dir,
+        ):
+            result.save(temp_dir, "cut")
+
+    def test_a_track_at_full_scale_warns_with_its_figure(self):
+        warnings = self.events_from(lambda: self.save_audio(self.track(1.0)))
+
+        assert len(warnings) == 1
+        assert warnings[0]["kind"] == "audio_no_headroom"
+        assert warnings[0]["peak_dbfs"] == 0.0
+        assert "normalize_audio" in warnings[0]["message"]
+
+    def test_a_track_over_full_scale_warns(self):
+        warnings = self.events_from(lambda: self.save_audio(self.track(1.2)))
+
+        assert len(warnings) == 1
+        assert warnings[0]["peak_dbfs"] == pytest.approx(1.58, abs=0.01)
+
+    def test_a_mix_with_headroom_is_quiet(self):
+        """-1 dBFS is what `normalize_audio` leaves; nothing to say."""
+        assert self.events_from(lambda: self.save_audio(self.track(0.89))) == []
+
+    def test_silence_is_not_a_peak(self):
+        assert (
+            self.events_from(
+                lambda: self.save_audio(numpy.zeros((2, 100), dtype=numpy.float32))
+            )
+            == []
+        )
+
+    def test_the_muxed_deliverable_is_measured_too(self):
+        """The file the caller actually reads: the soundtrack of the cut."""
+        warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+
+        assert len(warnings) == 1
+        assert warnings[0]["kind"] == "audio_no_headroom"
+        assert warnings[0]["file"].endswith(".mp4")
+
+    def test_a_video_with_a_quiet_track_is_not_warned_about(self):
+        assert self.events_from(lambda: self.save_muxed(torch.zeros((2, 100)))) == []

@@ -247,7 +247,12 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
             "Check duration_seconds against what was asked for: a Music 3 "
             "track that lands within 0.2 s of its audio_duration ceiling was "
             "cut off, one well short of it finished naturally. peak_dbfs is "
-            "the level normalize_audio would be given; mean_dbfs below -40 "
-            "on a track that should be full is a near-silent render."
+            "the level normalize_audio would be given, and the range has two "
+            "ends: mean_dbfs below -40 on a track that should be full is a "
+            "near-silent render, and peak_dbfs at or above 0 is a deliverable "
+            "at or over full scale - a decoded lossy file overshoots by a few "
+            "tenths legitimately, but a figure of +1 or more is a mix with no "
+            "headroom, and 'normalize_audio' (peak_dbfs: -1) before the saving "
+            "step is what fixes it."
         )
     return body

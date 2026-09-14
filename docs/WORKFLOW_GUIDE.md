@@ -533,8 +533,10 @@ with your `arguments` answers with a `plan` whose `estimate` already does
 that arithmetic (`basis: per_entry`); without `per_entry` it extrapolates
 the stored total linearly over your list (`basis: derived` - an estimate
 rather than a measurement) and reports the stored total unchanged only
-when your list is the one it was measured with (`basis: catalog`) - quote
-the plan's figure and say which basis it has. An
+when your list is the one it was measured with (`basis: catalog`). Ahead of
+all of those it quotes this box's own finished runs of the shape you are
+about to run when it has any (`basis: observed`, with `runs` saying how
+many) - quote the plan's figure and say which basis it has. An
 entry key no step reads is a validation warning at the entry's path, so a
 misspelt field is caught before the run. Then
 `validate_workflow` with the

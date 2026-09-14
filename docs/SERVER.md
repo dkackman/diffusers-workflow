@@ -177,7 +177,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | `pipeline_step` | each denoise step | `step`, `total_steps`. Emitted for a pipeline that takes a `callback_on_step_end`, and for a `ModularPipeline` (H3, LTX-2, Qwen-Image), which takes none - there the denoise block's own progress bar is what reports |
 | `phase` | the step changes what it is doing | `phase`, `detail` |
 | `pipeline_released` | a step with `release_pipeline` drops its pipeline | `step`, `index`, `gpu_memory_allocated_mb` and `gpu_memory_allocated_before_mb` (both `null` where the backend cannot say). Emitted between the step's generation and its files being written, which is where the release happens - so the ordering is readable off the event stream rather than by trying to poll memory through a sub-second write |
-| `warning` | a step finds something wrong with what it is about to write | `message`, plus a `kind` and the figures behind it (`level_spread`: `spread_db`, `measure`, `command`; `fps_mismatch`: `declared_fps`, `source_fps`). Also appended to the job's `warnings`, prefixed with the step it fired in - the event keeps the moment, `warnings` keeps it where a caller polling the finished job will look, since a warning about the artifact outlives the run that noticed it |
+| `warning` | a step finds something wrong with what it is about to write | `message`, plus a `kind` and the figures behind it (`level_spread`: `spread_db`, `measure`, `command`; `fps_mismatch`: `declared_fps`, `source_fps`; `audio_no_headroom`: `file`, `peak_dbfs` - a deliverable at or above -0.5 dBFS, which an mp3 or AAC encode decodes over full scale; `step_elided`: `step`, `overridden_by` when a supplied argument is what made it unreferenced). Also appended to the job's `warnings`, prefixed with the step it fired in - the event keeps the moment, `warnings` keeps it where a caller polling the finished job will look, since a warning about the artifact outlives the run that noticed it |
 | `workflow_end` | the run finishes | `manifest` |
 
 A step spends most of its wall clock outside the denoise loop, and
@@ -282,7 +282,14 @@ The editor's forms come from these; they are just as usable from scripts:
   MiniMax-H3, audio as the only reference - because the pipeline enforces
   those only once its checkpoint is loaded, minutes into an acknowledged
   run (`dw/reference_limits.py`, which reads each limit off the diffusers
-  block that enforces it rather than restating it).
+  block that enforces it rather than restating it). A LoRA loaded onto the
+  wrong checkpoint partition is an error for the opposite reason - the
+  pipeline accepts it: MiniMax-H3's `ref2va` holds `transformer_ref` alone,
+  so an FL2VA-trained adapter loads onto it, the run succeeds and only the
+  identity retention is worse (`dw/adapter_compatibility.py`, #155). A
+  `weight_name` carrying neither `ref2v` nor `fl2v` cannot be placed, so it
+  is a `warnings` entry naming the rule rather than a refusal - a
+  reference-trained checkpoint nobody has named yet still gets through.
 
   A valid answer also carries `plan`, what the run will execute for those
   arguments: `fingerprint` (`sha256:…` over the realized, expanded
@@ -299,8 +306,12 @@ The editor's forms come from these; they are just as usable from scripts:
   `{repo, gb}` (`gb` from the hub, `null` when it could not be asked -
   `?sizes=false` skips the hub) and each `from_single_file` URL as
   `{repo: null, url, gb: null}`; and `estimate`, `{minutes, basis,
-  device, measured_on, partial}` from the workflow's own `cost` block -
-  `basis` is `catalog` (the stored total, for a run whose lists are the
+  device, measured_on, partial, runs}` from this box's own history when it
+  has one and otherwise from the workflow's `cost` block -
+  `basis` is `observed` (the cold median of this server's own finished runs
+  of this shape, with `runs` saying how many; preferred over a curated
+  figure, and quoted only for the bucket the caller's arguments fall in),
+  `catalog` (the stored total, for a run whose lists are the
   ones it was measured with), `per_entry` (re-priced from a measured
   per-entry rate, when the entry carries `per_entry`), `derived` (the
   stored total extrapolated linearly over a list whose length the caller
@@ -308,7 +319,9 @@ The editor's forms come from these; they are just as usable from scripts:
   the serving backend; the first entry's figure, which is a warning rather
   than a quote) or `unknown` (no cost block, or more than one list changed
   so there is nothing honest to extrapolate along); a composed child's
-  cost is added and `partial` is true when a child has none. `plan` is `null` when
+  cost is added to a curated figure and `partial` is true when a child has
+  none - an `observed` figure already measured the whole run, children
+  included, so nothing is added to it and `partial` is false. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 
 ## Files and models

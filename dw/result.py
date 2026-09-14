@@ -47,6 +47,60 @@ def _artifact_size(artifact):
     return ""
 
 
+# A deliverable this close to full scale has no headroom left: an mp3 or AAC
+# encode of it decodes above 0 dBFS and clips, which is why a track measured
+# at +1.3 dBFS in the gallery can have been written from samples that never
+# exceeded 1.0. Same ceiling `match_levels` holds a gain to
+# (MATCH_CEILING_DBFS in dw/tasks/audio_utils.py)
+HEADROOM_WARN_DBFS = -0.5
+
+
+def _peak_dbfs(waveform):
+    """The loudest sample of anything saveable as audio, in dBFS, or None
+    when it cannot be measured cheaply (no samples, a lazily-decoded
+    reader, a shape nothing here recognises)."""
+    try:
+        if hasattr(waveform, "detach"):
+            waveform = waveform.detach().float().cpu().numpy()
+        samples = numpy.asarray(waveform)
+        if samples.size == 0 or not numpy.issubdtype(samples.dtype, numpy.number):
+            return None
+        peak = float(numpy.abs(samples).max())
+    except Exception:
+        logger.debug("Could not measure the peak of a saved track", exc_info=True)
+        return None
+    if peak <= 0.0:
+        return None
+    return 20.0 * float(numpy.log10(peak))
+
+
+def warn_without_headroom(waveform, file_name):
+    """Say when the soundtrack about to be written is at or over full scale.
+
+    A clipped deliverable is invisible to the consumer this server is built
+    for: the job succeeds, and an agent that cannot listen has `peak_dbfs`
+    and no rule to read it against - `get_gallery_metadata` teaches the
+    near-silent end of the range and said nothing about the other one (#158).
+    A warning rather than a change to the mix: what level a deliverable
+    should sit at is the workflow's to decide, and `normalize_audio` is the
+    step that decides it.
+    """
+    peak = _peak_dbfs(waveform)
+    if peak is None or peak < HEADROOM_WARN_DBFS:
+        return None
+    emit_warning(
+        f"The soundtrack written to {file_name} peaks at {peak:+.1f} dBFS, "
+        f"which leaves no headroom below full scale - an mp3 or AAC encode "
+        f"of it decodes above 0 dBFS and clips. Add a 'normalize_audio' "
+        f"step (peak_dbfs: -1) before the step that saves it, or "
+        f"'match_levels' on the join that made it.",
+        kind="audio_no_headroom",
+        file=file_name,
+        peak_dbfs=round(peak, 2),
+    )
+    return peak
+
+
 def _file_size_mb(path):
     try:
         return os.path.getsize(path) / (1024 * 1024)
@@ -523,6 +577,7 @@ class Result:
                             )
                         )
                     return saved_files
+                warn_without_headroom(waveforms[0], os.path.basename(output_path))
                 write_audio(
                     output_path,
                     waveforms[0],
@@ -631,6 +686,7 @@ class Result:
             audio = None
             if artifact.audio is not None and sample_rate is not None:
                 audio = as_audio_track(artifact.audio)
+                warn_without_headroom(artifact.audio, os.path.basename(output_path))
             logger.debug(
                 f"Streaming {len(artifact.frames)} segments into {output_path}"
             )
@@ -664,6 +720,7 @@ class Result:
             return
 
         logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")
+        warn_without_headroom(artifact.audio, os.path.basename(output_path))
         encode_video(
             frames_for_encoding(artifact.frames),
             fps=fps,

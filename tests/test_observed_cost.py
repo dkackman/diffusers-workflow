@@ -502,3 +502,67 @@ def test_a_manifest_that_will_not_parse_is_not_a_cached_run(value):
     from dw.server.observed_cost import _every_step_was_reused
 
     assert _every_step_was_reused(value) is False
+
+
+class TestTheBucketAPlanAsksFor:
+    """#154: the listing asks with no arguments and gets the defaults'
+    bucket; a plan asks with the caller's own values and gets the figure for
+    the run it is about to quote."""
+
+    def test_the_callers_values_choose_the_bucket(self):
+        definition = workflow(["num_frames"], num_frames=124)
+
+        observed = observed_for(
+            definition,
+            [
+                run(8 * MINUTE, {"num_frames": 124}),
+                run(16 * MINUTE, {"num_frames": 248}),
+            ],
+            arguments={"num_frames": 248},
+        )
+
+        assert observed["cold_minutes"] == 16.0
+        assert observed["cold_runs"] == 1
+        # And says which run it is a figure for, not what the defaults are
+        assert observed["drivers"] == {"num_frames": 248}
+
+    def test_a_shape_this_box_has_never_run_reports_nothing(self):
+        definition = workflow(["num_frames"], num_frames=124)
+
+        assert (
+            observed_for(
+                definition,
+                [run(8 * MINUTE, {"num_frames": 124})],
+                arguments={"num_frames": 500},
+            )
+            is None
+        )
+
+    def test_without_declared_drivers_an_override_is_not_comparable(self):
+        """Nothing is declared to matter, so a run that changed something
+        cannot be said to be comparable to one that did not."""
+        definition = workflow(num_frames=124)
+
+        assert (
+            observed_for(
+                definition,
+                [run(8 * MINUTE)],
+                arguments={"num_frames": 124},
+            )
+            is None
+        )
+
+    def test_a_list_driver_buckets_on_the_callers_length(self):
+        definition = workflow(["shots"], shots=[{"name": "a"}, {"name": "b"}])
+
+        observed = observed_for(
+            definition,
+            [
+                run(10 * MINUTE, {"shots": [{"name": "a"}, {"name": "b"}]}),
+                run(20 * MINUTE, {"shots": [{"name": n} for n in "abcd"]}),
+            ],
+            arguments={"shots": [{"name": n} for n in "wxyz"]},
+        )
+
+        assert observed["cold_minutes"] == 20.0
+        assert observed["drivers"] == {"shots": 4}
