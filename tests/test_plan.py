@@ -679,3 +679,74 @@ class TestUnseededCacheWarning:
         spec = definition()
         spec["variables"]["seed"] = None
         assert unseeded_cache_warnings(spec, {"seed": 7}) == []
+
+
+class TestAnAdapterIsADownloadToo:
+    """A `loras` entry carries its repo under `model_name` directly rather
+    than inside a `from_pretrained_arguments` block, so the source walk
+    missed it: a box with every base weight and not the IC-LoRA answered
+    `downloads_required: []` and then pulled it mid-run (found verifying
+    #151)."""
+
+    def definition(self):
+        return {
+            "id": "adapted",
+            "steps": [
+                {
+                    "name": "shot",
+                    "pipeline": {
+                        "configuration": {"component_type": "LTX2InContextPipeline"},
+                        "from_pretrained_arguments": {
+                            "model_name": "Lightricks/LTX-2.5-Diffusers"
+                        },
+                        "loras": [
+                            {
+                                "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients",
+                                "weight_name": "ic-lora.safetensors",
+                            }
+                        ],
+                    },
+                    "result": {"content_type": "video/mp4"},
+                }
+            ],
+        }
+
+    def repos(self, present, monkeypatch):
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan,
+            "scan_models",
+            lambda cache_dir=None: {
+                "repos": [{"repo_id": name} for name in present]
+            },
+        )
+        return [
+            entry["repo"]
+            for entry in dw.plan.downloads_required(
+                self.definition(), None, None, None, False
+            )
+        ]
+
+    def test_the_adapter_is_named_when_it_is_absent(self, monkeypatch):
+        assert self.repos(["Lightricks/LTX-2.5-Diffusers"], monkeypatch) == [
+            "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients"
+        ]
+
+    def test_nothing_is_named_when_both_are_present(self, monkeypatch):
+        assert (
+            self.repos(
+                [
+                    "Lightricks/LTX-2.5-Diffusers",
+                    "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients",
+                ],
+                monkeypatch,
+            )
+            == []
+        )
+
+    def test_both_are_named_on_an_empty_cache(self, monkeypatch):
+        assert self.repos([], monkeypatch) == [
+            "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients",
+            "Lightricks/LTX-2.5-Diffusers",
+        ]

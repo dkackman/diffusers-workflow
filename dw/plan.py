@@ -427,6 +427,8 @@ def _repriced(minutes, list_entries, measured_entries):
 
 FROM_PRETRAINED_KEY = "from_pretrained_arguments"
 MODEL_NAME_KEY = "model_name"
+# An adapter names its repo directly, not through from_pretrained_arguments
+LORAS_KEY = "loras"
 SINGLE_FILE_KEY = "from_single_file"
 
 
@@ -464,8 +466,20 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
 
 
 def _collect_sources(tree, names, urls):
-    """Every from_pretrained source in a tree, first-seen order, deduplicated."""
+    """Every from_pretrained source in a tree, first-seen order, deduplicated.
+
+    A `loras` entry counts too. It carries its repo under `model_name`
+    directly rather than inside a `from_pretrained_arguments` block, so the
+    walk missed it: `templates/ltx2/reference-sheet` on a box that had
+    every base weight but not the IC-LoRA answered `downloads_required:
+    []` and then pulled it mid-run, which is the one question the field
+    exists to answer (found verifying #151).
+    """
     if isinstance(tree, dict):
+        for lora in tree.get(LORAS_KEY) or []:
+            name = lora.get(MODEL_NAME_KEY) if isinstance(lora, dict) else None
+            if isinstance(name, str) and name not in names:
+                names.append(name)
         source = tree.get(FROM_PRETRAINED_KEY)
         if isinstance(source, dict):
             name = source.get(MODEL_NAME_KEY)

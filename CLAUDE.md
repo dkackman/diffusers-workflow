@@ -212,7 +212,11 @@ form is a *different* genre from a T2V shot caption, so those stored prompts
 are tagged `ic-lora` and `tests/test_ltx_prompt_library.py` checks them
 against their own convention rather than the 150-220-word paragraph rule.
 The weights are `gated: auto` on Hugging Face — per repo, so a box that pulls
-one can still 403 on another.
+one can still 403 on another. A `loras` entry counts toward
+`plan.downloads_required` (`_collect_sources`, `dw/plan.py`): it names its repo
+under `model_name` directly rather than through `from_pretrained_arguments`, so
+the walk used to miss it and a box holding every base weight but not the
+IC-LoRA answered `[]` and then pulled it mid-run.
 
 ### Quantization Support
 
