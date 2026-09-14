@@ -54,9 +54,9 @@ def test_every_model_config_names_the_template_it_configures(path):
 
     assert configures, f"{path} has no 'configures'"
     target = os.path.join(REPO_ROOT, "workflows", f"{configures}.json")
-    assert os.path.isfile(
-        target
-    ), f"{path} configures '{configures}', which is not a workflow ({target})"
+    assert os.path.isfile(target), (
+        f"{path} configures '{configures}', which is not a workflow ({target})"
+    )
 
 
 def load(path):
@@ -130,13 +130,13 @@ def test_the_rules_read_these_templates_as_expected(path, expected):
 def test_no_template_falls_through_to_utility(path):
     meta = derive_catalog_metadata(load(path))
     if meta["shape"] == "utility":
-        assert (
-            path in UTILITIES
-        ), f"{path} derived 'utility' - a rule missed it, or add it to UTILITIES"
+        assert path in UTILITIES, (
+            f"{path} derived 'utility' - a rule missed it, or add it to UTILITIES"
+        )
     else:
-        assert (
-            path not in UTILITIES
-        ), f"{path} is listed as a utility but derives {meta['shape']}"
+        assert path not in UTILITIES, (
+            f"{path} is listed as a utility but derives {meta['shape']}"
+        )
 
 
 @pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS)
@@ -150,9 +150,9 @@ def test_a_declaration_must_differ_from_the_derivation(path):
     }
     derived = derive_catalog_metadata(stripped)
     for key in meta["declared"]:
-        assert (
-            meta[key] != derived[key]
-        ), f"{path} declares {key}={meta[key]!r}, which derivation already produces"
+        assert meta[key] != derived[key], (
+            f"{path} declares {key}={meta[key]!r}, which derivation already produces"
+        )
 
 
 @pytest.mark.parametrize("path", TEMPLATES)
@@ -160,9 +160,9 @@ def test_every_template_has_a_summary_that_fits(path):
     meta = derive_catalog_metadata(load(path))
     assert meta["summary"], f"{path}: description has no first sentence"
     assert len(meta["summary"]) <= SUMMARY_LIMIT
-    assert not meta[
-        "summary_truncated"
-    ], f"{path}: first sentence runs past {SUMMARY_LIMIT} chars - shorten it or declare 'summary': {meta['summary']!r}"
+    assert not meta["summary_truncated"], (
+        f"{path}: first sentence runs past {SUMMARY_LIMIT} chars - shorten it or declare 'summary': {meta['summary']!r}"
+    )
 
 
 BUILTINS = sorted(
@@ -179,9 +179,9 @@ def test_workflow_ids_are_unique_across_the_catalog():
     for path in TEMPLATES + MODEL_CONFIGS + BUILTINS:
         identity = load(path).get("id")
         assert identity, f"{path} has no id"
-        assert (
-            identity not in seen
-        ), f"{path} and {seen[identity]} share id {identity!r}"
+        assert identity not in seen, (
+            f"{path} and {seen[identity]} share id {identity!r}"
+        )
         seen[identity] = path
 
 
@@ -190,17 +190,17 @@ def test_a_declared_cost_is_well_formed(path):
     cost = load(path).get("cost")
     if cost is None:
         return
-    assert (
-        isinstance(cost, list) and cost
-    ), f"{path}: cost must be a non-empty list or absent"
+    assert isinstance(cost, list) and cost, (
+        f"{path}: cost must be a non-empty list or absent"
+    )
     for entry in cost:
         assert entry["device"] in ("cuda", "mps", "cpu"), path
-        assert (
-            isinstance(entry["vram_gb"], (int, float)) and entry["vram_gb"] >= 0
-        ), path
-        assert (
-            isinstance(entry["minutes"], (int, float)) and entry["minutes"] >= 0
-        ), path
+        assert isinstance(entry["vram_gb"], (int, float)) and entry["vram_gb"] >= 0, (
+            path
+        )
+        assert isinstance(entry["minutes"], (int, float)) and entry["minutes"] >= 0, (
+            path
+        )
 
 
 def per_entry_problems(definition):
@@ -318,9 +318,9 @@ def test_a_description_names_only_variables_the_workflow_declares(path):
     catalog_variables = _variable_names_in_catalog()
     allowed = LEGITIMATE_MENTIONS.get(path, set())
     undeclared = (_mentioned(definition) & catalog_variables) - declared - allowed
-    assert (
-        not undeclared
-    ), f"{path} describes {sorted(undeclared)} but declares no such variable"
+    assert not undeclared, (
+        f"{path} describes {sorted(undeclared)} but declares no such variable"
+    )
 
 
 def test_the_drift_check_actually_matches_something():
@@ -331,19 +331,19 @@ def test_the_drift_check_actually_matches_something():
         for path in TEMPLATES
         if _mentioned(load(path)) & _variable_names_in_catalog()
     ]
-    assert (
-        matched
-    ), "no template description quotes a catalog variable name - the pattern is wrong"
+    assert matched, (
+        "no template description quotes a catalog variable name - the pattern is wrong"
+    )
 
 
 def test_no_stale_entry_in_the_allowlist():
     for path, names in LEGITIMATE_MENTIONS.items():
-        assert (
-            path in TEMPLATES + MODEL_CONFIGS
-        ), f"{path} is allowlisted but not in the catalog"
-        assert names <= _mentioned(
-            load(path)
-        ), f"{path} no longer mentions {sorted(names - _mentioned(load(path)))}"
+        assert path in TEMPLATES + MODEL_CONFIGS, (
+            f"{path} is allowlisted but not in the catalog"
+        )
+        assert names <= _mentioned(load(path)), (
+            f"{path} no longer mentions {sorted(names - _mentioned(load(path)))}"
+        )
 
 
 # Spec targets, as chars / 4. The listing is the first thing an agent reads;
@@ -363,15 +363,15 @@ def test_the_compact_listing_fits_the_budget():
     details = workflow_details(found)
 
     compact = project_listing(details, view="compact")
-    assert (
-        _tokens(compact) <= COMPACT_BUDGET
-    ), f"compact listing is {_tokens(compact):.0f} tokens"
+    assert _tokens(compact) <= COMPACT_BUDGET, (
+        f"compact listing is {_tokens(compact):.0f} tokens"
+    )
 
     sequences = project_listing(details, view="compact", shape="sequence")
     assert sequences, "no template derives 'sequence'"
-    assert (
-        _tokens(sequences) <= FILTERED_BUDGET
-    ), f"shape=sequence is {_tokens(sequences):.0f} tokens"
+    assert _tokens(sequences) <= FILTERED_BUDGET, (
+        f"shape=sequence is {_tokens(sequences):.0f} tokens"
+    )
 
 
 def _walk(value):
@@ -490,9 +490,9 @@ def test_every_readme_link_resolves(path):
         if target.startswith(("http://", "https://", "#")):
             continue
         target = target.split("#", 1)[0]
-        assert os.path.exists(
-            os.path.join(base, target)
-        ), f"{path} links to {target}, which does not exist"
+        assert os.path.exists(os.path.join(base, target)), (
+            f"{path} links to {target}, which does not exist"
+        )
 
 
 COSTED = {

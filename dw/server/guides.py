@@ -63,7 +63,7 @@ GUIDES = {
     ),
     "prompt-weighting": (
         "PROMPT_WEIGHTING.md",
-        "Emphasis and de-emphasis syntax in prompts, and which pipelines " "honour it.",
+        "Emphasis and de-emphasis syntax in prompts, and which pipelines honour it.",
     ),
     "ip-adapter": (
         "IP_ADAPTER.md",

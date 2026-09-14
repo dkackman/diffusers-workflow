@@ -116,9 +116,7 @@ class TestListing:
     def test_each_guide_carries_a_summary_and_its_sections(self, checkout):
         # The summary is what an agent matches a request against; the
         # section headings are the routing table
-        tasks = next(
-            g for g in guides.list_guides()["guides"] if g["name"] == "tasks"
-        )
+        tasks = next(g for g in guides.list_guides()["guides"] if g["name"] == "tasks")
 
         assert tasks["summary"].strip()
         assert tasks["file"] == "TASKS.md"
@@ -207,9 +205,7 @@ class TestTheRealDocs:
             assert guides.read_guide(name).strip()
 
     def test_the_tasks_guide_indexes_speech_generation(self):
-        tasks = next(
-            g for g in guides.list_guides()["guides"] if g["name"] == "tasks"
-        )
+        tasks = next(g for g in guides.list_guides()["guides"] if g["name"] == "tasks")
 
         assert "Speech Generation" in tasks["sections"]
 ```
@@ -479,26 +475,28 @@ from .guides import GuideError
 Directly after the `/api/schema` route (the `workflow_schema` function, ~line 1005), before `@app.post("/api/validate")`:
 
 ```python
-    # ------------------------------------------------------------ guides
+# ------------------------------------------------------------ guides
 
-    @app.get("/api/guides")
-    def list_guides():
-        """The documentation that bears on choosing a capability: each
-        guide's name, what it covers, and its section headings. Served by
-        the engine rather than read from an MCP client's install, so the
-        guides an agent reads are the guides for the engine it drives."""
-        return guides.list_guides()
 
-    @app.get("/api/guides/{name}")
-    def get_guide(name: str, section: Optional[str] = None):
-        """One guide from /api/guides, whole or one section of it. A
-        section name is matched loosely - case and punctuation dropped -
-        so a heading copied approximately still resolves. An unknown name
-        or section is a 404 whose detail lists what exists."""
-        try:
-            return guides.get_guide(name, section=section)
-        except GuideError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+@app.get("/api/guides")
+def list_guides():
+    """The documentation that bears on choosing a capability: each
+    guide's name, what it covers, and its section headings. Served by
+    the engine rather than read from an MCP client's install, so the
+    guides an agent reads are the guides for the engine it drives."""
+    return guides.list_guides()
+
+
+@app.get("/api/guides/{name}")
+def get_guide(name: str, section: Optional[str] = None):
+    """One guide from /api/guides, whole or one section of it. A
+    section name is matched loosely - case and punctuation dropped -
+    so a heading copied approximately still resolves. An unknown name
+    or section is a 404 whose detail lists what exists."""
+    try:
+        return guides.get_guide(name, section=section)
+    except GuideError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 ```
 
 A missing guide *file* (an install with no `dw/docs/`) raises `FileNotFoundError` and surfaces as a 500 — that is a broken install, not a client error, and the log carries the message.
@@ -833,7 +831,10 @@ class TestEveryError:
         _status, message = validate_data(workflow, schema)
 
         assert len(errors) == 1
-        assert message == f"Validation error at {errors[0]['path']}: {errors[0]['message']}"
+        assert (
+            message
+            == f"Validation error at {errors[0]['path']}: {errors[0]['message']}"
+        )
 
     def test_a_valid_definition_yields_no_errors(self):
         assert validate_data_all(_pipeline_step({}), load_schema("workflow")) == []
@@ -871,7 +872,9 @@ class TestFormatting:
         assert text == "Validation error at steps[0].seed: 'x' is not of type 'integer'"
 
     def test_one_root_error_has_no_location(self):
-        text = format_validation_errors([{"path": None, "message": "'steps' is a required property"}])
+        text = format_validation_errors(
+            [{"path": None, "message": "'steps' is a required property"}]
+        )
 
         assert text == "Validation error: 'steps' is a required property"
 
@@ -892,7 +895,10 @@ class TestFormatting:
         assert text.count("Validation error") == 1
 
     def test_a_capped_list_says_so(self):
-        errors = [{"path": f"steps[{i}]", "message": "bad"} for i in range(MAX_VALIDATION_ERRORS)]
+        errors = [
+            {"path": f"steps[{i}]", "message": "bad"}
+            for i in range(MAX_VALIDATION_ERRORS)
+        ]
 
         text = format_validation_errors(errors)
 
@@ -1059,12 +1065,14 @@ def test_validate_endpoint_lists_every_schema_error(server):
 In `tests/test_mcp_authoring.py`, change the scripted body in `test_validate_returns_an_invalid_verdict_rather_than_raising` to the new shape (the test's assertions stay):
 
 ```python
-                {
-                    "valid": False,
-                    "error": "Validation error: steps must not be empty",
-                    "errors": [{"path": None, "message": "steps must not be empty"}],
-                    "warnings": [],
-                },
+(
+    {
+        "valid": False,
+        "error": "Validation error: steps must not be empty",
+        "errors": [{"path": None, "message": "steps must not be empty"}],
+        "warnings": [],
+    },
+)
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -1191,34 +1199,51 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 Append to `TestTheRealDocs` in `tests/test_server_guides.py`:
 
 ```python
-    def test_the_authoring_section_is_reachable_by_name(self):
-        guide = guides.get_guide("workflows", section="authoring-a-workflow-from-an-agent")
+def test_the_authoring_section_is_reachable_by_name(self):
+    guide = guides.get_guide("workflows", section="authoring-a-workflow-from-an-agent")
 
-        assert guide["section"] == "Authoring a workflow from an agent"
+    assert guide["section"] == "Authoring a workflow from an agent"
 
-    def test_the_authoring_section_names_every_reference_prefix(self):
-        """The prefixes the engine reserves are the ones the section has to
-        explain; a new prefix added to the engine fails here until it is
-        written up."""
-        from dw.prompts import RESERVED_TEXT_PREFIXES
 
-        content = guides.get_guide(
-            "workflows", section="Authoring a workflow from an agent"
-        )["content"]
+def test_the_authoring_section_names_every_reference_prefix(self):
+    """The prefixes the engine reserves are the ones the section has to
+    explain; a new prefix added to the engine fails here until it is
+    written up."""
+    from dw.prompts import RESERVED_TEXT_PREFIXES
 
-        for prefix in RESERVED_TEXT_PREFIXES:
-            assert f"`{prefix}`" in content, prefix
+    content = guides.get_guide(
+        "workflows", section="Authoring a workflow from an agent"
+    )["content"]
 
-    def test_the_authoring_section_states_the_cartesian_rule_and_the_loop(self):
-        content = guides.get_guide(
-            "workflows", section="Authoring a workflow from an agent"
-        )["content"]
+    for prefix in RESERVED_TEXT_PREFIXES:
+        assert f"`{prefix}`" in content, prefix
 
-        assert "cartesian" in content.lower()
-        for tool in ("validate_workflow", "save_workflow", "run_workflow", "wait_for_job", "get_output_image"):
-            assert f"`{tool}`" in content, tool
-        for shape in ("image", "image-set", "image-edit", "shot", "sequence", "audio", "text", "utility"):
-            assert f"`{shape}`" in content, shape
+
+def test_the_authoring_section_states_the_cartesian_rule_and_the_loop(self):
+    content = guides.get_guide(
+        "workflows", section="Authoring a workflow from an agent"
+    )["content"]
+
+    assert "cartesian" in content.lower()
+    for tool in (
+        "validate_workflow",
+        "save_workflow",
+        "run_workflow",
+        "wait_for_job",
+        "get_output_image",
+    ):
+        assert f"`{tool}`" in content, tool
+    for shape in (
+        "image",
+        "image-set",
+        "image-edit",
+        "shot",
+        "sequence",
+        "audio",
+        "text",
+        "utility",
+    ):
+        assert f"`{shape}`" in content, shape
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**

@@ -109,7 +109,12 @@ def _pyproject_version():
 def test_the_marketplace_names_the_plugin():
     import json
 
-    manifest = json.load(open(os.path.join(REPO_ROOT, ".claude-plugin", "marketplace.json"), encoding="utf-8"))
+    manifest = json.load(
+        open(
+            os.path.join(REPO_ROOT, ".claude-plugin", "marketplace.json"),
+            encoding="utf-8",
+        )
+    )
 
     assert manifest["name"] == "diffusers-workflow"
     (plugin,) = manifest["plugins"]
@@ -122,7 +127,11 @@ def test_the_plugin_version_is_the_engine_version():
     this number, so the release script bumps both in one commit."""
     import json
 
-    plugin = json.load(open(os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"), encoding="utf-8"))
+    plugin = json.load(
+        open(
+            os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"), encoding="utf-8"
+        )
+    )
 
     assert plugin["name"] == "dw"
     assert plugin["version"] == _pyproject_version()
@@ -132,25 +141,35 @@ def test_there_are_skills():
     assert SKILLS, "the plugin ships at least one skill"
 
 
-@pytest.mark.parametrize("path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p)))
+@pytest.mark.parametrize(
+    "path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+)
 def test_a_skill_has_a_triggering_description_under_the_size_cap(path):
     text = skill_text(path)
     fields = frontmatter(text)
 
     assert fields["name"] == os.path.basename(os.path.dirname(path))
     assert "description" in fields and len(fields["description"]) > 40
-    assert len(text.encode("utf-8")) <= SKILL_SIZE_LIMIT, f"{path} is over {SKILL_SIZE_LIMIT} bytes"
+    assert len(text.encode("utf-8")) <= SKILL_SIZE_LIMIT, (
+        f"{path} is over {SKILL_SIZE_LIMIT} bytes"
+    )
 
 
-@pytest.mark.parametrize("path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p)))
+@pytest.mark.parametrize(
+    "path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+)
 def test_every_catalog_name_a_skill_quotes_resolves(path):
     """A renamed template fails here rather than in a cold session."""
     names = CATALOG_NAME.findall(skill_text(path))
 
     assert names, f"{path} quotes no catalog names"
     for name in names:
-        target = os.path.join(REPO_ROOT, "workflows", name.removesuffix(".json") + ".json")
-        assert os.path.isfile(target), f"{path} quotes {name}, which is not a workflow ({target})"
+        target = os.path.join(
+            REPO_ROOT, "workflows", name.removesuffix(".json") + ".json"
+        )
+        assert os.path.isfile(target), (
+            f"{path} quotes {name}, which is not a workflow ({target})"
+        )
 ```
 
 - [ ] **Step 2: Run it to see it fail**
@@ -314,7 +333,10 @@ class TestMiniMaxH3Skill:
     def test_the_frame_rule_and_bounds_are_the_pipeline_s(self):
         import inspect
 
-        from diffusers.modular_pipelines.minimax_h3 import before_encoder, modular_pipeline
+        from diffusers.modular_pipelines.minimax_h3 import (
+            before_encoder,
+            modular_pipeline,
+        )
 
         text = skill_text(H3_SKILL)
         assert "17n + 5" in text or "17 * n + 5" in text
@@ -323,12 +345,18 @@ class TestMiniMaxH3Skill:
         # 124 and 345 are the smallest and largest 17n + 5 inside 5 to 15 seconds at 24 fps
         assert "124" in text and "345" in text
         assert 124 == 17 * 7 + 5 and 345 == 17 * 20 + 5
-        assert 124 / modular_pipeline.MINIMAX_H3_FPS >= 5 and 345 / modular_pipeline.MINIMAX_H3_FPS <= 15
+        assert (
+            124 / modular_pipeline.MINIMAX_H3_FPS >= 5
+            and 345 / modular_pipeline.MINIMAX_H3_FPS <= 15
+        )
 
     def test_the_canvas_rules_are_the_pipeline_s(self):
         import inspect
 
-        from diffusers.modular_pipelines.minimax_h3 import before_encoder, modular_pipeline
+        from diffusers.modular_pipelines.minimax_h3 import (
+            before_encoder,
+            modular_pipeline,
+        )
 
         text = skill_text(H3_SKILL)
         source = inspect.getsource(before_encoder)
@@ -548,7 +576,10 @@ class TestLtx25Skill:
     and the one vendor text it quotes is the library's own constant."""
 
     def test_the_schedule_is_the_library_s(self):
-        from diffusers.pipelines.ltx2.utils import DISTILLED_SIGMA_VALUES, STAGE_2_DISTILLED_SIGMA_VALUES
+        from diffusers.pipelines.ltx2.utils import (
+            DISTILLED_SIGMA_VALUES,
+            STAGE_2_DISTILLED_SIGMA_VALUES,
+        )
 
         text = skill_text(LTX_SKILL)
         assert len(DISTILLED_SIGMA_VALUES) == 8 and "eight" in text
@@ -573,9 +604,13 @@ class TestLtx25Skill:
         ships it so it cannot drift."""
         from diffusers.pipelines.ltx2.utils import LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT
 
-        quoted = _fenced_block_after(skill_text(LTX_SKILL), "## The trained caption spec")
+        quoted = _fenced_block_after(
+            skill_text(LTX_SKILL), "## The trained caption spec"
+        )
 
-        assert " ".join(quoted.split()) == " ".join(LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT.split())
+        assert " ".join(quoted.split()) == " ".join(
+            LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT.split()
+        )
 
     def test_the_skill_starts_with_the_server(self):
         text = skill_text(LTX_SKILL)

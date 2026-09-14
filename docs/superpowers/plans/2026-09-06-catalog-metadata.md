@@ -72,7 +72,9 @@ from dw.server.catalog_shape import (
 )
 
 
-def pipeline_step(name, content_type, component_type="{Fake}", arguments=None, chain=None):
+def pipeline_step(
+    name, content_type, component_type="{Fake}", arguments=None, chain=None
+):
     pipeline = {
         "configuration": {"component_type": component_type},
         "from_pretrained_arguments": {"model_name": "m"},
@@ -80,7 +82,11 @@ def pipeline_step(name, content_type, component_type="{Fake}", arguments=None, c
     }
     if chain is not None:
         pipeline["chain"] = chain
-    return {"name": name, "pipeline": pipeline, "result": {"content_type": content_type}}
+    return {
+        "name": name,
+        "pipeline": pipeline,
+        "result": {"content_type": content_type},
+    }
 
 
 def task_step(name, command, arguments, content_type=None):
@@ -95,13 +101,32 @@ def definition(*steps, **top):
 
 
 def test_vocabularies_are_closed_and_stable():
-    assert SHAPES == ("image", "image-set", "image-edit", "shot", "sequence", "audio", "text", "utility")
+    assert SHAPES == (
+        "image",
+        "image-set",
+        "image-edit",
+        "shot",
+        "sequence",
+        "audio",
+        "text",
+        "utility",
+    )
     assert TRAITS == (
-        "speech", "chained", "image-conditioned", "identity-referenced",
-        "needs-input-media", "composes-workflows",
+        "speech",
+        "chained",
+        "image-conditioned",
+        "identity-referenced",
+        "needs-input-media",
+        "composes-workflows",
     )
     assert GENERATIVE_TASKS == frozenset(
-        {"generate_speech", "text_generation", "image_to_text", "diffusion_upscale", "interpolate_frames"}
+        {
+            "generate_speech",
+            "text_generation",
+            "image_to_text",
+            "diffusion_upscale",
+            "interpolate_frames",
+        }
     )
 
 
@@ -130,22 +155,36 @@ def test_a_workflow_step_emitting_images_is_an_image_set():
 
 
 @pytest.mark.parametrize(
-    "component_type", ["FluxImg2ImgPipeline", "StableDiffusionInpaintPipeline", "QwenImageEditPipeline", "FluxKontextPipeline", "StableDiffusionUpscalePipeline"]
+    "component_type",
+    [
+        "FluxImg2ImgPipeline",
+        "StableDiffusionInpaintPipeline",
+        "QwenImageEditPipeline",
+        "FluxKontextPipeline",
+        "StableDiffusionUpscalePipeline",
+    ],
 )
 def test_an_editing_pipeline_is_image_edit(component_type):
-    meta = derive_catalog_metadata(definition(pipeline_step("gen", "image/jpeg", component_type)))
+    meta = derive_catalog_metadata(
+        definition(pipeline_step("gen", "image/jpeg", component_type))
+    )
     assert meta["shape"] == "image-edit"
 
 
 def test_an_image_argument_on_an_image_pipeline_is_image_edit():
-    step = pipeline_step("gen", "image/jpeg", arguments={"prompt": "p", "image": "variable:image"})
+    step = pipeline_step(
+        "gen", "image/jpeg", arguments={"prompt": "p", "image": "variable:image"}
+    )
     meta = derive_catalog_metadata(definition(step))
     assert meta["shape"] == "image-edit"
     assert "needs-input-media" in meta["traits"]
 
 
 def test_one_clip_is_a_shot():
-    assert derive_catalog_metadata(definition(pipeline_step("v", "video/mp4")))["shape"] == "shot"
+    assert (
+        derive_catalog_metadata(definition(pipeline_step("v", "video/mp4")))["shape"]
+        == "shot"
+    )
 
 
 def test_a_concat_fed_by_two_steps_is_a_sequence():
@@ -153,7 +192,12 @@ def test_a_concat_fed_by_two_steps_is_a_sequence():
         definition(
             pipeline_step("a", "video/mp4"),
             pipeline_step("b", "video/mp4"),
-            task_step("cut", "concat_videos", {"videos": ["previous_result:a", "previous_result:b"]}, "video/mp4"),
+            task_step(
+                "cut",
+                "concat_videos",
+                {"videos": ["previous_result:a", "previous_result:b"]},
+                "video/mp4",
+            ),
         )
     )
     assert meta["shape"] == "sequence"
@@ -164,7 +208,12 @@ def test_a_dissolve_fed_by_two_steps_is_a_sequence():
         definition(
             pipeline_step("a", "video/mp4"),
             pipeline_step("b", "video/mp4"),
-            task_step("cut", "dissolve_videos", {"videos": ["previous_result:a", "previous_result:b"]}, "video/mp4"),
+            task_step(
+                "cut",
+                "dissolve_videos",
+                {"videos": ["previous_result:a", "previous_result:b"]},
+                "video/mp4",
+            ),
         )
     )
     assert meta["shape"] == "sequence"
@@ -174,7 +223,12 @@ def test_a_concat_fed_by_one_step_is_still_a_shot():
     meta = derive_catalog_metadata(
         definition(
             pipeline_step("a", "video/mp4"),
-            task_step("cut", "concat_videos", {"videos": ["previous_result:a", "previous_result:a"]}, "video/mp4"),
+            task_step(
+                "cut",
+                "concat_videos",
+                {"videos": ["previous_result:a", "previous_result:a"]},
+                "video/mp4",
+            ),
         )
     )
     assert meta["shape"] == "shot"
@@ -187,15 +241,21 @@ def test_a_chain_is_a_chained_shot_not_a_sequence():
     assert "chained" in meta["traits"]
 
 
-@pytest.mark.parametrize("name", ["last_frame", "last_segment", "last_image", "match_audio"])
+@pytest.mark.parametrize(
+    "name", ["last_frame", "last_segment", "last_image", "match_audio"]
+)
 def test_continuation_arguments_are_chained(name):
-    step = pipeline_step("v", "video/mp4", arguments={"prompt": "p", name: "previous_result:x"})
+    step = pipeline_step(
+        "v", "video/mp4", arguments={"prompt": "p", name: "previous_result:x"}
+    )
     assert "chained" in derive_catalog_metadata(definition(step))["traits"]
 
 
 def test_video_outranks_image_when_both_are_produced():
     meta = derive_catalog_metadata(
-        definition(pipeline_step("board", "image/jpeg"), pipeline_step("v", "video/mp4"))
+        definition(
+            pipeline_step("board", "image/jpeg"), pipeline_step("v", "video/mp4")
+        )
     )
     assert meta["shape"] == "shot"
 
@@ -208,7 +268,9 @@ def test_audio_only_is_audio():
 
 
 def test_text_only_is_text():
-    step = task_step("expand", "text_generation", {"prompt": "variable:prompt"}, "text/plain")
+    step = task_step(
+        "expand", "text_generation", {"prompt": "variable:prompt"}, "text/plain"
+    )
     assert derive_catalog_metadata(definition(step))["shape"] == "text"
 
 
@@ -225,13 +287,19 @@ def test_a_generative_task_is_not_utility():
 
 
 def test_a_video_pipeline_emitting_audio_speaks():
-    step = pipeline_step("v", "video/mp4", arguments={"prompt": "p", "output": ["videos", "audio"]})
+    step = pipeline_step(
+        "v", "video/mp4", arguments={"prompt": "p", "output": ["videos", "audio"]}
+    )
     assert "speech" in derive_catalog_metadata(definition(step))["traits"]
 
 
 def test_a_video_pipeline_with_an_image_argument_is_image_conditioned():
-    step = pipeline_step("v", "video/mp4", arguments={"prompt": "p", "image": "previous_result:still"})
-    meta = derive_catalog_metadata(definition(pipeline_step("still", "image/jpeg"), step))
+    step = pipeline_step(
+        "v", "video/mp4", arguments={"prompt": "p", "image": "previous_result:still"}
+    )
+    meta = derive_catalog_metadata(
+        definition(pipeline_step("still", "image/jpeg"), step)
+    )
     assert "image-conditioned" in meta["traits"]
     # previous_result is not supplied media
     assert "needs-input-media" not in meta["traits"]
@@ -243,26 +311,42 @@ def test_an_image_to_video_component_is_image_conditioned():
 
 
 def test_references_are_identity_referenced():
-    step = pipeline_step("v", "video/mp4", arguments={"prompt": "p", "references": ["previous_result:face"]})
+    step = pipeline_step(
+        "v",
+        "video/mp4",
+        arguments={"prompt": "p", "references": ["previous_result:face"]},
+    )
     assert "identity-referenced" in derive_catalog_metadata(definition(step))["traits"]
 
 
 def test_a_location_argument_needs_input_media():
-    step = pipeline_step("v", "video/mp4", arguments={"prompt": "p", "image": {"location": "https://x/y.png"}})
+    step = pipeline_step(
+        "v",
+        "video/mp4",
+        arguments={"prompt": "p", "image": {"location": "https://x/y.png"}},
+    )
     assert "needs-input-media" in derive_catalog_metadata(definition(step))["traits"]
 
 
 def test_a_pipeline_reference_step_counts_as_generation():
     ref = {
         "name": "shot_2",
-        "pipeline_reference": {"reference_name": "shot_1", "arguments": {"prompt": "p", "references": ["asset:face.png"]}},
+        "pipeline_reference": {
+            "reference_name": "shot_1",
+            "arguments": {"prompt": "p", "references": ["asset:face.png"]},
+        },
         "result": {"content_type": "video/mp4"},
     }
     meta = derive_catalog_metadata(
         definition(
             pipeline_step("shot_1", "video/mp4"),
             ref,
-            task_step("cut", "concat_videos", {"videos": ["previous_result:shot_1", "previous_result:shot_2"]}, "video/mp4"),
+            task_step(
+                "cut",
+                "concat_videos",
+                {"videos": ["previous_result:shot_1", "previous_result:shot_2"]},
+                "video/mp4",
+            ),
         )
     )
     assert meta["shape"] == "sequence"
@@ -271,19 +355,27 @@ def test_a_pipeline_reference_step_counts_as_generation():
 
 
 def test_summary_is_the_first_sentence():
-    meta = derive_catalog_metadata(definition(pipeline_step("g", "image/jpeg"), description="Makes a cat. Then more."))
+    meta = derive_catalog_metadata(
+        definition(
+            pipeline_step("g", "image/jpeg"), description="Makes a cat. Then more."
+        )
+    )
     assert meta["summary"] == "Makes a cat."
     assert meta["summary_truncated"] is False
 
 
 def test_summary_splits_on_newline_too():
-    meta = derive_catalog_metadata(definition(pipeline_step("g", "image/jpeg"), description="Line one\nLine two."))
+    meta = derive_catalog_metadata(
+        definition(pipeline_step("g", "image/jpeg"), description="Line one\nLine two.")
+    )
     assert meta["summary"] == "Line one"
 
 
 def test_a_long_first_sentence_is_truncated_at_a_word_boundary():
     words = " ".join(["word"] * 40) + "."
-    meta = derive_catalog_metadata(definition(pipeline_step("g", "image/jpeg"), description=words))
+    meta = derive_catalog_metadata(
+        definition(pipeline_step("g", "image/jpeg"), description=words)
+    )
     assert len(meta["summary"]) <= SUMMARY_LIMIT
     assert meta["summary"].endswith("…")
     assert not meta["summary"][:-1].endswith(" ")
@@ -342,7 +434,16 @@ read structure (a concat step, a `references` argument), never checkpoints.
 
 import re
 
-SHAPES = ("image", "image-set", "image-edit", "shot", "sequence", "audio", "text", "utility")
+SHAPES = (
+    "image",
+    "image-set",
+    "image-edit",
+    "shot",
+    "sequence",
+    "audio",
+    "text",
+    "utility",
+)
 TRAITS = (
     "speech",
     "chained",
@@ -354,13 +455,21 @@ TRAITS = (
 # Tasks that create content rather than process it. A workflow made only
 # of processing tasks is a utility.
 GENERATIVE_TASKS = frozenset(
-    {"generate_speech", "text_generation", "image_to_text", "diffusion_upscale", "interpolate_frames"}
+    {
+        "generate_speech",
+        "text_generation",
+        "image_to_text",
+        "diffusion_upscale",
+        "interpolate_frames",
+    }
 )
 SUMMARY_LIMIT = 120
 
 _KIND_PRECEDENCE = ("video", "audio", "image", "text")
 _EDIT_PIPELINE = re.compile(r"inpaint|img2img|edit|upscale|outpaint|kontext", re.I)
-_CHAIN_ARGUMENTS = frozenset({"last_frame", "last_segment", "last_image", "match_audio"})
+_CHAIN_ARGUMENTS = frozenset(
+    {"last_frame", "last_segment", "last_image", "match_audio"}
+)
 _MEDIA_ARGUMENTS = frozenset({"image", "video", "audio", "mask_image"})
 _CUT_TASKS = frozenset({"concat_videos", "dissolve_videos"})
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s|\n")
@@ -368,7 +477,11 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s|\n")
 
 def _steps(definition):
     steps = definition.get("steps") if isinstance(definition, dict) else None
-    return [step for step in steps if isinstance(step, dict)] if isinstance(steps, list) else []
+    return (
+        [step for step in steps if isinstance(step, dict)]
+        if isinstance(steps, list)
+        else []
+    )
 
 
 def _block(step):
@@ -440,7 +553,11 @@ def _needs_input_media(steps):
     for step in steps:
         arguments = _arguments(step)
         for name, value in arguments.items():
-            if name in _MEDIA_ARGUMENTS and isinstance(value, str) and value.startswith("variable:"):
+            if (
+                name in _MEDIA_ARGUMENTS
+                and isinstance(value, str)
+                and value.startswith("variable:")
+            ):
                 return True
         for value in _walk(arguments):
             if isinstance(value, str) and value.startswith("asset:"):
@@ -464,13 +581,17 @@ def _derive_shape(steps, kind):
                 if len(_fed_by(_arguments(step).get("videos"))) >= 2:
                     return "sequence"
         return "shot"
-    image_steps = [step for step in steps if _generates(step) and _kind(step) == "image"]
+    image_steps = [
+        step for step in steps if _generates(step) and _kind(step) == "image"
+    ]
     for step in image_steps:
         if _EDIT_PIPELINE.search(_component_type(step)):
             return "image-edit"
         if _MEDIA_ARGUMENTS & set(_arguments(step)) & {"image", "mask_image"}:
             return "image-edit"
-    if len(image_steps) >= 2 or any(_block(step)[0] == "workflow" for step in image_steps):
+    if len(image_steps) >= 2 or any(
+        _block(step)[0] == "workflow" for step in image_steps
+    ):
         return "image-set"
     return "image"
 
@@ -489,7 +610,9 @@ def _derive_traits(steps):
             traits.add("chained")
         if _CHAIN_ARGUMENTS & set(arguments):
             traits.add("chained")
-        if _kind(step) == "video" and ("image" in arguments or "ImageToVideo" in _component_type(step)):
+        if _kind(step) == "video" and (
+            "image" in arguments or "ImageToVideo" in _component_type(step)
+        ):
             traits.add("image-conditioned")
         if "references" in arguments:
             traits.add("identity-referenced")
@@ -599,9 +722,19 @@ def test_the_schema_declares_the_vocabulary():
 def test_a_declared_cost_validates_and_a_bad_one_does_not():
     schema = load_schema("workflow")
     base = definition(pipeline_step("g", "image/jpeg"))
-    ok, _ = validate_data({**base, "cost": [{"device": "cuda", "name": "RTX 4090", "vram_gb": 22, "minutes": 3}]}, schema)
+    ok, _ = validate_data(
+        {
+            **base,
+            "cost": [
+                {"device": "cuda", "name": "RTX 4090", "vram_gb": 22, "minutes": 3}
+            ],
+        },
+        schema,
+    )
     assert ok
-    bad, message = validate_data({**base, "cost": [{"device": "tpu", "vram_gb": 1, "minutes": 1}]}, schema)
+    bad, message = validate_data(
+        {**base, "cost": [{"device": "tpu", "vram_gb": 1, "minutes": 1}]}, schema
+    )
     assert not bad and "cost" in message
     bad, _ = validate_data({**base, "shape": "cinematic"}, schema)
     assert not bad
@@ -693,20 +826,28 @@ def video_workflow(job_id, with_cost=False):
                 "pipeline": {
                     "configuration": {"component_type": "{Fake}", "no_generator": True},
                     "from_pretrained_arguments": {"model_name": "m"},
-                    "arguments": {"prompt": "variable:prompt", "output": ["videos", "audio"]},
+                    "arguments": {
+                        "prompt": "variable:prompt",
+                        "output": ["videos", "audio"],
+                    },
                 },
                 "result": {"content_type": "video/mp4"},
             }
         ],
     }
     if with_cost:
-        workflow["cost"] = [{"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}]
+        workflow["cost"] = [
+            {"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}
+        ]
     return workflow
 
 
 def test_the_listing_carries_derived_metadata(server):
     with server(success_script) as client:
-        client.put("/api/workflows/templates/clip", json={"workflow": video_workflow("clip", with_cost=True)})
+        client.put(
+            "/api/workflows/templates/clip",
+            json={"workflow": video_workflow("clip", with_cost=True)},
+        )
         tuned = video_workflow("tuned")
         tuned["configures"] = "templates/clip"
         tuned["description"] = "The same clip on a bigger checkpoint."
@@ -718,7 +859,9 @@ def test_the_listing_carries_derived_metadata(server):
         assert clip["shape"] == "shot"
         assert clip["traits"] == ["speech"]
         assert clip["summary"] == "One clip from a prompt."
-        assert clip["cost"] == [{"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}]
+        assert clip["cost"] == [
+            {"device": "cuda", "name": "RTX 4090", "vram_gb": 20, "minutes": 2}
+        ]
 
         tuned = details["models/tuned"]
         assert tuned["shape"] == "shot" and tuned["traits"] == ["speech"]
@@ -729,7 +872,17 @@ def test_the_listing_carries_derived_metadata(server):
         assert basic["shape"] == "utility"  # no result block, so no kind
         assert basic["summary"] == "" and basic["cost"] is None
         # nothing the UI reads went away
-        assert {"kinds", "steps", "variables", "variable_names", "description", "configures", "prompt_refs", "origin", "writable"} <= set(basic)
+        assert {
+            "kinds",
+            "steps",
+            "variables",
+            "variable_names",
+            "description",
+            "configures",
+            "prompt_refs",
+            "origin",
+            "writable",
+        } <= set(basic)
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -833,10 +986,19 @@ from dw.server.catalog_shape import COMPACT_FIELDS, project_listing
 
 def entry(shape, traits=(), configures="", **extra):
     return {
-        "kinds": [], "steps": 1, "variables": 0, "variable_names": [],
-        "description": "long text", "configures": configures, "prompt_refs": [],
-        "origin": "workspace", "writable": True,
-        "shape": shape, "traits": sorted(traits), "summary": "short", "cost": None,
+        "kinds": [],
+        "steps": 1,
+        "variables": 0,
+        "variable_names": [],
+        "description": "long text",
+        "configures": configures,
+        "prompt_refs": [],
+        "origin": "workspace",
+        "writable": True,
+        "shape": shape,
+        "traits": sorted(traits),
+        "summary": "short",
+        "cost": None,
         **extra,
     }
 
@@ -859,8 +1021,13 @@ def test_shape_filters():
 
 
 def test_traits_must_all_match():
-    assert set(project_listing(LISTING, traits=["speech"])) == {"templates/talk", "templates/clip"}
-    assert set(project_listing(LISTING, traits=["speech", "identity-referenced"])) == {"templates/talk"}
+    assert set(project_listing(LISTING, traits=["speech"])) == {
+        "templates/talk",
+        "templates/clip",
+    }
+    assert set(project_listing(LISTING, traits=["speech", "identity-referenced"])) == {
+        "templates/talk"
+    }
 
 
 def test_configures_filters_to_a_templates_configs():
@@ -875,15 +1042,23 @@ def test_compact_drops_prose_and_model_configs_and_keeps_user_workflows():
 
 
 def test_compact_with_include_models_keeps_them():
-    assert "models/flux" in project_listing(LISTING, view="compact", include_models=True)
+    assert "models/flux" in project_listing(
+        LISTING, view="compact", include_models=True
+    )
 
 
 def test_compact_with_configures_implies_models():
-    assert set(project_listing(LISTING, view="compact", configures="templates/tti")) == {"models/flux"}
+    assert set(
+        project_listing(LISTING, view="compact", configures="templates/tti")
+    ) == {"models/flux"}
 
 
 def test_compact_keeps_configures_missing_when_set():
-    listing = {"models/typo": entry("image", configures="", configures_missing="templates/nope")}
+    listing = {
+        "models/typo": entry(
+            "image", configures="", configures_missing="templates/nope"
+        )
+    }
     compact = project_listing(listing, view="compact", include_models=True)
     assert compact["models/typo"]["configures_missing"] == "templates/nope"
 
@@ -918,7 +1093,15 @@ COMPACT_FIELDS = (
 )
 
 
-def project_listing(details, *, shape=None, traits=None, configures=None, include_models=False, view=None):
+def project_listing(
+    details,
+    *,
+    shape=None,
+    traits=None,
+    configures=None,
+    include_models=False,
+    view=None,
+):
     """The listing an agent asked for: filtered by shape and traits, and in
     the compact view stripped to what choosing a template needs.
 
@@ -929,11 +1112,15 @@ def project_listing(details, *, shape=None, traits=None, configures=None, includ
     found. The full view never drops entries or fields.
     """
     if shape is not None and shape not in SHAPES:
-        raise ValueError(f"Unknown shape {shape!r}. The shapes are: {', '.join(SHAPES)}.")
+        raise ValueError(
+            f"Unknown shape {shape!r}. The shapes are: {', '.join(SHAPES)}."
+        )
     traits = list(traits or [])
     unknown = [t for t in traits if t not in TRAITS]
     if unknown:
-        raise ValueError(f"Unknown trait(s) {', '.join(unknown)}. The traits are: {', '.join(TRAITS)}.")
+        raise ValueError(
+            f"Unknown trait(s) {', '.join(unknown)}. The traits are: {', '.join(TRAITS)}."
+        )
     if view not in (None, "compact"):
         raise ValueError("view must be 'compact' or omitted")
 
@@ -970,7 +1157,9 @@ Expected: all pass.
 ```python
 def test_the_listing_filters_and_compacts(server):
     with server(success_script) as client:
-        client.put("/api/workflows/templates/clip", json={"workflow": video_workflow("clip")})
+        client.put(
+            "/api/workflows/templates/clip", json={"workflow": video_workflow("clip")}
+        )
         tuned = video_workflow("tuned")
         tuned["configures"] = "templates/clip"
         client.put("/api/workflows/models/tuned", json={"workflow": tuned})
@@ -985,12 +1174,18 @@ def test_the_listing_filters_and_compacts(server):
         compact = client.get("/api/workflows", params={"view": "compact"}).json()
         assert set(compact["details"]) == {"Basic", "templates/clip"}
         assert "description" not in compact["details"]["templates/clip"]
-        assert compact["details"]["templates/clip"]["summary"] == "One clip from a prompt."
+        assert (
+            compact["details"]["templates/clip"]["summary"] == "One clip from a prompt."
+        )
 
-        with_models = client.get("/api/workflows", params={"view": "compact", "include_models": "true"}).json()
+        with_models = client.get(
+            "/api/workflows", params={"view": "compact", "include_models": "true"}
+        ).json()
         assert "models/tuned" in with_models["details"]
 
-        configs = client.get("/api/workflows", params={"configures": "templates/clip"}).json()
+        configs = client.get(
+            "/api/workflows", params={"configures": "templates/clip"}
+        ).json()
         assert set(configs["details"]) == {"models/tuned"}
 
         by_trait = client.get("/api/workflows", params={"traits": "speech"}).json()
@@ -1101,7 +1296,11 @@ def test_list_workflows_passes_its_filters_through():
     client, seen = recording_client({"workflows": [], "details": {}})
 
     catalog.list_workflows(
-        client, shape="sequence", traits=["speech", "chained"], configures="templates/x", include_models=True
+        client,
+        shape="sequence",
+        traits=["speech", "chained"],
+        configures="templates/x",
+        include_models=True,
     )
 
     assert seen["params"] == {
@@ -1120,7 +1319,9 @@ In `tests/test_mcp_server.py`, add:
 async def test_list_workflows_takes_shape_and_traits():
     tools = await tools_of(server_over(ok({})))
     schema = tools["list_workflows"].inputSchema
-    assert {"shape", "traits", "configures", "include_models"} <= set(schema["properties"])
+    assert {"shape", "traits", "configures", "include_models"} <= set(
+        schema["properties"]
+    )
     assert "shape" in tools["list_workflows"].description
 
 
@@ -1141,7 +1342,9 @@ Expected: `seen["params"]` is `{}`; the schema lacks `shape`.
 `dw_mcp/catalog.py`:
 
 ```python
-def list_workflows(client, shape=None, traits=None, configures=None, include_models=False):
+def list_workflows(
+    client, shape=None, traits=None, configures=None, include_models=False
+):
     """Workflow names the server can reach, in the compact view: summary,
     shape, traits, cost, output kinds and variable names per workflow -
     what choosing one needs and nothing that reading one needs. Templates
@@ -1151,7 +1354,9 @@ def list_workflows(client, shape=None, traits=None, configures=None, include_mod
     if shape:
         params["shape"] = shape
     if traits:
-        params["traits"] = ",".join(traits) if isinstance(traits, (list, tuple)) else traits
+        params["traits"] = (
+            ",".join(traits) if isinstance(traits, (list, tuple)) else traits
+        )
     if configures:
         params["configures"] = configures
     if include_models:
@@ -1194,15 +1399,16 @@ Add `from typing import Optional` at the top of `dw_mcp/server.py` if it is not 
 Instructions: replace the paragraph beginning `"Start from \`list_workflows\`: ..."` with:
 
 ```python
-            "Start from `list_workflows(shape=...)`: the server keeps a "
-            "large catalog, and its compact listing carries each "
-            "workflow's summary, shape, traits, cost and variable names - "
-            "run what is already there, with `arguments` overriding its "
-            "variables, rather than authoring a new workflow for a "
-            "request an existing one covers. Shapes: image, image-set, "
-            "image-edit, shot, sequence, audio, text, utility. Traits: "
-            "speech, chained, image-conditioned, identity-referenced, "
-            "needs-input-media, composes-workflows.\n"
+"Start from `list_workflows(shape=...)`: the server keeps a"
+
+"large catalog, and its compact listing carries each "
+"workflow's summary, shape, traits, cost and variable names - "
+"run what is already there, with `arguments` overriding its "
+"variables, rather than authoring a new workflow for a "
+"request an existing one covers. Shapes: image, image-set, "
+"image-edit, shot, sequence, audio, text, utility. Traits: "
+"speech, chained, image-conditioned, identity-referenced, "
+"needs-input-media, composes-workflows.\n"
 ```
 
 and in the next paragraph change `"Decide which shape the deliverable is first, then match the catalog against that; "` to `"Decide which shape the deliverable is first, then call `list_workflows` with it; "`.
@@ -1263,7 +1469,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```python
 def test_saving_reports_how_the_workflow_will_be_matched(server):
     with server(success_script) as client:
-        saved = client.put("/api/workflows/clip", json={"workflow": video_workflow("clip")}).json()
+        saved = client.put(
+            "/api/workflows/clip", json={"workflow": video_workflow("clip")}
+        ).json()
         assert saved["shape"] == "shot"
         assert saved["traits"] == ["speech"]
         assert saved["summary"] == "One clip from a prompt."
@@ -1340,14 +1548,16 @@ Note the existing attribute `Job.workflow_name` holds the definition's **`id`** 
 def test_a_job_remembers_the_catalog_name_it_ran_from(server, tmp_path):
     with server(success_script) as client:
         job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
-        assert job["workflow"] == "basic"          # the definition's id, as before
-        assert job["workflow_name"] == "Basic"     # the catalog name
+        assert job["workflow"] == "basic"  # the definition's id, as before
+        assert job["workflow_name"] == "Basic"  # the catalog name
         wait_for_status(client, job["id"], TERMINAL_STATES)
 
         listed = {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}
         assert listed[job["id"]]["workflow_name"] == "Basic"
 
-        inline = client.post("/api/jobs", json={"workflow": valid_workflow("inline")}).json()
+        inline = client.post(
+            "/api/jobs", json={"workflow": valid_workflow("inline")}
+        ).json()
         assert inline["workflow_name"] is None
         wait_for_status(client, inline["id"], TERMINAL_STATES)
 
@@ -1364,6 +1574,7 @@ def test_a_job_remembers_the_catalog_name_it_ran_from(server, tmp_path):
 
 def test_an_old_history_database_gains_the_column(tmp_path):
     import sqlite3
+
     db = tmp_path / "old.sqlite"
     with sqlite3.connect(db) as connection:
         connection.execute(
@@ -1371,8 +1582,14 @@ def test_an_old_history_database_gains_the_column(tmp_path):
             " started_at REAL, finished_at REAL, arguments TEXT, spec TEXT, manifest TEXT,"
             " warnings TEXT, error TEXT)"
         )
-        connection.execute("INSERT INTO jobs (id, workflow, status) VALUES ('old1', 'sd', 'finished')")
-    manager = JobManager(str(tmp_path / "outputs"), worker_manager=ScriptedWorkerManager(success_script), history_path=str(db))
+        connection.execute(
+            "INSERT INTO jobs (id, workflow, status) VALUES ('old1', 'sd', 'finished')"
+        )
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(db),
+    )
     assert manager.get("old1")["workflow_name"] is None
 ```
 
@@ -1412,9 +1629,9 @@ Migration — after the `workspace` block in `JobHistory.__init__`:
 `dw/server/app.py` `submit_job` — add to the `manager.submit(` call:
 
 ```python
-                # The listing name, when the request came as one - what a
-                # later runtime-by-workflow report joins on
-                catalog_name=request.workflow_path if source else None,
+# The listing name, when the request came as one - what a
+# later runtime-by-workflow report joins on
+catalog_name = (request.workflow_path if source else None,)
 ```
 
 Check `rerun` passes `spec` through to `submit(**spec, ...)`; if it enumerates keyword arguments instead, add `catalog_name=spec.get("catalog_name")`.
@@ -1460,13 +1677,31 @@ def load(path):
 EXPECTED_SHAPES = {
     "workflows/templates/text-to-image.json": ("image", []),
     "workflows/templates/minimax/storyboard.json": ("shot", ["identity-referenced"]),
-    "workflows/templates/minimax/dialogue-short.json": ("sequence", ["identity-referenced", "speech"]),
-    "workflows/templates/minimax/music-video.json": ("sequence", ["identity-referenced", "speech"]),
-    "workflows/templates/minimax/chained-segments.json": ("shot", ["chained", "image-conditioned", "needs-input-media", "speech"]),
-    "workflows/templates/ltx2/chained-segments.json": ("shot", ["chained", "image-conditioned", "needs-input-media", "speech"]),
+    "workflows/templates/minimax/dialogue-short.json": (
+        "sequence",
+        ["identity-referenced", "speech"],
+    ),
+    "workflows/templates/minimax/music-video.json": (
+        "sequence",
+        ["identity-referenced", "speech"],
+    ),
+    "workflows/templates/minimax/chained-segments.json": (
+        "shot",
+        ["chained", "image-conditioned", "needs-input-media", "speech"],
+    ),
+    "workflows/templates/ltx2/chained-segments.json": (
+        "shot",
+        ["chained", "image-conditioned", "needs-input-media", "speech"],
+    ),
     "workflows/templates/image-variation.json": ("image-edit", ["needs-input-media"]),
-    "workflows/templates/segment-and-inpaint.json": ("image-edit", ["needs-input-media"]),
-    "workflows/templates/describe-and-regenerate.json": ("image-set", ["composes-workflows", "needs-input-media"]),
+    "workflows/templates/segment-and-inpaint.json": (
+        "image-edit",
+        ["needs-input-media"],
+    ),
+    "workflows/templates/describe-and-regenerate.json": (
+        "image-set",
+        ["composes-workflows", "needs-input-media"],
+    ),
     "workflows/templates/compose-workflows.json": ("image-set", ["composes-workflows"]),
     "workflows/templates/generate-speech.json": ("audio", ["speech"]),
     "workflows/templates/assemble-and-score.json": ("sequence", ["needs-input-media"]),
@@ -1495,9 +1730,13 @@ def test_the_rules_read_these_templates_as_expected(path, expected):
 def test_no_template_falls_through_to_utility(path):
     meta = derive_catalog_metadata(load(path))
     if meta["shape"] == "utility":
-        assert path in UTILITIES, f"{path} derived 'utility' - a rule missed it, or add it to UTILITIES"
+        assert path in UTILITIES, (
+            f"{path} derived 'utility' - a rule missed it, or add it to UTILITIES"
+        )
     else:
-        assert path not in UTILITIES, f"{path} is listed as a utility but derives {meta['shape']}"
+        assert path not in UTILITIES, (
+            f"{path} is listed as a utility but derives {meta['shape']}"
+        )
 
 
 @pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS)
@@ -1506,10 +1745,14 @@ def test_a_declaration_must_differ_from_the_derivation(path):
     rules or the file change. Declare only what derivation gets wrong."""
     definition = load(path)
     meta = derive_catalog_metadata(definition)
-    stripped = {k: v for k, v in definition.items() if k not in ("shape", "traits", "summary")}
+    stripped = {
+        k: v for k, v in definition.items() if k not in ("shape", "traits", "summary")
+    }
     derived = derive_catalog_metadata(stripped)
     for key in meta["declared"]:
-        assert meta[key] != derived[key], f"{path} declares {key}={meta[key]!r}, which derivation already produces"
+        assert meta[key] != derived[key], (
+            f"{path} declares {key}={meta[key]!r}, which derivation already produces"
+        )
 
 
 @pytest.mark.parametrize("path", TEMPLATES)
@@ -1580,7 +1823,9 @@ def test_workflow_ids_are_unique_across_the_catalog():
     for path in TEMPLATES + MODEL_CONFIGS + BUILTINS:
         identity = load(path).get("id")
         assert identity, f"{path} has no id"
-        assert identity not in seen, f"{path} and {seen[identity]} share id {identity!r}"
+        assert identity not in seen, (
+            f"{path} and {seen[identity]} share id {identity!r}"
+        )
         seen[identity] = path
 
 
@@ -1589,11 +1834,17 @@ def test_a_declared_cost_is_well_formed(path):
     cost = load(path).get("cost")
     if cost is None:
         return
-    assert isinstance(cost, list) and cost, f"{path}: cost must be a non-empty list or absent"
+    assert isinstance(cost, list) and cost, (
+        f"{path}: cost must be a non-empty list or absent"
+    )
     for entry in cost:
         assert entry["device"] in ("cuda", "mps", "cpu"), path
-        assert isinstance(entry["vram_gb"], (int, float)) and entry["vram_gb"] >= 0, path
-        assert isinstance(entry["minutes"], (int, float)) and entry["minutes"] >= 0, path
+        assert isinstance(entry["vram_gb"], (int, float)) and entry["vram_gb"] >= 0, (
+            path
+        )
+        assert isinstance(entry["minutes"], (int, float)) and entry["minutes"] >= 0, (
+            path
+        )
 
 
 BACKTICKED = re.compile(r"`([a-z_][a-z0-9_]*)`")
@@ -1617,7 +1868,9 @@ def test_a_description_names_only_variables_the_workflow_declares(path):
     catalog_variables = _variable_names_in_catalog()
     mentioned = set(BACKTICKED.findall(definition.get("description", "")))
     undeclared = (mentioned & catalog_variables) - declared
-    assert not undeclared, f"{path} describes {sorted(undeclared)} but declares no such variable"
+    assert not undeclared, (
+        f"{path} describes {sorted(undeclared)} but declares no such variable"
+    )
 ```
 
 - [ ] **Step 2: Run and resolve**
@@ -1669,15 +1922,21 @@ def _tokens(payload):
 
 
 def test_the_compact_listing_fits_the_budget():
-    found = listing([WorkflowSource(os.path.join(REPO_ROOT, "workflows"), "workspace", True)])
+    found = listing(
+        [WorkflowSource(os.path.join(REPO_ROOT, "workflows"), "workspace", True)]
+    )
     details = workflow_details(found)
 
     compact = project_listing(details, view="compact")
-    assert _tokens(compact) <= COMPACT_BUDGET, f"compact listing is {_tokens(compact):.0f} tokens"
+    assert _tokens(compact) <= COMPACT_BUDGET, (
+        f"compact listing is {_tokens(compact):.0f} tokens"
+    )
 
     sequences = project_listing(details, view="compact", shape="sequence")
     assert sequences, "no template derives 'sequence'"
-    assert _tokens(sequences) <= FILTERED_BUDGET, f"shape=sequence is {_tokens(sequences):.0f} tokens"
+    assert _tokens(sequences) <= FILTERED_BUDGET, (
+        f"shape=sequence is {_tokens(sequences):.0f} tokens"
+    )
 ```
 
 - [ ] **Step 2: Run**

@@ -75,17 +75,25 @@ class TestListFields:
     def test_a_bare_item_means_the_entry_is_a_value(self):
         fields = list_fields(
             definition(
-                {"name": "say", "for_each": "variable:lines", "task": {"arguments": {"text": "item:"}}}
+                {
+                    "name": "say",
+                    "for_each": "variable:lines",
+                    "task": {"arguments": {"text": "item:"}},
+                }
             )
         )
         assert fields == {"lines": {"fields": None, "steps": ["say"]}}
 
     def test_a_literal_list_is_not_an_argument(self):
-        assert list_fields(definition({"name": "s", "for_each": ["a"], "task": {}})) == {}
+        assert (
+            list_fields(definition({"name": "s", "for_each": ["a"], "task": {}})) == {}
+        )
 
     def test_a_step_reading_no_field_still_lists_name(self):
         fields = list_fields(
-            definition({"name": "s", "for_each": "variable:xs", "task": {"arguments": {}}})
+            definition(
+                {"name": "s", "for_each": "variable:xs", "task": {"arguments": {}}}
+            )
         )
         assert fields == {"xs": {"fields": ["name"], "steps": ["s"]}}
 
@@ -192,7 +200,9 @@ def for_each_step(name, variable, arguments):
 def test_lists_name_the_fields_an_entry_takes_and_the_default_length():
     meta = derive_catalog_metadata(
         definition(
-            for_each_step("shot", "shots", {"prompt": "item:prompt", "n": "item:num_frames"}),
+            for_each_step(
+                "shot", "shots", {"prompt": "item:prompt", "n": "item:num_frames"}
+            ),
             variables={"shots": [{"name": "a", "prompt": "p", "num_frames": 1}] * 3},
         )
     )
@@ -206,7 +216,10 @@ def test_lists_name_the_fields_an_entry_takes_and_the_default_length():
 
 
 def test_lists_is_empty_without_for_each_and_entries_is_none_without_a_list_default():
-    assert derive_catalog_metadata(definition(pipeline_step("g", "image/jpeg")))["lists"] == {}
+    assert (
+        derive_catalog_metadata(definition(pipeline_step("g", "image/jpeg")))["lists"]
+        == {}
+    )
     meta = derive_catalog_metadata(
         definition(for_each_step("shot", "shots", {"prompt": "item:prompt"}))
     )
@@ -218,7 +231,9 @@ def test_compact_carries_lists_only_when_there_are_any():
         "plain": entry("image"),
         "cut": entry(
             "sequence",
-            lists={"shots": {"fields": ["name", "prompt"], "steps": ["shot"], "entries": 2}},
+            lists={
+                "shots": {"fields": ["name", "prompt"], "steps": ["shot"], "entries": 2}
+            },
         ),
     }
     compact = project_listing(listing, view="compact")
@@ -240,7 +255,9 @@ def test_workflow_details_describe_their_lists(server):
         "cut.json",
         {
             "id": "cut",
-            "variables": {"shots": [{"name": "a", "prompt": "p"}, {"name": "b", "prompt": "q"}]},
+            "variables": {
+                "shots": [{"name": "a", "prompt": "p"}, {"name": "b", "prompt": "q"}]
+            },
             "steps": [
                 {
                     "name": "shot",
@@ -355,7 +372,9 @@ class TestEntryFieldWarnings:
     def test_a_caller_s_list_is_reported_under_arguments(self):
         warnings = entry_field_warnings(
             self.workflow(),
-            arguments={"shots": [{"name": "a", "prompt": "p", "num_frames": 1, "note": "x"}]},
+            arguments={
+                "shots": [{"name": "a", "prompt": "p", "num_frames": 1, "note": "x"}]
+            },
         )
         assert warnings == [
             "arguments.shots[0]: entry 'a' carries 'note', which no step reads; "
@@ -368,7 +387,11 @@ class TestEntryFieldWarnings:
     def test_value_entries_and_clean_entries_warn_about_nothing(self):
         assert entry_field_warnings(self.workflow()) == []
         w = definition(
-            {"name": "say", "for_each": "variable:lines", "task": {"arguments": {"t": "item:"}}},
+            {
+                "name": "say",
+                "for_each": "variable:lines",
+                "task": {"arguments": {"t": "item:"}},
+            },
             variables={"lines": ["a", "b"]},
         )
         assert entry_field_warnings(w) == []
@@ -458,11 +481,17 @@ def test_an_entry_key_no_step_reads_is_a_warning_not_an_error(client_and_workspa
     }
     response = client.post(
         "/api/validate",
-        json={"workflow": workflow, "arguments": {"shots": [{"name": "a", "text": "p", "txt": "q"}]}},
+        json={
+            "workflow": workflow,
+            "arguments": {"shots": [{"name": "a", "text": "p", "txt": "q"}]},
+        },
     )
     body = response.json()
     assert body["valid"] is True
-    assert any(w.startswith("arguments.shots[0]: entry 'a' carries 'txt'") for w in body["warnings"])
+    assert any(
+        w.startswith("arguments.shots[0]: entry 'a' carries 'txt'")
+        for w in body["warnings"]
+    )
 ```
 
 Use whatever `task` command the file's other tests use for a no-op step so the schema and the task registry accept it.
@@ -523,12 +552,24 @@ def test_a_per_entry_cost_validates_and_a_partial_one_does_not():
     base = definition(pipeline_step("g", "image/jpeg"))
     cost = {"device": "cuda", "vram_gb": 24, "minutes": 42}
     ok, _ = validate_data(
-        {**base, "cost": [{**cost, "per_entry": {"variable": "shots", "minutes": 7.2, "entries": 5}}]},
+        {
+            **base,
+            "cost": [
+                {
+                    **cost,
+                    "per_entry": {"variable": "shots", "minutes": 7.2, "entries": 5},
+                }
+            ],
+        },
         schema,
     )
     assert ok
     bad, message = validate_data(
-        {**base, "cost": [{**cost, "per_entry": {"variable": "shots", "minutes": 7.2}}]}, schema
+        {
+            **base,
+            "cost": [{**cost, "per_entry": {"variable": "shots", "minutes": 7.2}}],
+        },
+        schema,
     )
     assert not bad and "per_entry" in message
 ```
@@ -550,7 +591,9 @@ def test_a_per_entry_cost_names_a_list_the_steps_read(path):
         if per_entry is None:
             continue
         lists = list_fields(definition)
-        assert per_entry["variable"] in lists, f"{path}: {per_entry['variable']} is not a for_each list"
+        assert per_entry["variable"] in lists, (
+            f"{path}: {per_entry['variable']} is not a for_each list"
+        )
         default = (definition.get("variables") or {}).get(per_entry["variable"])
         assert isinstance(default, list) and len(default) == per_entry["entries"], path
 ```
@@ -595,20 +638,21 @@ def test_workflow_variables_preview_inside_list_entries(server):
 `dw/server/app.py` `get_workflow_variables`: replace the loop with a recursive preview:
 
 ```python
-        def preview(value, path):
-            if isinstance(value, str) and len(value) > VARIABLE_VALUE_PREVIEW:
-                truncated.append(path)
-                return value[:VARIABLE_VALUE_PREVIEW]
-            if isinstance(value, list):
-                return [preview(item, f"{path}[{i}]") for i, item in enumerate(value)]
-            if isinstance(value, dict):
-                return {key: preview(item, f"{path}.{key}") for key, item in value.items()}
-            return value
+def preview(value, path):
+    if isinstance(value, str) and len(value) > VARIABLE_VALUE_PREVIEW:
+        truncated.append(path)
+        return value[:VARIABLE_VALUE_PREVIEW]
+    if isinstance(value, list):
+        return [preview(item, f"{path}[{i}]") for i, item in enumerate(value)]
+    if isinstance(value, dict):
+        return {key: preview(item, f"{path}.{key}") for key, item in value.items()}
+    return value
 
-        variables = definition.get("variables") or {}
-        values, truncated = {}, []
-        for variable, value in variables.items():
-            values[variable] = value if full else preview(value, variable)
+
+variables = definition.get("variables") or {}
+values, truncated = {}, []
+for variable, value in variables.items():
+    values[variable] = value if full else preview(value, variable)
 ```
 
 Update the docstring: "Long strings - a shot's prompt runs to kilobytes, and a list-driven workflow's default list holds several - are cut to their first 200 characters wherever they sit and named in `truncated` (`shots[0].prompt`)".
@@ -659,7 +703,10 @@ def test_validation_realizes_a_constant_default_list(tmp_path):
     definition["variables"]["shots"] = "constant:tests.test_workflow.CONSTANT_SHOTS"
     workflow = _workflow_from(definition, tmp_path)
     assert workflow.validation_errors() == []
-    assert [s["name"] for s in workflow.expanded_definition()["steps"]][:2] == ["shot@a", "shot@b"]
+    assert [s["name"] for s in workflow.expanded_definition()["steps"]][:2] == [
+        "shot@a",
+        "shot@b",
+    ]
 ```
 
 with `CONSTANT_SHOTS = [{"name": "a", "text": "1"}, {"name": "b", "text": "2"}]` at module level (match `_for_each_workflow`'s entry field name). `validate_constant_name` (`dw/security.py`) must accept a `tests.` module path — check its rules; if it refuses, put the constant on a module it accepts and say which.

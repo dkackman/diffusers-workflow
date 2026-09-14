@@ -98,9 +98,9 @@ def test_format_chat_message_task():
     result = task.run(task_def["arguments"])
 
     # Check the overall structure
-    assert isinstance(
-        result, dict
-    ), "Expected a formatted dict from format_chat_message"
+    assert isinstance(result, dict), (
+        "Expected a formatted dict from format_chat_message"
+    )
     assert "text_inputs" in result, "Result should contain text_inputs key"
 
     # Check the text_inputs array structure
@@ -110,9 +110,9 @@ def test_format_chat_message_task():
 
     # Check system message
     assert text_inputs[0]["role"] == "system", "First message should have role 'system'"
-    assert (
-        text_inputs[0]["content"] == "Hello, world!"
-    ), "System message content mismatch"
+    assert text_inputs[0]["content"] == "Hello, world!", (
+        "System message content mismatch"
+    )
 
     # Check user message
     assert text_inputs[1]["role"] == "user", "Second message should have role 'user'"

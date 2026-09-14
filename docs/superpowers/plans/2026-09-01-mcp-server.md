@@ -208,27 +208,25 @@ In `JobHistory.__init__`, add `events TEXT` to the `CREATE TABLE` and migrate
 databases that predate it:
 
 ```python
-            connection.execute("""CREATE TABLE IF NOT EXISTS jobs (
-                    id TEXT PRIMARY KEY,
-                    workflow TEXT,
-                    status TEXT,
-                    created_at REAL,
-                    started_at REAL,
-                    finished_at REAL,
-                    arguments TEXT,
-                    spec TEXT,
-                    manifest TEXT,
-                    warnings TEXT,
-                    error TEXT,
-                    events TEXT
-                )""")
-            # Databases written before events were persisted are missing the
-            # column; ALTER is the whole migration, and rows keep NULL
-            columns = {
-                row[1] for row in connection.execute("PRAGMA table_info(jobs)")
-            }
-            if "events" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN events TEXT")
+connection.execute("""CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY,
+        workflow TEXT,
+        status TEXT,
+        created_at REAL,
+        started_at REAL,
+        finished_at REAL,
+        arguments TEXT,
+        spec TEXT,
+        manifest TEXT,
+        warnings TEXT,
+        error TEXT,
+        events TEXT
+    )""")
+# Databases written before events were persisted are missing the
+# column; ALTER is the whole migration, and rows keep NULL
+columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+if "events" not in columns:
+    connection.execute("ALTER TABLE jobs ADD COLUMN events TEXT")
 ```
 
 Update the class docstring, which currently says events are not persisted:
@@ -385,9 +383,7 @@ def test_event_log_pages_with_after_and_limit(client_and_manager):
     assert first["truncated"] is True
     assert first["last_seq"] == 1
 
-    rest = client.get(
-        f"/api/jobs/{job_id}/event-log?after={first['last_seq']}"
-    ).json()
+    rest = client.get(f"/api/jobs/{job_id}/event-log?after={first['last_seq']}").json()
     assert rest["events"][0]["seq"] == 2
     assert rest["truncated"] is False
 
@@ -423,9 +419,7 @@ def test_event_log_serves_a_historical_jobs_persisted_events(client_and_manager)
 def test_event_log_pages_a_historical_jobs_events(client_and_manager):
     client, manager = client_and_manager
     manager.get = lambda job_id: {"id": job_id, "status": "complete"}
-    manager.history.events_for = lambda job_id: [
-        {"seq": index} for index in range(5)
-    ]
+    manager.history.events_for = lambda job_id: [{"seq": index} for index in range(5)]
 
     body = client.get("/api/jobs/historical/event-log?after=1&limit=2").json()
 
@@ -920,11 +914,15 @@ def recording_client(body=None, status=200):
         (lambda c: catalog.get_workflow(c, "folder/w"), "/api/workflows/folder/w"),
         (lambda c: catalog.get_schema(c), "/api/schema"),
         (lambda c: catalog.list_pipelines(c), "/api/pipelines"),
-        (lambda c: catalog.get_pipeline_signature(c, "FluxPipeline"),
-         "/api/pipelines/FluxPipeline"),
+        (
+            lambda c: catalog.get_pipeline_signature(c, "FluxPipeline"),
+            "/api/pipelines/FluxPipeline",
+        ),
         (lambda c: catalog.list_classes(c, "schedulers"), "/api/classes"),
-        (lambda c: catalog.get_class(c, "diffusers.AutoencoderKL"),
-         "/api/classes/diffusers.AutoencoderKL"),
+        (
+            lambda c: catalog.get_class(c, "diffusers.AutoencoderKL"),
+            "/api/classes/diffusers.AutoencoderKL",
+        ),
         (lambda c: catalog.list_tasks(c), "/api/tasks"),
         (lambda c: catalog.get_task(c, "upscale"), "/api/tasks/upscale"),
         (lambda c: catalog.list_models(c), "/api/models"),
@@ -932,8 +930,10 @@ def recording_client(body=None, status=200):
         (lambda c: catalog.get_health(c), "/api/health"),
         (lambda c: catalog.list_jobs(c), "/api/jobs"),
         (lambda c: catalog.list_gallery(c), "/api/gallery"),
-        (lambda c: catalog.get_gallery_metadata(c, "a.png"),
-         "/api/gallery/a.png/metadata"),
+        (
+            lambda c: catalog.get_gallery_metadata(c, "a.png"),
+            "/api/gallery/a.png/metadata",
+        ),
     ],
 )
 def test_each_catalog_tool_calls_its_route(call, path):
@@ -1410,7 +1410,12 @@ def scripted(routes):
 
 def test_validate_posts_an_inline_workflow():
     client, seen = scripted(
-        {("POST", "/api/validate"): (200, {"valid": True, "error": None, "warnings": []})}
+        {
+            ("POST", "/api/validate"): (
+                200,
+                {"valid": True, "error": None, "warnings": []},
+            )
+        }
     )
 
     result = authoring.validate_workflow(client, workflow=WORKFLOW)
@@ -1475,8 +1480,9 @@ def test_save_puts_the_definition_under_its_name():
         body_seen["method"] = request.method
         body_seen["path"] = request.url.path
         body_seen["body"] = request.read()
-        return httpx.Response(200, json={"name": "mine", "path": "/w/mine.json",
-                                         "warnings": []})
+        return httpx.Response(
+            200, json={"name": "mine", "path": "/w/mine.json", "warnings": []}
+        )
 
     client = DwClient(transport=httpx.MockTransport(handler))
 
@@ -1633,8 +1639,9 @@ def scripted(routes):
 
     def handler(request):
         key = (request.method, request.url.path)
-        seen.append({"key": key, "body": request.read(),
-                     "params": dict(request.url.params)})
+        seen.append(
+            {"key": key, "body": request.read(), "params": dict(request.url.params)}
+        )
         if key not in routes:
             return httpx.Response(404, json={"detail": f"unrouted {key}"})
         status, body = routes[key]
@@ -1688,9 +1695,7 @@ def test_run_returns_immediately_rather_than_waiting_for_the_job():
 def test_run_sends_an_inline_workflow_when_given_one():
     client, seen = submitting()
 
-    diagnose.run_workflow(
-        client, inline_workflow=WORKFLOW, acknowledged_cost=True
-    )
+    diagnose.run_workflow(client, inline_workflow=WORKFLOW, acknowledged_cost=True)
 
     assert b'"workflow"' in seen[0]["body"]
 
@@ -1700,9 +1705,7 @@ def test_run_never_sends_base_dir():
     a path-authority parameter the tool surface deliberately withholds."""
     client, seen = submitting()
 
-    diagnose.run_workflow(
-        client, inline_workflow=WORKFLOW, acknowledged_cost=True
-    )
+    diagnose.run_workflow(client, inline_workflow=WORKFLOW, acknowledged_cost=True)
 
     assert b"base_dir" not in seen[0]["body"]
 
@@ -1747,15 +1750,17 @@ def test_run_surfaces_a_rejected_workflow():
     )
 
     with pytest.raises(DwApiError, match="steps must not be empty"):
-        diagnose.run_workflow(
-            client, inline_workflow=WORKFLOW, acknowledged_cost=True
-        )
+        diagnose.run_workflow(client, inline_workflow=WORKFLOW, acknowledged_cost=True)
 
 
 def test_get_job_returns_the_detail_payload():
     client, _seen = scripted(
-        {("GET", "/api/jobs/job-1"): (200, {"id": "job-1", "status": "failed",
-                                            "error": "CUDA out of memory"})}
+        {
+            ("GET", "/api/jobs/job-1"): (
+                200,
+                {"id": "job-1", "status": "failed", "error": "CUDA out of memory"},
+            )
+        }
     )
 
     assert diagnose.get_job(client, "job-1")["error"] == "CUDA out of memory"
@@ -1766,9 +1771,14 @@ def test_get_job_events_pages_from_the_event_log():
         {
             ("GET", "/api/jobs/job-1/event-log"): (
                 200,
-                {"id": "job-1", "status": "running",
-                 "events": [{"seq": 3, "event": "phase"}],
-                 "last_seq": 3, "truncated": True, "note": None},
+                {
+                    "id": "job-1",
+                    "status": "running",
+                    "events": [{"seq": 3, "event": "phase"}],
+                    "last_seq": 3,
+                    "truncated": True,
+                    "note": None,
+                },
             )
         }
     )
@@ -1793,10 +1803,14 @@ def test_get_job_events_defaults_to_the_whole_log():
 def test_cancel_rerun_and_move_call_their_routes():
     client, seen = scripted(
         {
-            ("POST", "/api/jobs/job-1/cancel"): (200, {"id": "job-1",
-                                                       "status": "cancelled"}),
-            ("POST", "/api/jobs/job-1/rerun"): (201, {"id": "job-2",
-                                                      "status": "queued"}),
+            ("POST", "/api/jobs/job-1/cancel"): (
+                200,
+                {"id": "job-1", "status": "cancelled"},
+            ),
+            ("POST", "/api/jobs/job-1/rerun"): (
+                201,
+                {"id": "job-2", "status": "queued"},
+            ),
             ("POST", "/api/jobs/job-1/move"): (200, {"id": "job-1", "queue": []}),
         }
     )
@@ -2032,7 +2046,9 @@ async def test_every_designed_tool_is_registered():
 async def test_every_tool_has_a_description():
     tools = await tools_of(server_over(ok({})))
 
-    missing = [name for name, tool in tools.items() if not (tool.description or "").strip()]
+    missing = [
+        name for name, tool in tools.items() if not (tool.description or "").strip()
+    ]
     assert missing == []
 
 

@@ -17,7 +17,7 @@ from dw.workspace import Workspace, create_workspace
 from .test_server import (
     ScriptedWorkerManager,
     hanging_script,
-    server as workspace_less_server,
+    server as workspace_less_server,  # noqa: F401 - used as a fixture by name
     success_script,
     valid_workflow,
     wait_for_status,

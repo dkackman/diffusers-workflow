@@ -6,7 +6,7 @@ Tests image/video gathering from files and URLs
 import pytest
 import os
 import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from PIL import Image
 from dw.tasks.gather import gather_images, gather_videos, gather_inputs
 from dw.result import AudioVideo
@@ -207,7 +207,7 @@ class TestGatherVideos:
         step that consumed them out over frames instead of videos."""
         from dw.result import get_artifact_list
 
-        path = write_video(tmp_path / "shot.mp4")
+        write_video(tmp_path / "shot.mp4")
 
         videos = gather_videos(glob=os.path.join(str(tmp_path), "*.mp4"))
 
@@ -218,7 +218,7 @@ class TestGatherVideos:
     def test_a_gathered_video_keeps_its_audio(self, tmp_path):
         """The audio muxed into the file is what an earlier run generated
         alongside the picture - gathering it silent loses that run's work."""
-        path = write_video(tmp_path / "shot.mp4", sample_rate=8000)
+        write_video(tmp_path / "shot.mp4", sample_rate=8000)
 
         video = gather_videos(glob=os.path.join(str(tmp_path), "*.mp4"))[0]
 

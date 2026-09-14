@@ -195,7 +195,9 @@ class FakeModel:
         self.oom_on = None
 
     def to(self, device):
-        device = torch.device(device) if not isinstance(device, torch.device) else device
+        device = (
+            torch.device(device) if not isinstance(device, torch.device) else device
+        )
         if self.oom_on is not None and str(device) == str(self.oom_on):
             self.oom_on = None  # only OOM once, so a retry after eviction succeeds
             raise torch.OutOfMemoryError(f"{self.name} cannot fit on {device}")
@@ -301,6 +303,7 @@ makes for its node graph. It is not consulted by 'offload: model/sequential'
 or 'group_offload', which install diffusers' own hooks - dw does not own
 the individual .to() calls those make, so there is nothing to intercept.
 """
+
 import time
 import logging
 
@@ -334,10 +337,16 @@ class MemoryManager:
             try:
                 component.to(device)
                 if entry is not None:
-                    entry["device"] = torch.device(device) if not isinstance(device, torch.device) else device
+                    entry["device"] = (
+                        torch.device(device)
+                        if not isinstance(device, torch.device)
+                        else device
+                    )
                 return
             except torch.OutOfMemoryError:
-                victim_id = self._pick_eviction_candidate(device, exclude_id=id(component))
+                victim_id = self._pick_eviction_candidate(
+                    device, exclude_id=id(component)
+                )
                 if victim_id is None:
                     raise
                 self._evict(victim_id, offload_device)
@@ -346,7 +355,11 @@ class MemoryManager:
         """Record that `component` has been moved back to `offload_device`."""
         entry = self._entries.get(id(component))
         if entry is not None:
-            entry["device"] = torch.device(offload_device) if not isinstance(offload_device, torch.device) else offload_device
+            entry["device"] = (
+                torch.device(offload_device)
+                if not isinstance(offload_device, torch.device)
+                else offload_device
+            )
 
     def _pick_eviction_candidate(self, device, exclude_id):
         device = str(device)
@@ -364,9 +377,15 @@ class MemoryManager:
         entry = self._entries.get(comp_id)
         if entry is None:
             return
-        logger.debug(f"Evicting a lower-priority on-demand component to free {entry['device']}")
+        logger.debug(
+            f"Evicting a lower-priority on-demand component to free {entry['device']}"
+        )
         entry["component"].to(offload_device)
-        entry["device"] = torch.device(offload_device) if not isinstance(offload_device, torch.device) else offload_device
+        entry["device"] = (
+            torch.device(offload_device)
+            if not isinstance(offload_device, torch.device)
+            else offload_device
+        )
 
 
 memory_manager = MemoryManager()
@@ -752,6 +771,7 @@ A step is safe to skip only if:
   3. every previous_result: it reads was ITSELF served from cache this run
      - otherwise a change upstream leaves this step's cached output stale
 """
+
 import logging
 
 from .workflow import referenced_result_names
@@ -896,43 +916,41 @@ from .step_cache import step_cache
 Then in `Workflow.run`, initialize `hits_this_run = set()` immediately before the `for i, step_data in enumerate(steps):` loop (`dw/workflow.py:337-338`), and replace the loop body from `step = Step(step_data, step_seed, self.workflow_definition)` through the `saved_files = result.save(...)` / `self.manifest.append(...)` block (`dw/workflow.py:352-370`) with:
 
 ```python
-                step = Step(step_data, step_seed, self.workflow_definition)
+step = Step(step_data, step_seed, self.workflow_definition)
 
-                is_cacheable = "workflow" not in step_data
-                cached_result = (
-                    step_cache.get(step_data, step_seed, hits_this_run)
-                    if is_cacheable
-                    else None
-                )
+is_cacheable = "workflow" not in step_data
+cached_result = (
+    step_cache.get(step_data, step_seed, hits_this_run) if is_cacheable else None
+)
 
-                if cached_result is not None:
-                    logger.info(f"Step '{step.name}' unchanged - reusing cached result")
-                    result = cached_result
-                    saved_files = result.saved_files
-                    hits_this_run.add(step.name)
-                    step_action = None
-                else:
-                    step_action = self.create_step_action(
-                        step_data,
-                        shared_components,
-                        pipelines,
-                        step_seed,
-                        get_device(),
-                    )
-                    result = step.run(results, pipelines, step_action)
-                    saved_files = result.save(
-                        self.effective_output_dir, f"{workflow_id}-{step.name}.{i}"
-                    )
-                    if is_cacheable:
-                        step_cache.put(step_data, step_seed, result)
+if cached_result is not None:
+    logger.info(f"Step '{step.name}' unchanged - reusing cached result")
+    result = cached_result
+    saved_files = result.saved_files
+    hits_this_run.add(step.name)
+    step_action = None
+else:
+    step_action = self.create_step_action(
+        step_data,
+        shared_components,
+        pipelines,
+        step_seed,
+        get_device(),
+    )
+    result = step.run(results, pipelines, step_action)
+    saved_files = result.save(
+        self.effective_output_dir, f"{workflow_id}-{step.name}.{i}"
+    )
+    if is_cacheable:
+        step_cache.put(step_data, step_seed, result)
 
-                last_result = result
-                results[step.name] = result
-                self.manifest.append({"step": step.name, "files": saved_files})
-                # A sub-workflow's saves land in the child's manifest - roll
-                # them up so job history and the gallery see every file
-                if isinstance(step_action, Workflow):
-                    self.manifest.extend(getattr(step_action, "manifest", []))
+last_result = result
+results[step.name] = result
+self.manifest.append({"step": step.name, "files": saved_files})
+# A sub-workflow's saves land in the child's manifest - roll
+# them up so job history and the gallery see every file
+if isinstance(step_action, Workflow):
+    self.manifest.extend(getattr(step_action, "manifest", []))
 ```
 
 Leave everything below this (the `run_context.emit("step_end", ...)` call and everything after, `dw/workflow.py:371-395`) unchanged — `saved_files` is defined on both branches so it still works.
@@ -1305,14 +1323,18 @@ def test_download_output_writes_bytes_to_explicit_file_path(tmp_path):
 def test_download_output_into_a_directory_uses_the_output_basename(tmp_path):
     client = serving(png_bytes(10, 10), "image/png")
 
-    result = download_output(client, "sub/run-step.0-0.0.png", destination=str(tmp_path))
+    result = download_output(
+        client, "sub/run-step.0-0.0.png", destination=str(tmp_path)
+    )
 
     saved = tmp_path / "run-step.0-0.0.png"
     assert saved.read_bytes() == png_bytes(10, 10)
     assert result["saved_to"] == str(saved)
 
 
-def test_download_output_with_no_destination_saves_to_current_directory(tmp_path, monkeypatch):
+def test_download_output_with_no_destination_saves_to_current_directory(
+    tmp_path, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     client = serving(png_bytes(10, 10), "image/png")
 

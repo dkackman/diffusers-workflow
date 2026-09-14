@@ -19,7 +19,6 @@ from dw.step_cache import step_cache
 from dw.assets import activate_asset_dir, deactivate_asset_dir
 from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
-from dw.security import validate_output_path
 from dw.events import RunContext, WorkflowCancelled
 from dw import get_device_type, empty_device_cache, device_memory_stats
 from dw.host_memory import (

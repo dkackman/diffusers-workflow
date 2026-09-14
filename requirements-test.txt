@@ -1,4 +1,4 @@
-# Test and development tooling (pytest and friends, black, flake8, build)
+# Test and development tooling (pytest and friends, ruff, build)
 #
 # The list lives in pyproject.toml's [project.optional-dependencies] dev
 # extra - this file just points pip at it.

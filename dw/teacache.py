@@ -110,7 +110,12 @@ def _create_flux_teacache_forward(num_inference_steps, rel_l1_thresh, coefficien
         return_dict: bool = True,
         controlnet_blocks_repeat: bool = False,
     ) -> typing.Union[torch.FloatTensor, Transformer2DModelOutput]:
-        nonlocal cnt, accumulated_rel_l1_distance, previous_modulated_input, previous_residual, previous_timestep
+        nonlocal \
+            cnt, \
+            accumulated_rel_l1_distance, \
+            previous_modulated_input, \
+            previous_residual, \
+            previous_timestep
 
         # TeaCache assumes exactly one transformer forward call per denoising
         # step. Pipelines running true classifier-free guidance (e.g. Flux with

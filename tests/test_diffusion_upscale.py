@@ -48,9 +48,7 @@ class TestDiffusionUpscale(unittest.TestCase):
     @patch("dw.tasks.diffusion_upscale.diffusers")
     def test_x2_mode_uses_latent_pipeline(self, mock_diffusers):
         mock_pipe = self._make_mock_pipeline()
-        mock_diffusers.StableDiffusionLatentUpscalePipeline.from_pretrained.return_value = (
-            mock_pipe
-        )
+        mock_diffusers.StableDiffusionLatentUpscalePipeline.from_pretrained.return_value = mock_pipe
 
         diffusion_upscale(self._make_image(), device="cpu", mode="x2")
 
@@ -72,9 +70,7 @@ class TestDiffusionUpscale(unittest.TestCase):
     @patch("dw.tasks.diffusion_upscale.diffusers")
     def test_x2_excludes_noise_level(self, mock_diffusers):
         mock_pipe = self._make_mock_pipeline()
-        mock_diffusers.StableDiffusionLatentUpscalePipeline.from_pretrained.return_value = (
-            mock_pipe
-        )
+        mock_diffusers.StableDiffusionLatentUpscalePipeline.from_pretrained.return_value = mock_pipe
 
         diffusion_upscale(self._make_image(), device="cpu", mode="x2")
 

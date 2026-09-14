@@ -338,19 +338,20 @@ git commit -m "run_workflow/validate_workflow: pin one call to a named workspace
 In `tests/test_mcp_workspaces.py` `TestLifecycle`, add beside `test_creating_one_does_not_switch_to_it`:
 
 ```python
-    def test_creating_one_says_it_did_not_switch(self):
-        """A create-then-run sequence landed a five-shot job in the wrong
-        workspace; the result now says where the session still is."""
-        client, _ = recording({"name": "shots"})
-        result = create_workspace(client, "shots")
-        assert result["current"] == DEFAULT_WORKSPACE
-        assert "use_workspace" in result["next"]
+def test_creating_one_says_it_did_not_switch(self):
+    """A create-then-run sequence landed a five-shot job in the wrong
+    workspace; the result now says where the session still is."""
+    client, _ = recording({"name": "shots"})
+    result = create_workspace(client, "shots")
+    assert result["current"] == DEFAULT_WORKSPACE
+    assert "use_workspace" in result["next"]
 
-    def test_creating_with_use_switches_to_it(self):
-        client, seen = recording({"name": "shots"})
-        result = create_workspace(client, "shots", use=True)
-        assert client.workspace == "shots"
-        assert result["current"] == "shots"
+
+def test_creating_with_use_switches_to_it(self):
+    client, seen = recording({"name": "shots"})
+    result = create_workspace(client, "shots", use=True)
+    assert client.workspace == "shots"
+    assert result["current"] == "shots"
 ```
 
 `recording` scripts one response for every request; `use_workspace` GETs the listing and checks the name is in it. If the recorded body `{"name": "shots"}` makes `use_workspace` raise "No workspace named", script the listing instead: look at how `test_deleting_the_current_one_falls_back_to_the_default` uses `listing("default", "shots")` and use that body for the `use=True` test.
@@ -791,26 +792,24 @@ Expected: FAIL with `KeyError: 'media'`.
 In `dw/server/app.py`, import `from dw.media_info import probe_media` beside the other `dw.` imports, and change `gallery_metadata`:
 
 ```python
-    @app.get("/api/gallery/{name:path}/metadata")
-    def gallery_metadata(name: str, ws: Workspace = Depends(selected_workspace)):
-        """Generation metadata embedded in a saved image ('workflow' inside
-        it is the full definition the editor can reopen), plus the job that
-        produced the file when history remembers one, plus - for audio and
-        video - what the file itself holds: duration, format and level,
-        which is how an agent that cannot listen checks a track."""
-        path = _output_file(name, ws.outputs)
-        metadata = read_embedded_metadata(path)
-        try:
-            job = manager.history.job_for_file(name, workspace=ws.name)
-        except Exception:
-            job = None
-        extension = os.path.splitext(path)[1].lower()
-        media = (
-            probe_media(path)
-            if MEDIA_KINDS.get(extension) in ("audio", "video")
-            else None
-        )
-        return {"name": name, "metadata": metadata, "job": job, "media": media}
+@app.get("/api/gallery/{name:path}/metadata")
+def gallery_metadata(name: str, ws: Workspace = Depends(selected_workspace)):
+    """Generation metadata embedded in a saved image ('workflow' inside
+    it is the full definition the editor can reopen), plus the job that
+    produced the file when history remembers one, plus - for audio and
+    video - what the file itself holds: duration, format and level,
+    which is how an agent that cannot listen checks a track."""
+    path = _output_file(name, ws.outputs)
+    metadata = read_embedded_metadata(path)
+    try:
+        job = manager.history.job_for_file(name, workspace=ws.name)
+    except Exception:
+        job = None
+    extension = os.path.splitext(path)[1].lower()
+    media = (
+        probe_media(path) if MEDIA_KINDS.get(extension) in ("audio", "video") else None
+    )
+    return {"name": name, "metadata": metadata, "job": job, "media": media}
 ```
 
 Keep the existing "Scoped to this workspace" comment above the `job_for_file` call.

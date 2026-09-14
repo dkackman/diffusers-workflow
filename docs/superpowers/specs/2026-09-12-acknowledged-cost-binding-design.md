@@ -65,7 +65,7 @@ def build_plan(
     workflow_dir=None,
     device,
     cache_dir=None,
-    cache_probe=None,       # stage 2
+    cache_probe=None,  # stage 2
     lookup_sizes=True,
 ):
     """What a run of `definition` with `arguments` will execute and cost."""
@@ -281,9 +281,9 @@ acknowledged_cost: bool | AcknowledgedCost | None = None
 
 ```python
 class AcknowledgedCost(BaseModel):
-    fingerprint: str                    # "sha256:…" from plan.fingerprint
-    minutes: float | None = None        # plan.estimate.minutes, recorded only
-    downloads: list[str] = []           # plan.downloads_required[*].repo, non-null ones
+    fingerprint: str  # "sha256:…" from plan.fingerprint
+    minutes: float | None = None  # plan.estimate.minutes, recorded only
+    downloads: list[str] = []  # plan.downloads_required[*].repo, non-null ones
 ```
 
 The form is classified once, in the route:

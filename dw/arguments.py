@@ -906,7 +906,7 @@ def fetch_image(img_spec, base_dir=None):
 
     # If already a PIL Image, return as-is (allows multiple realize_args calls)
     if hasattr(img_spec, "mode") and hasattr(img_spec, "size"):
-        logger.debug(f"Image already loaded, returning as-is")
+        logger.debug("Image already loaded, returning as-is")
         return img_spec
 
     # Handle dict format: {"location": "url_or_path"}
@@ -997,12 +997,12 @@ def fetch_video(video_spec, base_dir=None):
             return [fetch_video(vid, base_dir) for vid in video_spec]
         # Otherwise assume it's already loaded video frames
         else:
-            logger.debug(f"Video frames already loaded, returning as-is")
+            logger.debug("Video frames already loaded, returning as-is")
             return video_spec
 
     # If already loaded video frames (tuple), return as-is
     if isinstance(video_spec, tuple):
-        logger.debug(f"Video frames already loaded, returning as-is")
+        logger.debug("Video frames already loaded, returning as-is")
         return video_spec
 
     # Handle dict format: {"location": "url_or_path"}

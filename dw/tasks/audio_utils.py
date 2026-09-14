@@ -17,8 +17,6 @@ import torch
 from ..events import emit_warning
 from ..task_domains import as_number, check_arguments
 from ..security import (
-    validate_path,
-    validate_url,
     validate_file_extension,
     ALLOWED_AUDIO_EXTENSIONS,
 )
@@ -727,8 +725,7 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
     """
     if measure not in MATCH_MEASURES:
         raise ValueError(
-            f"{command} 'match_levels' must be one of {MATCH_MEASURES}, "
-            f"got '{measure}'"
+            f"{command} 'match_levels' must be one of {MATCH_MEASURES}, got '{measure}'"
         )
     if target_dbfs is None:
         target_dbfs = DEFAULT_MATCH_DBFS[measure]

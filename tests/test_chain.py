@@ -10,14 +10,12 @@ keyed videos/audio/sampling_rate. No GPU is involved.
 from dataclasses import dataclass
 from types import SimpleNamespace
 
-import numpy
 import pytest
 import torch
 from PIL import Image
 
 from dw.pipeline_processors.chain import (
     ChainConfig,
-    Segment,
     plan_segments,
     run_chain,
     snap_frames,

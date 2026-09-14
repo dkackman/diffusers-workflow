@@ -8,7 +8,7 @@ import os
 import sys
 import logging
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -57,7 +57,6 @@ def test_pipeline_caching():
     loaded_models = {}  # Track loaded models by step name
 
     original_pipeline_init = Pipeline.__init__
-    original_pipeline_load = Pipeline.load
 
     def mock_pipeline_init(self, *args, **kwargs):
         # Extract the pipeline argument before calling original init
@@ -116,22 +115,22 @@ def test_pipeline_caching():
             logger.info("VERIFICATION")
             logger.info("=" * 60)
 
-            assert (
-                first_load_count == 1
-            ), f"Expected 1 load on first run, got {first_load_count}"
-            logger.info(f"✅ First run loaded exactly once")
+            assert first_load_count == 1, (
+                f"Expected 1 load on first run, got {first_load_count}"
+            )
+            logger.info("✅ First run loaded exactly once")
 
-            assert (
-                second_load_count == 1
-            ), f"Expected no additional loads on second run, got {second_load_count}"
-            logger.info(f"✅ Second run reused cached pipeline (no reload)")
+            assert second_load_count == 1, (
+                f"Expected no additional loads on second run, got {second_load_count}"
+            )
+            logger.info("✅ Second run reused cached pipeline (no reload)")
 
             # Note: We now create a new wrapper but reuse the underlying model
-            assert (
-                action1.pipeline is action2.pipeline
-            ), "Expected same underlying pipeline model to be reused"
+            assert action1.pipeline is action2.pipeline, (
+                "Expected same underlying pipeline model to be reused"
+            )
             logger.info(
-                f"✅ Both runs reused the same underlying model (pipeline.pipeline)"
+                "✅ Both runs reused the same underlying model (pipeline.pipeline)"
             )
 
             logger.info("\n" + "=" * 60)
@@ -170,7 +169,6 @@ def test_pipeline_caching_different_steps():
     load_call_count = 0
 
     original_pipeline_init = Pipeline.__init__
-    original_pipeline_load = Pipeline.load
 
     def mock_pipeline_init(self, *args, **kwargs):
         # Check if pipeline is being reused
@@ -210,15 +208,15 @@ def test_pipeline_caching_different_steps():
             )
             logger.info(f"✅ Step1 reused: load_count={load_call_count}")
 
-            assert (
-                load_call_count == 2
-            ), f"Expected 2 loads (one per step), got {load_call_count}"
-            assert (
-                action1.pipeline is action1_reuse.pipeline
-            ), "Step1 underlying model should be reused from cache"
-            assert (
-                action1.pipeline is not action2.pipeline
-            ), "Step1 and step2 should have different underlying models"
+            assert load_call_count == 2, (
+                f"Expected 2 loads (one per step), got {load_call_count}"
+            )
+            assert action1.pipeline is action1_reuse.pipeline, (
+                "Step1 underlying model should be reused from cache"
+            )
+            assert action1.pipeline is not action2.pipeline, (
+                "Step1 and step2 should have different underlying models"
+            )
 
             logger.info("\n" + "=" * 60)
             logger.info("🎉 MULTI-STEP TEST PASSED!")
@@ -441,9 +439,9 @@ def test_redefined_step_evicts_prior_pipeline_before_loading():
     with patch.object(Pipeline, "load", mock_load):
         workflow.create_step_action(new_step, {}, cache, 1, "cpu")
 
-    assert (
-        seen_at_load["old_still_cached"] is False
-    ), "the redefined step's previous model must be evicted before load"
+    assert seen_at_load["old_still_cached"] is False, (
+        "the redefined step's previous model must be evicted before load"
+    )
 
 
 def test_pipeline_released_is_reported_on_the_event_stream():

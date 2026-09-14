@@ -381,9 +381,7 @@ def test_every_model_config_names_the_template_it_configures(path):
     definition = json.load(open(path, encoding="utf-8"))
     configures = definition.get("configures", "")
 
-    assert configures, (
-        f"{os.path.relpath(path, REPO_ROOT)} has no 'configures'"
-    )
+    assert configures, f"{os.path.relpath(path, REPO_ROOT)} has no 'configures'"
     target = os.path.join(REPO_ROOT, "workflows", f"{configures}.json")
     assert os.path.isfile(target), (
         f"{os.path.relpath(path, REPO_ROOT)} configures '{configures}', "

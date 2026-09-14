@@ -4,7 +4,7 @@ Tests step execution, iteration handling, and error management
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 from dw.step import Step
 from dw.result import Result
 
@@ -141,7 +141,7 @@ class TestStep:
         previous_results = {"images": images_result, "prompts": prompts_result}
         previous_pipelines = {}
 
-        result = step.run(previous_results, previous_pipelines, mock_action)
+        step.run(previous_results, previous_pipelines, mock_action)
 
         # Should create 2x2 = 4 combinations
         assert mock_action.run.call_count == 4

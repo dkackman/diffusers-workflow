@@ -90,9 +90,9 @@ def test_a_skill_has_a_triggering_description_under_the_size_cap(path):
 
     assert fields["name"] == os.path.basename(os.path.dirname(path))
     assert "description" in fields and len(fields["description"]) > 40
-    assert (
-        len(text.encode("utf-8")) <= SKILL_SIZE_LIMIT
-    ), f"{path} is over {SKILL_SIZE_LIMIT} bytes"
+    assert len(text.encode("utf-8")) <= SKILL_SIZE_LIMIT, (
+        f"{path} is over {SKILL_SIZE_LIMIT} bytes"
+    )
 
 
 @pytest.mark.parametrize(
@@ -107,9 +107,9 @@ def test_every_catalog_name_a_skill_quotes_resolves(path):
         target = os.path.join(
             REPO_ROOT, "workflows", name.removesuffix(".json") + ".json"
         )
-        assert os.path.isfile(
-            target
-        ), f"{path} quotes {name}, which is not a workflow ({target})"
+        assert os.path.isfile(target), (
+            f"{path} quotes {name}, which is not a workflow ({target})"
+        )
 
 
 H3_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-h3", "SKILL.md")
@@ -241,9 +241,9 @@ class TestMiniMaxH3Skill:
             )
             spec = open(path, encoding="utf-8").read()
             assert "lora_model_name" not in spec, f"{name} now loads a LoRA"
-            assert (
-                '"num_inference_steps": 20' in spec
-            ), f"{name} no longer runs 20 steps"
+            assert '"num_inference_steps": 20' in spec, (
+                f"{name} no longer runs 20 steps"
+            )
             json.loads(spec)
 
     def test_the_skill_defers_prompt_format_to_minimax(self):
@@ -431,9 +431,9 @@ def test_a_skill_states_the_subfolder_convention(path):
     composing a new workflow needs to keep it."""
     text = skill_text(path)
     assert "`subfolder`" in text, f"{path} does not name the subfolder field"
-    assert (
-        "`final`" in text and "`intermediate`" in text
-    ), f"{path} does not state the final/intermediate convention"
+    assert "`final`" in text and "`intermediate`" in text, (
+        f"{path} does not state the final/intermediate convention"
+    )
     # the convention is stated where the manifest is read
     assert text.index("`subfolder`") > text.index("## Run and judge")
 
@@ -455,6 +455,6 @@ def test_the_h3_skill_names_each_cut_templates_final_step():
             if (step.get("result") or {}).get("subfolder") == "final"
         ]
         assert len(finals) == 1, (name, finals)
-        assert (
-            f"`{finals[0]}`" in text
-        ), f"the skill does not name {name}'s final step {finals[0]}"
+        assert f"`{finals[0]}`" in text, (
+            f"the skill does not name {name}'s final step {finals[0]}"
+        )

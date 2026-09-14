@@ -1020,7 +1020,7 @@ class Workflow:
             # Execute each step in sequence
             for i, step_data in enumerate(steps):
                 run_context.check_cancelled()
-                logger.debug(f"Running step {i+1}/{len(steps)}: {step_data['name']}")
+                logger.debug(f"Running step {i + 1}/{len(steps)}: {step_data['name']}")
                 run_context.emit(
                     "step_start",
                     workflow=workflow_id,
@@ -1375,11 +1375,11 @@ class Workflow:
                     logger.debug(
                         "Setting up generator for cached pipeline with new arguments"
                     )
-                    new_pipeline_wrapper.argument_template[
-                        "generator"
-                    ] = torch.Generator(new_pipeline_wrapper.device).manual_seed(
-                        new_pipeline_wrapper.pipeline_definition.get(
-                            "seed", default_seed
+                    new_pipeline_wrapper.argument_template["generator"] = (
+                        torch.Generator(new_pipeline_wrapper.device).manual_seed(
+                            new_pipeline_wrapper.pipeline_definition.get(
+                                "seed", default_seed
+                            )
                         )
                     )
 

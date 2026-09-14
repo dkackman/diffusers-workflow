@@ -36,10 +36,10 @@ def test_repl_commands():
     print("=" * 70)
 
     for cmd, description in test_commands:
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"Test: {description}")
         print(f"Command: {cmd}")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         repl.onecmd(cmd)
 
     print("\n" + "=" * 70)

@@ -7,7 +7,6 @@ dw.cache_blocks fills in the blocks diffusers has not registered upstream.
 """
 
 import inspect
-import json
 import os
 import sys
 
@@ -236,7 +235,6 @@ def _state_manager(model):
 
 def test_cache_state_needs_a_context():
     """Without the context, the hook raises - the failure the wrapper prevents."""
-    from dw.pipeline_processors.pipeline import stateful_cache_context
 
     manager = _state_manager(_cached_tiny_model())
 

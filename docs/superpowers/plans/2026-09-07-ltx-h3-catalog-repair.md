@@ -81,7 +81,9 @@ class TestLatentHandoff:
     def _base_result(self):
         result = Result({"content_type": "video/mp4", "save": False})
         result.add_result(
-            _LatentOutput(frames=torch.zeros(1, 128, 16, 14, 24), audio=torch.zeros(1, 8, 50, 16))
+            _LatentOutput(
+                frames=torch.zeros(1, 128, 16, 14, 24), audio=torch.zeros(1, 8, 50, 16)
+            )
         )
         return result
 
@@ -147,7 +149,9 @@ class TestLtxTwoStage:
     name, so the template carries the literal and this test ties it to the library."""
 
     def _definition(self):
-        path = os.path.join(REPO_ROOT, "workflows", "templates", "ltx2", "two-stage.json")
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "ltx2", "two-stage.json"
+        )
         return json.load(open(path, encoding="utf-8"))
 
     def test_the_renoise_scale_is_the_first_stage_two_sigma(self):
@@ -155,13 +159,19 @@ class TestLtxTwoStage:
 
         refine = _step(self._definition(), "refine")
 
-        assert refine["pipeline"]["arguments"]["noise_scale"] == STAGE_2_DISTILLED_SIGMA_VALUES[0]
+        assert (
+            refine["pipeline"]["arguments"]["noise_scale"]
+            == STAGE_2_DISTILLED_SIGMA_VALUES[0]
+        )
 
     def test_the_refine_pass_runs_the_stage_two_schedule_on_the_upsampled_latents(self):
         refine = _step(self._definition(), "refine")
         arguments = refine["pipeline"]["arguments"]
 
-        assert arguments["sigmas"] == "constant:diffusers.pipelines.ltx2.utils.STAGE_2_DISTILLED_SIGMA_VALUES"
+        assert (
+            arguments["sigmas"]
+            == "constant:diffusers.pipelines.ltx2.utils.STAGE_2_DISTILLED_SIGMA_VALUES"
+        )
         assert arguments["latents"] == "previous_result:upscale.frames"
         assert arguments["audio_latents"] == "previous_result:base.audio"
 
@@ -597,7 +607,9 @@ def test_a_prompt_is_one_paragraph_of_caption_length(path):
 
     assert "\n" not in text.strip(), f"{path} is more than one paragraph"
     words = len(text.split())
-    assert 140 <= words <= 240, f"{path} is {words} words; the trained caption is 150-220"
+    assert 140 <= words <= 240, (
+        f"{path} is {words} words; the trained caption is 150-220"
+    )
 
 
 @pytest.mark.parametrize("path", PROMPTS, ids=os.path.basename)
@@ -614,7 +626,9 @@ def test_a_prompt_names_the_model_it_is_for(path):
 
 
 def test_no_ltx_template_summary_names_the_older_model():
-    templates = glob.glob(os.path.join(REPO_ROOT, "workflows", "templates", "ltx2", "*.json"))
+    templates = glob.glob(
+        os.path.join(REPO_ROOT, "workflows", "templates", "ltx2", "*.json")
+    )
     for path in templates:
         summary = json.load(open(path, encoding="utf-8")).get("summary", "")
         assert "LTX-2 " not in summary and not summary.endswith("LTX-2"), path
@@ -719,7 +733,10 @@ def test_silent_audio_fields_are_written_as_not_applicable():
     prompt = _system_prompt()
 
     assert "N/A" in prompt
-    assert "overall_soundscape" in prompt[prompt.index("N/A") - 600 : prompt.index("N/A") + 600]
+    assert (
+        "overall_soundscape"
+        in prompt[prompt.index("N/A") - 600 : prompt.index("N/A") + 600]
+    )
 
 
 def test_video_and_audio_references_are_numbered_within_their_own_category():
@@ -868,7 +885,10 @@ Append to `tests/test_catalog_structure.py`:
 LINK_PATTERN = re.compile(r"\]\(([^)]+)\)")
 READMES = sorted(
     os.path.relpath(path, REPO_ROOT)
-    for path in glob.glob(os.path.join(REPO_ROOT, "workflows", "templates", "**", "README.md"), recursive=True)
+    for path in glob.glob(
+        os.path.join(REPO_ROOT, "workflows", "templates", "**", "README.md"),
+        recursive=True,
+    )
 )
 
 
@@ -884,7 +904,9 @@ def test_every_readme_link_resolves(path):
         if target.startswith(("http://", "https://", "#")):
             continue
         target = target.split("#", 1)[0]
-        assert os.path.exists(os.path.join(base, target)), f"{path} links to {target}, which does not exist"
+        assert os.path.exists(os.path.join(base, target)), (
+            f"{path} links to {target}, which does not exist"
+        )
 ```
 
 and add `import glob` to the file's imports.

@@ -498,8 +498,8 @@ _PROCESSORS = {
     "add_border_and_mask": lambda image, device, kwargs: add_border_and_mask(
         image, **kwargs
     ),
-    "add_border_and_mask_with_size": lambda image, device, kwargs: add_border_and_mask_with_size(
-        image, **kwargs
+    "add_border_and_mask_with_size": lambda image, device, kwargs: (
+        add_border_and_mask_with_size(image, **kwargs)
     ),
     "remove_background": _remove_background_handler,
     # Raw cv2 Canny at native resolution - see image_to_canny() docstring

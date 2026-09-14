@@ -3,6 +3,7 @@ a context window, honest about what it refuses."""
 
 import base64
 import io
+import os
 
 import httpx
 import numpy as np
@@ -11,7 +12,7 @@ from PIL import Image
 
 import dw_mcp.media as media
 from dw_mcp.client import DwApiError, DwClient
-from dw_mcp.media import MAX_RETURNED_BYTES, get_output_image
+from dw_mcp.media import MAX_RETURNED_BYTES, download_output, get_output_image
 
 
 def noise_png_bytes(width, height, seed=0):
@@ -378,11 +379,6 @@ def test_delete_output_surfaces_a_missing_file():
 
 
 # --------------------------------------------------------- output download
-
-
-import os
-
-from dw_mcp.media import download_output
 
 
 def test_download_output_writes_bytes_to_explicit_file_path(tmp_path):
