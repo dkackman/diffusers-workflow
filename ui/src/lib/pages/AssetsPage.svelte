@@ -5,7 +5,14 @@
   // meant guessing a name - and nothing showed which names a `common` or an
   // examples library was shadowing. The UX is the gallery's on purpose:
   // folder groups, a contact-sheet grid, a detail popout.
-  import { FolderOpen, Trash2, Upload, X } from '@lucide/svelte'
+  import {
+    ChevronDown,
+    ChevronRight,
+    FolderOpen,
+    Trash2,
+    Upload,
+    X,
+  } from '@lucide/svelte'
   import { api } from '../api'
   import CopyButton from '../CopyButton.svelte'
   import Empty from '../Empty.svelte'
@@ -15,39 +22,60 @@
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach, dialogOpen } from '../picks.svelte'
   import { notify } from '../toast'
-  import type { AssetFile } from '../types'
+  import { storageGet, storageSet } from '../storage'
+  import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
 
+  type Origin = AssetFile['origin']
+
+  const COLLAPSE_KEY = 'collapsed-asset-libraries'
+  // What each library is called in the page's own voice. `common` is the
+  // shared library and `examples` a read-only tree an --examples-dir
+  // brought; neither name means anything to someone who has not read the
+  // server's flags
+  const LIBRARY_LABELS: Record<Origin, string> = {
+    workspace: 'This workspace',
+    common: 'Shared library',
+    examples: 'Examples',
+  }
+  // The same libraries in the possessive, for "shadowed by ...". Built by
+  // hand rather than off the labels: "the examples's" is not English
+  const SHADOWED_BY: Record<Origin, string> = {
+    workspace: "this workspace's",
+    common: "the shared library's",
+    examples: "the examples library's",
+  }
+
   let assets = $state<AssetFile[]>([])
-  let assetDir = $state<string | null>(null)
-  let assetDirs = $state<string[]>([])
+  // The search path itself, in order, and the entries a nearer library on
+  // it hides. Both come from the server: the page never builds a path
+  let libraries = $state<AssetLibrary[]>([])
+  let shadowed = $state<ShadowedAsset[]>([])
   let loaded = $state(false)
   let error = $state('')
   let filter = $state('')
-  // Which library to show - null is every one. Only offered once more than
-  // one is on the search path, since a server with only a workspace library
-  // has nothing to choose between
-  let origin = $state<AssetFile['origin'] | null>(null)
   let selected = $state<AssetFile | null>(null)
-  // Names ticked in the grid, for the bulk actions. The grid order it is
-  // given is what a shift-range spans and the order the actions act in
-  const picks = new Picks(() => visible.map((a) => a.name))
   let busy = $state(false)
-  // Where the next upload lands: this workspace's own library, or the
-  // shared one every workspace under the root can see. The one thing about
-  // an upload that cannot be changed afterwards, so it is named rather than
-  // left as a bare 'shared' tickbox nothing on the page explains
-  let uploadTo = $state<'workspace' | 'shared'>('workspace')
+  // Which library the next upload lands in, set by whichever section's
+  // button was clicked. The one thing about an upload that cannot be
+  // changed afterwards, so it is the destination's own button rather than
+  // a pick that can be left pointing at a library the page no longer shows
+  let uploadTarget: 'workspace' | 'shared' = 'workspace'
   let fileInput = $state<HTMLInputElement | null>(null)
+  // Which library sections are shut. Persisted, since a box whose shared
+  // library dwarfs the workspace's own is exactly where one gets shut
+  let collapsed = $state<Record<string, boolean>>(
+    storageGet(COLLAPSE_KEY, {} as Record<string, boolean>),
+  )
 
   function load() {
     return api
       .listAssets()
       .then((result) => {
         assets = result.assets
-        assetDir = result.asset_dir
-        assetDirs = result.asset_dirs
+        libraries = result.libraries
+        shadowed = result.shadowed
         error = ''
         if (selected && !result.assets.some((a) => a.name === selected?.name))
           selected = null
@@ -63,29 +91,57 @@
     void load()
   })
 
-  const origins = $derived([...new Set(assets.map((a) => a.origin))].sort())
-  // How much of the grid a shared or examples library put there. Those
-  // libraries sit on every workspace's search path, so this is the count
-  // that stays the same when the workspace changes - unexplained, it reads
-  // as a page that ignored the pick
-  const borrowed = $derived(
-    assets.filter((a) => a.origin !== 'workspace').length,
-  )
-  // Offered whenever anything came from somewhere else. A workspace with no
-  // assets of its own is exactly when the question "why are these the same
-  // as the last workspace?" comes up, and it was exactly when a
-  // two-origins-or-more rule made the control disappear
-  const originOffered = $derived(borrowed > 0)
-  const filterActive = $derived(filter !== '' || origin !== null)
-  const visible = $derived(
-    assets.filter(
-      (a) =>
-        a.name.toLowerCase().includes(filter.toLowerCase()) &&
-        (origin === null || a.origin === origin),
-    ),
-  )
+  const filterActive = $derived(filter !== '')
+  const matches = (name: string) =>
+    name.toLowerCase().includes(filter.toLowerCase())
+  const visible = $derived(assets.filter((a) => matches(a.name)))
   const byName = $derived(new Map(visible.map((a) => [a.name, a])))
   const folderByName = $derived(new Map(assets.map((a) => [a.name, a.folder])))
+  const originOf = $derived(new Map(assets.map((a) => [a.name, a.origin])))
+
+  // One section per library on the search path, in the order the server
+  // resolves them - the path is the page's top level and folders sit
+  // inside it, because which library a name is in is what decides whether
+  // it can be deleted, what a delete costs, and what it hides. An empty
+  // library still shows its header, so an empty workspace says where an
+  // upload would land; while a filter is on, a section with nothing to
+  // show is skipped instead
+  const sections = $derived(
+    libraries
+      .map((library) => ({
+        ...library,
+        label: LIBRARY_LABELS[library.origin] ?? library.origin,
+        assets: visible.filter((a) => a.origin === library.origin),
+        shadowed: shadowed.filter(
+          (s) => s.origin === library.origin && matches(s.name),
+        ),
+      }))
+      .filter(
+        (section) =>
+          !filterActive ||
+          section.assets.length > 0 ||
+          section.shadowed.length > 0,
+      ),
+  )
+  // The grid in the order the page lays it out: what a shift-range spans
+  // and the order the bulk actions act in
+  const ordered = $derived(sections.flatMap((section) => section.assets))
+
+  // Names ticked in the grid, for the bulk actions
+  const picks = new Picks(() => ordered.map((a) => a.name))
+
+  function toggleLibrary(origin: string) {
+    collapsed[origin] = !collapsed[origin]
+    storageSet(COLLAPSE_KEY, $state.snapshot(collapsed))
+  }
+  // While filtering, everything stays open - a shut section hiding matches
+  // would make the filter look broken, as FolderGroups has it
+  const isOpen = (origin: string) => filterActive || !collapsed[origin]
+
+  function startUpload(target: 'workspace' | 'shared') {
+    uploadTarget = target
+    fileInput?.click()
+  }
 
   async function downloadPicked() {
     if (picks.names.length === 0) return
@@ -102,10 +158,21 @@
   async function removePicked() {
     const names = picks.names
     if (names.length === 0) return
+    // A shared asset goes for every workspace under the root, which is a
+    // different thing from deleting one of this workspace's own - so the
+    // confirm counts them rather than leaving the selection to be read
+    const shared = names.filter(
+      (name) => originOf.get(name) === 'common',
+    ).length
     if (
       !(await confirmDialog(
-        `Delete ${names.length} asset${names.length === 1 ? '' : 's'}? Any ` +
-          `workflow still carrying one of those references stops loading.`,
+        `Delete ${names.length} asset${names.length === 1 ? '' : 's'}?` +
+          (shared
+            ? ` ${shared} ${shared === 1 ? 'is' : 'are'} in the shared ` +
+              `library and go${shared === 1 ? 'es' : ''} away for every ` +
+              `workspace.`
+            : '') +
+          ` Any workflow still carrying one of those references stops loading.`,
         { confirmLabel: 'Delete' },
       ))
     )
@@ -138,7 +205,7 @@
     if (!file) return
     const suggestion = file.name
     const assetName = window.prompt(
-      `Upload — name in the ${uploadTo === 'shared' ? 'shared' : 'workspace'} asset library:`,
+      `Upload — name in the ${uploadTarget} asset library:`,
       suggestion,
     )
     if (assetName === null) return
@@ -147,7 +214,7 @@
       const result = await api.uploadMedia(
         file,
         assetName || undefined,
-        uploadTo === 'shared',
+        uploadTarget === 'shared',
       )
       notify.success(`Uploaded as ${result.reference ?? result.path}`)
       await load()
@@ -159,14 +226,14 @@
   }
 
   async function remove(asset: AssetFile) {
-    if (
-      !(await confirmDialog(
-        `Delete ${asset.reference}? Any workflow still carrying that ` +
-          `reference stops loading.`,
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
+    const question =
+      asset.origin === 'common'
+        ? `Delete ${asset.reference} from the shared library? Every ` +
+          `workspace under this root loses it, and any workflow still ` +
+          `carrying that reference stops loading.`
+        : `Delete ${asset.reference}? Any workflow still carrying that ` +
+          `reference stops loading.`
+    if (!(await confirmDialog(question, { confirmLabel: 'Delete' }))) return
     busy = true
     try {
       await api.deleteAsset(asset.name)
@@ -195,45 +262,10 @@
 <div class="head">
   <h1>Assets</h1>
   <WorkspacePicker />
-  <!-- The borrowed clause is one expression rather than markup inside the
-       block: Svelte trims the leading whitespace of a block's text, so a
-       literal space before the separator does not survive a line wrap -->
-  <span
-    class="num muted"
-    title={borrowed
-      ? "from the shared or example libraries on every workspace's search path - a workspace change does not change these"
-      : undefined}
-    >{assets.length} files{#if borrowed}{` · ${borrowed} from other libraries`}{/if}</span
-  >
+  <span class="num muted">{assets.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
-  {#if originOffered}
-    <select
-      class="originpick"
-      aria-label="library"
-      title="show only assets from one library"
-      bind:value={origin}
-    >
-      <option value={null}>all libraries</option>
-      {#each origins as o (o)}
-        <option value={o}>{o}</option>
-      {/each}
-    </select>
-  {/if}
-  <label class="uploadto">
-    upload to
-    <select
-      aria-label="where an upload lands"
-      title="which library the next upload is written to - a shared one is
-visible from every workspace and cannot be changed afterwards"
-      bind:value={uploadTo}
-    >
-      <option value="workspace">this workspace</option>
-      <option value="shared">shared library</option>
-    </select>
-  </label>
-  <button class="withicon" onclick={() => fileInput?.click()} disabled={busy}>
-    <Upload size={14} />Upload
-  </button>
+  <!-- One input for every section: which library the file lands in is
+       uploadTarget, set by whichever button opened it -->
   <input
     class="hiddenfile"
     type="file"
@@ -247,10 +279,10 @@ visible from every workspace and cannot be changed afterwards"
 
 <HintBar storageKey="assets-hint-dismissed">
   An asset is input a workflow names by reference: an argument set to asset:name
-  loads this file at run time, whatever run produced it. Assets from the shared
-  and example libraries are on every workspace's search path, so they appear
-  here whatever workspace you pick - only this workspace's own change with it,
-  and a name here shadows the same name in a shared or example library.
+  loads this file at run time, whatever run produced it. The shared library and
+  any examples library sit on every workspace's search path, so they follow you
+  between workspaces; only this workspace's own section changes with the picker,
+  and a name here hides the same name further down.
 </HintBar>
 
 {#if loaded && !error && assets.length === 0}
@@ -262,7 +294,7 @@ visible from every workspace and cannot be changed afterwards"
 
 <BulkBar
   {picks}
-  visible={visible.length}
+  visible={ordered.length}
   {filterActive}
   {busy}
   noun="asset"
@@ -270,69 +302,126 @@ visible from every workspace and cannot be changed afterwards"
   ondelete={removePicked}
 />
 
-<FolderGroups
-  names={visible.map((a) => a.name)}
-  groupOf={(name) => folderByName.get(name) ?? ''}
-  collapseKey="collapsed-asset-folders"
-  {filterActive}
-  minColumn="150px"
->
-  {#snippet card(name)}
-    {@const asset = byName.get(name)!}
-    <div class="cellwrap" class:picked={picks.has(name)}>
-      <!-- A sibling of the cell rather than a child: a checkbox nested in
-           a button is invalid, and keeping them apart is what lets a plain
-           click still open the details it always has -->
-      <input
-        class="pick"
-        type="checkbox"
-        checked={picks.has(name)}
-        aria-label="select {asset.name}"
-        title="select this asset for a bulk action"
-        onclick={(e) => picks.toggle(name, e.shiftKey)}
-      />
-      <button
-        class="cell"
-        class:active={selected?.name === name}
-        onclick={() => (selected = asset)}
-        aria-label="show details for {asset.name}"
-        title="show details"
+{#each sections as section (section.origin)}
+  <div class="libraryrow">
+    <button
+      class="library"
+      onclick={() => toggleLibrary(section.origin)}
+      title={isOpen(section.origin)
+        ? 'collapse this library'
+        : 'expand this library'}
+    >
+      {#if isOpen(section.origin)}<ChevronDown size={15} />{:else}<ChevronRight
+          size={15}
+        />{/if}
+      {section.label}
+      <span class="muted">({section.assets.length})</span>
+    </button>
+    <span class="path muted">{section.dir}</span>
+    <span class="flex"></span>
+    {#if !section.writable}
+      <span class="muted" title="read-only: this server cannot write to it"
+        >read-only</span
       >
-        {#if asset.kind === 'image'}
-          <img src={asset.url} alt={asset.name} loading="lazy" />
-        {:else if asset.kind === 'video'}
-          <video src={asset.url} preload="metadata" muted></video>
-        {:else}
-          <span class="audio">♪ {leaf(asset.name)}</span>
-        {/if}
-        <span class="caption" title={asset.reference}>{leaf(asset.name)}</span>
+    {:else if section.origin === 'common'}
+      <button
+        class="quiet withicon"
+        onclick={() => startUpload('shared')}
+        disabled={busy}
+        title="lands in the shared library - visible from every workspace under this root and cannot be moved afterwards"
+      >
+        <Upload size={14} />Upload to shared
       </button>
-      {#if asset.origin !== 'workspace'}
-        <span
-          class="origin"
-          title="from the {asset.origin} library - this workspace's own names shadow it"
-          >{asset.origin}</span
-        >
-      {/if}
-    </div>
-  {/snippet}
-</FolderGroups>
-
-{#if loaded && assets.length > 0 && visible.length === 0}
-  <p class="muted">Nothing matches "{filter}".</p>
-{/if}
-
-{#if assetDirs.length}
-  <p class="dir muted">
-    read from
-    {#each assetDirs as dir, index (dir)}
-      <span class="path">{dir}</span>{#if index < assetDirs.length - 1},
-      {/if}
-    {/each}
-    {#if assetDir}
-      · uploads land in <span class="path">{assetDir}</span>
+    {:else if section.origin === 'workspace'}
+      <button
+        class="withicon"
+        onclick={() => startUpload('workspace')}
+        disabled={busy}
+      >
+        <Upload size={14} />Upload
+      </button>
     {/if}
-  </p>
+  </div>
+
+  {#if isOpen(section.origin)}
+    <FolderGroups
+      names={section.assets.map((a) => a.name)}
+      groupOf={(name) => folderByName.get(name) ?? ''}
+      collapseKey="collapsed-asset-folders-{section.origin}"
+      {filterActive}
+      minColumn="150px"
+    >
+      {#snippet card(name)}
+        {@const asset = byName.get(name)!}
+        <div class="cellwrap" class:picked={picks.has(name)}>
+          <!-- A sibling of the cell rather than a child: a checkbox nested in
+               a button is invalid, and keeping them apart is what lets a plain
+               click still open the details it always has -->
+          {#if section.writable}
+            <input
+              class="pick"
+              type="checkbox"
+              checked={picks.has(name)}
+              aria-label="select {asset.name}"
+              title="select this asset for a bulk action"
+              onclick={(e) => picks.toggle(name, e.shiftKey)}
+            />
+          {/if}
+          <button
+            class="cell"
+            class:active={selected?.name === name}
+            onclick={() => (selected = asset)}
+            aria-label="show details for {asset.name}"
+            title="show details"
+          >
+            {#if asset.kind === 'image'}
+              <img src={asset.url} alt={asset.name} loading="lazy" />
+            {:else if asset.kind === 'video'}
+              <video src={asset.url} preload="metadata" muted></video>
+            {:else}
+              <span class="audio">♪ {leaf(asset.name)}</span>
+            {/if}
+            <span class="caption" title={asset.reference}
+              >{leaf(asset.name)}</span
+            >
+          </button>
+        </div>
+      {/snippet}
+    </FolderGroups>
+
+    {#if section.shadowed.length}
+      <!-- What this library holds under a name a nearer one has taken. It
+           is here because "I uploaded it and asset: still loads the old
+           one" is otherwise unanswerable from the page - the server does
+           not serve these, so a tile is a dimmed label rather than a
+           picture, and nothing bulk can reach it -->
+      <div class="grouprow">
+        <span class="group"
+          >shadowed/ <span class="muted">({section.shadowed.length})</span
+          ></span
+        >
+      </div>
+      <div class="grid">
+        {#each section.shadowed as entry (entry.name)}
+          <div class="cellwrap">
+            <div
+              class="cell shadowed"
+              title="shadowed by {SHADOWED_BY[
+                entry.shadowed_by
+              ]} {entry.name} - {entry.reference} resolves to that file"
+            >
+              <span class="ghost">{entry.kind}</span>
+              <span class="caption">{leaf(entry.name)}</span>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  {/if}
+{/each}
+
+{#if loaded && assets.length > 0 && ordered.length === 0}
+  <p class="muted">Nothing matches "{filter}".</p>
 {/if}
 
 {#if selected}
@@ -401,25 +490,55 @@ visible from every workspace and cannot be changed afterwards"
     max-width: 220px;
     margin-left: auto;
   }
-  .originpick {
-    /* The global select rule is width: 100% - here it must share the row */
-    width: auto;
-    max-width: 200px;
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
+  /* A library section header: the label, the count, the root it reads,
+     and the one action that library offers */
+  .libraryrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 1.6rem 0 var(--space-2);
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--line);
   }
-  .uploadto {
-    display: inline-flex;
+  /* A library is a heavier folder heading: the same mono name the engine
+     resolves, ink rather than muted, because it is the page's top level */
+  .library {
+    display: flex;
     align-items: center;
     gap: 0.35rem;
-    color: var(--muted);
-    font-size: var(--t-xs);
-  }
-  .uploadto select {
-    /* The global select rule is width: 100% - here it must share the row */
-    width: auto;
+    background: none;
+    border: none;
+    color: var(--ink);
     font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: var(--t-md);
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+  .library:hover {
+    filter: none;
+    color: var(--accent);
+  }
+  /* FolderGroups' folder heading, for the one group it does not lay out.
+     Its styles are scoped to that component, so this is the same look
+     rather than the same rule */
+  .grouprow {
+    margin: 1.2rem 0 var(--space-2);
+  }
+  .group {
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-weight: 600;
     font-size: var(--t-sm);
+    letter-spacing: -0.01em;
+  }
+  .grid {
+    display: grid;
+    align-items: start;
+    gap: 0.6rem;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   }
   .hiddenfile {
     display: none;
@@ -458,7 +577,10 @@ visible from every workspace and cannot be changed afterwards"
     object-fit: cover;
     background: var(--sunk);
   }
-  .cell .audio {
+  /* The audio placeholder, and the shadowed tile's - neither has a
+     picture to show, and both have to keep the grid's rhythm */
+  .cell .audio,
+  .cell .ghost {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -479,20 +601,11 @@ visible from every workspace and cannot be changed afterwards"
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Which library an entry came from, on the tile rather than only in the
-     detail - "why can I not delete this" has to be answerable at a glance */
-  .origin {
-    position: absolute;
-    top: 0.3rem;
-    /* Right, not left: the bulk-select checkbox owns the other corner */
-    right: 0.3rem;
-    padding: 0.05rem 0.35rem;
-    border-radius: 999px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    color: var(--muted);
-    font-family: var(--font-mono);
-    font-size: 0.65rem;
+  /* A shadowed entry is a name, not a file: the server serves the tile
+     that won, so there is nothing to show and nothing to do with it */
+  .cell.shadowed {
+    opacity: 0.45;
+    cursor: default;
   }
   /* The gallery's popout: it rides the bottom of the viewport while the
      grid scrolls behind it. Sitting at the end of the document instead
@@ -536,10 +649,6 @@ visible from every workspace and cannot be changed afterwards"
   }
   .body audio {
     width: 100%;
-  }
-  .dir {
-    margin-top: 2.5rem;
-    font-size: var(--t-xs);
   }
   .path {
     font-family: var(--font-mono);
