@@ -101,4 +101,17 @@ corner, so the origin badge moved to the right. Bulk download is
 `POST /api/assets/archive`, the gallery archive's counterpart - the browser
 cannot zip on its own.
 
+Most of the grid can be identical in two workspaces, because the shared
+`common` library and every `--examples-dir` one sit on *every* workspace's
+search path - on a real box that is 34 shared assets against a handful the
+workspace owns, so switching the picker looks like a page that did nothing.
+Three things say so rather than leaving it to be inferred: the count breaks
+out `N from other libraries`, the hint names the rule, and the library pick
+is offered whenever *anything* came from elsewhere rather than only when two
+origins are in play - it used to unmount exactly in the workspace where the
+question comes up. The upload destination is a named pick (`upload to [this
+workspace | shared library]`) rather than a bare `shared` tickbox: it is the
+one thing about an upload that cannot be changed afterwards, and nothing on
+the page explained what the tickbox meant.
+
 See docs/SERVER.md.

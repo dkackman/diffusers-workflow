@@ -301,3 +301,60 @@ it('selects all matching when a filter is on', async () => {
 
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
 })
+
+// A shared or examples library is on every workspace's search path, so
+// most of the grid can be identical in two different workspaces. The page
+// has to say so, or switching workspace reads as a page that did nothing
+
+it('keeps the library pick when every asset comes from another library', async () => {
+  listing.assets = [
+    asset('qa-cast/a.png', 'common'),
+    asset('uploads/b.png', 'common'),
+  ]
+  await renderAssets('a.png')
+
+  // One origin, but not this workspace's own: the pick is the control that
+  // explains why these files follow you from workspace to workspace
+  expect(screen.getByLabelText('library')).toBeTruthy()
+})
+
+it('says how many assets came from another library', async () => {
+  listing.assets = [
+    asset('iris.png'),
+    asset('qa-cast/a.png', 'common'),
+    asset('ex.png', 'examples'),
+  ]
+  await renderAssets()
+
+  expect(screen.getByText(/3 files/)).toBeTruthy()
+  expect(screen.getByText(/2 from other libraries/)).toBeTruthy()
+})
+
+it('says nothing about other libraries when every asset is this workspace own', async () => {
+  await renderAssets()
+
+  expect(screen.queryByText(/from other libraries/)).toBeNull()
+})
+
+it('names where an upload will land, and uploads there', async () => {
+  await renderAssets()
+
+  const destination = screen.getByLabelText(
+    'where an upload lands',
+  ) as HTMLSelectElement
+  expect(destination.value).toBe('workspace')
+  destination.value = 'shared'
+  destination.dispatchEvent(new Event('change', { bubbles: true }))
+
+  vi.stubGlobal(
+    'prompt',
+    vi.fn(() => 'kept.png'),
+  )
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement
+  const file = new File(['x'], 'kept.png', { type: 'image/png' })
+  Object.defineProperty(input, 'files', { value: [file], configurable: true })
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+
+  await waitFor(() => expect(uploadMedia).toHaveBeenCalledTimes(1))
+  expect(uploadMedia).toHaveBeenCalledWith(file, 'kept.png', true)
+})

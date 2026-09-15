@@ -34,9 +34,12 @@
   // Anchor for a shift-click range, in the order the grid renders
   let anchor = $state<string | null>(null)
   let busy = $state(false)
-  // Put the next upload in the shared library rather than this workspace's,
-  // which is the one thing about an upload that cannot be changed afterwards
-  let uploadShared = $state(false)
+  // Where the next upload lands: this workspace's own library, or the
+  // shared one every workspace under the root can see. The one thing about
+  // an upload that cannot be changed afterwards, so it is named rather than
+  // left as a bare 'shared' tickbox nothing on the page explains
+  let uploadTo = $state<'workspace' | 'shared'>('workspace')
+  const uploadShared = $derived(uploadTo === 'shared')
   let fileInput = $state<HTMLInputElement | null>(null)
 
   function load() {
@@ -62,7 +65,18 @@
   })
 
   const origins = $derived([...new Set(assets.map((a) => a.origin))].sort())
-  const originOffered = $derived(origins.length > 1)
+  // How much of the grid a shared or examples library put there. Those
+  // libraries sit on every workspace's search path, so this is the count
+  // that stays the same when the workspace changes - unexplained, it reads
+  // as a page that ignored the pick
+  const borrowed = $derived(
+    assets.filter((a) => a.origin !== 'workspace').length,
+  )
+  // Offered whenever anything came from somewhere else - not only when two
+  // libraries are in play. A workspace with no assets of its own is exactly
+  // when the question "why are these the same as the last workspace?" comes
+  // up, and it was exactly when the control used to disappear
+  const originOffered = $derived(origins.length > 1 || borrowed > 0)
   const filterActive = $derived(filter !== '' || origin !== null)
   const visible = $derived(
     assets.filter(
@@ -246,7 +260,13 @@
 <div class="head">
   <h1>Assets</h1>
   <WorkspacePicker />
-  <span class="num muted">{assets.length} files</span>
+  <span class="num muted"
+    >{assets.length} files{#if borrowed}
+      <span
+        title="from the shared or example libraries on every workspace's search path - a workspace change does not change these"
+        >&nbsp;· {borrowed} from other libraries</span
+      >{/if}</span
+  >
   <input class="filter" placeholder="filter…" bind:value={filter} />
   {#if originOffered}
     <select
@@ -261,12 +281,17 @@
       {/each}
     </select>
   {/if}
-  <label
-    class="sharedtoggle"
-    title="put the next upload in the library every workspace shares"
-  >
-    <input type="checkbox" bind:checked={uploadShared} />
-    shared
+  <label class="uploadto">
+    upload to
+    <select
+      aria-label="where an upload lands"
+      title="which library the next upload is written to - a shared one is
+visible from every workspace and cannot be changed afterwards"
+      bind:value={uploadTo}
+    >
+      <option value="workspace">this workspace</option>
+      <option value="shared">shared library</option>
+    </select>
   </label>
   <button class="withicon" onclick={() => fileInput?.click()} disabled={busy}>
     <Upload size={14} />Upload
@@ -284,8 +309,10 @@
 
 <HintBar storageKey="assets-hint-dismissed">
   An asset is input a workflow names by reference: an argument set to asset:name
-  loads this file at run time, whatever run produced it. A name in this
-  workspace shadows the same name in a shared or example library.
+  loads this file at run time, whatever run produced it. Assets from the shared
+  and example libraries are on every workspace's search path, so they appear
+  here whatever workspace you pick - only this workspace's own change with it,
+  and a name here shadows the same name in a shared or example library.
 </HintBar>
 
 {#if loaded && !error && assets.length === 0}
@@ -456,12 +483,18 @@
     font-family: var(--font-mono);
     font-size: var(--t-sm);
   }
-  .sharedtoggle {
+  .uploadto {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.35rem;
     color: var(--muted);
     font-size: var(--t-xs);
+  }
+  .uploadto select {
+    /* The global select rule is width: 100% - here it must share the row */
+    width: auto;
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
   }
   .hiddenfile {
     display: none;
