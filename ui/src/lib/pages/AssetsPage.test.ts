@@ -207,6 +207,42 @@ it('offers no checkbox on a tile from a read-only library', async () => {
   expect(screen.queryByLabelText('select demo/x.png')).toBeNull()
 })
 
+// A bulk action must never touch what the user cannot see or untick, so
+// select-all takes what the grid is actually showing with a checkbox on it
+
+it('selects only what a bulk action could act on', async () => {
+  listing.libraries = [WORKSPACE_LIBRARY, EXAMPLES_LIBRARY]
+  listing.assets = [
+    asset('iris.png'),
+    asset('cast/priya.jpg'),
+    asset('demo/x.png', 'examples'),
+  ]
+  await renderAssets()
+
+  // Two, not three: an examples tile has no checkbox, and a delete would
+  // 403 on it and leave it ticked with nothing on the tile to untick
+  screen.getByRole('button', { name: /select all \(2\)/i }).click()
+
+  await waitFor(() => expect(screen.getByText('2 selected')).toBeTruthy())
+})
+
+it('leaves a collapsed library out of what select-all takes', async () => {
+  listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
+  listing.assets = [asset('iris.png'), asset('shared/logo.png', 'common')]
+  await renderAssets()
+  expect(screen.getByRole('button', { name: /select all \(2\)/i })).toBeTruthy()
+
+  screen.getByRole('button', { name: /This workspace/ }).click()
+
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: /select all \(1\)/i }),
+    ).toBeTruthy(),
+  )
+  screen.getByRole('button', { name: /select all \(1\)/i }).click()
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+})
+
 it('shows what a nearer library is hiding, dimmed and inert', async () => {
   listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
   listing.assets = [asset('iris.png')]
@@ -459,6 +495,21 @@ it('says what a shared delete costs', async () => {
       'reference stops loading.',
   )
   // Answer it: an unanswered confirm is module state the next render sees
+  await answerConfirm(false)
+})
+
+it('says nothing about a shared library when nothing shared is picked', async () => {
+  await renderAssets()
+
+  screen.getByRole('button', { name: /select all \(2\)/i }).click()
+  await waitFor(() => screen.getByRole('button', { name: /^delete$/i }))
+  screen.getByRole('button', { name: /^delete$/i }).click()
+
+  const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain(
+    'Delete 2 assets? Any workflow still carrying one of those references ' +
+      'stops loading.',
+  )
   await answerConfirm(false)
 })
 

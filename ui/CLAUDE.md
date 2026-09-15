@@ -132,7 +132,9 @@ be changed afterwards - `Upload` on the workspace section (the page's one
 filled button), a `.quiet` `Upload to shared` on the shared one, and a
 muted `read-only` where the server would answer 403. For the same reason a
 tile from a read-only library carries no checkbox at all: nothing bulk can
-do to it. A shared delete says what it costs, singly and in the bulk
+do to it - and the order `Picks` is given spans only open, writable
+sections, so `Select all` cannot tick a tile that has no checkbox to untick
+it with, or one a shut section is hiding. A shared delete says what it costs, singly and in the bulk
 confirm, since it goes for every workspace under the root.
 
 `shadowed` is rendered rather than only described. An entry a nearer

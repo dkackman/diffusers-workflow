@@ -99,6 +99,14 @@
   const folderByName = $derived(new Map(assets.map((a) => [a.name, a.folder])))
   const originOf = $derived(new Map(assets.map((a) => [a.name, a.origin])))
 
+  function toggleLibrary(origin: string) {
+    collapsed[origin] = !collapsed[origin]
+    storageSet(COLLAPSE_KEY, $state.snapshot(collapsed))
+  }
+  // While filtering, everything stays open - a shut section hiding matches
+  // would make the filter look broken, as FolderGroups has it
+  const isOpen = (origin: string) => filterActive || !collapsed[origin]
+
   // One section per library on the search path, in the order the server
   // resolves them - the path is the page's top level and folders sit
   // inside it, because which library a name is in is what decides whether
@@ -123,20 +131,19 @@
           section.shadowed.length > 0,
       ),
   )
-  // The grid in the order the page lays it out: what a shift-range spans
-  // and the order the bulk actions act in
-  const ordered = $derived(sections.flatMap((section) => section.assets))
+  // What the bulk actions can reach: the grid in the order the page lays
+  // it out, minus anything not on screen or not tickable. A shut section
+  // is hidden, and a read-only library's tile carries no checkbox and
+  // would answer 403 - selecting either is a bulk action touching what
+  // the user cannot see or undo from the tile
+  const ordered = $derived(
+    sections
+      .filter((section) => isOpen(section.origin) && section.writable)
+      .flatMap((section) => section.assets),
+  )
 
   // Names ticked in the grid, for the bulk actions
   const picks = new Picks(() => ordered.map((a) => a.name))
-
-  function toggleLibrary(origin: string) {
-    collapsed[origin] = !collapsed[origin]
-    storageSet(COLLAPSE_KEY, $state.snapshot(collapsed))
-  }
-  // While filtering, everything stays open - a shut section hiding matches
-  // would make the filter look broken, as FolderGroups has it
-  const isOpen = (origin: string) => filterActive || !collapsed[origin]
 
   function startUpload(target: 'workspace' | 'shared') {
     uploadTarget = target
@@ -404,8 +411,15 @@
       <div class="grid">
         {#each section.shadowed as entry (entry.name)}
           <div class="cellwrap">
+            <!-- role + aria-label, not title alone: a bare div is not
+                 exposed, and the title is the only thing that explains
+                 why this tile is here -->
             <div
               class="cell shadowed"
+              role="note"
+              aria-label="shadowed by {SHADOWED_BY[
+                entry.shadowed_by
+              ]} {entry.name} - {entry.reference} resolves to that file"
               title="shadowed by {SHADOWED_BY[
                 entry.shadowed_by
               ]} {entry.name} - {entry.reference} resolves to that file"
