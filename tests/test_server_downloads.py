@@ -5,6 +5,9 @@ must be registered before the existing plain GET route or FastAPI's
 greedy {name:path} matching on the plain route swallows it."""
 
 import json
+import os
+
+import pytest
 
 # `server` is imported for its fixture: these tests need exactly the one
 # tests/test_server.py already defines (its extra Basic.json seed file is
@@ -242,6 +245,26 @@ def test_raw_media_extensions_is_a_subset_of_media_kinds(asset_server, tmp_path)
     with asset_server(success_script) as client:
         state = client.app.state
         assert state.raw_media_extensions <= set(state.media_kinds)
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "symlink"), reason="platform has no os.symlink"
+)
+def test_archive_assets_rejects_a_name_behind_a_symlink(asset_server, tmp_path):
+    """A symlink inside the library that points outside it still resolves
+    with os.path.isfile, which is why _asset_in cannot stop there:
+    validate_path is what actually catches the escape, and a SecurityError
+    from that check must fall through to a plain 404 for the name rather
+    than bubble up as a 500."""
+    with asset_server(success_script) as client:
+        outside = tmp_path / "secret.txt"
+        outside.write_bytes(b"not yours")
+        assets = tmp_path / "assets"
+        os.symlink(outside, assets / "link.txt")
+
+        response = client.post("/api/assets/archive", json={"names": ["link.txt"]})
+
+        assert response.status_code == 404
 
 
 def test_archive_deflates_a_non_media_file(asset_server, tmp_path):

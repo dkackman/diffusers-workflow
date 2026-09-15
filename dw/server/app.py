@@ -2274,10 +2274,11 @@ def create_app(
         """The file a bare asset name has in one of these roots, or a 404.
 
         `_asset_file` with the search path already in hand, for a caller
-        resolving many names against the one workspace: `resolve_asset_reference`
-        each searches the pinned fallbacks on its own, so calling it once per
-        root re-walks them - the name is validated once and each root is then
-        just a join and an isfile check.
+        resolving many names against the one workspace: each call to
+        `resolve_asset_reference` walks the pinned fallbacks on its own, so
+        calling it once per root re-walked them all every time - the name is
+        validated once here instead, and each root is then just a join and
+        an isfile check.
         """
         try:
             validate_asset_reference(name)
@@ -2285,8 +2286,17 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(e))
         for root in roots:
             candidate = os.path.join(root, name)
-            if os.path.isfile(candidate):
+            if not os.path.isfile(candidate):
+                continue
+            try:
                 return validate_path(candidate, root)
+            except SecurityError:
+                # A symlink under this root can still point outside it -
+                # isfile follows the link and says yes, and validate_path
+                # is what actually catches the escape. That's a miss for
+                # this root, not a 500: fall through to the next one and,
+                # on a total miss, the same 404 every other miss gets.
+                continue
         if not roots:
             detail = f"Unknown asset {name!r}: this workspace has no asset library"
         else:
@@ -2298,9 +2308,9 @@ def create_app(
 
         Looked for down the same search path a run resolves 'asset:' in
         (_asset_roots), so what the API can read is what a job would load.
-        The first root's failure is the one reported: it names the
-        workspace's own library, which is where a caller expects their
-        asset to be, rather than an examples directory they never wrote to.
+        A miss names every root that was searched, so the caller sees
+        their own workspace library among them rather than just the last
+        (often an examples directory they never wrote to).
         """
         return _asset_in(
             reference.removeprefix(ASSET_PREFIX).strip(),
