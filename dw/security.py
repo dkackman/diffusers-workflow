@@ -663,6 +663,31 @@ def validate_file_base_name(name: str) -> str:
     return name
 
 
+def validate_content_type(value: str) -> str:
+    """
+    Validate a result 'content_type': a MIME type, never a bare word.
+
+    A bare word like 'video' passed here clean and then failed deep inside
+    a writer, in a traceback naming neither the field nor the value - the
+    writer's own dispatch matches 'video' as a startswith prefix of
+    'video/mp4' and takes that branch anyway, then fails for lack of a real
+    extension to write. This only checks the shape; which MIME types this
+    engine actually has a writer for is the caller's business.
+
+    Raises:
+        InvalidInputError: If the value is not a string, or not shaped like
+            a MIME type
+    """
+    if not isinstance(value, str):
+        raise InvalidInputError(f"Invalid content_type: {value!r} - expected a string")
+    if value.count("/") != 1 or "" in value.split("/"):
+        raise InvalidInputError(
+            f"Invalid content_type: {value!r} - content_type wants a MIME "
+            f"type like 'video/mp4' or 'image/png', not a bare word"
+        )
+    return value
+
+
 # A workspace's name: one path segment, starting with a word character, so
 # '..', hidden names and anything with a separator in it are all excluded
 # before the name is joined onto the workspace root
