@@ -41,6 +41,7 @@ from .variable_constraints import (
 )
 from .subfolders import step_subfolder, subfolder_errors
 from .reference_names import reference_name_errors
+from .content_types import content_type_errors
 from .step import Step
 from .step_cache import (
     step_cache,
@@ -607,6 +608,11 @@ class Workflow:
             # by a message that named a valid form and not the objection
             # (dw/reference_names.py, #162)
             + reference_name_errors(expanded, source_indices)
+            # A result content_type no writer will accept - a bare word like
+            # "video" validated clean and then died inside the writer with a
+            # traceback naming neither the field nor the value
+            # (dw/content_types.py, #168)
+            + content_type_errors(expanded, source_indices)
             # A location policy refuses before a model load is spent on the
             # run rather than after it (dw/locations.py)
             + location_errors(expanded, source_indices, base_dir)
