@@ -158,6 +158,26 @@ def test_archive_assets_zips_every_requested_file(asset_server, tmp_path):
             assert archive.read("cast/priya.jpg") == b"priya-bytes"
 
 
+def test_archive_assets_dedupes_a_repeated_name(asset_server, tmp_path):
+    """A name repeated in the selection - here by stray whitespace, which an
+    eager client could also produce by resubmitting the same click - collapses
+    onto the one zip entry rather than colliding on write."""
+    import io
+    import zipfile
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        (assets / "iris.png").write_bytes(b"iris-bytes")
+
+        response = client.post(
+            "/api/assets/archive", json={"names": ["iris.png", "iris.png "]}
+        )
+
+        assert response.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.namelist() == ["iris.png"]
+
+
 def test_archive_assets_rejects_a_name_outside_the_library(asset_server, tmp_path):
     with asset_server(success_script) as client:
         (tmp_path / "secret.txt").write_bytes(b"not yours")
@@ -213,3 +233,30 @@ def test_archive_stores_already_compressed_media_rather_than_deflating_it(
         with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
             assert archive.getinfo("clip.mp4").compress_type == zipfile.ZIP_STORED
             assert archive.getinfo("tone.wav").compress_type == zipfile.ZIP_DEFLATED
+
+
+def test_raw_media_extensions_is_a_subset_of_media_kinds(asset_server, tmp_path):
+    """RAW_MEDIA_EXTENSIONS names the MEDIA_KINDS members that don't compress
+    already - a name outside MEDIA_KINDS there would be silently inert in
+    _zip_download's policy check."""
+    with asset_server(success_script) as client:
+        state = client.app.state
+        assert state.raw_media_extensions <= set(state.media_kinds)
+
+
+def test_archive_deflates_a_non_media_file(asset_server, tmp_path):
+    """A file _zip_download never classifies as media - here a stray text
+    file living in the asset library - deflates like any other document,
+    rather than being stored for want of a MEDIA_KINDS entry."""
+    import io
+    import zipfile
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        (assets / "notes.txt").write_bytes(b"same text " * 200)
+
+        response = client.post("/api/assets/archive", json={"names": ["notes.txt"]})
+
+        assert response.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.getinfo("notes.txt").compress_type == zipfile.ZIP_DEFLATED

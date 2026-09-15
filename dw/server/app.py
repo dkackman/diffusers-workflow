@@ -1495,7 +1495,7 @@ def create_app(
                 try:
                     if is_asset_reference(leaf):
                         over_roots(
-                            _asset_roots(ws) or [ws.assets],
+                            _resolution_roots(ws),
                             lambda root: resolve_asset_reference(leaf, asset_dir=root),
                         )
                     elif leaf.startswith(PROMPT_PREFIX):
@@ -2240,6 +2240,17 @@ def create_app(
         **{ext: "audio" for ext in ALLOWED_AUDIO_EXTENSIONS},
     }
 
+    # The allowlist members that are not already-compressed containers -
+    # everything else in MEDIA_KINDS deflates for about nothing, so it is
+    # stored instead (see _zip_download)
+    RAW_MEDIA_EXTENSIONS = {".bmp", ".wav"}
+
+    # Exposed for tests - the two sets _zip_download's compression policy
+    # reads, so a test can assert the relationship without reaching into a
+    # closure
+    app.state.media_kinds = MEDIA_KINDS
+    app.state.raw_media_extensions = RAW_MEDIA_EXTENSIONS
+
     # Longest side of an on-demand gallery thumbnail, in pixels
     GALLERY_THUMBNAIL_MAX_DIM = 320
 
@@ -2263,21 +2274,24 @@ def create_app(
         """The file a bare asset name has in one of these roots, or a 404.
 
         `_asset_file` with the search path already in hand, for a caller
-        resolving many names against the one workspace.
+        resolving many names against the one workspace: `resolve_asset_reference`
+        each searches the pinned fallbacks on its own, so calling it once per
+        root re-walks them - the name is validated once and each root is then
+        just a join and an isfile check.
         """
-        first = None
+        try:
+            validate_asset_reference(name)
+        except SecurityError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         for root in roots:
-            if not root:
-                continue
-            try:
-                return resolve_asset_reference(f"{ASSET_PREFIX}{name}", asset_dir=root)
-            except (SecurityError, ValueError) as e:
-                first = first or e
-        raise HTTPException(
-            status_code=404,
-            detail=str(first)
-            or f"Unknown asset {name!r}: this workspace has no asset library",
-        )
+            candidate = os.path.join(root, name)
+            if os.path.isfile(candidate):
+                return validate_path(candidate, root)
+        if not roots:
+            detail = f"Unknown asset {name!r}: this workspace has no asset library"
+        else:
+            detail = f"Unknown asset {name!r}: not found in {', '.join(roots)}"
+        raise HTTPException(status_code=404, detail=detail)
 
     def _asset_file(reference, ws):
         """The file an 'asset:' reference names in this workspace, or a 404.
@@ -2290,7 +2304,7 @@ def create_app(
         """
         return _asset_in(
             reference.removeprefix(ASSET_PREFIX).strip(),
-            _asset_roots(ws) or [ws.assets],
+            _resolution_roots(ws),
         )
 
     def _static_files_for(root):
@@ -2326,6 +2340,19 @@ def create_app(
             if root not in roots and os.path.isdir(root):
                 roots.append(root)
         return roots
+
+    def _resolution_roots(ws):
+        """`_asset_roots(ws)`, falling back to the workspace's own (possibly
+        nonexistent) library when the search path is empty.
+
+        A caller resolving a name still needs *somewhere* to fail against:
+        with no root at all the 404 would name no directory, leaving the
+        caller to guess where it looked. Naming the workspace's own
+        directory keeps the failure pointing at the library the caller
+        thinks they're working in, even when that library hasn't been
+        created yet.
+        """
+        return _asset_roots(ws) or [ws.assets]
 
     def _asset_roots_for_job(job_id, ws):
         """The asset search path a job's own run used, for export: its spec's
@@ -2605,14 +2632,6 @@ def create_app(
     class ArchiveRequest(BaseModel):
         names: list[str] = Field(min_length=1, max_length=MAX_ARCHIVE_FILES)
 
-    # Everything the libraries hold is an already-compressed container apart
-    # from these two, and deflating a compressed stream buys about nothing
-    # for a full CPU pass - measured, roughly 74 MB/s for a 1.0003 ratio. The
-    # response does not start until the temp file is complete, so that pass
-    # is latency the caller waits through: a gigabyte of video is ~13s for a
-    # zip 0.03% smaller. These two do compress, about 2:1, so they keep it
-    COMPRESSIBLE_EXTENSIONS = {".bmp", ".wav"}
-
     def _zip_download(entries, filename):
         """Bundle (arcname, path) pairs into a zip and serve it as a download.
 
@@ -2629,13 +2648,23 @@ def create_app(
                 with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
                     for arcname, path in entries:
                         extension = os.path.splitext(path)[1].lower()
+                        # A file in MEDIA_KINDS but not RAW_MEDIA_EXTENSIONS
+                        # is an already-compressed container - deflating it
+                        # buys about nothing for a full CPU pass the caller
+                        # waits through (the response doesn't start until the
+                        # temp file is complete), so it is stored instead.
+                        # Everything else - .json, .md, .txt, .bmp, .wav, an
+                        # unrecognized extension - deflates, including the
+                        # export zip's text files
+                        stored = (
+                            extension in MEDIA_KINDS
+                            and extension not in RAW_MEDIA_EXTENSIONS
+                        )
                         archive.write(
                             path,
                             arcname=arcname,
                             compress_type=(
-                                zipfile.ZIP_DEFLATED
-                                if extension in COMPRESSIBLE_EXTENSIONS
-                                else zipfile.ZIP_STORED
+                                zipfile.ZIP_STORED if stored else zipfile.ZIP_DEFLATED
                             ),
                         )
         except BaseException:
@@ -2648,6 +2677,18 @@ def create_app(
             filename=filename,
             background=BackgroundTask(os.unlink, handle.name),
         )
+
+    def _archive_selection(entries, kind):
+        """`_zip_download` plus the one tail the two archive routes shared:
+        a timestamped `dw-<kind>s-*.zip` name and a log line naming the
+        count. Logged after the archive is written, not before, so a write
+        that fails partway (a bad path slipping past resolution, a full
+        disk) doesn't log a success that didn't happen.
+        """
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        response = _zip_download(entries, f"dw-{kind}s-{stamp}.zip")
+        logger.info(f"Archived {len(entries)} {kind} files")
+        return response
 
     @app.post("/api/gallery/archive")
     def archive_outputs(
@@ -2664,9 +2705,7 @@ def create_app(
         # subfolders stay intact inside the download
         paths = [(name, _output_file(name, ws.outputs)) for name in request.names]
 
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        logger.info(f"Archived {len(paths)} output files")
-        return _zip_download(paths, f"dw-outputs-{stamp}.zip")
+        return _archive_selection(paths, "output")
 
     # What a run directory holds besides its media: the engine writes them to
     # describe the run, and the gallery - which lists media - never shows them
@@ -3072,17 +3111,18 @@ def create_app(
         is the entry name, which is the name the 'asset:' reference carries.
         """
         # The search path depends on the workspace, not on the name, so it is
-        # built once rather than per name - a thousand-name archive would
-        # otherwise stat every root a thousand times, which is invisible on a
-        # local disk and seconds on a network-mounted workspace
-        roots = _asset_roots(ws) or [ws.assets]
+        # built once rather than per name - each root's isdir check would
+        # otherwise repeat once per name in the selection for no reason
+        roots = _resolution_roots(ws)
+        # Stripped and deduped before resolving, so "iris.png" and
+        # "iris.png " (or a name repeated by an eager client) become the one
+        # zip entry rather than a collision on write
+        names = list(dict.fromkeys(n.strip() for n in request.names))
         # Resolved before anything is written, so a bad name in the
         # selection fails the request instead of yielding a partial zip
-        paths = [(name, _asset_in(name, roots)) for name in request.names]
+        paths = [(name, _asset_in(name, roots)) for name in names]
 
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        logger.info(f"Archived {len(paths)} asset files")
-        return _zip_download(paths, f"dw-assets-{stamp}.zip")
+        return _archive_selection(paths, "asset")
 
     @app.delete("/api/assets/{name:path}")
     def delete_asset(name: str, ws: Workspace = Depends(selected_workspace)):
@@ -3421,14 +3461,12 @@ def create_app(
         if not os.path.isdir(directory):
             raise HTTPException(status_code=404, detail="No export for this job")
 
-        entries = [
-            (
-                f"{job_id}/{os.path.relpath(os.path.join(current, name), directory).replace(os.sep, '/')}",
-                os.path.join(current, name),
-            )
-            for current, _dirs, names in os.walk(directory)
-            for name in sorted(names)
-        ]
+        entries = []
+        for current, _dirs, names in os.walk(directory):
+            for name in sorted(names):
+                path = os.path.join(current, name)
+                entry = os.path.relpath(path, directory).replace(os.sep, "/")
+                entries.append((f"{job_id}/{entry}", path))
         return _zip_download(entries, f"{job_id}.zip")
 
     # ---------------------------------------------------------------- the UI
