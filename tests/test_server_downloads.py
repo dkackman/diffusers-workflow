@@ -5,6 +5,9 @@ must be registered before the existing plain GET route or FastAPI's
 greedy {name:path} matching on the plain route swallows it."""
 
 import json
+import os
+
+import pytest
 
 # `server` is imported for its fixture: these tests need exactly the one
 # tests/test_server.py already defines (its extra Basic.json seed file is
