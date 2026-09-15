@@ -73,12 +73,16 @@ beforeEach(() => {
   listing.assets = [asset('iris.png'), asset('cast/priya.jpg')]
   listing.asset_dir = '/ws/assets'
   listing.asset_dirs = ['/ws/assets']
+  deleteAsset.mockResolvedValue(undefined)
+  archiveAssets.mockResolvedValue(undefined)
 })
 afterEach(() => {
   cleanup()
   listAssets.mockClear()
-  deleteAsset.mockClear()
-  archiveAssets.mockClear()
+  // Reset, not clear: one test sets an implementation, and mockClear
+  // leaves it in place for whatever runs next
+  deleteAsset.mockReset()
+  archiveAssets.mockReset()
   uploadMedia.mockClear()
   notifyError.mockClear()
   notifySuccess.mockClear()
@@ -326,8 +330,9 @@ it('says how many assets came from another library', async () => {
   ]
   await renderAssets()
 
-  expect(screen.getByText(/3 files/)).toBeTruthy()
-  expect(screen.getByText(/2 from other libraries/)).toBeTruthy()
+  // One node, and the separator keeps its spaces - Svelte trims the leading
+  // whitespace of a block, which has eaten this space twice now
+  expect(screen.getByText('3 files · 2 from other libraries')).toBeTruthy()
 })
 
 it('says nothing about other libraries when every asset is this workspace own', async () => {

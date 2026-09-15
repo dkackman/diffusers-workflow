@@ -101,6 +101,20 @@ corner, so the origin badge moved to the right. Bulk download is
 `POST /api/assets/archive`, the gallery archive's counterpart - the browser
 cannot zip on its own.
 
+The selection itself is not this page's: `picks.svelte.ts` holds it (a
+`Picks` over a getter for the grid's current order, so a filter changing
+under the selection is seen rather than snapshotted), `BulkBar.svelte` is the
+sticky bar and the select-all, and the two rules that have to reach a tile
+the page lays out - `.cellwrap .pick`, `.cellwrap.picked .cell` - are in
+`app.css`. The gallery runs the same three. They were one page's code copied
+into the other first, and the copies had already drifted: the assets page's
+Escape guard knew that `ConfirmDialog` renders `alertdialog` and the
+gallery's did not, so Escape in the gallery's delete confirm closed the
+detail behind it. `dialogOpen()` is that check, once. `Picks.hidden` counts
+ticked names the filter is hiding - nothing renders it yet, and the open
+question it belongs to is that `size` counts every ticked name while `names`
+(what the actions use) is only the visible ones.
+
 Most of the grid can be identical in two workspaces, because the shared
 `common` library and every `--examples-dir` one sit on *every* workspace's
 search path - on a real box that is 34 shared assets against a handful the

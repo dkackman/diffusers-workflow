@@ -188,3 +188,28 @@ def test_archive_assets_rejects_more_names_than_the_cap(asset_server, tmp_path):
         )
 
         assert response.status_code == 422
+
+
+def test_archive_stores_already_compressed_media_rather_than_deflating_it(
+    asset_server, tmp_path
+):
+    """Every asset extension but .bmp and .wav is an already-compressed
+    container, so deflating one buys nothing and costs a full CPU pass the
+    caller waits on - the response only starts once the temp file is
+    written. Formats that do compress keep deflate."""
+    import io
+    import zipfile
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        (assets / "clip.mp4").write_bytes(b"\x00\x01" * 4096)
+        (assets / "tone.wav").write_bytes(b"\x00\x01" * 4096)
+
+        response = client.post(
+            "/api/assets/archive", json={"names": ["clip.mp4", "tone.wav"]}
+        )
+
+        assert response.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.getinfo("clip.mp4").compress_type == zipfile.ZIP_STORED
+            assert archive.getinfo("tone.wav").compress_type == zipfile.ZIP_DEFLATED

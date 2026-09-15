@@ -1,18 +1,12 @@
 <script lang="ts">
-  import {
-    Bookmark,
-    ImageOff,
-    FolderOpen,
-    Trash2,
-    X,
-    Download,
-  } from '@lucide/svelte'
+  import { Bookmark, ImageOff, FolderOpen, Trash2, X } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { go } from '../router.svelte'
-  import { SvelteSet } from 'svelte/reactivity'
+  import BulkBar from '../BulkBar.svelte'
+  import { Picks, actOnEach, dialogOpen } from '../picks.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile } from '../types'
@@ -28,10 +22,9 @@
   let subfolder = $state<string | null>(null)
   let error = $state('')
   let selected = $state<GalleryFile | null>(null)
-  // Names ticked in the grid, for the bulk actions
-  const picked = new SvelteSet<string>()
-  // Anchor for a shift-click range, in the order the grid renders
-  let anchor = $state<string | null>(null)
+  // Names ticked in the grid, for the bulk actions. The grid order it is
+  // given is what a shift-range spans and the order the actions act in
+  const picks = new Picks(() => visible.map((f) => f.name))
   let busy = $state(false)
   let metadata = $state<Record<string, unknown> | null>(null)
   let metadataLoading = $state(false)
@@ -45,7 +38,7 @@
       .then((result) => {
         files = result.files
         error = ''
-        prune()
+        picks.keepOnly(result.files.map((f) => f.name))
       })
       .catch((e) => (error = e.message))
       .finally(() => (loaded = true))
@@ -124,53 +117,10 @@
   // name alone reads the run directory as one more folder
   const folderByName = $derived(new Map(visible.map((f) => [f.name, f.folder])))
 
-  const pickedCount = $derived(picked.size)
-  /** The selection in the order the grid shows them, which is the order
-   * the bulk actions act in and the order a shift-range spans. */
-  const pickedNames = $derived(
-    visible.filter((f) => picked.has(f.name)).map((f) => f.name),
-  )
-
-  /** Forget names no longer in the listing, so a file deleted elsewhere
-   * cannot linger in the selection and fail every later bulk action. */
-  function prune() {
-    const present = new Set(files.map((f) => f.name))
-    for (const name of [...picked]) if (!present.has(name)) picked.delete(name)
-  }
-
-  function togglePick(name: string, shift: boolean) {
-    if (shift && anchor !== null) {
-      const order = visible.map((f) => f.name)
-      const from = order.indexOf(anchor)
-      const to = order.indexOf(name)
-      if (from !== -1 && to !== -1) {
-        const [low, high] = from < to ? [from, to] : [to, from]
-        // A range always selects: extending a selection is what shift is
-        // for, and toggling each cell would make the result depend on
-        // whatever the range happened to contain
-        for (const each of order.slice(low, high + 1)) picked.add(each)
-        anchor = name
-        return
-      }
-    }
-    if (picked.has(name)) picked.delete(name)
-    else picked.add(name)
-    anchor = name
-  }
-
-  function selectAllVisible() {
-    for (const file of visible) picked.add(file.name)
-  }
-
-  function clearPicked() {
-    picked.clear()
-    anchor = null
-  }
-
   async function downloadPicked() {
     busy = true
     try {
-      await api.archiveOutputs(pickedNames)
+      await api.archiveOutputs(picks.names)
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -179,7 +129,7 @@
   }
 
   async function removePicked() {
-    const names = pickedNames
+    const names = picks.names
     if (
       !(await confirmDialog(
         `Delete ${names.length} file${names.length === 1 ? '' : 's'}? This removes them on disk.`,
@@ -188,23 +138,12 @@
     )
       return
     busy = true
-    // Sequential rather than parallel: a selection of hundreds should not
-    // open hundreds of sockets, and the order makes the log readable
-    const failed: string[] = []
-    for (const name of names) {
-      try {
-        await api.deleteOutput(name)
-      } catch {
-        failed.push(name)
-      }
-    }
+    const failed = await actOnEach(names, (name) => api.deleteOutput(name))
     const gone = new Set(names.filter((name) => !failed.includes(name)))
     files = files.filter((f) => !gone.has(f.name))
     // Whatever could not be deleted stays selected, so a retry needs no
     // re-ticking and the failure is visible rather than silently dropped
-    picked.clear()
-    for (const name of failed) picked.add(name)
-    anchor = null
+    picks.keepFailed(failed)
     if (selected && gone.has(selected.name)) selected = null
     if (failed.length)
       notify.error(
@@ -247,7 +186,7 @@
       files = files.filter((f) => f.name !== name)
       // A file deleted from here may also be ticked in the grid; leaving it
       // there would make the next bulk action fail on a file that is gone
-      picked.delete(name)
+      picks.drop(name)
       selected = null
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -295,13 +234,12 @@
 
 <svelte:window
   onkeydown={(e) => {
-    if (e.key === 'Escape') {
-      if (document.querySelector('[role="dialog"]')) return
-      // The selection is the more recent, more surprising state to be
-      // stuck in, so it clears first and the detail panel on a second press
-      if (picked.size) clearPicked()
-      else selected = null
-    }
+    // Escape closes the thing on top, and a dialog answers it itself. The
+    // selection is the more recent, more surprising state to be stuck in,
+    // so it clears first and the detail panel on a second press
+    if (e.key !== 'Escape' || dialogOpen()) return
+    if (picks.size) picks.clear()
+    else selected = null
   }}
 />
 
@@ -333,28 +271,15 @@
   </Empty>
 {/if}
 
-{#if pickedCount}
-  <div class="picks panel" role="region" aria-label="selected files">
-    <strong>{pickedCount} selected</strong>
-    <span class="flex"></span>
-    <button class="withicon" onclick={downloadPicked} disabled={busy}>
-      <Download size={14} />Download .zip
-    </button>
-    <button class="withicon danger" onclick={removePicked} disabled={busy}>
-      <Trash2 size={14} />Delete
-    </button>
-    <button class="quiet" onclick={clearPicked} disabled={busy}>Clear</button>
-  </div>
-{/if}
-
-<div class="picktools">
-  <button
-    class="quiet"
-    onclick={selectAllVisible}
-    disabled={visible.length === 0}
-    >Select all{filterActive ? ' matching' : ''} ({visible.length})</button
-  >
-</div>
+<BulkBar
+  {picks}
+  visible={visible.length}
+  {filterActive}
+  {busy}
+  noun="file"
+  ondownload={downloadPicked}
+  ondelete={removePicked}
+/>
 
 <FolderGroups
   names={visible.map((f) => f.name)}
@@ -365,17 +290,17 @@
 >
   {#snippet card(name)}
     {@const file = byName.get(name)!}
-    <div class="cellwrap" class:picked={picked.has(name)}>
+    <div class="cellwrap" class:picked={picks.has(name)}>
       <!-- A sibling of the cell rather than a child: a checkbox nested in
            a button is invalid, and keeping them apart is what lets a plain
            click still open the details it always has -->
       <input
         class="pick"
         type="checkbox"
-        checked={picked.has(name)}
+        checked={picks.has(name)}
         aria-label="select {name}"
         title="select this file for a bulk action"
-        onclick={(e) => togglePick(name, e.shiftKey)}
+        onclick={(e) => picks.toggle(name, e.shiftKey)}
       />
       <button
         class="cell"
@@ -532,48 +457,8 @@
     font-family: var(--font-mono);
     font-size: var(--t-sm);
   }
-  .picks {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.8rem;
-    margin-bottom: 0.6rem;
-    position: sticky;
-    top: 0;
-    z-index: 2;
-  }
-  .picktools {
-    margin-bottom: 0.6rem;
-  }
   .cellwrap {
-    position: relative;
     display: flex;
-  }
-  .pick {
-    position: absolute;
-    top: 0.4rem;
-    left: 0.4rem;
-    z-index: 1;
-    margin: 0;
-    width: auto;
-    cursor: pointer;
-    /* It now sits over the picture rather than over a padded panel, so it
-       needs its own ground to stay findable against a dark output */
-    outline: 2px solid var(--panel);
-    /* Out of the way until it is wanted: hovering the tile, focusing the
-       box itself, or any selection existing at all brings it back */
-    opacity: 0;
-  }
-  .cellwrap:hover .pick,
-  .pick:focus-visible,
-  .pick:checked {
-    opacity: 1;
-  }
-  /* Selected is the user's own state, not the machine's, so it reads as a
-     heavier ink edge rather than taking the signal colour */
-  .cellwrap.picked .cell {
-    border-color: var(--ink);
-    box-shadow: inset 0 0 0 1px var(--ink);
   }
   /* A frame with a caption strip under it, like the catalog's cards: the
      picture bleeds to the edges and the label sits below the rule rather

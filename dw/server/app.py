@@ -63,7 +63,7 @@ from ..prompts import (
     RESERVED_TEXT_PREFIXES,
     resolve_prompt_reference,
 )
-from ..assets import is_asset_reference, resolve_asset_reference
+from ..assets import ASSET_PREFIX, is_asset_reference, resolve_asset_reference
 from ..variable_constraints import constraint_errors, constraint_warnings
 from .observed_cost import ObservedCosts, declared_drivers
 from ..variables import argument_errors
@@ -2259,6 +2259,26 @@ def create_app(
             raise HTTPException(status_code=404, detail="Unknown file")
         return path
 
+    def _asset_in(name, roots):
+        """The file a bare asset name has in one of these roots, or a 404.
+
+        `_asset_file` with the search path already in hand, for a caller
+        resolving many names against the one workspace.
+        """
+        first = None
+        for root in roots:
+            if not root:
+                continue
+            try:
+                return resolve_asset_reference(f"{ASSET_PREFIX}{name}", asset_dir=root)
+            except (SecurityError, ValueError) as e:
+                first = first or e
+        raise HTTPException(
+            status_code=404,
+            detail=str(first)
+            or f"Unknown asset {name!r}: this workspace has no asset library",
+        )
+
     def _asset_file(reference, ws):
         """The file an 'asset:' reference names in this workspace, or a 404.
 
@@ -2268,18 +2288,9 @@ def create_app(
         workspace's own library, which is where a caller expects their
         asset to be, rather than an examples directory they never wrote to.
         """
-        first = None
-        for root in _asset_roots(ws) or [ws.assets]:
-            if not root:
-                continue
-            try:
-                return resolve_asset_reference(reference, asset_dir=root)
-            except (SecurityError, ValueError) as e:
-                first = first or e
-        raise HTTPException(
-            status_code=404,
-            detail=str(first)
-            or f"Unknown asset {reference!r}: this workspace has no asset library",
+        return _asset_in(
+            reference.removeprefix(ASSET_PREFIX).strip(),
+            _asset_roots(ws) or [ws.assets],
         )
 
     def _static_files_for(root):
@@ -2594,6 +2605,50 @@ def create_app(
     class ArchiveRequest(BaseModel):
         names: list[str] = Field(min_length=1, max_length=MAX_ARCHIVE_FILES)
 
+    # Everything the libraries hold is an already-compressed container apart
+    # from these two, and deflating a compressed stream buys about nothing
+    # for a full CPU pass - measured, roughly 74 MB/s for a 1.0003 ratio. The
+    # response does not start until the temp file is complete, so that pass
+    # is latency the caller waits through: a gigabyte of video is ~13s for a
+    # zip 0.03% smaller. These two do compress, about 2:1, so they keep it
+    COMPRESSIBLE_EXTENSIONS = {".bmp", ".wav"}
+
+    def _zip_download(entries, filename):
+        """Bundle (arcname, path) pairs into a zip and serve it as a download.
+
+        The archive is a temp file rather than memory - a selection of videos
+        does not fit in RAM - unlinked once the response has been sent. The
+        three routes that hand back a zip share this so the cleanup contract
+        lives in one place: nothing has attached the background unlink while
+        the archive is being written, so a failure there has to unlink on the
+        way out or leak a half-written file into tmp.
+        """
+        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        try:
+            with handle:
+                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for arcname, path in entries:
+                        extension = os.path.splitext(path)[1].lower()
+                        archive.write(
+                            path,
+                            arcname=arcname,
+                            compress_type=(
+                                zipfile.ZIP_DEFLATED
+                                if extension in COMPRESSIBLE_EXTENSIONS
+                                else zipfile.ZIP_STORED
+                            ),
+                        )
+        except BaseException:
+            os.unlink(handle.name)
+            raise
+
+        return FileResponse(
+            handle.name,
+            media_type="application/zip",
+            filename=filename,
+            background=BackgroundTask(os.unlink, handle.name),
+        )
+
     @app.post("/api/gallery/archive")
     def archive_outputs(
         request: ArchiveRequest, ws: Workspace = Depends(selected_workspace)
@@ -2605,28 +2660,13 @@ def create_app(
         RAM - and unlinked once the response has been sent."""
         # Resolved before anything is written, so a bad name in the
         # selection fails the request instead of yielding a partial zip
+        # the gallery-relative name is the entry name, so a workflow's output
+        # subfolders stay intact inside the download
         paths = [(name, _output_file(name, ws.outputs)) for name in request.names]
-
-        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-        try:
-            with handle:
-                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
-                    for name, path in paths:
-                        # the gallery-relative name keeps a workflow's output
-                        # subfolders intact inside the download
-                        archive.write(path, arcname=name)
-        except BaseException:
-            os.unlink(handle.name)
-            raise
 
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         logger.info(f"Archived {len(paths)} output files")
-        return FileResponse(
-            handle.name,
-            media_type="application/zip",
-            filename=f"dw-outputs-{stamp}.zip",
-            background=BackgroundTask(os.unlink, handle.name),
-        )
+        return _zip_download(paths, f"dw-outputs-{stamp}.zip")
 
     # What a run directory holds besides its media: the engine writes them to
     # describe the run, and the gallery - which lists media - never shows them
@@ -3019,12 +3059,9 @@ def create_app(
             "shared": bool(request.shared),
         }
 
-    class AssetArchiveRequest(BaseModel):
-        names: list[str] = Field(min_length=1, max_length=MAX_ARCHIVE_FILES)
-
     @app.post("/api/assets/archive")
     def archive_assets(
-        request: AssetArchiveRequest, ws: Workspace = Depends(selected_workspace)
+        request: ArchiveRequest, ws: Workspace = Depends(selected_workspace)
     ):
         """Bundle a multi-file asset selection into one zip - the gallery's
         bulk download, for the input side of it.
@@ -3034,28 +3071,18 @@ def create_app(
         an examples tree downloads as one archive; the library-relative name
         is the entry name, which is the name the 'asset:' reference carries.
         """
+        # The search path depends on the workspace, not on the name, so it is
+        # built once rather than per name - a thousand-name archive would
+        # otherwise stat every root a thousand times, which is invisible on a
+        # local disk and seconds on a network-mounted workspace
+        roots = _asset_roots(ws) or [ws.assets]
         # Resolved before anything is written, so a bad name in the
         # selection fails the request instead of yielding a partial zip
-        paths = [(name, _asset_file(f"asset:{name}", ws)) for name in request.names]
-
-        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-        try:
-            with handle:
-                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
-                    for name, path in paths:
-                        archive.write(path, arcname=name)
-        except BaseException:
-            os.unlink(handle.name)
-            raise
+        paths = [(name, _asset_in(name, roots)) for name in request.names]
 
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         logger.info(f"Archived {len(paths)} asset files")
-        return FileResponse(
-            handle.name,
-            media_type="application/zip",
-            filename=f"dw-assets-{stamp}.zip",
-            background=BackgroundTask(os.unlink, handle.name),
-        )
+        return _zip_download(paths, f"dw-assets-{stamp}.zip")
 
     @app.delete("/api/assets/{name:path}")
     def delete_asset(name: str, ws: Workspace = Depends(selected_workspace)):
@@ -3394,31 +3421,15 @@ def create_app(
         if not os.path.isdir(directory):
             raise HTTPException(status_code=404, detail="No export for this job")
 
-        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-        try:
-            with handle:
-                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
-                    for current, _dirs, names in os.walk(directory):
-                        for name in sorted(names):
-                            path = os.path.join(current, name)
-                            entry = os.path.relpath(path, directory).replace(
-                                os.sep, "/"
-                            )
-                            archive.write(path, f"{job_id}/{entry}")
-        except BaseException:
-            # Nothing is going to attach the background unlink now, so the
-            # half-written archive has to go here
-            os.unlink(handle.name)
-            raise
-
-        return FileResponse(
-            handle.name,
-            media_type="application/zip",
-            filename=f"{job_id}.zip",
-            # The archive is a temp file, not a second permanent copy - it
-            # goes as soon as the response has been sent
-            background=BackgroundTask(os.unlink, handle.name),
-        )
+        entries = [
+            (
+                f"{job_id}/{os.path.relpath(os.path.join(current, name), directory).replace(os.sep, '/')}",
+                os.path.join(current, name),
+            )
+            for current, _dirs, names in os.walk(directory)
+            for name in sorted(names)
+        ]
+        return _zip_download(entries, f"{job_id}.zip")
 
     # ---------------------------------------------------------------- the UI
 

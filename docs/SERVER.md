@@ -462,7 +462,11 @@ The editor's forms come from these; they are just as usable from scripts:
   same search path a run does, so a selection spanning this workspace's
   library, the shared one and an examples tree downloads as one archive, and
   an unknown or out-of-library name 404s the whole request rather than
-  yielding a partial one
+  yielding a partial one. Entries are stored rather than deflated unless the
+  extension is one that compresses (`.bmp`, `.wav`): everything else the
+  libraries hold is an already-compressed container, and the response does
+  not start until the archive is complete, so deflating it is latency the
+  caller waits through for nothing
 - `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
   again on the body; extension held to the allowed image/video list), saved
