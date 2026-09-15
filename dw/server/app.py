@@ -3019,6 +3019,44 @@ def create_app(
             "shared": bool(request.shared),
         }
 
+    class AssetArchiveRequest(BaseModel):
+        names: list[str] = Field(min_length=1, max_length=MAX_ARCHIVE_FILES)
+
+    @app.post("/api/assets/archive")
+    def archive_assets(
+        request: AssetArchiveRequest, ws: Workspace = Depends(selected_workspace)
+    ):
+        """Bundle a multi-file asset selection into one zip - the gallery's
+        bulk download, for the input side of it.
+
+        Resolved down the same search path a run resolves 'asset:' in, so a
+        selection spanning the workspace's own library, the shared one and
+        an examples tree downloads as one archive; the library-relative name
+        is the entry name, which is the name the 'asset:' reference carries.
+        """
+        # Resolved before anything is written, so a bad name in the
+        # selection fails the request instead of yielding a partial zip
+        paths = [(name, _asset_file(f"asset:{name}", ws)) for name in request.names]
+
+        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        try:
+            with handle:
+                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for name, path in paths:
+                        archive.write(path, arcname=name)
+        except BaseException:
+            os.unlink(handle.name)
+            raise
+
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        logger.info(f"Archived {len(paths)} asset files")
+        return FileResponse(
+            handle.name,
+            media_type="application/zip",
+            filename=f"dw-assets-{stamp}.zip",
+            background=BackgroundTask(os.unlink, handle.name),
+        )
+
     @app.delete("/api/assets/{name:path}")
     def delete_asset(name: str, ws: Workspace = Depends(selected_workspace)):
         """Permanently remove one file from the asset library.

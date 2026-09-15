@@ -470,6 +470,15 @@ export const api = {
       assets: AssetFile[]
       folders: string[]
     }>('/api/assets'),
+  /** Download a multi-file asset selection as one zip - the gallery's bulk
+   * download, for the input side. Spans every library on the search path,
+   * since the grid does. */
+  archiveAssets: (names: string[]) =>
+    downloadResponse('/api/assets/archive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names }),
+    }),
   /** Permanently remove one asset. Answers 403 for one an examples tree
    * brought with it, which is not this server's to delete. */
   deleteAsset: (name: string) =>

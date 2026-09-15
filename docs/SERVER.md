@@ -455,6 +455,14 @@ The editor's forms come from these; they are just as usable from scripts:
   workspace's own before the shared one, the order `asset:` resolves in).
   An asset from a read-only examples library answers 403, the same as a
   read-only prompt or workflow; a name nothing holds answers 404
+- `POST /api/assets/archive` — `{"names": [...]}` (1-1000) bundles a
+  multi-file asset selection into one zip, named by each file's
+  library-relative path, which is the name its `asset:` reference carries.
+  The gallery archive's counterpart on the input side; it resolves down the
+  same search path a run does, so a selection spanning this workspace's
+  library, the shared one and an examples tree downloads as one archive, and
+  an unknown or out-of-library name 404s the whole request rather than
+  yielding a partial one
 - `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
   again on the body; extension held to the allowed image/video list), saved

@@ -9,7 +9,12 @@ import json
 # `server` is imported for its fixture: these tests need exactly the one
 # tests/test_server.py already defines (its extra Basic.json seed file is
 # harmless here), and a second copy would drift from it
-from tests.test_server import server, success_script, valid_workflow  # noqa: F401
+from tests.test_server import (  # noqa: F401
+    asset_server,
+    server,
+    success_script,
+    valid_workflow,
+)
 
 
 def test_download_output_sets_content_disposition_attachment(server, tmp_path):
@@ -118,6 +123,68 @@ def test_archive_outputs_rejects_more_names_than_the_cap(server, tmp_path):
     with server(success_script) as client:
         response = client.post(
             "/api/gallery/archive", json={"names": [f"f{i}.png" for i in range(1001)]}
+        )
+
+        assert response.status_code == 422
+
+
+def test_archive_assets_zips_every_requested_file(asset_server, tmp_path):
+    """The asset grid's bulk download, the gallery's own: a selection of
+    inputs comes back as one zip rather than N downloads the browser
+    throttles."""
+    import io
+    import zipfile
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        (assets / "iris.png").write_bytes(b"iris-bytes")
+        nested = assets / "cast"
+        nested.mkdir(exist_ok=True)
+        (nested / "priya.jpg").write_bytes(b"priya-bytes")
+
+        response = client.post(
+            "/api/assets/archive", json={"names": ["iris.png", "cast/priya.jpg"]}
+        )
+
+        assert response.status_code == 200
+        assert "attachment" in response.headers["content-disposition"]
+        assert ".zip" in response.headers["content-disposition"]
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            # the library-relative name is the entry name, so a folder in the
+            # library survives into the download and the reference a workflow
+            # carries still reads off the file you unpacked
+            assert sorted(archive.namelist()) == ["cast/priya.jpg", "iris.png"]
+            assert archive.read("iris.png") == b"iris-bytes"
+            assert archive.read("cast/priya.jpg") == b"priya-bytes"
+
+
+def test_archive_assets_rejects_a_name_outside_the_library(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        (tmp_path / "secret.txt").write_bytes(b"not yours")
+
+        response = client.post("/api/assets/archive", json={"names": ["../secret.txt"]})
+
+        assert response.status_code == 404
+
+
+def test_archive_assets_rejects_an_unknown_name(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        response = client.post("/api/assets/archive", json={"names": ["nope.png"]})
+
+        assert response.status_code == 404
+
+
+def test_archive_assets_rejects_an_empty_selection(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        response = client.post("/api/assets/archive", json={"names": []})
+
+        assert response.status_code == 422
+
+
+def test_archive_assets_rejects_more_names_than_the_cap(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        response = client.post(
+            "/api/assets/archive", json={"names": [f"f{i}.png" for i in range(1001)]}
         )
 
         assert response.status_code == 422

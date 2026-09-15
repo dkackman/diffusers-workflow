@@ -45,6 +45,9 @@ const listAssets = vi.hoisted(() =>
 const deleteAsset = vi.hoisted(() =>
   vi.fn<(name: string) => Promise<void>>(() => Promise.resolve()),
 )
+const archiveAssets = vi.hoisted(() =>
+  vi.fn<(names: string[]) => Promise<void>>(() => Promise.resolve()),
+)
 const uploadMedia = vi.hoisted(() =>
   vi.fn<(file: File, assetName?: string, shared?: boolean) => Promise<unknown>>(
     () => Promise.resolve({ reference: 'asset:uploads/x.png' }),
@@ -54,6 +57,7 @@ vi.mock('../api', () => ({
   api: {
     listAssets: () => listAssets(),
     deleteAsset: (name: string) => deleteAsset(name),
+    archiveAssets: (names: string[]) => archiveAssets(names),
     uploadMedia: (file: File, assetName?: string, shared?: boolean) =>
       uploadMedia(file, assetName, shared),
   },
@@ -74,6 +78,7 @@ afterEach(() => {
   cleanup()
   listAssets.mockClear()
   deleteAsset.mockClear()
+  archiveAssets.mockClear()
   uploadMedia.mockClear()
   notifyError.mockClear()
   notifySuccess.mockClear()
@@ -195,4 +200,104 @@ it('refetches when the workspace changes', async () => {
   workspace.current = 'other'
 
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
+})
+
+// Escape means "close the thing on top". A confirm dialog answers it
+// itself, so the page must not also take the detail away underneath it
+it('leaves the detail open when Escape answers a confirm dialog', async () => {
+  await renderAssets()
+  screen.getByLabelText('show details for iris.png').click()
+  await waitFor(() => expect(screen.getByText('asset:iris.png')).toBeTruthy())
+
+  screen.getByLabelText('delete this asset from the library').click()
+  await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
+
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  expect(screen.getByText('asset:iris.png')).toBeTruthy()
+})
+
+// The gallery's bulk actions, for the input side: tick files in the grid,
+// then download or delete the lot in one go
+
+it('downloads the ticked assets as one zip', async () => {
+  await renderAssets()
+
+  screen.getByLabelText('select iris.png').click()
+  screen.getByLabelText('select cast/priya.jpg').click()
+  await waitFor(() => screen.getByRole('button', { name: /download \.zip/i }))
+  screen.getByRole('button', { name: /download \.zip/i }).click()
+
+  await waitFor(() => expect(archiveAssets).toHaveBeenCalledTimes(1))
+  // The order the grid shows them in, not the order they were ticked
+  expect(archiveAssets).toHaveBeenCalledWith(['iris.png', 'cast/priya.jpg'])
+})
+
+it('deletes every ticked asset and refetches once', async () => {
+  await renderAssets()
+
+  screen.getByLabelText('select iris.png').click()
+  screen.getByLabelText('select cast/priya.jpg').click()
+  await waitFor(() => screen.getByRole('button', { name: /^delete$/i }))
+  screen.getByRole('button', { name: /^delete$/i }).click()
+  await answerConfirm(true)
+
+  await waitFor(() => expect(deleteAsset).toHaveBeenCalledTimes(2))
+  expect(deleteAsset.mock.calls.map((c) => c[0])).toEqual([
+    'iris.png',
+    'cast/priya.jpg',
+  ])
+})
+
+// A read-only asset answers 403. Whatever could not go stays ticked, so a
+// retry needs no re-ticking and the failure is visible rather than dropped
+it('keeps an asset that would not delete in the selection', async () => {
+  deleteAsset.mockImplementation((name: string) =>
+    name === 'iris.png'
+      ? Promise.reject(new Error('read-only'))
+      : Promise.resolve(),
+  )
+  await renderAssets()
+
+  screen.getByLabelText('select iris.png').click()
+  screen.getByLabelText('select cast/priya.jpg').click()
+  await waitFor(() => screen.getByRole('button', { name: /^delete$/i }))
+  screen.getByRole('button', { name: /^delete$/i }).click()
+  await answerConfirm(true)
+
+  await waitFor(() => expect(notifyError).toHaveBeenCalled())
+  expect(screen.getByText('1 selected')).toBeTruthy()
+  expect(
+    (screen.getByLabelText('select iris.png') as HTMLInputElement).checked,
+  ).toBe(true)
+})
+
+it('clears the selection on Escape before it closes the detail', async () => {
+  await renderAssets()
+  screen.getByLabelText('show details for iris.png').click()
+  await waitFor(() => expect(screen.getByText('asset:iris.png')).toBeTruthy())
+  screen.getByLabelText('select iris.png').click()
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  await waitFor(() => expect(screen.queryByText('1 selected')).toBeNull())
+  // The detail is the older state, so it survives the first press
+  expect(screen.getByText('asset:iris.png')).toBeTruthy()
+
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  await waitFor(() => expect(screen.queryByText('asset:iris.png')).toBeNull())
+})
+
+it('selects all matching when a filter is on', async () => {
+  await renderAssets()
+
+  const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  filter.value = 'priya'
+  filter.dispatchEvent(new Event('input', { bubbles: true }))
+  await waitFor(() => expect(screen.queryByText('iris.png')).toBeNull())
+
+  screen.getByRole('button', { name: /select all matching \(1\)/i }).click()
+
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
 })

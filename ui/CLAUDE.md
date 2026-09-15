@@ -89,4 +89,16 @@ answers 403, so the page offers no delete for one at all. Uploads land in the
 workspace unless the `shared` toggle is on, which is the one thing about an
 upload that cannot be changed afterwards.
 
+"The same UX" is literal, and three things were missing from it until they
+were fixed: the detail popout is `position: sticky; bottom: 1rem` as the
+gallery's is, so it rides the viewport rather than sitting at the end of the
+document where a click above the fold scrolls it out of sight; the bulk
+actions are the gallery's - a checkbox per tile (shift-click spans a range),
+`Select all matching`, and a sticky bar with Download .zip and Delete, the
+delete sequential with whatever failed staying ticked; and Escape clears the
+selection before it closes the detail. The checkbox owns the tile's top-left
+corner, so the origin badge moved to the right. Bulk download is
+`POST /api/assets/archive`, the gallery archive's counterpart - the browser
+cannot zip on its own.
+
 See docs/SERVER.md.
