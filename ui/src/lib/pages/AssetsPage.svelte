@@ -88,6 +88,7 @@
   const folderByName = $derived(new Map(assets.map((a) => [a.name, a.folder])))
 
   async function downloadPicked() {
+    if (picks.names.length === 0) return
     busy = true
     try {
       await api.archiveAssets(picks.names)
@@ -100,6 +101,7 @@
 
   async function removePicked() {
     const names = picks.names
+    if (names.length === 0) return
     if (
       !(await confirmDialog(
         `Delete ${names.length} asset${names.length === 1 ? '' : 's'}? Any ` +
@@ -112,7 +114,7 @@
     const failed = await actOnEach(names, (name) => api.deleteAsset(name))
     // A read-only examples asset answers 403; whatever could not go stays
     // ticked, so a retry needs no re-ticking
-    picks.keepFailed(failed)
+    picks.keepFailed(names, failed)
     if (failed.length)
       notify.error(
         `Could not delete ${failed.length} of ${names.length} assets: ${failed.join(', ')}`,

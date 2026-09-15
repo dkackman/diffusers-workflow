@@ -27,21 +27,15 @@ export class Picks {
     return this.#names.has(name)
   }
 
-  /** How many are ticked, including any the filter is currently hiding -
-   * which is why `names` is the list a bulk action uses. */
+  /** How many a bulk action would touch: a tick the filter is hiding is
+   * inert, not counted, until the filter brings it back into view. */
   get size(): number {
-    return this.#names.size
+    return this.names.length
   }
 
   /** The selection in the order the grid shows it. */
   get names(): string[] {
     return this.#order().filter((name) => this.#names.has(name))
-  }
-
-  /** How many ticked names the filter is hiding, so a bar can say that the
-   * count and what Delete would touch are not the same set. */
-  get hidden(): number {
-    return this.#names.size - this.names.length
   }
 
   toggle(name: string, shift: boolean): void {
@@ -85,10 +79,11 @@ export class Picks {
   }
 
   /** Keep only what failed, so a retry needs no re-ticking and the failure
-   * stays visible rather than being silently dropped. */
-  keepFailed(failed: string[]): void {
-    this.clear()
-    for (const name of failed) this.#names.add(name)
+   * stays visible rather than being silently dropped - and touch nothing
+   * else, so a tick the filter was hiding (never attempted) survives. */
+  keepFailed(attempted: string[], failed: string[]): void {
+    const kept = new Set(failed)
+    for (const name of attempted) if (!kept.has(name)) this.#names.delete(name)
   }
 }
 

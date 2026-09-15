@@ -110,10 +110,10 @@ the page lays out - `.cellwrap .pick`, `.cellwrap.picked .cell` - are in
 into the other first, and the copies had already drifted: the assets page's
 Escape guard knew that `ConfirmDialog` renders `alertdialog` and the
 gallery's did not, so Escape in the gallery's delete confirm closed the
-detail behind it. `dialogOpen()` is that check, once. `Picks.hidden` counts
-ticked names the filter is hiding - nothing renders it yet, and the open
-question it belongs to is that `size` counts every ticked name while `names`
-(what the actions use) is only the visible ones.
+detail behind it. `dialogOpen()` is that check, once. A bulk action must
+never touch what the user cannot see, so `Picks.size` counts only the
+visible selection - the same set `names` hands to an action - and a ticked
+name the filter is hiding is inert until the filter brings it back.
 
 Most of the grid can be identical in two workspaces, because the shared
 `common` library and every `--examples-dir` one sit on *every* workspace's

@@ -61,18 +61,22 @@ it('reports the selection in grid order, not the order it was ticked', () => {
   expect(picks.names).toEqual(['a', 'c'])
 })
 
-// The count is of everything ticked; a bulk action runs over what the grid
-// is showing. A filter can make those different sets, and the bar says so
-it('counts everything ticked but acts on what the filter shows', () => {
+// A bulk action must never touch what the user cannot see, so the count is
+// the visible selection - a tick the filter is hiding is inert until the
+// filter lifts it back into view
+it('size counts only what the order includes', () => {
   let shown = ['a', 'b', 'c']
   const picks = new Picks(() => shown)
-  picks.selectAll()
+  picks.toggle('a', false)
+  picks.toggle('b', false)
 
   shown = ['a']
 
-  expect(picks.size).toBe(3)
-  expect(picks.names).toEqual(['a'])
-  expect(picks.hidden).toBe(2)
+  expect(picks.size).toBe(1)
+
+  shown = ['a', 'b', 'c']
+
+  expect(picks.size).toBe(2)
 })
 
 it('forgets names that left the listing', () => {
@@ -89,9 +93,23 @@ it('keeps only what failed, so a retry needs no re-ticking', () => {
   const picks = picksOver('a', 'b', 'c')
   picks.selectAll()
 
-  picks.keepFailed(['b'])
+  picks.keepFailed(['a', 'b', 'c'], ['b'])
 
   expect(picks.names).toEqual(['b'])
+})
+
+it('keepFailed keeps ticks the action never attempted', () => {
+  let shown = ['a', 'b', 'c']
+  const picks = new Picks(() => shown)
+  picks.selectAll()
+
+  // 'c' is hidden by the filter, so the action never attempted it - it must
+  // survive a keepFailed call scoped to what it did attempt
+  shown = ['a', 'b']
+  picks.keepFailed(['a', 'b'], ['a'])
+
+  shown = ['a', 'b', 'c']
+  expect(picks.names).toEqual(['a', 'c'])
 })
 
 it('clears the anchor with the selection', () => {

@@ -118,6 +118,7 @@
   const folderByName = $derived(new Map(visible.map((f) => [f.name, f.folder])))
 
   async function downloadPicked() {
+    if (picks.names.length === 0) return
     busy = true
     try {
       await api.archiveOutputs(picks.names)
@@ -130,6 +131,7 @@
 
   async function removePicked() {
     const names = picks.names
+    if (names.length === 0) return
     if (
       !(await confirmDialog(
         `Delete ${names.length} file${names.length === 1 ? '' : 's'}? This removes them on disk.`,
@@ -143,7 +145,7 @@
     files = files.filter((f) => !gone.has(f.name))
     // Whatever could not be deleted stays selected, so a retry needs no
     // re-ticking and the failure is visible rather than silently dropped
-    picks.keepFailed(failed)
+    picks.keepFailed(names, failed)
     if (selected && gone.has(selected.name)) selected = null
     if (failed.length)
       notify.error(
