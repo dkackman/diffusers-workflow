@@ -12,6 +12,7 @@
   import type { GalleryFile } from '../types'
   import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
+  import { formatBytes, formatMtime } from '../format'
 
   let files = $state<GalleryFile[]>([])
   let loaded = $state(false)
@@ -229,9 +230,6 @@
     sessionStorage.setItem('dw-editor-import', JSON.stringify(definition))
     go('edit')
   }
-
-  const day = (mtime: number) => new Date(mtime * 1000).toLocaleString()
-  const mb = (size: number) => (size / (1024 * 1024)).toFixed(1) + ' MB'
 </script>
 
 <svelte:window
@@ -356,7 +354,9 @@
         class="muted"
         title="open the file itself in a new tab">open file</a
       >
-      <span class="num muted">{mb(selected.size)} · {day(selected.mtime)}</span>
+      <span class="num muted"
+        >{formatBytes(selected.size)} · {formatMtime(selected.mtime)}</span
+      >
       <DownloadLink href={api.outputDownloadUrl(selected.name)} />
       <button
         class="quiet icon danger"
@@ -544,14 +544,6 @@
     font-family: var(--font-mono);
     font-size: var(--t-sm);
     overflow-wrap: anywhere;
-  }
-  .flex {
-    flex: 1;
-  }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
   }
   .icon {
     display: inline-flex;

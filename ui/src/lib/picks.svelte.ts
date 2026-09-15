@@ -73,17 +73,20 @@ export class Picks {
   /** Forget names no longer in the listing, so something deleted elsewhere
    * cannot linger in the selection and fail every later bulk action. */
   keepOnly(present: Iterable<string>): void {
-    const known = new Set(present)
+    // A plain array, not a Set: this is a one-shot lookup table over a
+    // selection-sized list, not reactive state, and Svelte's own Set would
+    // wire it into the reactivity graph for nothing.
+    const known = [...present]
     for (const name of [...this.#names])
-      if (!known.has(name)) this.#names.delete(name)
+      if (!known.includes(name)) this.#names.delete(name)
   }
 
   /** Keep only what failed, so a retry needs no re-ticking and the failure
    * stays visible rather than being silently dropped - and touch nothing
    * else, so a tick the filter was hiding (never attempted) survives. */
   keepFailed(attempted: string[], failed: string[]): void {
-    const kept = new Set(failed)
-    for (const name of attempted) if (!kept.has(name)) this.#names.delete(name)
+    for (const name of attempted)
+      if (!failed.includes(name)) this.#names.delete(name)
   }
 }
 

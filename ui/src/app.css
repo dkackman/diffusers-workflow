@@ -246,6 +246,17 @@ button.bare:hover {
   background: var(--panel-2);
   filter: none;
 }
+/* Scoped copies of these two in a dozen components, already drifting -
+   one global definition each instead. */
+.flex {
+  flex: 1;
+}
+button.withicon,
+.withicon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
 input,
 textarea,
 select {
@@ -443,8 +454,12 @@ button.frame:hover {
   opacity: 1;
 }
 /* Ticked is the user's own state, not the machine's, so it reads as a
-   heavier ink edge rather than taking the signal colour */
-.cellwrap.picked .cell {
+   heavier ink edge rather than taking the signal colour. A page's own
+   scoped `.cell.active` / `.cell:hover` sits at the same (0,3,0)+hash
+   specificity as this global rule and would win on source order, so the
+   doubled class pushes this one to (0,4,0) to outrank it deliberately
+   rather than by accident of where each stylesheet lands. */
+.cellwrap.picked > .cell.cell {
   border-color: var(--ink);
   box-shadow: inset 0 0 0 1px var(--ink);
 }

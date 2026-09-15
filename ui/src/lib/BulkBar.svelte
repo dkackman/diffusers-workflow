@@ -63,15 +63,7 @@
     top: 0;
     z-index: 2;
   }
-  .flex {
-    flex: 1;
-  }
   .picktools {
     margin-bottom: 0.6rem;
-  }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
   }
 </style>

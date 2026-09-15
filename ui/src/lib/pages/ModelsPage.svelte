@@ -19,6 +19,7 @@
     ModelDownload,
     ModelRepo,
   } from '../types'
+  import { formatBytes } from '../format'
 
   let cache = $state<ModelCache | null>(null)
   let error = $state('')
@@ -141,10 +142,6 @@
   }
 
   const gb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1)
-  const size = (bytes: number) =>
-    bytes >= 1024 ** 3
-      ? gb(bytes) + ' GB'
-      : Math.max(1, Math.round(bytes / 1024 ** 2)) + ' MB'
   const day = (stamp: number | null) =>
     stamp ? new Date(stamp * 1000).toLocaleDateString() : '—'
   const hubUrl = (repo: ModelRepo) =>
@@ -340,7 +337,7 @@
                 class="sizebar"
                 style="width: {(100 * repo.size_on_disk) / largest}%"
               ></span>
-              <span class="sizenum">{size(repo.size_on_disk)}</span>
+              <span class="sizenum">{formatBytes(repo.size_on_disk)}</span>
             </td>
             <td class="num muted">{repo.nb_files}</td>
             <td class="muted lastused">{day(repo.last_accessed)}</td>
@@ -364,7 +361,7 @@
                   <code>{revision.commit_hash.slice(0, 12)}</code>
                   {#if revision.refs.length}({revision.refs.join(', ')}){/if}
                 </td>
-                <td class="num muted">{size(revision.size_on_disk)}</td>
+                <td class="num muted">{formatBytes(revision.size_on_disk)}</td>
                 <td></td>
                 <td class="muted lastused">{day(revision.last_modified)}</td>
                 <td></td>

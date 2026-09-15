@@ -26,6 +26,7 @@
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
+  import { formatBytes, formatMtime } from '../format'
 
   type Origin = AssetFile['origin']
 
@@ -197,11 +198,6 @@
     await load()
   }
 
-  const day = (mtime: number) => new Date(mtime * 1000).toLocaleString()
-  const kb = (size: number) =>
-    size < 1024 * 1024
-      ? (size / 1024).toFixed(0) + ' KB'
-      : (size / (1024 * 1024)).toFixed(1) + ' MB'
   const leaf = (name: string) => name.split('/').pop() ?? name
 
   async function upload(event: Event) {
@@ -454,7 +450,9 @@
         title="open the file itself in a new tab">open file</a
       >
       <span class="num muted"
-        >{selected.kind} · {kb(selected.size)} · {day(selected.mtime)}</span
+        >{selected.kind} · {formatBytes(selected.size)} · {formatMtime(
+          selected.mtime,
+        )}</span
       >
       {#if selected.origin === 'examples'}
         <span class="muted" title="read-only: an examples library brought it"
@@ -637,14 +635,6 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
-  }
-  .flex {
-    flex: 1;
-  }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
   }
   .selname {
     font-family: var(--font-mono);
