@@ -1005,6 +1005,19 @@ def create_app(
             resolved, source = resolve_workflow_reference(
                 request.workflow_path, sources
             )
+            # Built unconditionally - both the reference check below and a
+            # bound acknowledgement (further down) need the definition a run
+            # would actually use, and resolve_workflow_reference already
+            # returns (None, None) for an inline definition, which
+            # _candidate_for handles the same way _candidate_for always has
+            candidate = _candidate_for(
+                resolved,
+                request.workflow,
+                request.base_dir,
+                workspace.outputs,
+                source.root if source else workspace.workflows,
+                request.arguments,
+            )
             # The same reference check POST /api/validate makes, because a
             # caller who skipped the free pre-flight should still not get a
             # job id for an argument that cannot resolve. The name half of
@@ -1013,7 +1026,7 @@ def create_app(
             # here - which is why a bad 'asset:' used to queue and die on the
             # first step while a bad variable name was refused outright
             reference_problems = _argument_reference_errors(
-                request.arguments, workspace
+                candidate.workflow_definition, request.arguments, workspace
             )
             if reference_problems:
                 raise ValueError(
@@ -1027,14 +1040,6 @@ def create_app(
             # is free here and costs a job id anywhere later (#85)
             form = _acknowledgement_form(request.acknowledged_cost)
             if form == ACK_BOUND:
-                candidate = _candidate_for(
-                    resolved,
-                    request.workflow,
-                    request.base_dir,
-                    workspace.outputs,
-                    source.root if source else workspace.workflows,
-                    request.arguments,
-                )
                 _check_bound_acknowledgement(
                     candidate, request.arguments, request.acknowledged_cost, workspace
                 )
@@ -1442,9 +1447,19 @@ def create_app(
         except GuideError as e:
             raise HTTPException(status_code=404, detail=str(e))
 
-    def _argument_reference_errors(arguments, ws):
-        """The 'asset:', 'prompt:' and 'output:' references in a caller's
-        arguments that name nothing this workspace can reach.
+    def _argument_reference_errors(definition, arguments, ws):
+        """The 'asset:', 'prompt:' and 'output:' references that name nothing
+        this workspace can reach, in the values a run would actually use -
+        the caller's `arguments`, plus every declared `variables` default
+        the caller did not override.
+
+        A stored default is exactly as much a promise as a caller's value:
+        `validate_workflow(name="templates/ltx2/reference-sheet")` with no
+        arguments at all used to answer valid because only `arguments` was
+        checked, while the same call with the stored default handed back
+        explicitly answered invalid - one run, two verdicts (#166). Reported
+        at `variables.<name>` so the message still says whether the caller
+        wrote the bad reference or merely didn't override one.
 
         Resolved through the engine's own resolvers over the roots this
         workspace searches, so validation agrees with what the run would
@@ -1487,11 +1502,22 @@ def create_app(
                 for key, item in value.items():
                     yield from _string_leaves(item, f"{path}.{key}")
 
-        if not isinstance(arguments, dict):
+        if arguments is not None and not isinstance(arguments, dict):
             return []
+        supplied = arguments if isinstance(arguments, dict) else {}
+
+        effective = []
+        declared = definition.get("variables") if isinstance(definition, dict) else None
+        if isinstance(declared, dict):
+            for name, value in declared.items():
+                if name not in supplied:
+                    effective.append((f"variables.{name}", value))
+        for name, value in supplied.items():
+            effective.append((f"arguments.{name}", value))
+
         errors = []
-        for name, value in arguments.items():
-            for path, leaf in _string_leaves(value, f"arguments.{name}"):
+        for base_path, value in effective:
+            for path, leaf in _string_leaves(value, base_path):
                 try:
                     if is_asset_reference(leaf):
                         over_roots(
@@ -1631,7 +1657,9 @@ def create_app(
         # nothing in this workspace. Without this the free pre-flight covers
         # every part of a run except the part the caller actually wrote
         argument_problems = argument_errors(definition, request.arguments)
-        argument_problems += _argument_reference_errors(request.arguments, workspace)
+        argument_problems += _argument_reference_errors(
+            definition, request.arguments, workspace
+        )
         if argument_problems:
             return {
                 "valid": False,
