@@ -2955,25 +2955,57 @@ def create_app(
         library = ws.assets
         roots = _asset_roots(ws)
         if not roots:
-            return {"asset_dir": library, "asset_dirs": [], "assets": [], "folders": []}
+            return {
+                "asset_dir": library,
+                "asset_dirs": [],
+                "assets": [],
+                "folders": [],
+                "libraries": [],
+                "shadowed": [],
+            }
+
+        libraries = [
+            {
+                "origin": (origin := _asset_origin(ws, index, root)),
+                "dir": root,
+                "writable": origin != EXAMPLES_ORIGIN,
+            }
+            for index, root in enumerate(roots)
+        ]
 
         assets = []
-        seen = set()
+        shadowed = []
+        # Which origin first claimed a name, so a later root's same name can
+        # be reported as shadowed rather than silently dropped
+        seen = {}
         for index, root in enumerate(roots):
             try:
                 files = list(_iter_gallery_files(root, group_runs=False))
             except OSError:
                 files = []
+            origin = _asset_origin(ws, index, root)
             for relative, folder, _subfolder, kind, path in files:
-                # A name in the workspace shadows the same name in an
-                # examples library, exactly as 'asset:' resolution does
-                if relative in seen:
-                    continue
                 try:
                     stat = os.stat(path)
                 except OSError:
                     continue
-                seen.add(relative)
+                # A name in the workspace shadows the same name in an
+                # examples library, exactly as 'asset:' resolution does
+                if relative in seen:
+                    shadowed.append(
+                        {
+                            "name": relative,
+                            "reference": f"asset:{relative}",
+                            "folder": folder,
+                            "kind": kind,
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime,
+                            "origin": origin,
+                            "shadowed_by": seen[relative],
+                        }
+                    )
+                    continue
+                seen[relative] = origin
                 assets.append(
                     {
                         "name": relative,
@@ -2982,7 +3014,7 @@ def create_app(
                         "kind": kind,
                         "size": stat.st_size,
                         "mtime": stat.st_mtime,
-                        "origin": _asset_origin(ws, index, root),
+                        "origin": origin,
                         # For the editor's own preview - fetchable the same
                         # way an upload's URL is
                         "url": _served_url(f"/inputs/{quote(relative)}", ws),
@@ -2992,9 +3024,11 @@ def create_app(
         return {
             # The workspace's own library, unchanged: where an upload lands
             "asset_dir": library,
-            "asset_dirs": roots,
+            "asset_dirs": [lib["dir"] for lib in libraries],
             "assets": assets,
             "folders": sorted({entry["folder"] for entry in assets} | {""}),
+            "libraries": libraries,
+            "shadowed": shadowed,
         }
 
     class KeepRequest(BaseModel):

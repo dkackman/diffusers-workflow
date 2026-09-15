@@ -282,6 +282,22 @@ export interface AssetFile {
   url: string
 }
 
+/** One root on the asset search path - what `asset_dirs` names, plus the
+ * origin and writability a client needs to explain why a delete can reach
+ * one root and not another. */
+export interface AssetLibrary {
+  origin: AssetFile['origin']
+  dir: string
+  writable: boolean
+}
+
+/** An asset a nearer library hides: same shape as `AssetFile` except there
+ * is no `url` - that URL would serve the shadowing file, not this one - and
+ * `shadowed_by` names the origin that won. */
+export type ShadowedAsset = Omit<AssetFile, 'url'> & {
+  shadowed_by: AssetFile['origin']
+}
+
 export interface ModelRevision {
   commit_hash: string
   size_on_disk: number

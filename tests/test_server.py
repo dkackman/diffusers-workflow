@@ -1792,11 +1792,95 @@ def test_the_asset_library_lists_what_it_holds(asset_server, tmp_path):
     assert body["folders"] == ["", "gyre"]
 
 
+def test_the_asset_listing_names_its_libraries(tmp_path):
+    """'libraries' is 'asset_dirs' with the origin and writability a client
+    needs to explain why one entry can be deleted and another can't - the
+    workspace's own root first, an examples root writable: false."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    examples = tmp_path / "examples"
+    (examples / "assets").mkdir(parents=True)
+
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(workflows),
+    )
+    app = create_app(
+        workflow_dir=str(workflows),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        asset_dir=str(assets),
+        examples_dirs=[str(examples)],
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        body = client.get("/api/assets").json()
+
+    libraries = body["libraries"]
+    assert libraries[0] == {
+        "origin": "workspace",
+        "dir": str(assets),
+        "writable": True,
+    }
+    assert libraries[1] == {
+        "origin": "examples",
+        "dir": str(examples / "assets"),
+        "writable": False,
+    }
+    assert body["asset_dirs"] == [lib["dir"] for lib in libraries]
+
+
+def test_a_shadowed_asset_is_reported_without_a_url(tmp_path):
+    """A name present in both the workspace and an examples library resolves
+    to the workspace's copy - 'assets' still lists only that one file - but
+    the hidden examples copy is worth knowing about, so it is reported
+    separately, with no 'url' since /inputs/<name> would serve the file that
+    shadows it rather than the one this entry describes."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "iris.png").write_bytes(b"workspace png")
+    examples = tmp_path / "examples"
+    (examples / "assets").mkdir(parents=True)
+    (examples / "assets" / "iris.png").write_bytes(b"examples png")
+
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(workflows),
+    )
+    app = create_app(
+        workflow_dir=str(workflows),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        asset_dir=str(assets),
+        examples_dirs=[str(examples)],
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        body = client.get("/api/assets").json()
+
+    names = {entry["name"]: entry for entry in body["assets"]}
+    assert names["iris.png"]["origin"] == "workspace"
+    assert len(body["assets"]) == 1
+
+    shadowed = {entry["name"]: entry for entry in body["shadowed"]}
+    assert shadowed["iris.png"]["shadowed_by"] == "workspace"
+    assert "url" not in shadowed["iris.png"]
+    assert shadowed["iris.png"]["origin"] == "examples"
+
+
 def test_listing_assets_without_a_library_is_empty_not_an_error(server):
     with server(success_script) as client:
         body = client.get("/api/assets").json()
     assert body["assets"] == []
     assert body["asset_dir"] is None
+    assert body["libraries"] == []
+    assert body["shadowed"] == []
 
 
 def test_an_audio_file_can_be_uploaded(asset_server, tmp_path):

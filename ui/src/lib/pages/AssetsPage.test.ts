@@ -32,6 +32,8 @@ const listing = vi.hoisted(() => ({
   assets: [] as AssetFile[],
   asset_dir: '/ws/assets' as string | null,
   asset_dirs: ['/ws/assets'] as string[],
+  libraries: [{ origin: 'workspace', dir: '/ws/assets', writable: true }],
+  shadowed: [] as unknown[],
 }))
 
 const listAssets = vi.hoisted(() =>

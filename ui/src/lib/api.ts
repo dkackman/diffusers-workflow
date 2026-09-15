@@ -1,5 +1,7 @@
 import type {
   AssetFile,
+  AssetLibrary,
+  ShadowedAsset,
   DiffusersStatus,
   EnhancerPreset,
   JobDetail,
@@ -475,6 +477,8 @@ export const api = {
       asset_dirs: string[]
       assets: AssetFile[]
       folders: string[]
+      libraries: AssetLibrary[]
+      shadowed: ShadowedAsset[]
     }>('/api/assets'),
   /** Download a multi-file asset selection as one zip - the gallery's bulk
    * download, for the input side. Spans every library on the search path,

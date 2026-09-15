@@ -111,6 +111,11 @@ def list_assets(client):
     Spans the whole search path: each entry's 'origin' says whether it is
     this workspace's own ('workspace'), the library every workspace shares
     ('common'), or one a read-only examples tree brought with it.
+    'libraries' names the roots searched, in order, with 'writable' saying
+    which one an upload or delete can reach. 'shadowed' lists names a
+    nearer library hides - present in a farther root but not resolvable by
+    'asset:', since the nearer file wins; a shadowed entry carries no 'url'
+    because that URL would serve the file that shadows it.
     """
     return client.get_json("/api/assets")
 

@@ -435,7 +435,12 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/assets` — the asset library: input media, each with the
   `asset:` reference a workflow carries rather than a path, since a path
   only means something on the server's own machine. Empty rather than an
-  error when no library is configured
+  error when no library is configured. `libraries` lists the roots searched,
+  in order, each `{origin, dir, writable}` — what `asset_dirs` names without
+  saying which of them an upload or delete can actually reach. `shadowed`
+  lists the entries a nearer library hides: same shape as an `assets` entry
+  but without `url` (that URL would serve the shadowing file, not this one),
+  plus `shadowed_by` naming the origin that won
 - `POST /api/assets/keep` (`{"name": ..., "asset_name": ..., "overwrite": false, "shared": false}`)
   — keep a generated file as an input asset under a stable name, returning
   its `asset:` reference. A run's files are named by the run that made them,
