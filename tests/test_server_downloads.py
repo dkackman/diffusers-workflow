@@ -247,9 +247,7 @@ def test_raw_media_extensions_is_a_subset_of_media_kinds(asset_server, tmp_path)
         assert state.raw_media_extensions <= set(state.media_kinds)
 
 
-@pytest.mark.skipif(
-    not hasattr(os, "symlink"), reason="platform has no os.symlink"
-)
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="platform has no os.symlink")
 def test_archive_assets_rejects_a_name_behind_a_symlink(asset_server, tmp_path):
     """A symlink inside the library that points outside it still resolves
     with os.path.isfile, which is why _asset_in cannot stop there:
