@@ -879,6 +879,36 @@ def test_the_listing_reports_each_workspace_s_disk_usage(server, workspace_root)
     assert spaces["default"]["bytes"] == 500
 
 
+def test_deleting_an_output_moves_the_reported_usage_without_waiting_out_the_cache(
+    server, workspace_root
+):
+    """#177: `list_workspaces().usage` sat unchanged across three
+    `delete_output` calls that each demonstrably removed a run directory,
+    while `list_gallery(only_orphans=true)` decremented correctly every
+    time - the disk-usage cache was never invalidated by a delete, only by
+    creating or deleting a workspace. A deliberate delete should be visible
+    immediately, the same way the orphan listing already is; the 60s TTL
+    stays for the churn a running job produces on its own."""
+    run_dir = os.path.join(workspace_root.outputs, "demo", "20260101-000000-deadbeef")
+    os.makedirs(run_dir)
+    with open(os.path.join(run_dir, "still.png"), "wb") as f:
+        f.write(b"0" * 1024)
+
+    with server() as client:
+        before = client.get("/api/workspaces").json()["workspaces"]
+        usage_before = next(w["usage"] for w in before if w["name"] == "default")
+        assert usage_before == {"files": 1, "bytes": 1024}
+
+        assert (
+            client.delete("/api/gallery/demo/20260101-000000-deadbeef").status_code
+            == 200
+        )
+
+        after = client.get("/api/workspaces").json()["workspaces"]
+        usage_after = next(w["usage"] for w in after if w["name"] == "default")
+        assert usage_after == {"files": 0, "bytes": 0}
+
+
 class TestSharedAssets:
     """Assets are per workspace, which is right for the work that made them
     and wrong for a recurring cast: episode four, started in a fresh

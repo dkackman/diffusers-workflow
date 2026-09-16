@@ -607,8 +607,11 @@ def workspace_usage(workspace, max_age=USAGE_CACHE_SECONDS):
 
 
 def forget_workspace_usage():
-    """Drop every cached size - after creating or deleting a workspace,
-    where a stale answer would be visibly wrong rather than merely old."""
+    """Drop every cached size - after creating or deleting a workspace, or
+    after any deliberate delete of a workflow/prompt/asset/output, where a
+    stale answer would be visibly wrong rather than merely old (#177). A
+    job's own writes are not swept here - that churn is exactly what the TTL
+    is for."""
     _usage_cache.clear()
 
 

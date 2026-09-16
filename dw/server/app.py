@@ -1961,6 +1961,7 @@ def create_app(
             )
         os.remove(path)
         logger.info(f"Deleted workflow {name} ({path})")
+        forget_workspace_usage()
         return {"name": name, "deleted": True}
 
     @app.get("/api/workflows/{name:path}/download")
@@ -2179,6 +2180,7 @@ def create_app(
             )
         os.remove(path)
         logger.info(f"Deleted prompt {name} ({path})")
+        forget_workspace_usage()
         return {"name": name, "deleted": True}
 
     @app.get("/api/prompts/{name:path}/download")
@@ -2811,6 +2813,7 @@ def create_app(
                     break
                 parent = os.path.dirname(parent)
             logger.info(f"Deleted run directory {name}")
+            forget_workspace_usage()
             return {
                 "name": name,
                 "deleted": True,
@@ -2821,6 +2824,7 @@ def create_app(
         os.remove(path)
         logger.info(f"Deleted output file {name}")
         swept = _prune_empty_run_directory(name, ws.outputs)
+        forget_workspace_usage()
         return {"name": name, "deleted": True, "run_swept": swept}
 
     # ---------------------------------------------------------------- uploads
@@ -3150,6 +3154,7 @@ def create_app(
                 )
             os.remove(path)
             logger.info(f"Deleted asset:{relative} ({path})")
+            forget_workspace_usage()
             return {"name": relative, "deleted": True, "origin": origin}
 
         raise HTTPException(status_code=404, detail=f"No such asset: {relative}")
