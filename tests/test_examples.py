@@ -23,6 +23,7 @@ from dw.arguments import (
     is_escaped,
     is_media_reference,
 )
+from dw.kernel_availability import is_kernel_availability_fault
 from dw.type_helpers import load_type_from_name
 from dw.workflow import workflow_from_file
 
@@ -104,6 +105,8 @@ def test_example_workflow(example_file):
         workflow = workflow_from_file(path, ".")
         workflow.validate()
     except Exception as e:
+        if is_kernel_availability_fault(str(e)):
+            pytest.skip(f"{example_file} needs a kernel this box can't satisfy: {e}")
         pytest.fail(f"Example {example_file} failed validation: {str(e)}")
 
 
@@ -125,6 +128,8 @@ def test_example_workflow_validates_untrusted(example_file, monkeypatch):
         workflow = workflow_from_file(path, ".")
         workflow.validate()
     except Exception as e:
+        if is_kernel_availability_fault(str(e)):
+            pytest.skip(f"{example_file} needs a kernel this box can't satisfy: {e}")
         pytest.fail(f"Example {example_file} failed untrusted validation: {str(e)}")
 
 

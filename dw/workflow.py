@@ -42,6 +42,7 @@ from .variable_constraints import (
 from .subfolders import step_subfolder, subfolder_errors
 from .reference_names import reference_name_errors
 from .content_types import content_type_errors
+from .kernel_availability import kernel_availability_errors
 from .step import Step
 from .step_cache import (
     step_cache,
@@ -647,6 +648,12 @@ class Workflow:
                 self.workflow_definition, arguments, supplied=set(arguments or {})
             )
             + constraint_reference_errors(self.workflow_definition)
+            # An 'attn_processor_type' whose Hub kernel this machine has no
+            # build variant for - validated clean and then died 88s into
+            # loading, naming a torch/natten mismatch the construction alone
+            # would have said in under two seconds (dw/kernel_availability.py,
+            # #178)
+            + kernel_availability_errors(expanded, source_indices)
             + self.sub_workflow_errors(expanded, source_indices, composing)
         )
 
