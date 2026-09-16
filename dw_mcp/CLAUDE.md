@@ -7,8 +7,8 @@ Guidance for the `dw_mcp/` stdio MCP server package.
 introspection, validate/save/delete, the stored prompt library and its
 enhancer, queue a run, poll its events, and view or read a generated file.
 It covers the REST surface except the SSE event stream (whose polling twin
-`/event-log` is what `get_job_events` uses), the gallery's bulk zip, and the
-SPA's static mount. `POST /api/uploads` *is* covered, by `upload_asset`: an
+`/event-log` is what `get_job_events` uses), the two bulk zips (gallery and
+assets), and the SPA's static mount. `POST /api/uploads` *is* covered, by `upload_asset`: an
 agent that can only name assets already on the box authors workflows it
 cannot supply inputs for, so the tool reads a file on this machine and pushes
 its bytes, returning the `asset:` reference rather than a path (`assets.py`). A session works in one of the server's workspaces: `--workspace` /

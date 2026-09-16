@@ -246,6 +246,17 @@ button.bare:hover {
   background: var(--panel-2);
   filter: none;
 }
+/* Scoped copies of these two in a dozen components, already drifting -
+   one global definition each instead. */
+.flex {
+  flex: 1;
+}
+button.withicon,
+.withicon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
 input,
 textarea,
 select {
@@ -413,4 +424,42 @@ a.frame:hover,
 button.frame:hover {
   border-color: var(--ink);
   filter: none;
+}
+
+/* A contact sheet whose tiles can be ticked for a bulk action - the gallery
+   and the assets page. The selection logic is picks.svelte.ts and the bar is
+   BulkBar.svelte; these are the two rules that have to reach a tile the page
+   itself lays out, so they live here rather than twice in scoped styles. */
+.cellwrap {
+  position: relative;
+}
+.cellwrap .pick {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 1;
+  margin: 0;
+  width: auto;
+  cursor: pointer;
+  /* It sits over the picture rather than over a padded panel, so it needs
+     its own ground to stay findable against a dark image */
+  outline: 2px solid var(--panel);
+  /* Out of the way until it is wanted: hovering the tile, focusing the box
+     itself, or the tile being ticked at all brings it back */
+  opacity: 0;
+}
+.cellwrap:hover .pick,
+.cellwrap .pick:focus-visible,
+.cellwrap .pick:checked {
+  opacity: 1;
+}
+/* Ticked is the user's own state, not the machine's, so it reads as a
+   heavier ink edge rather than taking the signal colour. A page's own
+   scoped `.cell.active` / `.cell:hover` sits at the same (0,3,0)+hash
+   specificity as this global rule and would win on source order, so the
+   doubled class pushes this one to (0,4,0) to outrank it deliberately
+   rather than by accident of where each stylesheet lands. */
+.cellwrap.picked > .cell.cell {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
 }
