@@ -2468,12 +2468,54 @@ def create_app(
         entries.sort(key=lambda e: e["mtime"], reverse=True)
         return entries
 
+    def _iter_orphan_runs(root):
+        """Run directories under `root` holding no file whose extension is
+        in MEDIA_KINDS anywhere beneath them - a run whose output was
+        deleted before #134's by-name `delete_output`, or one that failed
+        before writing anything. Yields (name, mtime) where `name` is the
+        `<identity>/<run id>` string `delete_output` already accepts (#170).
+
+        No manifest/content_type inspection - a legitimate no-media
+        `utility`-shape run matches this test too, but this call only
+        lists; deciding whether a given entry is junk stays a human/agent
+        call before `delete_output` is invoked on it."""
+        for current, dirs, _names in os.walk(root):
+            if not is_run_id(os.path.basename(current)):
+                continue
+            # A run directory holds no run directories of its own
+            dirs[:] = []
+            has_media = False
+            for _sub_current, _sub_dirs, sub_names in os.walk(current):
+                for name in sub_names:
+                    if os.path.splitext(name)[1].lower() in MEDIA_KINDS:
+                        has_media = True
+                        break
+                if has_media:
+                    break
+            if has_media:
+                continue
+            try:
+                mtime = os.stat(current).st_mtime
+            except OSError:
+                continue
+            name = os.path.relpath(current, root).replace(os.sep, "/")
+            yield (name, mtime)
+
+    def _orphan_entries(root):
+        entries = [
+            {"name": name, "mtime": mtime}
+            for name, mtime in _iter_orphan_runs(root)
+        ]
+        entries.sort(key=lambda e: e["mtime"], reverse=True)
+        return entries
+
     @app.get("/api/gallery")
     def gallery(
         limit: int = 200,
         offset: int = 0,
         folder: Optional[str] = None,
         subfolder: Optional[str] = None,
+        only_orphans: bool = False,
         ws: Workspace = Depends(selected_workspace),
     ):
         """A page of media files in the output directory, newest first.
@@ -2487,7 +2529,27 @@ def create_app(
         'subfolders' is the other axis, over the whole directory the same
         way: the in-run subfolders steps wrote into ('final',
         'intermediate'), '' for files at a run's root. `folder` and
-        `subfolder` filter independently and intersect when both are given."""
+        `subfolder` filter independently and intersect when both are given.
+
+        `only_orphans=true` inverts the whole call: instead of media files,
+        it returns run directories with no media anywhere under them
+        (`runs`, each `{name, mtime}`) - `folder`/`subfolder` and the
+        `folders`/`subfolders` facets do not apply in this mode, since an
+        orphan run has no file to carry either. `name` is exactly what
+        `DELETE /api/gallery/{name}` accepts, so listing and deleting an
+        orphan is a two-call round trip (#170)."""
+        if only_orphans:
+            entries = _orphan_entries(ws.outputs)
+            offset = max(0, offset)
+            limit = max(0, limit)
+            page = entries[offset : offset + limit]
+            return {
+                "runs": page,
+                "total": len(entries),
+                "offset": offset,
+                "limit": limit,
+                "workspace": ws.name,
+            }
         entries = _gallery_entries(ws.outputs, ws)
         folders = sorted({e["folder"] for e in entries} | {""})
         subfolders = sorted({e["subfolder"] for e in entries} | {""})

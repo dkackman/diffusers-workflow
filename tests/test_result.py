@@ -1418,6 +1418,22 @@ class TestNoHeadroom:
     def test_a_video_with_a_quiet_track_is_not_warned_about(self):
         assert self.events_from(lambda: self.save_muxed(torch.zeros((2, 100)))) == []
 
+    def test_a_video_is_probed_even_though_the_waveform_already_warned(self):
+        """#174: suppressing the post-encode probe whenever the pre-encode
+        check already fired assumed the encoder only ever adds overshoot -
+        true for the mp3s #159/#161 measured, backwards for an H3 video mux,
+        whose AAC mux can land under full scale after starting over it. A
+        video always gets the ground-truth post-encode read, regardless of
+        what the pre-encode waveform check already said."""
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"peak_dbfs": 0.94, "kind": "video"},
+        ):
+            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+
+        kinds = {w["kind"] for w in warnings}
+        assert kinds == {"audio_no_headroom", "audio_clipped"}
+
 
 class TestTheWrittenLevel:
     """#161. `warn_without_headroom` measures the waveform handed to the
