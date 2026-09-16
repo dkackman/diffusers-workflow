@@ -715,17 +715,22 @@ def build_server(client):
     def validate_workflow(
         workflow: dict | None = None,
         name: str | None = None,
+        inline_workflow: dict | None = None,
+        workflow_path: str | None = None,
         workspace: str | None = None,
         arguments: dict | None = None,
     ) -> dict:
         """Check a workflow against the schema and against real pipeline
         signatures. Free and instant - always run this before run_workflow.
         Give exactly one of `workflow` or `name` - `name` being a stored
-        workflow as `list_workflows` reports it. Every schema error comes
-        back at once, each with its JSON path. `workspace` names the
-        workspace for this one call without switching the session to it -
-        use it to pin a job whose `output:` or `asset:` references live in a
-        workspace other than the session's.
+        workflow as `list_workflows` reports it. `run_workflow` calls these
+        same two concepts `inline_workflow` and `workflow_path`; both tools
+        accept both spellings, so a definition or a name checked here can be
+        handed straight to `run_workflow` without renaming a key. Every
+        schema error comes back at once, each with its JSON path.
+        `workspace` names the workspace for this one call without switching
+        the session to it - use it to pin a job whose `output:` or `asset:`
+        references live in a workspace other than the session's.
 
         Pass the same `arguments` you will pass to `run_workflow` and they
         are checked too: a name the workflow no longer declares, a value
@@ -774,6 +779,8 @@ def build_server(client):
             client,
             workflow=workflow,
             name=name,
+            inline_workflow=inline_workflow,
+            workflow_path=workflow_path,
             workspace=workspace,
             arguments=arguments,
         )
@@ -875,6 +882,8 @@ def build_server(client):
     def run_workflow(
         workflow_path: str | None = None,
         inline_workflow: dict | None = None,
+        workflow: dict | None = None,
+        name: str | None = None,
         arguments: dict | None = None,
         acknowledged_cost: bool | dict = False,
         workspace: str | None = None,
@@ -887,12 +896,15 @@ def build_server(client):
         `wait_for_job`, then `get_job` for the manifest. Give exactly one of
         `workflow_path` - a catalog name from `list_workflows`, with or
         without .json, or a path on the server - or `inline_workflow`, a
-        full definition for a request nothing stored covers. `arguments`
-        overrides the workflow's variables by name, which is how one stored
-        workflow serves many requests without being edited or copied.
-        `workspace` names the workspace for this one call without switching
-        the session to it - use it to pin a job whose `output:` or `asset:`
-        references live in a workspace other than the session's.
+        full definition for a request nothing stored covers. `validate_workflow`
+        calls these same two concepts `name` and `workflow`; both tools
+        accept both spellings, so a document just validated can be run
+        without renaming a key. `arguments` overrides the workflow's
+        variables by name, which is how one stored workflow serves many
+        requests without being edited or copied. `workspace` names the
+        workspace for this one call without switching the session to it -
+        use it to pin a job whose `output:` or `asset:` references live in a
+        workspace other than the session's.
 
         Bind the acknowledgement to what you quoted: pass
         {"fingerprint": plan.fingerprint, "minutes": plan.estimate.minutes,
@@ -904,6 +916,8 @@ def build_server(client):
             client,
             workflow_path=workflow_path,
             inline_workflow=inline_workflow,
+            workflow=workflow,
+            name=name,
             arguments=arguments,
             acknowledged_cost=acknowledged_cost,
             workspace=workspace,
