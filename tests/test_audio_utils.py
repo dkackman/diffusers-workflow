@@ -823,9 +823,7 @@ class TestRateOverrideMismatch:
         path = tmp_path / "score.wav"
         soundfile.write(path, numpy.zeros((100, 2), dtype=numpy.float32), 32000)
 
-        assert (
-            self.events_from(lambda: slice_audio(str(path), start_seconds=0)) == []
-        )
+        assert self.events_from(lambda: slice_audio(str(path), start_seconds=0)) == []
 
     def test_a_raw_waveform_given_a_rate_says_nothing(self):
         """A raw waveform carries no rate of its own - the override here is
@@ -846,9 +844,7 @@ class TestRateOverrideMismatch:
     def test_a_video_given_a_different_rate_is_reported(self, tmp_path):
         from dw.tasks.audio_utils import slice_audio
 
-        path = TestLoadAudio._write_video(
-            tmp_path / "cut.mp4", sample_rate=8000
-        )
+        path = TestLoadAudio._write_video(tmp_path / "cut.mp4", sample_rate=8000)
 
         warnings = self.events_from(
             lambda: slice_audio(path, start_seconds=0, sample_rate=16000)

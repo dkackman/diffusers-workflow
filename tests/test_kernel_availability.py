@@ -1,4 +1,3 @@
-import pytest
 
 from dw.kernel_availability import kernel_availability_errors, kernel_availability_fault
 import dw.kernel_availability as kernel_availability

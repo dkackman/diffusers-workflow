@@ -139,7 +139,9 @@ def warn_if_written_above_full_scale(output_path, already_warned=False):
 
         info = probe_media(output_path) or {}
     except Exception:
-        logger.debug(f"Could not measure the written level of {output_path}", exc_info=True)
+        logger.debug(
+            f"Could not measure the written level of {output_path}", exc_info=True
+        )
         return None
     peak = info.get("peak_dbfs")
     if peak is None or peak < CLIPPED_WARN_DBFS:
@@ -770,9 +772,7 @@ class Result:
             if artifact.audio is not None and sample_rate is not None:
                 audio = as_audio_track(artifact.audio)
                 self._no_headroom_warned = (
-                    warn_without_headroom(
-                        artifact.audio, os.path.basename(output_path)
-                    )
+                    warn_without_headroom(artifact.audio, os.path.basename(output_path))
                     is not None
                 )
             logger.debug(

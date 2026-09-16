@@ -61,9 +61,7 @@ def definition(name):
 def conditioned_step(name):
     """The step that drives the IC-LoRA - the last one, since the reference
     sheet template has a `loop_frames` step ahead of it."""
-    return [
-        step for step in definition(name)["steps"] if "pipeline" in step
-    ][-1]
+    return [step for step in definition(name)["steps"] if "pipeline" in step][-1]
 
 
 @pytest.mark.parametrize("name", sorted(CARDS))
@@ -120,14 +118,10 @@ class TestTheReferenceSheetIsHeldForTheWholeClip:
             "variable:reference_frames"
         )
         (reference,) = steps[1]["pipeline"]["arguments"]["reference_conditions"]
-        assert reference["from_arguments"]["frames"] == (
-            "previous_result:static_sheet"
-        )
+        assert reference["from_arguments"]["frames"] == ("previous_result:static_sheet")
 
     def test_the_bucket_floor_is_declared_rather_than_hoped_for(self):
-        rule = definition("reference-sheet")["variable_constraints"][
-            "reference_frames"
-        ]
+        rule = definition("reference-sheet")["variable_constraints"]["reference_frames"]
 
         assert rule["min_frames"] == 121
 

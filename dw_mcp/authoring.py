@@ -33,13 +33,11 @@ def validate_workflow(
     (2026-09-11)."""
     if workflow is not None and inline_workflow is not None:
         raise DwApiError(
-            "`workflow` and `inline_workflow` are the same thing - provide "
-            "only one."
+            "`workflow` and `inline_workflow` are the same thing - provide only one."
         )
     if name is not None and workflow_path is not None:
         raise DwApiError(
-            "`name` and `workflow_path` are the same thing - provide only "
-            "one."
+            "`name` and `workflow_path` are the same thing - provide only one."
         )
     inline = workflow if workflow is not None else inline_workflow
     stored = name if name is not None else workflow_path

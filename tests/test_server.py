@@ -1509,9 +1509,7 @@ def test_gallery_only_orphans_lists_media_less_run_directories(server, tmp_path)
         assert "files" not in orphans
 
         # the name it reports is exactly what delete_output accepts
-        assert (
-            client.delete(f"/api/gallery/ltx/{orphan_run_id}").status_code == 200
-        )
+        assert client.delete(f"/api/gallery/ltx/{orphan_run_id}").status_code == 200
         assert not orphan_run.exists()
 
 

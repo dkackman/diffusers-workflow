@@ -912,7 +912,11 @@ def _waveform_and_rate(audio, sample_rate, command):
     """
     if isinstance(audio, str):
         waveform, file_rate = load_audio(audio)
-        if sample_rate is not None and file_rate is not None and sample_rate != file_rate:
+        if (
+            sample_rate is not None
+            and file_rate is not None
+            and sample_rate != file_rate
+        ):
             _warn_on_rate_override(command, file_rate, sample_rate)
         return waveform, sample_rate if sample_rate is not None else file_rate
     if hasattr(audio, "audio"):

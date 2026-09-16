@@ -441,7 +441,11 @@ class TestComponentAttnProcessor:
         with pytest.raises(ValueError, match="does not take an attention processor"):
             configure_components(
                 self._Pipeline(connectors=Plain()),
-                {"components": {"connectors": {"attn_processor_type": self._Processor}}},
+                {
+                    "components": {
+                        "connectors": {"attn_processor_type": self._Processor}
+                    }
+                },
                 "cpu",
             )
 

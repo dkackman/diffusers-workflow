@@ -1477,9 +1477,7 @@ class TestTheWrittenLevel:
         """
         from dw.result import warn_if_written_above_full_scale
 
-        with patch(
-            "dw.media_info.probe_media", return_value={"peak_dbfs": peak_dbfs}
-        ):
+        with patch("dw.media_info.probe_media", return_value={"peak_dbfs": peak_dbfs}):
             return self.warnings_from(
                 lambda: warn_if_written_above_full_scale(
                     "/runs/final/music_video.mp4", **kwargs
@@ -1579,9 +1577,7 @@ class TestTheMusicTemplatesLeaveHeadroom:
             ("workflows/templates/minimax/music-video.json", "write_song", -3.0),
         ],
     )
-    def test_the_song_is_normalized_before_it_is_delivered(
-        self, path, source, target
-    ):
+    def test_the_song_is_normalized_before_it_is_delivered(self, path, source, target):
         steps = self.steps_of(path)
         balanced = steps["balanced"]["task"]
         assert balanced["command"] == "normalize_audio"

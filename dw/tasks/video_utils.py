@@ -153,13 +153,11 @@ def loop_frames(video, num_frames):
             num_frames = int(num_frames)
         except ValueError:
             raise ValueError(
-                f"loop_frames needs 'num_frames' as a whole number, got "
-                f"{num_frames!r}"
+                f"loop_frames needs 'num_frames' as a whole number, got {num_frames!r}"
             )
     if not isinstance(num_frames, int) or isinstance(num_frames, bool):
         raise ValueError(
-            f"loop_frames needs 'num_frames' as a whole number, got "
-            f"{num_frames!r}"
+            f"loop_frames needs 'num_frames' as a whole number, got {num_frames!r}"
         )
     if num_frames < 1:
         raise ValueError(

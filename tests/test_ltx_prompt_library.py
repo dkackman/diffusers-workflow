@@ -35,6 +35,7 @@ def _is_ic_lora(path):
     """
     return "ic-lora" in (_prompt(path).get("tags") or [])
 
+
 # Tag-style and preamble phrases the training spec rules out
 FORBIDDEN = (
     "8k",

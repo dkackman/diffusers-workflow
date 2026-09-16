@@ -1,6 +1,5 @@
 import pytest
 
-from dw.security import InvalidInputError
 from dw.content_types import content_type_errors, content_type_fault
 
 

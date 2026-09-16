@@ -286,9 +286,7 @@ class TestAConstraintReachesAListEntry:
         shots = [dict(SHOTS[0], num_frames=61), SHOTS[1]]
         definition = workflow_with_shots({"num_frames": H3}, SHOTS)
 
-        (problem,) = constraint_errors(
-            definition, {"shots": shots}, supplied={"shots"}
-        )
+        (problem,) = constraint_errors(definition, {"shots": shots}, supplied={"shots"})
 
         assert problem["path"] == "arguments.shots[0].num_frames"
         assert "at least 124" in problem["message"]

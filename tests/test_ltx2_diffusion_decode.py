@@ -63,7 +63,9 @@ def test_the_decoder_reads_what_the_generator_returns(definition):
 
     generate, decode = definition["steps"]
     assert generate["pipeline"]["arguments"]["output_type"] == "{latent}"
-    assert decode["pipeline"]["arguments"]["latents"] == "previous_result:latents.frames"
+    assert (
+        decode["pipeline"]["arguments"]["latents"] == "previous_result:latents.frames"
+    )
     assert "frames" in LTX2PipelineOutput.__dataclass_fields__
 
 

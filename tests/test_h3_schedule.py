@@ -23,7 +23,9 @@ from tests.test_examples import REPO_ROOT
 
 H3_MODEL = "MiniMaxAI/MiniMax-H3"
 
-TEMPLATES = sorted(glob.glob(os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "*.json")))
+TEMPLATES = sorted(
+    glob.glob(os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "*.json"))
+)
 
 
 def load(path):
@@ -74,7 +76,9 @@ def test_every_h3_step_declares_both_schedules(path):
     definition = load(path)
     for step, pipeline in h3_steps(definition):
         where = f"{os.path.basename(path)}:{step['name']}"
-        assert pipeline.get("scheduler", {}).get("shift") == "variable:video_shift", where
+        assert pipeline.get("scheduler", {}).get("shift") == "variable:video_shift", (
+            where
+        )
         assert (
             pipeline.get("audio_scheduler", {}).get("shift") == "variable:audio_shift"
         ), where
@@ -90,7 +94,9 @@ def test_every_lora_takes_a_declared_alpha(path):
     """Left to the file, the 768p checkpoints load at alpha 8 over rank 128."""
     definition = load(path)
     loras = [
-        lora for _, pipeline in h3_steps(definition) for lora in pipeline.get("loras", [])
+        lora
+        for _, pipeline in h3_steps(definition)
+        for lora in pipeline.get("loras", [])
     ]
     if not loras:
         pytest.skip("no adapter on this template")

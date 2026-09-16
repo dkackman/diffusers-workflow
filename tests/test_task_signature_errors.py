@@ -34,7 +34,9 @@ def task_step(command, arguments, name="a"):
 
 
 def errors_for(command, arguments):
-    return task_signature_errors({"id": "sig", "steps": [task_step(command, arguments)]})
+    return task_signature_errors(
+        {"id": "sig", "steps": [task_step(command, arguments)]}
+    )
 
 
 class TestARequiredArgumentLeftUnset:
@@ -47,7 +49,10 @@ class TestARequiredArgumentLeftUnset:
         assert "'audio'" in errors[0]["message"]
 
     def test_a_supplied_argument_passes(self):
-        assert errors_for("resample_audio", {"audio": "x", "target_sample_rate": 16000}) == []
+        assert (
+            errors_for("resample_audio", {"audio": "x", "target_sample_rate": 16000})
+            == []
+        )
 
     def test_a_reference_counts_as_supplied(self):
         """The key's presence is what the check is - the value may still be a

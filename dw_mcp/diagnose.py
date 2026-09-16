@@ -87,13 +87,11 @@ def run_workflow(
     shape changed since the quote and the message carries the new plan."""
     if workflow_path is not None and name is not None:
         raise DwApiError(
-            "`workflow_path` and `name` are the same thing - provide only "
-            "one."
+            "`workflow_path` and `name` are the same thing - provide only one."
         )
     if inline_workflow is not None and workflow is not None:
         raise DwApiError(
-            "`inline_workflow` and `workflow` are the same thing - provide "
-            "only one."
+            "`inline_workflow` and `workflow` are the same thing - provide only one."
         )
     path = workflow_path if workflow_path is not None else name
     inline = inline_workflow if inline_workflow is not None else workflow

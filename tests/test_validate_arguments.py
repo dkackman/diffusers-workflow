@@ -392,9 +392,7 @@ class TestSubmission:
         """The same gap at submission: a bare submit used to queue a job
         that could only fail on its first step (#166)."""
         with server() as client:
-            response = client.post(
-                "/api/jobs", json={"workflow_path": "Placeholder"}
-            )
+            response = client.post("/api/jobs", json={"workflow_path": "Placeholder"})
 
             assert response.status_code == 400
             assert "variables.image" in response.json()["detail"]

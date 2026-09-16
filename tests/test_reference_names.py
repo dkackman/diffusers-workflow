@@ -100,6 +100,4 @@ class TestTheValidationPass:
         assert any("shot@one" in problem["message"] for problem in problems)
 
     def test_nothing_is_reported_for_a_definition_with_no_references(self):
-        assert (
-            reference_name_errors({"steps": [{"name": "a", "task": {}}]}) == []
-        )
+        assert reference_name_errors({"steps": [{"name": "a", "task": {}}]}) == []

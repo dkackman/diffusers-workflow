@@ -380,7 +380,9 @@ def test_watchdog_repeats_while_the_stall_continues():
     # seconds_since_phase_start increases across repeats - the message embeds
     # it, so a message-string-deduplicating consumer (job.warnings) sees more
     # than one distinct text rather than silently dropping every repeat
-    assert stalls[-1]["seconds_since_phase_start"] > stalls[0]["seconds_since_phase_start"]
+    assert (
+        stalls[-1]["seconds_since_phase_start"] > stalls[0]["seconds_since_phase_start"]
+    )
     assert len({s["message"] for s in stalls}) > 1
 
 

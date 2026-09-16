@@ -2505,8 +2505,7 @@ def create_app(
 
     def _orphan_entries(root):
         entries = [
-            {"name": name, "mtime": mtime}
-            for name, mtime in _iter_orphan_runs(root)
+            {"name": name, "mtime": mtime} for name, mtime in _iter_orphan_runs(root)
         ]
         entries.sort(key=lambda e: e["mtime"], reverse=True)
         return entries

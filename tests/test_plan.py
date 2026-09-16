@@ -717,9 +717,7 @@ class TestAnAdapterIsADownloadToo:
         monkeypatch.setattr(
             dw.plan,
             "scan_models",
-            lambda cache_dir=None: {
-                "repos": [{"repo_id": name} for name in present]
-            },
+            lambda cache_dir=None: {"repos": [{"repo_id": name} for name in present]},
         )
         return [
             entry["repo"]
