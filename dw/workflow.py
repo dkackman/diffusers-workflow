@@ -946,6 +946,11 @@ class Workflow:
         """
         run_context = context or current_context() or RunContext()
         context_token = activate_context(run_context)
+        # Depth-counted: a sub-workflow shares its parent's RunContext, so the
+        # phase-stall watchdog starts once on the outermost run() and stops
+        # once that outermost call's finally below runs, not on every nested
+        # sub-workflow call
+        run_context.enter_run()
         # 'output:' references resolve against the directory this run was
         # told to write to - the root, not this run's own subdirectory, since
         # what they name is what an earlier run left there
@@ -1360,6 +1365,7 @@ class Workflow:
                     annotations,
                 )
             deactivate_output_root(output_root_token)
+            run_context.exit_run()
             deactivate_context(context_token)
 
     def _write_run_manifest(
