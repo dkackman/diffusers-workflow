@@ -904,16 +904,28 @@ def _waveform_and_rate(audio, sample_rate, command):
 
     A path loads with the file's own rate; a video generated with a soundtrack
     (an AudioVideo, or anything carrying `.audio`) contributes that track and
-    its rate; a bare waveform needs the rate given. A given rate always wins.
+    its rate; a bare waveform needs the rate given. A given rate always wins -
+    correct for a raw waveform, which carries none of its own, but for a named
+    source (a file or a video) a rate that disagrees with the one it actually
+    carries relabels the samples rather than converting them, changing speed
+    and pitch with nothing saying so (#180) - so that case warns.
     """
     if isinstance(audio, str):
         waveform, file_rate = load_audio(audio)
+        if sample_rate is not None and file_rate is not None and sample_rate != file_rate:
+            _warn_on_rate_override(command, file_rate, sample_rate)
         return waveform, sample_rate if sample_rate is not None else file_rate
     if hasattr(audio, "audio"):
         if audio.audio is None:
             raise ValueError(
                 f"{command} needs an audio track - the video it was given carries none"
             )
+        if (
+            sample_rate is not None
+            and audio.sample_rate is not None
+            and sample_rate != audio.sample_rate
+        ):
+            _warn_on_rate_override(command, audio.sample_rate, sample_rate)
         rate = sample_rate if sample_rate is not None else audio.sample_rate
         if rate is None:
             raise ValueError(
@@ -924,3 +936,29 @@ def _waveform_and_rate(audio, sample_rate, command):
     if sample_rate is None:
         raise ValueError(f"{command} needs 'sample_rate' with a raw waveform")
     return as_channels_samples(audio), sample_rate
+
+
+def _warn_on_rate_override(command, actual_rate, given_rate):
+    """Say when a given sample_rate relabels a named source's real rate.
+
+    'sample_rate' always overrides the rate a file or video carries - that is
+    what lets a raw waveform (which has none of its own) be handed in at all -
+    but for a named source it is easy to mistake for a conversion: a workflow
+    reused one variable as both 'the rate a mix runs at' and 'the rate this
+    file is at', and the mismatch reached nobody until the deliverable played
+    at the wrong speed with `warnings: []` (#180). emit_warning rather than
+    logger.warning for the reason every other run-time audio warning here is
+    (#82, #108): a caller reading the job over the API or MCP sees the
+    warnings list and nothing else.
+    """
+    emit_warning(
+        f"{command}: sample_rate={given_rate} was given, but the source "
+        f"actually carries {actual_rate} Hz. The samples are being relabeled "
+        f"at {given_rate} Hz, not resampled - this changes speed and pitch. "
+        f"If you meant to convert the rate, use 'resample_audio' "
+        f"(target_sample_rate={given_rate}) instead.",
+        kind="rate_override_mismatch",
+        command=command,
+        file_rate=actual_rate,
+        given_rate=given_rate,
+    )
