@@ -435,7 +435,12 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/assets` — the asset library: input media, each with the
   `asset:` reference a workflow carries rather than a path, since a path
   only means something on the server's own machine. Empty rather than an
-  error when no library is configured
+  error when no library is configured. `libraries` lists the roots searched,
+  in order, each `{origin, dir, writable}` — what `asset_dirs` names without
+  saying which of them an upload or delete can actually reach. `shadowed`
+  lists the entries a nearer library hides: same shape as an `assets` entry
+  but without `url` (that URL would serve the shadowing file, not this one),
+  plus `shadowed_by` naming the origin that won
 - `POST /api/assets/keep` (`{"name": ..., "asset_name": ..., "overwrite": false, "shared": false}`)
   — keep a generated file as an input asset under a stable name, returning
   its `asset:` reference. A run's files are named by the run that made them,
@@ -455,6 +460,22 @@ The editor's forms come from these; they are just as usable from scripts:
   workspace's own before the shared one, the order `asset:` resolves in).
   An asset from a read-only examples library answers 403, the same as a
   read-only prompt or workflow; a name nothing holds answers 404
+- `POST /api/assets/archive` — `{"names": [...]}` (1-1000) bundles a
+  multi-file asset selection into one zip, named by each file's
+  library-relative path, which is the name its `asset:` reference carries.
+  The gallery archive's counterpart on the input side; it resolves down the
+  same search path a run does, so a selection spanning this workspace's
+  library, the shared one and an examples tree downloads as one archive, and
+  an unknown or out-of-library name 404s the whole request rather than
+  yielding a partial one. A duplicate name (repeated in the selection, or
+  differing only by leading/trailing whitespace) collapses onto the one zip
+  entry. Media (image/video/audio) stores rather than deflates, unless it's
+  a raw format that still compresses (`.bmp`, `.wav`) - everything else the
+  libraries hold is an already-compressed container, and the response does
+  not start until the archive is complete, so deflating it is latency the
+  caller waits through for nothing. Everything else - `.json`, `.md`,
+  `.txt`, an unrecognized extension - deflates; so does the export zip's
+  text files (`workflow.json`, `manifest.json`, `job.json`, the README)
 - `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
   again on the body; extension held to the allowed image/video list), saved

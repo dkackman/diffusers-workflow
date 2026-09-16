@@ -63,7 +63,7 @@ from ..prompts import (
     RESERVED_TEXT_PREFIXES,
     resolve_prompt_reference,
 )
-from ..assets import is_asset_reference, resolve_asset_reference
+from ..assets import ASSET_PREFIX, is_asset_reference, resolve_asset_reference
 from ..variable_constraints import constraint_errors, constraint_warnings
 from .observed_cost import ObservedCosts, declared_drivers
 from ..variables import argument_errors
@@ -1521,7 +1521,7 @@ def create_app(
                 try:
                     if is_asset_reference(leaf):
                         over_roots(
-                            _asset_roots(ws) or [ws.assets],
+                            _resolution_roots(ws),
                             lambda root: resolve_asset_reference(leaf, asset_dir=root),
                         )
                     elif leaf.startswith(PROMPT_PREFIX):
@@ -2270,6 +2270,17 @@ def create_app(
         **{ext: "audio" for ext in ALLOWED_AUDIO_EXTENSIONS},
     }
 
+    # The allowlist members that are not already-compressed containers -
+    # everything else in MEDIA_KINDS deflates for about nothing, so it is
+    # stored instead (see _zip_download)
+    RAW_MEDIA_EXTENSIONS = {".bmp", ".wav"}
+
+    # Exposed for tests - the two sets _zip_download's compression policy
+    # reads, so a test can assert the relationship without reaching into a
+    # closure
+    app.state.media_kinds = MEDIA_KINDS
+    app.state.raw_media_extensions = RAW_MEDIA_EXTENSIONS
+
     # Longest side of an on-demand gallery thumbnail, in pixels
     GALLERY_THUMBNAIL_MAX_DIM = 320
 
@@ -2289,27 +2300,51 @@ def create_app(
             raise HTTPException(status_code=404, detail="Unknown file")
         return path
 
+    def _asset_in(name, roots):
+        """The file a bare asset name has in one of these roots, or a 404.
+
+        `_asset_file` with the search path already in hand, for a caller
+        resolving many names against the one workspace: each call to
+        `resolve_asset_reference` walks the pinned fallbacks on its own, so
+        calling it once per root re-walked them all every time - the name is
+        validated once here instead, and each root is then just a join and
+        an isfile check.
+        """
+        try:
+            validate_asset_reference(name)
+        except SecurityError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        for root in roots:
+            candidate = os.path.join(root, name)
+            if not os.path.isfile(candidate):
+                continue
+            try:
+                return validate_path(candidate, root)
+            except SecurityError:
+                # A symlink under this root can still point outside it -
+                # isfile follows the link and says yes, and validate_path
+                # is what actually catches the escape. That's a miss for
+                # this root, not a 500: fall through to the next one and,
+                # on a total miss, the same 404 every other miss gets.
+                continue
+        if not roots:
+            detail = f"Unknown asset {name!r}: this workspace has no asset library"
+        else:
+            detail = f"Unknown asset {name!r}: not found in {', '.join(roots)}"
+        raise HTTPException(status_code=404, detail=detail)
+
     def _asset_file(reference, ws):
         """The file an 'asset:' reference names in this workspace, or a 404.
 
         Looked for down the same search path a run resolves 'asset:' in
         (_asset_roots), so what the API can read is what a job would load.
-        The first root's failure is the one reported: it names the
-        workspace's own library, which is where a caller expects their
-        asset to be, rather than an examples directory they never wrote to.
+        A miss names every root that was searched, so the caller sees
+        their own workspace library among them rather than just the last
+        (often an examples directory they never wrote to).
         """
-        first = None
-        for root in _asset_roots(ws) or [ws.assets]:
-            if not root:
-                continue
-            try:
-                return resolve_asset_reference(reference, asset_dir=root)
-            except (SecurityError, ValueError) as e:
-                first = first or e
-        raise HTTPException(
-            status_code=404,
-            detail=str(first)
-            or f"Unknown asset {reference!r}: this workspace has no asset library",
+        return _asset_in(
+            reference.removeprefix(ASSET_PREFIX).strip(),
+            _resolution_roots(ws),
         )
 
     def _static_files_for(root):
@@ -2345,6 +2380,19 @@ def create_app(
             if root not in roots and os.path.isdir(root):
                 roots.append(root)
         return roots
+
+    def _resolution_roots(ws):
+        """`_asset_roots(ws)`, falling back to the workspace's own (possibly
+        nonexistent) library when the search path is empty.
+
+        A caller resolving a name still needs *somewhere* to fail against:
+        with no root at all the 404 would name no directory, leaving the
+        caller to guess where it looked. Naming the workspace's own
+        directory keeps the failure pointing at the library the caller
+        thinks they're working in, even when that library hasn't been
+        created yet.
+        """
+        return _asset_roots(ws) or [ws.assets]
 
     def _asset_roots_for_job(job_id, ws):
         """The asset search path a job's own run used, for export: its spec's
@@ -2685,6 +2733,64 @@ def create_app(
     class ArchiveRequest(BaseModel):
         names: list[str] = Field(min_length=1, max_length=MAX_ARCHIVE_FILES)
 
+    def _zip_download(entries, filename):
+        """Bundle (arcname, path) pairs into a zip and serve it as a download.
+
+        The archive is a temp file rather than memory - a selection of videos
+        does not fit in RAM - unlinked once the response has been sent. The
+        three routes that hand back a zip share this so the cleanup contract
+        lives in one place: nothing has attached the background unlink while
+        the archive is being written, so a failure there has to unlink on the
+        way out or leak a half-written file into tmp.
+        """
+        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        try:
+            with handle:
+                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for arcname, path in entries:
+                        extension = os.path.splitext(path)[1].lower()
+                        # A file in MEDIA_KINDS but not RAW_MEDIA_EXTENSIONS
+                        # is an already-compressed container - deflating it
+                        # buys about nothing for a full CPU pass the caller
+                        # waits through (the response doesn't start until the
+                        # temp file is complete), so it is stored instead.
+                        # Everything else - .json, .md, .txt, .bmp, .wav, an
+                        # unrecognized extension - deflates, including the
+                        # export zip's text files
+                        stored = (
+                            extension in MEDIA_KINDS
+                            and extension not in RAW_MEDIA_EXTENSIONS
+                        )
+                        archive.write(
+                            path,
+                            arcname=arcname,
+                            compress_type=(
+                                zipfile.ZIP_STORED if stored else zipfile.ZIP_DEFLATED
+                            ),
+                        )
+        except BaseException:
+            os.unlink(handle.name)
+            raise
+
+        return FileResponse(
+            handle.name,
+            media_type="application/zip",
+            filename=filename,
+            background=BackgroundTask(os.unlink, handle.name),
+        )
+
+    def _archive_selection(entries, kind):
+        """`_zip_download` plus the one tail the two archive routes shared:
+        a timestamped `dw-<kind>s-*.zip` name and a log line naming the
+        count. Logged after the archive is written, not before, so a write
+        that fails partway (a bad path slipping past resolution, a full
+        disk) doesn't log a success that didn't happen.
+        """
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        response = _zip_download(entries, f"dw-{kind}s-{stamp}.zip")
+        logger.info(f"Archived {len(entries)} {kind} files")
+        return response
+
     @app.post("/api/gallery/archive")
     def archive_outputs(
         request: ArchiveRequest, ws: Workspace = Depends(selected_workspace)
@@ -2696,28 +2802,11 @@ def create_app(
         RAM - and unlinked once the response has been sent."""
         # Resolved before anything is written, so a bad name in the
         # selection fails the request instead of yielding a partial zip
+        # the gallery-relative name is the entry name, so a workflow's output
+        # subfolders stay intact inside the download
         paths = [(name, _output_file(name, ws.outputs)) for name in request.names]
 
-        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-        try:
-            with handle:
-                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
-                    for name, path in paths:
-                        # the gallery-relative name keeps a workflow's output
-                        # subfolders intact inside the download
-                        archive.write(path, arcname=name)
-        except BaseException:
-            os.unlink(handle.name)
-            raise
-
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        logger.info(f"Archived {len(paths)} output files")
-        return FileResponse(
-            handle.name,
-            media_type="application/zip",
-            filename=f"dw-outputs-{stamp}.zip",
-            background=BackgroundTask(os.unlink, handle.name),
-        )
+        return _archive_selection(paths, "output")
 
     # What a run directory holds besides its media: the engine writes them to
     # describe the run, and the gallery - which lists media - never shows them
@@ -2969,25 +3058,57 @@ def create_app(
         library = ws.assets
         roots = _asset_roots(ws)
         if not roots:
-            return {"asset_dir": library, "asset_dirs": [], "assets": [], "folders": []}
+            return {
+                "asset_dir": library,
+                "asset_dirs": [],
+                "assets": [],
+                "folders": [],
+                "libraries": [],
+                "shadowed": [],
+            }
+
+        libraries = [
+            {
+                "origin": (origin := _asset_origin(ws, index, root)),
+                "dir": root,
+                "writable": origin != EXAMPLES_ORIGIN,
+            }
+            for index, root in enumerate(roots)
+        ]
 
         assets = []
-        seen = set()
+        shadowed = []
+        # Which origin first claimed a name, so a later root's same name can
+        # be reported as shadowed rather than silently dropped
+        seen = {}
         for index, root in enumerate(roots):
             try:
                 files = list(_iter_gallery_files(root, group_runs=False))
             except OSError:
                 files = []
+            origin = _asset_origin(ws, index, root)
             for relative, folder, _subfolder, kind, path in files:
-                # A name in the workspace shadows the same name in an
-                # examples library, exactly as 'asset:' resolution does
-                if relative in seen:
-                    continue
                 try:
                     stat = os.stat(path)
                 except OSError:
                     continue
-                seen.add(relative)
+                # A name in the workspace shadows the same name in an
+                # examples library, exactly as 'asset:' resolution does
+                if relative in seen:
+                    shadowed.append(
+                        {
+                            "name": relative,
+                            "reference": f"asset:{relative}",
+                            "folder": folder,
+                            "kind": kind,
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime,
+                            "origin": origin,
+                            "shadowed_by": seen[relative],
+                        }
+                    )
+                    continue
+                seen[relative] = origin
                 assets.append(
                     {
                         "name": relative,
@@ -2996,7 +3117,7 @@ def create_app(
                         "kind": kind,
                         "size": stat.st_size,
                         "mtime": stat.st_mtime,
-                        "origin": _asset_origin(ws, index, root),
+                        "origin": origin,
                         # For the editor's own preview - fetchable the same
                         # way an upload's URL is
                         "url": _served_url(f"/inputs/{quote(relative)}", ws),
@@ -3006,9 +3127,11 @@ def create_app(
         return {
             # The workspace's own library, unchanged: where an upload lands
             "asset_dir": library,
-            "asset_dirs": roots,
+            "asset_dirs": [lib["dir"] for lib in libraries],
             "assets": assets,
             "folders": sorted({entry["folder"] for entry in assets} | {""}),
+            "libraries": libraries,
+            "shadowed": shadowed,
         }
 
     class KeepRequest(BaseModel):
@@ -3111,6 +3234,32 @@ def create_app(
             "linked": linked,
             "shared": bool(request.shared),
         }
+
+    @app.post("/api/assets/archive")
+    def archive_assets(
+        request: ArchiveRequest, ws: Workspace = Depends(selected_workspace)
+    ):
+        """Bundle a multi-file asset selection into one zip - the gallery's
+        bulk download, for the input side of it.
+
+        Resolved down the same search path a run resolves 'asset:' in, so a
+        selection spanning the workspace's own library, the shared one and
+        an examples tree downloads as one archive; the library-relative name
+        is the entry name, which is the name the 'asset:' reference carries.
+        """
+        # The search path depends on the workspace, not on the name, so it is
+        # built once rather than per name - each root's isdir check would
+        # otherwise repeat once per name in the selection for no reason
+        roots = _resolution_roots(ws)
+        # Stripped and deduped before resolving, so "iris.png" and
+        # "iris.png " (or a name repeated by an eager client) become the one
+        # zip entry rather than a collision on write
+        names = list(dict.fromkeys(n.strip() for n in request.names))
+        # Resolved before anything is written, so a bad name in the
+        # selection fails the request instead of yielding a partial zip
+        paths = [(name, _asset_in(name, roots)) for name in names]
+
+        return _archive_selection(paths, "asset")
 
     @app.delete("/api/assets/{name:path}")
     def delete_asset(name: str, ws: Workspace = Depends(selected_workspace)):
@@ -3450,31 +3599,13 @@ def create_app(
         if not os.path.isdir(directory):
             raise HTTPException(status_code=404, detail="No export for this job")
 
-        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-        try:
-            with handle:
-                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
-                    for current, _dirs, names in os.walk(directory):
-                        for name in sorted(names):
-                            path = os.path.join(current, name)
-                            entry = os.path.relpath(path, directory).replace(
-                                os.sep, "/"
-                            )
-                            archive.write(path, f"{job_id}/{entry}")
-        except BaseException:
-            # Nothing is going to attach the background unlink now, so the
-            # half-written archive has to go here
-            os.unlink(handle.name)
-            raise
-
-        return FileResponse(
-            handle.name,
-            media_type="application/zip",
-            filename=f"{job_id}.zip",
-            # The archive is a temp file, not a second permanent copy - it
-            # goes as soon as the response has been sent
-            background=BackgroundTask(os.unlink, handle.name),
-        )
+        entries = []
+        for current, _dirs, names in os.walk(directory):
+            for name in sorted(names):
+                path = os.path.join(current, name)
+                entry = os.path.relpath(path, directory).replace(os.sep, "/")
+                entries.append((f"{job_id}/{entry}", path))
+        return _zip_download(entries, f"{job_id}.zip")
 
     # ---------------------------------------------------------------- the UI
 

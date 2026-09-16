@@ -26,6 +26,7 @@
     selectWorkspace,
     workspace,
   } from '../workspace.svelte'
+  import { formatBytes } from '../format'
 
   let info = $state<ServerInfo | null>(null)
   let error = $state('')
@@ -73,15 +74,6 @@
   // ---- workspaces: create and delete, next to the directories they are
   let newWorkspace = $state('')
   let workspaceError = $state('')
-
-  // How much disk a workspace holds, rounded hard - the server's number is
-  // a cached walk, so more precision than this would be false precision
-  function size(bytes: number): string {
-    if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(1) + ' GB'
-    if (bytes >= 1024 ** 2) return Math.round(bytes / 1024 ** 2) + ' MB'
-    if (bytes > 0) return Math.max(1, Math.round(bytes / 1024)) + ' KB'
-    return 'empty'
-  }
 
   async function addWorkspace() {
     const name = newWorkspace.trim()
@@ -399,7 +391,7 @@
                 class="muted size"
                 title="{workspace.usage[name].files} files"
               >
-                {size(workspace.usage[name].bytes)}
+                {formatBytes(workspace.usage[name].bytes)}
               </span>
             {/if}
             {#if name === DEFAULT_WORKSPACE}

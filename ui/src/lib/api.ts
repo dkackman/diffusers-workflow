@@ -1,5 +1,7 @@
 import type {
   AssetFile,
+  AssetLibrary,
+  ShadowedAsset,
   DiffusersStatus,
   EnhancerPreset,
   JobDetail,
@@ -234,6 +236,17 @@ async function downloadResponse(
   }
 }
 
+/** A bulk-download endpoint: POST the selection, save the zip that comes
+ * back. The gallery and the asset library each have one. */
+function archiveFrom(path: string) {
+  return (names: string[]) =>
+    downloadResponse(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names }),
+    })
+}
+
 export const api = {
   listWorkflows: () =>
     request<{
@@ -441,12 +454,7 @@ export const api = {
   /** Download a multi-file gallery selection as one zip. The browser
    * cannot zip on its own and throttles a burst of single downloads, so
    * the server bundles the selection and this saves the response. */
-  archiveOutputs: (names: string[]) =>
-    downloadResponse('/api/gallery/archive', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ names }),
-    }),
+  archiveOutputs: archiveFrom('/api/gallery/archive'),
   /** Save a browser-picked file server-side and get back the path a
    * workflow's image/video argument can reference. The body is the raw
    * file bytes - no multipart form needed for a single file.
@@ -469,7 +477,13 @@ export const api = {
       asset_dirs: string[]
       assets: AssetFile[]
       folders: string[]
+      libraries: AssetLibrary[]
+      shadowed: ShadowedAsset[]
     }>('/api/assets'),
+  /** Download a multi-file asset selection as one zip - the gallery's bulk
+   * download, for the input side. Spans every library on the search path,
+   * since the grid does. */
+  archiveAssets: archiveFrom('/api/assets/archive'),
   /** Permanently remove one asset. Answers 403 for one an examples tree
    * brought with it, which is not this server's to delete. */
   deleteAsset: (name: string) =>

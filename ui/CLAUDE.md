@@ -81,12 +81,66 @@ so it reads as a heavier ink edge instead.
 the same UX: folder groups, a contact-sheet grid, a detail popout. It reads
 `GET /api/assets`, which spans the workspace's own library, the shared
 `common` one and any `--examples-dir` library, each entry already tagged with
-its `origin` - so the page never builds a path, only shows the `asset:`
-reference a workflow argument carries. The origin badge sits on the *tile*
-rather than only in the detail, because "why can I not delete this" has to be
-answerable at a glance: an `examples` asset is read-only and the server
-answers 403, so the page offers no delete for one at all. Uploads land in the
-workspace unless the `shared` toggle is on, which is the one thing about an
-upload that cannot be changed afterwards.
+its `origin`, plus the search path itself (`libraries`) and what each root
+holds under a name a nearer one has taken (`shadowed`) - so the page never
+builds a path, only shows the `asset:` reference a workflow argument carries.
+Which library an entry came from is the section it sits in, because "why can
+I not delete this" has to be answerable at a glance: an `examples` asset is
+read-only and the server answers 403, so the page offers no delete for one at
+all.
+
+"The same UX" is literal, and three things were missing from it until they
+were fixed: the detail popout is `position: sticky; bottom: 1rem` as the
+gallery's is, so it rides the viewport rather than sitting at the end of the
+document where a click above the fold scrolls it out of sight; the bulk
+actions are the gallery's - a checkbox per tile (shift-click spans a range),
+`Select all matching`, and a sticky bar with Download .zip and Delete, the
+delete sequential with whatever failed staying ticked; and Escape clears the
+selection before it closes the detail. Bulk download is
+`POST /api/assets/archive`, the gallery archive's counterpart - the browser
+cannot zip on its own.
+
+The selection itself is not this page's: `picks.svelte.ts` holds it (a
+`Picks` over a getter for the grid's current order, so a filter changing
+under the selection is seen rather than snapshotted), `BulkBar.svelte` is the
+sticky bar and the select-all, and the two rules that have to reach a tile
+the page lays out - `.cellwrap .pick`, `.cellwrap.picked .cell` - are in
+`app.css`. The gallery runs the same three. They were one page's code copied
+into the other first, and the copies had already drifted: the assets page's
+Escape guard knew that `ConfirmDialog` renders `alertdialog` and the
+gallery's did not, so Escape in the gallery's delete confirm closed the
+detail behind it. `dialogOpen()` is that check, once. A bulk action must
+never touch what the user cannot see, so `Picks.size` counts only the
+visible selection - the same set `names` hands to an action - and a ticked
+name the filter is hiding is inert until the filter brings it back.
+
+The search path is the page's top level and folders sit inside it: one
+section per library, in the order the server resolves them, because which
+library a name lives in is what decides whether it can be deleted, what a
+delete costs, and what it hides. It used to be one mtime-sorted grid with
+an `origin` badge per tile and a library `select` over it - folders then
+cut across libraries, and the select could be left pointing at a library
+that unmounted on the next workspace. A section header carries the label,
+the count, the root it reads and a collapse chevron (persisted under
+`collapsed-asset-libraries`; a filter opens everything, as `FolderGroups`
+does), and an empty library still shows its header, so an empty workspace
+says where an upload would land.
+
+Upload is the section's own button rather than a destination pick, because
+which library a file lands in is the one thing about an upload that cannot
+be changed afterwards - `Upload` on the workspace section (the page's one
+filled button), a `.quiet` `Upload to shared` on the shared one, and a
+muted `read-only` where the server would answer 403. For the same reason a
+tile from a read-only library carries no checkbox at all: nothing bulk can
+do to it - and the order `Picks` is given spans only open, writable
+sections, so `Select all` cannot tick a tile that has no checkbox to untick
+it with, or one a shut section is hiding. A shared delete says what it costs, singly and in the bulk
+confirm, since it goes for every workspace under the root.
+
+`shadowed` is rendered rather than only described. An entry a nearer
+library hides gets a dimmed, inert tile under its own library's
+`shadowed/` heading - no `url` is served for one, so it is a label rather
+than a picture - because "I uploaded it and `asset:` still loads the old
+one" is otherwise unanswerable from the page.
 
 See docs/SERVER.md.
