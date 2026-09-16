@@ -39,7 +39,11 @@ dependencies = [
     # PyPI release; the newest pipelines may need git HEAD on top, which
     # install.sh layers on (and the web UI's Models page can install)
     "diffusers>=0.40.0",
-    "transformers>=5.16.1",
+    # 5.17.0's TextToAudioPipeline.preprocess calls BatchEncoding.to(dtype=...),
+    # a kwarg BatchEncoding.to() has never accepted in this line - breaks every
+    # generate_speech (Bark) call outright (#169). Drop the exclusion once a
+    # later release either restores the kwarg or stops passing it.
+    "transformers>=5.16.1,!=5.17.0",
     "accelerate>=1.14.0",
     "peft>=0.20.0",
     "safetensors>=0.8.0",
