@@ -357,7 +357,10 @@ def build_server(client):
         )
 
     def list_gallery(
-        limit: int = 50, subfolder: str | None = None, workspace: str | None = None
+        limit: int = 50,
+        subfolder: str | None = None,
+        only_orphans: bool = False,
+        workspace: str | None = None,
     ) -> dict:
         """List generated output files, newest first. A name is
         <workflow>/<run id>/<file>, where <file> may itself sit in a
@@ -373,12 +376,28 @@ def build_server(client):
         file over HTTP, already scoped to the right workspace; use it as
         given rather than composing one from the name.
 
+        `only_orphans=True` inverts the call: instead of files, it returns
+        run directories with no media anywhere under them (`runs`, each
+        `{name, mtime}`) - a run whose output was deleted before
+        `delete_output` could remove it by name, or one that failed before
+        writing anything, invisible to a normal listing because it has no
+        file to show. `subfolder` does not apply in this mode. `name` is
+        exactly what `delete_output` accepts, so clearing the backlog is
+        list, then delete each name (#170). A run with no media by design
+        (a pure `utility`-shape workflow) matches this test too - this call
+        only lists, so deciding whether a listed entry is actually junk
+        before calling `delete_output` on it is still yours to make.
+
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
         here without leaving this one (#99)."""
         return catalog.list_gallery(
-            client, limit=limit, subfolder=subfolder, workspace=workspace
+            client,
+            limit=limit,
+            subfolder=subfolder,
+            only_orphans=only_orphans,
+            workspace=workspace,
         )
 
     def get_gallery_metadata(

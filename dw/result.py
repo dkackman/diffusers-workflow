@@ -119,11 +119,14 @@ def warn_if_written_above_full_scale(output_path, already_warned=False):
     enough. Reading the file back is what closes that: whatever the encoder
     did, this is the number a consumer's decoder will see.
 
-    Silent when `warn_without_headroom` has already spoken for this file:
-    the waveform was over the line before the encoder touched it, that
-    warning says what to do about it, and two warnings would be two answers
-    to one mistake. What is left is exactly the #161 case - a track given
-    headroom that the encode spent anyway.
+    Silent when `warn_without_headroom` has already spoken for this file -
+    but only for a plain audio save. That suppression assumed the encoder
+    only ever adds overshoot, which held for the mp3s #159/#161 measured but
+    is backwards for an H3 video mux: #174 measured that family's AAC mux
+    landing *under* full scale after starting over it, so the pre-encode
+    warning was right and the caller's suppression hid the post-encode
+    check that would have said so. The caller decides which case applies
+    (`content_type`), not this function.
 
     Best effort. A file that will not probe is not a level problem, and a
     deliverable that is already written is not worth failing a finished run
@@ -675,10 +678,18 @@ class Result:
         # The level of what was actually written, which is the only one the
         # consumer will hear: the encode's own overshoot sits between the
         # waveform `warn_without_headroom` measured and this (#161). Only a
-        # file that can carry a soundtrack, so an image never pays a probe
+        # file that can carry a soundtrack, so an image never pays a probe.
+        # The pre-encode warning only suppresses this for a plain audio
+        # save - a video mux's overshoot is not reliably positive (#174),
+        # so a video always gets the ground-truth post-encode check
         if content_type.startswith("audio") or content_type.startswith("video"):
             warn_if_written_above_full_scale(
-                output_path, already_warned=self._no_headroom_warned
+                output_path,
+                already_warned=(
+                    self._no_headroom_warned
+                    if content_type.startswith("audio")
+                    else False
+                ),
             )
 
         emit_log(

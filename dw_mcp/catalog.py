@@ -202,13 +202,22 @@ def list_jobs(client, limit=20, status=None, workspace=None):
     return answer
 
 
-def list_gallery(client, limit=50, subfolder=None, workspace=None):
+def list_gallery(client, limit=50, subfolder=None, only_orphans=False, workspace=None):
     """Generated media in the output directory, newest first. `subfolder`
     narrows to one in-run subfolder ('final', 'intermediate', '' for files
-    at a run's root); None means every file."""
+    at a run's root); None means every file.
+
+    `only_orphans=True` inverts the call: instead of files, it returns run
+    directories with no media anywhere under them (`runs`, each
+    `{name, mtime}`) - a run whose output was deleted before `delete_output`
+    could remove it by name, or one that failed before writing anything.
+    `subfolder` does not apply in this mode. `name` is exactly what
+    `delete_output` accepts, so clearing one is list, then delete (#170)."""
     params = {"limit": limit}
     if subfolder is not None:
         params["subfolder"] = subfolder
+    if only_orphans:
+        params["only_orphans"] = "true"
     return client.get_json("/api/gallery", params=params, workspace=workspace)
 
 

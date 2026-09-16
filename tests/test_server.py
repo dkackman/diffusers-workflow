@@ -1473,6 +1473,48 @@ def test_gallery_reports_and_filters_by_subfolder(server, tmp_path):
         assert finals["subfolders"] == full["subfolders"]
 
 
+def test_gallery_only_orphans_lists_media_less_run_directories(server, tmp_path):
+    """#170: a run whose output was deleted before `delete_output` could
+    remove it by name, or one that failed before writing anything, has no
+    file the ordinary gallery listing can show - `only_orphans=true` finds
+    it by walking for run directories with no media anywhere beneath them,
+    and hands back a `name` that `DELETE /api/gallery/{name}` accepts."""
+    from PIL import Image
+
+    from dw.runs import new_run_id
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+
+        # a normal run: has media, so it is not an orphan
+        media_run_id = new_run_id({"id": "ltx", "seed": 1})
+        media_run = outputs / "ltx" / media_run_id
+        media_run.mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(media_run / "ltx-still.0-0.0.png")
+
+        # an orphaned run: only its manifest survives, no media anywhere
+        orphan_run_id = new_run_id({"id": "ltx", "seed": 2})
+        orphan_run = outputs / "ltx" / orphan_run_id
+        orphan_run.mkdir(parents=True)
+        (orphan_run / "manifest.json").write_text("{}")
+
+        normal = client.get("/api/gallery").json()
+        assert normal["total"] == 1
+        assert "runs" not in normal
+
+        orphans = client.get("/api/gallery?only_orphans=true").json()
+        assert orphans["total"] == 1
+        names = {r["name"] for r in orphans["runs"]}
+        assert names == {f"ltx/{orphan_run_id}"}
+        assert "files" not in orphans
+
+        # the name it reports is exactly what delete_output accepts
+        assert (
+            client.delete(f"/api/gallery/ltx/{orphan_run_id}").status_code == 200
+        )
+        assert not orphan_run.exists()
+
+
 def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
     from PIL import Image
 
