@@ -66,33 +66,51 @@ def run_workflow(
     client,
     workflow_path=None,
     inline_workflow=None,
+    workflow=None,
+    name=None,
     arguments=None,
     acknowledged_cost=False,
     workspace=None,
 ):
-    """Queue a workflow. `workflow_path` is either a catalog name from
-    `list_workflows` or a path to a workflow file on the server. Returns as
-    soon as it is queued - it does not wait for the job to finish. Poll
-    `get_job_events` for progress.
+    """Queue a workflow. `workflow_path` (or `name` - the same thing
+    `validate_workflow` calls it) is either a catalog name from
+    `list_workflows` or a path to a workflow file on the server;
+    `inline_workflow` (or `workflow` - the same thing `validate_workflow`
+    calls it) is a full definition. A document just checked with
+    `validate_workflow` can be handed straight to this call under either
+    spelling. Returns as soon as it is queued - it does not wait for the job
+    to finish. Poll `get_job_events` for progress.
 
     `acknowledged_cost` is true or, better, the plan it was quoted from:
     {fingerprint, minutes, downloads} from `validate_workflow` - see
     COST_REFUSAL. A bound one the server checks; a 409 means the run's
     shape changed since the quote and the message carries the new plan."""
+    if workflow_path is not None and name is not None:
+        raise DwApiError(
+            "`workflow_path` and `name` are the same thing - provide only "
+            "one."
+        )
+    if inline_workflow is not None and workflow is not None:
+        raise DwApiError(
+            "`inline_workflow` and `workflow` are the same thing - provide "
+            "only one."
+        )
+    path = workflow_path if workflow_path is not None else name
+    inline = inline_workflow if inline_workflow is not None else workflow
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
-    if (workflow_path is None) == (inline_workflow is None):
+    if (path is None) == (inline is None):
         raise DwApiError(
-            "Provide exactly one of `workflow_path` (a catalog name or a "
-            "path to a workflow on the server) or `inline_workflow` (a "
-            "definition to run as-is)."
+            "Provide exactly one of `workflow_path`/`name` (a catalog name "
+            "or a path to a workflow on the server) or "
+            "`inline_workflow`/`workflow` (a definition to run as-is)."
         )
     payload = {"arguments": arguments or {}}
     payload.update(_acknowledgement_body(acknowledged_cost))
-    if workflow_path is not None:
-        payload["workflow_path"] = workflow_path
+    if path is not None:
+        payload["workflow_path"] = path
     else:
-        payload["workflow"] = inline_workflow
+        payload["workflow"] = inline
     # base_dir is deliberately absent: it decides where an inline workflow's
     # relative paths resolve, and the MCP surface does not hand that out
     # A named workspace pins this one job rather than the session: a
