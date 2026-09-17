@@ -15,6 +15,7 @@ from dw.tasks.audio_utils import (
     frames_to_samples,
     load_audio,
     resample_audio,
+    resample_waveform,
     slice_samples,
 )
 
@@ -355,6 +356,71 @@ class TestBleedJoin:
             bleed_join(previous, following, 100, 500)
 
         assert "tonal" not in caplog.text
+
+    def test_native_rate_speech_like_material_warns_via_harmonicity(self, caplog):
+        # broadband formants keep flatness high (noise-like), so only a
+        # periodicity measure catches this as voiced speech (#198)
+        sample_rate = 24000
+        n = int(sample_rate * 0.3)
+        t = numpy.arange(n) / sample_rate
+        rng = numpy.random.default_rng(1)
+        f0 = 150.0
+        harmonics = [1.0, 0.6, 0.45, 0.3, 0.2, 0.12]
+        speech_like = sum(
+            amp * numpy.sin(2 * numpy.pi * f0 * (k + 1) * t + rng.uniform(0, 2 * numpy.pi))
+            for k, amp in enumerate(harmonics)
+        )
+        speech_like = speech_like + rng.normal(0, 0.25, n)
+        speech_like = (speech_like / numpy.abs(speech_like).max()).astype(numpy.float32)
+        previous = speech_like[None, :]
+        following = numpy.zeros((1, n), dtype=numpy.float32)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(previous, following, sample_rate, 300)
+
+        assert "tonal" in caplog.text or "speech" in caplog.text
+
+    def test_native_rate_noise_does_not_warn_at_speech_rate(self, caplog):
+        # regression guard: harmonicity must not itself become a false
+        # positive source for genuine noise at a realistic sample rate
+        sample_rate = 24000
+        n = int(sample_rate * 0.3)
+        rng = numpy.random.default_rng(1)
+        previous = rng.normal(0, 0.2, (1, n)).astype(numpy.float32)
+        following = numpy.zeros((1, n), dtype=numpy.float32)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(previous, following, sample_rate, 300)
+
+        assert "tonal" not in caplog.text
+        assert "speech" not in caplog.text
+
+    def test_upsampled_noise_does_not_falsely_warn_when_native_rate_given(
+        self, caplog
+    ):
+        # band-limited interpolation leaves near-silence above the tail's own
+        # Nyquist, which used to depress flatness and read as spuriously
+        # tonal purely because of the resample - not because of the content
+        # (#198)
+        native_rate = 16000
+        target_rate = 48000
+        n = int(native_rate * 0.3)
+        rng = numpy.random.default_rng(2)
+        noise = rng.normal(0, 0.2, (1, n)).astype(numpy.float32)
+        upsampled = resample_waveform(noise, native_rate, target_rate)
+        following = numpy.zeros_like(upsampled)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(
+                upsampled,
+                following,
+                target_rate,
+                300,
+                native_sample_rate=native_rate,
+            )
+
+        assert "tonal" not in caplog.text
+        assert "speech" not in caplog.text
 
 
 class TestResampleAudio:

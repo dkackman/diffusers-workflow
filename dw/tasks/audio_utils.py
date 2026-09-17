@@ -118,20 +118,88 @@ def equal_power_crossfade_join(
 # bleed is meant for
 TONAL_FLATNESS_THRESHOLD = 0.3
 
+# Above this, the tail's waveform repeats closely enough within a plausible
+# pitch period to be voiced speech or a pitched note rather than noise -
+# a bandwidth-insensitive companion to flatness, since a resample's own
+# band limiting does not touch how periodic the waveform is (#198)
+HARMONICITY_THRESHOLD = 0.45
 
-def _spectral_flatness(waveform):
+# Typical fundamental range for a human voice or a pitched instrument note;
+# the periodicity search only looks at lags in this range so a slow room-tone
+# swell or hum near DC cannot register as a pitch
+_PERIODICITY_MIN_HZ = 60.0
+_PERIODICITY_MAX_HZ = 500.0
+
+
+def _spectral_flatness(waveform, sample_rate=None, native_sample_rate=None):
     """Geometric-mean-over-arithmetic-mean of the magnitude spectrum, averaged
     across channels - near 0 for tonal/speech material, near 1 for noise-like
-    material (see TONAL_FLATNESS_THRESHOLD)."""
+    material (see TONAL_FLATNESS_THRESHOLD).
+
+    When the material was upsampled, band-limited interpolation leaves near
+    zero energy above the original Nyquist - a large near-silent band that
+    depresses the geometric mean relative to the arithmetic one regardless of
+    what the material actually is, reading as spuriously tonal (#198). Given
+    both rates, the spectrum is limited to bins below the native Nyquist so an
+    upsampled tail is measured the same as it would be at its own rate.
+    """
     spectrum = numpy.abs(numpy.fft.rfft(waveform, axis=1))
+    if (
+        sample_rate
+        and native_sample_rate
+        and native_sample_rate < sample_rate
+    ):
+        native_bins = max(
+            2,
+            int(spectrum.shape[1] * native_sample_rate / sample_rate),
+        )
+        spectrum = spectrum[:, :native_bins]
     spectrum = numpy.maximum(spectrum, 1e-10)
     geometric_mean = numpy.exp(numpy.mean(numpy.log(spectrum), axis=1))
     arithmetic_mean = numpy.mean(spectrum, axis=1)
     return float(numpy.mean(geometric_mean / arithmetic_mean))
 
 
+def _harmonicity(waveform, sample_rate):
+    """Normalized autocorrelation peak within a plausible pitch range,
+    averaged across channels - near 1 for a strongly periodic signal (voiced
+    speech, a pitched note), near 0 for noise (see HARMONICITY_THRESHOLD).
+
+    Spectral flatness alone missed real speech (#198): a vowel's formants
+    spread its energy broadly enough across the band that flatness reads
+    similar to noise, even though the waveform itself repeats every pitch
+    period. Autocorrelation measures that repetition directly and is
+    insensitive to how the spectrum happens to be shaped, so it catches what
+    flatness cannot.
+    """
+    min_lag = max(int(sample_rate / _PERIODICITY_MAX_HZ), 1)
+    max_lag = min(int(sample_rate / _PERIODICITY_MIN_HZ), waveform.shape[1] - 1)
+    if max_lag <= min_lag:
+        return 0.0
+
+    scores = []
+    for channel in waveform:
+        centered = channel - channel.mean()
+        energy = float(numpy.dot(centered, centered))
+        if energy <= 1e-12:
+            continue
+        correlation = numpy.correlate(centered, centered, mode="full")
+        zero_lag = correlation.shape[0] // 2
+        window = correlation[zero_lag + min_lag : zero_lag + max_lag + 1]
+        if window.size == 0:
+            continue
+        scores.append(float(numpy.max(window) / energy))
+    return max(scores) if scores else 0.0
+
+
 def bleed_join(
-    previous, following, sample_rate, bleed_ms, seam_fade_ms=None, gain_db=0.0
+    previous,
+    following,
+    sample_rate,
+    bleed_ms,
+    seam_fade_ms=None,
+    gain_db=0.0,
+    native_sample_rate=None,
 ):
     """Butt-join two waveforms, ringing the outgoing tail on across the seam.
 
@@ -163,6 +231,12 @@ def bleed_join(
             negative ducks a tail that would otherwise push the seam over
             0 dBFS; 0 (the default) is unchanged, full-scale, the prior
             behavior
+        native_sample_rate: The rate the outgoing tail was actually recorded
+            or generated at, when that differs from sample_rate because the
+            caller upsampled it to join. Band-limits the flatness check to
+            below the tail's own Nyquist, so upsampling's near-silent high
+            band cannot itself read as tonal (#198). Omit when the tail is
+            already at its native rate
 
     Returns:
         The two waveforms joined, of their full combined length
@@ -179,17 +253,21 @@ def bleed_join(
 
     tail = previous[:, ::-1][:, :window]
 
-    flatness = _spectral_flatness(previous[:, -window:])
-    if flatness < TONAL_FLATNESS_THRESHOLD:
+    tail_source = previous[:, -window:]
+    flatness = _spectral_flatness(tail_source, sample_rate, native_sample_rate)
+    harmonicity = _harmonicity(tail_source, native_sample_rate or sample_rate)
+    if flatness < TONAL_FLATNESS_THRESHOLD or harmonicity > HARMONICITY_THRESHOLD:
         emit_warning(
             f"bleed_join: the tail being reversed onto the seam looks tonal or "
-            f"speech-like (spectral flatness {flatness:.2f}) rather than the "
-            f"room tone or crowd noise a bleed is meant for - the reversal is "
-            f"likely to be audible as a stutter or a note running backwards. "
-            f"Consider seam_fade_ms for a hard cut on this material instead.",
+            f"speech-like (spectral flatness {flatness:.2f}, harmonicity "
+            f"{harmonicity:.2f}) rather than the room tone or crowd noise a "
+            f"bleed is meant for - the reversal is likely to be audible as a "
+            f"stutter or a note running backwards. Consider seam_fade_ms for "
+            f"a hard cut on this material instead.",
             kind="bleed_tonal_material",
             command="bleed_join",
             flatness=round(flatness, 3),
+            harmonicity=round(harmonicity, 3),
         )
 
     decay, _ = _equal_power_ramps(window)  # cos: 1 down to ~0
