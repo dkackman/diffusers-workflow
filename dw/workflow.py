@@ -1116,14 +1116,21 @@ class Workflow:
                 status = "completed"
                 return []
 
-            # Names this run's steps go by (for_each members included, as
-            # "<step>@<entry>") - what "still shared" means in
-            # create_step_action: a key another RUNNING step maps to, not a
-            # key some step of a past, unrelated workflow happened to leave
-            # in the cross-job _prior_step_keys map
-            self._running_step_names = {step_data["name"] for step_data in steps}
-
             realize_args(steps, base_dir)
+
+            # The key each pipeline step of THIS run loads under, computed
+            # from the same realized dicts create_step_action hashes, so the
+            # two agree. This is what "still shared" means there: a key
+            # another running step maps to NOW - not the key it mapped to
+            # last run (every step sharing a changed model variable has the
+            # old key as its prior key and none has it as its current one),
+            # and not a key some step of a past, unrelated workflow left in
+            # the cross-job _prior_step_keys map
+            self._running_pipeline_keys = {
+                step_data["name"]: pipeline_cache_key(step_data["pipeline"])
+                for step_data in steps
+                if "pipeline" in step_data
+            }
 
             run_context.emit(
                 "workflow_start",
@@ -1518,17 +1525,22 @@ class Workflow:
             prior_keys = getattr(self, "_prior_step_keys", {})
             prior_key = prior_keys.get(step_name)
             # Only this step's own variant: a key another step of THIS run
-            # also mapped to last run is that step's warm model, and
-            # releasing it here would reload it cold a moment later while
-            # holding both stacks. _prior_step_keys is merged across every
+            # loads under NOW is that step's warm model, and releasing it
+            # here would reload it cold a moment later while holding both
+            # stacks. Judged on the other steps' current keys
+            # (_running_pipeline_keys, recorded by run), not their prior
+            # ones: when every step sharing one model variable changes at
+            # once, each still has the old key as its prior key, and
+            # nobody will load it again - holding it would be the two-stack
+            # transition #150 fixed. _prior_step_keys is merged across every
             # job the worker has run, never pruned, so a name from an
-            # earlier, unrelated workflow must not count - "shared" means
-            # shared by a step this run actually executes. If nothing
-            # touches it this run, the end-of-run sweep drops it.
-            running_step_names = getattr(self, "_running_step_names", set())
+            # earlier, unrelated workflow does not count either - it is not
+            # among the running steps. If nothing touches the key this run,
+            # the end-of-run sweep drops it.
+            running_keys = getattr(self, "_running_pipeline_keys", {})
             still_shared = any(
-                other != step_name and other in running_step_names and key == prior_key
-                for other, key in prior_keys.items()
+                other != step_name and key == prior_key
+                for other, key in running_keys.items()
             )
             if (
                 prior_key
