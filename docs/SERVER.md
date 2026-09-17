@@ -303,9 +303,18 @@ The editor's forms come from these; they are just as usable from scripts:
   also gets a warning saying so, since `0` alone does not distinguish a
   disabled cache from an empty one);
   `downloads_required`, each `model_name` the hub cache does not hold as
-  `{repo, gb}` (`gb` from the hub, `null` when it could not be asked -
-  `?sizes=false` skips the hub) and each `from_single_file` URL as
-  `{repo: null, url, gb: null}`; and `estimate`, `{minutes, basis,
+  `{repo, gb, gated, access_blocked}` (`gb` from the hub, `null` when it
+  could not be asked - `?sizes=false` skips the hub, and then `gated` and
+  `access_blocked` are `null` too); `gated` is the hub's own field for the
+  repo (`false`, `"auto"` or `"manual"`) or `null` when the lookup itself
+  failed for a reason other than the gate; `access_blocked` is `true`
+  when this box's Hugging Face token specifically has not been granted
+  access to a gated repo (`GatedRepoError` from the hub, the pre-flight
+  signal for what would otherwise be a 403 partway into a run, #186) -
+  `validate_workflow`'s `warnings` carries one line per such entry. Each
+  `from_single_file` URL is `{repo: null, url, gb: null, gated: null,
+  access_blocked: null}`, since a direct file URL is never gated; and
+  `estimate`, `{minutes, basis,
   device, measured_on, partial, runs}` from this box's own history when it
   has one and otherwise from the workflow's `cost` block -
   `basis` is `observed` (the cold median of this server's own finished runs
