@@ -45,6 +45,7 @@ def concat_videos(
     trim_frames=0,
     crossfade_ms=75,
     audio_bleed_ms=0,
+    audio_bleed_gain_db=0,
     seam_fade_ms=None,
     fps=None,
     match_levels=None,
@@ -72,6 +73,11 @@ def concat_videos(
             cut-based workflows, where every shot is generated independently and
             a running laugh track would otherwise butt-join into silence.
             0 (the default) leaves the seam as a plain declicked join
+        audio_bleed_gain_db: Gain applied to the bled tail before it is added,
+            in dB. 0 (the default) is unchanged, full-scale, matching the
+            outgoing material exactly; negative ducks a tail that would
+            otherwise push the seam over 0 dBFS, or that reads as too present
+            against the incoming shot. Has no effect when audio_bleed_ms is 0
         seam_fade_ms: Fade applied on each side of a seam that gets neither a
             crossfade nor a bleed. Defaults to the few milliseconds that keep a
             butt-join from clicking; raise it to a hundred or so for a graceful
@@ -199,7 +205,12 @@ def concat_videos(
         )
         if trim_samples == 0 and audio_bleed_ms:
             audio = bleed_join(
-                audio, waveform, sample_rate, audio_bleed_ms, seam_fade_ms
+                audio,
+                waveform,
+                sample_rate,
+                audio_bleed_ms,
+                seam_fade_ms,
+                audio_bleed_gain_db,
             )
         else:
             audio = equal_power_crossfade_join(

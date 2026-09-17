@@ -752,6 +752,19 @@ class Result:
         sample_rate = self.result_definition.get(
             "audio_sample_rate", artifact.sample_rate
         )
+        audio = artifact.audio
+        # Frames generated in memory (a previous_result-chained shot, a modular
+        # pipeline's own output) never went through _decode_audio_video, so a
+        # codec-padding mismatch between the audio and the frame count survives
+        # here instead of being trimmed there (#197). Segment-backed frames are
+        # written by the chain pipeline processor, which already carries its own
+        # fps and does its own segment-length accounting - left alone.
+        if audio is not None and sample_rate is not None and fps and not hasattr(
+            artifact.frames, "cleanup"
+        ):
+            from .tasks.video_utils import _fit_audio_to_frames
+
+            audio = _fit_audio_to_frames(audio, len(artifact.frames), fps, sample_rate)
 
         # Segment-backed frames (a chained step with save_segments) replay from
         # disk one segment at a time, so the final video is streamed instead of
@@ -790,7 +803,7 @@ class Result:
             return
 
         reason = None
-        if artifact.audio is None:
+        if audio is None:
             reason = "the pipeline returned no audio"
         elif sample_rate is None:
             reason = "the audio sample rate is unknown"
@@ -802,21 +815,21 @@ class Result:
         if reason is not None:
             # No audio at all is an expected shape - video-only chains and
             # concatenations - so it logs quietly; losing audio we do have warns
-            log = logger.debug if artifact.audio is None else logger.warning
+            log = logger.debug if audio is None else logger.warning
             log(f"Saving {output_path} without its audio because {reason}")
             export_to_video(artifact.frames, output_path, fps=fps)
             return
 
         logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")
         self._no_headroom_warned = (
-            warn_without_headroom(artifact.audio, os.path.basename(output_path))
+            warn_without_headroom(audio, os.path.basename(output_path))
             is not None
         )
         encode_video(
             frames_for_encoding(artifact.frames),
             fps=fps,
             output_path=output_path,
-            audio=as_audio_track(artifact.audio),
+            audio=as_audio_track(audio),
             audio_sample_rate=sample_rate,
         )
 

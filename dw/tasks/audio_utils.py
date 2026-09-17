@@ -112,7 +112,27 @@ def equal_power_crossfade_join(
     return numpy.concatenate([previous[:, :-window], blended, following], axis=1)
 
 
-def bleed_join(previous, following, sample_rate, bleed_ms, seam_fade_ms=None):
+# Below this, the reversed tail's spectral energy is concentrated in a few
+# bins rather than spread across the band - speech or a pitched/tonal element
+# rather than room tone or crowd noise, the direction-agnostic material a
+# bleed is meant for
+TONAL_FLATNESS_THRESHOLD = 0.3
+
+
+def _spectral_flatness(waveform):
+    """Geometric-mean-over-arithmetic-mean of the magnitude spectrum, averaged
+    across channels - near 0 for tonal/speech material, near 1 for noise-like
+    material (see TONAL_FLATNESS_THRESHOLD)."""
+    spectrum = numpy.abs(numpy.fft.rfft(waveform, axis=1))
+    spectrum = numpy.maximum(spectrum, 1e-10)
+    geometric_mean = numpy.exp(numpy.mean(numpy.log(spectrum), axis=1))
+    arithmetic_mean = numpy.mean(spectrum, axis=1)
+    return float(numpy.mean(geometric_mean / arithmetic_mean))
+
+
+def bleed_join(
+    previous, following, sample_rate, bleed_ms, seam_fade_ms=None, gain_db=0.0
+):
     """Butt-join two waveforms, ringing the outgoing tail on across the seam.
 
     Cut-based workflows generate every shot independently, so nothing overlaps at
@@ -124,7 +144,10 @@ def bleed_join(previous, following, sample_rate, bleed_ms, seam_fade_ms=None):
     waveform, the way an audience carries across a picture cut. The copy is
     time-reversed so it starts on the outgoing waveform's own last sample and the
     seam stays continuous without a declick fade; crowd noise and room tone are
-    direction-agnostic, so the reversal itself is not audible.
+    direction-agnostic, so the reversal itself is not audible - speech or a
+    tonal/musical tail is not, which is what gets a warning below rather than a
+    refusal, since a caller who has already listened to the material may still
+    want the bleed.
 
     The tail is added to whatever the incoming waveform already carries, and
     neither side is shortened, so frames and samples stay in step.
@@ -136,6 +159,10 @@ def bleed_join(previous, following, sample_rate, bleed_ms, seam_fade_ms=None):
         bleed_ms: How long the tail rings on, clamped to the material available
         seam_fade_ms: Fade applied on each side of the seam when there is no
             material to bleed at all
+        gain_db: Gain applied to the bled copy before it is added, in dB -
+            negative ducks a tail that would otherwise push the seam over
+            0 dBFS; 0 (the default) is unchanged, full-scale, the prior
+            behavior
 
     Returns:
         The two waveforms joined, of their full combined length
@@ -150,15 +177,32 @@ def bleed_join(previous, following, sample_rate, bleed_ms, seam_fade_ms=None):
     if window <= 0:
         return _declick_join(previous, following, sample_rate, seam_fade_ms)
 
+    tail = previous[:, ::-1][:, :window]
+
+    flatness = _spectral_flatness(previous[:, -window:])
+    if flatness < TONAL_FLATNESS_THRESHOLD:
+        emit_warning(
+            f"bleed_join: the tail being reversed onto the seam looks tonal or "
+            f"speech-like (spectral flatness {flatness:.2f}) rather than the "
+            f"room tone or crowd noise a bleed is meant for - the reversal is "
+            f"likely to be audible as a stutter or a note running backwards. "
+            f"Consider seam_fade_ms for a hard cut on this material instead.",
+            kind="bleed_tonal_material",
+            command="bleed_join",
+            flatness=round(flatness, 3),
+        )
+
     decay, _ = _equal_power_ramps(window)  # cos: 1 down to ~0
+    gain = 10.0 ** (gain_db / 20.0) if gain_db else 1.0
     following = following.copy()
-    following[:, :window] += previous[:, ::-1][:, :window] * decay
+    following[:, :window] += tail * decay * gain
 
     peak = numpy.abs(following[:, :window]).max()
     if peak > 1.0:
         logger.warning(
             f"Audio bleed pushed the seam to {peak:.2f} - it is added to the "
-            f"incoming track, which was not silent enough to absorb it"
+            f"incoming track, which was not silent enough to absorb it. Pass "
+            f"a negative gain_db to duck the bled copy."
         )
     return numpy.concatenate([previous, following], axis=1)
 
