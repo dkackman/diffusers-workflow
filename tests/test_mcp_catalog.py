@@ -117,6 +117,16 @@ def test_list_gallery_sends_a_subfolder_only_when_given():
     assert seen["params"]["subfolder"] == ""
 
 
+def test_list_gallery_sends_only_orphans_only_when_true():
+    client, seen = recording_client()
+    catalog.list_gallery(client, limit=7)
+    assert "only_orphans" not in seen["params"]
+
+    client, seen = recording_client()
+    catalog.list_gallery(client, only_orphans=True)
+    assert seen["params"]["only_orphans"] == "true"
+
+
 def test_a_pass_through_tool_returns_the_body_unchanged():
     client, _seen = recording_client({"workflows": ["a"], "details": {}})
 

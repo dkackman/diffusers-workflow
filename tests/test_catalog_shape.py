@@ -517,6 +517,7 @@ def test_compact_drops_prose_and_model_configs_and_keeps_user_workflows():
     assert set(compact["templates/tti"]) == set(COMPACT_FIELDS) - {
         "configures",
         "lists",
+        "constraints",
     }
     assert "description" not in compact["templates/tti"]
     assert "steps" not in compact["templates/tti"]

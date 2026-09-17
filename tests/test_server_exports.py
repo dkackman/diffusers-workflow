@@ -381,6 +381,20 @@ class TestExportZip:
             f"{job_id}/{entry['path']}" for entry in body["files"]
         )
 
+    def test_the_workflow_json_entry_deflates(self, server):
+        """workflow.json is not in MEDIA_KINDS, so the export zip's
+        compression policy deflates it like any other text file rather than
+        storing it - the export bundle is mostly text, so this is where the
+        zip's size actually comes from."""
+        with server() as client:
+            job_id = finished(client)
+            client.post(f"/api/jobs/{job_id}/export")
+            response = client.get(f"/exports/{job_id}.zip")
+
+        archive = zipfile.ZipFile(io.BytesIO(response.content))
+        info = archive.getinfo(f"{job_id}/workflow.json")
+        assert info.compress_type == zipfile.ZIP_DEFLATED
+
     def test_a_dot_does_not_archive_the_whole_exports_folder(self, server):
         # validate_path accepts a path equal to its root, so without a
         # shape check '.' would resolve to exports/ itself and zip every job

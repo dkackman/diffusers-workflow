@@ -177,7 +177,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | `pipeline_step` | each denoise step | `step`, `total_steps`. Emitted for a pipeline that takes a `callback_on_step_end`, and for a `ModularPipeline` (H3, LTX-2, Qwen-Image), which takes none - there the denoise block's own progress bar is what reports |
 | `phase` | the step changes what it is doing | `phase`, `detail` |
 | `pipeline_released` | a step with `release_pipeline` drops its pipeline | `step`, `index`, `gpu_memory_allocated_mb` and `gpu_memory_allocated_before_mb` (both `null` where the backend cannot say). Emitted between the step's generation and its files being written, which is where the release happens - so the ordering is readable off the event stream rather than by trying to poll memory through a sub-second write |
-| `warning` | a step finds something wrong with what it is about to write | `message`, plus a `kind` and the figures behind it (`level_spread`: `spread_db`, `measure`, `command`; `fps_mismatch`: `declared_fps`, `source_fps`). Also appended to the job's `warnings`, prefixed with the step it fired in - the event keeps the moment, `warnings` keeps it where a caller polling the finished job will look, since a warning about the artifact outlives the run that noticed it |
+| `warning` | a step finds something wrong with what it is about to write | `message`, plus a `kind` and the figures behind it (`level_spread`: `spread_db`, `measure`, `command`; `fps_mismatch`: `declared_fps`, `source_fps`; `audio_no_headroom`: `file`, `peak_dbfs` - a deliverable at or above -0.5 dBFS, which an mp3 or AAC encode decodes over full scale; `step_elided`: `step`, `overridden_by` when a supplied argument is what made it unreferenced). Also appended to the job's `warnings`, prefixed with the step it fired in - the event keeps the moment, `warnings` keeps it where a caller polling the finished job will look, since a warning about the artifact outlives the run that noticed it |
 | `workflow_end` | the run finishes | `manifest` |
 
 A step spends most of its wall clock outside the denoise loop, and
@@ -282,7 +282,14 @@ The editor's forms come from these; they are just as usable from scripts:
   MiniMax-H3, audio as the only reference - because the pipeline enforces
   those only once its checkpoint is loaded, minutes into an acknowledged
   run (`dw/reference_limits.py`, which reads each limit off the diffusers
-  block that enforces it rather than restating it).
+  block that enforces it rather than restating it). A LoRA loaded onto the
+  wrong checkpoint partition is an error for the opposite reason - the
+  pipeline accepts it: MiniMax-H3's `ref2va` holds `transformer_ref` alone,
+  so an FL2VA-trained adapter loads onto it, the run succeeds and only the
+  identity retention is worse (`dw/adapter_compatibility.py`, #155). A
+  `weight_name` carrying neither `ref2v` nor `fl2v` cannot be placed, so it
+  is a `warnings` entry naming the rule rather than a refusal - a
+  reference-trained checkpoint nobody has named yet still gets through.
 
   A valid answer also carries `plan`, what the run will execute for those
   arguments: `fingerprint` (`sha256:…` over the realized, expanded
@@ -299,8 +306,12 @@ The editor's forms come from these; they are just as usable from scripts:
   `{repo, gb}` (`gb` from the hub, `null` when it could not be asked -
   `?sizes=false` skips the hub) and each `from_single_file` URL as
   `{repo: null, url, gb: null}`; and `estimate`, `{minutes, basis,
-  device, measured_on, partial}` from the workflow's own `cost` block -
-  `basis` is `catalog` (the stored total, for a run whose lists are the
+  device, measured_on, partial, runs}` from this box's own history when it
+  has one and otherwise from the workflow's `cost` block -
+  `basis` is `observed` (the cold median of this server's own finished runs
+  of this shape, with `runs` saying how many; preferred over a curated
+  figure, and quoted only for the bucket the caller's arguments fall in),
+  `catalog` (the stored total, for a run whose lists are the
   ones it was measured with), `per_entry` (re-priced from a measured
   per-entry rate, when the entry carries `per_entry`), `derived` (the
   stored total extrapolated linearly over a list whose length the caller
@@ -308,7 +319,9 @@ The editor's forms come from these; they are just as usable from scripts:
   the serving backend; the first entry's figure, which is a warning rather
   than a quote) or `unknown` (no cost block, or more than one list changed
   so there is nothing honest to extrapolate along); a composed child's
-  cost is added and `partial` is true when a child has none. `plan` is `null` when
+  cost is added to a curated figure and `partial` is true when a child has
+  none - an `observed` figure already measured the whole run, children
+  included, so nothing is added to it and `partial` is false. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 
 ## Files and models
@@ -333,7 +346,25 @@ The editor's forms come from these; they are just as usable from scripts:
   `cost_basis` says what that is - `curated`: figures a maintainer measured
   once and wrote into the workflow, never derived from this server's own job
   history, so `null` means nobody wrote one down rather than "this box has
-  never run it". A `models/` entry
+  never run it". Beside it, `observed` is the derived figure the same
+  listing is allowed to carry (#93): what *this* box's own finished runs of
+  that workflow took, as `cold_minutes`/`cold_runs` (model load included,
+  so comparable to a curated `cost`) and `warm_minutes`/`warm_runs` (model
+  already resident), with the `drivers` the figure is for, `since`, and
+  `unclassified_runs` when a run's persisted events were trimmed past its
+  `loading` phase. Runs are bucketed by the workflow's declared
+  `cost_drivers` - the variables that move its cost - so a 345-frame run
+  never informs a 124-frame figure; a list driver buckets on its length. A
+  workflow declaring no drivers falls back to runs that overrode nothing at
+  all, and a run whose every step was a step-cache hit is excluded. The
+  compact view carries only `observed_minutes` (cold) and `observed_runs`;
+  `GET /api/workflows/{name}/variables` carries the whole block beside the
+  defaults. Derived from the job rows in one query - so the figures outlive
+  a pruned run directory - and cached against the jobs table's high-water
+  mark rather than a file mtime, because a job landing changes every figure
+  and changes no file. `observed` never replaces `cost`: a maintainer's
+  claim on a named card and this machine's last week are different things.
+  A `models/` entry
   takes its `shape` and `traits` from the template it configures and keeps
   its own `cost`. A list-driven workflow (one with a `for_each` step) also
   carries `lists`: per list variable, the fields an entry takes, the steps
@@ -404,7 +435,12 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/assets` — the asset library: input media, each with the
   `asset:` reference a workflow carries rather than a path, since a path
   only means something on the server's own machine. Empty rather than an
-  error when no library is configured
+  error when no library is configured. `libraries` lists the roots searched,
+  in order, each `{origin, dir, writable}` — what `asset_dirs` names without
+  saying which of them an upload or delete can actually reach. `shadowed`
+  lists the entries a nearer library hides: same shape as an `assets` entry
+  but without `url` (that URL would serve the shadowing file, not this one),
+  plus `shadowed_by` naming the origin that won
 - `POST /api/assets/keep` (`{"name": ..., "asset_name": ..., "overwrite": false, "shared": false}`)
   — keep a generated file as an input asset under a stable name, returning
   its `asset:` reference. A run's files are named by the run that made them,
@@ -424,6 +460,22 @@ The editor's forms come from these; they are just as usable from scripts:
   workspace's own before the shared one, the order `asset:` resolves in).
   An asset from a read-only examples library answers 403, the same as a
   read-only prompt or workflow; a name nothing holds answers 404
+- `POST /api/assets/archive` — `{"names": [...]}` (1-1000) bundles a
+  multi-file asset selection into one zip, named by each file's
+  library-relative path, which is the name its `asset:` reference carries.
+  The gallery archive's counterpart on the input side; it resolves down the
+  same search path a run does, so a selection spanning this workspace's
+  library, the shared one and an examples tree downloads as one archive, and
+  an unknown or out-of-library name 404s the whole request rather than
+  yielding a partial one. A duplicate name (repeated in the selection, or
+  differing only by leading/trailing whitespace) collapses onto the one zip
+  entry. Media (image/video/audio) stores rather than deflates, unless it's
+  a raw format that still compresses (`.bmp`, `.wav`) - everything else the
+  libraries hold is an already-compressed container, and the response does
+  not start until the archive is complete, so deflating it is latency the
+  caller waits through for nothing. Everything else - `.json`, `.md`,
+  `.txt`, an unrecognized extension - deflates; so does the export zip's
+  text files (`workflow.json`, `manifest.json`, `job.json`, the README)
 - `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
   again on the body; extension held to the allowed image/video list), saved

@@ -39,7 +39,11 @@ dependencies = [
     # PyPI release; the newest pipelines may need git HEAD on top, which
     # install.sh layers on (and the web UI's Models page can install)
     "diffusers>=0.40.0",
-    "transformers>=5.16.1",
+    # 5.17.0's TextToAudioPipeline.preprocess calls BatchEncoding.to(dtype=...),
+    # a kwarg BatchEncoding.to() has never accepted in this line - breaks every
+    # generate_speech (Bark) call outright (#169). Drop the exclusion once a
+    # later release either restores the kwarg or stops passing it.
+    "transformers>=5.16.1,!=5.17.0",
     "accelerate>=1.14.0",
     "peft>=0.20.0",
     "safetensors>=0.8.0",
@@ -61,6 +65,11 @@ dependencies = [
     "controlnet-aux>=0.0.10",
     "opencv-python-headless>=5.0.0.93",
     "kornia>=0.8.3",
+    # Hub-hosted compiled kernels, fetched at runtime by a model that asks for
+    # one - LTX-2.5's diffusion decoder reaches NATTEN's na3d this way, and
+    # without it that decoder falls back to a FlexAttention path diffusers' own
+    # docstring calls larger than device memory at production grids
+    "kernels>=0.17.0",
     # Upscaling and face restoration tasks
     "spandrel>=0.4.2",
     "facexlib>=0.3.0",

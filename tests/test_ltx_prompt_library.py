@@ -18,6 +18,24 @@ from tests.test_examples import REPO_ROOT
 
 PROMPTS = sorted(glob.glob(os.path.join(REPO_ROOT, "prompts", "ltx2", "*.json")))
 
+
+def _is_ic_lora(path):
+    """Whether this prompt is a conditioning caption rather than a shot
+    description.
+
+    The IC-LoRAs (#151, #152) were trained on their own caption form and
+    each vendor card states it: Deblur and Decompression on a dual panel
+    ('Reference shows ... DEBLUR/ENHANCE QUALITY ... only x differs'),
+    Ingredients on two labelled halves ('Reference sheet: ...' /
+    'Generated video: ...', which is deliberately two paragraphs). They are
+    shorter than a T2V caption because half the description is doing the
+    job the reference video does in the other genre - so the shot-caption
+    rules below do not apply to them, and their own convention is checked
+    instead.
+    """
+    return "ic-lora" in (_prompt(path).get("tags") or [])
+
+
 # Tag-style and preamble phrases the training spec rules out
 FORBIDDEN = (
     "8k",
@@ -36,11 +54,13 @@ def _prompt(path):
 
 
 def test_there_are_ltx_prompts():
-    assert len(PROMPTS) == 6
+    assert len(PROMPTS) == 9
 
 
 @pytest.mark.parametrize("path", PROMPTS, ids=os.path.basename)
 def test_a_prompt_is_one_paragraph_of_caption_length(path):
+    if _is_ic_lora(path):
+        pytest.skip("an IC-LoRA conditioning caption, checked below")
     text = _prompt(path)["text"]
 
     assert "\n" not in text.strip(), f"{path} is more than one paragraph"
@@ -48,6 +68,37 @@ def test_a_prompt_is_one_paragraph_of_caption_length(path):
     assert 140 <= words <= 240, (
         f"{path} is {words} words; the trained caption is 150-220"
     )
+
+
+# The phrase each IC-LoRA card states as the form it was trained to read
+_IC_LORA_CONVENTION = {
+    "deblur_dual_panel.json": (
+        "Reference shows",
+        "DEBLUR",
+        "only focus and sharpness differ",
+    ),
+    "decompression_dual_panel.json": (
+        "Reference shows",
+        "ENHANCE QUALITY",
+        "only compression artifacts and image quality differ",
+    ),
+    "reference_sheet_workshop.json": ("Reference sheet:", "Generated video:"),
+}
+
+
+@pytest.mark.parametrize("path", PROMPTS, ids=os.path.basename)
+def test_an_ic_lora_prompt_is_in_its_trained_form(path):
+    """A conditioning caption outside the form its LoRA was trained on
+    generates something plausible and wrong, which is the failure mode
+    hardest to notice - so the markers are pinned rather than trusted."""
+    if not _is_ic_lora(path):
+        pytest.skip("a shot caption, checked above")
+    text = _prompt(path)["text"]
+    expected = _IC_LORA_CONVENTION.get(os.path.basename(path))
+
+    assert expected, f"{path} is tagged ic-lora but names no trained form here"
+    for marker in expected:
+        assert marker in text, f"{path} is missing {marker!r}"
 
 
 @pytest.mark.parametrize("path", PROMPTS, ids=os.path.basename)

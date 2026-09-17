@@ -1,8 +1,21 @@
 {
     "id": "MiniMaxH3MusicVideo",
-    "description": "A music video built from cuts, sung to a soundtrack that never touches a chain. The long-take way to film a song - one chained generation lip-synced end to end - degrades with every carried segment and can let the sync slip. This builds the video the way music television does instead: MiniMax-Music3 writes the song, one 'slice_audio' step per entry of 'shots' cuts it into frame-exact pieces (124 frames at 24 fps each, from each entry's 'start_frame'), and one shot per entry is generated fresh from the same Z-Image portrait plus its own slice, lip-synced to just those five seconds. 'shots' is a list, so the cut is an argument: add an entry and there is one more slice and one more shot, named for it ('slice@closeup', 'shot@closeup'), and the loaded model is reused across every shot - identical pipeline definitions share one model. No shot conditions on another shot's output, so the last cut is as clean as the first. 'concat_videos' gathers the shots in list order, and because each one covered exactly its slice's frames, the edit is sample-accurate by construction: 'pair_audio' drops the original, unbroken song over the whole cut and the mouths line up in every shot. The generation models pass through one at a time - each is released before the next loads - so the workflow peaks no higher than its largest single model. Shots generated independently also drift in loudness - 10 dB between two shots of one scene is ordinary - and no seam control can hide a level jump, because it is either side of the cut rather than at it; 'match_levels' ('rms' for perceived level, 'peak' for the loudest sample) evens the shots out before they are joined, and left null, as it is by default, a wide spread is warned about in the log rather than passing in silence.",
+    "description": "A music video built from cuts, sung to a soundtrack that never touches a chain. The long-take way to film a song - one chained generation lip-synced end to end - degrades with every carried segment and can let the sync slip. This builds the video the way music television does instead: MiniMax-Music3 writes the song, one 'slice_audio' step per entry of 'shots' cuts it into frame-exact pieces (124 frames at 24 fps each, from each entry's 'start_frame'), and one shot per entry is generated fresh from the same Z-Image portrait plus its own slice, lip-synced to just those five seconds. 'shots' is a list, so the cut is an argument: add an entry and there is one more slice and one more shot, named for it ('slice@closeup', 'shot@closeup'), and the loaded model is reused across every shot - identical pipeline definitions share one model. No shot conditions on another shot's output, so the last cut is as clean as the first. 'concat_videos' gathers the shots in list order, and because each one covered exactly its slice's frames, the edit is sample-accurate by construction: 'pair_audio' drops the original, unbroken song over the whole cut and the mouths line up in every shot. The soundtrack follows the list too - 'pair_audio' is given the whole song with 'fit': 'video', so it is cut to exactly the frames the edit came to, whatever length 'shots' is; a list long enough to outrun 'audio_duration' seconds of song is padded with silence and warned about rather than passing quietly. The generation models pass through one at a time - each is released before the next loads - so the workflow peaks no higher than its largest single model. Shots generated independently also drift in loudness - 10 dB between two shots of one scene is ordinary - and no seam control can hide a level jump, because it is either side of the cut rather than at it; 'match_levels' ('rms' for perceived level, 'peak' for the loudest sample) evens the shots out before they are joined, and left null, as it is by default, a wide spread is warned about in the log rather than passing in silence. The singer's picture is one argument: 'singer_reference' is the <Picture 1> reference every shot conditions on, and it names 'draw_singer' by default. A standing cast member is used instead by passing a reference that reads a file - {\"reference_type\": \"variable:image_reference_type\", \"from_file\": \"asset:cast/priya.jpg\"} - which is the same shape 'dialogue-short' takes per shot entry. 'draw_singer' then goes unreferenced and is elided before the run, so the portrait costs nothing when one was supplied; it saves nothing of its own either way, being a conditioning image rather than a deliverable, and a portrait worth keeping is kept from the run that drew it. The soundtrack is peak-normalized to -3 dBFS on its way into the mux, and only there: Music 3 lands at or over full scale, and the mp4's second lossy encode had been pushing the finished video past it (#158, #159). -3 rather than the -1 an audio deliverable takes because the AAC encode in the mux overshoots by around 1.9 dB on this material where an mp3 overshoots by a tenth of one, so -1 was not enough headroom and the finished mp4 still decoded at +0.94 dBFS (#161). The slices that condition the shots are the song at its own level, untouched, so the picture is what it was.",
     "cost": [
-        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 35}
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 35
+        }
+    ],
+    "cost_drivers": [
+        "shots",
+        "num_frames",
+        "audio_duration",
+        "num_inference_steps",
+        "width",
+        "height"
     ],
     "variables": {
         "singer_portrait_prompt": "prompt:zimage/otter_singer_portrait",
@@ -33,6 +46,10 @@
         ],
         "audio_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
         "image_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+        "singer_reference": {
+            "reference_type": "variable:image_reference_type",
+            "from_previous_result": "draw_singer"
+        },
         "sample_rate": 44100,
         "num_frames": 124,
         "fps": 24,
@@ -42,11 +59,24 @@
         "width": 960,
         "height": 544,
         "num_inference_steps": 9,
+        "video_shift": 12.0,
+        "audio_shift": 3.0,
         "weights_dtype": "{int4}",
         "lora_scale": 1.0,
+        "lora_alpha": null,
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
-        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo"
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        }
     },
     "seed": 42,
     "steps": [
@@ -74,7 +104,8 @@
             "result": {
                 "content_type": "image/jpeg",
                 "embed_metadata": true,
-                "subfolder": "intermediate"
+                "subfolder": "intermediate",
+                "save": false
             }
         },
         {
@@ -116,19 +147,6 @@
                     "sample_rate": "variable:sample_rate",
                     "start_frame": "item:start_frame",
                     "num_frames": "variable:num_frames",
-                    "fps": "variable:fps"
-                }
-            }
-        },
-        {
-            "name": "soundtrack",
-            "task": {
-                "command": "slice_audio",
-                "arguments": {
-                    "audio": "previous_result:write_song",
-                    "sample_rate": "variable:sample_rate",
-                    "start_frame": 0,
-                    "num_frames": 496,
                     "fps": "variable:fps"
                 }
             }
@@ -240,16 +258,20 @@
                         "model_name": "variable:lora_model_name",
                         "weight_name": "variable:lora_weight_name",
                         "adapter_name": "variable:lora_adapter_name",
-                        "scale": "variable:lora_scale"
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
                     }
                 ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
                 "arguments": {
                     "prompt": "item:prompt",
                     "references": [
-                        {
-                            "reference_type": "variable:image_reference_type",
-                            "from_previous_result": "draw_singer"
-                        },
+                        "variable:singer_reference",
                         {
                             "reference_type": "variable:audio_reference_type",
                             "from_previous_result": "slice",
@@ -288,13 +310,25 @@
             }
         },
         {
+            "name": "balanced",
+            "task": {
+                "command": "normalize_audio",
+                "arguments": {
+                    "audio": "previous_result:write_song",
+                    "peak_dbfs": -3.0,
+                    "sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
             "name": "music_video",
             "task": {
                 "command": "pair_audio",
                 "arguments": {
                     "video": "previous_result:edit",
-                    "audio": "previous_result:soundtrack",
-                    "sample_rate": "variable:sample_rate"
+                    "audio": "previous_result:balanced",
+                    "sample_rate": "variable:sample_rate",
+                    "fit": "video"
                 }
             },
             "result": {

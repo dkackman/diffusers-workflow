@@ -83,6 +83,11 @@ common` by `GET /api/assets`, and is written to only when a call says so
 Reserved names: `workflows`, `prompts`, `assets`, `outputs`, `exports`,
 `common`.
 
+The web UI has a page for it: `ui/src/lib/pages/AssetsPage.svelte` (#165)
+reads `GET /api/assets` and shows the library the way the gallery shows
+outputs, tagged by `origin` so a shadowed or read-only entry is visible
+before a 403 explains it.
+
 ### Workflow sources
 
 `dw/workflow_sources.py` is the server's workflow search path: the writable
@@ -190,6 +195,29 @@ The same conventions, written for an agent composing a workflow over MCP, are
 the `Authoring a workflow from an agent` section of docs/WORKFLOW_GUIDE.md;
 change both when one changes.
 
+### LTX-2.5 IC-LoRAs
+
+`templates/ltx2/generative-upscale` was the only IC-LoRA use in the catalog;
+three more conditioning templates join it (#151, #152), all through
+`LTX2InContextPipeline` + `LTX2ReferenceCondition`, all at
+`reference_downscale_factor: 1` (the upscaler's is 2). `reference-sheet`
+drives Ingredients — the family's only identity route, and the first two
+templates here whose reference is a file the workflow did not make; the sheet
+is a still, so a `loop_frames` step (`dw/tasks/video_utils.py`, the video
+analogue of `loop_audio`) laps it into the static video the LoRA reads
+through its 121-frame bucket. `restore-deblur` and `restore-decompression`
+each invert one defect and no other. Every number in the three is the vendor
+card's and is pinned by `tests/test_ltx2_ic_loras.py`; the trained caption
+form is a *different* genre from a T2V shot caption, so those stored prompts
+are tagged `ic-lora` and `tests/test_ltx_prompt_library.py` checks them
+against their own convention rather than the 150-220-word paragraph rule.
+The weights are `gated: auto` on Hugging Face — per repo, so a box that pulls
+one can still 403 on another. A `loras` entry counts toward
+`plan.downloads_required` (`_collect_sources`, `dw/plan.py`): it names its repo
+under `model_name` directly rather than through `from_pretrained_arguments`, so
+the walk used to miss it and a box holding every base weight but not the
+IC-LoRA answered `[]` and then pulled it mid-run.
+
 ### Quantization Support
 
 Quantization configs are defined per-component in workflow JSON and instantiated in `config_objects.py`. Supported frameworks: BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto. The `config_type` field is a free-form string — new quantization backends work automatically via dynamic import.
@@ -266,6 +294,23 @@ same reason - default setup cannot load a pack.
   take `name=value` strings, and a string handed to a list variable is
   comma-split - so `shots` can only be supplied over the API/MCP (a JSON
   body); `python -m dw.run` runs the templates' default list
+- **A reference name is checked for its shape before the queue, and `@` is
+  part of it** — a `for_each` member is `<group>@<entry>` and the files it
+  writes carry that `@` in their base name, which `OUTPUT_REFERENCE_PATTERN`
+  and `ASSET_REFERENCE_PATTERN` refused: a whole class of files the server
+  itself named could not be named back to it, so `output:` on a shot a
+  list-driven template produced forced a re-render or an `upload_asset` round
+  trip (#162). `@` is safe in a path — not a separator, not `..`, and
+  containment is still `validate_path`'s — and a name still may not *start*
+  with one. The other half is that the refusal arrived at run time, after the
+  queue, from a message that described a *valid* name and never said which
+  character it objected to: `reference_name_errors` (`dw/reference_names.py`)
+  now checks the shape of every `asset:`/`prompt:`/`output:` reference in the
+  definition in `validation_errors`, and `_name_fault` (`dw/security.py`)
+  names the offending character and position. Shape only — *existence*
+  depends on the workspace and on what pruning has taken, so it stays where it
+  was: the validate route resolves the caller's `arguments` against the
+  workspace, and the definition's own references resolve at run time
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
@@ -368,6 +413,118 @@ same reason - default setup cannot load a pack.
   one entry in the table; `tests/test_task_domains.py` pins every entry to a
   real parameter of a real command so a rename cannot leave one checking
   nothing
+- **`cost` is curated, `observed` is derived, and they are different fields** —
+  `dw/workflow_schema.json` defines `cost` as *"Never derived"*, so nothing
+  writes one; `dw/server/observed_cost.py` reports a sibling built from this
+  box's own `jobs.sqlite` rows (#93). Four rules, each a way the naive median
+  would lie: runs are bucketed by the workflow's declared `cost_drivers` (a
+  list driver on its *length*, so two four-shot runs are comparable however
+  different their prompts) and the bucket reported is the one the *defaults*
+  give, keeping it comparable to a curated figure; `cold_minutes` and
+  `warm_minutes` are separate, each with its own run count, and only the cold
+  one is comparable to `cost` (wall clock including model load); a run whose
+  every manifest entry is `reused` wrote nothing and is excluded; and a run
+  whose persisted events hit `MAX_PERSISTED_EVENTS` without a `loading` phase
+  is `unclassified_runs` rather than assumed warm. Everything comes off the
+  job row in one query, so a figure survives a pruned run directory, and the
+  aggregate caches against `JobHistory.watermark()` rather than a file mtime —
+  a job landing changes every figure and changes no file. The compact listing
+  carries only `observed_minutes`/`observed_runs` (#101 budget); the full
+  block is in the full listing and `GET /api/workflows/{name}/variables`. The
+  raw `GET /api/workflows/{name}` is left verbatim, since the editor saves
+  what it reads back. A `cost_drivers` entry naming no declared variable is
+  dropped, and `tests/test_observed_cost.py` sweeps the catalog for one.
+  `plan.estimate` quotes the observed figure ahead of the curated one
+  (`basis: "observed"`, with `runs`) — `basis: "unknown"` has to mean nobody
+  has a number, not nobody curated one (#154). Only the *cold* median, only
+  when the history is this backend's, and only for the bucket the caller's
+  own arguments fall in (`ObservedCosts.observed(name, definition,
+  arguments)`); a resized list finds no bucket and falls back to the curated
+  figure. Nothing is added for a composed child, since an observed run
+  already ran it. An inline definition has no catalog name, so no history
+- **An H3 adapter is checked against the partition its step denoises on** —
+  `ref2va` loads `transformer_ref` alone, so diffusers puts whatever
+  `lora_weight_name` names straight onto it: an FL2VA turbo LoRA on a
+  reference step runs, succeeds, and only retains identity worse (#149,
+  #155). `dw/adapter_compatibility.py` refuses the mispairing in
+  `validation_errors` (so `POST /api/validate` and the pre-queue check both
+  catch it, at `arguments.<name>` when the caller supplied it) and *warns*
+  on a file name carrying neither `ref2v` nor `fl2v` — the name of a future
+  reference-trained checkpoint cannot be predicted, so the escape hatch
+  stays open while the one documented mistake is closed. The workflow names
+  and the partition each denoises against are diffusers'
+  (`MiniMaxH3Blocks._workflow_map`, pinned by `tests/test_h3_adapters.py`);
+  the file-name convention is MiniMax's and is swept against the catalog's
+  own defaults
+- **An elided step says whether anyone decided it** — `warn_elided` used to
+  tell every caller their reference was probably misspelled, including the
+  one who deliberately passed `singer_reference` and so bought the elision
+  `music-video` advertises (#146, #157). `overriding_variables`
+  (`dw/elision.py`) compares the definition as *written* against the
+  substituted steps: a step reached only through a variable whose value no
+  longer names it was replaced on purpose, and its record carries
+  `overridden_by` and drops the diagnosis. A variable no step reads is not
+  how the step was reached, so that case keeps the old wording
+- **A deliverable with no audio headroom warns** — a track at or above
+  −0.5 dBFS is written anyway and said out loud (`warn_without_headroom`,
+  `dw/result.py`, kind `audio_no_headroom`), for both a saved audio file and
+  a muxed video: a clipped file succeeds, and a consumer that cannot listen
+  had `peak_dbfs` with no rule to read it against — `get_gallery_metadata`'s
+  hint taught the near-silent end of the range only (#158). A warning, not a
+  gain change: what level a deliverable sits at is the workflow's to decide,
+  and `normalize_audio` is the step that decides it. The two Music 3
+  templates decide it now (#159) - `music` and `music-video` peak-normalize
+  to -1 dBFS, the level `assemble-and-score` has always used, because the
+  warning was firing on their own defaults every run. `music-video`
+  normalizes only the track going into the mux, not the slices that condition
+  the shots, so the picture is unchanged; `music`'s deliverable moves to the
+  new `balanced` step, which renames the file an `output:` reference names
+- **A deliverable is measured as written, not as handed to the writer** —
+  `warn_without_headroom` reads the waveform, and the encoder sits downstream
+  of it: a song normalized to exactly -1.0 dBFS came back out of
+  `music-video`'s AAC mux at **+0.94**, so a clean default run shipped a
+  clipped file and nothing warned (#161). `warn_if_written_above_full_scale`
+  (`dw/result.py`, kind `audio_clipped`) probes the file it just wrote and
+  warns when it decodes at or above 0 dBFS — whatever the encoder did, that
+  is the number a consumer's decoder sees. Only for a file that can carry a
+  soundtrack, and silent when `warn_without_headroom` already spoke for that
+  file, since two warnings would be two answers to one mistake. The encode's
+  overshoot is material-dependent — about 0.1 dB on an mp3 and about 1.9 dB
+  on the AAC mux of the same song — so no target chosen up front can be
+  *known* to be enough, which is why reading the file back is the half that
+  stops the next instance. The half that fixes this one: every template
+  whose deliverable ends in a `pair_audio` mux (`music-video`,
+  `assemble-and-score`, `dissolve-between-shots`) normalizes to **-3 dBFS**;
+  `music`, an mp3, keeps -1
+- **A variable's bound is declared by the author, checked three times** — a
+  model's own rule about a value (H3's `num_frames` is `17 * n + 5` from 124
+  to 345) is a property of the model, so it lives in the workflow rather than
+  in engine code, as a `variable_constraints` entry (`dw/variable_constraints.py`).
+  One shape, not two: it takes a chain step's `frame_snap` field names, and a
+  chain writes `"frame_snap": "constraint:num_frames"` rather than repeating
+  the numbers. `snap: "up"` rounds an off-grid value to the next legal one
+  and warns (at validation *and* through `emit_warning`, so it reaches the
+  job's `warnings`); without `snap` an off-grid value is refused. The bounds
+  hold for the value the run will use, matching diffusers' own
+  `align_num_frames`, which snaps before it range-checks — so 108 is accepted
+  (it becomes 124) and 346 refused (it would become 362). LTX-2.5's templates
+  declare the `8 * n + 1` grid with *no* `snap`, because those pipelines floor
+  an off-grid count rather than raising: rounding up here would be a second
+  silent change to the length. Checked in `validation_errors` (so
+  `POST /api/validate`, `validate_workflow` and the pre-queue check all
+  refuse it at `arguments.<name>` / `variables.<name>`), at run time in
+  `apply_constraints` before anything loads, and reported beside the default
+  by `list_workflows` (terse) / `get_workflow(variables_only=true)` — that
+  last part is what stops the next consumer picking 61 (#96).
+  `tests/test_variable_constraints.py` sweeps the whole catalog and pins every
+  declared number to the diffusers symbol it derives from. A constraint key is
+  a plain variable name and is matched wherever a value by that name sits -
+  top-level variable *or* a field of a `for_each` entry (#145), the latter only
+  where a step consumes that field as `item:<name>` (`entry_constraint_fields`),
+  so the bound follows the value into the pipeline argument rather than the
+  name into the JSON. An entry violation is reported at
+  `arguments.shots[0].num_frames`, and the rule is reported beside the field in
+  the catalog's `lists` block as well as in `constraints`
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image

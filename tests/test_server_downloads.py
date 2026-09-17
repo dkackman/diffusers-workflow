@@ -5,11 +5,19 @@ must be registered before the existing plain GET route or FastAPI's
 greedy {name:path} matching on the plain route swallows it."""
 
 import json
+import os
+
+import pytest
 
 # `server` is imported for its fixture: these tests need exactly the one
 # tests/test_server.py already defines (its extra Basic.json seed file is
 # harmless here), and a second copy would drift from it
-from tests.test_server import server, success_script, valid_workflow  # noqa: F401
+from tests.test_server import (  # noqa: F401
+    asset_server,
+    server,
+    success_script,
+    valid_workflow,
+)
 
 
 def test_download_output_sets_content_disposition_attachment(server, tmp_path):
@@ -121,3 +129,155 @@ def test_archive_outputs_rejects_more_names_than_the_cap(server, tmp_path):
         )
 
         assert response.status_code == 422
+
+
+def test_archive_assets_zips_every_requested_file(asset_server, tmp_path):
+    """The asset grid's bulk download, the gallery's own: a selection of
+    inputs comes back as one zip rather than N downloads the browser
+    throttles."""
+    import io
+    import zipfile
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        (assets / "iris.png").write_bytes(b"iris-bytes")
+        nested = assets / "cast"
+        nested.mkdir(exist_ok=True)
+        (nested / "priya.jpg").write_bytes(b"priya-bytes")
+
+        response = client.post(
+            "/api/assets/archive", json={"names": ["iris.png", "cast/priya.jpg"]}
+        )
+
+        assert response.status_code == 200
+        assert "attachment" in response.headers["content-disposition"]
+        assert ".zip" in response.headers["content-disposition"]
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            # the library-relative name is the entry name, so a folder in the
+            # library survives into the download and the reference a workflow
+            # carries still reads off the file you unpacked
+            assert sorted(archive.namelist()) == ["cast/priya.jpg", "iris.png"]
+            assert archive.read("iris.png") == b"iris-bytes"
+            assert archive.read("cast/priya.jpg") == b"priya-bytes"
+
+
+def test_archive_assets_dedupes_a_repeated_name(asset_server, tmp_path):
+    """A name repeated in the selection - here by stray whitespace, which an
+    eager client could also produce by resubmitting the same click - collapses
+    onto the one zip entry rather than colliding on write."""
+    import io
+    import zipfile
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        (assets / "iris.png").write_bytes(b"iris-bytes")
+
+        response = client.post(
+            "/api/assets/archive", json={"names": ["iris.png", "iris.png "]}
+        )
+
+        assert response.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.namelist() == ["iris.png"]
+
+
+def test_archive_assets_rejects_a_name_outside_the_library(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        (tmp_path / "secret.txt").write_bytes(b"not yours")
+
+        response = client.post("/api/assets/archive", json={"names": ["../secret.txt"]})
+
+        assert response.status_code == 404
+
+
+def test_archive_assets_rejects_an_unknown_name(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        response = client.post("/api/assets/archive", json={"names": ["nope.png"]})
+
+        assert response.status_code == 404
+
+
+def test_archive_assets_rejects_an_empty_selection(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        response = client.post("/api/assets/archive", json={"names": []})
+
+        assert response.status_code == 422
+
+
+def test_archive_assets_rejects_more_names_than_the_cap(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        response = client.post(
+            "/api/assets/archive", json={"names": [f"f{i}.png" for i in range(1001)]}
+        )
+
+        assert response.status_code == 422
+
+
+def test_archive_stores_already_compressed_media_rather_than_deflating_it(
+    asset_server, tmp_path
+):
+    """Every asset extension but .bmp and .wav is an already-compressed
+    container, so deflating one buys nothing and costs a full CPU pass the
+    caller waits on - the response only starts once the temp file is
+    written. Formats that do compress keep deflate."""
+    import io
+    import zipfile
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        (assets / "clip.mp4").write_bytes(b"\x00\x01" * 4096)
+        (assets / "tone.wav").write_bytes(b"\x00\x01" * 4096)
+
+        response = client.post(
+            "/api/assets/archive", json={"names": ["clip.mp4", "tone.wav"]}
+        )
+
+        assert response.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.getinfo("clip.mp4").compress_type == zipfile.ZIP_STORED
+            assert archive.getinfo("tone.wav").compress_type == zipfile.ZIP_DEFLATED
+
+
+def test_raw_media_extensions_is_a_subset_of_media_kinds(asset_server, tmp_path):
+    """RAW_MEDIA_EXTENSIONS names the MEDIA_KINDS members that don't compress
+    already - a name outside MEDIA_KINDS there would be silently inert in
+    _zip_download's policy check."""
+    with asset_server(success_script) as client:
+        state = client.app.state
+        assert state.raw_media_extensions <= set(state.media_kinds)
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="platform has no os.symlink")
+def test_archive_assets_rejects_a_name_behind_a_symlink(asset_server, tmp_path):
+    """A symlink inside the library that points outside it still resolves
+    with os.path.isfile, which is why _asset_in cannot stop there:
+    validate_path is what actually catches the escape, and a SecurityError
+    from that check must fall through to a plain 404 for the name rather
+    than bubble up as a 500."""
+    with asset_server(success_script) as client:
+        outside = tmp_path / "secret.txt"
+        outside.write_bytes(b"not yours")
+        assets = tmp_path / "assets"
+        os.symlink(outside, assets / "link.txt")
+
+        response = client.post("/api/assets/archive", json={"names": ["link.txt"]})
+
+        assert response.status_code == 404
+
+
+def test_archive_deflates_a_non_media_file(asset_server, tmp_path):
+    """A file _zip_download never classifies as media - here a stray text
+    file living in the asset library - deflates like any other document,
+    rather than being stored for want of a MEDIA_KINDS entry."""
+    import io
+    import zipfile
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        (assets / "notes.txt").write_bytes(b"same text " * 200)
+
+        response = client.post("/api/assets/archive", json={"names": ["notes.txt"]})
+
+        assert response.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.getinfo("notes.txt").compress_type == zipfile.ZIP_DEFLATED

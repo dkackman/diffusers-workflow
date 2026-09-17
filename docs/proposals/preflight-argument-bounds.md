@@ -129,3 +129,50 @@ Checking a value against a *loaded* pipeline's signature - that is what the
 existing signature warnings do. This is only about bounds that are constants
 of the model, which is the class of error that costs two minutes of GPU before
 it is reported.
+
+## Accepted limits (recorded at implementation)
+
+Approved as Option A with C's reporting folded in (dkackman, 2026-09-14) and
+implemented on that basis. Three limits were accepted rather than designed
+around:
+
+1. **A constraint cannot depend on another variable.** A bound that is
+   `fps * seconds` where a template exposes `fps` has no expression here.
+   H3's fps is fixed and LTX-2.5's templates carry `frame_rate` as a
+   variable but bound only the VAE grid, which is rate-independent, so
+   nothing in the catalog needs it today.
+2. ~~**A constraint reaches a top-level variable only.**~~ **Superseded by
+   #145** (`docs/proposals/list-entry-constraints.md`, Option A, approved
+   2026-09-14). The limit as accepted read: *a `for_each` template whose
+   entries each carry their own `num_frames` -
+   `templates/minimax/dialogue-short` is the live case - cannot declare the
+   rule per entry, and relies on the run-time check as before. Reaching
+   inside a list entry would need a path-shaped constraint key, which is a
+   second dialect and was ruled out.*
+
+   What the original decision did not weigh is that `dialogue-short` is the
+   one H3 template where per-shot length is *meant* to vary, so it is where
+   a frame count is most likely typed by hand and simultaneously the only
+   place the rule was unreadable. The key is still a plain variable name -
+   no path dialect - and is now matched wherever a value by that name sits.
+   It reaches a list entry only where a step consumes that field as
+   `item:<name>`, so the bound follows the value into the pipeline argument
+   rather than the name into the JSON (`entry_constraint_fields`,
+   `dw/variable_constraints.py`).
+3. **The run-time check stays.** It is the backstop for an inline workflow an
+   agent just wrote, which no declared constraint covers, and for a value a
+   parent workflow passed down.
+
+One thing the implementation resolved that the proposal did not anticipate:
+the two families round in *opposite* directions. H3's `align_num_frames`
+snaps a frame count **up** and then range-checks the aligned value, so the
+H3 templates declare `snap: "up"` and the engine's bounds are checked against
+the rounded number (108 is accepted, 346 refused). LTX-2.5's pipelines floor
+an off-grid count instead - `(num_frames - 1) // 8 * 8 + 1` - so those
+templates declare the `8 * n + 1` grid with **no** `snap`: an off-grid count
+is refused with the rule stated, rather than rounded up (which would hand
+back a longer clip than either the caller or the pipeline chose) or silently
+floored (which is the behaviour being fixed). `snap: "down"` was deliberately
+not added - one shape, not two.
+
+*Implementer agent, model `opus` via provider `anthropic`.*

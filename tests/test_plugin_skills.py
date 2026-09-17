@@ -162,7 +162,7 @@ class TestMiniMaxH3Skill:
             assert len(scheduler.timesteps) == evaluations
 
         text = skill_text(H3_SKILL)
-        assert "denoise_total_steps" in text and "9 reports 8" in text
+        assert "denoise_total_steps" in text and "reports 8" in text
 
     def test_the_canvas_rules_are_the_pipeline_s(self):
         import inspect
@@ -206,29 +206,28 @@ class TestMiniMaxH3Skill:
         assert "audio can" in text and "never be the only reference" in text
         assert before_encoder is not None
 
-    def test_the_lora_coupling_is_scoped_to_the_turbo_templates(self):
-        """Six reference-only templates carry no LoRA and run 20 steps; the four
-        that mix references with the turbo LoRA run nine (the 2026-09-08 drill
-        caught the skill saying 20 for storyboard)."""
+    def test_the_checkpoint_coupling_is_stated(self):
+        """A checkpoint comes with its canvas, its shift and its alpha.
+
+        Six reference-only templates used to carry no LoRA and run 20 steps,
+        because the only turbo LoRA was distilled against the base transformer
+        while they load the reference one. A Ref2VA turbo LoRA ended that
+        (#149), and the skill has to say what now goes with what - the
+        2026-09-08 drill caught it saying 20 for storyboard, and a wrong shift
+        or alpha is the same class of error with no error message.
+        """
         import json
 
         text = skill_text(H3_SKILL)
-        assert "run 20 steps" in text
-        assert "keep the turbo LoRA at\n  nine steps" in text
+        assert "Never put an FL2VA LoRA on a reference template" in text
+        assert "video_shift" in text and "lora_alpha" in text
+        assert "alpha 128" in text
+
         for name in (
             "storyboard",
             "dialogue-short",
             "music-video",
             "chain-matched-and-aligned",
-        ):
-            path = os.path.join(
-                REPO_ROOT, "workflows", "templates", "minimax", name + ".json"
-            )
-            spec = open(path, encoding="utf-8").read()
-            assert (
-                '"loras"' in spec or "lora_model_name" in spec
-            ) and '"num_inference_steps": 9' in spec, name
-        for name in (
             "reference-to-video",
             "composable-references",
             "voice-timbre-reference",
@@ -240,11 +239,32 @@ class TestMiniMaxH3Skill:
                 REPO_ROOT, "workflows", "templates", "minimax", name + ".json"
             )
             spec = open(path, encoding="utf-8").read()
-            assert "lora_model_name" not in spec, f"{name} now loads a LoRA"
-            assert '"num_inference_steps": 20' in spec, (
-                f"{name} no longer runs 20 steps"
-            )
-            json.loads(spec)
+            definition = json.loads(spec)
+            assert "ref2v" in definition["variables"]["lora_weight_name"], name
+            assert definition["variables"]["num_inference_steps"] == 9, name
+            assert definition["variables"]["video_shift"] == 12.0, name
+
+    def test_the_768p_path_is_offered_and_its_numbers_are_right(self):
+        """The three that move together, on the one template that differs."""
+        import json
+
+        text = skill_text(H3_SKILL)
+        assert "video-with-audio-768p" in text
+
+        path = os.path.join(
+            REPO_ROOT,
+            "workflows",
+            "templates",
+            "minimax",
+            "video-with-audio-768p.json",
+        )
+        variables = json.load(open(path, encoding="utf-8"))["variables"]
+        assert variables["width"] == 1344 and variables["height"] == 768
+        assert variables["video_shift"] == 6.0
+        assert variables["audio_shift"] == 3.0
+        assert variables["lora_alpha"] == 128
+        assert variables["num_inference_steps"] == 9
+        assert "768p" in variables["lora_weight_name"]
 
     def test_the_skill_defers_prompt_format_to_minimax(self):
         text = skill_text(H3_SKILL)

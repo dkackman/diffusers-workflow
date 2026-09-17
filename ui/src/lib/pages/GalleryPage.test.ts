@@ -360,3 +360,26 @@ it('resets a run-root pick when the control it depends on disappears', async () 
     screen.getByRole('button', { name: /^select all \(1\)$/i }),
   ).toBeTruthy()
 })
+
+// The confirm dialog answers Escape itself, so the page must not also take
+// the detail away underneath it. The guard used to name only [role=dialog],
+// which is not what ConfirmDialog renders
+it('leaves the detail open when Escape answers a confirm dialog', async () => {
+  await renderGallery()
+  screen.getAllByTitle(/show details/)[0].click()
+  await waitFor(() =>
+    expect(
+      screen.getByLabelText('delete this file from the output directory'),
+    ).toBeTruthy(),
+  )
+
+  screen.getByLabelText('delete this file from the output directory').click()
+  await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
+
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  expect(
+    screen.getByLabelText('delete this file from the output directory'),
+  ).toBeTruthy()
+})

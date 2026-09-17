@@ -1,0 +1,10 @@
+{
+  "text": "Reference shows a small reddish-brown wild rabbit sitting upright between large moss-covered grey boulders, with a fallen log and blurred autumn foliage behind it under soft natural daylight, heavily out of focus with soft defocused blur and no fine detail. Edited shows the same scene in sharp focus with crisp detail and clean edges. DEBLUR a small reddish-brown wild rabbit sitting upright between large moss-covered grey boulders, with a fallen log and blurred autumn foliage behind it under soft natural daylight. Subject identity, framing, and background geometry are identical to the reference; only focus and sharpness differ between reference and edited.",
+  "description": "The Deblur IC-LoRA's trained dual-panel form - replace both descriptions of the scene with your own clip's, keeping the structure",
+  "intended_model": "ltx-2.5",
+  "tags": [
+    "ic-lora",
+    "restoration",
+    "v2v"
+  ]
+}

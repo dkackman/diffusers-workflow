@@ -146,9 +146,20 @@ Two things about the checkpoint are worth knowing before tuning anything:
   constructor argument, so diffusers logs "not expected ... will be ignored" and
   decodes with the convolutional VAE. Reaching it means `LTX2VideoDiffusionDecodePipeline`
   on a step run with `output_type: "{latent}"`, and two things get in the way. Its
-  first three stages run on the full volume by design - only stage 4 and the diffusion
-  blocks tile - and the attention mask they build is quadratic in the output grid:
-  70GiB at 1536x896x121, which no tile size reduces. Base resolution fits comfortably.
+  neighborhood attention has two processors, and the one you get by default is the
+  portable FlexAttention fallback: it densifies a `seq_len x seq_len` block mask and then
+  runs uncompiled `flex_attention`, which falls to the eager reference path. Both
+  allocations are quadratic in the output grid, and neither is reduced by tiling (stages
+  1-3 always run on the full volume) or by shrinking the clip (the stage-4 grid is near
+  output resolution either way). Measured on an otherwise empty 3090 (#153): 10.05GiB
+  inside stages 1-3 at 960x544x121, 69.77GiB for one stage-4 attention at 512x288x25
+  (17.44GiB just to densify that stage's mask, whichever it reaches first), and ~25.5GiB
+  at 224x224x25, which is the smallest canvas its 7x7 kernel accepts at all. Nothing
+  fits - not base resolution, not the smallest clip the decoder will take. The path that does is NATTEN's `na3d` kernel, named per component as
+  `"attn_processor_type": "diffusers.models.autoencoders.ltx2_diffusion_decoder.LTX2VideoVaeNeighborhoodNattenProcessor"`,
+  which builds no mask at all - but it is fetched from the Hub by the `kernels` package
+  and needs a `shi-labs/natten` build matching the installed torch, which as of
+  torch 2.14 does not exist.
   And a step that returns latents returns *audio* latents too, which nothing outside a
   pipeline call can vocode - the two-stage template below feeds them back into one,
   which is the only way they become sound. Nothing here ships the diffusion decoder.

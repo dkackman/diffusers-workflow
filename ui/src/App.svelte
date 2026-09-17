@@ -3,6 +3,7 @@
     BookOpen,
     Braces,
     Database,
+    FolderOpen,
     Images,
     KeyRound,
     Layers,
@@ -31,6 +32,7 @@
   import PromptsPage from './lib/pages/PromptsPage.svelte'
   import PromptEditorPage from './lib/pages/PromptEditorPage.svelte'
   import GalleryPage from './lib/pages/GalleryPage.svelte'
+  import AssetsPage from './lib/pages/AssetsPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
   import ServerPage from './lib/pages/ServerPage.svelte'
@@ -164,6 +166,14 @@
         title="Gallery"
       >
         <Images size={15} /><span class="navlabel">Gallery</span>
+      </a>
+      <a
+        class="plain"
+        href="#/assets"
+        class:active={route.parts[0] === 'assets'}
+        title="Assets"
+      >
+        <FolderOpen size={15} /><span class="navlabel">Assets</span>
       </a>
       <a
         class="plain"
@@ -314,6 +324,8 @@
     <ModelsPage />
   {:else if route.parts[0] === 'gallery'}
     <GalleryPage />
+  {:else if route.parts[0] === 'assets'}
+    <AssetsPage />
   {:else if route.parts[0] === 'edit'}
     <EditorPage name={route.parts.slice(1).join('/')} />
   {:else if route.parts[0] === 'prompt-edit'}

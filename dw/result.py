@@ -47,6 +47,120 @@ def _artifact_size(artifact):
     return ""
 
 
+# A deliverable this close to full scale has no headroom left: an mp3 or AAC
+# encode of it decodes above 0 dBFS and clips, which is why a track measured
+# at +1.3 dBFS in the gallery can have been written from samples that never
+# exceeded 1.0. Same ceiling `match_levels` holds a gain to
+# (MATCH_CEILING_DBFS in dw/tasks/audio_utils.py)
+HEADROOM_WARN_DBFS = -0.5
+
+
+def _peak_dbfs(waveform):
+    """The loudest sample of anything saveable as audio, in dBFS, or None
+    when it cannot be measured cheaply (no samples, a lazily-decoded
+    reader, a shape nothing here recognises)."""
+    try:
+        if hasattr(waveform, "detach"):
+            waveform = waveform.detach().float().cpu().numpy()
+        samples = numpy.asarray(waveform)
+        if samples.size == 0 or not numpy.issubdtype(samples.dtype, numpy.number):
+            return None
+        peak = float(numpy.abs(samples).max())
+    except Exception:
+        logger.debug("Could not measure the peak of a saved track", exc_info=True)
+        return None
+    if peak <= 0.0:
+        return None
+    return 20.0 * float(numpy.log10(peak))
+
+
+def warn_without_headroom(waveform, file_name):
+    """Say when the soundtrack about to be written is at or over full scale.
+
+    A clipped deliverable is invisible to the consumer this server is built
+    for: the job succeeds, and an agent that cannot listen has `peak_dbfs`
+    and no rule to read it against - `get_gallery_metadata` teaches the
+    near-silent end of the range and said nothing about the other one (#158).
+    A warning rather than a change to the mix: what level a deliverable
+    should sit at is the workflow's to decide, and `normalize_audio` is the
+    step that decides it.
+    """
+    peak = _peak_dbfs(waveform)
+    if peak is None or peak < HEADROOM_WARN_DBFS:
+        return None
+    emit_warning(
+        f"The soundtrack written to {file_name} peaks at {peak:+.1f} dBFS, "
+        f"which leaves no headroom below full scale - an mp3 or AAC encode "
+        f"of it decodes above 0 dBFS and clips. Add a 'normalize_audio' "
+        f"step (peak_dbfs: -1) before the step that saves it, or "
+        f"'match_levels' on the join that made it.",
+        kind="audio_no_headroom",
+        file=file_name,
+        peak_dbfs=round(peak, 2),
+    )
+    return peak
+
+
+# The written file, decoded, is the only measurement that is the consumer's
+# own. `warn_without_headroom` measures the waveform handed to the writer,
+# and the encoder is downstream of that: a track normalized to exactly
+# -1.0 dBFS came back out of an AAC mux at +0.94, so the deliverable of a
+# clean default run of `music-video` was above full scale and nothing
+# warned, because the number the check read was -1.0 (#158, #159, #161)
+CLIPPED_WARN_DBFS = 0.0
+
+
+def warn_if_written_above_full_scale(output_path, already_warned=False):
+    """Say when the file just written decodes above full scale.
+
+    The overshoot a lossy encode adds is material-dependent - about 0.1 dB
+    on the mp3s measured for #159 and about 1.9 dB on the AAC mux of the
+    same song - so no amount of headroom chosen up front can be known to be
+    enough. Reading the file back is what closes that: whatever the encoder
+    did, this is the number a consumer's decoder will see.
+
+    Silent when `warn_without_headroom` has already spoken for this file -
+    but only for a plain audio save. That suppression assumed the encoder
+    only ever adds overshoot, which held for the mp3s #159/#161 measured but
+    is backwards for an H3 video mux: #174 measured that family's AAC mux
+    landing *under* full scale after starting over it, so the pre-encode
+    warning was right and the caller's suppression hid the post-encode
+    check that would have said so. The caller decides which case applies
+    (`content_type`), not this function.
+
+    Best effort. A file that will not probe is not a level problem, and a
+    deliverable that is already written is not worth failing a finished run
+    over.
+    """
+    if already_warned:
+        return None
+    try:
+        from .media_info import probe_media
+
+        info = probe_media(output_path) or {}
+    except Exception:
+        logger.debug(
+            f"Could not measure the written level of {output_path}", exc_info=True
+        )
+        return None
+    peak = info.get("peak_dbfs")
+    if peak is None or peak < CLIPPED_WARN_DBFS:
+        return peak
+    name = os.path.basename(output_path)
+    emit_warning(
+        f"{name} decodes at {peak:+.2f} dBFS - above full scale, so it "
+        f"clips on playback. The encode adds its own overshoot on top of "
+        f"the level it was handed, so the fix is more headroom before the "
+        f"file is written: a 'normalize_audio' step at 'peak_dbfs: -3' "
+        f"ahead of the step that saves it. A mux into a video needs more "
+        f"of it than an audio file does.",
+        kind="audio_clipped",
+        file=name,
+        peak_dbfs=round(peak, 2),
+    )
+    return peak
+
+
 def _file_size_mb(path):
     try:
         return os.path.getsize(path) / (1024 * 1024)
@@ -238,6 +352,10 @@ class Result:
         self.result_list = []
         self.metadata = None
         self.saved_files = []
+        # Whether the file currently being written already drew a headroom
+        # warning from the waveform it was handed, so the written-level
+        # check does not say the same thing twice (#161)
+        self._no_headroom_warned = False
         logger.debug(f"Initialized Result with definition: {result_definition}")
 
     def set_metadata(self, metadata):
@@ -484,6 +602,7 @@ class Result:
             content_type=content_type,
         )
         started = time.monotonic()
+        self._no_headroom_warned = False
 
         try:
             if content_type.startswith("video"):
@@ -523,6 +642,10 @@ class Result:
                             )
                         )
                     return saved_files
+                self._no_headroom_warned = (
+                    warn_without_headroom(waveforms[0], os.path.basename(output_path))
+                    is not None
+                )
                 write_audio(
                     output_path,
                     waveforms[0],
@@ -553,6 +676,23 @@ class Result:
                 f"Error saving artifact to {output_path}: {str(e)}", exc_info=True
             )
             raise
+
+        # The level of what was actually written, which is the only one the
+        # consumer will hear: the encode's own overshoot sits between the
+        # waveform `warn_without_headroom` measured and this (#161). Only a
+        # file that can carry a soundtrack, so an image never pays a probe.
+        # The pre-encode warning only suppresses this for a plain audio
+        # save - a video mux's overshoot is not reliably positive (#174),
+        # so a video always gets the ground-truth post-encode check
+        if content_type.startswith("audio") or content_type.startswith("video"):
+            warn_if_written_above_full_scale(
+                output_path,
+                already_warned=(
+                    self._no_headroom_warned
+                    if content_type.startswith("audio")
+                    else False
+                ),
+            )
 
         emit_log(
             f"wrote {os.path.basename(output_path)} in "
@@ -631,6 +771,10 @@ class Result:
             audio = None
             if artifact.audio is not None and sample_rate is not None:
                 audio = as_audio_track(artifact.audio)
+                self._no_headroom_warned = (
+                    warn_without_headroom(artifact.audio, os.path.basename(output_path))
+                    is not None
+                )
             logger.debug(
                 f"Streaming {len(artifact.frames)} segments into {output_path}"
             )
@@ -664,6 +808,10 @@ class Result:
             return
 
         logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")
+        self._no_headroom_warned = (
+            warn_without_headroom(artifact.audio, os.path.basename(output_path))
+            is not None
+        )
         encode_video(
             frames_for_encoding(artifact.frames),
             fps=fps,

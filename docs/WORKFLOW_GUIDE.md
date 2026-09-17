@@ -336,6 +336,55 @@ in braces keeps it a plain string — `"{nf4}"` is the string `nf4`. Getting thi
 wrong fails at load time, after validation has already passed, so a value that
 is meant as text under one of those keys must be braced.
 
+### What a variable is allowed to be
+
+A model's own rule about a value belongs in the workflow, not in engine code
+(CLAUDE.md) and not in a consumer's head. `variable_constraints` declares it
+per variable, in the same field names a chain step's `frame_snap` uses:
+
+```json
+"variable_constraints": {
+    "num_frames": {
+        "modulus": 17,
+        "remainder": 5,
+        "min_frames": 124,
+        "max_frames": 345,
+        "snap": "up",
+        "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+    }
+}
+```
+
+The value has to be `modulus * n + remainder` within `min_frames` to
+`max_frames`. With `snap: "up"` an off-grid value is rounded to the next one
+the rule accepts and the run *says so* - `130` becomes `141`, reported as a
+warning at validation time and again in the job's `warnings`; without `snap`
+it is refused. The bounds are checked against the value the run will use, so
+they hold for the rounded number: on the rule above `108` is accepted (it
+becomes `124`) and `346` is refused (it would become `362`).
+
+Checked three times, for the reasons the task-argument domains are: in
+`validation_errors`, so `POST /api/validate`, `validate_workflow` and the
+pre-queue check all refuse a bad value at `arguments.<name>` or
+`variables.<name>` for free; at run time before anything loads, which is the
+backstop for a value the static pass cannot see (an inline workflow, a value
+a parent passed down); and in the catalog, where `list_workflows` and
+`get_workflow(variables_only=true)` report the rule beside the default - the
+half that stops the next caller picking a number the model refuses.
+
+State the rule once. Where a template both declares a constraint and snaps a
+chain, the chain's `frame_snap` names it rather than repeating the numbers:
+
+```json
+"frame_snap": "constraint:num_frames"
+```
+
+Two limits, both accepted. A constraint cannot express a bound that depends
+on another variable (a maximum that is `fps * seconds` where a template
+exposes `fps`), and it reaches a top-level variable only - not a field inside
+a list entry, so a `for_each` template whose entries each carry their own
+`num_frames` is unconstrained and relies on the run-time check.
+
 ### A workflow takes only the keys the engine reads
 
 The workflow object itself, `step`, `task`, `workflow`,
@@ -484,8 +533,10 @@ with your `arguments` answers with a `plan` whose `estimate` already does
 that arithmetic (`basis: per_entry`); without `per_entry` it extrapolates
 the stored total linearly over your list (`basis: derived` - an estimate
 rather than a measurement) and reports the stored total unchanged only
-when your list is the one it was measured with (`basis: catalog`) - quote
-the plan's figure and say which basis it has. An
+when your list is the one it was measured with (`basis: catalog`). Ahead of
+all of those it quotes this box's own finished runs of the shape you are
+about to run when it has any (`basis: observed`, with `runs` saying how
+many) - quote the plan's figure and say which basis it has. An
 entry key no step reads is a validation warning at the entry's path, so a
 misspelt field is caught before the run. Then
 `validate_workflow` with the
@@ -616,6 +667,20 @@ than prefixing it, so `"file_base_name": "episode"` in a `final` subfolder
 writes `final/episode-0.0.mp4` - name each step that sets one differently, or
 the second collides and picks up a `-2`.
 
+A step that saves nothing and which no later step reads does not run at
+all: the engine drops it before the first step executes and warns once per
+dropped step. That is how a template whose portraits can be supplied as
+`asset:` files stops paying for the steps that would have drawn them. It
+follows from what the definition says, never from a value produced during
+the run, so it is decided at validate time too - the `plan` a validate call
+answers with counts only the steps that will run and lists the rest under
+`elided_steps`. Four things keep a step: a `result` with a `content_type`
+and `save` not `false`, being the last step, being read by a later step
+(`previous_result:`, `gather:`, a `pipeline_reference`, a shared component),
+or being read by a step that is itself kept - elision is transitive. If a
+step you meant to run is named in the warnings, a reference to it is
+misspelled somewhere later or it needs a `result`.
+
 ### Composing a stored workflow
 
 A step with a `workflow` block runs another workflow as one step of this one,
@@ -655,6 +720,19 @@ Declare `shape`, `traits` or `summary` at the top level only when derivation
 gets it wrong; a declaration that merely repeats the derivation is noise that
 rots when the rules change, and the repo's catalog tests refuse it. `cost` is
 never derived — leave it absent until a run has been measured.
+
+`cost_drivers` is the other half of saying what a workflow costs, and it *is*
+for derivation: the variables that move the wall clock — a frame count, a
+step count, a segment count, the list a `for_each` runs over — never a prompt
+or a seed. The server buckets its own finished runs by those values and
+reports the result as `observed` beside the curated `cost`, so a 345-frame
+run never informs a 124-frame figure and a list driver buckets on its length.
+Declaring none is not neutral: the figure then falls back to runs that
+overrode nothing at all, which most real runs do, so a measured workflow with
+no drivers keeps answering "unknown". Each name must be a variable the
+workflow declares — `tests/test_observed_cost.py` sweeps the catalog for one
+that is not, since a driver bucketing on nothing looks exactly like a driver
+that works.
 
 ## Result Configuration
 
@@ -784,6 +862,11 @@ For components the pipeline loads itself — which is all of a modular pipeline'
   `diffusion_decoder`, for example).
 - `attention_backend` — a persistent `set_attention_backend` on one component, which a
   compiled component needs (the pipeline-level `attention_backend` applies per call).
+- `attn_processor_type` — the attention processor the component runs, constructed with no
+  arguments and handed to `set_attn_processor`. The `unet` and `transformer` blocks cover
+  those two; this covers any other component that carries attention (LTX-2.5's
+  `diffusion_decoder`, whose default processor is a portable fallback rather than the
+  NATTEN path the decoder was built around).
 - `compile`, `truncate_layers`, `remove_modules` — see
   [ACCELERATION.md](ACCELERATION.md).
 - A dotted key reaches a module inside a component, for a component that holds the model
@@ -911,6 +994,37 @@ sub-workflow has finished. It clears every cached task model, not only this step
 later step needing one of them reloads it.
 
 **Example:** [enhance-prompt.json](../workflows/templates/minimax/enhance-prompt.json)
+
+#### A step nothing reads does not run
+
+Before the first step executes, the engine drops any step whose result no later step
+reads and which writes no file, and warns once per dropped step saying which and why.
+`dialogue-short` cast from portraits that already exist used to run its two Z-Image
+steps anyway and throw the pictures away - about a minute of GPU per episode on
+something nothing looked at (#122).
+
+Four things keep a step:
+
+- **it saves** - a `result` with a `content_type`, and `save` not `false`. A workflow
+  whose whole point is writing three images references nothing, so this is the rule that
+  keeps elision from being destructive. `"save": false` is how a step says it is
+  scaffolding.
+- **it is the last step** - it is the run's answer, whatever it declares.
+- **something reads it** - `previous_result:`/`from_previous_result` (including
+  `previous_result:step.property`), a `gather:` (which is a list of those by the time
+  this runs), a `pipeline_reference` naming it, or a `reused_components` entry naming a
+  component it shares.
+- Elision is transitive, so dropping a step can drop the step it read in turn.
+
+`release_pipeline` on an elided step moves onto the last surviving step before it when
+that step loaded the same pipeline, and `release_models` moves unconditionally - a
+release that vanished with its step would leak the memory it existed to free. The plan a
+validate call answers with is computed after elision, so `steps`, `downloads_required`
+and the cost it quotes are the work that will actually happen, and it lists what was
+dropped under `elided_steps`; the run manifest records the same list.
+
+If a step you expected to run is named in the warnings, the usual cause is a reference
+to it spelled wrong somewhere later, or a step that was meant to declare a `result`.
 
 ### VAE Options
 
@@ -1226,7 +1340,9 @@ joined into a single file:
 - `frame_snap` — the constraint the pipeline puts on `num_frames`, used to snap the
   final `match_audio` segment to a valid length. MiniMax H3 accepts `17n+5` frames
   between 124 and 345: `{ "modulus": 17, "remainder": 5, "min_frames": 124,
-  "max_frames": 345 }`.
+  "max_frames": 345 }`. Where the workflow already declares that rule as a
+  `variable_constraints` entry, write `"frame_snap": "constraint:num_frames"`
+  instead, so the numbers live in one place (*What a variable is allowed to be*).
 - `prompts` — optional per-segment prompt list for narrative progression; segment
   `i` uses `prompts[min(i, len - 1)]`.
 - `save_segments` — write each completed segment to the output directory as a
@@ -1676,6 +1792,16 @@ to the saved mp4 - so `result.fps` is only needed for frames that bring no
 rate of their own. A mono track needs no preparation: an mp4 audio stream
 takes stereo and nothing else, so saving duplicates the single channel into
 two and emits a warning saying it did.
+
+The track and the frames are two lengths a workflow used to have to keep equal by
+hand. `"fit": "video"` derives one from the other instead: the track is cut to
+exactly the frames it is laid over, or padded with silence and warned about when it
+is shorter than they are. That is what a soundtrack over a cut whose length is an
+argument needs - nothing in a workflow can multiply a list's length by a frame
+count, so `music-video.json` sliced a fixed 496 frames of song while its cut
+followed a `shots` list, and a two-shot run wrote 10.3 s of picture into a 20.7 s
+container and reported `succeeded` with no warnings (#142). Left unset the track is
+used as it is and a disagreement is warned about rather than passing in silence.
 
 Which shape a pipeline argument wants is the pipeline's business, and the two LTX-2
 paths differ: a keyframe condition is mapped from 0-255, so it takes the `video_frames`

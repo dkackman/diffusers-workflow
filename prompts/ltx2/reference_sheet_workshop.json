@@ -1,0 +1,10 @@
+{
+  "text": "Reference sheet: a panel-by-panel inventory on a plain background - top row left, a young woman with long dark hair in a single braid, shown as a clean front-facing close-up; top row right, the same woman in a full turnaround, wearing a faded denim jacket over a grey t-shirt and dark work trousers; middle row, a battered brass pocket watch on a short leather cord, shown front, back and edge on; bottom row, the location - a narrow workshop lit by one high window, with a long wooden bench, hand tools on a pegboard, and sawdust on the floor.\n\nGenerated video: the woman in the denim jacket is standing at the workshop bench in a steady medium shot, the high window throwing a hard shaft of light across the wood. She turns the brass pocket watch over in her fingers, holds it up into the light to read the face, and her expression settles from concentration into a small, satisfied smile. Dust drifts through the shaft of light behind her; the hand tools on the pegboard stay sharp in the background.",
+  "description": "The Ingredients IC-LoRA's trained two-part form - 'Reference sheet:' names the panels your sheet actually carries, 'Generated video:' drives the action",
+  "intended_model": "ltx-2.5",
+  "tags": [
+    "ic-lora",
+    "reference",
+    "identity"
+  ]
+}

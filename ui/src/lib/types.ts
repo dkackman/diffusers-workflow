@@ -239,6 +239,9 @@ export interface Plan {
   /** How many steps the worker's step cache would serve; null when the
    * worker was busy or did not answer. */
   cached_steps: number | null
+  /** The steps that will not run because nothing reads their result and
+   * they save no file - already excluded from `steps` (#122). */
+  elided_steps: { step: string; reason: string }[]
   downloads_required: { repo: string | null; url?: string; gb: number | null }[]
   estimate: {
     minutes: number | null
@@ -260,6 +263,39 @@ export interface GalleryFile {
   size: number
   mtime: number
   label: string
+}
+
+/** One file in the asset library - the input media an `asset:` reference
+ * names. Reported by reference rather than by path, so a client never has
+ * to build one. */
+export interface AssetFile {
+  name: string
+  reference: string
+  folder: string
+  kind: 'image' | 'video' | 'audio'
+  size: number
+  mtime: number
+  /** Which library it came from: this workspace's own, the `common` one
+   * every workspace shares, or a read-only examples tree. The last is why
+   * a delete can answer 403. */
+  origin: 'workspace' | 'common' | 'examples'
+  url: string
+}
+
+/** One root on the asset search path - what `asset_dirs` names, plus the
+ * origin and writability a client needs to explain why a delete can reach
+ * one root and not another. */
+export interface AssetLibrary {
+  origin: AssetFile['origin']
+  dir: string
+  writable: boolean
+}
+
+/** An asset a nearer library hides: same shape as `AssetFile` except there
+ * is no `url` - that URL would serve the shadowing file, not this one - and
+ * `shadowed_by` names the origin that won. */
+export type ShadowedAsset = Omit<AssetFile, 'url'> & {
+  shadowed_by: AssetFile['origin']
 }
 
 export interface ModelRevision {

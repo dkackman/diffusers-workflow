@@ -1,0 +1,10 @@
+{
+  "text": "Reference shows a small reddish-brown wild rabbit sitting upright between large moss-covered grey boulders, with a fallen log and blurred autumn foliage behind it under soft natural daylight, heavily compressed with visible macroblocking, chroma bleed, and ringing artifacts. Edited shows the same scene restored to high quality with sharp detail, clean edges, and no compression artifacts. ENHANCE QUALITY a small reddish-brown wild rabbit sitting upright between large moss-covered grey boulders, with a fallen log and blurred autumn foliage behind it under soft natural daylight. Subject identity, framing, and background geometry are identical to the reference; only compression artifacts and image quality differ between reference and edited.",
+  "description": "The Decompression IC-LoRA's trained dual-panel form - replace both descriptions of the scene with your own clip's, keeping the structure",
+  "intended_model": "ltx-2.5",
+  "tags": [
+    "ic-lora",
+    "restoration",
+    "v2v"
+  ]
+}

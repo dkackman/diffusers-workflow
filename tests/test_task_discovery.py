@@ -95,7 +95,13 @@ class TestTaskArgumentWarnings:
         assert unknown_task_arguments("upscale", ["anything_at_all"]) == []
         assert unknown_task_arguments("not_a_task", ["x"]) == []
 
-    def test_workflow_warnings_cover_task_steps(self):
+    def test_a_task_typo_is_an_error_rather_than_a_warning(self):
+        """It used to be a warning beside `valid: true`, so a step with every
+        argument it was given rejected still validated - and then failed the
+        job on Python's own TypeError. task_signature_errors owns it now
+        (#141), and it is reported once."""
+        from dw.introspection import task_signature_errors
+
         definition = {
             "steps": [
                 {
@@ -107,10 +113,11 @@ class TestTaskArgumentWarnings:
                 }
             ]
         }
-        warnings = workflow_argument_warnings(definition)
-        assert len(warnings) == 1
-        assert "trim_framse" in warnings[0]
-        assert "concat_videos" in warnings[0]
+        assert workflow_argument_warnings(definition) == []
+        errors = task_signature_errors(definition)
+        assert len(errors) == 1
+        assert errors[0]["path"] == "steps[0].task.arguments.trim_framse"
+        assert "concat_videos" in errors[0]["message"]
 
     def test_inputs_style_task_steps_are_left_alone(self):
         definition = {

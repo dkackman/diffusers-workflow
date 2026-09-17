@@ -7,6 +7,7 @@ const base: Plan = {
   steps: 8,
   list_entries: { shots: 5 },
   cached_steps: 0,
+  elided_steps: [],
   downloads_required: [{ repo: 'org/model', gb: 41.2 }],
   estimate: {
     minutes: 42,

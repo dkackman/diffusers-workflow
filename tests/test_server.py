@@ -1473,6 +1473,77 @@ def test_gallery_reports_and_filters_by_subfolder(server, tmp_path):
         assert finals["subfolders"] == full["subfolders"]
 
 
+def test_gallery_only_orphans_lists_media_less_run_directories(server, tmp_path):
+    """#170: a run whose output was deleted before `delete_output` could
+    remove it by name, or one that failed before writing anything, has no
+    file the ordinary gallery listing can show - `only_orphans=true` finds
+    it by walking for run directories with no media anywhere beneath them,
+    and hands back a `name` that `DELETE /api/gallery/{name}` accepts."""
+    from PIL import Image
+
+    from dw.runs import new_run_id
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+
+        # a normal run: has media, so it is not an orphan
+        media_run_id = new_run_id({"id": "ltx", "seed": 1})
+        media_run = outputs / "ltx" / media_run_id
+        media_run.mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(media_run / "ltx-still.0-0.0.png")
+
+        # an orphaned run: only its manifest survives, no media anywhere
+        orphan_run_id = new_run_id({"id": "ltx", "seed": 2})
+        orphan_run = outputs / "ltx" / orphan_run_id
+        orphan_run.mkdir(parents=True)
+        (orphan_run / "manifest.json").write_text("{}")
+
+        normal = client.get("/api/gallery").json()
+        assert normal["total"] == 1
+        assert "runs" not in normal
+
+        orphans = client.get("/api/gallery?only_orphans=true").json()
+        assert orphans["total"] == 1
+        names = {r["name"] for r in orphans["runs"]}
+        assert names == {f"ltx/{orphan_run_id}"}
+        assert "files" not in orphans
+
+        # the name it reports is exactly what delete_output accepts
+        assert client.delete(f"/api/gallery/ltx/{orphan_run_id}").status_code == 200
+        assert not orphan_run.exists()
+
+
+def test_a_text_shape_run_is_not_an_orphan(server, tmp_path):
+    """#170 defined an orphan by 'no image/video/audio file', which made every
+    text-shape run (enhance-prompt writes .txt) an orphan - and the MCP
+    docstring tells the agent to list then delete. A run is orphaned when it
+    holds nothing but its own bookkeeping."""
+    from dw.runs import new_run_id
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+
+        text_run_id = new_run_id({"id": "enhance", "seed": 1})
+        text_run = outputs / "enhance" / text_run_id
+        (text_run / "final").mkdir(parents=True)
+        (text_run / "manifest.json").write_text("{}")
+        (text_run / "workflow.json").write_text("{}")
+        (text_run / "final" / "enhance-prompt.0-0.0.txt").write_text("a prompt")
+
+        empty_run_id = new_run_id({"id": "enhance", "seed": 2})
+        empty_run = outputs / "enhance" / empty_run_id
+        empty_run.mkdir(parents=True)
+        (empty_run / "manifest.json").write_text("{}")
+        (empty_run / "job.json").write_text("{}")
+        # Finder's droppings are not output: a dotfile must not make the
+        # run permanently non-orphan
+        (empty_run / ".DS_Store").write_bytes(b"\x00")
+
+        orphans = client.get("/api/gallery?only_orphans=true").json()
+
+    assert {r["name"] for r in orphans["runs"]} == {f"enhance/{empty_run_id}"}
+
+
 def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
     from PIL import Image
 
@@ -1792,11 +1863,95 @@ def test_the_asset_library_lists_what_it_holds(asset_server, tmp_path):
     assert body["folders"] == ["", "gyre"]
 
 
+def test_the_asset_listing_names_its_libraries(tmp_path):
+    """'libraries' is 'asset_dirs' with the origin and writability a client
+    needs to explain why one entry can be deleted and another can't - the
+    workspace's own root first, an examples root writable: false."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    examples = tmp_path / "examples"
+    (examples / "assets").mkdir(parents=True)
+
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(workflows),
+    )
+    app = create_app(
+        workflow_dir=str(workflows),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        asset_dir=str(assets),
+        examples_dirs=[str(examples)],
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        body = client.get("/api/assets").json()
+
+    libraries = body["libraries"]
+    assert libraries[0] == {
+        "origin": "workspace",
+        "dir": str(assets),
+        "writable": True,
+    }
+    assert libraries[1] == {
+        "origin": "examples",
+        "dir": str(examples / "assets"),
+        "writable": False,
+    }
+    assert body["asset_dirs"] == [lib["dir"] for lib in libraries]
+
+
+def test_a_shadowed_asset_is_reported_without_a_url(tmp_path):
+    """A name present in both the workspace and an examples library resolves
+    to the workspace's copy - 'assets' still lists only that one file - but
+    the hidden examples copy is worth knowing about, so it is reported
+    separately, with no 'url' since /inputs/<name> would serve the file that
+    shadows it rather than the one this entry describes."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "iris.png").write_bytes(b"workspace png")
+    examples = tmp_path / "examples"
+    (examples / "assets").mkdir(parents=True)
+    (examples / "assets" / "iris.png").write_bytes(b"examples png")
+
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(workflows),
+    )
+    app = create_app(
+        workflow_dir=str(workflows),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        asset_dir=str(assets),
+        examples_dirs=[str(examples)],
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        body = client.get("/api/assets").json()
+
+    names = {entry["name"]: entry for entry in body["assets"]}
+    assert names["iris.png"]["origin"] == "workspace"
+    assert len(body["assets"]) == 1
+
+    shadowed = {entry["name"]: entry for entry in body["shadowed"]}
+    assert shadowed["iris.png"]["shadowed_by"] == "workspace"
+    assert "url" not in shadowed["iris.png"]
+    assert shadowed["iris.png"]["origin"] == "examples"
+
+
 def test_listing_assets_without_a_library_is_empty_not_an_error(server):
     with server(success_script) as client:
         body = client.get("/api/assets").json()
     assert body["assets"] == []
     assert body["asset_dir"] is None
+    assert body["libraries"] == []
+    assert body["shadowed"] == []
 
 
 def test_an_audio_file_can_be_uploaded(asset_server, tmp_path):
@@ -1884,6 +2039,8 @@ def test_workflow_listing_carries_details(server):
             "traits": [],
             "summary": "Renders a small test image.",
             "lists": {},
+            "constraints": {},
+            "cost_drivers": {},
             "cost": None,
             # where it came from, and whether a client should offer save and
             # delete for it or only save-a-copy
@@ -2579,8 +2736,11 @@ class TestTaskDescription:
         }
         with server(success_script) as client:
             result = client.post("/api/validate", json={"workflow": workflow}).json()
-            assert result["valid"]
-            assert any("trim_framse" in warning for warning in result["warnings"])
+            # An argument the command does not take reaches Python as an
+            # unexpected keyword, so it refuses the workflow rather than
+            # warning beside a `valid: true` (#141)
+            assert not result["valid"]
+            assert any("trim_framse" in error["message"] for error in result["errors"])
 
 
 class TestDiffusersUpdate:
@@ -3629,6 +3789,7 @@ EMPTY_PLAN = {
     "steps": 0,
     "list_entries": {},
     "cached_steps": None,
+    "elided_steps": [],
     "downloads_required": [],
     "estimate": None,
 }
@@ -3657,6 +3818,69 @@ class TestValidatePlan:
         assert plan["estimate"]["basis"] in {"catalog", "other_device"}
         assert plan["estimate"]["minutes"] == 2.0
         assert plan["downloads_required"] == [{"repo": "m", "gb": None}]
+
+    def test_the_estimate_quotes_this_box_s_own_history(self, server, monkeypatch):
+        """#154: `basis: unknown` has to mean nobody has a number. A stored
+        workflow this server has finished eleven times is priced from those
+        runs, and the aggregate is asked with the caller's arguments."""
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+        from dw import get_device, get_device_type
+
+        serving = get_device_type(get_device())
+        asked = []
+
+        class History:
+            def observed(self, name, definition, arguments=None):
+                asked.append((name, arguments))
+                return {
+                    "device": serving,
+                    "name": "RTX 3090",
+                    "runs": 11,
+                    "cold_minutes": 8.04,
+                    "cold_runs": 11,
+                }
+
+        with server(success_script) as client:
+            client.app.state.observed_costs = History()
+            result = client.post(
+                "/api/validate?sizes=false",
+                json={"workflow_path": "Basic", "arguments": {"prompt": "x"}},
+            ).json()
+
+        assert result["plan"]["estimate"] == {
+            "minutes": 8.0,
+            "basis": "observed",
+            "device": serving,
+            "measured_on": "RTX 3090",
+            "partial": False,
+            "runs": 11,
+        }
+        assert asked == [("Basic", {"prompt": "x"})]
+
+    def test_an_inline_workflow_has_no_history_to_quote(self, server, monkeypatch):
+        """It has no catalog name, so nothing joins it to a job row."""
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+
+        class History:
+            def observed(self, name, definition, arguments=None):
+                raise AssertionError("an inline definition has no history")
+
+        with server(success_script) as client:
+            client.app.state.observed_costs = History()
+            result = client.post(
+                "/api/validate?sizes=false",
+                json={"workflow": video_workflow("planned", with_cost=True)},
+            ).json()
+
+        assert result["plan"]["estimate"]["basis"] in {"catalog", "other_device"}
 
     def test_an_invalid_answer_carries_no_plan(self, server):
         with server(success_script) as client:
@@ -4257,7 +4481,7 @@ def test_gallery_metadata_refuses_an_asset_that_escapes_the_library(
         )
         missing = client.get("/api/gallery/asset:nothing.wav/metadata")
         assert missing.status_code == 404
-        assert "asset library" in missing.json()["detail"]
+        assert "not found in" in missing.json()["detail"]
 
 
 def test_gallery_metadata_finds_an_asset_an_examples_tree_brought(tmp_path):
@@ -4372,3 +4596,77 @@ def test_deleting_a_run_directory_stays_inside_the_output_root(server, tmp_path)
         response = client.delete("/api/gallery/..%2F20260913-120000-cafebabe")
         assert response.status_code == 404
         assert outside.exists()
+
+
+def test_an_examples_library_is_read_only_even_when_it_is_the_only_root(tmp_path):
+    """A workspace whose own library does not exist yet drops out of the
+    search path, which made the examples tree root 0 - and root 0 was
+    labelled 'workspace', writable, deletable. With the Assets page's
+    select-all + Delete on top of that label, example files could be
+    removed through the UI. The label follows which directory a root is,
+    never its position."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    examples = tmp_path / "examples"
+    (examples / "assets").mkdir(parents=True)
+    example_file = examples / "assets" / "cast.png"
+    example_file.write_bytes(b"png")
+
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(workflows),
+    )
+    app = create_app(
+        workflow_dir=str(workflows),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        # declared but never created - the shape a fresh install has
+        asset_dir=str(tmp_path / "assets"),
+        examples_dirs=[str(examples)],
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        body = client.get("/api/assets").json()
+        assert body["libraries"] == [
+            {"origin": "examples", "dir": str(examples / "assets"), "writable": False}
+        ]
+        (asset,) = body["assets"]
+        assert asset["origin"] == "examples"
+
+        response = client.delete("/api/assets/cast.png")
+
+    assert response.status_code == 403
+    assert example_file.exists()
+
+
+def test_an_asset_lookup_with_no_library_configured_is_a_404(server):
+    """No asset_dir, no examples: the search path is empty. That is a 404
+    naming the absence, not a TypeError from joining None (the fallback
+    handed _asset_in a [None] root)."""
+    with server(success_script) as client:
+        response = client.get("/inputs/iris.png")
+        assert response.status_code == 404
+        assert "no asset library" in response.json()["detail"]
+
+        metadata = client.get("/api/gallery/asset:iris.png/metadata")
+        assert metadata.status_code == 404
+
+
+def test_a_validate_miss_with_no_library_configured_says_so(server):
+    """The same empty search path, reached through POST /api/validate's
+    argument check: the miss is a validation error naming the absence, not
+    a TypeError from re-raising a `None` "first error" (the message the
+    caller got was "exceptions must derive from BaseException")."""
+    workflow = valid_workflow()
+    workflow["variables"]["image"] = "asset:iris.png"
+    workflow["steps"][0]["pipeline"]["arguments"]["image"] = "variable:image"
+    with server(success_script) as client:
+        result = client.post(
+            "/api/validate",
+            json={"workflow": workflow, "arguments": {"image": "asset:iris.png"}},
+        ).json()
+        assert result["valid"] is False
+        [error] = [e for e in result["errors"] if e["path"] == "arguments.image"]
+        assert "no asset library" in error["message"]
+        assert "BaseException" not in error["message"]

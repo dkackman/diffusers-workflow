@@ -9,24 +9,45 @@ re-implements it - a second, subtly different check is how the two drift.
 from dw_mcp.client import DwApiError, api_path
 
 
-def validate_workflow(client, workflow=None, name=None, workspace=None, arguments=None):
+def validate_workflow(
+    client,
+    workflow=None,
+    name=None,
+    inline_workflow=None,
+    workflow_path=None,
+    workspace=None,
+    arguments=None,
+):
     """Schema- and signature-check a workflow without queuing anything. This
     is free (no GPU work) and should be called before any run or save. Give
-    either an inline definition or the name of a stored one, as
-    `list_workflows` reports it.
+    either an inline definition (`workflow`, or `inline_workflow` - the same
+    thing `run_workflow` calls it) or the name of a stored one (`name`, or
+    `workflow_path` - the same thing `run_workflow` calls it), as
+    `list_workflows` reports it. A validated document can be handed straight
+    to `run_workflow` under either spelling.
 
     `arguments` is the same dict `run_workflow` takes, checked against the
     variables the workflow declares and against this workspace's libraries.
     Without it the answer is about the stored definition and its stock
     defaults - which is everything except the part the caller wrote
     (2026-09-11)."""
-    if (workflow is None) == (name is None):
+    if workflow is not None and inline_workflow is not None:
         raise DwApiError(
-            "Provide exactly one of `workflow` (an inline definition) or "
-            "`name` (a stored workflow)."
+            "`workflow` and `inline_workflow` are the same thing - provide only one."
+        )
+    if name is not None and workflow_path is not None:
+        raise DwApiError(
+            "`name` and `workflow_path` are the same thing - provide only one."
+        )
+    inline = workflow if workflow is not None else inline_workflow
+    stored = name if name is not None else workflow_path
+    if (inline is None) == (stored is None):
+        raise DwApiError(
+            "Provide exactly one of `workflow`/`inline_workflow` (an inline "
+            "definition) or `name`/`workflow_path` (a stored workflow)."
         )
     params = {"workspace": workspace} if workspace else None
-    payload = {"workflow_path": name} if workflow is None else {"workflow": workflow}
+    payload = {"workflow_path": stored} if inline is None else {"workflow": inline}
     if arguments:
         payload["arguments"] = arguments
     # The server resolves a name against its own workflow directory, so

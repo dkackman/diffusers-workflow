@@ -4,11 +4,14 @@ import json
 import logging
 import os
 import pathlib
+import threading
+import time
 import pytest
 from unittest.mock import patch
 
 from PIL import Image
 
+from dw import events as events_module
 from dw.events import RunContext, WorkflowCancelled, get_context, current_context
 from dw.log_setup import setup_logging
 from dw.result import Result
@@ -317,3 +320,144 @@ def test_sub_workflow_events_flow_into_parent_context(tmp_path):
     assert any(e["event"] == "pipeline_step" for e in events)
     assert context.touched_pipelines, "child pipelines must land in the shared set"
     assert current_context() is None, "context must deactivate after the run"
+
+
+def _fast_watchdog():
+    """Patches the watchdog's timing constants down to something a test can
+    wait out in real time, without touching the production defaults."""
+    return patch.multiple(
+        events_module,
+        PHASE_STALL_THRESHOLD_SECONDS=0.05,
+        PHASE_STALL_CHECK_INTERVAL_SECONDS=0.02,
+    )
+
+
+def test_watchdog_fires_after_threshold_with_no_events():
+    events = []
+    context = RunContext(on_event=events.append)
+    with _fast_watchdog():
+        context.enter_run()
+        try:
+            context.note_phase("generating")
+            time.sleep(0.2)
+        finally:
+            context.exit_run()
+
+    stalls = [e for e in events if e.get("kind") == "phase_stall"]
+    assert stalls, "watchdog must report a stall once the phase runs past the threshold"
+    assert stalls[0]["phase"] == "generating"
+    assert stalls[0]["seconds_since_phase_start"] > 0
+
+
+def test_watchdog_does_not_fire_before_threshold():
+    events = []
+    context = RunContext(on_event=events.append)
+    with _fast_watchdog():
+        context.enter_run()
+        try:
+            context.note_phase("generating")
+            time.sleep(0.03)
+        finally:
+            context.exit_run()
+
+    stalls = [e for e in events if e.get("kind") == "phase_stall"]
+    assert not stalls
+
+
+def test_watchdog_repeats_while_the_stall_continues():
+    events = []
+    context = RunContext(on_event=events.append)
+    with _fast_watchdog():
+        context.enter_run()
+        try:
+            context.note_phase("generating")
+            time.sleep(0.3)
+        finally:
+            context.exit_run()
+
+    stalls = [e for e in events if e.get("kind") == "phase_stall"]
+    assert len(stalls) >= 2, "a continuing stall must be reported more than once"
+    # seconds_since_phase_start increases across repeats - the message embeds
+    # it, so a message-string-deduplicating consumer (job.warnings) sees more
+    # than one distinct text rather than silently dropping every repeat
+    assert (
+        stalls[-1]["seconds_since_phase_start"] > stalls[0]["seconds_since_phase_start"]
+    )
+    assert len({s["message"] for s in stalls}) > 1
+
+
+def test_watchdog_stops_once_a_new_event_arrives():
+    events = []
+    context = RunContext(on_event=events.append)
+    with _fast_watchdog():
+        context.enter_run()
+        try:
+            context.note_phase("generating")
+            time.sleep(0.06)
+            context.emit("pipeline_step", step=1)
+            time.sleep(0.01)
+            count_after_progress = len(
+                [e for e in events if e.get("kind") == "phase_stall"]
+            )
+            time.sleep(0.01)
+            count_soon_after = len(
+                [e for e in events if e.get("kind") == "phase_stall"]
+            )
+        finally:
+            context.exit_run()
+
+    assert count_soon_after == count_after_progress, (
+        "a fresh event must reset the silence clock, not just a fresh phase"
+    )
+
+
+def test_watchdog_is_shared_and_not_double_started_across_sub_workflow_runs():
+    context = RunContext(on_event=lambda e: None)
+    context.enter_run()
+    thread_after_outer = context._watchdog_thread
+    assert thread_after_outer is not None and thread_after_outer.is_alive()
+
+    context.enter_run()  # nested sub-workflow call, same shared context
+    assert context._watchdog_thread is thread_after_outer, (
+        "a nested run must not start a second watchdog thread"
+    )
+
+    context.exit_run()  # nested call returns - watchdog must stay up
+    assert context._watchdog_thread is thread_after_outer
+    assert context._watchdog_thread.is_alive()
+
+    context.exit_run()  # outermost call returns - watchdog must stop
+    assert context._watchdog_thread is None
+    assert not thread_after_outer.is_alive()
+
+
+def test_watchdog_thread_is_cleanly_stopped_at_run_end():
+    events = []
+    context = RunContext(on_event=events.append)
+    with _fast_watchdog():
+        context.enter_run()
+        context.note_phase("generating")
+        context.exit_run()
+
+    live_watchdog_threads = [
+        t for t in threading.enumerate() if t.name == "dw-phase-stall"
+    ]
+    assert not live_watchdog_threads, "no watchdog thread must survive exit_run()"
+
+
+def test_watchdog_event_carries_the_required_fields():
+    events = []
+    context = RunContext(on_event=events.append)
+    with _fast_watchdog():
+        context.enter_run()
+        try:
+            context.note_phase("saving")
+            time.sleep(0.2)
+        finally:
+            context.exit_run()
+
+    stall = next(e for e in events if e.get("kind") == "phase_stall")
+    assert stall["event"] == "warning"
+    assert stall["phase"] == "saving"
+    assert isinstance(stall["seconds_since_phase_start"], (int, float))
+    assert "message" in stall

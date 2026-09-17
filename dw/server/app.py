@@ -63,7 +63,9 @@ from ..prompts import (
     RESERVED_TEXT_PREFIXES,
     resolve_prompt_reference,
 )
-from ..assets import is_asset_reference, resolve_asset_reference
+from ..assets import ASSET_PREFIX, is_asset_reference, resolve_asset_reference
+from ..variable_constraints import constraint_errors, constraint_warnings
+from .observed_cost import ObservedCosts, declared_drivers
 from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
@@ -175,6 +177,12 @@ class JobRequest(BaseModel):
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
 
 
+# What a run directory holds besides its outputs - the files a run writes
+# about itself. A run whose directory holds nothing else is an orphan
+# (see _iter_orphan_runs, #170) whatever shape its output would have had.
+# job.json is what an export bundle writes, listed defensively.
+RUN_BOOKKEEPING_FILES = frozenset({MANIFEST_FILE_NAME, REALIZED_FILE_NAME, "job.json"})
+
 # What each workflow produces and takes, for listing cards - cached by mtime
 _workflow_detail_cache = {}
 
@@ -232,6 +240,35 @@ def catalog_name_for(path, source):
     if relative.startswith(".."):
         return None
     return os.path.splitext(relative)[0].replace(os.sep, "/")
+
+
+def attach_observed(details, observed_costs):
+    """Fold this box's own history into each detail, as `observed`.
+
+    Separate from `workflow_details` because that cache is keyed on a file's
+    mtime and this figure changes when no file has: a job finishing moves
+    every number here. A detail carries `cost_drivers` and the defaults they
+    take, which is everything the aggregate needs - the file is not read a
+    second time.
+    """
+    if observed_costs is None or not observed_costs.refresh():
+        return details
+    for name, detail in details.items():
+        drivers = detail.get("cost_drivers") or {}
+        # The shape `observed_for` reads: the drivers with their defaults,
+        # and the variable names, which is what the no-drivers fallback
+        # (default-arguments-only runs) compares a job's arguments against
+        surrogate = {
+            "cost_drivers": sorted(drivers),
+            "variables": {
+                **{variable: None for variable in detail.get("variable_names") or []},
+                **drivers,
+            },
+        }
+        observed = observed_costs.observed(name, surrogate, fresh=False)
+        if observed:
+            detail["observed"] = observed
+    return details
 
 
 def workflow_details(sources_by_name):
@@ -293,6 +330,17 @@ def workflow_details(sources_by_name):
                 "traits": metadata["traits"],
                 "summary": metadata["summary"],
                 "lists": metadata["lists"],
+                # What a variable's value is allowed to be, so the rule is
+                # read rather than guessed at (#96)
+                "constraints": definition.get("variable_constraints") or {},
+                # The variables the author says move this workflow's cost,
+                # with what they default to - what buckets this box's own
+                # runs into comparable ones (#93). Carried here so an
+                # observed figure needs no second read of the file
+                "cost_drivers": {
+                    name: (definition.get("variables") or {}).get(name)
+                    for name in declared_drivers(definition)
+                },
                 "cost": cost if isinstance(cost, list) and cost else None,
             }
         except Exception:
@@ -307,6 +355,8 @@ def workflow_details(sources_by_name):
                 "traits": [],
                 "summary": "",
                 "lists": {},
+                "constraints": {},
+                "cost_drivers": {},
                 "cost": None,
             }
         _workflow_detail_cache[path] = (mtime, detail)
@@ -647,6 +697,10 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.job_manager = manager
+    # This box's own job history as a cost, recomputed when the jobs table
+    # moves rather than when a file does - a job landing changes every
+    # figure and changes no workflow file (#93)
+    app.state.observed_costs = ObservedCosts(getattr(manager, "history", None))
     app.state.workflow_dir = workflow_dir
     # The search path: the writable directory first, then read-only roots -
     # any --examples-dir, then the packaged builtins. Reads span all of it,
@@ -933,6 +987,11 @@ def create_app(
             )
         candidate.validate()
         problems = argument_errors(candidate.workflow_definition, arguments)
+        # A value outside a rule the workflow declares, refused before the
+        # job id rather than after the weights are loaded (#96)
+        problems += constraint_errors(
+            candidate.workflow_definition, arguments, supplied=set(arguments or {})
+        )
         if problems:
             raise ValueError(
                 "; ".join(
@@ -952,6 +1011,19 @@ def create_app(
             resolved, source = resolve_workflow_reference(
                 request.workflow_path, sources
             )
+            # Built unconditionally - both the reference check below and a
+            # bound acknowledgement (further down) need the definition a run
+            # would actually use, and resolve_workflow_reference already
+            # returns (None, None) for an inline definition, which
+            # _candidate_for handles the same way _candidate_for always has
+            candidate = _candidate_for(
+                resolved,
+                request.workflow,
+                request.base_dir,
+                workspace.outputs,
+                source.root if source else workspace.workflows,
+                request.arguments,
+            )
             # The same reference check POST /api/validate makes, because a
             # caller who skipped the free pre-flight should still not get a
             # job id for an argument that cannot resolve. The name half of
@@ -960,7 +1032,7 @@ def create_app(
             # here - which is why a bad 'asset:' used to queue and die on the
             # first step while a bad variable name was refused outright
             reference_problems = _argument_reference_errors(
-                request.arguments, workspace
+                candidate.workflow_definition, request.arguments, workspace
             )
             if reference_problems:
                 raise ValueError(
@@ -974,14 +1046,6 @@ def create_app(
             # is free here and costs a job id anywhere later (#85)
             form = _acknowledgement_form(request.acknowledged_cost)
             if form == ACK_BOUND:
-                candidate = _candidate_for(
-                    resolved,
-                    request.workflow,
-                    request.base_dir,
-                    workspace.outputs,
-                    source.root if source else workspace.workflows,
-                    request.arguments,
-                )
                 _check_bound_acknowledgement(
                     candidate, request.arguments, request.acknowledged_cost, workspace
                 )
@@ -1389,9 +1453,19 @@ def create_app(
         except GuideError as e:
             raise HTTPException(status_code=404, detail=str(e))
 
-    def _argument_reference_errors(arguments, ws):
-        """The 'asset:', 'prompt:' and 'output:' references in a caller's
-        arguments that name nothing this workspace can reach.
+    def _argument_reference_errors(definition, arguments, ws):
+        """The 'asset:', 'prompt:' and 'output:' references that name nothing
+        this workspace can reach, in the values a run would actually use -
+        the caller's `arguments`, plus every declared `variables` default
+        the caller did not override.
+
+        A stored default is exactly as much a promise as a caller's value:
+        `validate_workflow(name="templates/ltx2/reference-sheet")` with no
+        arguments at all used to answer valid because only `arguments` was
+        checked, while the same call with the stored default handed back
+        explicitly answered invalid - one run, two verdicts (#166). Reported
+        at `variables.<name>` so the message still says whether the caller
+        wrote the bad reference or merely didn't override one.
 
         Resolved through the engine's own resolvers over the roots this
         workspace searches, so validation agrees with what the run would
@@ -1416,6 +1490,9 @@ def create_app(
                     return resolve(root)
                 except Exception as e:
                     first = first or e
+            # `roots` is never empty here: the asset branch answers an empty
+            # search path itself, and the prompt path always holds the
+            # server's own library. Re-raising None would be a TypeError
             raise first
 
         def _string_leaves(value, path):
@@ -1434,15 +1511,38 @@ def create_app(
                 for key, item in value.items():
                     yield from _string_leaves(item, f"{path}.{key}")
 
-        if not isinstance(arguments, dict):
+        if arguments is not None and not isinstance(arguments, dict):
             return []
+        supplied = arguments if isinstance(arguments, dict) else {}
+
+        effective = []
+        declared = definition.get("variables") if isinstance(definition, dict) else None
+        if isinstance(declared, dict):
+            for name, value in declared.items():
+                if name not in supplied:
+                    effective.append((f"variables.{name}", value))
+        for name, value in supplied.items():
+            effective.append((f"arguments.{name}", value))
+
         errors = []
-        for name, value in arguments.items():
-            for path, leaf in _string_leaves(value, f"arguments.{name}"):
+        for base_path, value in effective:
+            for path, leaf in _string_leaves(value, base_path):
                 try:
                     if is_asset_reference(leaf):
+                        roots = _resolution_roots(ws)
+                        if not roots:
+                            # A server configured with no asset library has
+                            # no root to fail against: over_roots would
+                            # re-raise its "first error", which is None,
+                            # and the caller would read a TypeError about
+                            # BaseException in place of a verdict
+                            name = leaf.removeprefix(ASSET_PREFIX).strip()
+                            raise ValueError(
+                                f"Unknown asset {name!r}: "
+                                "this workspace has no asset library"
+                            )
                         over_roots(
-                            _asset_roots(ws) or [ws.assets],
+                            roots,
                             lambda root: resolve_asset_reference(leaf, asset_dir=root),
                         )
                     elif leaf.startswith(PROMPT_PREFIX):
@@ -1517,9 +1617,14 @@ def create_app(
                 source_root = source.root if source else workspace.workflows
                 candidate = workflow_from_file(resolved, workspace.outputs, source_root)
                 definition = candidate.workflow_definition
+                # The listing name the job history is keyed on, so the plan
+                # can quote what this box's own runs of it took (#154)
+                catalog_name = catalog_name_for(resolved, source)
             else:
                 definition = request.workflow
                 source_root = workspace.workflows
+                # An inline definition has no catalog name, so no history
+                catalog_name = None
                 candidate = workflow_from_definition(
                     copy.deepcopy(request.workflow),
                     workspace.outputs,
@@ -1573,7 +1678,9 @@ def create_app(
         # nothing in this workspace. Without this the free pre-flight covers
         # every part of a run except the part the caller actually wrote
         argument_problems = argument_errors(definition, request.arguments)
-        argument_problems += _argument_reference_errors(request.arguments, workspace)
+        argument_problems += _argument_reference_errors(
+            definition, request.arguments, workspace
+        )
         if argument_problems:
             return {
                 "valid": False,
@@ -1587,10 +1694,19 @@ def create_app(
             "error": None,
             "errors": [],
             "warnings": workflow_argument_warnings(definition)
+            # A value a declared constraint will round up - the silent half
+            # of #96: the run changed the caller's frame count and only the
+            # server's log said so
+            + constraint_warnings(definition, request.arguments)
             + entry_field_warnings(definition, request.arguments)
             # Why `plan.cached_steps` is 0 for a workflow with no seed - the
             # cache is off, not empty
             + unseeded_cache_warnings(definition, request.arguments)
+            # An adapter whose file name says nothing about which checkpoint
+            # partition it was trained for: valid, since the name of a
+            # future checkpoint cannot be predicted, but nothing at run time
+            # would say it loaded onto the wrong one (#155)
+            + candidate.adapter_warnings(request.arguments)
             # An argument a sub-workflow step passes to a workflow that
             # declares no variable for it - dropped in silence at run time
             + candidate.sub_workflow_warnings(),
@@ -1614,6 +1730,19 @@ def create_app(
                 lookup_sizes=sizes,
                 cache_probe=lambda arguments: manager.probe_cache(
                     {**command, "arguments": arguments}
+                ),
+                # What this box's own runs of this shape took, which is what
+                # the estimate quotes ahead of a curated figure (#154) - the
+                # same aggregate the listing reports, asked with the
+                # caller's arguments rather than the defaults
+                observed=(
+                    (
+                        lambda arguments: _observed_for_name(
+                            catalog_name, definition, arguments
+                        )
+                    )
+                    if catalog_name
+                    else None
                 ),
             )
         except Exception:
@@ -1755,7 +1884,10 @@ def create_app(
         found = listing(sources)
         try:
             details = project_listing(
-                workflow_details(found),
+                attach_observed(
+                    workflow_details(found),
+                    getattr(app.state, "observed_costs", None),
+                ),
                 shape=shape,
                 traits=[t.strip() for t in (traits or "").split(",") if t.strip()],
                 configures=configures,
@@ -1775,7 +1907,10 @@ def create_app(
             # wrote into the workflow - nothing derives them from this
             # server's own job history, so null means nobody wrote one
             # down, not that the run is cheap or that this box has never
-            # run it (#91)
+            # run it (#91). A detail's `observed` block, when present, is the
+            # other kind of number: this box's own finished runs of that
+            # workflow, derived rather than claimed, and never a substitute
+            # for `cost` (#93)
             "cost_basis": "curated",
         }
 
@@ -1847,6 +1982,7 @@ def create_app(
             )
         os.remove(path)
         logger.info(f"Deleted workflow {name} ({path})")
+        forget_workspace_usage()
         return {"name": name, "deleted": True}
 
     @app.get("/api/workflows/{name:path}/download")
@@ -1901,13 +2037,44 @@ def create_app(
         values, truncated = {}, []
         for variable, value in variables.items():
             values[variable] = value if full else preview(value, variable)
-        return {
+        answer = {
             "name": name,
             "variables": values,
             "truncated": truncated,
             "seed": definition.get("seed"),
             "origin": source.origin,
         }
+        # The rule beside the default it constrains: a consumer reading
+        # `num_frames: 124` with no range picked 61 and paid 138 s of
+        # loading to be told the rule was 17n + 5 from 124 (#96)
+        constraints = definition.get("variable_constraints")
+        if isinstance(constraints, dict) and constraints:
+            answer["constraints"] = constraints
+        # What an entry of each list-driven variable carries, with any rule
+        # that reaches one of its fields stated beside that field: a caller
+        # reading what a `shots` entry takes reads the bound for
+        # `num_frames` there, rather than having to match it to a key of
+        # `constraints` that names no top-level variable (#145)
+        lists = derive_catalog_metadata(definition).get("lists")
+        if lists:
+            answer["lists"] = lists
+        # What this box's own runs of it actually took, beside the defaults
+        # they were run with - derived, never the curated `cost` (#93)
+        observed = _observed_for_name(name, definition)
+        if observed:
+            answer["observed"] = observed
+        return answer
+
+    def _observed_for_name(name, definition, arguments=None):
+        """One workflow's `observed` block, from the same aggregate the
+        listing uses - so the figure a caller reads in the listing and the
+        one they read here are the same figure.
+
+        `arguments` narrow it to the bucket the run being planned falls in;
+        without them it is the figure the stored defaults give, which is the
+        listing's."""
+        costs = getattr(app.state, "observed_costs", None)
+        return costs.observed(name, definition, arguments) if costs else None
 
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str, ws: Workspace = Depends(selected_workspace)):
@@ -2034,6 +2201,7 @@ def create_app(
             )
         os.remove(path)
         logger.info(f"Deleted prompt {name} ({path})")
+        forget_workspace_usage()
         return {"name": name, "deleted": True}
 
     @app.get("/api/prompts/{name:path}/download")
@@ -2123,6 +2291,17 @@ def create_app(
         **{ext: "audio" for ext in ALLOWED_AUDIO_EXTENSIONS},
     }
 
+    # The allowlist members that are not already-compressed containers -
+    # everything else in MEDIA_KINDS deflates for about nothing, so it is
+    # stored instead (see _zip_download)
+    RAW_MEDIA_EXTENSIONS = {".bmp", ".wav"}
+
+    # Exposed for tests - the two sets _zip_download's compression policy
+    # reads, so a test can assert the relationship without reaching into a
+    # closure
+    app.state.media_kinds = MEDIA_KINDS
+    app.state.raw_media_extensions = RAW_MEDIA_EXTENSIONS
+
     # Longest side of an on-demand gallery thumbnail, in pixels
     GALLERY_THUMBNAIL_MAX_DIM = 320
 
@@ -2142,27 +2321,51 @@ def create_app(
             raise HTTPException(status_code=404, detail="Unknown file")
         return path
 
+    def _asset_in(name, roots):
+        """The file a bare asset name has in one of these roots, or a 404.
+
+        `_asset_file` with the search path already in hand, for a caller
+        resolving many names against the one workspace: each call to
+        `resolve_asset_reference` walks the pinned fallbacks on its own, so
+        calling it once per root re-walked them all every time - the name is
+        validated once here instead, and each root is then just a join and
+        an isfile check.
+        """
+        try:
+            validate_asset_reference(name)
+        except SecurityError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        for root in roots:
+            candidate = os.path.join(root, name)
+            if not os.path.isfile(candidate):
+                continue
+            try:
+                return validate_path(candidate, root)
+            except SecurityError:
+                # A symlink under this root can still point outside it -
+                # isfile follows the link and says yes, and validate_path
+                # is what actually catches the escape. That's a miss for
+                # this root, not a 500: fall through to the next one and,
+                # on a total miss, the same 404 every other miss gets.
+                continue
+        if not roots:
+            detail = f"Unknown asset {name!r}: this workspace has no asset library"
+        else:
+            detail = f"Unknown asset {name!r}: not found in {', '.join(roots)}"
+        raise HTTPException(status_code=404, detail=detail)
+
     def _asset_file(reference, ws):
         """The file an 'asset:' reference names in this workspace, or a 404.
 
         Looked for down the same search path a run resolves 'asset:' in
         (_asset_roots), so what the API can read is what a job would load.
-        The first root's failure is the one reported: it names the
-        workspace's own library, which is where a caller expects their
-        asset to be, rather than an examples directory they never wrote to.
+        A miss names every root that was searched, so the caller sees
+        their own workspace library among them rather than just the last
+        (often an examples directory they never wrote to).
         """
-        first = None
-        for root in _asset_roots(ws) or [ws.assets]:
-            if not root:
-                continue
-            try:
-                return resolve_asset_reference(reference, asset_dir=root)
-            except (SecurityError, ValueError) as e:
-                first = first or e
-        raise HTTPException(
-            status_code=404,
-            detail=str(first)
-            or f"Unknown asset {reference!r}: this workspace has no asset library",
+        return _asset_in(
+            reference.removeprefix(ASSET_PREFIX).strip(),
+            _resolution_roots(ws),
         )
 
     def _static_files_for(root):
@@ -2198,6 +2401,26 @@ def create_app(
             if root not in roots and os.path.isdir(root):
                 roots.append(root)
         return roots
+
+    def _resolution_roots(ws):
+        """`_asset_roots(ws)`, falling back to the workspace's own (possibly
+        nonexistent) library when the search path is empty.
+
+        A caller resolving a name still needs *somewhere* to fail against:
+        with no root at all the 404 would name no directory, leaving the
+        caller to guess where it looked. Naming the workspace's own
+        directory keeps the failure pointing at the library the caller
+        thinks they're working in, even when that library hasn't been
+        created yet.
+
+        Never `[None]`: a server configured with no asset library at all has
+        nothing to point at either, and `_asset_in` turns the resulting empty
+        list into the "no asset library" 404 rather than joining `None`.
+        """
+        roots = _asset_roots(ws)
+        if roots:
+            return roots
+        return [os.path.abspath(ws.assets)] if ws.assets else []
 
     def _asset_roots_for_job(job_id, ws):
         """The asset search path a job's own run used, for export: its spec's
@@ -2323,12 +2546,52 @@ def create_app(
         entries.sort(key=lambda e: e["mtime"], reverse=True)
         return entries
 
+    def _iter_orphan_runs(root):
+        """Run directories under `root` holding nothing but their own
+        bookkeeping (RUN_BOOKKEEPING_FILES) - a run whose output was deleted
+        before #134's by-name `delete_output`, or one that failed before
+        writing anything. Yields (name, mtime) where `name` is the
+        `<identity>/<run id>` string `delete_output` already accepts (#170).
+
+        By what is absent, not by extension: a `text`-shape run writes .txt
+        and a `utility`-shape run may write nothing the gallery lists, and
+        neither is junk. This call only lists; deciding whether an entry is
+        junk stays a human/agent call before `delete_output` is invoked."""
+        for current, dirs, _names in os.walk(root):
+            if not is_run_id(os.path.basename(current)):
+                continue
+            # A run directory holds no run directories of its own
+            dirs[:] = []
+            # A dotfile is not output either: a .DS_Store Finder left behind
+            # would otherwise make the run permanently non-orphan
+            has_output = any(
+                name not in RUN_BOOKKEEPING_FILES and not name.startswith(".")
+                for _sub_current, _sub_dirs, sub_names in os.walk(current)
+                for name in sub_names
+            )
+            if has_output:
+                continue
+            try:
+                mtime = os.stat(current).st_mtime
+            except OSError:
+                continue
+            name = os.path.relpath(current, root).replace(os.sep, "/")
+            yield (name, mtime)
+
+    def _orphan_entries(root):
+        entries = [
+            {"name": name, "mtime": mtime} for name, mtime in _iter_orphan_runs(root)
+        ]
+        entries.sort(key=lambda e: e["mtime"], reverse=True)
+        return entries
+
     @app.get("/api/gallery")
     def gallery(
         limit: int = 200,
         offset: int = 0,
         folder: Optional[str] = None,
         subfolder: Optional[str] = None,
+        only_orphans: bool = False,
         ws: Workspace = Depends(selected_workspace),
     ):
         """A page of media files in the output directory, newest first.
@@ -2342,7 +2605,30 @@ def create_app(
         'subfolders' is the other axis, over the whole directory the same
         way: the in-run subfolders steps wrote into ('final',
         'intermediate'), '' for files at a run's root. `folder` and
-        `subfolder` filter independently and intersect when both are given."""
+        `subfolder` filter independently and intersect when both are given.
+
+        `only_orphans=true` inverts the whole call: instead of media files,
+        it returns run directories holding nothing but their own
+        bookkeeping (manifest.json, workflow.json, job.json) as `runs`,
+        each `{name, mtime}` - a run that wrote any file at all, a
+        text-shape prompt or a utility's side output included, is not
+        listed. `folder`/`subfolder` and the `folders`/`subfolders` facets
+        do not apply in this mode, since an orphan run has no file to
+        carry either. `name` is exactly what `DELETE /api/gallery/{name}`
+        accepts, so listing and deleting an orphan is a two-call round
+        trip (#170)."""
+        if only_orphans:
+            entries = _orphan_entries(ws.outputs)
+            offset = max(0, offset)
+            limit = max(0, limit)
+            page = entries[offset : offset + limit]
+            return {
+                "runs": page,
+                "total": len(entries),
+                "offset": offset,
+                "limit": limit,
+                "workspace": ws.name,
+            }
         entries = _gallery_entries(ws.outputs, ws)
         folders = sorted({e["folder"] for e in entries} | {""})
         subfolders = sorted({e["subfolder"] for e in entries} | {""})
@@ -2477,6 +2763,64 @@ def create_app(
     class ArchiveRequest(BaseModel):
         names: list[str] = Field(min_length=1, max_length=MAX_ARCHIVE_FILES)
 
+    def _zip_download(entries, filename):
+        """Bundle (arcname, path) pairs into a zip and serve it as a download.
+
+        The archive is a temp file rather than memory - a selection of videos
+        does not fit in RAM - unlinked once the response has been sent. The
+        three routes that hand back a zip share this so the cleanup contract
+        lives in one place: nothing has attached the background unlink while
+        the archive is being written, so a failure there has to unlink on the
+        way out or leak a half-written file into tmp.
+        """
+        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        try:
+            with handle:
+                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for arcname, path in entries:
+                        extension = os.path.splitext(path)[1].lower()
+                        # A file in MEDIA_KINDS but not RAW_MEDIA_EXTENSIONS
+                        # is an already-compressed container - deflating it
+                        # buys about nothing for a full CPU pass the caller
+                        # waits through (the response doesn't start until the
+                        # temp file is complete), so it is stored instead.
+                        # Everything else - .json, .md, .txt, .bmp, .wav, an
+                        # unrecognized extension - deflates, including the
+                        # export zip's text files
+                        stored = (
+                            extension in MEDIA_KINDS
+                            and extension not in RAW_MEDIA_EXTENSIONS
+                        )
+                        archive.write(
+                            path,
+                            arcname=arcname,
+                            compress_type=(
+                                zipfile.ZIP_STORED if stored else zipfile.ZIP_DEFLATED
+                            ),
+                        )
+        except BaseException:
+            os.unlink(handle.name)
+            raise
+
+        return FileResponse(
+            handle.name,
+            media_type="application/zip",
+            filename=filename,
+            background=BackgroundTask(os.unlink, handle.name),
+        )
+
+    def _archive_selection(entries, kind):
+        """`_zip_download` plus the one tail the two archive routes shared:
+        a timestamped `dw-<kind>s-*.zip` name and a log line naming the
+        count. Logged after the archive is written, not before, so a write
+        that fails partway (a bad path slipping past resolution, a full
+        disk) doesn't log a success that didn't happen.
+        """
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        response = _zip_download(entries, f"dw-{kind}s-{stamp}.zip")
+        logger.info(f"Archived {len(entries)} {kind} files")
+        return response
+
     @app.post("/api/gallery/archive")
     def archive_outputs(
         request: ArchiveRequest, ws: Workspace = Depends(selected_workspace)
@@ -2488,28 +2832,11 @@ def create_app(
         RAM - and unlinked once the response has been sent."""
         # Resolved before anything is written, so a bad name in the
         # selection fails the request instead of yielding a partial zip
+        # the gallery-relative name is the entry name, so a workflow's output
+        # subfolders stay intact inside the download
         paths = [(name, _output_file(name, ws.outputs)) for name in request.names]
 
-        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-        try:
-            with handle:
-                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
-                    for name, path in paths:
-                        # the gallery-relative name keeps a workflow's output
-                        # subfolders intact inside the download
-                        archive.write(path, arcname=name)
-        except BaseException:
-            os.unlink(handle.name)
-            raise
-
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        logger.info(f"Archived {len(paths)} output files")
-        return FileResponse(
-            handle.name,
-            media_type="application/zip",
-            filename=f"dw-outputs-{stamp}.zip",
-            background=BackgroundTask(os.unlink, handle.name),
-        )
+        return _archive_selection(paths, "output")
 
     # What a run directory holds besides its media: the engine writes them to
     # describe the run, and the gallery - which lists media - never shows them
@@ -2604,6 +2931,7 @@ def create_app(
                     break
                 parent = os.path.dirname(parent)
             logger.info(f"Deleted run directory {name}")
+            forget_workspace_usage()
             return {
                 "name": name,
                 "deleted": True,
@@ -2614,6 +2942,7 @@ def create_app(
         os.remove(path)
         logger.info(f"Deleted output file {name}")
         swept = _prune_empty_run_directory(name, ws.outputs)
+        forget_workspace_usage()
         return {"name": name, "deleted": True, "run_swept": swept}
 
     # ---------------------------------------------------------------- uploads
@@ -2733,12 +3062,17 @@ def create_app(
             "url": _served_url(f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
         }
 
-    def _asset_origin(ws, index, root):
+    def _asset_origin(ws, root):
         """Which library an asset came from: this workspace's own, the one
         shared by every workspace under the root, or a read-only examples
         tree. A client that cannot tell them apart cannot say why deleting
-        one answers 403."""
-        if index == 0:
+        one answers 403.
+
+        By directory, never by position in the search path: the workspace's
+        own library drops out of `_asset_roots` until it exists, and the
+        examples tree that then sits first is still nobody's to write."""
+        own = ws.assets
+        if own and os.path.abspath(own) == root:
             return WORKSPACE_ORIGIN
         common = _common_assets(ws)
         if common and os.path.abspath(common) == root:
@@ -2759,25 +3093,57 @@ def create_app(
         library = ws.assets
         roots = _asset_roots(ws)
         if not roots:
-            return {"asset_dir": library, "asset_dirs": [], "assets": [], "folders": []}
+            return {
+                "asset_dir": library,
+                "asset_dirs": [],
+                "assets": [],
+                "folders": [],
+                "libraries": [],
+                "shadowed": [],
+            }
+
+        libraries = [
+            {
+                "origin": (origin := _asset_origin(ws, root)),
+                "dir": root,
+                "writable": origin != EXAMPLES_ORIGIN,
+            }
+            for root in roots
+        ]
 
         assets = []
-        seen = set()
-        for index, root in enumerate(roots):
+        shadowed = []
+        # Which origin first claimed a name, so a later root's same name can
+        # be reported as shadowed rather than silently dropped
+        seen = {}
+        for root in roots:
             try:
                 files = list(_iter_gallery_files(root, group_runs=False))
             except OSError:
                 files = []
+            origin = _asset_origin(ws, root)
             for relative, folder, _subfolder, kind, path in files:
-                # A name in the workspace shadows the same name in an
-                # examples library, exactly as 'asset:' resolution does
-                if relative in seen:
-                    continue
                 try:
                     stat = os.stat(path)
                 except OSError:
                     continue
-                seen.add(relative)
+                # A name in the workspace shadows the same name in an
+                # examples library, exactly as 'asset:' resolution does
+                if relative in seen:
+                    shadowed.append(
+                        {
+                            "name": relative,
+                            "reference": f"asset:{relative}",
+                            "folder": folder,
+                            "kind": kind,
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime,
+                            "origin": origin,
+                            "shadowed_by": seen[relative],
+                        }
+                    )
+                    continue
+                seen[relative] = origin
                 assets.append(
                     {
                         "name": relative,
@@ -2786,7 +3152,7 @@ def create_app(
                         "kind": kind,
                         "size": stat.st_size,
                         "mtime": stat.st_mtime,
-                        "origin": _asset_origin(ws, index, root),
+                        "origin": origin,
                         # For the editor's own preview - fetchable the same
                         # way an upload's URL is
                         "url": _served_url(f"/inputs/{quote(relative)}", ws),
@@ -2796,9 +3162,11 @@ def create_app(
         return {
             # The workspace's own library, unchanged: where an upload lands
             "asset_dir": library,
-            "asset_dirs": roots,
+            "asset_dirs": [lib["dir"] for lib in libraries],
             "assets": assets,
             "folders": sorted({entry["folder"] for entry in assets} | {""}),
+            "libraries": libraries,
+            "shadowed": shadowed,
         }
 
     class KeepRequest(BaseModel):
@@ -2902,6 +3270,32 @@ def create_app(
             "shared": bool(request.shared),
         }
 
+    @app.post("/api/assets/archive")
+    def archive_assets(
+        request: ArchiveRequest, ws: Workspace = Depends(selected_workspace)
+    ):
+        """Bundle a multi-file asset selection into one zip - the gallery's
+        bulk download, for the input side of it.
+
+        Resolved down the same search path a run resolves 'asset:' in, so a
+        selection spanning the workspace's own library, the shared one and
+        an examples tree downloads as one archive; the library-relative name
+        is the entry name, which is the name the 'asset:' reference carries.
+        """
+        # The search path depends on the workspace, not on the name, so it is
+        # built once rather than per name - each root's isdir check would
+        # otherwise repeat once per name in the selection for no reason
+        roots = _resolution_roots(ws)
+        # Stripped and deduped before resolving, so "iris.png" and
+        # "iris.png " (or a name repeated by an eager client) become the one
+        # zip entry rather than a collision on write
+        names = list(dict.fromkeys(n.strip() for n in request.names))
+        # Resolved before anything is written, so a bad name in the
+        # selection fails the request instead of yielding a partial zip
+        paths = [(name, _asset_in(name, roots)) for name in names]
+
+        return _archive_selection(paths, "asset")
+
     @app.delete("/api/assets/{name:path}")
     def delete_asset(name: str, ws: Workspace = Depends(selected_workspace)):
         """Permanently remove one file from the asset library.
@@ -2927,14 +3321,14 @@ def create_app(
         except SecurityError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        for index, root in enumerate(roots):
+        for root in roots:
             try:
                 path = validate_path(os.path.join(root, relative), root)
             except SecurityError:
                 continue
             if not os.path.isfile(path):
                 continue
-            origin = _asset_origin(ws, index, root)
+            origin = _asset_origin(ws, root)
             if origin == EXAMPLES_ORIGIN:
                 raise HTTPException(
                     status_code=403,
@@ -2943,6 +3337,7 @@ def create_app(
                 )
             os.remove(path)
             logger.info(f"Deleted asset:{relative} ({path})")
+            forget_workspace_usage()
             return {"name": relative, "deleted": True, "origin": origin}
 
         raise HTTPException(status_code=404, detail=f"No such asset: {relative}")
@@ -3210,7 +3605,7 @@ def create_app(
         previews the way an upload does."""
         roots = _asset_roots(ws)
         if not roots:
-            raise HTTPException(status_code=404, detail="No asset library")
+            raise HTTPException(status_code=404, detail="no asset library")
         for root in roots:
             try:
                 candidate = validate_path(os.path.join(root, name), root)
@@ -3239,31 +3634,13 @@ def create_app(
         if not os.path.isdir(directory):
             raise HTTPException(status_code=404, detail="No export for this job")
 
-        handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-        try:
-            with handle:
-                with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
-                    for current, _dirs, names in os.walk(directory):
-                        for name in sorted(names):
-                            path = os.path.join(current, name)
-                            entry = os.path.relpath(path, directory).replace(
-                                os.sep, "/"
-                            )
-                            archive.write(path, f"{job_id}/{entry}")
-        except BaseException:
-            # Nothing is going to attach the background unlink now, so the
-            # half-written archive has to go here
-            os.unlink(handle.name)
-            raise
-
-        return FileResponse(
-            handle.name,
-            media_type="application/zip",
-            filename=f"{job_id}.zip",
-            # The archive is a temp file, not a second permanent copy - it
-            # goes as soon as the response has been sent
-            background=BackgroundTask(os.unlink, handle.name),
-        )
+        entries = []
+        for current, _dirs, names in os.walk(directory):
+            for name in sorted(names):
+                path = os.path.join(current, name)
+                entry = os.path.relpath(path, directory).replace(os.sep, "/")
+                entries.append((f"{job_id}/{entry}", path))
+        return _zip_download(entries, f"{job_id}.zip")
 
     # ---------------------------------------------------------------- the UI
 

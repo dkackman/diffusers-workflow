@@ -30,11 +30,23 @@ def typed_workflow():
     return workflow
 
 
+def placeholder_workflow():
+    """A stored default that names no file in this workspace, the shape of
+    `templates/ltx2/reference-sheet` and its siblings (#166): a bare call
+    must fail the same way an explicit one naming the same value would."""
+    workflow = valid_workflow("placeholder")
+    workflow["variables"]["image"] = "asset:not-shipped.png"
+    workflow["steps"][0]["pipeline"]["arguments"]["image"] = "variable:image"
+    return workflow
+
+
 @pytest.fixture
 def server(tmp_path):
     root = Workspace(tmp_path / "studio", "flag").ensure()
     with open(os.path.join(root.workflows, "Typed.json"), "w") as file:
         json.dump(typed_workflow(), file)
+    with open(os.path.join(root.workflows, "Placeholder.json"), "w") as file:
+        json.dump(placeholder_workflow(), file)
     with open(os.path.join(root.assets, "iris.png"), "wb") as file:
         file.write(b"not really a png, but it is a file under that name")
     with open(os.path.join(root.prompts, "hero.json"), "w") as file:
@@ -242,6 +254,40 @@ class TestValidateRoute:
         )
         assert "missing.wav" in result["errors"][0]["message"]
 
+    def test_a_bad_stored_default_fails_a_bare_call(self, server):
+        """`validate_workflow(name="Placeholder")` with no arguments at all
+        used to answer valid, because only `arguments` was checked - the
+        same value handed back explicitly already failed. One run, one
+        verdict (#166)."""
+        with server() as client:
+            bare = client.post(
+                "/api/validate", json={"workflow_path": "Placeholder"}
+            ).json()
+            explicit = validate(
+                client,
+                workflow_path="Placeholder",
+                arguments={"image": "asset:not-shipped.png"},
+            )
+
+        assert bare["valid"] is False
+        assert bare["errors"][0]["path"] == "variables.image"
+        assert "not-shipped.png" in bare["errors"][0]["message"]
+        assert explicit["valid"] is False
+
+    def test_an_override_of_a_bad_default_is_checked_as_the_override(self, server):
+        """A caller who overrides the bad default is judged on their own
+        value, not on the default it replaced."""
+        with server() as client:
+            result = client.post(
+                "/api/validate",
+                json={
+                    "workflow_path": "Placeholder",
+                    "arguments": {"image": "asset:iris.png"},
+                },
+            ).json()
+
+        assert result["valid"] is True
+
     def test_a_reference_inside_a_list_argument_that_exists_passes(self, server):
         workflow = {
             "id": "list-refs",
@@ -341,6 +387,16 @@ class TestSubmission:
 
         assert response.status_code == 400
         assert "arguments.image" in response.json()["detail"]
+
+    def test_a_bad_stored_default_is_refused_before_the_job_is_queued(self, server):
+        """The same gap at submission: a bare submit used to queue a job
+        that could only fail on its first step (#166)."""
+        with server() as client:
+            response = client.post("/api/jobs", json={"workflow_path": "Placeholder"})
+
+            assert response.status_code == 400
+            assert "variables.image" in response.json()["detail"]
+            assert client.get("/api/jobs").json()["jobs"] == []
 
     def test_submission_and_validation_give_the_same_message(self, server):
         """The ticket was a consistency gap, not a missing check: what the

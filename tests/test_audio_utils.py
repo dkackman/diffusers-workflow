@@ -759,3 +759,97 @@ class TestSlicingPastTheEndOfATrack:
 
         assert len(warnings) == 1
         assert warnings[0]["padded_seconds"] == pytest.approx(2.0)
+
+
+class TestRateOverrideMismatch:
+    """#180: `sample_rate` always overrides a named source's carried rate -
+    correct for a raw waveform, which has none of its own, but for a file or
+    a video a given rate that disagrees with the one it actually carries
+    relabels the samples rather than converting them, changing speed and
+    pitch with nothing saying so. `assemble-and-score` did exactly this with
+    its score, silently, with `warnings: []`.
+    """
+
+    def events_from(self, call):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            call()
+        finally:
+            deactivate_context(token)
+        return [e for e in events if e.get("kind") == "rate_override_mismatch"]
+
+    def test_a_file_given_a_different_rate_is_reported(self, tmp_path):
+        import soundfile
+
+        from dw.tasks.audio_utils import slice_audio
+
+        path = tmp_path / "score.wav"
+        soundfile.write(path, numpy.zeros((100, 2), dtype=numpy.float32), 32000)
+
+        warnings = self.events_from(
+            lambda: slice_audio(str(path), start_seconds=0, sample_rate=44100)
+        )
+
+        assert len(warnings) == 1
+        warning = warnings[0]
+        assert warning["command"] == "slice_audio"
+        assert warning["file_rate"] == 32000
+        assert warning["given_rate"] == 44100
+        assert "resample_audio" in warning["message"]
+
+    def test_a_file_given_its_own_rate_says_nothing(self, tmp_path):
+        import soundfile
+
+        from dw.tasks.audio_utils import slice_audio
+
+        path = tmp_path / "score.wav"
+        soundfile.write(path, numpy.zeros((100, 2), dtype=numpy.float32), 32000)
+
+        assert (
+            self.events_from(
+                lambda: slice_audio(str(path), start_seconds=0, sample_rate=32000)
+            )
+            == []
+        )
+
+    def test_a_file_given_no_rate_says_nothing(self, tmp_path):
+        import soundfile
+
+        from dw.tasks.audio_utils import slice_audio
+
+        path = tmp_path / "score.wav"
+        soundfile.write(path, numpy.zeros((100, 2), dtype=numpy.float32), 32000)
+
+        assert self.events_from(lambda: slice_audio(str(path), start_seconds=0)) == []
+
+    def test_a_raw_waveform_given_a_rate_says_nothing(self):
+        """A raw waveform carries no rate of its own - the override here is
+        the only way to supply one at all, not a mismatch."""
+        from dw.tasks.audio_utils import slice_audio
+
+        assert (
+            self.events_from(
+                lambda: slice_audio(
+                    numpy.zeros((1, 100), dtype=numpy.float32),
+                    start_seconds=0,
+                    sample_rate=44100,
+                )
+            )
+            == []
+        )
+
+    def test_a_video_given_a_different_rate_is_reported(self, tmp_path):
+        from dw.tasks.audio_utils import slice_audio
+
+        path = TestLoadAudio._write_video(tmp_path / "cut.mp4", sample_rate=8000)
+
+        warnings = self.events_from(
+            lambda: slice_audio(path, start_seconds=0, sample_rate=16000)
+        )
+
+        assert len(warnings) == 1
+        assert warnings[0]["file_rate"] == 8000
+        assert warnings[0]["given_rate"] == 16000

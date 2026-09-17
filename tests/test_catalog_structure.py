@@ -13,7 +13,7 @@ import re
 
 import pytest
 
-from dw.server.app import workflow_details
+from dw.server.app import attach_observed, workflow_details
 from dw.server.catalog_shape import (
     SUMMARY_LIMIT,
     derive_catalog_metadata,
@@ -348,7 +348,47 @@ def test_no_stale_entry_in_the_allowlist():
 
 # Spec targets, as chars / 4. The listing is the first thing an agent reads;
 # these are the ceilings that keep it readable rather than skimmed.
-COMPACT_BUDGET = 6_000  # was 5_500; raised with the informative MiniMax/LTX-2 summaries, measured 5_552
+# was 5_500, then 6_000 with the informative MiniMax/LTX-2 summaries;
+# raised to 6_400 for the declared variable constraints (#96), which are what
+# stop a consumer picking a frame count the model refuses two minutes into a
+# run - carried terse (`17*n+5, 124-345, rounds up`), the reason only in the
+# full listing; then to 7_100 for `observed_minutes`/`observed_runs` (#93),
+# two keys per workflow this box has actually run. Measured 6_276 with no
+# history, 6_381 against a real server's (34 named workflows, 106 runs), and
+# 7_056 here, where every one of the 65 compact entries carries a figure -
+# which is the ceiling the budget has to hold, and why the measurement below
+# attaches one. A budget checked against an empty jobs table would pass while
+# the running server overran it. Two numeric keys rather than one terse
+# phrase (the shape `constraints` uses) costs 179 tokens and is worth them:
+# an agent quoting a price should read a number, not parse a sentence, and
+# the curated `cost` beside it is structured too. Then to 7_600 for the H3
+# checkpoint knobs (#147/#148/#149), measured at 7_484 here: `video_shift`,
+# `audio_shift` and `lora_alpha` across seventeen templates, the five adapter
+# names the six reference templates gained with the Ref2VA turbo LoRA, and the
+# 768p entry. They earn it because they are what makes a checkpoint swap an
+# argument rather than a new template - a 768p turbo LoRA on the 544p sigma
+# schedule is a silent quality failure that costs a full run to discover, and
+# the alpha a file declares is not always the alpha upstream runs it at.
+# Worth noting that variable *names* are now the largest single share of this
+# listing; if it needs raising again, the question to ask first is whether
+# every name belongs in the compact view or only the ones a caller is likely
+# to set.
+# Then to 7_650 for the bound a list entry's field carries (#145), measured
+# at 7_611: `dialogue-short`'s `shots` entries are where a frame count is
+# most likely typed by hand, and `17*n+5, 124-345, rounds up` beside
+# `num_frames` in the `lists` block is the half of #96 that stops the next
+# caller picking 61. It is the only such line in the catalog today, and a
+# rule that reaches only an entry field is no longer repeated in the
+# top-level `constraints` block of the compact view, so the net cost of the
+# feature here is eleven tokens.
+# Then to 8_100 for three new LTX-2.5 templates (#151, #152), measured at
+# 8_026: `reference-sheet`, `restore-deblur` and `restore-decompression` at
+# roughly 125 tokens each. This is the cost of catalog entries existing
+# rather than of anything said about them - the listing is what an agent
+# reads to find a shape, and before these the LTX-2.5 family had no
+# reference or identity route at all and no restoration route that was not
+# a re-render.
+COMPACT_BUDGET = 8_100
 FILTERED_BUDGET = 1_500
 
 
@@ -356,11 +396,39 @@ def _tokens(payload):
     return len(json.dumps(payload)) / 4
 
 
+class _every_workflow_observed:
+    """An `ObservedCosts` that answers for every entry, so the budget is
+    measured against the widest listing the server can produce rather than
+    against the empty jobs table a test fixture has."""
+
+    def __init__(self, details):
+        self._names = set(details)
+
+    def refresh(self):
+        return True
+
+    def observed(self, name, definition, arguments=None, *, fresh=True):
+        if name not in self._names:
+            return None
+        return {
+            "device": "cuda",
+            "name": "NVIDIA GeForce RTX 3090",
+            "runs": 10,
+            "comparable": "drivers",
+            "cold_minutes": 11.84,
+            "cold_runs": 10,
+            "cold_range_minutes": [10.03, 14.95],
+        }
+
+
 def test_the_compact_listing_fits_the_budget():
     found = listing(
         [WorkflowSource(os.path.join(REPO_ROOT, "workflows"), "workspace", True)]
     )
     details = workflow_details(found)
+    # As the server answers it: every workflow carrying the observed figures
+    # it would carry on a box that had run them all
+    attach_observed(details, _every_workflow_observed(details))
 
     compact = project_listing(details, view="compact")
     assert _tokens(compact) <= COMPACT_BUDGET, (
@@ -498,7 +566,6 @@ def test_every_readme_link_resolves(path):
 COSTED = {
     "workflows/templates/minimax/music-video.json": 35,
     "workflows/templates/minimax/dialogue-short.json": 42,
-    "workflows/templates/minimax/composable-references.json": 27.4,
     "workflows/templates/assemble-and-score.json": 0.2,
     "workflows/templates/dissolve-between-shots.json": 0.2,
 }
@@ -506,11 +573,15 @@ COSTED = {
 
 @pytest.mark.parametrize("path,minutes", sorted(COSTED.items()))
 def test_the_cut_templates_quote_a_measured_cost(path, minutes):
-    """Measured on an RTX 3090 (the cut templates 2026-09-10,
-    composable-references 2026-09-13); without a figure an agent cannot
-    quote a price before spending 40 minutes of GPU. A video reference is
-    the expensive one - the same 124-frame shot is 7.8 min with an image
-    reference alone and 27.4 with a video reference beside it."""
+    """Measured on an RTX 3090 (the cut templates 2026-09-10); without a
+    figure an agent cannot quote a price before spending 40 minutes of GPU.
+
+    composable-references (27.4 min) and reference-to-video (8.0) were
+    measured at 20 steps against no adapter, and #149 put the Ref2VA turbo
+    LoRA on those templates at 9 - so their figures went with the schedule
+    they described rather than being scaled, `cost` being measured and never
+    derived. The three here kept their step count and their canvas; only
+    which adapter loads changed, at the same rank and file size."""
     definition = json.load(open(os.path.join(REPO_ROOT, path), encoding="utf-8"))
     entry = definition["cost"][0]
     assert entry["name"] == "RTX 3090"

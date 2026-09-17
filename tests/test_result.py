@@ -1336,3 +1336,278 @@ class TestMonoAudioForMuxing:
         )
         as_audio_track(torch.zeros((1, 100)))
         assert warnings and "mono" in warnings[0].lower()
+
+
+class TestNoHeadroom:
+    """#158: `music-video`'s deliverable came back at +3.26 dBFS and the job
+    warned about a 6.4 dB level jump between shots, which is the lesser
+    problem. A clipped file is invisible to a consumer that cannot listen -
+    it succeeds, and the documented metadata check only covers the quiet end
+    of the range."""
+
+    def events_from(self, save):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            save()
+        finally:
+            deactivate_context(token)
+        return [e for e in events if e["event"] == "warning"]
+
+    def track(self, peak):
+        waveform = numpy.zeros((2, 100), dtype=numpy.float32)
+        waveform[0][0] = peak
+        return waveform
+
+    def save_audio(self, waveform):
+        from dw.result import Result
+
+        result = Result({"content_type": "audio/wav", "sample_rate": 44100})
+        result.add_result(waveform)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result.save(temp_dir, "song")
+
+    def save_muxed(self, waveform):
+        from dw.result import AudioVideo, Result
+
+        result = Result({"content_type": "video/mp4"})
+        result.add_result(AudioVideo("frames", waveform, 48000))
+        with (
+            patch("dw.result.encode_video"),
+            patch("dw.result.is_av_available", return_value=True),
+            tempfile.TemporaryDirectory() as temp_dir,
+        ):
+            result.save(temp_dir, "cut")
+
+    def test_a_track_at_full_scale_warns_with_its_figure(self):
+        warnings = self.events_from(lambda: self.save_audio(self.track(1.0)))
+
+        assert len(warnings) == 1
+        assert warnings[0]["kind"] == "audio_no_headroom"
+        assert warnings[0]["peak_dbfs"] == 0.0
+        assert "normalize_audio" in warnings[0]["message"]
+
+    def test_a_track_over_full_scale_warns(self):
+        warnings = self.events_from(lambda: self.save_audio(self.track(1.2)))
+
+        assert len(warnings) == 1
+        assert warnings[0]["peak_dbfs"] == pytest.approx(1.58, abs=0.01)
+
+    def test_a_mix_with_headroom_is_quiet(self):
+        """-1 dBFS is what `normalize_audio` leaves; nothing to say."""
+        assert self.events_from(lambda: self.save_audio(self.track(0.89))) == []
+
+    def test_silence_is_not_a_peak(self):
+        assert (
+            self.events_from(
+                lambda: self.save_audio(numpy.zeros((2, 100), dtype=numpy.float32))
+            )
+            == []
+        )
+
+    def test_the_muxed_deliverable_is_measured_too(self):
+        """The file the caller actually reads: the soundtrack of the cut."""
+        warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+
+        assert len(warnings) == 1
+        assert warnings[0]["kind"] == "audio_no_headroom"
+        assert warnings[0]["file"].endswith(".mp4")
+
+    def test_a_video_with_a_quiet_track_is_not_warned_about(self):
+        assert self.events_from(lambda: self.save_muxed(torch.zeros((2, 100)))) == []
+
+    def test_a_video_is_probed_even_though_the_waveform_already_warned(self):
+        """#174: suppressing the post-encode probe whenever the pre-encode
+        check already fired assumed the encoder only ever adds overshoot -
+        true for the mp3s #159/#161 measured, backwards for an H3 video mux,
+        whose AAC mux can land under full scale after starting over it. A
+        video always gets the ground-truth post-encode read, regardless of
+        what the pre-encode waveform check already said."""
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"peak_dbfs": 0.94, "kind": "video"},
+        ):
+            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+
+        kinds = {w["kind"] for w in warnings}
+        assert kinds == {"audio_no_headroom", "audio_clipped"}
+
+
+class TestTheWrittenLevel:
+    """#161. `warn_without_headroom` measures the waveform handed to the
+    writer; the encoder is downstream of it. A song normalized to exactly
+    -1.0 dBFS came back out of `music-video`'s AAC mux at +0.94, so a clean
+    default run shipped a clipped deliverable and nothing warned - the
+    number the check read was -1.0. Reading the file back is the only
+    measurement that is the consumer's own."""
+
+    def warnings_from(self, action):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        captured = []
+        token = activate_context(RunContext(on_event=captured.append))
+        try:
+            action()
+        finally:
+            deactivate_context(token)
+        return [e for e in captured if e["event"] == "warning"]
+
+    def events_from(self, action):
+        return [e for e in self.warnings_from(action) if e["kind"] == "audio_clipped"]
+
+    def save_wav(self, peak, temp_dir):
+        from dw.result import Result
+
+        waveform = numpy.zeros((2, 4410), dtype=numpy.float32)
+        waveform[0][0] = peak
+        result = Result({"content_type": "audio/wav", "sample_rate": 44100})
+        result.add_result(waveform)
+        result.save(temp_dir, "song")
+
+    def measured_at(self, peak_dbfs, **kwargs):
+        """The new check over a file whose decoded peak is `peak_dbfs`.
+
+        Patched rather than encoded: the case is a *lossy* encode pushing a
+        waveform that had headroom over the line, and there is no lossless
+        way to write a file whose decoded level differs from its samples -
+        a wav hot enough to decode over would have drawn the waveform
+        warning first, which is the branch the next test covers.
+        """
+        from dw.result import warn_if_written_above_full_scale
+
+        with patch("dw.media_info.probe_media", return_value={"peak_dbfs": peak_dbfs}):
+            return self.warnings_from(
+                lambda: warn_if_written_above_full_scale(
+                    "/runs/final/music_video.mp4", **kwargs
+                )
+            )
+
+    def test_a_file_that_decodes_above_full_scale_warns(self):
+        """+0.943 dBFS is what `music-video`'s deliverable measured after a
+        -1.0 dBFS normalize (#161)."""
+        (warning,) = self.measured_at(0.9433)
+
+        assert warning["kind"] == "audio_clipped"
+        assert warning["peak_dbfs"] == pytest.approx(0.94, abs=0.01)
+        assert warning["file"] == "music_video.mp4"
+        assert "normalize_audio" in warning["message"]
+
+    def test_a_file_with_headroom_is_quiet(self):
+        assert self.measured_at(-2.48) == []
+
+    def test_a_file_with_no_soundtrack_is_quiet(self):
+        from dw.result import warn_if_written_above_full_scale
+
+        with patch("dw.media_info.probe_media", return_value={"kind": "video"}):
+            assert (
+                self.warnings_from(
+                    lambda: warn_if_written_above_full_scale("/runs/final/silent.mp4")
+                )
+                == []
+            )
+
+    def test_a_file_that_will_not_probe_does_not_fail_the_run(self):
+        from dw.result import warn_if_written_above_full_scale
+
+        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+            assert (
+                self.warnings_from(
+                    lambda: warn_if_written_above_full_scale("/runs/final/broken.mp4")
+                )
+                == []
+            )
+
+    def test_the_audio_and_video_writes_measure_what_they_wrote(self, tmp_path):
+        from dw.result import Result
+
+        result = Result({"content_type": "audio/wav", "sample_rate": 44100})
+        result.add_result(numpy.zeros((2, 4410), dtype=numpy.float32))
+        with patch("dw.result.warn_if_written_above_full_scale") as measured:
+            result.save(str(tmp_path), "song")
+
+        measured.assert_called_once()
+        assert measured.call_args.args[0].endswith(".wav")
+
+    def test_it_does_not_say_what_the_waveform_check_already_said(self, tmp_path):
+        """Two warnings would be two answers to one mistake: a waveform over
+        the line before the encoder touched it is `audio_no_headroom`'s, and
+        that message carries the fix."""
+        kinds = [
+            warning["kind"]
+            for warning in self.warnings_from(lambda: self.save_wav(1.5, str(tmp_path)))
+        ]
+
+        assert kinds == ["audio_no_headroom"]
+
+    def test_an_image_is_never_probed(self, tmp_path):
+        """Only a file that can carry a soundtrack pays for the read-back."""
+        from dw.result import Result
+
+        image = Image.new("RGB", (4, 4))
+        result = Result({"content_type": "image/png"})
+        result.add_result(image)
+        with patch("dw.result.warn_if_written_above_full_scale") as measured:
+            result.save(str(tmp_path), "frame")
+
+        measured.assert_not_called()
+
+
+class TestTheMusicTemplatesLeaveHeadroom:
+    """#159: the warning #158 added fired on the default path of the two
+    Music 3 templates, every run - a caller who did nothing wrong got a
+    clipped deliverable and a note telling them to add a step. The templates
+    carry the step now.
+
+    #161: -1 dBFS was enough for an mp3 (measured at -0.07 and -0.41) and
+    not for the mux - the AAC encode overshoots by around 1.9 dB on this
+    material, so `music-video`'s finished mp4 still decoded at +0.94 dBFS.
+    A deliverable that ends in a video mux normalizes to -3."""
+
+    def steps_of(self, path):
+        with open(path) as definition_file:
+            definition = json.load(definition_file)
+        return {step["name"]: step for step in definition["steps"]}
+
+    @pytest.mark.parametrize(
+        "path,source,target",
+        [
+            ("workflows/templates/minimax/music.json", "generate_music", -1.0),
+            ("workflows/templates/minimax/music-video.json", "write_song", -3.0),
+        ],
+    )
+    def test_the_song_is_normalized_before_it_is_delivered(self, path, source, target):
+        steps = self.steps_of(path)
+        balanced = steps["balanced"]["task"]
+        assert balanced["command"] == "normalize_audio"
+        assert balanced["arguments"]["audio"] == f"previous_result:{source}"
+        assert balanced["arguments"]["peak_dbfs"] == target
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "workflows/templates/assemble-and-score.json",
+            "workflows/templates/dissolve-between-shots.json",
+            "workflows/templates/minimax/music-video.json",
+        ],
+    )
+    def test_every_template_whose_deliverable_is_muxed_takes_the_deeper_target(
+        self, path
+    ):
+        """The exposure is the mux, not the template: whatever normalizes a
+        track that a `pair_audio` step then writes into an mp4 needs the
+        headroom the AAC encode takes (#161)."""
+        steps = self.steps_of(path)
+        assert steps["balanced"]["task"]["arguments"]["peak_dbfs"] == -3.0
+
+    def test_the_music_videos_conditioning_slices_are_the_untouched_song(self):
+        """Only the mux is normalized. The slices condition the shots, so a
+        gain change there would change the picture rather than its level."""
+        steps = self.steps_of("workflows/templates/minimax/music-video.json")
+        assert steps["slice"]["task"]["arguments"]["audio"] == (
+            "previous_result:write_song"
+        )
+        assert steps["music_video"]["task"]["arguments"]["audio"] == (
+            "previous_result:balanced"
+        )

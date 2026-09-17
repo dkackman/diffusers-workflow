@@ -6,6 +6,7 @@
         {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 0.9}
     ],
     "configures": "templates/text-to-image",
+    "cost_drivers": ["num_inference_steps", "width", "height"],
     "variables": {
         "prompt": "a marmot wearing a tophat, in a forest scene.",
         "num_inference_steps": 28,

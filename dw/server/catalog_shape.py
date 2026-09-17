@@ -16,6 +16,7 @@ read structure (a concat step, a `references` argument), never checkpoints.
 import re
 
 from ..for_each import list_fields
+from ..variable_constraints import declared_constraints, entry_constraint_fields
 
 SHAPES = (
     "image",
@@ -314,11 +315,26 @@ def derive_catalog_metadata(definition):
         declared.add("summary")
     variables = definition.get("variables")
     variables = variables if isinstance(variables, dict) else {}
+    # A bound an entry field carries is reported beside that field, not
+    # only in the top-level `constraints` block: a caller reading what a
+    # `shots` entry takes reads the rule for `num_frames` there (#145)
+    rules = declared_constraints(definition)
+    entry_rules = entry_constraint_fields(definition)
     lists = {
         name: {
             **fields,
             "entries": (
                 len(variables[name]) if isinstance(variables.get(name), list) else None
+            ),
+            **(
+                {
+                    "constraints": {
+                        field: terse_constraint(rules[field])
+                        for field in entry_rules[name]
+                    }
+                }
+                if name in entry_rules
+                else {}
             ),
         }
         for name, fields in list_fields(definition).items()
@@ -341,12 +357,39 @@ COMPACT_FIELDS = (
     "kinds",
     "variable_names",
     "lists",
+    "constraints",
     "configures",
 )
 
 # Carried in the compact view only when set: a template has no
-# `configures`, and most workflows have no list-driven step
-_COMPACT_WHEN_SET = frozenset({"configures", "lists"})
+# `configures`, most workflows have no list-driven step, and most declare
+# no bound on a variable
+_COMPACT_WHEN_SET = frozenset({"configures", "lists", "constraints"})
+
+
+def terse_constraint(rule):
+    """One variable's rule as a phrase, for the compact listing.
+
+    The block itself carries a `reason` in the author's words, which is what
+    a consumer reading one workflow wants and what the whole catalog cannot
+    afford - the compact listing has a token budget (#101), and the numbers
+    are the part that stops the next consumer picking 61 (#96).
+    """
+    if not isinstance(rule, dict):
+        return rule
+    parts = []
+    if rule.get("modulus"):
+        parts.append(f"{rule['modulus']}*n+{rule.get('remainder', 0)}")
+    low, high = rule.get("min_frames"), rule.get("max_frames")
+    if low is not None and high is not None:
+        parts.append(f"{low}-{high}")
+    elif low is not None:
+        parts.append(f"{low}+")
+    elif high is not None:
+        parts.append(f"up to {high}")
+    if rule.get("snap") == "up":
+        parts.append("rounds up")
+    return ", ".join(parts)
 
 
 def project_listing(
@@ -399,6 +442,35 @@ def project_listing(
                 for key in COMPACT_FIELDS
                 if key not in _COMPACT_WHEN_SET or detail.get(key)
             }
+            if slim.get("constraints"):
+                # A rule that reaches only a list-entry field is reported
+                # beside that field under `lists`, so repeating it here
+                # would state it twice in one answer - and next to
+                # `variable_names`, which does not carry the name (#145).
+                # The full listing and `get_workflow` keep the block as the
+                # author wrote it
+                in_lists = {
+                    field
+                    for entry in (slim.get("lists") or {}).values()
+                    for field in (entry.get("constraints") or {})
+                }
+                declared = set(detail.get("variable_names") or ())
+                slim["constraints"] = {
+                    variable: terse_constraint(rule)
+                    for variable, rule in slim["constraints"].items()
+                    if variable in declared or variable not in in_lists
+                }
+                if not slim["constraints"]:
+                    del slim["constraints"]
+            # This box's own history, at its two-key budget (#93/#101): the
+            # cold median, which is the one comparable to a curated `cost`,
+            # and how many runs stand behind it. The block with the
+            # cold/warm split, the drivers and `since` is in the full
+            # listing and in `get_workflow`
+            observed = detail.get("observed") or {}
+            if observed.get("cold_minutes") is not None:
+                slim["observed_minutes"] = observed["cold_minutes"]
+                slim["observed_runs"] = observed["cold_runs"]
             if detail.get("configures_missing"):
                 slim["configures_missing"] = detail["configures_missing"]
             projected[name] = slim

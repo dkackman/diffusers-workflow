@@ -29,8 +29,20 @@ from .previous_results import (
 )
 from .locations import location_errors
 from .reference_limits import reference_limit_errors
+from .adapter_compatibility import adapter_errors, warn_adapters
+from .elision import elide_definition, warn_elided
+from .introspection import task_signature_errors
 from .task_domains import task_argument_errors
+from .variable_constraints import (
+    apply_constraints,
+    constraint_errors,
+    constraint_reference_errors,
+    resolve_constraint_references,
+)
 from .subfolders import step_subfolder, subfolder_errors
+from .reference_names import reference_name_errors
+from .content_types import content_type_errors
+from .kernel_availability import kernel_availability_errors
 from .step import Step
 from .step_cache import (
     step_cache,
@@ -592,19 +604,80 @@ class Workflow:
         return (
             previous_result_reference_errors(expanded, source_indices)
             + subfolder_errors(expanded, source_indices)
+            # A reference name no workspace could ever resolve - the '@' a
+            # for_each member's own file carries, rejected after the queue
+            # by a message that named a valid form and not the objection
+            # (dw/reference_names.py, #162)
+            + reference_name_errors(expanded, source_indices)
+            # A result content_type no writer will accept - a bare word like
+            # "video" validated clean and then died inside the writer with a
+            # traceback naming neither the field nor the value
+            # (dw/content_types.py, #168)
+            + content_type_errors(expanded, source_indices)
             # A location policy refuses before a model load is spent on the
             # run rather than after it (dw/locations.py)
             + location_errors(expanded, source_indices, base_dir)
             # A reference set the pipeline would refuse costs a checkpoint
             # load to find out about otherwise (dw/reference_limits.py, #136)
             + reference_limit_errors(expanded, source_indices)
+            # An adapter trained for the other checkpoint partition, which
+            # the pipeline loads without complaint and answers worse for -
+            # the one H3 mistake that never shows in the output
+            # (dw/adapter_compatibility.py, #155)
+            + adapter_errors(
+                expanded,
+                source_indices,
+                written=self.workflow_definition,
+                supplied=set(arguments or {}),
+            )
             # A number outside a task argument's declared domain is refused
             # here rather than interpreted at run time - a negative frame
             # count was a Python slice from the end of the track and a zero
             # sample rate a silent fallback to 44100 (dw/task_domains.py,
             # #139, #140)
             + task_argument_errors(expanded, source_indices)
+            # A required task argument left unset validated as `valid: true`
+            # and then failed the job on Python's own signature error, which
+            # is the one mistake a free pre-flight most obviously exists for
+            # (dw/introspection.py, #141)
+            + task_signature_errors(expanded, source_indices)
+            # A value outside a rule the workflow declares - the bound that
+            # cost 138 s of loading to discover, refused for free at the
+            # path the value sits at (dw/variable_constraints.py, #96)
+            + constraint_errors(
+                self.workflow_definition, arguments, supplied=set(arguments or {})
+            )
+            + constraint_reference_errors(self.workflow_definition)
+            # An 'attn_processor_type' whose Hub kernel this machine has no
+            # build variant for - validated clean and then died 88s into
+            # loading, naming a torch/natten mismatch the construction alone
+            # would have said in under two seconds (dw/kernel_availability.py,
+            # #178)
+            + kernel_availability_errors(expanded, source_indices)
             + self.sub_workflow_errors(expanded, source_indices, composing)
+        )
+
+    def adapter_warnings(self, arguments=None):
+        """Every adapter whose file name says nothing about which checkpoint
+        partition it was trained for - valid, and worth saying, since
+        nothing at run time will (#155).
+
+        Best effort: a definition the schema or the expander refuses has its
+        own errors to report and none of them are this one.
+        """
+        from .adapter_compatibility import adapter_warnings
+
+        try:
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
+        except Exception:
+            logger.debug("No adapter warnings available", exc_info=True)
+            return []
+        return adapter_warnings(
+            expanded,
+            source_indices,
+            written=self.workflow_definition,
+            supplied=set(arguments or {}),
         )
 
     def _undeclared_variable_errors(self, arguments=None):
@@ -673,6 +746,9 @@ class Workflow:
         the run prepares - the step cache keys on the realized step, and a
         probe that prepared it differently would answer for a run that
         never happens.
+
+        Records the steps elision dropped on `self._elided_steps` (#122) -
+        the same list run() warns about and writes into the manifest.
         """
         workflow_id = workflow_def["id"]
         variables = workflow_def.get("variables", None)
@@ -686,8 +762,15 @@ class Workflow:
             set_variables(arguments, variables)
             # an entry of a list-valued variable may name another
             # variable; resolve those before anything inside it is
-            # realized, so a reference type in an entry is a type name
+            # realized, so a reference type in an entry is a type name -
+            # and before the constraints pass, so an entry written as
+            # "variable:tail_len" is a number by the time the rule looks
             variables = resolve_variable_values(variables)
+            # A value outside a rule the workflow declares is refused, and
+            # one the rule rounds is rounded with a warning saying so -
+            # before anything loads, and before substitution puts the value
+            # everywhere it is referenced (dw/variable_constraints.py, #96)
+            apply_constraints(workflow_def, variables)
             # realize the variables, initializing downloads of images etc
             realize_args(variables, base_dir)
             ## then replace any variable references in the workflow definition with the actual values
@@ -699,7 +782,22 @@ class Workflow:
         # seed, the run id and the realized workflow are computed, so
         # each covers what actually runs. A ForEachError here fails the
         # run before anything loads
+        # A chain step's `frame_snap` may name the declared constraint
+        # rather than repeating its numbers, so a template states the rule
+        # once (#96)
+        resolve_constraint_references(workflow_def)
+
         workflow_def = expand_for_each(workflow_def)
+
+        # A step nothing after it reads, and which saves no file, does not
+        # run - after expansion, so a for_each member is judged like any
+        # other step, and before the seed and the run id, so everything
+        # downstream counts the steps that will actually execute
+        # (dw/elision.py, #122)
+        # The definition as written is passed too: a step dropped because a
+        # caller replaced the variable that read it was elided on purpose,
+        # and says so, rather than being reported as a suspected typo (#157)
+        self._elided_steps = elide_definition(workflow_def, self.workflow_definition)
 
         # Set up random seed for reproducibility. Resolved lazily - as a
         # dict.get default, torch.seed() would run on every call and reseed
@@ -857,6 +955,11 @@ class Workflow:
         """
         run_context = context or current_context() or RunContext()
         context_token = activate_context(run_context)
+        # Depth-counted: a sub-workflow shares its parent's RunContext, so the
+        # phase-stall watchdog starts once on the outermost run() and stops
+        # once that outermost call's finally below runs, not on every nested
+        # sub-workflow call
+        run_context.enter_run()
         # 'output:' references resolve against the directory this run was
         # told to write to - the root, not this run's own subdirectory, since
         # what they name is what an earlier run left there
@@ -868,6 +971,9 @@ class Workflow:
         # BEFORE its replacement loads, or the transition holds both at once
         self._prior_step_keys = prior_step_keys or {}
         self.manifest = []
+        # What elision dropped this run, filled by _prepare_definition and
+        # read by the warning pass and the manifest (#122)
+        self._elided_steps = []
         # Overwritten on the way out of the try below - a run that leaves
         # this alone died on an exception the manifest should say so about
         status = "failed"
@@ -902,6 +1008,14 @@ class Workflow:
             workflow_def, default_seed = self._prepare_definition(
                 workflow_def, arguments, base_dir
             )
+            # An adapter whose name says nothing about what it was trained
+            # for cannot be checked, and a run that started from the CLI or
+            # from a rerun never passed the validate route (#155)
+            warn_adapters(workflow_def)
+            # Said out loud before anything loads: a step that vanishes
+            # because a reference to it is misspelled would otherwise show
+            # up only as a different picture (#122)
+            warn_elided(self._elided_steps)
             # A workflow that names no seed gets a fresh one every run, so no
             # step's cache entry can ever match again - skip the cache
             # wholesale rather than deep-copying every step's realized images
@@ -1003,6 +1117,20 @@ class Workflow:
                 return []
 
             realize_args(steps, base_dir)
+
+            # The key each pipeline step of THIS run loads under, computed
+            # from the same realized dicts create_step_action hashes, so the
+            # two agree. This is what "still shared" means there: a key
+            # another running step maps to NOW - not the key it mapped to
+            # last run (every step sharing a changed model variable has the
+            # old key as its prior key and none has it as its current one),
+            # and not a key some step of a past, unrelated workflow left in
+            # the cross-job _prior_step_keys map
+            self._running_pipeline_keys = {
+                step_data["name"]: pipeline_cache_key(step_data["pipeline"])
+                for step_data in steps
+                if "pipeline" in step_data
+            }
 
             run_context.emit(
                 "workflow_start",
@@ -1260,6 +1388,7 @@ class Workflow:
                     annotations,
                 )
             deactivate_output_root(output_root_token)
+            run_context.exit_run()
             deactivate_context(context_token)
 
     def _write_run_manifest(
@@ -1306,6 +1435,9 @@ class Workflow:
                 },
                 "seed": seed,
                 "arguments": arguments or {},
+                # What did not run, and why - a run says what it did not do
+                # as well as what it did (#122)
+                "elided_steps": self._elided_steps,
                 "steps": [
                     {
                         **entry,
@@ -1390,15 +1522,52 @@ class Workflow:
 
             # Not in cache - a redefined step frees its previous model first,
             # so the swap never holds old and new stacks simultaneously
-            prior_key = getattr(self, "_prior_step_keys", {}).get(step_name)
-            if prior_key and prior_key != cache_key and prior_key in previous_pipelines:
+            prior_keys = getattr(self, "_prior_step_keys", {})
+            prior_key = prior_keys.get(step_name)
+            # Only this step's own variant: a key another step of THIS run
+            # loads under NOW is that step's warm model, and releasing it
+            # here would reload it cold a moment later while holding both
+            # stacks. Judged on the other steps' current keys
+            # (_running_pipeline_keys, recorded by run), not their prior
+            # ones: when every step sharing one model variable changes at
+            # once, each still has the old key as its prior key, and
+            # nobody will load it again - holding it would be the two-stack
+            # transition #150 fixed. _prior_step_keys is merged across every
+            # job the worker has run, never pruned, so a name from an
+            # earlier, unrelated workflow does not count either - it is not
+            # among the running steps. If nothing touches the key this run,
+            # the end-of-run sweep drops it.
+            running_keys = getattr(self, "_running_pipeline_keys", {})
+            still_shared = any(
+                other != step_name and key == prior_key
+                for other, key in running_keys.items()
+            )
+            if (
+                prior_key
+                and prior_key != cache_key
+                and prior_key in previous_pipelines
+                and not still_shared
+            ):
                 logger.info(
                     f"Step '{step_name}' was redefined - releasing its previous "
                     "pipeline before loading the new one"
                 )
+                before = _allocated_mb()
                 previous_pipelines.pop(prior_key, None)
                 gc.collect()
                 empty_device_cache()
+                # Say so on the event stream, for the same reason the explicit
+                # release does: without it a reload-on-top-of-a-resident-model
+                # is indistinguishable from a cold load, and the difference is
+                # whether the next thing that happens is an OOM kill (#150).
+                # 'reason' separates it from the release a step asked for
+                get_context().emit(
+                    "pipeline_released",
+                    step=step_name,
+                    reason="superseded",
+                    gpu_memory_allocated_mb=_allocated_mb(),
+                    gpu_memory_allocated_before_mb=before,
+                )
 
             logger.debug(f"Creating pipeline for step: {step_name}")
             pipeline = Pipeline(

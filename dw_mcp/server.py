@@ -171,16 +171,24 @@ def build_server(client):
         figures a maintainer measured once on the devices named and wrote
         into the workflow, never derived from this server's job history -
         so null means nobody wrote one down, not that the run is cheap;
-        the answer's `cost_basis` says as much. For a null one, earlier
-        runs of the same template in `list_jobs` carry
-        `started_at`/`finished_at`, which is the measurement this box
-        actually holds), output kinds and variable names. `lists`, present for a
+        the answer's `cost_basis` says as much. `observed_minutes` and
+        `observed_runs`, when present, are this box's *own* finished runs
+        of that workflow - the cold median, model load included, and how
+        many runs are behind it. Prefer it when quoting a price for this
+        machine, fall back to `cost`, and say "unknown" only when neither
+        is there; say which one you used, since a figure a maintainer
+        measured on their card and one this box averaged last week are
+        different claims), output kinds and variable names. `lists`, present for a
         list-driven workflow, names per list variable the fields an entry
         takes, the steps run over it and the default's length; there
         `cost[].per_entry`, when present, is the measured cost of one
         entry (`{variable, minutes, entries}`), so a run over a
-        different-length list can be priced from it. Templates only by
-        default; `configures=<template>` lists the checkpoint configs
+        different-length list can be priced from it. `constraints`, present
+        for a workflow that bounds a variable, is the rule each bounded one
+        has to satisfy, terse (`17*n+5, 124-345, rounds up`) - pass an
+        `arguments` value outside it and `validate_workflow` refuses it for
+        free, instead of the run failing after the weights are loaded.
+        Templates only by default; `configures=<template>` lists the checkpoint configs
         tuned for one, `include_models=true` lists them all. `get_workflow`
         has the full description and definition."""
         return catalog.list_workflows(
@@ -200,7 +208,16 @@ def build_server(client):
         nothing else, which is a fraction of the definition; long defaults
         come back cut to 200 characters with the cut ones named in
         `truncated`, reaching into a list default too - a shot's prompt
-        is named `shots[0].prompt`."""
+        is named `shots[0].prompt`. `observed`, when this box has run the
+        workflow, is the whole derived-cost block: `cold_minutes` /
+        `cold_runs` (model load included) and `warm_minutes` /
+        `warm_runs` (model already resident), the `drivers` the figure is
+        for, `since`, and `unclassified_runs` when a run's event tail was
+        trimmed too far to tell which it was. Step-cache-only runs are
+        excluded. A variable the workflow bounds is
+        reported under `constraints` beside its default - the range and the
+        step it has to land on - so a frame count is read rather than
+        guessed at."""
         return catalog.get_workflow(client, name, variables_only=variables_only)
 
     def get_schema(section: str | None = None) -> dict:
@@ -340,7 +357,10 @@ def build_server(client):
         )
 
     def list_gallery(
-        limit: int = 50, subfolder: str | None = None, workspace: str | None = None
+        limit: int = 50,
+        subfolder: str | None = None,
+        only_orphans: bool = False,
+        workspace: str | None = None,
     ) -> dict:
         """List generated output files, newest first. A name is
         <workflow>/<run id>/<file>, where <file> may itself sit in a
@@ -356,12 +376,29 @@ def build_server(client):
         file over HTTP, already scoped to the right workspace; use it as
         given rather than composing one from the name.
 
+        `only_orphans=True` inverts the call: instead of files, it returns
+        run directories holding nothing but their own bookkeeping
+        (manifest.json, workflow.json, job.json) as `runs`, each
+        `{name, mtime}` - a run whose output was deleted before
+        `delete_output` could remove it by name, or one that failed before
+        writing anything, invisible to a normal listing because it has no
+        file to show. `subfolder` does not apply in this mode. `name` is
+        exactly what `delete_output` accepts, so clearing the backlog is
+        list, then delete each name (#170). A run that wrote any file at
+        all - a text-shape prompt, a utility's side output - is not listed;
+        this call only lists, so deciding whether a listed entry is actually
+        junk before calling `delete_output` on it is still yours to make.
+
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
         here without leaving this one (#99)."""
         return catalog.list_gallery(
-            client, limit=limit, subfolder=subfolder, workspace=workspace
+            client,
+            limit=limit,
+            subfolder=subfolder,
+            only_orphans=only_orphans,
+            workspace=workspace,
         )
 
     def get_gallery_metadata(
@@ -679,17 +716,22 @@ def build_server(client):
     def validate_workflow(
         workflow: dict | None = None,
         name: str | None = None,
+        inline_workflow: dict | None = None,
+        workflow_path: str | None = None,
         workspace: str | None = None,
         arguments: dict | None = None,
     ) -> dict:
         """Check a workflow against the schema and against real pipeline
         signatures. Free and instant - always run this before run_workflow.
         Give exactly one of `workflow` or `name` - `name` being a stored
-        workflow as `list_workflows` reports it. Every schema error comes
-        back at once, each with its JSON path. `workspace` names the
-        workspace for this one call without switching the session to it -
-        use it to pin a job whose `output:` or `asset:` references live in a
-        workspace other than the session's.
+        workflow as `list_workflows` reports it. `run_workflow` calls these
+        same two concepts `inline_workflow` and `workflow_path`; both tools
+        accept both spellings, so a definition or a name checked here can be
+        handed straight to `run_workflow` without renaming a key. Every
+        schema error comes back at once, each with its JSON path.
+        `workspace` names the workspace for this one call without switching
+        the session to it - use it to pin a job whose `output:` or `asset:`
+        references live in a workspace other than the session's.
 
         Pass the same `arguments` you will pass to `run_workflow` and they
         are checked too: a name the workflow no longer declares, a value
@@ -698,6 +740,15 @@ def build_server(client):
         can reach - each with `arguments.<name>` as its path.
         `checked_arguments` lists what was checked, so a valid answer says
         whether it covered your values or only the stored defaults.
+
+        A value outside a bound the workflow declares for that variable is
+        an error here rather than a failed run: H3's frame count has to be
+        `17 * n + 5` between 124 and 345, and 61 used to validate and then
+        fail 138 s into the run, after the weights were loaded. A value the
+        workflow rounds up instead of refusing comes back as a warning
+        naming what it becomes, so a frame count the run changes is known
+        before the run. `get_workflow(variables_only=true)` and
+        `list_workflows` report the bound beside the default.
 
         A `result.subfolder` or `file_base_name` that cannot be written (a
         `..`, a backslash, a separator in `file_base_name`) is reported here
@@ -713,6 +764,8 @@ def build_server(client):
 
         A valid answer carries `plan`: what will execute for these
         arguments. Quote `plan.estimate.minutes` with its `basis` -
+        `observed` is this box's own finished runs of this shape (the cold
+        median over `runs` of them, preferred over any curated figure),
         `per_entry` is a measured per-entry rate re-priced for your list,
         `catalog` a measured total for a run whose lists are the ones it
         was measured with, `derived` that total extrapolated over a list
@@ -727,6 +780,8 @@ def build_server(client):
             client,
             workflow=workflow,
             name=name,
+            inline_workflow=inline_workflow,
+            workflow_path=workflow_path,
             workspace=workspace,
             arguments=arguments,
         )
@@ -828,6 +883,8 @@ def build_server(client):
     def run_workflow(
         workflow_path: str | None = None,
         inline_workflow: dict | None = None,
+        workflow: dict | None = None,
+        name: str | None = None,
         arguments: dict | None = None,
         acknowledged_cost: bool | dict = False,
         workspace: str | None = None,
@@ -840,12 +897,15 @@ def build_server(client):
         `wait_for_job`, then `get_job` for the manifest. Give exactly one of
         `workflow_path` - a catalog name from `list_workflows`, with or
         without .json, or a path on the server - or `inline_workflow`, a
-        full definition for a request nothing stored covers. `arguments`
-        overrides the workflow's variables by name, which is how one stored
-        workflow serves many requests without being edited or copied.
-        `workspace` names the workspace for this one call without switching
-        the session to it - use it to pin a job whose `output:` or `asset:`
-        references live in a workspace other than the session's.
+        full definition for a request nothing stored covers. `validate_workflow`
+        calls these same two concepts `name` and `workflow`; both tools
+        accept both spellings, so a document just validated can be run
+        without renaming a key. `arguments` overrides the workflow's
+        variables by name, which is how one stored workflow serves many
+        requests without being edited or copied. `workspace` names the
+        workspace for this one call without switching the session to it -
+        use it to pin a job whose `output:` or `asset:` references live in a
+        workspace other than the session's.
 
         Bind the acknowledgement to what you quoted: pass
         {"fingerprint": plan.fingerprint, "minutes": plan.estimate.minutes,
@@ -857,6 +917,8 @@ def build_server(client):
             client,
             workflow_path=workflow_path,
             inline_workflow=inline_workflow,
+            workflow=workflow,
+            name=name,
             arguments=arguments,
             acknowledged_cost=acknowledged_cost,
             workspace=workspace,

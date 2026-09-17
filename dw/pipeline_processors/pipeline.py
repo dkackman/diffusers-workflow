@@ -795,6 +795,12 @@ def configure_components(pipeline, configuration, default_device, reused_compone
         # in one allocation unless it is told to tile
         enable_tiling(component, component_name, component_configuration)
 
+        # The attention processor this component runs, for a component that is
+        # neither the unet nor the transformer (both covered by their own
+        # pipeline-level blocks) - LTX-2.5's diffusion decoder, whose default
+        # processor is a portable fallback rather than the path it was trained to run
+        set_attn_processor(component, component_name, component_configuration)
+
         device = resolve_device(component_configuration.get("device", None))
         residency = component_configuration.get("residency", "resident")
         if residency == "on_demand":
@@ -866,6 +872,44 @@ def enable_tiling(component, component_name, component_configuration):
         + (f" with {', '.join(arguments)}" if arguments else "")
     )
     component.enable_tiling(**arguments)
+
+
+def set_attn_processor(component, component_name, component_configuration):
+    """Swap a component's attention processor for the one its configuration names.
+
+    The pipeline-level `unet` and `transformer` blocks cover those two components.
+    This covers any other one that carries attention - LTX-2.5's
+    `diffusion_decoder`, whose default `LTX2VideoVaeNeighborhoodAttnProcessor` is a
+    portable FlexAttention fallback rather than the NATTEN path the decoder was
+    built around, and which diffusers' own docstring calls larger than device memory
+    at production grids.
+
+    The value is a type, resolved by the `_type` suffix convention, and is
+    constructed with no arguments - the same shape the `unet`/`transformer` blocks
+    have used since they were written.
+
+    Args:
+        component: The loaded component
+        component_name: Its name, for logging and errors
+        component_configuration: That component's configuration block
+
+    Raises:
+        ValueError: If the component has no set_attn_processor() to call
+    """
+    attn_processor_type = component_configuration.get("attn_processor_type", None)
+    if attn_processor_type is None:
+        return
+
+    if not has_method(component, "set_attn_processor"):
+        raise ValueError(
+            f"'{component_name}' does not take an attention processor - "
+            f"{type(component).__name__} has no set_attn_processor()"
+        )
+
+    logger.info(
+        f"Setting {component_name} attention processor: {attn_processor_type.__name__}"
+    )
+    component.set_attn_processor(attn_processor_type())
 
 
 def _resolve_submodule(component, component_name, path):
@@ -1242,10 +1286,94 @@ def attach_audio_sample_rate(pipeline, output):
     output.audio_sample_rate = sample_rate
 
 
+def set_adapter_alpha(pipeline, adapter_name, alpha):
+    """Override the network alpha an adapter was loaded with.
+
+    peft scales an adapter by `scale * alpha / rank`, and the alpha comes from
+    the checkpoint: a per-module `.alpha` tensor, else a `__metadata__` alpha
+    where the loader honors one, else the rank itself. That is the right
+    default, and for some files it is wrong. The 768p MiniMax-H3 turbo LoRAs
+    record `alpha: 8` in their `__metadata__` at rank 128, which diffusers
+    honors, while upstream's own 768p invocation passes `--lora-alpha 128` -
+    sixteen times the strength the file asks for. The number that makes a
+    distilled checkpoint hit its trained schedule is a property of the model,
+    so the workflow states it rather than the engine guessing.
+
+    Set before the caller's set_adapters(), which is what recomputes each
+    layer's scaling from the alpha found here.
+
+    Args:
+        pipeline: The loaded pipeline
+        adapter_name: Which adapter's alpha to override
+        alpha: The network alpha to use
+
+    Raises:
+        ValueError: if alpha is not positive, or no loaded layer carries the
+            adapter - an alpha that silently applied to nothing is the quality
+            failure it exists to prevent
+    """
+    alpha = float(alpha)
+    if alpha <= 0:
+        raise ValueError(f"A lora 'alpha' must be positive, got {alpha}.")
+
+    touched = 0
+    ranks = set()
+    for module in _lora_layers(pipeline):
+        if adapter_name in getattr(module, "lora_alpha", {}):
+            module.lora_alpha[adapter_name] = alpha
+            ranks.add(module.r[adapter_name])
+            touched += 1
+
+    if not touched:
+        raise ValueError(
+            f"Cannot set alpha {alpha} on adapter '{adapter_name}' - no loaded "
+            "layer carries it. Nothing would have been scaled."
+        )
+
+    # The figure upstream's own runner prints, because alpha alone says
+    # nothing without the rank it is divided by
+    effective = sorted(alpha / rank for rank in ranks)
+    logger.info(
+        f"Adapter '{adapter_name}': alpha {alpha} over rank(s) "
+        f"{sorted(ranks)} - scaling {effective[0]:.6g}"
+        + (f" to {effective[-1]:.6g}" if len(effective) > 1 else "")
+        + " before the adapter weight"
+    )
+
+
+def _lora_layers(pipeline):
+    """Every peft-wrapped module under a pipeline, whatever holds it.
+
+    A pipeline names the components a LoRA can reach; a modular one holds them
+    in `components` instead. Walking both and de-duplicating by identity is
+    what keeps this working for MiniMax-H3, whose two DiT partitions are
+    separate components, without enumerating model names here.
+    """
+    from peft.tuners.tuners_utils import BaseTunerLayer
+
+    seen = set()
+    holders = []
+    for name in getattr(pipeline, "_lora_loadable_modules", []) or []:
+        holders.append(getattr(pipeline, name, None))
+    if not any(holder is not None for holder in holders):
+        components = getattr(pipeline, "components", None)
+        if isinstance(components, dict):
+            holders.extend(components.values())
+
+    for holder in holders:
+        if not isinstance(holder, torch.nn.Module):
+            continue
+        for module in holder.modules():
+            if isinstance(module, BaseTunerLayer) and id(module) not in seen:
+                seen.add(id(module))
+                yield module
+
+
 def load_loras(loras, pipeline):
     """Load and configure LoRA models."""
     adapter_names = []
     adapter_weights = []
+    alphas = {}
 
     for i, lora in enumerate(loras):
         model_name = lora.pop("model_name", None)
@@ -1262,8 +1390,18 @@ def load_loras(loras, pipeline):
         scale = float(lora.pop("scale", 1.0))
         adapter_weights.append(scale)
 
+        # Popped before the load: everything left in the dict is a keyword
+        # argument to load_lora_weights, and the alpha is applied to the layers
+        # afterwards rather than passed to it
+        alpha = lora.pop("alpha", None)
+        if alpha is not None:
+            alphas[adapter_name] = alpha
+
         # Load the LoRA with the adapter name
         pipeline.load_lora_weights(model_name, adapter_name=adapter_name, **lora)
+
+    for adapter_name, alpha in alphas.items():
+        set_adapter_alpha(pipeline, adapter_name, alpha)
 
     # Set adapter weights for all loaded LoRAs
     if adapter_names:

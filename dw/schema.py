@@ -174,10 +174,12 @@ SCHEMA_SECTIONS = {
             "traits",
             "configures",
             "cost",
+            "cost_drivers",
             "variables",
+            "variable_constraints",
             "seed",
         ],
-        "defs": [],
+        "defs": ["variable_constraint"],
     },
     "steps": {"properties": ["steps"], "defs": ["step", "workflow_reference"]},
     "pipelines": {

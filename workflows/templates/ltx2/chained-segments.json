@@ -2,6 +2,7 @@
     "id": "LTX2I2VChained",
     "description": "A long clip built from short ones. The chain re-runs the pipeline per segment, handing each the last frame of the one before, and stitches the frames and the generated audio back into a single video.",
     "summary": "A long LTX-2.5 clip with audio, chained from short segments that each start on the previous one's last frame.",
+    "cost_drivers": ["segments", "num_frames", "width", "height"],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
@@ -14,6 +15,14 @@
         "segments": 3,
         "image": {
             "location": "https://pbs.twimg.com/media/HPxFgsIXIAAjtUu?format=jpg&name=medium"
+        }
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 8,
+            "remainder": 1,
+            "min_frames": 9,
+            "reason": "LTX-2.5's video VAE encodes 8 * n + 1 frames, so an off-grid count is not refused by the pipeline but floored to the grid below - a shorter clip than the one asked for. Refused here instead: no 'snap', because rounding a length the other way from the pipeline's own would be a second silent change"
         }
     },
     "steps": [

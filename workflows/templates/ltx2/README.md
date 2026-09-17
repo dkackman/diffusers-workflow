@@ -42,6 +42,27 @@ Read them in this order and each introduces one new idea on top of the last.
 | ------- | ------------------ |
 | [two-stage.json](two-stage.json) | The distilled two-stage flow in its three moves: render at half size, double the latents, renoise and refine at full size. Lightricks' newer DFR pipeline is the follow-up |
 | [generative-upscale.json](generative-upscale.json) | A generative 2x upscale: an in-context LoRA re-renders a clip at twice the size, inventing detail |
+| [diffusion-decode.json](diffusion-decode.json) | LTX-2.5's other video decoder: a small diffusion model in place of the convolutional VAE, held against `text-to-video` frame for frame. An experiment, not a recommendation - it is silent (audio comes back as latents), and it needs a `shi-labs/natten` build for the installed torch: the FlexAttention fallback needs ~25.5GiB for the smallest canvas its kernel accepts, so on 24GB it decodes nothing at all (#153) |
+
+## Keeping a subject
+
+| Example | What it introduces |
+| ------- | ------------------ |
+| [reference-sheet.json](reference-sheet.json) | The family's identity route: a reference sheet - one composite image with a clean panel per character, prop and location - held across the clip by the Ingredients IC-LoRA. The sheet is a still, looped into a static video by a `loop_frames` step because the LoRA reads it through a 121-frame bucket; the prompt is in the trained `Reference sheet: … / Generated video: …` form. A 0.9 preview weight, trained at 768x448x121 @ 24fps (#151) |
+
+## Restoring footage you did not generate
+
+Both of these read a clip the workflow did not make, with the source attached
+as an in-context reference for the whole denoise - so identity, framing and
+background geometry are the source's and only the defect changes. A different
+trade from `two-stage`, which invents a sharper version of a scene it
+generated. Both are 0.9 preview weights trained at 960x544x121 @ 24fps;
+generating far above that bucket weakens the effect.
+
+| Example | What it introduces |
+| ------- | ------------------ |
+| [restore-deblur.json](restore-deblur.json) | Spatial defocus only - not motion blur, not noise, not low resolution. Lower `lora_scale` toward 0.8 if it over-sharpens into haloing (#152) |
+| [restore-decompression.json](restore-decompression.json) | Macroblocking, chroma bleed, ringing and banding from a low bit-rate source. Not a deblur and not an upscale (#152) |
 
 ## Going long
 

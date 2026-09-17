@@ -583,6 +583,89 @@ async def test_run_workflow_accepts_explicit_nulls_and_says_pick_one():
 
 
 @pytest.mark.asyncio
+async def test_validate_workflow_accepts_the_run_workflow_spelling():
+    """A document validated under `workflow`/`name` should be runnable under
+    `inline_workflow`/`workflow_path` without renaming a key, and vice versa -
+    the two tools describe the same two concepts under different names (#179)."""
+    server = server_over(ok({"valid": True, "errors": []}))
+
+    result = await server.call_tool(
+        "validate_workflow", {"inline_workflow": {"id": "w"}}
+    )
+
+    assert "valid" in json.dumps(_text_of(result))
+
+
+@pytest.mark.asyncio
+async def test_validate_workflow_refuses_both_spellings_of_the_same_concept():
+    server = server_over(ok({}))
+
+    with pytest.raises(Exception) as caught:
+        await server.call_tool(
+            "validate_workflow",
+            {"workflow": {"id": "w"}, "inline_workflow": {"id": "w"}},
+        )
+
+    assert "same thing" in str(caught.value)
+
+    with pytest.raises(Exception) as caught:
+        await server.call_tool(
+            "validate_workflow", {"name": "w.json", "workflow_path": "w.json"}
+        )
+
+    assert "same thing" in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_accepts_the_validate_workflow_spelling():
+    """The other direction of #179: a workflow just checked with
+    `validate_workflow`'s `workflow`/`name` should run without renaming."""
+    server = server_over(ok({"id": "job-1", "status": "queued"}))
+
+    result = await server.call_tool(
+        "run_workflow",
+        {"workflow": {"id": "w"}, "acknowledged_cost": True},
+    )
+
+    assert "job-1" in json.dumps(_text_of(result))
+
+    result = await server.call_tool(
+        "run_workflow", {"name": "w.json", "acknowledged_cost": True}
+    )
+
+    assert "job-1" in json.dumps(_text_of(result))
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_refuses_both_spellings_of_the_same_concept():
+    server = server_over(ok({}))
+
+    with pytest.raises(Exception) as caught:
+        await server.call_tool(
+            "run_workflow",
+            {
+                "workflow_path": "w.json",
+                "name": "w.json",
+                "acknowledged_cost": True,
+            },
+        )
+
+    assert "same thing" in str(caught.value)
+
+    with pytest.raises(Exception) as caught:
+        await server.call_tool(
+            "run_workflow",
+            {
+                "inline_workflow": {"id": "w"},
+                "workflow": {"id": "w"},
+                "acknowledged_cost": True,
+            },
+        )
+
+    assert "same thing" in str(caught.value)
+
+
+@pytest.mark.asyncio
 async def test_optional_parameters_are_declared_nullable():
     """A `{"type": "object", "default": null}` schema contradicts itself."""
     tools = await tools_of(server_over(ok({})))
