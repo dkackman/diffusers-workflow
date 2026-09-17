@@ -19,6 +19,7 @@ import logging
 import os
 
 from huggingface_hub import model_info
+from huggingface_hub import get_hf_file_metadata, hf_hub_url
 from huggingface_hub.utils import GatedRepoError, HFValidationError, validate_repo_id
 
 from .elision import elide_definition
@@ -537,12 +538,17 @@ def _model_info(name):
     blocked from it - a `(gb, gated, access_blocked)` triple.
 
     `gated` is `model_info`'s own field (`False` / `"auto"` / `"manual"`),
-    readable only when the call succeeds - which it does even for a gated
-    repo this token has been granted. A `GatedRepoError` is the call failing
-    for exactly that reason: the repo is gated and this box's token has not
-    (or no longer) been granted access, distinct from every other lookup
-    failure (unreachable, a file with no size), which says nothing about the
-    gate either way (#186).
+    readable only when the call succeeds - and the hub answers `model_info`
+    for a gated repo regardless of whether this token has been granted
+    access, since that call serves metadata rather than file bytes (found
+    verifying #186: `access_blocked` came back `false` for repos this box's
+    token was actually refused on). A `GatedRepoError` straight out of
+    `model_info` is still a real signal - some other endpoint behind it
+    checked and refused - but its absence proves nothing, so a `gated` repo
+    that got this far is checked for real with a HEAD request against one of
+    its own files (`_probe_gate_blocked`), the same request class a run's
+    actual load would make and the one place the hub's 403 for "gated, token
+    not accepted" actually appears.
     """
     try:
         info = model_info(name, files_metadata=True, timeout=SIZE_LOOKUP_TIMEOUT)
@@ -555,4 +561,27 @@ def _model_info(name):
     total = sum(s.size for s in (info.siblings or []) if getattr(s, "size", None))
     gb = round(total / GIB, 1) if total else None
     gated = getattr(info, "gated", False) or False
-    return gb, gated, False
+    access_blocked = False
+    if gated:
+        access_blocked = _probe_gate_blocked(name, info.siblings or [])
+    return gb, gated, access_blocked
+
+
+def _probe_gate_blocked(name, siblings):
+    """HEAD one real file of a gated repo to see whether this box's token is
+    actually accepted - `model_info` succeeding says nothing either way
+    (#186). `None` when there is no file to probe or the probe fails for a
+    reason other than the gate, since that is "unknown", not "not blocked".
+    """
+    filename = next((s.rfilename for s in siblings if getattr(s, "rfilename", None)), None)
+    if filename is None:
+        return None
+    try:
+        get_hf_file_metadata(hf_hub_url(name, filename), timeout=SIZE_LOOKUP_TIMEOUT)
+        return False
+    except GatedRepoError as e:
+        logger.debug(f"Gate not accepted for {name}: {e}")
+        return True
+    except Exception as e:
+        logger.debug(f"Gate probe inconclusive for {name}: {e}")
+        return None

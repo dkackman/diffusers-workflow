@@ -309,9 +309,17 @@ The editor's forms come from these; they are just as usable from scripts:
   repo (`false`, `"auto"` or `"manual"`) or `null` when the lookup itself
   failed for a reason other than the gate; `access_blocked` is `true`
   when this box's Hugging Face token specifically has not been granted
-  access to a gated repo (`GatedRepoError` from the hub, the pre-flight
-  signal for what would otherwise be a 403 partway into a run, #186) -
-  `validate_workflow`'s `warnings` carries one line per such entry. Each
+  access to a gated repo, `false` when the repo isn't gated or the token is
+  accepted, and `null` when it could not be determined either way. A gated
+  repo's own metadata is served by the hub regardless of this token's
+  access, so `model_info` succeeding proves nothing about the gate; a
+  gated entry gets a second, real check - a HEAD request against one of the
+  repo's own files - and it is *that* request's `GatedRepoError` that sets
+  `access_blocked: true` (the pre-flight signal for what would otherwise be
+  a 403 partway into a run, #186). `access_blocked` is `null` when there is
+  no file to probe or the probe itself fails for an unrelated reason (e.g.
+  offline) - "unknown" is not "not blocked". `validate_workflow`'s
+  `warnings` carries one line per entry with `access_blocked: true`. Each
   `from_single_file` URL is `{repo: null, url, gb: null, gated: null,
   access_blocked: null}`, since a direct file URL is never gated; and
   `estimate`, `{minutes, basis,
