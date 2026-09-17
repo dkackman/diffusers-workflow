@@ -377,6 +377,32 @@ class TestOffTheJobRow:
 
         assert reads == [], "a warm cache re-queried the job table"
 
+    def test_a_listing_reads_the_watermark_once(self, tmp_path):
+        """list_workflows attaches a figure to every catalog entry; the
+        watermark is a COUNT(*) under the history lock the worker also
+        needs, so a listing takes it once, not once per workflow."""
+        from dw.server.app import attach_observed
+
+        history = JobHistory(tmp_path / "jobs.sqlite")
+        with history._connect() as connection:
+            connection.execute(
+                "INSERT INTO jobs (id, status, started_at, finished_at, arguments,"
+                " manifest, events, workflow_name) VALUES (?,?,?,?,?,?,?,?)",
+                ("a", "succeeded", 0.0, 600.0, "{}", "[]", "[]", "templates/x"),
+            )
+        costs = ObservedCosts(history)
+        reads = []
+        original = history.watermark
+        history.watermark = lambda: (reads.append(1), original())[1]
+
+        details = {
+            name: {"cost_drivers": {}, "variable_names": []}
+            for name in ("templates/x", "templates/y", "templates/z")
+        }
+        attach_observed(details, costs)
+
+        assert len(reads) == 1
+
     def test_the_device_is_read_from_symbols_that_exist(self):
         """Caught in deployment: the lookup imported `get_memory_stats`,
         which is spelled `device_memory_stats`, and one try around both

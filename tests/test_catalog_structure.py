@@ -404,7 +404,10 @@ class _every_workflow_observed:
     def __init__(self, details):
         self._names = set(details)
 
-    def observed(self, name, definition):
+    def refresh(self):
+        return True
+
+    def observed(self, name, definition, arguments=None, *, fresh=True):
         if name not in self._names:
             return None
         return {

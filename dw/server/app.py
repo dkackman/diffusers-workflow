@@ -250,7 +250,7 @@ def attach_observed(details, observed_costs):
     take, which is everything the aggregate needs - the file is not read a
     second time.
     """
-    if observed_costs is None:
+    if observed_costs is None or not observed_costs.refresh():
         return details
     for name, detail in details.items():
         drivers = detail.get("cost_drivers") or {}
@@ -264,7 +264,7 @@ def attach_observed(details, observed_costs):
                 **drivers,
             },
         }
-        observed = observed_costs.observed(name, surrogate)
+        observed = observed_costs.observed(name, surrogate, fresh=False)
         if observed:
             detail["observed"] = observed
     return details

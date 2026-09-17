@@ -283,28 +283,40 @@ class ObservedCosts:
             self._device = (kind, card)
         return self._device
 
-    def rows_for(self, name):
-        """That workflow's comparable-candidate runs, refreshing the cache
-        when the table has moved."""
+    def refresh(self):
+        """Bring the cached rows up to the table's watermark, once.
+
+        Returns False when there is no history to read or the read failed -
+        the caller then has no rows and knows why. A listing calls this
+        once and then asks `rows_for(name, fresh=False)` per entry, so the
+        COUNT(*) under the history lock happens once per request rather
+        than once per workflow."""
         if self.history is None:
-            return []
+            return False
         try:
             mark = self.history.watermark()
         except Exception:
             logger.debug("observed cost: could not read the job watermark")
-            return []
+            return False
         if mark != self._mark:
             try:
                 self._rows = self.history.finished_runs()
             except Exception:
                 logger.debug("observed cost: could not read job history")
                 self._rows = {}
-                return []
+                return False
             self._mark = mark
+        return True
+
+    def rows_for(self, name, *, fresh=True):
+        """That workflow's comparable-candidate runs, refreshing the cache
+        when the table has moved (unless the caller already did)."""
+        if fresh and not self.refresh():
+            return []
         return self._rows.get(name, [])
 
-    def observed(self, name, definition, arguments=None):
-        rows = self.rows_for(name)
+    def observed(self, name, definition, arguments=None, *, fresh=True):
+        rows = self.rows_for(name, fresh=fresh)
         if not rows:
             return None
         device, device_name = self.device()
