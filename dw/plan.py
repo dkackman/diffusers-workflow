@@ -19,7 +19,7 @@ import logging
 import os
 
 from huggingface_hub import model_info
-from huggingface_hub.utils import HFValidationError, validate_repo_id
+from huggingface_hub.utils import GatedRepoError, HFValidationError, validate_repo_id
 
 from .elision import elide_definition
 from .hub_cache import scan_models
@@ -459,9 +459,14 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
         # body, and a free pre-flight must not be a directory-existence oracle
         if name in present or not _is_repo_id(name):
             continue
-        required.append({"repo": name, "gb": _size_gb(name) if lookup_sizes else None})
+        entry = {"repo": name, "gb": None, "gated": None, "access_blocked": None}
+        if lookup_sizes:
+            entry["gb"], entry["gated"], entry["access_blocked"] = _model_info(name)
+        required.append(entry)
     for url in urls:
-        required.append({"repo": None, "url": url, "gb": None})
+        required.append(
+            {"repo": None, "url": url, "gb": None, "gated": None, "access_blocked": None}
+        )
     return required
 
 
@@ -495,6 +500,20 @@ def _collect_sources(tree, names, urls):
             _collect_sources(value, names, urls)
 
 
+def gate_warnings(downloads_required):
+    """One line per required download this box's token is blocked from -
+    the pre-flight signal #186 asked for, so a gated repo is a
+    `validate_workflow`-visible condition rather than a 403 the run only
+    discovers after it has loaded everything ahead of that step."""
+    return [
+        f"{entry['repo']} is gated and not accessible with this box's "
+        "Hugging Face token - accept its license at "
+        f"https://huggingface.co/{entry['repo']} before running this workflow"
+        for entry in downloads_required
+        if entry.get("access_blocked")
+    ]
+
+
 def _is_repo_id(name):
     try:
         validate_repo_id(name)
@@ -513,13 +532,27 @@ def _is_url(value):
         return False
 
 
-def _size_gb(name):
-    """A repo's size in GiB to one decimal, or None when the hub does not
-    say - unreachable, gated without a token, or a file with no size."""
+def _model_info(name):
+    """A repo's size in GiB, gate status, and whether this box's token is
+    blocked from it - a `(gb, gated, access_blocked)` triple.
+
+    `gated` is `model_info`'s own field (`False` / `"auto"` / `"manual"`),
+    readable only when the call succeeds - which it does even for a gated
+    repo this token has been granted. A `GatedRepoError` is the call failing
+    for exactly that reason: the repo is gated and this box's token has not
+    (or no longer) been granted access, distinct from every other lookup
+    failure (unreachable, a file with no size), which says nothing about the
+    gate either way (#186).
+    """
     try:
         info = model_info(name, files_metadata=True, timeout=SIZE_LOOKUP_TIMEOUT)
-        total = sum(s.size for s in (info.siblings or []) if getattr(s, "size", None))
+    except GatedRepoError as e:
+        logger.debug(f"Gate not accepted for {name}: {e}")
+        return None, True, True
     except Exception as e:
         logger.debug(f"No size for {name}: {e}")
-        return None
-    return round(total / GIB, 1) if total else None
+        return None, None, None
+    total = sum(s.size for s in (info.siblings or []) if getattr(s, "size", None))
+    gb = round(total / GIB, 1) if total else None
+    gated = getattr(info, "gated", False) or False
+    return gb, gated, False

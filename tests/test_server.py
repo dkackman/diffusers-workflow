@@ -3817,7 +3817,37 @@ class TestValidatePlan:
         assert plan["steps"] == 1
         assert plan["estimate"]["basis"] in {"catalog", "other_device"}
         assert plan["estimate"]["minutes"] == 2.0
-        assert plan["downloads_required"] == [{"repo": "m", "gb": None}]
+        assert plan["downloads_required"] == [
+            {"repo": "m", "gb": None, "gated": None, "access_blocked": None}
+        ]
+
+    def test_a_blocked_gate_surfaces_as_a_warning(self, server, monkeypatch):
+        """#186: a repo this box's token cannot access is a 403 partway into
+        a run unless the pre-flight says so first."""
+        import httpx
+        import dw.plan
+        from huggingface_hub.utils import GatedRepoError
+
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+
+        response = httpx.Response(403, request=httpx.Request("GET", "https://hf.co/x"))
+
+        def boom(*a, **k):
+            raise GatedRepoError("no access", response=response)
+
+        monkeypatch.setattr(dw.plan, "model_info", boom)
+        with server(success_script) as client:
+            result = client.post(
+                "/api/validate",
+                json={"workflow": video_workflow("gated", with_cost=True)},
+            ).json()
+        assert result["plan"]["downloads_required"] == [
+            {"repo": "m", "gb": None, "gated": True, "access_blocked": True}
+        ]
+        gate_warnings = [w for w in result["warnings"] if "huggingface.co/m" in w]
+        assert len(gate_warnings) == 1
 
     def test_the_estimate_quotes_this_box_s_own_history(self, server, monkeypatch):
         """#154: `basis: unknown` has to mean nobody has a number. A stored

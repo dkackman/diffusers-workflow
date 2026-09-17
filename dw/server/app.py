@@ -73,7 +73,7 @@ from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..hub_cache import scan_models, delete_model, DownloadManager
-from ..plan import build_plan, unseeded_cache_warnings
+from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
 from ..runs import (
     MANIFEST_FILE_NAME,
     REALIZED_FILE_NAME,
@@ -1748,6 +1748,8 @@ def create_app(
         except Exception:
             logger.exception("Plan could not be built")
             answer["plan"] = None
+        if answer["plan"]:
+            answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
         return answer
 
     # ------------------------------------------------------------ workspaces
