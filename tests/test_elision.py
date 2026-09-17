@@ -76,6 +76,19 @@ class TestTheGuardrails:
         assert names(kept) == ["picture", "last"]
         assert elided == []
 
+    def test_a_sub_workflow_step_is_kept_even_without_a_result(self):
+        """A composing step's child writes its own files; the parent's
+        missing `result` block says nothing about that. Dropping it would
+        make the job succeed without the child's output."""
+        kept, elided = elide_unreferenced_steps(
+            [
+                step("score", workflow={"path": "templates/minimax/music3"}),
+                task("deliverable", result={"content_type": "audio/wav"}),
+            ]
+        )
+        assert names(kept) == ["score", "deliverable"]
+        assert elided == []
+
     def test_save_false_is_what_makes_it_droppable(self):
         steps = [
             task("picture", result={"content_type": "image/png", "save": False}),
