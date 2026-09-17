@@ -166,6 +166,65 @@ def test_save_surfaces_a_path_the_server_refuses():
         authoring.save_workflow(client, "../escape", WORKFLOW)
 
 
+def test_save_with_patch_merges_onto_the_stored_definition():
+    """A small edit shouldn't require resending the whole document (#202)."""
+    stored = {
+        "id": "w",
+        "steps": [],
+        "variables": {"prompt": {"default": "a cat"}, "seed": {"default": 1}},
+    }
+    seen = []
+
+    def handler(request):
+        seen.append((request.method, request.url.path))
+        if request.method == "GET":
+            return httpx.Response(200, json=stored)
+        body = json.loads(request.read())
+        return httpx.Response(200, json={"name": "mine", "sent": body})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    result = authoring.save_workflow(
+        client, "mine", patch={"variables": {"seed": {"default": 2}}}
+    )
+
+    assert seen == [("GET", "/api/workflows/mine"), ("PUT", "/api/workflows/mine")]
+    sent_workflow = result["sent"]["workflow"]
+    assert sent_workflow["variables"]["seed"]["default"] == 2
+    assert sent_workflow["variables"]["prompt"]["default"] == "a cat"
+    assert sent_workflow["id"] == "w"
+
+
+def test_save_with_patch_null_deletes_a_key():
+    stored = {"id": "w", "steps": [], "description": "old"}
+
+    def handler(request):
+        if request.method == "GET":
+            return httpx.Response(200, json=stored)
+        body = json.loads(request.read())
+        return httpx.Response(200, json={"name": "mine", "sent": body})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    result = authoring.save_workflow(client, "mine", patch={"description": None})
+
+    assert "description" not in result["sent"]["workflow"]
+
+
+def test_save_refuses_both_workflow_and_patch():
+    client, _seen = scripted({})
+
+    with pytest.raises(DwApiError, match="exactly one"):
+        authoring.save_workflow(client, "mine", workflow=WORKFLOW, patch={})
+
+
+def test_save_refuses_neither_workflow_nor_patch():
+    client, _seen = scripted({})
+
+    with pytest.raises(DwApiError, match="exactly one"):
+        authoring.save_workflow(client, "mine")
+
+
 def test_delete_calls_delete():
     client, seen = scripted(
         {("DELETE", "/api/workflows/mine"): (200, {"name": "mine", "deleted": True})}

@@ -786,7 +786,9 @@ def build_server(client):
             arguments=arguments,
         )
 
-    def save_workflow(name: str, workflow: dict) -> dict:
+    def save_workflow(
+        name: str, workflow: dict | None = None, patch: dict | None = None
+    ) -> dict:
         """Save a workflow to the server's writable workflow directory,
         overwriting any existing workflow of that name there. Validate it
         first. A name that currently resolves to a read-only source (an
@@ -795,11 +797,21 @@ def build_server(client):
         example gets adapted without being damaged. `name` may include
         folders.
 
+        Give exactly one of `workflow` (the full document) or `patch` for a
+        small, targeted edit: a JSON Merge Patch (RFC 7396) merged onto the
+        currently stored definition, so bumping one argument means sending
+        just that argument rather than the whole document -
+        `{"variables": {"num_images_per_prompt": 4}}` rather than the whole
+        workflow. A patch key set to `null` deletes that key from the
+        stored document. A list is replaced whole, never merged - a merge
+        patch has no notion of list position, so changing one `shots` entry
+        still means sending the whole `shots` list.
+
         A workflow stored for reuse should mark each saving step's
         `result.subfolder` - `final` for the step whose output the user will
         be shown, `intermediate` for the rest - so a later consumer can tell
         the deliverable from the scratch files without knowing the workflow."""
-        return authoring.save_workflow(client, name, workflow)
+        return authoring.save_workflow(client, name, workflow=workflow, patch=patch)
 
     def delete_workflow(name: str) -> dict:
         """Permanently delete a stored workflow from this workspace. A
