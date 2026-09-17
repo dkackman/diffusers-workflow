@@ -182,6 +182,7 @@ def concat_videos(
 
     frames = []
     audio = None
+    audio_native_rate = None
 
     for index, (video, clip) in enumerate(zip(videos, clips)):
         head_trim = trim_frames if index > 0 else 0
@@ -193,6 +194,7 @@ def concat_videos(
         waveform = waveforms[index]
         if audio is None:
             audio = waveform
+            audio_native_rate = video.sample_rate
             continue
 
         if head_trim > 0 and fps is None:
@@ -211,6 +213,7 @@ def concat_videos(
                 audio_bleed_ms,
                 seam_fade_ms,
                 audio_bleed_gain_db,
+                native_sample_rate=audio_native_rate,
             )
         else:
             audio = equal_power_crossfade_join(
@@ -221,6 +224,7 @@ def concat_videos(
                 crossfade_ms,
                 seam_fade_ms,
             )
+        audio_native_rate = video.sample_rate
 
     logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
     # The rate the caller declared, else the rate the first input carries -
