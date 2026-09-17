@@ -1116,6 +1116,13 @@ class Workflow:
                 status = "completed"
                 return []
 
+            # Names this run's steps go by (for_each members included, as
+            # "<step>@<entry>") - what "still shared" means in
+            # create_step_action: a key another RUNNING step maps to, not a
+            # key some step of a past, unrelated workflow happened to leave
+            # in the cross-job _prior_step_keys map
+            self._running_step_names = {step_data["name"] for step_data in steps}
+
             realize_args(steps, base_dir)
 
             run_context.emit(
@@ -1510,12 +1517,17 @@ class Workflow:
             # so the swap never holds old and new stacks simultaneously
             prior_keys = getattr(self, "_prior_step_keys", {})
             prior_key = prior_keys.get(step_name)
-            # Only this step's own variant: a key another step also mapped
-            # to last run is that step's warm model, and releasing it here
-            # would reload it cold a moment later while holding both stacks.
-            # If nothing touches it this run, the end-of-run sweep drops it.
+            # Only this step's own variant: a key another step of THIS run
+            # also mapped to last run is that step's warm model, and
+            # releasing it here would reload it cold a moment later while
+            # holding both stacks. _prior_step_keys is merged across every
+            # job the worker has run, never pruned, so a name from an
+            # earlier, unrelated workflow must not count - "shared" means
+            # shared by a step this run actually executes. If nothing
+            # touches it this run, the end-of-run sweep drops it.
+            running_step_names = getattr(self, "_running_step_names", set())
             still_shared = any(
-                other != step_name and key == prior_key
+                other != step_name and other in running_step_names and key == prior_key
                 for other, key in prior_keys.items()
             )
             if (

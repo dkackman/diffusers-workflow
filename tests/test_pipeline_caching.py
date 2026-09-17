@@ -480,6 +480,9 @@ def test_a_pipeline_another_step_still_maps_to_is_not_released_as_superseded():
 
     workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
     workflow._prior_step_keys = {"gen": shared_key, "gen_again": shared_key}
+    # gen_again must be a step of the workflow this run executes for its
+    # claim on shared_key to count as "still shared" (#150 fix round 1)
+    workflow._running_step_names = {"gen", "gen_again"}
 
     seen_at_load = {}
 
@@ -492,6 +495,52 @@ def test_a_pipeline_another_step_still_maps_to_is_not_released_as_superseded():
 
     assert seen_at_load["shared_still_cached"] is True, (
         "a key another step still maps to must survive the redefined step's load"
+    )
+
+
+def test_a_prior_key_from_a_different_workflows_step_is_not_shared():
+    """_prior_step_keys is merged across every job the worker has ever run
+    and never pruned (Worker._record_step_keys), so it can carry a step
+    name from an earlier, unrelated workflow that happened to resolve to
+    the same pipeline. That name is not a step this run executes, so it
+    must not save the key from release - only a step of the running
+    workflow counts as "still shared" (#150 fix round 1)."""
+    from dw.workflow import pipeline_cache_key
+
+    shared_def = {
+        "configuration": {"component_type": "{Mock}"},
+        "from_pretrained_arguments": {"model_name": "shared-model"},
+        "arguments": {},
+    }
+    changed_step = {
+        "name": "gen",
+        "pipeline": {
+            "configuration": {"component_type": "{Mock}"},
+            "from_pretrained_arguments": {"model_name": "new-model"},
+            "arguments": {},
+        },
+    }
+    shared_key = pipeline_cache_key(shared_def)
+    cache = {shared_key: MagicMock()}
+
+    workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
+    # stale_step mapped to shared_key in some earlier, different workflow's
+    # run - it is not a step of the workflow this run executes
+    workflow._prior_step_keys = {"gen": shared_key, "stale_step": shared_key}
+    workflow._running_step_names = {"gen"}
+
+    seen_at_load = {}
+
+    def mock_load(self, shared_components):
+        seen_at_load["shared_still_cached"] = shared_key in cache
+        self.pipeline = MagicMock()
+
+    with patch.object(Pipeline, "load", mock_load):
+        workflow.create_step_action(changed_step, {}, cache, 1, "cpu")
+
+    assert seen_at_load["shared_still_cached"] is False, (
+        "a name that is not a step of the running workflow must not save "
+        "the key from release"
     )
 
 
