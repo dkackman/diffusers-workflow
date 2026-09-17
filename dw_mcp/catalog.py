@@ -208,10 +208,12 @@ def list_gallery(client, limit=50, subfolder=None, only_orphans=False, workspace
     at a run's root); None means every file.
 
     `only_orphans=True` inverts the call: instead of files, it returns run
-    directories with no media anywhere under them (`runs`, each
-    `{name, mtime}`) - a run whose output was deleted before `delete_output`
-    could remove it by name, or one that failed before writing anything.
-    `subfolder` does not apply in this mode. `name` is exactly what
+    directories holding nothing but their own bookkeeping (manifest.json,
+    workflow.json, job.json) as `runs`, each `{name, mtime}` - a run whose
+    output was deleted before `delete_output` could remove it by name, or
+    one that failed before writing anything. A run that wrote any file at
+    all, a text-shape prompt or a utility's side output included, is not
+    listed. `subfolder` does not apply in this mode. `name` is exactly what
     `delete_output` accepts, so clearing one is list, then delete (#170)."""
     params = {"limit": limit}
     if subfolder is not None:

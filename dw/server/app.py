@@ -2590,12 +2590,15 @@ def create_app(
         `subfolder` filter independently and intersect when both are given.
 
         `only_orphans=true` inverts the whole call: instead of media files,
-        it returns run directories with no media anywhere under them
-        (`runs`, each `{name, mtime}`) - `folder`/`subfolder` and the
-        `folders`/`subfolders` facets do not apply in this mode, since an
-        orphan run has no file to carry either. `name` is exactly what
-        `DELETE /api/gallery/{name}` accepts, so listing and deleting an
-        orphan is a two-call round trip (#170)."""
+        it returns run directories holding nothing but their own
+        bookkeeping (manifest.json, workflow.json, job.json) as `runs`,
+        each `{name, mtime}` - a run that wrote any file at all, a
+        text-shape prompt or a utility's side output included, is not
+        listed. `folder`/`subfolder` and the `folders`/`subfolders` facets
+        do not apply in this mode, since an orphan run has no file to
+        carry either. `name` is exactly what `DELETE /api/gallery/{name}`
+        accepts, so listing and deleting an orphan is a two-call round
+        trip (#170)."""
         if only_orphans:
             entries = _orphan_entries(ws.outputs)
             offset = max(0, offset)
