@@ -25,6 +25,7 @@ real, cheap, side-effect-free construction failure earlier, not to guess at
 one.
 """
 
+import functools
 import inspect
 
 from .for_each import MEMBER_SEPARATOR, render_path
@@ -89,19 +90,11 @@ def _requires_remote_kernel(attn_processor_class):
     return "get_kernel(" in source
 
 
-def kernel_availability_fault(value):
-    """Why constructing this 'attn_processor_type' value will fail, or None.
-
-    `value` is the dotted or bare type name as written in the workflow.
-    A name that fails to resolve at all is not this check's job - that is
-    an ordinary '_type' load failure at run time. A processor that doesn't
-    depend on a remote kernel is never constructed here, since a processor
-    with real side effects in `__init__` should not be instantiated just to
-    validate it.
-    """
-    if not isinstance(value, str) or value.startswith(_UNRESOLVED_PREFIXES):
-        return None
-
+@functools.lru_cache(maxsize=None)
+def _fault_for_name(value):
+    """The answer for one type name, memoized: which class a name resolves
+    to and whether it can be constructed are per-process constants, and
+    the construction is the expensive part (a Hub kernel fetch)."""
     try:
         attn_processor_class = load_type_from_name(value)
     except Exception:
@@ -115,6 +108,24 @@ def kernel_availability_fault(value):
     except Exception as e:
         return f"'{value}' {KERNEL_FAULT_MARKER}: {e}"
     return None
+
+
+def kernel_availability_fault(value):
+    """Why constructing this 'attn_processor_type' value will fail, or None.
+
+    `value` is the dotted or bare type name as written in the workflow.
+    A name that fails to resolve at all is not this check's job - that is
+    an ordinary '_type' load failure at run time. A processor that doesn't
+    depend on a remote kernel is never constructed here, since a processor
+    with real side effects in `__init__` should not be instantiated just to
+    validate it.
+
+    Answered once per process per name: validate, submit and rerun all ask,
+    and a for_each asks once per member (`_fault_for_name`).
+    """
+    if not isinstance(value, str) or value.startswith(_UNRESOLVED_PREFIXES):
+        return None
+    return _fault_for_name(value)
 
 
 def kernel_availability_errors(workflow_definition, source_indices=None):
