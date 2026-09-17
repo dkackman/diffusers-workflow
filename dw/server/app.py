@@ -3032,12 +3032,17 @@ def create_app(
             "url": _served_url(f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
         }
 
-    def _asset_origin(ws, index, root):
+    def _asset_origin(ws, root):
         """Which library an asset came from: this workspace's own, the one
         shared by every workspace under the root, or a read-only examples
         tree. A client that cannot tell them apart cannot say why deleting
-        one answers 403."""
-        if index == 0:
+        one answers 403.
+
+        By directory, never by position in the search path: the workspace's
+        own library drops out of `_asset_roots` until it exists, and the
+        examples tree that then sits first is still nobody's to write."""
+        own = ws.assets
+        if own and os.path.abspath(own) == root:
             return WORKSPACE_ORIGIN
         common = _common_assets(ws)
         if common and os.path.abspath(common) == root:
@@ -3069,11 +3074,11 @@ def create_app(
 
         libraries = [
             {
-                "origin": (origin := _asset_origin(ws, index, root)),
+                "origin": (origin := _asset_origin(ws, root)),
                 "dir": root,
                 "writable": origin != EXAMPLES_ORIGIN,
             }
-            for index, root in enumerate(roots)
+            for root in roots
         ]
 
         assets = []
@@ -3081,12 +3086,12 @@ def create_app(
         # Which origin first claimed a name, so a later root's same name can
         # be reported as shadowed rather than silently dropped
         seen = {}
-        for index, root in enumerate(roots):
+        for root in roots:
             try:
                 files = list(_iter_gallery_files(root, group_runs=False))
             except OSError:
                 files = []
-            origin = _asset_origin(ws, index, root)
+            origin = _asset_origin(ws, root)
             for relative, folder, _subfolder, kind, path in files:
                 try:
                     stat = os.stat(path)
@@ -3286,14 +3291,14 @@ def create_app(
         except SecurityError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        for index, root in enumerate(roots):
+        for root in roots:
             try:
                 path = validate_path(os.path.join(root, relative), root)
             except SecurityError:
                 continue
             if not os.path.isfile(path):
                 continue
-            origin = _asset_origin(ws, index, root)
+            origin = _asset_origin(ws, root)
             if origin == EXAMPLES_ORIGIN:
                 raise HTTPException(
                     status_code=403,

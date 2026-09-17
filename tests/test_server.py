@@ -4565,3 +4565,46 @@ def test_deleting_a_run_directory_stays_inside_the_output_root(server, tmp_path)
         response = client.delete("/api/gallery/..%2F20260913-120000-cafebabe")
         assert response.status_code == 404
         assert outside.exists()
+
+
+def test_an_examples_library_is_read_only_even_when_it_is_the_only_root(tmp_path):
+    """A workspace whose own library does not exist yet drops out of the
+    search path, which made the examples tree root 0 - and root 0 was
+    labelled 'workspace', writable, deletable. With the Assets page's
+    select-all + Delete on top of that label, example files could be
+    removed through the UI. The label follows which directory a root is,
+    never its position."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    examples = tmp_path / "examples"
+    (examples / "assets").mkdir(parents=True)
+    example_file = examples / "assets" / "cast.png"
+    example_file.write_bytes(b"png")
+
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(workflows),
+    )
+    app = create_app(
+        workflow_dir=str(workflows),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        # declared but never created - the shape a fresh install has
+        asset_dir=str(tmp_path / "assets"),
+        examples_dirs=[str(examples)],
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        body = client.get("/api/assets").json()
+        assert body["libraries"] == [
+            {"origin": "examples", "dir": str(examples / "assets"), "writable": False}
+        ]
+        (asset,) = body["assets"]
+        assert asset["origin"] == "examples"
+
+        response = client.delete("/api/assets/cast.png")
+
+    assert response.status_code == 403
+    assert example_file.exists()
+
