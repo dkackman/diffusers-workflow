@@ -452,6 +452,49 @@ def test_redefined_step_evicts_prior_pipeline_before_loading():
     )
 
 
+def test_a_pipeline_another_step_still_maps_to_is_not_released_as_superseded():
+    """#150 carries step->key across jobs. Two steps that resolved to the
+    same pipeline last time, and a rerun that changes only the first: the
+    old model is still the second step's cache hit, so releasing it here
+    forces a cold reload of a resident model - and holds both stacks while
+    the first step's replacement loads, the exact transition #150 avoids.
+    The end-of-run sweep (_evict_untouched_pipelines) drops it if nothing
+    touched it."""
+    from dw.workflow import pipeline_cache_key
+
+    shared_def = {
+        "configuration": {"component_type": "{Mock}"},
+        "from_pretrained_arguments": {"model_name": "shared-model"},
+        "arguments": {},
+    }
+    changed_step = {
+        "name": "gen",
+        "pipeline": {
+            "configuration": {"component_type": "{Mock}"},
+            "from_pretrained_arguments": {"model_name": "new-model"},
+            "arguments": {},
+        },
+    }
+    shared_key = pipeline_cache_key(shared_def)
+    cache = {shared_key: MagicMock()}
+
+    workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
+    workflow._prior_step_keys = {"gen": shared_key, "gen_again": shared_key}
+
+    seen_at_load = {}
+
+    def mock_load(self, shared_components):
+        seen_at_load["shared_still_cached"] = shared_key in cache
+        self.pipeline = MagicMock()
+
+    with patch.object(Pipeline, "load", mock_load):
+        workflow.create_step_action(changed_step, {}, cache, 1, "cpu")
+
+    assert seen_at_load["shared_still_cached"] is True, (
+        "a key another step still maps to must survive the redefined step's load"
+    )
+
+
 def test_pipeline_released_is_reported_on_the_event_stream():
     """The release is announced, and before the step's files are written.
 

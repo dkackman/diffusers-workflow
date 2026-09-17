@@ -1506,8 +1506,22 @@ class Workflow:
 
             # Not in cache - a redefined step frees its previous model first,
             # so the swap never holds old and new stacks simultaneously
-            prior_key = getattr(self, "_prior_step_keys", {}).get(step_name)
-            if prior_key and prior_key != cache_key and prior_key in previous_pipelines:
+            prior_keys = getattr(self, "_prior_step_keys", {})
+            prior_key = prior_keys.get(step_name)
+            # Only this step's own variant: a key another step also mapped
+            # to last run is that step's warm model, and releasing it here
+            # would reload it cold a moment later while holding both stacks.
+            # If nothing touches it this run, the end-of-run sweep drops it.
+            still_shared = any(
+                other != step_name and key == prior_key
+                for other, key in prior_keys.items()
+            )
+            if (
+                prior_key
+                and prior_key != cache_key
+                and prior_key in previous_pipelines
+                and not still_shared
+            ):
                 logger.info(
                     f"Step '{step_name}' was redefined - releasing its previous "
                     "pipeline before loading the new one"
