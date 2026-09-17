@@ -32,7 +32,9 @@ _COMMAND_REGISTRY: Dict[str, Callable] = {}
 _COMMAND_INFO: Dict[str, dict] = {}
 
 
-def register_command(command_name: str, implementation=None, provided=()):
+def register_command(
+    command_name: str, implementation=None, provided=(), consumes_device=False
+):
     """
     Decorator to register a command handler function.
 
@@ -42,13 +44,31 @@ def register_command(command_name: str, implementation=None, provided=()):
             the command's arguments (None for a command that consumes a
             free-form dict)
         provided: Parameter names the dispatch supplies itself
+        consumes_device: True for a handler that calls task.device_for(arguments)
+            itself, to pick the accelerator a model-backed task runs on. False
+            (the default) is for a task that runs no model and forwards
+            arguments straight to its implementation - device is introspected
+            as a universal, always-safe-to-pass argument (dw/introspection.py),
+            so a non-consuming handler must drop it itself rather than let it
+            reach the implementation as an unexpected keyword argument (#185).
+            Some commands (e.g. gather_inputs) receive a non-dict argument
+            value, which never carries a device to drop
 
     Returns:
         Decorator function
     """
 
     def decorator(func: Callable) -> Callable:
-        _COMMAND_REGISTRY[command_name] = func
+        if consumes_device:
+            handler = func
+        else:
+
+            def handler(task, arguments, previous_pipelines, _func=func):
+                if isinstance(arguments, dict):
+                    arguments.pop("device", None)
+                return _func(task, arguments, previous_pipelines)
+
+        _COMMAND_REGISTRY[command_name] = handler
         _COMMAND_INFO[command_name] = {
             "kind": "command",
             "implementation": implementation,
@@ -156,6 +176,15 @@ def _handle_slice_audio(task, arguments, previous_pipelines):
     from .audio_utils import slice_audio
 
     return slice_audio(**arguments)
+
+
+@register_command("gain_audio", implementation="dw.tasks.audio_utils.gain_audio")
+def _handle_gain_audio(task, arguments, previous_pipelines):
+    """Apply a gain to a time- or frame-aligned region of an audio track"""
+    logger.debug("Gaining audio region")
+    from .audio_utils import gain_audio
+
+    return gain_audio(**arguments)
 
 
 @register_command(
@@ -282,7 +311,9 @@ def _per_frame(image, process):
     return AudioVideo(frames, audio, sample_rate, fps=getattr(image, "fps", None))
 
 
-@register_command("upscale", implementation="dw.tasks.upscale.upscale_image")
+@register_command(
+    "upscale", implementation="dw.tasks.upscale.upscale_image", consumes_device=True
+)
 def _handle_upscale(task, arguments, previous_pipelines):
     """Upscale an image using a spandrel-compatible super-resolution model"""
     logger.debug("Upscaling image")
@@ -298,7 +329,9 @@ def _handle_upscale(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "diffusion_upscale", implementation="dw.tasks.diffusion_upscale.diffusion_upscale"
+    "diffusion_upscale",
+    implementation="dw.tasks.diffusion_upscale.diffusion_upscale",
+    consumes_device=True,
 )
 def _handle_diffusion_upscale(task, arguments, previous_pipelines):
     """Upscale an image using a diffusion-based upscale pipeline"""
@@ -313,7 +346,9 @@ def _handle_diffusion_upscale(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "restore_faces", implementation="dw.tasks.restore_faces.restore_faces"
+    "restore_faces",
+    implementation="dw.tasks.restore_faces.restore_faces",
+    consumes_device=True,
 )
 def _handle_restore_faces(task, arguments, previous_pipelines):
     """Restore faces in an image using a spandrel-compatible face restoration model"""
@@ -329,7 +364,9 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
     )
 
 
-@register_command("segment", implementation="dw.tasks.segment.segment_image")
+@register_command(
+    "segment", implementation="dw.tasks.segment.segment_image", consumes_device=True
+)
 def _handle_segment(task, arguments, previous_pipelines):
     """Segment objects in an image using text prompt"""
     logger.debug("Segmenting image")
@@ -346,6 +383,7 @@ def _handle_segment(task, arguments, previous_pipelines):
 @register_command(
     "interpolate_frames",
     implementation="dw.tasks.interpolate_frames.interpolate_frames",
+    consumes_device=True,
 )
 def _handle_interpolate_frames(task, arguments, previous_pipelines):
     """Interpolate video frames to increase frame rate"""
@@ -357,7 +395,9 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "image_to_text", implementation="dw.tasks.image_to_text.image_to_text"
+    "image_to_text",
+    implementation="dw.tasks.image_to_text.image_to_text",
+    consumes_device=True,
 )
 def _handle_image_to_text(task, arguments, previous_pipelines):
     """Generate text caption from an image"""
@@ -369,7 +409,9 @@ def _handle_image_to_text(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "text_generation", implementation="dw.tasks.text_generation.generate_text"
+    "text_generation",
+    implementation="dw.tasks.text_generation.generate_text",
+    consumes_device=True,
 )
 def _handle_text_generation(task, arguments, previous_pipelines):
     """Generate text from a prompt using a local LLM"""
@@ -383,6 +425,7 @@ def _handle_text_generation(task, arguments, previous_pipelines):
 @register_command(
     "generate_speech",
     implementation="dw.tasks.speech_generation.generate_speech",
+    consumes_device=True,
 )
 def _handle_speech_generation(task, arguments, previous_pipelines):
     """Speak a line of text with a local text-to-speech model"""

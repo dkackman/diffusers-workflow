@@ -376,6 +376,110 @@ def slice_audio(
     return _as_track(slice_samples(waveform, start, length), sample_rate, "slice_audio")
 
 
+def gain_audio(
+    audio,
+    gain_db,
+    start_seconds=None,
+    duration_seconds=None,
+    start_frame=None,
+    num_frames=None,
+    fps=None,
+    sample_rate=None,
+):
+    """Task command: apply a gain to a region of an audio track.
+
+    The region is addressed the same way slice_audio's is - either in
+    seconds (start_seconds + duration_seconds) or in video frames
+    (start_frame + num_frames + fps). Everything outside the region is
+    passed through unchanged, so ducking a scene under another is one step
+    rather than the slice/gain/mix/rejoin/pair_audio chain that was
+    previously the only way to apply a gain to part of a track rather than
+    all of it (#187).
+
+    Unlike slice_audio, a region reaching past the end of the track is
+    clipped to it rather than zero-padded: there is no silence there to
+    gain, only the end of the real material.
+
+    A file's or video's own sample rate is read automatically; sample_rate
+    is for a waveform passed directly, or to override what a file carries -
+    which relabels the waveform at that rate rather than resampling it, the
+    same caveat slice_audio's sample_rate carries (#180).
+
+    Args:
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a generated video carrying its own
+            soundtrack, or a waveform (which needs sample_rate alongside it)
+        gain_db: Gain to apply within the region, in decibels - negative
+            ducks it, positive boosts it
+        start_seconds: Start of the region, in seconds
+        duration_seconds: Length of the region, in seconds
+        start_frame: Start of the region, in video frames
+        num_frames: Length of the region, in video frames
+        fps: Frame rate used to convert start_frame/num_frames to samples
+        sample_rate: Sample rate of a waveform passed directly; given for a
+            file or a video it overrides the rate they carry
+
+    Returns:
+        An AudioTrack holding the whole track with the region's gain
+        applied, and the rate it is at
+    """
+    start_seconds = _as_number(start_seconds, float, "start_seconds", command="gain_audio")
+    duration_seconds = _as_number(
+        duration_seconds, float, "duration_seconds", command="gain_audio"
+    )
+    start_frame = _as_number(start_frame, int, "start_frame", command="gain_audio")
+    num_frames = _as_number(num_frames, int, "num_frames", command="gain_audio")
+    fps = _as_number(fps, Fraction, "fps", command="gain_audio")
+    gain_db = _as_number(gain_db, float, "gain_db", command="gain_audio")
+
+    check_arguments(
+        "gain_audio",
+        start_seconds=start_seconds,
+        duration_seconds=duration_seconds,
+        start_frame=start_frame,
+        num_frames=num_frames,
+        fps=fps,
+        sample_rate=sample_rate,
+    )
+
+    waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "gain_audio")
+    total = waveform.shape[1]
+
+    if start_seconds is not None or duration_seconds is not None:
+        start = int(round((start_seconds or 0) * sample_rate))
+        length = (
+            max(total - start, 0)
+            if duration_seconds is None
+            else int(round(duration_seconds * sample_rate))
+        )
+    elif start_frame is not None or num_frames is not None:
+        if fps is None:
+            raise ValueError("gain_audio needs 'fps' to address a region in frames")
+        start = frames_to_samples(start_frame or 0, fps, sample_rate)
+        length = (
+            max(total - start, 0)
+            if num_frames is None
+            else frames_to_samples(num_frames, fps, sample_rate)
+        )
+    else:
+        raise ValueError(
+            "gain_audio needs either 'start_seconds'/'duration_seconds' or "
+            "'start_frame'/'num_frames'/'fps' to address the region to gain"
+        )
+
+    region_start = max(0, min(start, total))
+    region_end = max(region_start, min(start + max(length, 0), total))
+
+    gained = waveform.copy()
+    if region_end > region_start:
+        gain = 10 ** (gain_db / 20)
+        gained[:, region_start:region_end] = (
+            gained[:, region_start:region_end] * gain
+        ).astype(waveform.dtype)
+
+    return _as_track(gained, sample_rate, "gain_audio")
+
+
 def _warn_on_slice_past_end(total, start, length, sample_rate):
     """Say when a slice asked for more material than its source holds.
 
