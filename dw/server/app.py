@@ -177,6 +177,11 @@ class JobRequest(BaseModel):
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
 
 
+# What a run directory holds besides its outputs - the files a run writes
+# about itself. A run whose directory holds nothing else is an orphan
+# (see _iter_orphan_runs, #170) whatever shape its output would have had.
+RUN_BOOKKEEPING_FILES = frozenset({"manifest.json", "workflow.json", "job.json"})
+
 # What each workflow produces and takes, for listing cards - cached by mtime
 _workflow_detail_cache = {}
 
@@ -2526,30 +2531,27 @@ def create_app(
         return entries
 
     def _iter_orphan_runs(root):
-        """Run directories under `root` holding no file whose extension is
-        in MEDIA_KINDS anywhere beneath them - a run whose output was
-        deleted before #134's by-name `delete_output`, or one that failed
-        before writing anything. Yields (name, mtime) where `name` is the
+        """Run directories under `root` holding nothing but their own
+        bookkeeping (RUN_BOOKKEEPING_FILES) - a run whose output was deleted
+        before #134's by-name `delete_output`, or one that failed before
+        writing anything. Yields (name, mtime) where `name` is the
         `<identity>/<run id>` string `delete_output` already accepts (#170).
 
-        No manifest/content_type inspection - a legitimate no-media
-        `utility`-shape run matches this test too, but this call only
-        lists; deciding whether a given entry is junk stays a human/agent
-        call before `delete_output` is invoked on it."""
+        By what is absent, not by extension: a `text`-shape run writes .txt
+        and a `utility`-shape run may write nothing the gallery lists, and
+        neither is junk. This call only lists; deciding whether an entry is
+        junk stays a human/agent call before `delete_output` is invoked."""
         for current, dirs, _names in os.walk(root):
             if not is_run_id(os.path.basename(current)):
                 continue
             # A run directory holds no run directories of its own
             dirs[:] = []
-            has_media = False
-            for _sub_current, _sub_dirs, sub_names in os.walk(current):
-                for name in sub_names:
-                    if os.path.splitext(name)[1].lower() in MEDIA_KINDS:
-                        has_media = True
-                        break
-                if has_media:
-                    break
-            if has_media:
+            has_output = any(
+                name not in RUN_BOOKKEEPING_FILES
+                for _sub_current, _sub_dirs, sub_names in os.walk(current)
+                for name in sub_names
+            )
+            if has_output:
                 continue
             try:
                 mtime = os.stat(current).st_mtime

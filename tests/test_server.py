@@ -1513,6 +1513,34 @@ def test_gallery_only_orphans_lists_media_less_run_directories(server, tmp_path)
         assert not orphan_run.exists()
 
 
+def test_a_text_shape_run_is_not_an_orphan(server, tmp_path):
+    """#170 defined an orphan by 'no image/video/audio file', which made every
+    text-shape run (enhance-prompt writes .txt) an orphan - and the MCP
+    docstring tells the agent to list then delete. A run is orphaned when it
+    holds nothing but its own bookkeeping."""
+    from dw.runs import new_run_id
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+
+        text_run_id = new_run_id({"id": "enhance", "seed": 1})
+        text_run = outputs / "enhance" / text_run_id
+        (text_run / "final").mkdir(parents=True)
+        (text_run / "manifest.json").write_text("{}")
+        (text_run / "workflow.json").write_text("{}")
+        (text_run / "final" / "enhance-prompt.0-0.0.txt").write_text("a prompt")
+
+        empty_run_id = new_run_id({"id": "enhance", "seed": 2})
+        empty_run = outputs / "enhance" / empty_run_id
+        empty_run.mkdir(parents=True)
+        (empty_run / "manifest.json").write_text("{}")
+        (empty_run / "job.json").write_text("{}")
+
+        orphans = client.get("/api/gallery?only_orphans=true").json()
+
+    assert {r["name"] for r in orphans["runs"]} == {f"enhance/{empty_run_id}"}
+
+
 def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
     from PIL import Image
 
