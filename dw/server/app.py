@@ -1489,6 +1489,9 @@ def create_app(
                     return resolve(root)
                 except Exception as e:
                     first = first or e
+            # `roots` is never empty here: the asset branch answers an empty
+            # search path itself, and the prompt path always holds the
+            # server's own library. Re-raising None would be a TypeError
             raise first
 
         def _string_leaves(value, path):
@@ -1525,8 +1528,20 @@ def create_app(
             for path, leaf in _string_leaves(value, base_path):
                 try:
                     if is_asset_reference(leaf):
+                        roots = _resolution_roots(ws)
+                        if not roots:
+                            # A server configured with no asset library has
+                            # no root to fail against: over_roots would
+                            # re-raise its "first error", which is None,
+                            # and the caller would read a TypeError about
+                            # BaseException in place of a verdict
+                            name = leaf.removeprefix(ASSET_PREFIX).strip()
+                            raise ValueError(
+                                f"Unknown asset {name!r}: "
+                                "this workspace has no asset library"
+                            )
                         over_roots(
-                            _resolution_roots(ws),
+                            roots,
                             lambda root: resolve_asset_reference(leaf, asset_dir=root),
                         )
                     elif leaf.startswith(PROMPT_PREFIX):

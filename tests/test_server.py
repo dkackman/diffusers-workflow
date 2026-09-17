@@ -4648,3 +4648,22 @@ def test_an_asset_lookup_with_no_library_configured_is_a_404(server):
 
         metadata = client.get("/api/gallery/asset:iris.png/metadata")
         assert metadata.status_code == 404
+
+
+def test_a_validate_miss_with_no_library_configured_says_so(server):
+    """The same empty search path, reached through POST /api/validate's
+    argument check: the miss is a validation error naming the absence, not
+    a TypeError from re-raising a `None` "first error" (the message the
+    caller got was "exceptions must derive from BaseException")."""
+    workflow = valid_workflow()
+    workflow["variables"]["image"] = "asset:iris.png"
+    workflow["steps"][0]["pipeline"]["arguments"]["image"] = "variable:image"
+    with server(success_script) as client:
+        result = client.post(
+            "/api/validate",
+            json={"workflow": workflow, "arguments": {"image": "asset:iris.png"}},
+        ).json()
+        assert result["valid"] is False
+        [error] = [e for e in result["errors"] if e["path"] == "arguments.image"]
+        assert "no asset library" in error["message"]
+        assert "BaseException" not in error["message"]
