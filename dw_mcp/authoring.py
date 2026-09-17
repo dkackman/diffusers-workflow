@@ -55,13 +55,45 @@ def validate_workflow(
     return client.post_json("/api/validate", payload, params=params)
 
 
-def save_workflow(client, name, workflow):
+def save_workflow(client, name, workflow=None, patch=None):
     """Write a workflow into the server's writable workflow directory,
     overwriting any file already under that name there. A name that resolves
     to one of the server's read-only sources (an examples directory) is not
     overwritten: the copy lands in the writable directory and shadows it from
-    then on. The server validates before writing."""
+    then on. The server validates before writing.
+
+    Give exactly one of `workflow` (the full document to write) or `patch`
+    (a JSON Merge Patch, RFC 7396, applied to the currently stored
+    definition): a dict whose keys overwrite the stored ones, recursively
+    for nested dicts, so bumping one argument means sending just that
+    argument rather than the whole document. A key set to `null` deletes it.
+    A list replaces the stored list whole - a merge patch has no notion of
+    list position, so changing one entry of a `for_each` list still means
+    sending that whole list."""
+    if (workflow is None) == (patch is None):
+        raise DwApiError(
+            "Provide exactly one of `workflow` (a full replacement) or "
+            "`patch` (a JSON merge patch onto the stored version)."
+        )
+    if patch is not None:
+        current = client.get_json(api_path("api", "workflows", name))
+        workflow = _merge_patch(current, patch)
     return client.put_json(api_path("api", "workflows", name), {"workflow": workflow})
+
+
+def _merge_patch(target, patch):
+    """RFC 7396 JSON Merge Patch: each dict key in `patch` merges
+    recursively into `target`; any other value replaces `target` outright;
+    `None` deletes the key from the result."""
+    if not isinstance(patch, dict):
+        return patch
+    result = dict(target) if isinstance(target, dict) else {}
+    for key, value in patch.items():
+        if value is None:
+            result.pop(key, None)
+        else:
+            result[key] = _merge_patch(result.get(key), value)
+    return result
 
 
 def delete_workflow(client, name):
