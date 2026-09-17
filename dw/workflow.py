@@ -760,15 +760,17 @@ class Workflow:
             # first set variable values base don the arguments passed to the workflow
             # these may come form the command line or form a parent workflow
             set_variables(arguments, variables)
+            # an entry of a list-valued variable may name another
+            # variable; resolve those before anything inside it is
+            # realized, so a reference type in an entry is a type name -
+            # and before the constraints pass, so an entry written as
+            # "variable:tail_len" is a number by the time the rule looks
+            variables = resolve_variable_values(variables)
             # A value outside a rule the workflow declares is refused, and
             # one the rule rounds is rounded with a warning saying so -
             # before anything loads, and before substitution puts the value
             # everywhere it is referenced (dw/variable_constraints.py, #96)
             apply_constraints(workflow_def, variables)
-            # an entry of a list-valued variable may name another
-            # variable; resolve those before anything inside it is
-            # realized, so a reference type in an entry is a type name
-            variables = resolve_variable_values(variables)
             # realize the variables, initializing downloads of images etc
             realize_args(variables, base_dir)
             ## then replace any variable references in the workflow definition with the actual values
