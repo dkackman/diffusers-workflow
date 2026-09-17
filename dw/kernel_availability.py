@@ -90,11 +90,27 @@ def _requires_remote_kernel(attn_processor_class):
     return "get_kernel(" in source
 
 
+class _KernelFault(Exception):
+    """Carries a fault message out of `_fault_for_name` without letting
+    `lru_cache` memoize it - see that function's docstring."""
+
+
 @functools.lru_cache(maxsize=None)
 def _fault_for_name(value):
-    """The answer for one type name, memoized: which class a name resolves
-    to and whether it can be constructed are per-process constants, and
-    the construction is the expensive part (a Hub kernel fetch)."""
+    """The answer for one type name, memoized - except a fault.
+
+    Which class a name resolves to, and whether that class *requires* a
+    remote kernel, are per-process constants, so a clean `None` answer is
+    cached. Whether *this* construction attempt succeeds is not: the
+    construction is a Hub kernel fetch, which can fail transiently (network,
+    rate limit, cold cache), and caching that failure would pin every
+    validate/submit/rerun in the process to "broken" until the process
+    restarts, even once the transient condition clears. `lru_cache` never
+    memoizes a call that raises, so a fault is raised as `_KernelFault`
+    rather than returned - `kernel_availability_fault` catches it. The cost
+    of not caching a fault is one more fetch on the next call, which is
+    cheap next to being wrong for a process's whole lifetime.
+    """
     try:
         attn_processor_class = load_type_from_name(value)
     except Exception:
@@ -106,7 +122,7 @@ def _fault_for_name(value):
     try:
         attn_processor_class()
     except Exception as e:
-        return f"'{value}' {KERNEL_FAULT_MARKER}: {e}"
+        raise _KernelFault(f"'{value}' {KERNEL_FAULT_MARKER}: {e}") from e
     return None
 
 
@@ -120,12 +136,17 @@ def kernel_availability_fault(value):
     with real side effects in `__init__` should not be instantiated just to
     validate it.
 
-    Answered once per process per name: validate, submit and rerun all ask,
-    and a for_each asks once per member (`_fault_for_name`).
+    A clean answer is memoized once per process per name: validate, submit
+    and rerun all ask, and a for_each asks once per member (`_fault_for_name`).
+    A fault is not memoized, and so is re-probed on every call - see
+    `_fault_for_name`.
     """
     if not isinstance(value, str) or value.startswith(_UNRESOLVED_PREFIXES):
         return None
-    return _fault_for_name(value)
+    try:
+        return _fault_for_name(value)
+    except _KernelFault as fault:
+        return str(fault)
 
 
 def kernel_availability_errors(workflow_definition, source_indices=None):
