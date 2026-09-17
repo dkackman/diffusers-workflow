@@ -521,6 +521,12 @@ material:
 | `start_frame` / `num_frames` / `fps` | One pair | The region in video frames; `fps` is required, start and count may be omitted |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
+One pair is required — there is no separate "whole track" mode — but the
+whole track is still one step: give just `start_seconds: 0` and leave
+`duration_seconds` unset (or `start_frame: 0` + `fps` and leave `num_frames`
+unset), which runs to the end of the track without needing to already know
+how long that is.
+
 ### crossfade_audio
 
 Join audio tracks with an equal-power crossfade. Each seam overlaps the two
@@ -664,10 +670,13 @@ scene so the edits stop being audible:
 | `sample_rate` | With a waveform | Sample rate of a waveform passed directly; given for a file or a video it overrides the rate they carry |
 
 Laps are joined with an equal-power crossfade rather than butted together, so
-the loop point is not a click and a tone with movement in it does not tick once
-a second. The source is used whole every lap and only the last one is trimmed,
-so the bed lands exactly on the requested length; a source longer than the
-request is trimmed to it.
+the loop point itself is not a click. That only smooths the seam: a transient
+in the source (a hit, a swell) still recurs once per lap at full strength, so
+the loop still reads as a level pulse at the lap rate — measured at 9.3 dB on
+a source with one such transient. Pick a source with even internal level to
+avoid the pulse; the crossfade does not remove it. The source is used whole
+every lap and only the last one is trimmed, so the bed lands exactly on the
+requested length; a source longer than the request is trimmed to it.
 
 The bed is laid under the cut with `mix_audio` and attached to the picture with
 `pair_audio`:
