@@ -14,12 +14,14 @@ import numpy
 import soundfile
 import torch
 
+from .. import preferred_task_dtype
 from ..events import emit_warning
 from ..task_domains import as_number, check_arguments
 from ..security import (
     validate_file_extension,
     ALLOWED_AUDIO_EXTENSIONS,
 )
+from .model_cache import cached_model, hf_pipeline_placement
 
 logger = logging.getLogger("dw")
 

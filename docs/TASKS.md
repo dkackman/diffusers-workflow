@@ -1198,6 +1198,32 @@ A speech model is worth releasing before a video model loads — set `release_mo
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line and save it as a `.wav`
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice, then condition H3's `<Audio 1>` on it
 
+## Speech Transcription
+
+Transcribe spoken audio to text with a local Whisper-class model. The word-correctness of a TTS deliverable — a dropped line, a mid-sentence truncation — can only be inferred from duration and timing arithmetic without this; `transcribe_audio` checks it directly against the text the deliverable was supposed to speak.
+
+```json
+{
+    "task": {
+        "command": "transcribe_audio",
+        "arguments": {
+            "audio": "previous_result:speak"
+        }
+    },
+    "result": { "content_type": "text/plain" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a video with a soundtrack, or a waveform — usually a `previous_result:` reference |
+| `sample_rate` | No | Sample rate of a waveform passed directly |
+| `model_name` | No | HuggingFace model ID of a Whisper-class ASR model (default: `openai/whisper-base`) |
+
+Multi-channel audio is downmixed to mono and resampled to 16 kHz before transcription, since that is what a Whisper-class model is trained on; the source audio itself is untouched. The result is plain text, read with MCP's `get_output_text`.
+
+**Example:** [transcribe-audio.json](../workflows/templates/transcribe-audio.json) — Transcribe an audio file to text.
+
 ## Frame Interpolation
 
 Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a video and inserts intermediate frames between each pair. The result is one video artifact without a soundtrack - the frame count changed, so [`pair_audio`](#pair_audio) is how the original track comes back. [interpolate-frames.json](../workflows/templates/interpolate-frames.json) shows the interpolation itself.
