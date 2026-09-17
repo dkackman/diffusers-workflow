@@ -4608,3 +4608,15 @@ def test_an_examples_library_is_read_only_even_when_it_is_the_only_root(tmp_path
     assert response.status_code == 403
     assert example_file.exists()
 
+
+def test_an_asset_lookup_with_no_library_configured_is_a_404(server):
+    """No asset_dir, no examples: the search path is empty. That is a 404
+    naming the absence, not a TypeError from joining None (the fallback
+    handed _asset_in a [None] root)."""
+    with server(success_script) as client:
+        response = client.get("/inputs/iris.png")
+        assert response.status_code == 404
+        assert "no asset library" in response.json()["detail"]
+
+        metadata = client.get("/api/gallery/asset:iris.png/metadata")
+        assert metadata.status_code == 404

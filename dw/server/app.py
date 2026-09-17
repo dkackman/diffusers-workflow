@@ -2391,8 +2391,15 @@ def create_app(
         directory keeps the failure pointing at the library the caller
         thinks they're working in, even when that library hasn't been
         created yet.
+
+        Never `[None]`: a server configured with no asset library at all has
+        nothing to point at either, and `_asset_in` turns the resulting empty
+        list into the "no asset library" 404 rather than joining `None`.
         """
-        return _asset_roots(ws) or [ws.assets]
+        roots = _asset_roots(ws)
+        if roots:
+            return roots
+        return [os.path.abspath(ws.assets)] if ws.assets else []
 
     def _asset_roots_for_job(job_id, ws):
         """The asset search path a job's own run used, for export: its spec's
@@ -3575,7 +3582,7 @@ def create_app(
         previews the way an upload does."""
         roots = _asset_roots(ws)
         if not roots:
-            raise HTTPException(status_code=404, detail="No asset library")
+            raise HTTPException(status_code=404, detail="no asset library")
         for root in roots:
             try:
                 candidate = validate_path(os.path.join(root, name), root)
