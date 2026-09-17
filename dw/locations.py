@@ -149,10 +149,16 @@ def validate_media_path(
             raise PathTraversalError(
                 f"Refusing to read {what} at '{location}': it resolves "
                 f"outside every directory this workflow may read "
-                f"({', '.join(roots) or 'none configured'}). Put the file in "
-                f"the asset library and name it with an 'asset:' reference, "
-                f"or pass --trust-workflows if you trust this workflow's "
-                f"source."
+                f"({', '.join(roots) or 'none configured'}). This includes "
+                f"another workspace's own directories - each workspace is "
+                f"isolated by design, not just a generic path-traversal "
+                f"refusal, so a bare path into one is refused the same way "
+                f"a path outside the installation entirely would be. Put "
+                f"the file in the asset library and name it with an "
+                f"'asset:' reference, use keep_output(shared=True) to copy "
+                f"a generated file into the library every workspace shares "
+                f"if it needs to cross that boundary on purpose, or pass "
+                f"--trust-workflows if you trust this workflow's source."
             )
 
     if require_exists and not os.path.exists(resolved):
