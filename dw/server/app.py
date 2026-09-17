@@ -180,7 +180,8 @@ class JobRequest(BaseModel):
 # What a run directory holds besides its outputs - the files a run writes
 # about itself. A run whose directory holds nothing else is an orphan
 # (see _iter_orphan_runs, #170) whatever shape its output would have had.
-RUN_BOOKKEEPING_FILES = frozenset({"manifest.json", "workflow.json", "job.json"})
+# job.json is what an export bundle writes, listed defensively.
+RUN_BOOKKEEPING_FILES = frozenset({MANIFEST_FILE_NAME, REALIZED_FILE_NAME, "job.json"})
 
 # What each workflow produces and takes, for listing cards - cached by mtime
 _workflow_detail_cache = {}
