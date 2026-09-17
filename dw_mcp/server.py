@@ -377,16 +377,17 @@ def build_server(client):
         given rather than composing one from the name.
 
         `only_orphans=True` inverts the call: instead of files, it returns
-        run directories with no media anywhere under them (`runs`, each
-        `{name, mtime}`) - a run whose output was deleted before
+        run directories holding nothing but their own bookkeeping
+        (manifest.json, workflow.json, job.json) as `runs`, each
+        `{name, mtime}` - a run whose output was deleted before
         `delete_output` could remove it by name, or one that failed before
         writing anything, invisible to a normal listing because it has no
         file to show. `subfolder` does not apply in this mode. `name` is
         exactly what `delete_output` accepts, so clearing the backlog is
-        list, then delete each name (#170). A run with no media by design
-        (a pure `utility`-shape workflow) matches this test too - this call
-        only lists, so deciding whether a listed entry is actually junk
-        before calling `delete_output` on it is still yours to make.
+        list, then delete each name (#170). A run that wrote any file at
+        all - a text-shape prompt, a utility's side output - is not listed;
+        this call only lists, so deciding whether a listed entry is actually
+        junk before calling `delete_output` on it is still yours to make.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`

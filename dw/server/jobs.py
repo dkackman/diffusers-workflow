@@ -486,9 +486,16 @@ class Job:
             # finished job will actually look, since a warning about the
             # artifact outlives the run that noticed it (#82). The step it
             # fired in is the run's, not the warning's - the engine warns
-            # from inside a step without knowing which one it is
+            # from inside a step without knowing which one it is.
+            #
+            # A phase-stall report (#176) is the exception: it is a moment,
+            # not a fact about the result - a 90 s cold load says "still in
+            # phase 'loading'" three times and then succeeds - so it stays
+            # in the event log only. `warnings` is the channel a consumer
+            # reads after the run, and the regression suites assert it is
+            # empty on a clean one.
             message = event.get("message")
-            if message:
+            if message and event.get("kind") != "phase_stall":
                 named = f"{self.step_name}: {message}" if self.step_name else message
                 if named not in self.warnings:
                     self.warnings.append(named)

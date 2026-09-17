@@ -452,6 +452,161 @@ def test_redefined_step_evicts_prior_pipeline_before_loading():
     )
 
 
+def _model_step(name, model_name):
+    return {
+        "name": name,
+        "pipeline": {
+            "configuration": {"component_type": "{Mock}"},
+            "from_pretrained_arguments": {"model_name": model_name},
+            "arguments": {},
+        },
+    }
+
+
+def _load_with(workflow, step, cache, key):
+    """Run the redefined step's load and report whether `key` was still in
+    the cache at the moment load began."""
+    seen_at_load = {}
+
+    def mock_load(self, shared_components):
+        seen_at_load["still_cached"] = key in cache
+        self.pipeline = MagicMock()
+
+    with patch.object(Pipeline, "load", mock_load):
+        workflow.create_step_action(step, {}, cache, 1, "cpu")
+    return seen_at_load["still_cached"]
+
+
+def test_a_pipeline_another_running_step_currently_maps_to_is_not_released():
+    """#150 carries step->key across jobs. Two steps that resolved to the
+    same pipeline last time, and a rerun that changes only the first: the
+    old model is still the second step's cache hit THIS run - its current
+    key is the old key - so releasing it here forces a cold reload of a
+    resident model, and holds both stacks while the first step's
+    replacement loads, the exact transition #150 avoids. The end-of-run
+    sweep (_evict_untouched_pipelines) drops it if nothing touched it."""
+    from dw.workflow import pipeline_cache_key
+
+    shared_key = pipeline_cache_key(_model_step("x", "shared-model")["pipeline"])
+    changed_step = _model_step("gen", "new-model")
+    cache = {shared_key: MagicMock()}
+
+    workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
+    workflow._prior_step_keys = {"gen": shared_key, "gen_again": shared_key}
+    # gen_again still loads shared-model this run: its current key is the
+    # one gen is about to leave behind
+    workflow._running_pipeline_keys = {
+        "gen": pipeline_cache_key(changed_step["pipeline"]),
+        "gen_again": shared_key,
+    }
+
+    assert _load_with(workflow, changed_step, cache, shared_key) is True, (
+        "a key another running step currently maps to must survive the "
+        "redefined step's load"
+    )
+
+
+def test_a_prior_key_no_running_step_currently_maps_to_is_released():
+    """_prior_step_keys is merged across every job the worker has ever run
+    and never pruned (Worker._record_step_keys), so it can carry a step
+    name from an earlier, unrelated workflow that happened to resolve to
+    the same pipeline. That name is not a step this run executes, so no
+    running step's current key is the old key - it must not save the key
+    from release."""
+    from dw.workflow import pipeline_cache_key
+
+    shared_key = pipeline_cache_key(_model_step("x", "shared-model")["pipeline"])
+    changed_step = _model_step("gen", "new-model")
+    cache = {shared_key: MagicMock()}
+
+    workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
+    # stale_step mapped to shared_key in some earlier, different workflow's
+    # run - it is not a step of the workflow this run executes
+    workflow._prior_step_keys = {"gen": shared_key, "stale_step": shared_key}
+    workflow._running_pipeline_keys = {
+        "gen": pipeline_cache_key(changed_step["pipeline"])
+    }
+
+    assert _load_with(workflow, changed_step, cache, shared_key) is False, (
+        "a name that is not a step of the running workflow must not save "
+        "the key from release"
+    )
+
+
+def test_a_prior_key_every_sharing_step_moved_off_is_released():
+    """Two steps (or a for_each group) reading one model variable, and a
+    rerun that changes it: every step's PRIOR key is the old key and every
+    step's current key is the new one. Judged on prior keys, the first
+    step saw its sibling "still" on the old key and held both stacks while
+    its replacement loaded - the OOM transition #150 fixed. Judged on the
+    siblings' current keys, nobody is on the old key and it is released
+    before the load."""
+    from dw.workflow import pipeline_cache_key
+
+    old_key = pipeline_cache_key(_model_step("x", "old-model")["pipeline"])
+    changed_step = _model_step("gen", "new-model")
+    new_key = pipeline_cache_key(changed_step["pipeline"])
+    cache = {old_key: MagicMock()}
+
+    workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
+    workflow._prior_step_keys = {"gen": old_key, "gen_again": old_key}
+    workflow._running_pipeline_keys = {"gen": new_key, "gen_again": new_key}
+
+    assert _load_with(workflow, changed_step, cache, old_key) is False, (
+        "a key no running step still maps to must be released before the load"
+    )
+
+
+def test_run_records_the_current_key_of_every_pipeline_step():
+    """The wiring under the guard: Workflow.run records, from the realized
+    steps it hands to create_step_action, the key each pipeline step loads
+    under this run. create_step_action records the key it hashed per step
+    (_pipeline_keys_by_step), so the two maps must be identical - computed
+    by the same function over the same dicts."""
+    from dw.workflow import pipeline_cache_key
+
+    definition = {
+        "id": "keys",
+        "steps": [
+            # Both save, so both run: a step that saves nothing and which
+            # nothing reads is elided before the run (#122)
+            {**_model_step("gen", "model-a"), "result": {"content_type": "image/png"}},
+            {
+                **_model_step("gen_again", "model-b"),
+                "result": {"content_type": "image/png"},
+            },
+        ],
+    }
+    workflow = Workflow(definition, "/tmp/test_output", "t.json")
+    hashed_by_create_step_action = {}
+    original = Workflow.create_step_action
+
+    def spy(self, step_definition, *args):
+        if "pipeline" in step_definition:
+            hashed_by_create_step_action[step_definition["name"]] = pipeline_cache_key(
+                step_definition["pipeline"]
+            )
+        return original(self, step_definition, *args)
+
+    def mock_load(self, shared_components):
+        self.pipeline = MagicMock()
+
+    with (
+        patch.object(Pipeline, "load", mock_load),
+        patch.object(Workflow, "create_step_action", spy),
+        patch.object(Step, "run", lambda self, *a, **k: MagicMock(result_list=[])),
+    ):
+        workflow.run({})
+
+    assert set(workflow._running_pipeline_keys) == {"gen", "gen_again"}
+    assert workflow._running_pipeline_keys == hashed_by_create_step_action
+    assert workflow._running_pipeline_keys == workflow._pipeline_keys_by_step
+    assert (
+        workflow._running_pipeline_keys["gen"]
+        != (workflow._running_pipeline_keys["gen_again"])
+    )
+
+
 def test_pipeline_released_is_reported_on_the_event_stream():
     """The release is announced, and before the step's files are written.
 

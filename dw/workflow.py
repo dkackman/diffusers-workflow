@@ -760,15 +760,17 @@ class Workflow:
             # first set variable values base don the arguments passed to the workflow
             # these may come form the command line or form a parent workflow
             set_variables(arguments, variables)
+            # an entry of a list-valued variable may name another
+            # variable; resolve those before anything inside it is
+            # realized, so a reference type in an entry is a type name -
+            # and before the constraints pass, so an entry written as
+            # "variable:tail_len" is a number by the time the rule looks
+            variables = resolve_variable_values(variables)
             # A value outside a rule the workflow declares is refused, and
             # one the rule rounds is rounded with a warning saying so -
             # before anything loads, and before substitution puts the value
             # everywhere it is referenced (dw/variable_constraints.py, #96)
             apply_constraints(workflow_def, variables)
-            # an entry of a list-valued variable may name another
-            # variable; resolve those before anything inside it is
-            # realized, so a reference type in an entry is a type name
-            variables = resolve_variable_values(variables)
             # realize the variables, initializing downloads of images etc
             realize_args(variables, base_dir)
             ## then replace any variable references in the workflow definition with the actual values
@@ -1115,6 +1117,20 @@ class Workflow:
                 return []
 
             realize_args(steps, base_dir)
+
+            # The key each pipeline step of THIS run loads under, computed
+            # from the same realized dicts create_step_action hashes, so the
+            # two agree. This is what "still shared" means there: a key
+            # another running step maps to NOW - not the key it mapped to
+            # last run (every step sharing a changed model variable has the
+            # old key as its prior key and none has it as its current one),
+            # and not a key some step of a past, unrelated workflow left in
+            # the cross-job _prior_step_keys map
+            self._running_pipeline_keys = {
+                step_data["name"]: pipeline_cache_key(step_data["pipeline"])
+                for step_data in steps
+                if "pipeline" in step_data
+            }
 
             run_context.emit(
                 "workflow_start",
@@ -1506,8 +1522,32 @@ class Workflow:
 
             # Not in cache - a redefined step frees its previous model first,
             # so the swap never holds old and new stacks simultaneously
-            prior_key = getattr(self, "_prior_step_keys", {}).get(step_name)
-            if prior_key and prior_key != cache_key and prior_key in previous_pipelines:
+            prior_keys = getattr(self, "_prior_step_keys", {})
+            prior_key = prior_keys.get(step_name)
+            # Only this step's own variant: a key another step of THIS run
+            # loads under NOW is that step's warm model, and releasing it
+            # here would reload it cold a moment later while holding both
+            # stacks. Judged on the other steps' current keys
+            # (_running_pipeline_keys, recorded by run), not their prior
+            # ones: when every step sharing one model variable changes at
+            # once, each still has the old key as its prior key, and
+            # nobody will load it again - holding it would be the two-stack
+            # transition #150 fixed. _prior_step_keys is merged across every
+            # job the worker has run, never pruned, so a name from an
+            # earlier, unrelated workflow does not count either - it is not
+            # among the running steps. If nothing touches the key this run,
+            # the end-of-run sweep drops it.
+            running_keys = getattr(self, "_running_pipeline_keys", {})
+            still_shared = any(
+                other != step_name and key == prior_key
+                for other, key in running_keys.items()
+            )
+            if (
+                prior_key
+                and prior_key != cache_key
+                and prior_key in previous_pipelines
+                and not still_shared
+            ):
                 logger.info(
                     f"Step '{step_name}' was redefined - releasing its previous "
                     "pipeline before loading the new one"

@@ -177,6 +177,12 @@ class JobRequest(BaseModel):
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
 
 
+# What a run directory holds besides its outputs - the files a run writes
+# about itself. A run whose directory holds nothing else is an orphan
+# (see _iter_orphan_runs, #170) whatever shape its output would have had.
+# job.json is what an export bundle writes, listed defensively.
+RUN_BOOKKEEPING_FILES = frozenset({MANIFEST_FILE_NAME, REALIZED_FILE_NAME, "job.json"})
+
 # What each workflow produces and takes, for listing cards - cached by mtime
 _workflow_detail_cache = {}
 
@@ -245,7 +251,7 @@ def attach_observed(details, observed_costs):
     take, which is everything the aggregate needs - the file is not read a
     second time.
     """
-    if observed_costs is None:
+    if observed_costs is None or not observed_costs.refresh():
         return details
     for name, detail in details.items():
         drivers = detail.get("cost_drivers") or {}
@@ -259,7 +265,7 @@ def attach_observed(details, observed_costs):
                 **drivers,
             },
         }
-        observed = observed_costs.observed(name, surrogate)
+        observed = observed_costs.observed(name, surrogate, fresh=False)
         if observed:
             detail["observed"] = observed
     return details
@@ -1484,6 +1490,9 @@ def create_app(
                     return resolve(root)
                 except Exception as e:
                     first = first or e
+            # `roots` is never empty here: the asset branch answers an empty
+            # search path itself, and the prompt path always holds the
+            # server's own library. Re-raising None would be a TypeError
             raise first
 
         def _string_leaves(value, path):
@@ -1520,8 +1529,20 @@ def create_app(
             for path, leaf in _string_leaves(value, base_path):
                 try:
                     if is_asset_reference(leaf):
+                        roots = _resolution_roots(ws)
+                        if not roots:
+                            # A server configured with no asset library has
+                            # no root to fail against: over_roots would
+                            # re-raise its "first error", which is None,
+                            # and the caller would read a TypeError about
+                            # BaseException in place of a verdict
+                            name = leaf.removeprefix(ASSET_PREFIX).strip()
+                            raise ValueError(
+                                f"Unknown asset {name!r}: "
+                                "this workspace has no asset library"
+                            )
                         over_roots(
-                            _resolution_roots(ws),
+                            roots,
                             lambda root: resolve_asset_reference(leaf, asset_dir=root),
                         )
                     elif leaf.startswith(PROMPT_PREFIX):
@@ -2391,8 +2412,15 @@ def create_app(
         directory keeps the failure pointing at the library the caller
         thinks they're working in, even when that library hasn't been
         created yet.
+
+        Never `[None]`: a server configured with no asset library at all has
+        nothing to point at either, and `_asset_in` turns the resulting empty
+        list into the "no asset library" 404 rather than joining `None`.
         """
-        return _asset_roots(ws) or [ws.assets]
+        roots = _asset_roots(ws)
+        if roots:
+            return roots
+        return [os.path.abspath(ws.assets)] if ws.assets else []
 
     def _asset_roots_for_job(job_id, ws):
         """The asset search path a job's own run used, for export: its spec's
@@ -2519,30 +2547,29 @@ def create_app(
         return entries
 
     def _iter_orphan_runs(root):
-        """Run directories under `root` holding no file whose extension is
-        in MEDIA_KINDS anywhere beneath them - a run whose output was
-        deleted before #134's by-name `delete_output`, or one that failed
-        before writing anything. Yields (name, mtime) where `name` is the
+        """Run directories under `root` holding nothing but their own
+        bookkeeping (RUN_BOOKKEEPING_FILES) - a run whose output was deleted
+        before #134's by-name `delete_output`, or one that failed before
+        writing anything. Yields (name, mtime) where `name` is the
         `<identity>/<run id>` string `delete_output` already accepts (#170).
 
-        No manifest/content_type inspection - a legitimate no-media
-        `utility`-shape run matches this test too, but this call only
-        lists; deciding whether a given entry is junk stays a human/agent
-        call before `delete_output` is invoked on it."""
+        By what is absent, not by extension: a `text`-shape run writes .txt
+        and a `utility`-shape run may write nothing the gallery lists, and
+        neither is junk. This call only lists; deciding whether an entry is
+        junk stays a human/agent call before `delete_output` is invoked."""
         for current, dirs, _names in os.walk(root):
             if not is_run_id(os.path.basename(current)):
                 continue
             # A run directory holds no run directories of its own
             dirs[:] = []
-            has_media = False
-            for _sub_current, _sub_dirs, sub_names in os.walk(current):
-                for name in sub_names:
-                    if os.path.splitext(name)[1].lower() in MEDIA_KINDS:
-                        has_media = True
-                        break
-                if has_media:
-                    break
-            if has_media:
+            # A dotfile is not output either: a .DS_Store Finder left behind
+            # would otherwise make the run permanently non-orphan
+            has_output = any(
+                name not in RUN_BOOKKEEPING_FILES and not name.startswith(".")
+                for _sub_current, _sub_dirs, sub_names in os.walk(current)
+                for name in sub_names
+            )
+            if has_output:
                 continue
             try:
                 mtime = os.stat(current).st_mtime
@@ -2581,12 +2608,15 @@ def create_app(
         `subfolder` filter independently and intersect when both are given.
 
         `only_orphans=true` inverts the whole call: instead of media files,
-        it returns run directories with no media anywhere under them
-        (`runs`, each `{name, mtime}`) - `folder`/`subfolder` and the
-        `folders`/`subfolders` facets do not apply in this mode, since an
-        orphan run has no file to carry either. `name` is exactly what
-        `DELETE /api/gallery/{name}` accepts, so listing and deleting an
-        orphan is a two-call round trip (#170)."""
+        it returns run directories holding nothing but their own
+        bookkeeping (manifest.json, workflow.json, job.json) as `runs`,
+        each `{name, mtime}` - a run that wrote any file at all, a
+        text-shape prompt or a utility's side output included, is not
+        listed. `folder`/`subfolder` and the `folders`/`subfolders` facets
+        do not apply in this mode, since an orphan run has no file to
+        carry either. `name` is exactly what `DELETE /api/gallery/{name}`
+        accepts, so listing and deleting an orphan is a two-call round
+        trip (#170)."""
         if only_orphans:
             entries = _orphan_entries(ws.outputs)
             offset = max(0, offset)
@@ -3032,12 +3062,17 @@ def create_app(
             "url": _served_url(f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
         }
 
-    def _asset_origin(ws, index, root):
+    def _asset_origin(ws, root):
         """Which library an asset came from: this workspace's own, the one
         shared by every workspace under the root, or a read-only examples
         tree. A client that cannot tell them apart cannot say why deleting
-        one answers 403."""
-        if index == 0:
+        one answers 403.
+
+        By directory, never by position in the search path: the workspace's
+        own library drops out of `_asset_roots` until it exists, and the
+        examples tree that then sits first is still nobody's to write."""
+        own = ws.assets
+        if own and os.path.abspath(own) == root:
             return WORKSPACE_ORIGIN
         common = _common_assets(ws)
         if common and os.path.abspath(common) == root:
@@ -3069,11 +3104,11 @@ def create_app(
 
         libraries = [
             {
-                "origin": (origin := _asset_origin(ws, index, root)),
+                "origin": (origin := _asset_origin(ws, root)),
                 "dir": root,
                 "writable": origin != EXAMPLES_ORIGIN,
             }
-            for index, root in enumerate(roots)
+            for root in roots
         ]
 
         assets = []
@@ -3081,12 +3116,12 @@ def create_app(
         # Which origin first claimed a name, so a later root's same name can
         # be reported as shadowed rather than silently dropped
         seen = {}
-        for index, root in enumerate(roots):
+        for root in roots:
             try:
                 files = list(_iter_gallery_files(root, group_runs=False))
             except OSError:
                 files = []
-            origin = _asset_origin(ws, index, root)
+            origin = _asset_origin(ws, root)
             for relative, folder, _subfolder, kind, path in files:
                 try:
                     stat = os.stat(path)
@@ -3286,14 +3321,14 @@ def create_app(
         except SecurityError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        for index, root in enumerate(roots):
+        for root in roots:
             try:
                 path = validate_path(os.path.join(root, relative), root)
             except SecurityError:
                 continue
             if not os.path.isfile(path):
                 continue
-            origin = _asset_origin(ws, index, root)
+            origin = _asset_origin(ws, root)
             if origin == EXAMPLES_ORIGIN:
                 raise HTTPException(
                     status_code=403,
@@ -3570,7 +3605,7 @@ def create_app(
         previews the way an upload does."""
         roots = _asset_roots(ws)
         if not roots:
-            raise HTTPException(status_code=404, detail="No asset library")
+            raise HTTPException(status_code=404, detail="no asset library")
         for root in roots:
             try:
                 candidate = validate_path(os.path.join(root, name), root)

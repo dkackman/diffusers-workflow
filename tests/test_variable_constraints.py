@@ -332,6 +332,30 @@ class TestAConstraintReachesAListEntry:
 
         assert [entry["num_frames"] for entry in variables["shots"]] == [124, 141]
 
+    def test_an_entry_that_names_a_variable_is_still_rounded_at_run_time(
+        self, tmp_path
+    ):
+        """The run-time pass is the backstop for what the static pass cannot
+        see. An entry field written as "variable:tail_len" is not a number
+        until list-entry references resolve, so the backstop has to run
+        after that resolution, not before it."""
+        import copy
+
+        from dw.workflow import Workflow
+
+        definition = workflow_with_shots(
+            {"num_frames": H3}, [{"name": "tag", "num_frames": "variable:tail_len"}]
+        )
+        definition["variables"]["tail_len"] = 130  # off the 17n+5 grid; snaps up to 141
+        workflow = Workflow(definition, str(tmp_path), "listed.json")
+
+        prepared, _seed = workflow._prepare_definition(
+            copy.deepcopy(definition), {}, str(tmp_path)
+        )
+
+        (shot,) = prepared["steps"]
+        assert shot["task"]["arguments"]["frames"] == 141
+
     def test_dialogue_short_declares_the_rule_its_entries_carry(self):
         """The live case: the one H3 template where per-shot length is meant
         to vary was the only place the rule was unreadable (#145)."""

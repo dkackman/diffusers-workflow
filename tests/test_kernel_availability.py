@@ -1,5 +1,16 @@
+import pytest
+
 from dw.kernel_availability import kernel_availability_errors, kernel_availability_fault
 import dw.kernel_availability as kernel_availability
+
+
+@pytest.fixture(autouse=True)
+def _fresh_probe():
+    """Each test resolves its own fake class under the same dotted name, so
+    the per-process memo must not carry an answer between them."""
+    kernel_availability._fault_for_name.cache_clear()
+    yield
+    kernel_availability._fault_for_name.cache_clear()
 
 
 def _step(name, configuration, **extra):
@@ -35,6 +46,31 @@ class _KernelBackedProcessorThatWorks:
         get_kernel = _get_kernel_that_works
         get_kernel("shi-labs/natten")
         self.constructed = True
+
+
+class _CountingKernelBackedProcessor:
+    constructions = 0
+
+    def __init__(self):
+        get_kernel = _get_kernel_that_works
+        get_kernel("shi-labs/natten")
+        type(self).constructions += 1
+
+
+class _KernelBackedProcessorThatFailsOnceThenWorks:
+    """A stand-in for a transient Hub fetch failure: the first construction
+    raises, the second (same process, same name) succeeds."""
+
+    attempts = 0
+
+    def __init__(self):
+        type(self).attempts += 1
+        get_kernel = (
+            _get_kernel_that_fails
+            if type(self).attempts == 1
+            else _get_kernel_that_works
+        )
+        get_kernel("shi-labs/natten")
 
 
 def _resolving(mapping):
@@ -88,6 +124,34 @@ class TestKernelAvailabilityFault:
 
     def test_a_non_string_is_left_alone(self):
         assert kernel_availability_fault(3) is None
+
+    def test_the_probe_runs_once_per_process_for_a_name(self, monkeypatch):
+        """Construction fetches a Hub kernel; validate, submit and rerun each
+        ask, and a for_each asks once per member. The answer is a
+        per-process constant."""
+        monkeypatch.setattr(
+            kernel_availability,
+            "load_type_from_name",
+            _resolving({"pkg.Natten": _CountingKernelBackedProcessor}),
+        )
+        _CountingKernelBackedProcessor.constructions = 0
+        for _ in range(3):
+            assert kernel_availability_fault("pkg.Natten") is None
+        assert _CountingKernelBackedProcessor.constructions == 1
+
+    def test_a_fault_is_not_memoized(self, monkeypatch):
+        """A memoized fault would pin every later call to the same string
+        even once the transient condition (a Hub fetch) has cleared."""
+        monkeypatch.setattr(
+            kernel_availability,
+            "load_type_from_name",
+            _resolving({"pkg.Natten": _KernelBackedProcessorThatFailsOnceThenWorks}),
+        )
+        _KernelBackedProcessorThatFailsOnceThenWorks.attempts = 0
+        first = kernel_availability_fault("pkg.Natten")
+        assert first is not None
+        assert "pkg.Natten" in first
+        assert kernel_availability_fault("pkg.Natten") is None
 
 
 class TestKernelAvailabilityErrors:

@@ -60,7 +60,13 @@ def _saves(step):
     content type is declaring a deliverable - and a step with no `result` at
     all writes nothing, whatever it generates, which is what makes the
     portrait steps droppable in the first place.
+
+    A composing step is the one exception: its child workflow saves on its
+    own terms, so the parent's `result` block (or its absence) says nothing
+    about whether files are written. It is kept.
     """
+    if "workflow" in step:
+        return True
     result = step.get("result")
     if not isinstance(result, dict):
         return False

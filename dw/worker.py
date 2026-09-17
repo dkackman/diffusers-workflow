@@ -443,10 +443,16 @@ class WorkflowWorker:
 
         Merged rather than replaced: a run that failed at step two never
         reached step five, and forgetting step five's key would leave the
-        variant it loaded last time with nothing to release it. A stale entry
-        is harmless - the release only fires when that exact key is still
-        cached and differs from what the step now wants, which means it really
-        is a superseded variant of that step.
+        variant it loaded last time with nothing to release it. Merged means
+        never pruned, though, so this map outlives the workflow that wrote a
+        given entry - a name here can belong to an earlier, different job's
+        step. A stale entry is harmless because Workflow.create_step_action
+        judges "still shared" on the running steps' CURRENT keys
+        (Workflow._running_pipeline_keys), never on this map's other
+        entries: a key is held only while another step of the executing run
+        loads under it now. A name this map remembers from another workflow
+        is not a running step, and a sibling whose key moved with this one's
+        no longer claims the old key, so neither saves it from release.
         """
         keys = getattr(workflow, "_pipeline_keys_by_step", None)
         if keys:

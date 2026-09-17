@@ -1513,6 +1513,37 @@ def test_gallery_only_orphans_lists_media_less_run_directories(server, tmp_path)
         assert not orphan_run.exists()
 
 
+def test_a_text_shape_run_is_not_an_orphan(server, tmp_path):
+    """#170 defined an orphan by 'no image/video/audio file', which made every
+    text-shape run (enhance-prompt writes .txt) an orphan - and the MCP
+    docstring tells the agent to list then delete. A run is orphaned when it
+    holds nothing but its own bookkeeping."""
+    from dw.runs import new_run_id
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+
+        text_run_id = new_run_id({"id": "enhance", "seed": 1})
+        text_run = outputs / "enhance" / text_run_id
+        (text_run / "final").mkdir(parents=True)
+        (text_run / "manifest.json").write_text("{}")
+        (text_run / "workflow.json").write_text("{}")
+        (text_run / "final" / "enhance-prompt.0-0.0.txt").write_text("a prompt")
+
+        empty_run_id = new_run_id({"id": "enhance", "seed": 2})
+        empty_run = outputs / "enhance" / empty_run_id
+        empty_run.mkdir(parents=True)
+        (empty_run / "manifest.json").write_text("{}")
+        (empty_run / "job.json").write_text("{}")
+        # Finder's droppings are not output: a dotfile must not make the
+        # run permanently non-orphan
+        (empty_run / ".DS_Store").write_bytes(b"\x00")
+
+        orphans = client.get("/api/gallery?only_orphans=true").json()
+
+    assert {r["name"] for r in orphans["runs"]} == {f"enhance/{empty_run_id}"}
+
+
 def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
     from PIL import Image
 
@@ -4565,3 +4596,77 @@ def test_deleting_a_run_directory_stays_inside_the_output_root(server, tmp_path)
         response = client.delete("/api/gallery/..%2F20260913-120000-cafebabe")
         assert response.status_code == 404
         assert outside.exists()
+
+
+def test_an_examples_library_is_read_only_even_when_it_is_the_only_root(tmp_path):
+    """A workspace whose own library does not exist yet drops out of the
+    search path, which made the examples tree root 0 - and root 0 was
+    labelled 'workspace', writable, deletable. With the Assets page's
+    select-all + Delete on top of that label, example files could be
+    removed through the UI. The label follows which directory a root is,
+    never its position."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    examples = tmp_path / "examples"
+    (examples / "assets").mkdir(parents=True)
+    example_file = examples / "assets" / "cast.png"
+    example_file.write_bytes(b"png")
+
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(workflows),
+    )
+    app = create_app(
+        workflow_dir=str(workflows),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+        # declared but never created - the shape a fresh install has
+        asset_dir=str(tmp_path / "assets"),
+        examples_dirs=[str(examples)],
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        body = client.get("/api/assets").json()
+        assert body["libraries"] == [
+            {"origin": "examples", "dir": str(examples / "assets"), "writable": False}
+        ]
+        (asset,) = body["assets"]
+        assert asset["origin"] == "examples"
+
+        response = client.delete("/api/assets/cast.png")
+
+    assert response.status_code == 403
+    assert example_file.exists()
+
+
+def test_an_asset_lookup_with_no_library_configured_is_a_404(server):
+    """No asset_dir, no examples: the search path is empty. That is a 404
+    naming the absence, not a TypeError from joining None (the fallback
+    handed _asset_in a [None] root)."""
+    with server(success_script) as client:
+        response = client.get("/inputs/iris.png")
+        assert response.status_code == 404
+        assert "no asset library" in response.json()["detail"]
+
+        metadata = client.get("/api/gallery/asset:iris.png/metadata")
+        assert metadata.status_code == 404
+
+
+def test_a_validate_miss_with_no_library_configured_says_so(server):
+    """The same empty search path, reached through POST /api/validate's
+    argument check: the miss is a validation error naming the absence, not
+    a TypeError from re-raising a `None` "first error" (the message the
+    caller got was "exceptions must derive from BaseException")."""
+    workflow = valid_workflow()
+    workflow["variables"]["image"] = "asset:iris.png"
+    workflow["steps"][0]["pipeline"]["arguments"]["image"] = "variable:image"
+    with server(success_script) as client:
+        result = client.post(
+            "/api/validate",
+            json={"workflow": workflow, "arguments": {"image": "asset:iris.png"}},
+        ).json()
+        assert result["valid"] is False
+        [error] = [e for e in result["errors"] if e["path"] == "arguments.image"]
+        assert "no asset library" in error["message"]
+        assert "BaseException" not in error["message"]
