@@ -409,6 +409,20 @@ def _handle_image_to_text(task, arguments, previous_pipelines):
 
 
 @register_command(
+    "transcribe_audio",
+    implementation="dw.tasks.audio_transcription.transcribe_audio",
+    consumes_device=True,
+)
+def _handle_transcribe_audio(task, arguments, previous_pipelines):
+    """Transcribe spoken audio to text"""
+    logger.debug("Transcribing audio")
+    audio = arguments.pop("audio")
+    from .audio_transcription import transcribe_audio
+
+    return transcribe_audio(audio, device=task.device_for(arguments), **arguments)
+
+
+@register_command(
     "text_generation",
     implementation="dw.tasks.text_generation.generate_text",
     consumes_device=True,
