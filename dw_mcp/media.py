@@ -103,6 +103,48 @@ def _fit(image, limit):
     )
 
 
+def get_output_audio(client, name, workspace=None):
+    """One audio output from the output directory, as base64, for a clip
+    short enough to fit MAX_RETURNED_BYTES whole.
+
+    Unlike an image, audio is not resized here - there is no equivalent of
+    downscaling a waveform that keeps it meaningful to listen to. A clip
+    over budget is refused rather than truncated or transcoded, since a cut
+    clip is a different, misleading answer rather than a smaller correct
+    one (#204). Use `download_output` or the gallery `url` for a longer
+    file, and `get_gallery_metadata` for its duration and sample rate
+    without fetching the bytes at all."""
+
+    def is_audio(content_type):
+        return bool(content_type) and content_type.startswith("audio/")
+
+    body, content_type = client.get_bytes_if(
+        api_path("outputs", name), is_audio, workspace=workspace
+    )
+    if body is None:
+        raise DwApiError(
+            f"{name} is {content_type or 'of no declared type'}, not audio - "
+            "this tool returns audio only. Use get_output_image for an "
+            "image, or get_gallery_metadata for other media."
+        )
+
+    base64_size = 4 * math.ceil(len(body) / 3)
+    if base64_size > MAX_RETURNED_BYTES:
+        raise DwApiError(
+            f"{name} is {len(body)} bytes, which would be {base64_size} "
+            f"bytes base64-encoded - over the {MAX_RETURNED_BYTES} byte "
+            "limit for an inline clip. Use download_output, or the `url` "
+            "list_gallery reports, for a file this size."
+        )
+
+    return {
+        "name": name,
+        "data": base64.b64encode(body).decode("ascii"),
+        "mime_type": content_type,
+        "bytes": len(body),
+    }
+
+
 def get_output_text(
     client, name, max_characters=MAX_RETURNED_CHARACTERS, workspace=None
 ):
@@ -162,7 +204,8 @@ def _remote_root(client):
         raise DwApiError(
             "This server cannot say where its workspace is, so it will not "
             "write a file for you. Use the url list_gallery reports, "
-            "get_output_image / get_output_text, or keep_output."
+            "get_output_image / get_output_audio / get_output_text, or "
+            "keep_output."
         )
     return os.path.realpath(os.path.abspath(os.path.expanduser(str(root))))
 
@@ -191,8 +234,8 @@ def _confine(destination, root):
             f"destination is confined to the workspace ({root}). Pass a "
             f"relative destination, or - to see the file where you are - use "
             f"the url list_gallery reports, get_output_image / "
-            f"get_output_text for inline content, or keep_output to make it "
-            f"an asset for a later workflow."
+            f"get_output_audio / get_output_text for inline content, or "
+            f"keep_output to make it an asset for a later workflow."
         )
 
 
@@ -200,12 +243,13 @@ def download_output(client, name, destination=None, overwrite=False, workspace=N
     """Fetch one output file and save it to local disk, for an agent that
     wants the artifact itself rather than a description of it.
 
-    Unlike get_output_image/get_output_text, this accepts any content type
-    and returns nothing to the conversation but a manifest of where the
-    file landed - the point is a file on disk, not a payload in context.
-    It is also the one tool in this package that writes a local file, and
-    the body is streamed to disk in chunks rather than buffered whole, since
-    it exists for files (large videos) get_output_image can't return.
+    Unlike get_output_image/get_output_audio/get_output_text, this accepts
+    any content type and returns nothing to the conversation but a manifest
+    of where the file landed - the point is a file on disk, not a payload
+    in context. It is also the one tool in this package that writes a
+    local file, and the body is streamed to disk in chunks rather than
+    buffered whole, since it exists for files (large videos) the inline
+    tools can't return.
 
     `destination` may be a full file path, a directory (the output's own
     basename is used inside it), or omitted (saved to the current working
@@ -266,8 +310,9 @@ def download_output(client, name, destination=None, overwrite=False, workspace=N
             f"server ({e.strerror or e}). This tool saves on that machine - "
             "over a dw.serve --mcp endpoint that is the GPU box, not where "
             "you are. To see the file from here use the url list_gallery "
-            "reports, get_output_image / get_output_text for inline content, "
-            "or keep_output to make it an asset for a later workflow."
+            "reports, get_output_image / get_output_audio / get_output_text "
+            "for inline content, or keep_output to make it an asset for a "
+            "later workflow."
         ) from e
 
     return {

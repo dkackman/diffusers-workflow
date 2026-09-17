@@ -34,6 +34,7 @@ EXPECTED_TOOLS = {
     "list_gallery",
     "get_gallery_metadata",
     "get_output_image",
+    "get_output_audio",
     "validate_workflow",
     "save_workflow",
     "delete_workflow",
@@ -334,6 +335,7 @@ TOOL_WIRING = [
         "/api/gallery/out.png/metadata",
     ),
     ("get_output_image", {"name": "out.png"}, "GET", "/outputs/out.png"),
+    ("get_output_audio", {"name": "out.wav"}, "GET", "/outputs/out.wav"),
     ("validate_workflow", {"workflow": {"id": "w"}}, "POST", "/api/validate"),
     (
         "save_workflow",
@@ -465,6 +467,10 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
         if request.url.path.endswith(".txt"):
             return httpx.Response(
                 200, content=b"a duke", headers={"content-type": "text/plain"}
+            )
+        if request.url.path.endswith(".wav"):
+            return httpx.Response(
+                200, content=b"riff", headers={"content-type": "audio/wav"}
             )
         if request.url.path.startswith("/outputs/"):
             return httpx.Response(
@@ -863,6 +869,7 @@ WRAPPER_HANDLER_MAP = {
     "get_job_events": (diagnose, "get_job_events"),
     "wait_for_job": (diagnose, "wait_for_job"),
     "get_output_image": (media, "get_output_image"),
+    "get_output_audio": (media, "get_output_audio"),
     "get_class": (catalog, "get_class"),
     "list_gallery": (catalog, "list_gallery"),
     "list_jobs": (catalog, "list_jobs"),

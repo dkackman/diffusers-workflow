@@ -9,7 +9,10 @@ import json
 import httpx
 import pytest
 
+import base64
+
 from dw_mcp.assets import (
+    MAX_INLINE_UPLOAD_BYTES,
     MAX_UPLOAD_BYTES,
     delete_asset,
     keep_output,
@@ -223,6 +226,75 @@ class TestDeleting:
 
         with pytest.raises(DwApiError, match="read-only"):
             delete_asset(client_over(handler), "iris.png")
+
+
+class TestUploadInlineContent:
+    """The content= path (#203): bytes an agent holds itself, with no path
+    behind them at all, for a mounted endpoint with no filesystem in common
+    with the caller."""
+
+    def test_content_is_decoded_and_posted(self):
+        client, seen = recording()
+        body = b"riff-bytes"
+
+        result = upload_asset(
+            client, content=base64.b64encode(body).decode("ascii"), asset_name="cast/priya-voice.wav"
+        )
+
+        assert seen["body"] == body
+        assert "asset_name=cast" in seen["url"].replace("%2F", "/")
+        assert "filename=cast" in seen["url"].replace("%2F", "/")
+        assert result["reference"] == "asset:uploads/deadbeef.png"
+        assert result["uploaded"] == "cast/priya-voice.wav"
+        assert result["size"] == len(body)
+
+    def test_both_file_path_and_content_is_refused(self, tmp_path):
+        source = tmp_path / "iris.png"
+        source.write_bytes(b"x")
+        client, _seen = recording()
+        with pytest.raises(DwApiError, match="exactly one of file_path or content"):
+            upload_asset(client, str(source), content="AAAA", asset_name="x.png")
+
+    def test_neither_file_path_nor_content_is_refused(self):
+        client, _seen = recording()
+        with pytest.raises(DwApiError, match="exactly one of file_path or content"):
+            upload_asset(client)
+
+    def test_content_without_asset_name_is_refused(self):
+        client, _seen = recording()
+        with pytest.raises(DwApiError, match="content requires asset_name"):
+            upload_asset(client, content=base64.b64encode(b"x").decode("ascii"))
+
+    def test_a_kind_the_library_does_not_take_is_refused(self):
+        client, seen = recording()
+        with pytest.raises(DwApiError, match="not a kind"):
+            upload_asset(
+                client, content=base64.b64encode(b"x").decode("ascii"), asset_name="script.py"
+            )
+        assert "body" not in seen
+
+    def test_invalid_base64_says_so(self):
+        client, seen = recording()
+        with pytest.raises(DwApiError, match="could not be decoded as base64"):
+            upload_asset(client, content="not-valid-base64!!", asset_name="x.png")
+        assert "body" not in seen
+
+    def test_content_over_the_inline_limit_is_refused(self):
+        client, seen = recording()
+        oversized = base64.b64encode(b"0" * (MAX_INLINE_UPLOAD_BYTES + 1)).decode("ascii")
+        with pytest.raises(DwApiError, match="inline upload"):
+            upload_asset(client, content=oversized, asset_name="x.png")
+        assert "body" not in seen
+
+    def test_shared_is_passed_through(self):
+        client, seen = recording()
+        upload_asset(
+            client,
+            content=base64.b64encode(b"x").decode("ascii"),
+            asset_name="cast/priya.png",
+            shared=True,
+        )
+        assert "shared=true" in seen["url"]
 
 
 class TestUploadContainmentOverAMountedEndpoint:
