@@ -1200,3 +1200,264 @@ def _warn_on_rate_override(command, actual_rate, given_rate):
         file_rate=actual_rate,
         given_rate=given_rate,
     )
+
+
+COMPRESS_MODES = ("compress", "limit", "gate")
+
+# A floor below which an envelope is treated as digital silence, so its dBFS
+# reading is a large negative number rather than -inf
+_ENVELOPE_FLOOR_DBFS = -120.0
+_ENVELOPE_FLOOR_LINEAR = 10.0 ** (_ENVELOPE_FLOOR_DBFS / 20.0)
+
+
+def compress_audio(
+    audio, threshold_dbfs, ratio=4.0, attack_ms=10.0, release_ms=100.0, mode="compress", sample_rate=None
+):
+    """Task command: shape a track's dynamics with an envelope-follower.
+
+    A compressor, a limiter and a gate are the same envelope-follower
+    algorithm with different knob settings: a limiter is a ratio pushed
+    toward infinity with a fast attack, and a gate is downward expansion
+    below the threshold rather than compression above it - so one command
+    covers all three through 'mode' rather than three near-duplicate ones.
+
+    Args:
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a video generated with a
+            soundtrack, or a waveform (which needs sample_rate alongside it)
+        threshold_dbfs: The level, in dB below full scale, above which
+            'compress'/'limit' reduce gain, or below which 'gate' does
+        ratio: How strongly gain is reduced past the threshold. Unused by
+            'limit', which reduces enough to hold the signal at the
+            threshold regardless
+        attack_ms: How fast the envelope follows a rise in level
+        release_ms: How fast the envelope follows a fall in level
+        mode: 'compress' (downward compression above threshold), 'limit'
+            (holds the signal at threshold), or 'gate' (downward expansion
+            below threshold)
+        sample_rate: Sample rate of a waveform passed directly
+
+    Returns:
+        An AudioTrack holding the processed waveform and its rate
+    """
+    waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "compress_audio")
+    check_arguments(
+        "compress_audio",
+        ratio=ratio,
+        attack_ms=attack_ms,
+        release_ms=release_ms,
+        sample_rate=sample_rate,
+    )
+    if mode not in COMPRESS_MODES:
+        raise ValueError(
+            f"compress_audio mode must be one of {COMPRESS_MODES}, got {mode!r}"
+        )
+    if threshold_dbfs > 0:
+        raise ValueError(
+            "compress_audio 'threshold_dbfs' cannot be above full scale (0)"
+        )
+    if waveform.size == 0:
+        return _as_track(waveform, sample_rate, "compress_audio")
+
+    envelope = _follow_envelope(waveform, sample_rate, attack_ms, release_ms)
+    envelope_dbfs = 20.0 * numpy.log10(
+        numpy.maximum(envelope, _ENVELOPE_FLOOR_LINEAR)
+    )
+
+    if mode == "gate":
+        past_threshold = numpy.maximum(0.0, threshold_dbfs - envelope_dbfs)
+    else:
+        past_threshold = numpy.maximum(0.0, envelope_dbfs - threshold_dbfs)
+
+    if mode == "limit":
+        reduction_db = past_threshold
+    else:
+        reduction_db = past_threshold * (1.0 - 1.0 / ratio)
+
+    gain = (10.0 ** (-reduction_db / 20.0)).astype(numpy.float32)
+    processed = (waveform * gain[numpy.newaxis, :]).astype(numpy.float32)
+    return _as_track(processed, sample_rate, "compress_audio")
+
+
+def _follow_envelope(waveform, sample_rate, attack_ms, release_ms):
+    """A linked (all-channels) peak envelope, smoothed by separate attack and
+    release time constants - the same detector a hardware compressor uses,
+    tracking the loudest channel so a stereo image does not shift."""
+    rectified = numpy.abs(waveform).max(axis=0)
+    attack_coef = _time_constant_coef(attack_ms, sample_rate)
+    release_coef = _time_constant_coef(release_ms, sample_rate)
+    envelope = numpy.empty_like(rectified)
+    level = 0.0
+    for i in range(rectified.shape[0]):
+        sample = float(rectified[i])
+        coef = attack_coef if sample > level else release_coef
+        level = coef * level + (1.0 - coef) * sample
+        envelope[i] = level
+    return envelope
+
+
+def _time_constant_coef(time_ms, sample_rate):
+    """The per-sample smoothing coefficient for an exponential time constant.
+    0 ms means the envelope follows instantly, with no smoothing at all."""
+    if time_ms <= 0:
+        return 0.0
+    return float(numpy.exp(-1.0 / (time_ms / 1000.0 * sample_rate)))
+
+
+FILTER_KINDS = ("lowpass", "highpass", "bandpass", "notch")
+
+
+def filter_audio(audio, cutoff_hz, kind="lowpass", q=0.707, sample_rate=None):
+    """Task command: run a track through a single biquad filter stage.
+
+    Args:
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a video generated with a
+            soundtrack, or a waveform (which needs sample_rate alongside it)
+        cutoff_hz: The filter's corner (lowpass/highpass) or center
+            (bandpass/notch) frequency
+        kind: 'lowpass', 'highpass', 'bandpass', or 'notch'
+        q: Resonance/bandwidth of the filter. Higher narrows a bandpass or
+            notch, and peaks the corner of a lowpass or highpass
+        sample_rate: Sample rate of a waveform passed directly
+
+    Returns:
+        An AudioTrack holding the filtered waveform and its rate
+    """
+    waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "filter_audio")
+    check_arguments("filter_audio", cutoff_hz=cutoff_hz, sample_rate=sample_rate)
+    if kind not in FILTER_KINDS:
+        raise ValueError(
+            f"filter_audio kind must be one of {FILTER_KINDS}, got {kind!r}"
+        )
+    if q <= 0:
+        raise ValueError("filter_audio 'q' must be above zero")
+    nyquist = sample_rate / 2.0
+    if cutoff_hz >= nyquist:
+        raise ValueError(
+            f"filter_audio 'cutoff_hz' ({cutoff_hz}) must be below the "
+            f"Nyquist frequency ({nyquist}) for sample_rate {sample_rate}"
+        )
+    if waveform.size == 0:
+        return _as_track(waveform, sample_rate, "filter_audio")
+
+    b, a = _biquad_coefficients(kind, cutoff_hz, q, sample_rate)
+    filtered = numpy.stack(
+        [_apply_biquad(channel, b, a) for channel in waveform]
+    ).astype(numpy.float32)
+    return _as_track(filtered, sample_rate, "filter_audio")
+
+
+def _biquad_coefficients(kind, cutoff_hz, q, sample_rate):
+    """RBJ Audio EQ Cookbook coefficients for a single biquad stage,
+    normalized so a0 is 1."""
+    w0 = 2.0 * numpy.pi * cutoff_hz / sample_rate
+    cos_w0 = numpy.cos(w0)
+    sin_w0 = numpy.sin(w0)
+    alpha = sin_w0 / (2.0 * q)
+
+    if kind == "lowpass":
+        b0 = (1.0 - cos_w0) / 2.0
+        b1 = 1.0 - cos_w0
+        b2 = (1.0 - cos_w0) / 2.0
+    elif kind == "highpass":
+        b0 = (1.0 + cos_w0) / 2.0
+        b1 = -(1.0 + cos_w0)
+        b2 = (1.0 + cos_w0) / 2.0
+    elif kind == "bandpass":
+        b0 = alpha
+        b1 = 0.0
+        b2 = -alpha
+    else:  # notch
+        b0 = 1.0
+        b1 = -2.0 * cos_w0
+        b2 = 1.0
+    a0 = 1.0 + alpha
+    a1 = -2.0 * cos_w0
+    a2 = 1.0 - alpha
+    return (
+        numpy.array([b0, b1, b2], dtype=numpy.float64) / a0,
+        numpy.array([a1, a2], dtype=numpy.float64) / a0,
+    )
+
+
+def _apply_biquad(channel, b, a):
+    """Direct Form I second-order section, sample by sample - the feedback
+    a biquad needs cannot be vectorized away."""
+    out = numpy.empty_like(channel, dtype=numpy.float64)
+    b0, b1, b2 = b
+    a1, a2 = a
+    x1 = x2 = y1 = y2 = 0.0
+    for i in range(channel.shape[0]):
+        x0 = float(channel[i])
+        y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        out[i] = y0
+        x2, x1 = x1, x0
+        y2, y1 = y1, y0
+    return out
+
+
+_SPECTRAL_BANDS = {
+    "low_dbfs": (20.0, 250.0),
+    "mid_dbfs": (250.0, 4000.0),
+    "high_dbfs": (4000.0, 20000.0),
+}
+
+
+def analyze_audio(audio, sample_rate=None):
+    """Task command: measure a track without changing it.
+
+    Read-only: the waveform passes through unmodified, and what comes back
+    is diagnostics rather than an AudioTrack, since there is no processed
+    track to hand a later step. Meant to feed a decision earlier in a
+    workflow (whether 'compress_audio' or 'filter_audio' is needed, and
+    with what settings) rather than to sit in the middle of a chain.
+
+    Args:
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a video generated with a
+            soundtrack, or a waveform (which needs sample_rate alongside it)
+        sample_rate: Sample rate of a waveform passed directly
+
+    Returns:
+        A dict: peak_dbfs, rms_dbfs, crest_factor_db (peak minus rms), and
+        a rough low_dbfs/mid_dbfs/high_dbfs spectral-balance reading. Any
+        value is None where a silent track leaves it undefined.
+    """
+    waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "analyze_audio")
+    check_arguments("analyze_audio", sample_rate=sample_rate)
+
+    peak_dbfs = level_dbfs(waveform, measure="peak")
+    rms_dbfs = level_dbfs(waveform, measure="rms")
+    crest_factor_db = (
+        peak_dbfs - rms_dbfs if peak_dbfs is not None and rms_dbfs is not None else None
+    )
+    bands = _spectral_balance(waveform, sample_rate)
+    return {
+        "peak_dbfs": peak_dbfs,
+        "rms_dbfs": rms_dbfs,
+        "crest_factor_db": crest_factor_db,
+        **bands,
+    }
+
+
+def _spectral_balance(waveform, sample_rate):
+    """A rough low/mid/high energy reading in dBFS, from one FFT of the
+    channel-averaged track - not a spectrogram, just enough to say whether
+    a track leans bright or boomy."""
+    if waveform.size == 0:
+        return {name: None for name in _SPECTRAL_BANDS}
+    mono = waveform.mean(axis=0)
+    n = mono.shape[0]
+    spectrum = numpy.fft.rfft(mono)
+    amplitude = numpy.abs(spectrum) * (2.0 / n)
+    freqs = numpy.fft.rfftfreq(n, d=1.0 / sample_rate)
+    result = {}
+    for name, (low, high) in _SPECTRAL_BANDS.items():
+        band = amplitude[(freqs >= low) & (freqs < min(high, sample_rate / 2.0))]
+        if band.size == 0:
+            result[name] = None
+            continue
+        energy = float(numpy.sqrt(numpy.mean(numpy.square(band, dtype=numpy.float64))))
+        result[name] = 20.0 * numpy.log10(energy) if energy > 0.0 else None
+    return result

@@ -265,6 +265,35 @@ def _handle_mix_audio(task, arguments, previous_pipelines):
     return mix_audio(**arguments)
 
 
+@register_command(
+    "compress_audio", implementation="dw.tasks.audio_utils.compress_audio"
+)
+def _handle_compress_audio(task, arguments, previous_pipelines):
+    """Shape a track's dynamics with a compressor, limiter or gate"""
+    logger.debug("Compressing audio")
+    from .audio_utils import compress_audio
+
+    return compress_audio(**arguments)
+
+
+@register_command("filter_audio", implementation="dw.tasks.audio_utils.filter_audio")
+def _handle_filter_audio(task, arguments, previous_pipelines):
+    """Run a track through a single lowpass/highpass/bandpass/notch filter"""
+    logger.debug("Filtering audio")
+    from .audio_utils import filter_audio
+
+    return filter_audio(**arguments)
+
+
+@register_command("analyze_audio", implementation="dw.tasks.audio_utils.analyze_audio")
+def _handle_analyze_audio(task, arguments, previous_pipelines):
+    """Measure a track's levels and spectral balance without changing it"""
+    logger.debug("Analyzing audio")
+    from .audio_utils import analyze_audio
+
+    return analyze_audio(**arguments)
+
+
 @register_command("compose_text", implementation="dw.tasks.compose_text.compose_text")
 def _handle_compose_text(task, arguments, previous_pipelines):
     """Join parts written once into one block of text"""

@@ -741,6 +741,97 @@ into the next without the rate being restated: a `resample_audio` fed
 
 **Example:** [assemble-and-score.json](../workflows/templates/assemble-and-score.json)
 
+### compress_audio
+
+Shape a track's dynamics with an envelope-follower - a compressor, a limiter
+and a gate are the same algorithm with different knob settings, so one task
+covers all three through `mode`:
+
+```json
+{
+    "task": {
+        "command": "compress_audio",
+        "arguments": {
+            "audio": "previous_result:mixed",
+            "threshold_dbfs": -18.0,
+            "ratio": 4.0,
+            "attack_ms": 10,
+            "release_ms": 100,
+            "sample_rate": 44100
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
+| `threshold_dbfs` | Yes | The level the envelope is measured against, in dB below full scale. Cannot be above 0 |
+| `ratio` | No | How hard the reduction is above the threshold, in `compress`/`gate` mode (default: 4.0). Ignored in `limit` mode, which always holds the signal at the threshold |
+| `attack_ms` | No | How fast the envelope rises to a louder signal (default: 10.0). 0 means instantly |
+| `release_ms` | No | How fast the envelope falls back after a louder signal ends (default: 100.0). 0 means instantly |
+| `mode` | No | `compress` (turn down what's above the threshold), `limit` (hold the signal at the threshold), or `gate` (turn down what's below the threshold) (default: `compress`) |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+A silent track is returned unchanged.
+
+### filter_audio
+
+Run a track through a single biquad filter stage - trimming the frequencies a
+mix doesn't need, or carving out room for another element:
+
+```json
+{
+    "task": {
+        "command": "filter_audio",
+        "arguments": {
+            "audio": "previous_result:world",
+            "cutoff_hz": 120,
+            "kind": "highpass",
+            "sample_rate": 44100
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
+| `cutoff_hz` | Yes | The filter's corner frequency. Must be below the Nyquist frequency (half the sample rate) |
+| `kind` | No | `lowpass`, `highpass`, `bandpass`, or `notch` (default: `lowpass`) |
+| `q` | No | The filter's resonance/bandwidth (default: 0.707, a Butterworth response) |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+A silent track is returned unchanged.
+
+### analyze_audio
+
+Measure a track without changing it - peak and RMS level, crest factor, and a
+rough low/mid/high spectral balance, the numbers a `compress_audio` or
+`filter_audio` step downstream is tuned against rather than guessed at:
+
+```json
+{
+    "task": {
+        "command": "analyze_audio",
+        "arguments": {
+            "audio": "previous_result:mixed",
+            "sample_rate": 44100
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+Returns a dict, not a track: `peak_dbfs`, `rms_dbfs`, `crest_factor_db`,
+`low_dbfs` (20-250 Hz), `mid_dbfs` (250-4000 Hz), `high_dbfs` (4000-20000 Hz).
+A silent track, or a band with no content at the track's sample rate, reads as
+`null` rather than `-inf`.
+
 ## Data Gathering
 
 ### gather_images
