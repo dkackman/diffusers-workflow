@@ -102,6 +102,17 @@ TASK_ARGUMENT_DOMAINS = {
         "fade_out_frames": NON_NEGATIVE,
         "fps": POSITIVE,
     },
+    "compress_audio": {
+        "ratio": POSITIVE,
+        "attack_ms": NON_NEGATIVE,
+        "release_ms": NON_NEGATIVE,
+        "sample_rate": POSITIVE,
+    },
+    "filter_audio": {
+        "cutoff_hz": POSITIVE,
+        "sample_rate": POSITIVE,
+    },
+    "analyze_audio": {"sample_rate": POSITIVE},
 }
 
 
