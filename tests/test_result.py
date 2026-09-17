@@ -610,12 +610,27 @@ class TestSaveAudioVideo:
         assert arguments["audio_sample_rate"] == 48000
         assert arguments["output_path"].endswith(".mp4")
 
-    def test_audio_is_fit_to_frame_count_for_in_memory_generation(self):
+    def test_audio_is_trimmed_to_frame_count_for_in_memory_generation(self):
         # #197: a shot generated in memory via previous_result: chaining never
         # passes through _decode_audio_video, so codec-padding drift between
         # the audio and the frame count has to be trimmed here instead.
         frames = ["frame"] * 48
         audio = torch.zeros((2, 2100))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        artifact = AudioVideo(frames, audio, 1000)
+
+        encode, _ = self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+
+        assert encode.call_args.kwargs["audio"].shape == (2, 2000)
+
+    def test_audio_is_padded_to_frame_count_for_in_memory_generation(self):
+        # #197 reopened: the trim path above happened to work on a torch
+        # tensor because slicing is type-agnostic, but the pad path used
+        # numpy.pad unconditionally and crashed on a real (GPU) torch tensor
+        # - so every in-memory audio+video save that came up short failed
+        # outright rather than being fit. A CPU tensor reproduces the same
+        # numpy.pad TypeError, since the bug was the type, not the device.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
         artifact = AudioVideo(frames, audio, 1000)
 
         encode, _ = self.save({"content_type": "video/mp4", "fps": 24}, artifact)

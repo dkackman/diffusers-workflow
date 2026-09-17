@@ -393,6 +393,11 @@ def _fit_audio_to_frames(audio, frame_count, frame_rate, sample_rate):
     Only when the difference is codec padding. A track that genuinely runs to
     a different length than the picture - a song laid over a short clip - is
     left alone.
+
+    `audio` may be a numpy array (the decode path) or a torch tensor still on
+    its generating device (an in-memory pipeline output, #197) - the pad and
+    trim below keep whichever type and device it arrived with rather than
+    forcing a host round trip the caller may not want yet.
     """
     expected = round(frame_count / frame_rate * sample_rate)
     difference = audio.shape[1] - expected
@@ -404,4 +409,6 @@ def _fit_audio_to_frames(audio, frame_count, frame_rate, sample_rate):
     )
     if difference > 0:
         return audio[:, :expected]
+    if isinstance(audio, torch.Tensor):
+        return torch.nn.functional.pad(audio, (0, -difference))
     return numpy.pad(audio, ((0, 0), (0, -difference)))
