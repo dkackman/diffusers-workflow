@@ -15,7 +15,9 @@ Tasks are utility operations that run outside of pipeline inference. Use them fo
 
 Any task that runs a model accepts a `"device"` argument to pin where it runs -
 useful for keeping a helper model (a captioner, an upscaler) off the accelerator a
-loaded pipeline is using, or on a second one.
+loaded pipeline is using, or on a second one. `"device"` is listed on every task's
+schema, since it is always safe to pass: a task that runs no model - `slice_audio`,
+`compose_text`, and the like - just ignores it.
 
 Task argument schemas are discoverable: `GET /api/tasks/{command}` on the
 [server](SERVER.md) returns each command's arguments read from its registered
@@ -480,6 +482,43 @@ a length still passes the whole track along:
 | `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
 | `start_seconds` / `duration_seconds` | One pair | The slice in seconds; either may be omitted |
 | `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames; `fps` is required, start and count may be omitted |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+### gain_audio
+
+Apply a gain, in decibels, to a region of an audio track - the rest of the
+track passes through unchanged. The region is addressed the same way
+`slice_audio`'s is, in seconds or in video frames, so ducking a scene under
+another (lowering a dialogue track between two timestamps) is one step
+instead of the `slice_audio` → `gain` (a whole-track `normalize_audio` on the
+slice) → `mix_audio` → `rejoin` → `pair_audio` chain that used to be the only
+way to gain part of a track rather than all of it. Unlike `slice_audio`, a
+region reaching past the end of the track is clipped to it rather than
+zero-padded - there is no silence there to gain, only the end of the real
+material:
+
+```json
+{
+    "task": {
+        "command": "gain_audio",
+        "arguments": {
+            "audio": "./dialogue.wav",
+            "gain_db": -12,
+            "start_frame": 124,
+            "num_frames": 48,
+            "fps": 24
+        }
+    },
+    "result": { "content_type": "audio/wav", "sample_rate": 44100 }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
+| `gain_db` | Yes | Gain to apply within the region, in decibels - negative ducks it, positive boosts it |
+| `start_seconds` / `duration_seconds` | One pair | The region in seconds; either may be omitted |
+| `start_frame` / `num_frames` / `fps` | One pair | The region in video frames; `fps` is required, start and count may be omitted |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
 ### crossfade_audio

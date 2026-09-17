@@ -56,6 +56,14 @@ TASK_ARGUMENT_DOMAINS = {
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
     },
+    "gain_audio": {
+        "start_seconds": NON_NEGATIVE,
+        "duration_seconds": POSITIVE,
+        "start_frame": NON_NEGATIVE,
+        "num_frames": POSITIVE,
+        "fps": POSITIVE,
+        "sample_rate": POSITIVE,
+    },
     "resample_audio": {
         "target_sample_rate": POSITIVE,
         "sample_rate": POSITIVE,
