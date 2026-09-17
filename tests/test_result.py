@@ -490,8 +490,11 @@ class TestModularOutputs:
         assert get_artifact_list(outputs) == [outputs]
 
     def test_generated_audio_is_muxed_into_the_video(self):
+        # A frame count far longer than the audio keeps the mismatch outside
+        # _fit_audio_to_frames's codec-padding tolerance, so the audio passes
+        # through unchanged and this test stays about muxing, not fitting.
         outputs = {
-            "videos": ["frames"],
+            "videos": [["frame"] * 1000],
             "audio": torch.zeros((1, 2, 100)),
             "sampling_rate": 16000,
         }
@@ -606,6 +609,18 @@ class TestSaveAudioVideo:
         assert arguments["fps"] == 24
         assert arguments["audio_sample_rate"] == 48000
         assert arguments["output_path"].endswith(".mp4")
+
+    def test_audio_is_fit_to_frame_count_for_in_memory_generation(self):
+        # #197: a shot generated in memory via previous_result: chaining never
+        # passes through _decode_audio_video, so codec-padding drift between
+        # the audio and the frame count has to be trimmed here instead.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 2100))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        artifact = AudioVideo(frames, audio, 1000)
+
+        encode, _ = self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+
+        assert encode.call_args.kwargs["audio"].shape == (2, 2000)
 
     def test_result_definition_overrides_the_sample_rate(self):
         artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
