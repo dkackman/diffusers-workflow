@@ -61,8 +61,17 @@
                     "audio": "variable:score",
                     "start_frame": "variable:score_start_frame",
                     "num_frames": "variable:total_frames",
-                    "fps": "variable:fps",
-                    "sample_rate": "variable:sample_rate"
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "soundtrack_resampled",
+            "task": {
+                "command": "resample_audio",
+                "arguments": {
+                    "audio": "previous_result:soundtrack",
+                    "target_sample_rate": "variable:sample_rate"
                 }
             }
         },
@@ -72,7 +81,7 @@
                 "command": "mix_audio",
                 "arguments": {
                     "audios": [
-                        "previous_result:soundtrack",
+                        "previous_result:soundtrack_resampled",
                         "previous_result:world"
                     ],
                     "gains": [
