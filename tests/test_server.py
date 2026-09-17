@@ -1535,6 +1535,9 @@ def test_a_text_shape_run_is_not_an_orphan(server, tmp_path):
         empty_run.mkdir(parents=True)
         (empty_run / "manifest.json").write_text("{}")
         (empty_run / "job.json").write_text("{}")
+        # Finder's droppings are not output: a dotfile must not make the
+        # run permanently non-orphan
+        (empty_run / ".DS_Store").write_bytes(b"\x00")
 
         orphans = client.get("/api/gallery?only_orphans=true").json()
 

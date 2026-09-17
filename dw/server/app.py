@@ -2561,8 +2561,10 @@ def create_app(
                 continue
             # A run directory holds no run directories of its own
             dirs[:] = []
+            # A dotfile is not output either: a .DS_Store Finder left behind
+            # would otherwise make the run permanently non-orphan
             has_output = any(
-                name not in RUN_BOOKKEEPING_FILES
+                name not in RUN_BOOKKEEPING_FILES and not name.startswith(".")
                 for _sub_current, _sub_dirs, sub_names in os.walk(current)
                 for name in sub_names
             )
