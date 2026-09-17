@@ -20,6 +20,9 @@ logger = logging.getLogger("dw")
 # pipeline shows before its first `pipeline_step` (see
 # docs/proposals/step-callback-lead-in-instrumentation.md) but short enough
 # that a genuine stall is visible long before a human would give up on it.
+# The report goes to the event log only - the job's persisted `warnings`
+# list filters `kind == "phase_stall"` (dw/server/jobs.py), because a stall
+# that resolved is not a warning about the result.
 PHASE_STALL_THRESHOLD_SECONDS = 30.0
 # How often the watchdog thread wakes to check - independent of the
 # threshold above, just fine-grained enough that the reported
