@@ -324,6 +324,38 @@ class TestBleedJoin:
 
         assert bleed_join(previous, following, 100, 500).shape == (2, 200)
 
+    def test_gain_db_scales_the_bled_tail(self):
+        previous = numpy.full((1, 100), 0.5, dtype=numpy.float32)
+        following = numpy.zeros((1, 100), dtype=numpy.float32)
+
+        full = bleed_join(previous, following, 100, 500, gain_db=0.0)
+        ducked = bleed_join(previous, following, 100, 500, gain_db=-6.0)
+
+        assert ducked[0, 100] == pytest.approx(
+            full[0, 100] * 10 ** (-6.0 / 20.0), abs=1e-3
+        )
+
+    def test_tonal_material_warns(self, caplog):
+        # a pure tone concentrates its spectrum in one bin - low flatness
+        t = numpy.arange(400) / 100.0
+        previous = numpy.sin(2 * numpy.pi * 5 * t).astype(numpy.float32)[None, :]
+        following = numpy.zeros((1, 400), dtype=numpy.float32)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(previous, following, 100, 500)
+
+        assert "tonal" in caplog.text or "speech" in caplog.text
+
+    def test_noise_like_material_does_not_warn(self, caplog):
+        rng = numpy.random.default_rng(0)
+        previous = rng.normal(0, 0.2, (1, 400)).astype(numpy.float32)
+        following = numpy.zeros((1, 400), dtype=numpy.float32)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(previous, following, 100, 500)
+
+        assert "tonal" not in caplog.text
+
 
 class TestResampleAudio:
     def test_it_scales_the_length_to_the_new_rate(self):

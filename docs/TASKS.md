@@ -216,6 +216,7 @@ video generation" in the workflow guide):
 | `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
 | `crossfade_ms` | No | Equal-power crossfade at each audio seam, drawn from the trimmed material - no effect when `trim_frames` is 0, and validation warns when one is written there (default: 75) |
 | `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
+| `audio_bleed_gain_db` | No | Gain applied to the bled tail before it is added, in dB - negative ducks a tail that would otherwise push the seam over 0 dBFS (default: 0, unchanged) |
 | `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed - for tonal material, not for a continuous bed (default: 3, just enough not to click) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming, and the rate the joined file is written at unless `result.fps` overrides it |
 | `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample. Off by default |
@@ -225,7 +226,9 @@ A video may also be named by path or URL, which is how shots an earlier run
 already wrote are joined without regenerating them - the file is read with the
 audio muxed into it, and its track is fitted to the frames' own duration so the
 codec's block padding does not walk the sound off the picture over a dozen
-seams:
+seams. A shot generated in memory through a `previous_result:` chain gets the
+same fit, applied where the file is written rather than where it is decoded,
+so per-shot drift does not accumulate across a cut the way it once did:
 
 ```json
 {
@@ -281,7 +284,10 @@ a five-shot H3 sitcom cut, 700 ms still left a 44 dB hole at the worst seam;
 
 A bleed works because it copies ambience, which has no pitch and no attacks to
 give the copy away. It is the wrong tool for anything tonal - a copied musical
-phrase or half-spoken word reads as a stutter whichever direction it runs. When a
+phrase or half-spoken word reads as a stutter whichever direction it runs.
+`bleed_join` checks the outgoing tail's spectral flatness and warns when it
+looks tonal or speech-like rather than noise-like, so this failure mode
+surfaces in the job's `warnings` list instead of only in the mix. When a
 shot ends on something tonal, either give the cut a continuous bed with
 `slice_audio` + `loop_audio` + `mix_audio` + `pair_audio`, which leaves no seam
 to treat at all, or fade the
