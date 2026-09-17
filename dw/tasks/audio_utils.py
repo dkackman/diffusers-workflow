@@ -394,7 +394,11 @@ def gain_audio(
     passed through unchanged, so ducking a scene under another is one step
     rather than the slice/gain/mix/rejoin/pair_audio chain that was
     previously the only way to apply a gain to part of a track rather than
-    all of it (#187).
+    all of it (#187). At least one of the two pairs is required - there is
+    no separate "whole track" mode - but the whole track is still one step:
+    give just start_seconds=0 (or start_frame=0 + fps) and leave
+    duration_seconds/num_frames unset, which runs to the end of the track
+    without the caller needing to already know how long that is.
 
     Unlike slice_audio, a region reaching past the end of the track is
     clipped to it rather than zero-padded: there is no silence there to
@@ -719,10 +723,14 @@ def loop_audio(
     the length of the picture.
 
     Laps are joined with an equal-power crossfade rather than butted
-    together, so the loop point is not a click and a tone with any movement
-    in it does not tick once a second. The source is used whole every lap;
-    only the last one is trimmed, to land exactly on the requested length. A
-    source longer than the request is trimmed to it.
+    together, so the loop point itself is not a click. That only smooths the
+    seam, though: a transient in the source (a hit, a swell) still recurs
+    once per lap at full strength, so the loop still reads as a level pulse
+    at the lap rate - measured at 9.3 dB on a source with one such transient.
+    Picking a source with even internal level avoids the pulse; the
+    crossfade does not. The source is used whole
+    every lap; only the last one is trimmed, to land exactly on the
+    requested length. A source longer than the request is trimmed to it.
 
     Args:
         audio: Path or URL of an audio file (or of a video file, whose
