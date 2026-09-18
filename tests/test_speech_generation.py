@@ -4,8 +4,13 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 import numpy
+import torch
 
-from dw.tasks.speech_generation import generate_speech, _DEFAULT_MODEL
+from dw.tasks.speech_generation import (
+    generate_speech,
+    _DEFAULT_MODEL,
+    _speaker_embedding_tensor,
+)
 
 
 def spoken(sample_rate=24000, samples=480):
@@ -235,6 +240,39 @@ class TestGenerateSpeech(unittest.TestCase):
         )
 
         self.assertEqual(pipe.call_args[1]["forward_params"], {"speaker_id": 3})
+
+
+class TestSpeakerEmbeddingTensor(unittest.TestCase):
+    """#223 regression: SpeechT5's generate() rejects a bare (512,) vector -
+    it wants (batch, 512). These exercise the real squeeze/unsqueeze logic
+    rather than mocking it away, unlike the forward_params tests above."""
+
+    @patch("dw.tasks.speech_generation.load_audio")
+    @patch("dw.tasks.speech_generation.cached_model")
+    def test_output_shape_is_batch_of_one_by_512(self, mock_cached_model, mock_load_audio):
+        mock_load_audio.return_value = (numpy.zeros((1, 16000), dtype=numpy.float32), 16000)
+        encoder = MagicMock()
+        # speechbrain's raw encode_batch output: (1, 1, 512)
+        encoder.encode_batch.return_value = torch.zeros((1, 1, 512))
+        mock_cached_model.return_value = encoder
+
+        # speechbrain isn't a hard dependency of the test env; the helper
+        # imports it lazily, so stand in a fake module rather than requiring
+        # the real package just to exercise the tensor-shape logic
+        fake_module = MagicMock()
+        fake_module.EncoderClassifier = MagicMock()
+        with patch.dict(
+            "sys.modules",
+            {
+                "speechbrain": MagicMock(),
+                "speechbrain.inference": MagicMock(),
+                "speechbrain.inference.speaker": fake_module,
+            },
+        ):
+            embedding = _speaker_embedding_tensor("asset:voices/iris.wav", "cpu")
+
+        self.assertEqual(tuple(embedding.shape), (1, 512))
+        self.assertEqual(embedding.dtype, torch.float32)
 
 
 class TestHandleSpeechGeneration(unittest.TestCase):
