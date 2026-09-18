@@ -9,6 +9,7 @@ comes back is the reference, not a path, because the reference is what a
 workflow carries and the path means nothing on the machine the agent is on.
 """
 
+import base64
 import os
 
 from dw_mcp.client import DwApiError, api_path
@@ -16,6 +17,12 @@ from dw_mcp.client import DwApiError, api_path
 # Twin of the server's own limit (dw/server/app.py). Checked here as well so
 # a 200MB file fails before it is read and pushed, not after
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+
+# `content` bytes arrive base64-encoded in the tool call itself rather than
+# read off a disk, so they compete with everything else in the call for the
+# caller's context budget - a few MB is enough for a voice sample or a small
+# image, and nowhere near enough to use this as a bulk-transfer path (#203)
+MAX_INLINE_UPLOAD_BYTES = 4 * 1024 * 1024
 
 # What the library holds, and what the upload route accepts. Duplicated from
 # dw/security.py rather than imported: importing anything under dw/ pulls in
@@ -70,8 +77,9 @@ def _remote_roots(client):
         raise DwApiError(
             "This server cannot say which directories it works in, so it "
             "will not read a file off its own disk for you. Upload the "
-            "bytes through the web UI's file picker, or keep a generated "
-            "file with keep_output."
+            "bytes through the web UI's file picker, pass them inline to "
+            "upload_asset as content=, or keep a generated file with "
+            "keep_output."
         )
     return roots
 
@@ -98,9 +106,11 @@ def _confine_source(path, roots, named):
         f"dw.serve, so the file would be read off the server, where a "
         f"source is confined to the directories it works in "
         f"({', '.join(roots)}). A file that is already there is reachable "
-        f"as an 'asset:' reference; to put a new one there, upload it "
-        f"through the web UI's file picker, or promote a generated file "
-        f"with keep_output."
+        f"as an 'asset:' reference; to put a new one there when it exists "
+        f"only on your own machine, call upload_asset with content= (its "
+        f"bytes, base64-encoded) instead of file_path, upload it through "
+        f"the web UI's file picker, or promote a generated file with "
+        f"keep_output."
     )
 
 
@@ -160,32 +170,50 @@ def keep_output(
     )
 
 
-def upload_asset(client, file_path, asset_name=None, shared=False):
-    """Put a local image, video or audio file into the server's asset
-    library and get back the reference a workflow can use.
+def upload_asset(client, file_path=None, content=None, asset_name=None, shared=False):
+    """Put an image, video or audio file into the server's asset library and
+    get back the reference a workflow can use.
 
-    The file is read from the machine this MCP server runs on, which is not
-    necessarily the machine dw.serve runs on - that is the point of the
-    tool.
+    Takes exactly one of two sources:
 
-    Over a `dw.serve --mcp` endpoint that machine *is* the server, so there
-    `file_path` is confined to the directories the server works in, and the
-    refusal comes before the file is looked for so it cannot be used to
-    probe which paths exist (#138). A stdio `dw-mcp` is unconfined, because
-    there the file really is the caller's own.
+    `file_path` is read from the machine this MCP server runs on, which is
+    not necessarily the machine dw.serve runs on - that is the point of the
+    tool. Over a `dw.serve --mcp` endpoint that machine *is* the server, so
+    there `file_path` is confined to the directories the server works in,
+    and the refusal comes before the file is looked for so it cannot be used
+    to probe which paths exist (#138). A stdio `dw-mcp` is unconfined,
+    because there the file really is the caller's own.
+
+    `content` is the file's bytes, base64-encoded, for the case `file_path`
+    cannot reach: a headless agent driving a mounted `dw.serve --mcp`
+    endpoint has no filesystem in common with that server, so a voice
+    sample or small image that exists only on the agent's own machine has
+    no path either side can name. No path is confined or read for this
+    path - the bytes just go straight to the upload route - so it does not
+    reopen #138. It is capped well under `file_path`'s limit
+    (MAX_INLINE_UPLOAD_BYTES, a few MB) because these bytes ride in the tool
+    call itself rather than being streamed off disk, and `asset_name` is
+    required so the upload has a name and extension to be validated against.
 
     `asset_name` is the name it is stored under - 'cast/priya-voice.wav'
     rather than the random one an upload gets by default. A recurring cast
     referenced as 'asset:uploads/084eaecc....wav' in every workflow cannot
     be told apart without opening each file, which is the whole reason to
-    name one (2026-09-11). The extension comes from the uploaded file when
-    the name has none.
+    name one (2026-09-11). With `file_path`, the extension comes from the
+    uploaded file when the name has none; with `content`, `asset_name` must
+    carry its own extension since there is no file to take one from.
 
     `shared` puts it in the library every workspace shares rather than in
     the session's own, which is what a recurring cast needs: assets are
     per workspace, so a cast uploaded while making episode one was
     invisible from the workspace episode four was made in.
     """
+    if (file_path is None) == (content is None):
+        raise DwApiError("Pass exactly one of file_path or content.")
+
+    if content is not None:
+        return _upload_inline(client, content, asset_name=asset_name, shared=shared)
+
     path = os.path.abspath(os.path.expanduser(str(file_path)))
     roots = _remote_roots(client)
     if roots is not None:
@@ -227,4 +255,45 @@ def upload_asset(client, file_path, asset_name=None, shared=False):
         "url": result.get("url"),
         "uploaded": os.path.basename(path),
         "size": size,
+    }
+
+
+def _upload_inline(client, content, asset_name=None, shared=False):
+    """The `content=` path of upload_asset - bytes with no path behind
+    them, so nothing here is confined or read off any disk (#203)."""
+    if not asset_name:
+        raise DwApiError(
+            "content requires asset_name, so the upload has a name and an "
+            "extension to validate - there is no file to take either from."
+        )
+
+    extension = os.path.splitext(asset_name)[1].lower()
+    if extension not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise DwApiError(
+            f"{asset_name} is not a kind the asset library takes "
+            f"({', '.join(sorted(ALLOWED_UPLOAD_EXTENSIONS))})."
+        )
+
+    try:
+        body = base64.b64decode(content, validate=True)
+    except Exception as e:
+        raise DwApiError(f"content could not be decoded as base64: {e}")
+
+    if len(body) > MAX_INLINE_UPLOAD_BYTES:
+        raise DwApiError(
+            f"content is {len(body)} bytes, over the "
+            f"{MAX_INLINE_UPLOAD_BYTES} byte limit for an inline upload. A "
+            f"file this large should be reached by file_path instead, from "
+            f"a machine that has it on disk."
+        )
+
+    params = {"filename": asset_name, "asset_name": asset_name}
+    if shared:
+        params["shared"] = "true"
+    result = client.post_bytes("/api/uploads", body, params=params)
+    return {
+        "reference": result.get("path"),
+        "url": result.get("url"),
+        "uploaded": asset_name,
+        "size": len(body),
     }

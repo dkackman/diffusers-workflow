@@ -10,7 +10,7 @@ from typing import Literal, Optional
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import ImageContent, TextContent, ToolAnnotations
+from mcp.types import AudioContent, ImageContent, TextContent, ToolAnnotations
 
 from dw_mcp import (
     assets,
@@ -488,9 +488,9 @@ def build_server(client):
         """Look at a generated image, named as `list_gallery` or a job's
         manifest reports it. Use this to judge output quality - it is the
         only way to see what a workflow actually produced, and a run that
-        succeeded can still have made the wrong picture. Images only: a
-        video or audio output is refused, so inspect those with
-        `get_gallery_metadata` or hand the user the file. The image is
+        succeeded can still have made the wrong picture. Images only: audio
+        is `get_output_audio`'s and video is refused, so inspect a video
+        with `get_gallery_metadata` or hand the user the file. The image is
         downscaled to `max_dimension` on its longest side; the second part
         of the result reports the size it went in and came out at, so a
         downscale is never silent.
@@ -515,6 +515,32 @@ def build_server(client):
             ),
         )
         return [image, telemetry]
+
+    def get_output_audio(
+        name: str, workspace: str | None = None
+    ) -> list[AudioContent | TextContent]:
+        """Listen to a generated audio output, named as `list_gallery` or a
+        job's manifest reports it - the audio analogue of `get_output_image`.
+        Audio only: an image is `get_output_image`'s and video is refused,
+        so inspect a video with `get_gallery_metadata` or hand the user the
+        file. There is no downscale for audio the way there is for an
+        image's dimensions, so a clip too large to fit inline is refused
+        rather than cut or transcoded - use `download_output` or the `url`
+        list_gallery reports for one that long.
+
+        `workspace` names the workspace for this one call without
+        switching the session to it - the same pin `run_workflow`
+        takes, so a job run into another workspace is reachable from
+        here without leaving this one (#99)."""
+        result = media.get_output_audio(client, name, workspace=workspace)
+        audio = AudioContent(
+            type="audio", data=result["data"], mime_type=result["mime_type"]
+        )
+        telemetry = TextContent(
+            type="text",
+            text=f"name: {result['name']}\nbytes: {result['bytes']}",
+        )
+        return [audio, telemetry]
 
     def get_output_text(
         name: str, max_characters: int = 20000, workspace: str | None = None
@@ -588,6 +614,7 @@ def build_server(client):
         )
 
     tool(get_output_image, READ_ONLY)
+    tool(get_output_audio, READ_ONLY)
     tool(get_output_text, READ_ONLY)
     tool(download_output, OVERWRITES)
     tool(delete_output, DELETES)
@@ -604,26 +631,47 @@ def build_server(client):
         return assets.list_assets(client)
 
     def upload_asset(
-        file_path: str, asset_name: str | None = None, shared: bool = False
+        file_path: str | None = None,
+        content: str | None = None,
+        asset_name: str | None = None,
+        shared: bool = False,
     ) -> dict:
-        """Put a local image, video or audio file into the server's asset
+        """Put an image, video or audio file into the server's asset
         library and get back the "asset:" reference to use in a workflow.
-        The file is read from the machine this MCP server runs on and
+        Pass exactly one of `file_path` or `content`.
+
+        `file_path` is read from the machine this MCP server runs on and
         pushed to the engine, so it is how an input reaches a dw.serve
-        running somewhere else. Accepts the usual image, video and audio
-        extensions, up to 200MB. Reference the result rather than a path: a
-        path on this machine means nothing to the server. Pass `asset_name`
-        to store it under a readable name ("cast/priya-voice.wav", folders
-        allowed, the file's extension assumed) - without one the stored
-        name is random, and a set of related inputs cannot be told apart in
-        the workflows that carry them. Pass `shared=true` to put it in the
-        library every workspace shares rather than this session's own -
-        where a recurring cast belongs, since a workspace's own assets are
-        invisible from the next workspace. When this MCP surface is served
-        by dw.serve itself, "this machine" is the engine's own box, so
-        `file_path` is confined to the directories it works in."""
+        running somewhere else. When this MCP surface is served by
+        dw.serve itself, "this machine" is the engine's own box, so
+        `file_path` is confined to the directories it works in - a file
+        that exists only on your own machine cannot be named this way.
+
+        `content` is for exactly that case: the file's bytes, base64-encoded,
+        sent inline in the call rather than read off any disk. Use it for a
+        voice sample or small image that lives only on the machine you are
+        running on, against a remote `dw.serve --mcp` endpoint with no
+        filesystem in common with you. Capped at 4MB, well under
+        `file_path`'s 200MB, because these bytes ride in the call itself.
+        `asset_name` is required with `content`, since there is no file to
+        take a name or extension from.
+
+        Accepts the usual image, video and audio extensions. Reference the
+        result rather than a path: a path on this machine means nothing to
+        the server. Pass `asset_name` to store it under a readable name
+        ("cast/priya-voice.wav", folders allowed) - without one (when using
+        `file_path`) the stored name is random, and a set of related inputs
+        cannot be told apart in the workflows that carry them. Pass
+        `shared=true` to put it in the library every workspace shares
+        rather than this session's own - where a recurring cast belongs,
+        since a workspace's own assets are invisible from the next
+        workspace."""
         return assets.upload_asset(
-            client, file_path, asset_name=asset_name, shared=shared
+            client,
+            file_path=file_path,
+            content=content,
+            asset_name=asset_name,
+            shared=shared,
         )
 
     def keep_output(
