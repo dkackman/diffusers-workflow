@@ -134,6 +134,42 @@ class TestSelectErrors(unittest.TestCase):
 
         self.assertEqual(errors, [])
 
+    def test_expanded_gather_size_mismatch_is_an_error(self):
+        # After for_each expansion a gather: reference has already been
+        # replaced by the list of previous_result: references it drew from -
+        # this is the shape select_errors actually sees in validation_errors.
+        definition = {
+            "steps": [
+                _step(
+                    rule="argmax",
+                    candidates=["previous_result:still@a", "previous_result:still@b"],
+                    scores=["previous_result:judge@x"],
+                )
+            ]
+        }
+
+        errors = select_errors(definition, source_indices=[0])
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("scores", errors[0]["path"])
+        self.assertIn("2 entries", errors[0]["message"])
+        self.assertIn("1", errors[0]["message"])
+
+    def test_expanded_gather_same_size_is_fine(self):
+        definition = {
+            "steps": [
+                _step(
+                    rule="argmax",
+                    candidates=["previous_result:still@a", "previous_result:still@b"],
+                    scores=["previous_result:judge@a", "previous_result:judge@b"],
+                )
+            ]
+        }
+
+        errors = select_errors(definition, source_indices=[0])
+
+        self.assertEqual(errors, [])
+
     def test_non_select_steps_are_ignored(self):
         definition = {
             "steps": [
