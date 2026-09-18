@@ -360,6 +360,10 @@ class Result:
         # warning from the waveform it was handed, so the written-level
         # check does not say the same thing twice (#161)
         self._no_headroom_warned = False
+        # get_artifact_list(result) memoized by id(result) - see
+        # _artifacts_for. Keeps result_list itself untouched, so
+        # Result.retainable's attribute walk over result_list is unaffected.
+        self._artifact_cache = {}
         logger.debug(f"Initialized Result with definition: {result_definition}")
 
     def set_metadata(self, metadata):
@@ -419,10 +423,26 @@ class Result:
         """
         artifacts = []
         for result in self.result_list:
-            artifacts.extend(get_artifact_list(result))
+            artifacts.extend(self._artifacts_for(result))
 
         logger.debug(f"Retrieved {len(artifacts)} artifacts from results")
         return artifacts
+
+    def _artifacts_for(self, result):
+        """get_artifact_list(result), memoized by identity of `result`.
+
+        save() extracts an in-memory pipeline output's artifacts and mutates
+        one in place to fit generated audio to the frame count (#197). A
+        later get_artifacts() call - a previous_result: consumer reading a
+        chained shot directly, bypassing any output: round trip - must see
+        that same fitted object rather than a fresh, unfitted extraction
+        from the same raw pipeline output, which get_artifact_list would
+        otherwise rebuild every time it runs.
+        """
+        key = id(result)
+        if key not in self._artifact_cache:
+            self._artifact_cache[key] = get_artifact_list(result)
+        return self._artifact_cache[key]
 
     def get_artifact_properties(self, property_name):
         """Extract specific properties from results.
@@ -545,7 +565,7 @@ class Result:
                 saved_files.append(output_path)
             else:
                 # Handle other content types
-                for j, artifact in enumerate(get_artifact_list(result)):
+                for j, artifact in enumerate(self._artifacts_for(result)):
                     saved_files.extend(
                         self.save_artifact(
                             validated_output_dir,

@@ -8,6 +8,7 @@ import os
 import tempfile
 import json
 import logging
+import types
 from dataclasses import dataclass
 
 import numpy
@@ -660,6 +661,38 @@ class TestSaveAudioVideo:
         self.save({"content_type": "video/mp4", "fps": 24}, artifact)
 
         assert artifact.audio.shape == (2, 2000)
+
+    def test_fit_survives_a_second_extraction_of_a_raw_pipeline_output(self):
+        # #197, 4th round: write-back (above) lands the fit on the AudioVideo
+        # save() itself extracted - but a raw pipeline output (an object
+        # with .frames/.audio, not a pre-built AudioVideo, the shape LTX-2
+        # actually returns) is re-extracted from scratch by every call to
+        # get_artifact_list, including a later get_artifacts() call from a
+        # previous_result: consumer tapping the in-memory shot directly
+        # (e.g. a per-shot gain_audio step, bypassing any output: decode).
+        # That rebuilt a brand new, unfitted AudioVideo from the same raw
+        # .frames/.audio attributes, discarding the fit every time.
+        frames = ["frame"] * 48
+        # .frames/.audio are batched - one entry per generation - so a
+        # single video's frames/audio must each be wrapped in a length-1 list
+        audio = [torch.zeros((2, 1900))]  # 48 frames @ 24fps @ 1000Hz -> 2000
+        pipeline_output = types.SimpleNamespace(
+            frames=[frames], audio=audio, audio_sample_rate=1000
+        )
+
+        result = Result({"content_type": "video/mp4", "fps": 24})
+        result.add_result(pipeline_output)
+        with (
+            patch("dw.result.encode_video"),
+            patch("dw.result.export_to_video"),
+            patch("dw.result.is_av_available", return_value=True),
+        ):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                result.save(temp_dir, "test")
+
+        artifacts = result.get_artifacts()
+        assert len(artifacts) == 1
+        assert artifacts[0].audio.shape == (2, 2000)
 
     def test_result_definition_overrides_the_sample_rate(self):
         artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
