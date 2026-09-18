@@ -512,9 +512,12 @@ def _handle_text_generation(task, arguments, previous_pipelines):
 def _handle_speech_generation(task, arguments, previous_pipelines):
     """Speak a line of text with a local text-to-speech model"""
     logger.debug("Generating speech")
-    if "text" not in arguments:
-        raise ValueError("generate_speech needs 'text' - the line to speak")
-    text = arguments.pop("text")
+    if ("text" in arguments) == ("messages" in arguments):
+        raise ValueError(
+            "generate_speech needs exactly one of 'text' (the line to speak) "
+            "or 'messages' (chat-templated input for a model such as VibeVoice)"
+        )
+    text = arguments.pop("text", None)
     from .speech_generation import generate_speech
 
     return generate_speech(text, device=task.device_for(arguments), **arguments)

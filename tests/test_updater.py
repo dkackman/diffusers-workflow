@@ -64,6 +64,17 @@ class TestReleaseFloor:
         assert match, "pyproject.toml should pin a diffusers floor"
         assert release_floor() == match.group(1)
 
+    def test_transformers_floor_uses_5170_without_exclusion(self):
+        import re
+        from pathlib import Path
+
+        pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        text = pyproject.read_text()
+        match = re.search(r'"transformers>=([0-9][0-9.]*[0-9]|[0-9])"', text)
+        assert match, "pyproject.toml should pin a transformers floor"
+        assert match.group(1) == "5.17.0"
+        assert "!=5.17.0" not in text
+
     def test_falls_back_when_pyproject_is_unreadable(self, monkeypatch):
         from dw.server import updater as updater_module
 
