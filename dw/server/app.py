@@ -123,6 +123,7 @@ from .jobs import (
 )
 from .netinfo import local_addresses
 from .updater import DiffusersUpdater
+from .sysinfo import runtime_info
 from .catalog_shape import derive_catalog_metadata, project_listing
 from . import guides
 from .guides import GuideError
@@ -3487,6 +3488,26 @@ def create_app(
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Worker unavailable: {e}")
 
+    @app.post("/api/memory/clear")
+    def clear_memory():
+        """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
+        without waiting for the next job to evict one model for another.
+
+        Refused while a job is running or queued (409) rather than blocked -
+        the queue is FIFO, so the caller should wait for the job to finish
+        and retry instead of this call stalling until it does."""
+        if manager.is_busy():
+            raise HTTPException(
+                status_code=409,
+                detail="A job is running or queued - clearing memory out "
+                "from under it would corrupt the run. Wait for it to finish.",
+            )
+        try:
+            info = manager.clear_memory()
+        except RuntimeError as e:
+            raise HTTPException(status_code=503, detail=f"Worker unavailable: {e}")
+        return {"cleared": True, "info": info}
+
     @app.get("/api/health")
     def health():
         import socket
@@ -3552,6 +3573,10 @@ def create_app(
             "trust_workflows": workflows_are_trusted(),
             "mcp": {"mounted": bool(app.state.mcp_mounted), "path": MCP_PATH},
             "addresses": addresses,
+            # Python/torch/CUDA-driver/other-package versions - the detail
+            # neither this route's own `version` field nor `get_health`
+            # answers, e.g. whether bitsandbytes is even installed (#222)
+            "runtime": runtime_info(),
             "directories": {
                 # The workspace the three below default to folders of; an
                 # individually overridden folder still reports its own path

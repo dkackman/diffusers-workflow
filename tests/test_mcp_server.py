@@ -28,6 +28,7 @@ EXPECTED_TOOLS = {
     "get_task",
     "list_models",
     "get_memory",
+    "clear_memory",
     "get_health",
     "get_server_info",
     "list_jobs",
@@ -74,6 +75,7 @@ EXPECTED_TOOLS = {
 }
 
 READ_ONLY_TOOLS = EXPECTED_TOOLS - {
+    "clear_memory",
     "save_workflow",
     "delete_workflow",
     "run_workflow",
@@ -324,6 +326,7 @@ TOOL_WIRING = [
     ("get_task", {"command": "resize"}, "GET", "/api/tasks/resize"),
     ("list_models", {}, "GET", "/api/models"),
     ("get_memory", {}, "GET", "/api/memory"),
+    ("clear_memory", {}, "POST", "/api/memory/clear"),
     ("get_health", {}, "GET", "/api/health"),
     ("get_server_info", {}, "GET", "/api/server"),
     ("list_jobs", {}, "GET", "/api/jobs"),
