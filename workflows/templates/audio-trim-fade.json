@@ -6,8 +6,7 @@
     "start_seconds": 0.0,
     "duration_seconds": null,
     "fade_in_ms": 0,
-    "fade_out_ms": 4000,
-    "sample_rate": 44100
+    "fade_out_ms": 4000
   },
   "steps": [
     {
@@ -22,8 +21,7 @@
       },
       "result": {
         "content_type": "audio/wav",
-        "save": false,
-        "sample_rate": 44100
+        "save": false
       }
     },
     {
@@ -33,13 +31,11 @@
         "arguments": {
           "audio": "previous_result:trim",
           "fade_in_ms": "variable:fade_in_ms",
-          "fade_out_ms": "variable:fade_out_ms",
-          "sample_rate": "variable:sample_rate"
+          "fade_out_ms": "variable:fade_out_ms"
         }
       },
       "result": {
-        "content_type": "audio/mp3",
-        "sample_rate": 44100
+        "content_type": "audio/mp3"
       }
     }
   ]
