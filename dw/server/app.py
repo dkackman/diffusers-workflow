@@ -1937,7 +1937,10 @@ def create_app(
         and shadows it from then on.
         """
         if request.workflow is None:
-            raise HTTPException(status_code=400, detail="Provide an inline workflow")
+            raise HTTPException(
+                status_code=400,
+                detail='Provide the definition as {"workflow": {...}}',
+            )
         path, _source = resolve_writable_workflow(_sources_for(ws), name)
         candidate = Workflow(
             copy.deepcopy(request.workflow),
