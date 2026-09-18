@@ -79,6 +79,15 @@ def replace_variables(data, variables):
         for k, v in data.items():
             matched, resolved = _resolve_variable_reference(v, variables)
             if matched:
+                # A variable: reference that resolves to null is dropped as
+                # if the key had never been passed - an optional argument
+                # left at its unset default (e.g. select's threshold/index)
+                # shouldn't count as "present" just because a variable named
+                # it. A literal null written inline in the workflow JSON
+                # never goes through this branch, so its meaning elsewhere
+                # (a declared-but-unset default) is untouched.
+                if resolved is None:
+                    continue
                 result[k] = resolved
             else:
                 # Recursively process nested structures in dictionary values

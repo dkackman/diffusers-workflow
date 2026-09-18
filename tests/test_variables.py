@@ -39,6 +39,45 @@ def test_replace_variables_missing():
     assert "other" in message
 
 
+def test_replace_variables_drops_a_top_level_argument_that_resolves_to_null():
+    # An optional argument (select's threshold/index) left at its unset
+    # default via a variable should vanish, not survive as a literal None -
+    # a None entry would read as "present" to a downstream `in arguments` check.
+    data = {"arguments": {"rule": "argmax", "threshold": "variable:threshold"}}
+    variables = {"threshold": None}
+
+    result = replace_variables(data, variables)
+    assert "threshold" not in result["arguments"]
+    assert result["arguments"]["rule"] == "argmax"
+
+
+def test_replace_variables_drops_a_null_variable_inside_a_for_each_entry():
+    # The same drop applies however deeply nested the dict is - a for_each
+    # step's entries are dicts sitting inside a list, walked recursively.
+    data = {
+        "for_each": [
+            {"name": "a", "threshold": "variable:threshold"},
+            {"name": "b", "threshold": 0.5},
+        ]
+    }
+    variables = {"threshold": None}
+
+    result = replace_variables(data, variables)
+    assert "threshold" not in result["for_each"][0]
+    assert result["for_each"][1]["threshold"] == 0.5
+
+
+def test_replace_variables_leaves_a_literal_null_untouched():
+    # A literal null written directly in the workflow JSON never goes through
+    # the variable-reference branch, so it keeps its existing meaning.
+    data = {"arguments": {"rule": "argmax", "threshold": None}}
+    variables = {}
+
+    result = replace_variables(data, variables)
+    assert "threshold" in result["arguments"]
+    assert result["arguments"]["threshold"] is None
+
+
 def test_replace_variables_does_not_mutate_input():
     data = {"key1": "variable:test", "key2": ["variable:test", "static"]}
     original = {"key1": "variable:test", "key2": ["variable:test", "static"]}
