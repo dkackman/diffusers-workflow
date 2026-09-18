@@ -314,6 +314,17 @@ def build_server(client):
         server is idle rather than comparing it against a live figure."""
         return catalog.get_memory(client)
 
+    def clear_memory() -> dict:
+        """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
+        immediately instead of waiting for the next job to evict one model
+        for another. Also drops the step cache, so a seeded workflow that
+        would otherwise reuse cached results regenerates on its next run.
+
+        Refused with a 409 while a job is running or queued - the queue is
+        FIFO, so wait for it to finish and retry rather than expecting this
+        call to block until it does."""
+        return catalog.clear_memory(client)
+
     def get_health() -> dict:
         """Check that the server is alive, and see what answered: its
         version and accelerator, whether a model process is currently
@@ -485,6 +496,7 @@ def build_server(client):
         get_gallery_metadata,
     ):
         tool(fn, READ_ONLY)
+    tool(clear_memory, WRITES)
 
     # --------------------------------------------------------------- media
 

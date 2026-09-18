@@ -534,12 +534,22 @@ The editor's forms come from these; they are just as usable from scripts:
   measured because nothing is resident. health also reports `hostname`,
   `device` and whether `mcp` is mounted, so a remote client can tell which
   machine answered
+- `POST /api/memory/clear` (#221) — drops every loaded pipeline and the step
+  cache, the same mechanism as the REPL's `memory clear`, and returns the
+  memory reading taken right after. Refused with 409 while a job is running
+  or queued - the queue is FIFO, so the caller retries once it finishes
+  rather than this call blocking until it does
 - `GET /api/server` — connection details for the Server page: `hostname`,
   `version`, `device`, the `bind_host`/`port`/`wildcard_bind` the server was
   started with, `auth_required` (whether a token is configured - never the
-  token itself), `mcp` (`mounted` plus its `path`), the machine's
-  non-loopback `addresses`, and the `directories` in use; a client composes
-  its URLs from an address, the port and the MCP path
+  token itself), `mcp` (`mounted` plus its `path`), the `directories` in use,
+  and `runtime` (#222) - Python version, torch version and the CUDA version
+  torch was built against, the NVIDIA driver version (via `nvidia-smi`, when
+  it's on PATH), and the installed versions of diffusers, transformers,
+  accelerate, bitsandbytes, peft, safetensors and sentencepiece (`null` for
+  one not installed) - for diagnosing an environment mismatch between boxes
+  without shelling in; the machine's non-loopback `addresses`; a client
+  composes its URLs from an address, the port and the MCP path
 
 ## Security model
 

@@ -153,6 +153,15 @@ def get_memory(client):
     return client.get_json("/api/memory")
 
 
+def clear_memory(client):
+    """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
+    immediately rather than waiting for the next job to evict one model
+    for another. Refused with a 409 while a job is running or queued -
+    the queue is FIFO, so retry once it finishes rather than expecting
+    this call to wait for it."""
+    return client.post_json("/api/memory/clear")
+
+
 def get_health(client):
     """Server liveness, plus what answered: version, device, whether a
     model process is currently resident, the job running now and how many
