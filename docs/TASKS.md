@@ -220,7 +220,7 @@ video generation" in the workflow guide):
 | `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed - for tonal material, not for a continuous bed (default: 3, just enough not to click) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming, and the rate the joined file is written at unless `result.fps` overrides it |
 | `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample. Off by default |
-| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`) |
+| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -0.5 dBFS peak instead, reported as a `match_levels_held` warning with a per-shot log event |
 
 A video may also be named by path or URL, which is how shots an earlier run
 already wrote are joined without regenerating them - the file is read with the
@@ -350,7 +350,7 @@ montage cut to a score wants:
 | `fade_color` | No | The RGB colour the fades come from and go to (default: black) |
 | `fps` | No | Frame rate of the videos - required to crossfade audio at a dissolve, and the rate the dissolved file is written at unless `result.fps` overrides it |
 | `match_levels` | No | Even the shots' loudness out before joining - `"rms"` or `"peak"`, as with [`concat_videos`](#concat_videos). Off by default |
-| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`) |
+| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -0.5 dBFS peak instead, reported as a `match_levels_held` warning with a per-shot log event |
 
 Every seam shortens the result by one overlap, so eight 124-frame shots joined
 with 12-frame dissolves run 908 frames, not 992 - size a soundtrack slice to

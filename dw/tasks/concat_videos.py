@@ -97,8 +97,9 @@ def concat_videos(
             enough to hear is logged as a warning
         match_levels_dbfs: The level match_levels moves every shot to -
             defaults to -1 dBFS for "peak" and -20 dBFS for "rms". A shot
-            that would clip at the target is held just below full scale
-            instead
+            that would clip at the target is held at -0.5 dBFS peak instead,
+            reported as a match_levels_held warning, with a per-shot log
+            event naming the hold
         sample_rate: The rate the joined soundtrack is at. Shots that come
             from different sources routinely carry different rates - a 24 kHz
             voice clip paired onto a 32 kHz generation - and unlike a level
