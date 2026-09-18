@@ -316,8 +316,14 @@ def build_server(client):
 
     def get_health() -> dict:
         """Check that the server is alive, and see what answered: its
-        version and accelerator, whether the worker process is up, the job
-        running now and how many are queued."""
+        version and accelerator, whether a model process is currently
+        resident, the job running now and how many are queued.
+
+        `worker_alive: false` on an otherwise healthy server (`status: ok`)
+        is the normal idle state, not a fault - the worker is an on-demand
+        subprocess that has not started yet because no job has run since
+        the server started or the last memory clear, and it starts with the
+        next job."""
         return catalog.get_health(client)
 
     def get_server_info() -> dict:
