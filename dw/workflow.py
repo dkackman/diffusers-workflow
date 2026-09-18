@@ -44,6 +44,7 @@ from .variable_constraints import (
 from .subfolders import step_subfolder, subfolder_errors
 from .reference_names import reference_name_errors
 from .content_types import content_type_errors
+from .scalar_result_validation import scalar_result_errors
 from .kernel_availability import kernel_availability_errors
 from .step import Step
 from .step_cache import (
@@ -641,6 +642,12 @@ class Workflow:
             # traceback naming neither the field nor the value
             # (dw/content_types.py, #168)
             + content_type_errors(expanded, source_indices)
+            # A 'result' block on a step whose command returns a scalar, not
+            # an artifact - judge's score validated clean and then died
+            # inside save_artifact with a bare TypeError after the fan-out
+            # ahead of it had already generated (dw/scalar_result_validation.py,
+            # #212)
+            + scalar_result_errors(expanded, source_indices)
             # A location policy refuses before a model load is spent on the
             # run rather than after it (dw/locations.py)
             + location_errors(expanded, source_indices, base_dir)
