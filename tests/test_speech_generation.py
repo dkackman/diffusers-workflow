@@ -220,6 +220,73 @@ class TestGenerateSpeech(unittest.TestCase):
         mock_tensor.assert_not_called()
 
     @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_messages_are_passed_as_text_inputs_instead_of_text(self, mock_pipeline):
+        # VibeVoice and other chat-templated models take a conversation rather
+        # than a bare string; transformers applies the model's chat template
+        # when text_inputs is a list of {role, content} dicts
+        pipe = MagicMock(return_value=spoken())
+        mock_pipeline.return_value = pipe
+        messages = [{"role": "user", "content": "Say hello."}]
+
+        generate_speech(device="cpu", messages=messages)
+
+        self.assertEqual(pipe.call_args[0][0], messages)
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_both_text_and_messages_is_an_error(self, mock_pipeline):
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(
+            ValueError, "exactly one of 'text' or 'messages'"
+        ):
+            generate_speech(
+                "hi", device="cpu", messages=[{"role": "user", "content": "hi"}]
+            )
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_neither_text_nor_messages_is_an_error(self, mock_pipeline):
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(
+            ValueError, "exactly one of 'text' or 'messages'"
+        ):
+            generate_speech(device="cpu")
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_malformed_messages_propagate_the_pipelines_own_error(
+        self, mock_pipeline
+    ):
+        # dw does not itself validate role/content shape - transformers'
+        # Chat wrapper does, and its error is specific enough to act on
+        pipe = MagicMock(
+            side_effect=ValueError(
+                "When passing chat dicts as input, each dict must have a "
+                "'role' and 'content' key."
+            )
+        )
+        mock_pipeline.return_value = pipe
+
+        with self.assertRaisesRegex(ValueError, "'role' and 'content' key"):
+            generate_speech(device="cpu", messages=[{"role": "user"}])
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_messages_on_a_model_with_no_chat_template_propagates_the_error(
+        self, mock_pipeline
+    ):
+        # Bark and other non-chat-templated models have no apply_chat_template
+        # to call; transformers' own failure surfaces rather than dw silently
+        # falling back to treating messages as text
+        pipe = MagicMock(side_effect=ValueError("no chat template is set"))
+        mock_pipeline.return_value = pipe
+
+        with self.assertRaisesRegex(ValueError, "no chat template is set"):
+            generate_speech(
+                device="cpu",
+                model_name=_DEFAULT_MODEL,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
     def test_vits_speaker_id_passes_through_forward_params_unchanged(
         self, mock_pipeline
     ):
@@ -293,5 +360,43 @@ class TestHandleSpeechGeneration(unittest.TestCase):
                 return "cpu"
 
         handler = _COMMAND_REGISTRY["generate_speech"]
-        with self.assertRaisesRegex(ValueError, "generate_speech needs 'text'"):
+        with self.assertRaisesRegex(
+            ValueError, "generate_speech needs exactly one of"
+        ):
             handler(FakeTask(), {"voice_preset": "v2/en_speaker_6"}, {})
+
+    def test_generate_speech_with_both_text_and_messages_is_an_error(self):
+        from dw.tasks.task import _COMMAND_REGISTRY
+
+        class FakeTask:
+            def device_for(self, arguments):
+                return "cpu"
+
+        handler = _COMMAND_REGISTRY["generate_speech"]
+        with self.assertRaisesRegex(
+            ValueError, "generate_speech needs exactly one of"
+        ):
+            handler(
+                FakeTask(),
+                {"text": "hi", "messages": [{"role": "user", "content": "hi"}]},
+                {},
+            )
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_messages_dispatched_through_the_handler_reach_the_pipeline(
+        self, mock_pipeline
+    ):
+        from dw.tasks.task import _COMMAND_REGISTRY
+
+        class FakeTask:
+            def device_for(self, arguments):
+                return "cpu"
+
+        pipe = MagicMock(return_value=spoken())
+        mock_pipeline.return_value = pipe
+
+        handler = _COMMAND_REGISTRY["generate_speech"]
+        messages = [{"role": "user", "content": "hi"}]
+        handler(FakeTask(), {"messages": messages}, {})
+
+        self.assertEqual(pipe.call_args[0][0], messages)

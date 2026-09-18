@@ -1275,7 +1275,8 @@ Speak a line of text with a local text-to-speech model. The result is a waveform
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `text` | Yes | The line to speak |
+| `text` | One of `text`/`messages` | The line to speak |
+| `messages` | One of `text`/`messages` | Chat-templated input for a model such as VibeVoice that takes a conversation rather than a bare string — a list of `{"role": ..., "content": ...}` dicts, passed straight through as the pipeline's `text_inputs` so the model's own chat template applies. A model with no chat template configured (Bark and friends) raises when handed this instead of `text` |
 | `model_name` | No | HuggingFace model ID (default: `suno/bark-small`) |
 | `voice_preset` | No | The speaker, for a model with presets — `v2/en_speaker_0` through `v2/en_speaker_9` for Bark. A model with no processor (a single-voice model such as `facebook/mms-tts-eng`) refuses a `voice_preset` with an error rather than ignoring it |
 | `speaker_embedding` | No | A reference audio file (typically an `asset:` reference) whose voice a SpeechT5 model should speak in. Reduced to an x-vector with speechbrain's `spkrec-xvect-voxceleb` and injected into `forward_params` as `speaker_embeddings`. A model that isn't SpeechT5 refuses it the same way a single-voice model refuses `voice_preset` |

@@ -78,13 +78,20 @@ def _speaker_embedding_tensor(location, device):
     return embedding.squeeze().unsqueeze(0).to(device=device, dtype=torch.float32)
 
 
-def generate_speech(text, device="cpu", **kwargs):
+def generate_speech(text=None, device="cpu", **kwargs):
     """Speak a line of text with a local text-to-speech model.
 
     Args:
-        text: The line to speak.
+        text: The line to speak. Mutually exclusive with messages - exactly
+            one of the two is required.
         device: Target device ("cuda", "mps", "cpu").
         **kwargs:
+            messages: Chat-templated input for a model such as VibeVoice that
+                takes a conversation rather than a bare string - a list of
+                {"role": ..., "content": ...} dicts. Passed straight through
+                as the pipeline's text_inputs, which applies the model's own
+                chat template; a model with no chat template configured (Bark
+                and friends) raises when handed this instead of text.
             model_name: HuggingFace model ID. Defaults to suno/bark-small.
             voice_preset: The speaker to use, for a model that has presets -
                 "v2/en_speaker_6" and friends for Bark. This is a preprocessing
@@ -108,8 +115,18 @@ def generate_speech(text, device="cpu", **kwargs):
         sample rate the model generated it at.
 
     Raises:
-        ValueError: If the model reports no sample rate for what it generated.
+        ValueError: If the model reports no sample rate for what it generated,
+            or if text/messages are both given or neither is.
     """
+    messages = kwargs.get("messages", None)
+    if (text is None) == (messages is None):
+        raise ValueError(
+            "generate_speech needs exactly one of 'text' or 'messages' - "
+            "a plain line to speak, or chat-templated input for a model "
+            "such as VibeVoice"
+        )
+    text_inputs = messages if messages is not None else text
+
     model_name = kwargs.get("model_name", _DEFAULT_MODEL)
     voice_preset = kwargs.get("voice_preset", None)
     speaker_embedding = kwargs.get("speaker_embedding", None)
@@ -155,9 +172,12 @@ def generate_speech(text, device="cpu", **kwargs):
             "speaker_embeddings": _speaker_embedding_tensor(speaker_embedding, device),
         }
 
-    logger.info(f"Speaking: {text[:100]}{'...' if len(text) > 100 else ''}")
+    if messages is not None:
+        logger.info(f"Speaking {len(messages)} chat-templated message(s)")
+    else:
+        logger.info(f"Speaking: {text[:100]}{'...' if len(text) > 100 else ''}")
     output = pipe(
-        text,
+        text_inputs,
         preprocess_params={"voice_preset": voice_preset} if voice_preset else {},
         forward_params=forward_params,
         generate_kwargs=kwargs.get("generate_kwargs") or {},
