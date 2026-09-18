@@ -822,8 +822,11 @@ class Result:
         # result store, so a local-only fit left the artifact's own audio
         # unfitted and a chain built from in-memory shots still drifted even
         # though each shot's own saved file was correct (#197 reopened).
-        if audio is not None and sample_rate is not None and fps and not hasattr(
-            artifact.frames, "cleanup"
+        if (
+            audio is not None
+            and sample_rate is not None
+            and fps
+            and not hasattr(artifact.frames, "cleanup")
         ):
             from .tasks.video_utils import _fit_audio_to_frames
 
@@ -886,8 +889,7 @@ class Result:
 
         logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")
         self._no_headroom_warned = (
-            warn_without_headroom(audio, os.path.basename(output_path))
-            is not None
+            warn_without_headroom(audio, os.path.basename(output_path)) is not None
         )
         encode_video(
             frames_for_encoding(artifact.frames),

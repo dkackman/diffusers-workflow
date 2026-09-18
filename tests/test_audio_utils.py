@@ -367,7 +367,8 @@ class TestBleedJoin:
         f0 = 150.0
         harmonics = [1.0, 0.6, 0.45, 0.3, 0.2, 0.12]
         speech_like = sum(
-            amp * numpy.sin(2 * numpy.pi * f0 * (k + 1) * t + rng.uniform(0, 2 * numpy.pi))
+            amp
+            * numpy.sin(2 * numpy.pi * f0 * (k + 1) * t + rng.uniform(0, 2 * numpy.pi))
             for k, amp in enumerate(harmonics)
         )
         speech_like = speech_like + rng.normal(0, 0.25, n)
@@ -395,9 +396,7 @@ class TestBleedJoin:
         assert "tonal" not in caplog.text
         assert "speech" not in caplog.text
 
-    def test_upsampled_noise_does_not_falsely_warn_when_native_rate_given(
-        self, caplog
-    ):
+    def test_upsampled_noise_does_not_falsely_warn_when_native_rate_given(self, caplog):
         # band-limited interpolation leaves near-silence above the tail's own
         # Nyquist, which used to depress flatness and read as spuriously
         # tonal purely because of the resample - not because of the content
@@ -1077,9 +1076,12 @@ class TestCompressAudio:
 class TestFilterAudio:
     def tone(self, frequency, samples=2000, rate=8000, level=1.0):
         t = numpy.arange(samples) / rate
-        return numpy.sin(2 * numpy.pi * frequency * t).astype(numpy.float32)[
-            numpy.newaxis, :
-        ] * level
+        return (
+            numpy.sin(2 * numpy.pi * frequency * t).astype(numpy.float32)[
+                numpy.newaxis, :
+            ]
+            * level
+        )
 
     def rms(self, waveform):
         # skip the filter's brief settling transient

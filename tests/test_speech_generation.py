@@ -249,8 +249,13 @@ class TestSpeakerEmbeddingTensor(unittest.TestCase):
 
     @patch("dw.tasks.speech_generation.load_audio")
     @patch("dw.tasks.speech_generation.cached_model")
-    def test_output_shape_is_batch_of_one_by_512(self, mock_cached_model, mock_load_audio):
-        mock_load_audio.return_value = (numpy.zeros((1, 16000), dtype=numpy.float32), 16000)
+    def test_output_shape_is_batch_of_one_by_512(
+        self, mock_cached_model, mock_load_audio
+    ):
+        mock_load_audio.return_value = (
+            numpy.zeros((1, 16000), dtype=numpy.float32),
+            16000,
+        )
         encoder = MagicMock()
         # speechbrain's raw encode_batch output: (1, 1, 512)
         encoder.encode_batch.return_value = torch.zeros((1, 1, 512))

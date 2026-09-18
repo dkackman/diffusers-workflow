@@ -9,13 +9,17 @@ from dw.tasks.select import select
 
 class TestSelect:
     def test_argmax_returns_the_highest_scoring_candidate(self):
-        result = select(candidates=["a", "b", "c"], scores=[0.1, 0.9, 0.5], rule="argmax")
+        result = select(
+            candidates=["a", "b", "c"], scores=[0.1, 0.9, 0.5], rule="argmax"
+        )
         assert result.value == "b"
         assert result.position == 1
         assert result.score == 0.9
 
     def test_argmin_returns_the_lowest_scoring_candidate(self):
-        result = select(candidates=["a", "b", "c"], scores=[0.1, 0.9, 0.5], rule="argmin")
+        result = select(
+            candidates=["a", "b", "c"], scores=[0.1, 0.9, 0.5], rule="argmin"
+        )
         assert result.value == "a"
         assert result.position == 0
         assert result.score == 0.1
@@ -43,13 +47,17 @@ class TestSelect:
         assert result.score == 0.1
 
     def test_index_returns_the_candidate_at_that_position(self):
-        result = select(candidates=["a", "b", "c"], scores=[0.1, 0.9, 0.5], rule="index", index=2)
+        result = select(
+            candidates=["a", "b", "c"], scores=[0.1, 0.9, 0.5], rule="index", index=2
+        )
         assert result.value == "c"
         assert result.position == 2
         assert result.score == 0.5
 
     def test_ties_go_to_the_first_in_list_order(self):
-        result = select(candidates=["a", "b", "c"], scores=[0.5, 0.9, 0.9], rule="argmax")
+        result = select(
+            candidates=["a", "b", "c"], scores=[0.5, 0.9, 0.9], rule="argmax"
+        )
         assert result.value == "b"
         assert result.position == 1
 
@@ -68,11 +76,21 @@ class TestSelect:
 
     def test_first_above_with_nothing_passing_is_an_error(self):
         with pytest.raises(ValueError, match="no candidate"):
-            select(candidates=["a", "b"], scores=[0.1, 0.2], rule="first_above", threshold=0.5)
+            select(
+                candidates=["a", "b"],
+                scores=[0.1, 0.2],
+                rule="first_above",
+                threshold=0.5,
+            )
 
     def test_first_below_with_nothing_passing_is_an_error(self):
         with pytest.raises(ValueError, match="no candidate"):
-            select(candidates=["a", "b"], scores=[0.6, 0.7], rule="first_below", threshold=0.5)
+            select(
+                candidates=["a", "b"],
+                scores=[0.6, 0.7],
+                rule="first_below",
+                threshold=0.5,
+            )
 
     def test_index_out_of_range_is_an_error(self):
         with pytest.raises(ValueError, match="index 5"):

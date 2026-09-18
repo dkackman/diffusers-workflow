@@ -144,11 +144,7 @@ def _spectral_flatness(waveform, sample_rate=None, native_sample_rate=None):
     upsampled tail is measured the same as it would be at its own rate.
     """
     spectrum = numpy.abs(numpy.fft.rfft(waveform, axis=1))
-    if (
-        sample_rate
-        and native_sample_rate
-        and native_sample_rate < sample_rate
-    ):
+    if sample_rate and native_sample_rate and native_sample_rate < sample_rate:
         native_bins = max(
             2,
             int(spectrum.shape[1] * native_sample_rate / sample_rate),
@@ -549,7 +545,9 @@ def gain_audio(
         An AudioTrack holding the whole track with the region's gain
         applied, and the rate it is at
     """
-    start_seconds = _as_number(start_seconds, float, "start_seconds", command="gain_audio")
+    start_seconds = _as_number(
+        start_seconds, float, "start_seconds", command="gain_audio"
+    )
     duration_seconds = _as_number(
         duration_seconds, float, "duration_seconds", command="gain_audio"
     )
@@ -1231,7 +1229,13 @@ _ENVELOPE_FLOOR_LINEAR = 10.0 ** (_ENVELOPE_FLOOR_DBFS / 20.0)
 
 
 def compress_audio(
-    audio, threshold_dbfs, ratio=4.0, attack_ms=10.0, release_ms=100.0, mode="compress", sample_rate=None
+    audio,
+    threshold_dbfs,
+    ratio=4.0,
+    attack_ms=10.0,
+    release_ms=100.0,
+    mode="compress",
+    sample_rate=None,
 ):
     """Task command: shape a track's dynamics with an envelope-follower.
 
@@ -1280,9 +1284,7 @@ def compress_audio(
         return _as_track(waveform, sample_rate, "compress_audio")
 
     envelope = _follow_envelope(waveform, sample_rate, attack_ms, release_ms)
-    envelope_dbfs = 20.0 * numpy.log10(
-        numpy.maximum(envelope, _ENVELOPE_FLOOR_LINEAR)
-    )
+    envelope_dbfs = 20.0 * numpy.log10(numpy.maximum(envelope, _ENVELOPE_FLOOR_LINEAR))
 
     if mode == "gate":
         past_threshold = numpy.maximum(0.0, threshold_dbfs - envelope_dbfs)

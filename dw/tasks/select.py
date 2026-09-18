@@ -106,4 +106,6 @@ def select(candidates, scores, rule, threshold=None, index=None):
         raise ValueError(f"select: unknown rule: {rule!r}")
 
     logger.debug(f"select: rule={rule} chose position {position}")
-    return Selected(value=candidates[position], position=position, score=parsed_scores[position])
+    return Selected(
+        value=candidates[position], position=position, score=parsed_scores[position]
+    )

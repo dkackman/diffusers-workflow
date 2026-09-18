@@ -64,9 +64,7 @@ class TestSelectErrors(unittest.TestCase):
 
     def test_non_threshold_rule_with_threshold_is_an_error(self):
         definition = {
-            "steps": [
-                _step(rule="argmax", candidates=["a"], scores=[1], threshold=0.5)
-            ]
+            "steps": [_step(rule="argmax", candidates=["a"], scores=[1], threshold=0.5)]
         }
 
         errors = select_errors(definition, source_indices=[0])
@@ -103,9 +101,7 @@ class TestSelectErrors(unittest.TestCase):
 
     def test_candidates_gather_scores_plain_list_is_an_error(self):
         definition = {
-            "steps": [
-                _step(rule="argmax", candidates="gather:still", scores=[1, 2])
-            ]
+            "steps": [_step(rule="argmax", candidates="gather:still", scores=[1, 2])]
         }
 
         errors = select_errors(definition, source_indices=[0])

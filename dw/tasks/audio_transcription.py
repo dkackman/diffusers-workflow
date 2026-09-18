@@ -59,9 +59,9 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
     waveform, waveform_rate = _waveform_and_rate(audio, sample_rate, "transcribe_audio")
     mono = _downmixed_mono(waveform)
     if waveform_rate != _ASR_SAMPLE_RATE:
-        mono = resample_waveform(
-            mono.reshape(1, -1), waveform_rate, _ASR_SAMPLE_RATE
-        )[0]
+        mono = resample_waveform(mono.reshape(1, -1), waveform_rate, _ASR_SAMPLE_RATE)[
+            0
+        ]
 
     model_name = kwargs.get("model_name", _DEFAULT_ASR_MODEL)
     dtype = preferred_task_dtype(device)
@@ -80,7 +80,9 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
         ("transcribe_audio", model_name, str(device), str(dtype)), load_pipe
     )
 
-    result = pipe({"raw": mono.astype(numpy.float32), "sampling_rate": _ASR_SAMPLE_RATE})
+    result = pipe(
+        {"raw": mono.astype(numpy.float32), "sampling_rate": _ASR_SAMPLE_RATE}
+    )
     text = result["text"].strip()
     logger.info(f"Transcript: {text[:100]}{'...' if len(text) > 100 else ''}")
     return text

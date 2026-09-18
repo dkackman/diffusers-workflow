@@ -902,7 +902,9 @@ class TestSaveAudio:
             finally:
                 deactivate_context(token)
 
-            assert [e for e in events if e.get("kind") == "rate_override_mismatch"] == []
+            assert [
+                e for e in events if e.get("kind") == "rate_override_mismatch"
+            ] == []
 
     def test_a_declared_rate_with_no_carried_rate_is_not_a_warning(self):
         # A generated artifact (e.g. a modular pipeline's dict output) carries
@@ -921,7 +923,9 @@ class TestSaveAudio:
             finally:
                 deactivate_context(token)
 
-            assert [e for e in events if e.get("kind") == "rate_override_mismatch"] == []
+            assert [
+                e for e in events if e.get("kind") == "rate_override_mismatch"
+            ] == []
 
     def test_a_batch_of_tracks_each_save_at_the_carried_rate(self):
         # Each item of a batched .audios is its own AudioTrack, so each is saved

@@ -238,7 +238,9 @@ class TestUploadInlineContent:
         body = b"riff-bytes"
 
         result = upload_asset(
-            client, content=base64.b64encode(body).decode("ascii"), asset_name="cast/priya-voice.wav"
+            client,
+            content=base64.b64encode(body).decode("ascii"),
+            asset_name="cast/priya-voice.wav",
         )
 
         assert seen["body"] == body
@@ -269,7 +271,9 @@ class TestUploadInlineContent:
         client, seen = recording()
         with pytest.raises(DwApiError, match="not a kind"):
             upload_asset(
-                client, content=base64.b64encode(b"x").decode("ascii"), asset_name="script.py"
+                client,
+                content=base64.b64encode(b"x").decode("ascii"),
+                asset_name="script.py",
             )
         assert "body" not in seen
 
@@ -281,7 +285,9 @@ class TestUploadInlineContent:
 
     def test_content_over_the_inline_limit_is_refused(self):
         client, seen = recording()
-        oversized = base64.b64encode(b"0" * (MAX_INLINE_UPLOAD_BYTES + 1)).decode("ascii")
+        oversized = base64.b64encode(b"0" * (MAX_INLINE_UPLOAD_BYTES + 1)).decode(
+            "ascii"
+        )
         with pytest.raises(DwApiError, match="inline upload"):
             upload_asset(client, content=oversized, asset_name="x.png")
         assert "body" not in seen

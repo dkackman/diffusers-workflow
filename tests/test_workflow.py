@@ -801,7 +801,11 @@ def test_run_records_the_selected_field_on_manifest_and_step_end(tmp_path):
     definition = _for_each_workflow()
     definition["steps"][1]["task"] = {
         "command": "select",
-        "arguments": {"candidates": "gather:shot", "scores": [0.1, 0.9], "rule": "argmax"},
+        "arguments": {
+            "candidates": "gather:shot",
+            "scores": [0.1, 0.9],
+            "rule": "argmax",
+        },
     }
     workflow = _workflow_from(definition, tmp_path)
 

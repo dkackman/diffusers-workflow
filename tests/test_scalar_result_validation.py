@@ -62,7 +62,13 @@ class TestScalarResultErrors(unittest.TestCase):
 
     def test_unknown_command_is_ignored(self):
         definition = {
-            "steps": [_step("mystery", "not_a_real_command", result={"content_type": "image/png"})]
+            "steps": [
+                _step(
+                    "mystery",
+                    "not_a_real_command",
+                    result={"content_type": "image/png"},
+                )
+            ]
         }
 
         errors = scalar_result_errors(definition, source_indices=[0])

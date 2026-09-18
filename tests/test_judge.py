@@ -26,7 +26,9 @@ class TestJudge(unittest.TestCase):
     def test_parses_a_clean_number(self, mock_pipeline):
         self._mock_pipe(mock_pipeline, "7")
 
-        score = judge(self._make_image(), rubric="Sharpest image", scale=[0, 10], device="cpu")
+        score = judge(
+            self._make_image(), rubric="Sharpest image", scale=[0, 10], device="cpu"
+        )
 
         self.assertEqual(score, 7.0)
 
@@ -34,7 +36,9 @@ class TestJudge(unittest.TestCase):
     def test_parses_a_number_in_prose(self, mock_pipeline):
         self._mock_pipe(mock_pipeline, "I would rate this a 8 out of 10 for sharpness.")
 
-        score = judge(self._make_image(), rubric="Sharpest image", scale=[0, 10], device="cpu")
+        score = judge(
+            self._make_image(), rubric="Sharpest image", scale=[0, 10], device="cpu"
+        )
 
         self.assertEqual(score, 8.0)
 
@@ -43,7 +47,9 @@ class TestJudge(unittest.TestCase):
         self._mock_pipe(mock_pipeline, "I cannot judge this image.")
 
         with self.assertRaises(ValueError) as ctx:
-            judge(self._make_image(), rubric="Sharpest image", scale=[0, 10], device="cpu")
+            judge(
+                self._make_image(), rubric="Sharpest image", scale=[0, 10], device="cpu"
+            )
 
         message = str(ctx.exception)
         self.assertIn("judge", message)

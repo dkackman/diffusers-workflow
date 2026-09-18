@@ -47,9 +47,7 @@ class TestTranscribeAudio(unittest.TestCase):
 
         transcribe_audio(waveform, device="cpu", sample_rate=rate)
 
-        self.assertEqual(
-            mock_pipeline.call_args[0][0], "automatic-speech-recognition"
-        )
+        self.assertEqual(mock_pipeline.call_args[0][0], "automatic-speech-recognition")
         self.assertEqual(mock_pipeline.call_args[1]["model"], _DEFAULT_ASR_MODEL)
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")

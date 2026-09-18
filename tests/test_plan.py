@@ -491,7 +491,12 @@ class TestSubWorkflowEstimate:
 class TestDownloadsRequired:
     def test_a_repo_not_in_the_cache_is_required(self, plan):
         assert plan()["downloads_required"] == [
-            {"repo": "org/still-model", "gb": None, "gated": None, "access_blocked": None}
+            {
+                "repo": "org/still-model",
+                "gb": None,
+                "gated": None,
+                "access_blocked": None,
+            }
         ]
 
     def test_a_cached_repo_is_not(self, plan, monkeypatch):
@@ -609,7 +614,12 @@ class TestDownloadsRequired:
         monkeypatch.setattr(dw.plan, "model_info", fake_model_info)
         answer = plan(lookup_sizes=True)["downloads_required"]
         assert answer == [
-            {"repo": "org/still-model", "gb": 2.5, "gated": False, "access_blocked": False}
+            {
+                "repo": "org/still-model",
+                "gb": 2.5,
+                "gated": False,
+                "access_blocked": False,
+            }
         ]
         assert calls[0][0] == "org/still-model"
         assert calls[0][1]["files_metadata"] is True
@@ -628,10 +638,17 @@ class TestDownloadsRequired:
         monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
         monkeypatch.setattr(dw.plan, "get_hf_file_metadata", lambda url, **k: object())
         assert plan(lookup_sizes=True)["downloads_required"] == [
-            {"repo": "org/still-model", "gb": None, "gated": "manual", "access_blocked": False}
+            {
+                "repo": "org/still-model",
+                "gb": None,
+                "gated": "manual",
+                "access_blocked": False,
+            }
         ]
 
-    def test_a_gated_repo_this_token_lacks_access_to_is_blocked(self, plan, monkeypatch):
+    def test_a_gated_repo_this_token_lacks_access_to_is_blocked(
+        self, plan, monkeypatch
+    ):
         import httpx
         import dw.plan
         from huggingface_hub.utils import GatedRepoError
@@ -651,7 +668,12 @@ class TestDownloadsRequired:
         monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
         monkeypatch.setattr(dw.plan, "get_hf_file_metadata", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
-            {"repo": "org/still-model", "gb": None, "gated": "manual", "access_blocked": True}
+            {
+                "repo": "org/still-model",
+                "gb": None,
+                "gated": "manual",
+                "access_blocked": True,
+            }
         ]
 
     def test_a_gated_repo_model_info_itself_refuses_is_blocked(self, plan, monkeypatch):
@@ -666,7 +688,12 @@ class TestDownloadsRequired:
 
         monkeypatch.setattr(dw.plan, "model_info", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
-            {"repo": "org/still-model", "gb": None, "gated": True, "access_blocked": True}
+            {
+                "repo": "org/still-model",
+                "gb": None,
+                "gated": True,
+                "access_blocked": True,
+            }
         ]
 
     def test_a_gated_repo_with_no_probeable_file_is_unknown(self, plan, monkeypatch):
@@ -678,10 +705,17 @@ class TestDownloadsRequired:
 
         monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
         assert plan(lookup_sizes=True)["downloads_required"] == [
-            {"repo": "org/still-model", "gb": None, "gated": "auto", "access_blocked": None}
+            {
+                "repo": "org/still-model",
+                "gb": None,
+                "gated": "auto",
+                "access_blocked": None,
+            }
         ]
 
-    def test_a_gate_probe_failing_for_an_unrelated_reason_is_unknown(self, plan, monkeypatch):
+    def test_a_gate_probe_failing_for_an_unrelated_reason_is_unknown(
+        self, plan, monkeypatch
+    ):
         import dw.plan
 
         class Sibling:
@@ -697,7 +731,12 @@ class TestDownloadsRequired:
         monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
         monkeypatch.setattr(dw.plan, "get_hf_file_metadata", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
-            {"repo": "org/still-model", "gb": None, "gated": "auto", "access_blocked": None}
+            {
+                "repo": "org/still-model",
+                "gb": None,
+                "gated": "auto",
+                "access_blocked": None,
+            }
         ]
 
     def test_a_hub_failure_is_a_null_size(self, plan, monkeypatch):
@@ -708,7 +747,12 @@ class TestDownloadsRequired:
 
         monkeypatch.setattr(dw.plan, "model_info", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
-            {"repo": "org/still-model", "gb": None, "gated": None, "access_blocked": None}
+            {
+                "repo": "org/still-model",
+                "gb": None,
+                "gated": None,
+                "access_blocked": None,
+            }
         ]
 
     def test_lookup_sizes_false_never_calls_the_hub(self, plan, monkeypatch):
@@ -724,8 +768,18 @@ class TestDownloadsRequired:
 class TestGateWarnings:
     def test_a_blocked_repo_gets_a_warning(self):
         required = [
-            {"repo": "org/free-model", "gb": 1.0, "gated": False, "access_blocked": False},
-            {"repo": "org/gated-model", "gb": None, "gated": True, "access_blocked": True},
+            {
+                "repo": "org/free-model",
+                "gb": 1.0,
+                "gated": False,
+                "access_blocked": False,
+            },
+            {
+                "repo": "org/gated-model",
+                "gb": None,
+                "gated": True,
+                "access_blocked": True,
+            },
         ]
         warnings = gate_warnings(required)
         assert len(warnings) == 1
@@ -734,12 +788,19 @@ class TestGateWarnings:
 
     def test_an_accepted_gate_gets_no_warning(self):
         required = [
-            {"repo": "org/manual-gate", "gb": 1.0, "gated": "manual", "access_blocked": False}
+            {
+                "repo": "org/manual-gate",
+                "gb": 1.0,
+                "gated": "manual",
+                "access_blocked": False,
+            }
         ]
         assert gate_warnings(required) == []
 
     def test_unknown_gate_status_gets_no_warning(self):
-        required = [{"repo": "org/offline", "gb": None, "gated": None, "access_blocked": None}]
+        required = [
+            {"repo": "org/offline", "gb": None, "gated": None, "access_blocked": None}
+        ]
         assert gate_warnings(required) == []
 
 

@@ -466,7 +466,13 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
         required.append(entry)
     for url in urls:
         required.append(
-            {"repo": None, "url": url, "gb": None, "gated": None, "access_blocked": None}
+            {
+                "repo": None,
+                "url": url,
+                "gb": None,
+                "gated": None,
+                "access_blocked": None,
+            }
         )
     return required
 
@@ -573,7 +579,9 @@ def _probe_gate_blocked(name, siblings):
     (#186). `None` when there is no file to probe or the probe fails for a
     reason other than the gate, since that is "unknown", not "not blocked".
     """
-    filename = next((s.rfilename for s in siblings if getattr(s, "rfilename", None)), None)
+    filename = next(
+        (s.rfilename for s in siblings if getattr(s, "rfilename", None)), None
+    )
     if filename is None:
         return None
     try:
