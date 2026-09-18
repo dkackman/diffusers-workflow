@@ -829,8 +829,11 @@ rough low/mid/high spectral balance, the numbers a `compress_audio` or
 
 Returns a dict, not a track: `peak_dbfs`, `rms_dbfs`, `crest_factor_db`,
 `low_dbfs` (20-250 Hz), `mid_dbfs` (250-4000 Hz), `high_dbfs` (4000-20000 Hz).
-A silent track, or a band with no content at the track's sample rate, reads as
-`null` rather than `-inf`.
+The three bands are each a share of the track's total power on the same
+scale as `rms_dbfs` (their powers sum to it), so the loudest band sits near
+`rms_dbfs` rather than tens of dB under it - comparable to `compress_audio`'s
+`threshold_dbfs`. A silent track, or a band with no content at the track's
+sample rate, reads as `null` rather than `-inf`.
 
 ## Data Gathering
 

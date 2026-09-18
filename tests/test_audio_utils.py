@@ -1181,6 +1181,16 @@ class TestAnalyzeAudio:
 
         assert result["low_dbfs"] > result["high_dbfs"]
 
+    def test_a_tones_only_band_sits_on_the_same_scale_as_rms(self):
+        # #211: bands are shares of the same power that gives rms_dbfs, so
+        # a tone with all its energy in one band should read that band at
+        # (not tens of dB under) rms_dbfs.
+        from dw.tasks.audio_utils import analyze_audio
+
+        result = analyze_audio(self.tone(), sample_rate=8000)
+
+        assert result["low_dbfs"] == pytest.approx(result["rms_dbfs"], abs=0.05)
+
     def test_silence_reads_none_throughout(self):
         from dw.tasks.audio_utils import analyze_audio
 
