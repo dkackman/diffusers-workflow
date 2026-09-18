@@ -797,6 +797,20 @@ def test_run_expands_for_each_and_names_the_members(tmp_path):
     assert names == ["shot@a", "shot@b", "edit"]
 
 
+def test_run_records_the_selected_field_on_manifest_and_step_end(tmp_path):
+    definition = _for_each_workflow()
+    definition["steps"][1]["task"] = {
+        "command": "select",
+        "arguments": {"candidates": "gather:shot", "scores": [0.1, 0.9], "rule": "argmax"},
+    }
+    workflow = _workflow_from(definition, tmp_path)
+
+    workflow.run({})
+
+    entry = next(e for e in workflow.manifest if e["step"] == "edit")
+    assert entry["selected"] == {"position": 1, "entry": "shot@b", "score": 0.9}
+
+
 def test_run_substitutes_the_callers_list(tmp_path):
     workflow = _workflow_from(_for_each_workflow(seed=1), tmp_path)
     workflow.run({"shots": [{"name": "only", "text": "X"}]})

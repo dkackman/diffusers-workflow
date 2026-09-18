@@ -352,6 +352,10 @@ class Result:
         self.result_list = []
         self.metadata = None
         self.saved_files = []
+        # Set when a select step's Selected wrapper flows through
+        # add_result - the winning position/score, replayable in the
+        # manifest and step_end alongside the unwrapped value (#119)
+        self.selected = None
         # Whether the file currently being written already drew a headroom
         # warning from the waveform it was handed, so the written-level
         # check does not say the same thing twice (#161)
@@ -372,6 +376,12 @@ class Result:
         Args:
             result: Single result or list of results to store
         """
+        from .tasks.select import Selected
+
+        if isinstance(result, Selected):
+            self.selected = {"position": result.position, "score": result.score}
+            result = result.value
+
         if isinstance(result, list):
             logger.debug(f"Adding {len(result)} results to result list")
             self.result_list.extend(result)

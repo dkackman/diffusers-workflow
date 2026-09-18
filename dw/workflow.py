@@ -13,6 +13,7 @@ from .arguments import (
     realize_constants,
     fetch_constant,
     is_constant_reference,
+    PREVIOUS_RESULT_PREFIX,
 )
 from .events import (
     RunContext,
@@ -33,6 +34,7 @@ from .adapter_compatibility import adapter_errors, warn_adapters
 from .elision import elide_definition, warn_elided
 from .introspection import task_signature_errors
 from .task_domains import task_argument_errors
+from .select_validation import select_errors
 from .variable_constraints import (
     apply_constraints,
     constraint_errors,
@@ -242,6 +244,31 @@ def _allocated_mb():
     except Exception:  # a progress figure is never worth failing a run over
         return None
     return stats["allocated_mb"] if stats["available"] else None
+
+
+def selected_field(step_data, selected):
+    """The manifest/step_end 'selected' block for a step's Result.selected.
+
+    Carries the winning position and score always; adds 'entry' - the
+    for_each member name ('shot@b') - only when the step's 'candidates'
+    argument was built from a gather: reference, recoverable at this point
+    only because step_data still holds the post-for_each-expansion,
+    pre-argument-resolution reference strings (dw/for_each.py's _gather()).
+    """
+    if selected is None:
+        return None
+
+    field = dict(selected)
+    candidates = step_data.get("task", {}).get("arguments", {}).get("candidates")
+    if isinstance(candidates, list):
+        position = selected.get("position")
+        if isinstance(position, int) and 0 <= position < len(candidates):
+            candidate = candidates[position]
+            if isinstance(candidate, str) and candidate.startswith(
+                PREVIOUS_RESULT_PREFIX
+            ):
+                field["entry"] = candidate[len(PREVIOUS_RESULT_PREFIX) :]
+    return field
 
 
 def release_unreferenced_results(results, remaining_refs):
@@ -636,6 +663,12 @@ class Workflow:
             # sample rate a silent fallback to 44100 (dw/task_domains.py,
             # #139, #140)
             + task_argument_errors(expanded, source_indices)
+            # A select step whose rule is misspelled, or whose
+            # threshold/index does not match its rule, validated clean and
+            # died on select's own run-time ValueError after the fan-out
+            # ahead of it had already generated (dw/select_validation.py,
+            # docs/proposals/score-and-select.md)
+            + select_errors(expanded, source_indices)
             # A required task argument left unset validated as `valid: true`
             # and then failed the job on Python's own signature error, which
             # is the one mistake a free pre-flight most obviously exists for
@@ -1291,6 +1324,7 @@ class Workflow:
                 # republished, so nothing downstream (job_for_file, the
                 # gallery) credits this run with writing them
                 subfolder = step_subfolder(step_data)
+                selected = selected_field(step_data, result.selected)
                 manifest_entry = {
                     "step": step.name,
                     "files": saved_files,
@@ -1298,6 +1332,8 @@ class Workflow:
                 }
                 if reused:
                     manifest_entry["reused"] = True
+                if selected is not None:
+                    manifest_entry["selected"] = selected
                 # No entry at all for a step the parent saves for: the
                 # parent's own entry names the same files, under the step
                 # name the caller wrote (#92)
@@ -1309,6 +1345,8 @@ class Workflow:
                 step_end_data = {"files": saved_files, "subfolder": subfolder}
                 if reused:
                     step_end_data["reused"] = True
+                if selected is not None:
+                    step_end_data["selected"] = selected
                 run_context.emit(
                     "step_end",
                     workflow=workflow_id,
