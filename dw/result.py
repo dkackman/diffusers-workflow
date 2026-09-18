@@ -578,6 +578,19 @@ class Result:
             logger.warning(f"Skipping None artifact for {file_base_name}")
             return []
 
+        if isinstance(artifact, (int, float, bool)):
+            # Static validation (dw/scalar_result_validation.py, #212) refuses
+            # a 'result' block on a command declared to return a scalar, but
+            # a command name reached only through a 'variable:' is literal
+            # only at run time and so invisible to that check - this is the
+            # same refusal for the one path that can still get here, naming
+            # the value rather than failing inside soundfile/PIL/open() with
+            # a bare TypeError after the step's own work is already done
+            raise ValueError(
+                f"'{file_base_name}' is a {type(artifact).__name__} ({artifact!r}), "
+                "not an artifact - a 'result' block cannot save it"
+            )
+
         if isinstance(artifact, dict):
             # Recursively save dictionary items
             logger.debug(

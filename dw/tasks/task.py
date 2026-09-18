@@ -33,7 +33,11 @@ _COMMAND_INFO: Dict[str, dict] = {}
 
 
 def register_command(
-    command_name: str, implementation=None, provided=(), consumes_device=False
+    command_name: str,
+    implementation=None,
+    provided=(),
+    consumes_device=False,
+    returns="artifact",
 ):
     """
     Decorator to register a command handler function.
@@ -53,6 +57,13 @@ def register_command(
             reach the implementation as an unexpected keyword argument (#185).
             Some commands (e.g. gather_inputs) receive a non-dict argument
             value, which never carries a device to drop
+        returns: "artifact" (the default - an image/video/audio/frames object
+            `Result.save` knows how to write) or "scalar" for a command whose
+            return value is a bare number with no file to save (`judge`). A
+            `result` block on a "scalar" command is refused in
+            `validation_errors` (dw/scalar_result_validation.py, #212) rather
+            than reaching `save_artifact` at run time, where a float has
+            nothing left identifying which command produced it
 
     Returns:
         Decorator function
@@ -73,6 +84,7 @@ def register_command(
             "kind": "command",
             "implementation": implementation,
             "provided": tuple(provided),
+            "returns": returns,
         }
         logger.debug(f"Registered command handler: {command_name}")
         return func
@@ -83,8 +95,11 @@ def register_command(
 def task_command_info(command_name):
     """Where a task command's argument schema lives: a dict with 'kind'
     ('command', 'image_processor' or 'video_processor'), 'implementation'
-    (dotted path or None for free-form), and 'provided'. Raises ValueError
-    for a name that is not a task command at all."""
+    (dotted path or None for free-form), 'provided', and 'returns'
+    ('artifact', the default, or 'scalar' for a bare-number command like
+    `judge` - missing entirely for an image/video processor, which is
+    always artifact-shaped). Raises ValueError for a name that is not a
+    task command at all."""
     info = _COMMAND_INFO.get(command_name)
     if info is not None:
         return info
@@ -450,6 +465,7 @@ def _handle_image_to_text(task, arguments, previous_pipelines):
     "judge",
     implementation="dw.tasks.judge.judge",
     consumes_device=True,
+    returns="scalar",
 )
 def _handle_judge(task, arguments, previous_pipelines):
     """Score an image against a rubric with a vision-language model"""
