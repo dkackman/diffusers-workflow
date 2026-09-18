@@ -1421,8 +1421,10 @@ def analyze_audio(audio, sample_rate=None):
 
     Returns:
         A dict: peak_dbfs, rms_dbfs, crest_factor_db (peak minus rms), and
-        a rough low_dbfs/mid_dbfs/high_dbfs spectral-balance reading. Any
-        value is None where a silent track leaves it undefined.
+        a rough low_dbfs/mid_dbfs/high_dbfs spectral-balance reading whose
+        three bands are shares of the same power that gives rms_dbfs, so
+        they sit on that scale rather than tens of dB under it. Any value
+        is None where a silent track leaves it undefined.
     """
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "analyze_audio")
     check_arguments("analyze_audio", sample_rate=sample_rate)
@@ -1444,20 +1446,31 @@ def analyze_audio(audio, sample_rate=None):
 def _spectral_balance(waveform, sample_rate):
     """A rough low/mid/high energy reading in dBFS, from one FFT of the
     channel-averaged track - not a spectrogram, just enough to say whether
-    a track leans bright or boomy."""
+    a track leans bright or boomy.
+
+    Each band's power is a share of the same Parseval sum that gives
+    rms_dbfs (mean(x**2)): a one-sided rfft bin's power is doubled to
+    account for its mirrored negative-frequency twin, except the DC and
+    (for even n) Nyquist bins, which have no twin. Summed over the full
+    spectrum this equals mean(x**2) exactly, so a *_dbfs band sits on the
+    same scale as rms_dbfs rather than ~40 dB under it (#211)."""
     if waveform.size == 0:
         return {name: None for name in _SPECTRAL_BANDS}
     mono = waveform.mean(axis=0)
     n = mono.shape[0]
     spectrum = numpy.fft.rfft(mono)
-    amplitude = numpy.abs(spectrum) * (2.0 / n)
+    power = numpy.square(numpy.abs(spectrum), dtype=numpy.float64) / (n * n)
+    if n % 2 == 0:
+        power[1:-1] *= 2.0
+    else:
+        power[1:] *= 2.0
     freqs = numpy.fft.rfftfreq(n, d=1.0 / sample_rate)
     result = {}
     for name, (low, high) in _SPECTRAL_BANDS.items():
-        band = amplitude[(freqs >= low) & (freqs < min(high, sample_rate / 2.0))]
+        band = power[(freqs >= low) & (freqs < min(high, sample_rate / 2.0))]
         if band.size == 0:
             result[name] = None
             continue
-        energy = float(numpy.sqrt(numpy.mean(numpy.square(band, dtype=numpy.float64))))
-        result[name] = 20.0 * numpy.log10(energy) if energy > 0.0 else None
+        energy = float(numpy.sum(band))
+        result[name] = 10.0 * numpy.log10(energy) if energy > 0.0 else None
     return result
