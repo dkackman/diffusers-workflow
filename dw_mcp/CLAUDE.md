@@ -11,7 +11,16 @@ It covers the REST surface except the SSE event stream (whose polling twin
 assets), and the SPA's static mount. `POST /api/uploads` *is* covered, by `upload_asset`: an
 agent that can only name assets already on the box authors workflows it
 cannot supply inputs for, so the tool reads a file on this machine and pushes
-its bytes, returning the `asset:` reference rather than a path (`assets.py`). A session works in one of the server's workspaces: `--workspace` /
+its bytes, returning the `asset:` reference rather than a path (`assets.py`).
+`upload_asset` also takes `content` (base64) instead of `file_path`, for an
+agent with no filesystem in common with a remote `dw.serve --mcp` endpoint -
+the bytes travel inline in the call, capped at 4MB rather than `file_path`'s
+200MB since they compete with the caller's own context budget (#203).
+`get_output_audio` is `get_output_image`'s sibling for audio (`media.py`,
+#204): no downscale exists for a waveform, so a clip over the same 4MB
+budget is refused outright rather than cut short; video has neither, since
+the installed MCP SDK has no `VideoContent` type to return it as. A session
+works in one of the server's workspaces: `--workspace` /
 `DW_MCP_WORKSPACE` (a *name* on the server, not a directory - `DW_WORKSPACE`
 means something else to the engine), `use_workspace` to switch, and
 `DwClient._scoped` adds the selector to every request's query string so no

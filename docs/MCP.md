@@ -234,6 +234,7 @@ when no single workflow covers it.
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `get_output_image(name, max_dimension=768, workspace=None)` | `name`, `max_dimension`, `workspace` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
+| `get_output_audio(name, workspace=None)` | `name`, `workspace` | Listen to a generated audio output, as base64. Unlike `get_output_image` there is no downscale - a clip whose base64 size would exceed the same 4MB budget is refused outright rather than cut or transcoded, since a truncated clip is a different, misleading answer rather than a smaller correct one (#204). Use `download_output` or the gallery `url` for a longer file, and `get_gallery_metadata` for its duration and sample rate without fetching the bytes at all. `workspace` names the workspace for this one call without switching the session to it |
 | `get_output_text(name, max_characters=20000, workspace=None)` | `name`, `max_characters`, `workspace` | Read a text output — a prompt enhancement, or any step whose result is `text/plain` or JSON. Reports the file's real length and whether it was truncated. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
 | `download_output(name, destination=None, overwrite=False, workspace=None)` | `name`, `destination`, `overwrite`, `workspace` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Over a `dw.serve --mcp` endpoint the file lands on the server, so the destination is confined to that workspace and a relative one is joined onto it. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context. Writes on the machine running the MCP server - over `dw.serve --mcp` that is the GPU box. A write that fails there (a path that exists only on the client, for instance) comes back as an error naming the server-side write and the client-side alternatives, not as an anonymous tool failure. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
 | `delete_output(name, workspace=None)` | `name`, `workspace` | Permanently remove one generated file from the output directory. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
@@ -256,7 +257,7 @@ The session starts in `default` and stays there unless it is told otherwise.
 | `delete_workspace(name, acknowledged_cost=False)` | `name`, `acknowledged_cost` | Permanently delete a workspace and everything in it. Refuses without the acknowledgement, reporting what it would remove |
 | `list_assets()` | — | The input media on the server, each with the `asset:` reference a workflow argument carries. Look here before asking for a file - what a workflow needs may already be there. `libraries` names the roots searched and which are writable; `shadowed` lists names a nearer library hides |
 | `keep_output(name, asset_name=None, overwrite=False, shared=False, workspace=None)` | `name`, optional `asset_name`, `overwrite`, `shared`, `workspace` | Keep a generated file as an input asset under a stable `asset:` name, so a later workflow can rely on it. The copy happens on the server: nothing is downloaded or re-uploaded. `asset_name` may name a folder and takes the kept file's extension when it has none; `shared=true` keeps it in the library every workspace shares, which is where a recurring cast belongs. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
-| `upload_asset(file_path, asset_name=None, shared=False)` | `file_path` | Push a local image, video or audio file into the server's asset library and get back its `asset:` reference. The file is read from the machine the MCP server runs on, so this is how an input reaches a dw.serve running somewhere else. `asset_name` stores it under a readable name (`cast/priya-voice.wav`) instead of a random one; `shared=true` puts it in the library every workspace shares |
+| `upload_asset(file_path=None, content=None, asset_name=None, shared=False)` | exactly one of `file_path` or `content` (base64), optional `asset_name`, `shared` | Push an image, video or audio file into the server's asset library and get back its `asset:` reference. `file_path` is read from the machine the MCP server runs on, so this is how an input reaches a dw.serve running somewhere else - but only when the caller shares a filesystem with that machine. `content` is the alternative for an agent that does not: the bytes travel inline, base64-encoded, in the tool call itself, capped at 4MB (well under `file_path`'s 200MB) because inline bytes compete with the calling agent's own context budget rather than being a bulk-transfer path (#203). `asset_name` is required with `content` (there is no file name to infer one from) and, either way, stores it under a readable name (`cast/priya-voice.wav`) instead of a random one; `shared=true` puts it in the library every workspace shares |
 | `delete_asset(name)` | `name` | Permanently remove one file from the asset library, by the name `list_assets` reports. Deletes from whichever library holds it - this workspace's own before the shared one; one from a read-only examples library is refused. Any workflow still carrying that `asset:` reference stops loading |
 | `save_workflow(name, workflow)` | `name`, `workflow` | Save a workflow into the server's writable workflow directory, overwriting any existing workflow of that name there. A name that currently resolves to a read-only source (an examples directory) is not overwritten - the copy lands in the writable directory and shadows it |
 | `delete_workflow(name)` | `name` | Permanently delete a stored workflow |
@@ -451,18 +452,26 @@ default) for any server an MCP client can reach.
   events of a finished job (`MAX_PERSISTED_EVENTS` in the job history store).
   A job that ran before this feature existed returns an empty event list
   with a `note` explaining why.
-- **Images only.** `get_output_image` decodes and returns images; it refuses
-  video and audio outputs. Use `get_gallery_metadata` to inspect other media
-  kinds.
-- **Uploads read the MCP server's disk.** `upload_asset(file_path)` pushes a
-  local file into the asset library, but "local" means the machine `dw-mcp`
-  runs on. Over `dw.serve --mcp` that is the GPU box, so a file sitting on
-  the client's laptop is not reachable that way - put it on the server, or
-  give the workflow a URL (the arguments that take a path take a URL too).
-  On a `--mcp` endpoint `file_path` is also *confined* to the directories the
-  server works in (its workspace, workflows, assets, outputs and prompts), and
-  the refusal comes before the file is looked for, so the tool cannot be used
-  to probe which paths exist on the box (#138).
+- **Images and audio only.** `get_output_image` decodes and returns images,
+  `get_output_audio` audio; both refuse video. Use `get_gallery_metadata` to
+  inspect other media kinds. `get_output_audio` also refuses a clip whose
+  base64 size would exceed its 4MB budget rather than truncating or
+  transcoding it (#204) - there is no `VideoContent` type in the MCP SDK to
+  extend this pattern to video, so a `get_output_video` is a harder,
+  unresolved design question rather than a mechanical port.
+- **Uploads read the MCP server's disk, unless sent inline.**
+  `upload_asset(file_path)` pushes a local file into the asset library, but
+  "local" means the machine `dw-mcp` runs on. Over `dw.serve --mcp` that is
+  the GPU box, so a file sitting on the client's laptop is not reachable that
+  way - put it on the server, give the workflow a URL (the arguments that
+  take a path take a URL too), or use `upload_asset(content=..., asset_name=...)`
+  to send the bytes inline instead, base64-encoded in the call itself, capped
+  at 4MB (#203). On a `--mcp` endpoint `file_path` is also *confined* to the
+  directories the server works in (its workspace, workflows, assets, outputs
+  and prompts), and the refusal comes before the file is looked for, so the
+  tool cannot be used to probe which paths exist on the box (#138); `content`
+  reads no path and is not subject to this confinement, since no file on
+  either machine is ever named.
   `download_output` has the same asymmetry in the other direction: on a
   `--mcp` endpoint it writes on the GPU box, not the client's machine, and is
   confined to the workspace there.
