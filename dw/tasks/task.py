@@ -303,6 +303,15 @@ def _handle_compose_text(task, arguments, previous_pipelines):
     return compose_text(**arguments)
 
 
+@register_command("select", implementation="dw.tasks.select.select")
+def _handle_select(task, arguments, previous_pipelines):
+    """Reduce a list of candidates to one by a deterministic rule"""
+    logger.debug("Selecting")
+    from .select import select
+
+    return select(**arguments)
+
+
 @register_command(
     "format_chat_message", implementation="dw.tasks.format_messages.format_chat_message"
 )
@@ -435,6 +444,20 @@ def _handle_image_to_text(task, arguments, previous_pipelines):
     from .image_to_text import image_to_text
 
     return image_to_text(image, device=task.device_for(arguments), **arguments)
+
+
+@register_command(
+    "judge",
+    implementation="dw.tasks.judge.judge",
+    consumes_device=True,
+)
+def _handle_judge(task, arguments, previous_pipelines):
+    """Score an image against a rubric with a vision-language model"""
+    logger.debug("Judging")
+    image = arguments.pop("image")
+    from .judge import judge
+
+    return judge(image, device=task.device_for(arguments), **arguments)
 
 
 @register_command(

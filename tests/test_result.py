@@ -45,6 +45,15 @@ class TestResult:
         result.add_result('"test_string"  ')
         assert result.result_list == ["test_string"]
 
+    def test_add_selected_unwraps_value_and_records_metadata(self):
+        from dw.tasks.select import Selected
+
+        result = Result({})
+        result.add_result(Selected(value="b", position=1, score=0.9))
+
+        assert result.result_list == ["b"]
+        assert result.selected == {"position": 1, "score": 0.9}
+
     def test_get_artifacts_from_simple_list(self):
         result = Result({})
         result.add_result(["item1", "item2"])
