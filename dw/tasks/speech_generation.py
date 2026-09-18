@@ -71,7 +71,11 @@ def _speaker_embedding_tensor(location, device):
 
     with torch.no_grad():
         embedding = encoder.encode_batch(torch.as_tensor(mono).unsqueeze(0))
-    return embedding.squeeze()
+        embedding = torch.nn.functional.normalize(embedding, dim=2)
+    # SpeechT5's generate() wants (batch, 512); the encoder's raw output is
+    # (1, 1, 512), so squeeze collapses it back to (512,) before restoring
+    # the batch dimension the model actually requires
+    return embedding.squeeze().unsqueeze(0).to(device=device, dtype=torch.float32)
 
 
 def generate_speech(text, device="cpu", **kwargs):

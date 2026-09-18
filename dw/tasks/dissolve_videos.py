@@ -57,7 +57,10 @@ def dissolve_videos(
             default; see concat_videos, which has the same pair. Left off, a
             spread wide enough to hear is logged as a warning
         match_levels_dbfs: The level match_levels moves every shot to -
-            defaults to -1 dBFS for "peak" and -20 dBFS for "rms"
+            defaults to -1 dBFS for "peak" and -20 dBFS for "rms". A shot
+            that would clip at the target is held at -0.5 dBFS peak instead,
+            reported as a match_levels_held warning, with a per-shot log
+            event naming the hold
 
     Returns:
         One AudioVideo; its audio is None unless every input carries a track
