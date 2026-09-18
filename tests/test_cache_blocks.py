@@ -10,6 +10,7 @@ import inspect
 import os
 import sys
 
+import diffusers
 import pytest
 import torch
 
@@ -234,11 +235,16 @@ def _state_manager(model):
 
 
 def test_cache_state_needs_a_context():
-    """Without the context, the hook raises - the failure the wrapper prevents."""
+    """Without the context, the hook raises - the failure the wrapper prevents.
+
+    Only the exception type is asserted: the message is diffusers' own private
+    wording (already changed once upstream) and not part of any contract dw
+    relies on.
+    """
 
     manager = _state_manager(_cached_tiny_model())
 
-    with pytest.raises(ValueError, match="No context is set"):
+    with pytest.raises(ValueError):
         manager.get_state()
 
 
@@ -268,7 +274,12 @@ def test_cache_state_does_not_leak_between_runs():
 
 
 def test_cache_context_clears_after_an_error():
-    """An errored run must not strand a context that the next run inherits."""
+    """An errored run must not strand a context that the next run inherits.
+
+    Checked behaviorally (get_state rejects a missing context, same as before
+    any context was ever set) rather than via the state manager's private
+    context attribute, whose name is diffusers' own implementation detail.
+    """
     from dw.pipeline_processors.pipeline import stateful_cache_context
 
     model = _cached_tiny_model()
@@ -278,7 +289,8 @@ def test_cache_context_clears_after_an_error():
         with stateful_cache_context(_FakePipeline(model)):
             raise RuntimeError("boom")
 
-    assert manager._current_context is None
+    with pytest.raises(ValueError):
+        manager.get_state()
 
 
 @pytest.mark.parametrize("transformer", [None, object()])
@@ -330,7 +342,12 @@ class _DualStreamBlock(torch.nn.Module):
         return hidden_states + 1.0, audio_hidden_states + 10.0
 
 
-class _DualStreamModel(torch.nn.Module):
+class _DualStreamModel(torch.nn.Module, diffusers.CacheMixin):
+    """Mixes in CacheMixin so `cache_context` is the same public method
+    dw.pipeline_processors.pipeline.stateful_cache_context calls in production,
+    rather than a test-only stand-in for it.
+    """
+
     def __init__(self, num_blocks=2):
         super().__init__()
         self.transformer_blocks = torch.nn.ModuleList(
@@ -365,25 +382,19 @@ def _register_dual_stream_block(remap):
 def _run_two_steps(model):
     """Drive the model twice - the second step is the one the cache skips.
 
-    The context is set the way CacheMixin.cache_context sets it; the stub model
-    is a bare Module rather than a diffusers model, so it has no such method of
-    its own.
+    Uses the model's own CacheMixin.cache_context, the same public method
+    dw's stateful_cache_context calls in production, rather than reaching into
+    HookRegistry's private context-setting internals directly.
     """
-    from diffusers.hooks import HookRegistry
-
     hidden_states = torch.zeros(1, 6, 4)
     audio_hidden_states = torch.zeros(1, 5, 4)
     encoder_hidden_states = torch.zeros(1, 3, 4)
 
-    registry = HookRegistry.check_if_exists_or_initialize(model)
-    registry._set_context("test")
-    try:
+    with model.cache_context("test"):
         for _ in range(2):
             hidden_states, audio_hidden_states = model(
                 hidden_states, audio_hidden_states, encoder_hidden_states
             )
-    finally:
-        registry._set_context(None)
     return hidden_states, audio_hidden_states
 
 
