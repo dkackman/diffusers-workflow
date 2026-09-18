@@ -948,6 +948,8 @@ def create_app(
                 "unplannable",
                 None,
             )
+        current["workspace"] = workspace.name
+        current["output_dir"] = workspace.outputs
         if current["fingerprint"] != acknowledged.fingerprint:
             refuse(
                 "The run's shape changed since it was acknowledged: the "
@@ -1749,6 +1751,12 @@ def create_app(
             logger.exception("Plan could not be built")
             answer["plan"] = None
         if answer["plan"]:
+            # cached_steps is 0 both when nothing hit and when the probe ran
+            # against the wrong workspace's output root (#184) - echoing
+            # what it was actually probed against turns the second case
+            # from a silent miss into something a caller can read
+            answer["plan"]["workspace"] = workspace.name
+            answer["plan"]["output_dir"] = workspace.outputs
             answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
         return answer
 
