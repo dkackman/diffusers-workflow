@@ -28,6 +28,18 @@ def _is_gather(value):
     return isinstance(value, str) and value.startswith("gather:")
 
 
+def _is_expanded_gather(value):
+    """A gather: reference after for_each expansion has replaced it with the
+    list of previous_result: references it drew from - the only form
+    select_errors ever actually sees once validation_errors expands the
+    definition before calling it."""
+    return (
+        isinstance(value, list)
+        and len(value) > 0
+        and all(isinstance(v, str) and v.startswith("previous_result:") for v in value)
+    )
+
+
 def select_errors(workflow_definition, source_indices=None):
     """Every select step whose arguments cannot be right, as [{path, message}]."""
     steps = workflow_definition.get("steps")
@@ -91,5 +103,13 @@ def select_errors(workflow_definition, source_indices=None):
                     "'gather:' references or both plain lists, got "
                     f"candidates={candidates!r} scores={scores!r}",
                 )
+            elif _is_expanded_gather(candidates) and _is_expanded_gather(scores):
+                if len(candidates) != len(scores):
+                    add(
+                        "scores",
+                        "select: 'candidates' and 'scores' gather from "
+                        f"for_each groups of different sizes: candidates has "
+                        f"{len(candidates)} entries, scores has {len(scores)}",
+                    )
 
     return errors
