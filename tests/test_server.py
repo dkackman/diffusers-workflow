@@ -3793,6 +3793,9 @@ EMPTY_PLAN = {
     "downloads_required": [],
     "estimate": None,
 }
+# The route adds these to whatever build_plan() returns - the workspace the
+# plan (and any cache probe inside it) actually ran against (#184)
+PLAN_ROUTE_KEYS = {"workspace", "output_dir"}
 
 
 class TestValidatePlan:
@@ -3813,7 +3816,8 @@ class TestValidatePlan:
             ).json()
         assert result["valid"] is True
         plan = result["plan"]
-        assert set(plan) == set(EMPTY_PLAN)
+        assert set(plan) == set(EMPTY_PLAN) | PLAN_ROUTE_KEYS
+        assert plan["workspace"] == "default"
         assert plan["steps"] == 1
         assert plan["estimate"]["basis"] in {"catalog", "other_device"}
         assert plan["estimate"]["minutes"] == 2.0
