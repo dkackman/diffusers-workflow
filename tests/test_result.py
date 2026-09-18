@@ -646,6 +646,21 @@ class TestSaveAudioVideo:
 
         assert encode.call_args.kwargs["audio"].shape == (2, 2000)
 
+    def test_fit_is_written_back_onto_the_artifact(self):
+        # #197 reopened again: the fit above only ever adjusted the local
+        # `audio` used for muxing, so the AudioVideo instance kept in the
+        # result store - the same object a later previous_result: consumer
+        # like concat_videos reads directly, without going through save() -
+        # still carried the unfitted waveform. A chain built from in-memory
+        # shots drifted even though each shot's own saved file was correct.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        artifact = AudioVideo(frames, audio, 1000)
+
+        self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+
+        assert artifact.audio.shape == (2, 2000)
+
     def test_result_definition_overrides_the_sample_rate(self):
         artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
 

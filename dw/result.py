@@ -795,12 +795,20 @@ class Result:
         # here instead of being trimmed there (#197). Segment-backed frames are
         # written by the chain pipeline processor, which already carries its own
         # fps and does its own segment-length accounting - left alone.
+        #
+        # Written back onto the artifact, not just the local used for muxing:
+        # this same AudioVideo instance is what a later previous_result:
+        # consumer (concat_videos, dissolve_videos) reads directly out of the
+        # result store, so a local-only fit left the artifact's own audio
+        # unfitted and a chain built from in-memory shots still drifted even
+        # though each shot's own saved file was correct (#197 reopened).
         if audio is not None and sample_rate is not None and fps and not hasattr(
             artifact.frames, "cleanup"
         ):
             from .tasks.video_utils import _fit_audio_to_frames
 
             audio = _fit_audio_to_frames(audio, len(artifact.frames), fps, sample_rate)
+            artifact.audio = audio
 
         # Segment-backed frames (a chained step with save_segments) replay from
         # disk one segment at a time, so the final video is streamed instead of
