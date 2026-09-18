@@ -625,11 +625,24 @@ class Result:
             elif content_type.startswith("audio"):
                 waveforms = normalize_audio(artifact)
                 # Declared rate > the rate a generated track carries > default
-                sample_rate = (
-                    self.result_definition.get("sample_rate")
-                    or getattr(artifact, "sample_rate", None)
-                    or DEFAULT_AUDIO_SAMPLE_RATE
-                )
+                declared_rate = self.result_definition.get("sample_rate")
+                carried_rate = getattr(artifact, "sample_rate", None)
+                # A template's 'result.sample_rate' relabels the file at save
+                # time exactly the way a task argument's 'sample_rate' does -
+                # and #180's guard only caught the argument, not this. A
+                # caller who passed the source's own correct rate as the
+                # argument (so the argument-level check is clean) still got
+                # the wrong file with `warnings: []` when the *result* block
+                # hardcoded a different rate (#205). Same warning either way.
+                if (
+                    declared_rate is not None
+                    and carried_rate is not None
+                    and declared_rate != carried_rate
+                ):
+                    from .tasks.audio_utils import _warn_on_rate_override
+
+                    _warn_on_rate_override("save_artifact", carried_rate, declared_rate)
+                sample_rate = declared_rate or carried_rate or DEFAULT_AUDIO_SAMPLE_RATE
                 # A batched waveform holds several songs - save each one separately
                 if len(waveforms) > 1:
                     saved_files = []

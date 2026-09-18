@@ -808,6 +808,12 @@ class TestSaveAudio:
                 assert sample_rate == 22050
 
     def test_a_declared_rate_wins_over_the_one_the_track_carries(self):
+        # #205: the declared rate still wins - relabeling rather than
+        # resampling is what a template asked for - but unlike before, it no
+        # longer wins silently. A caller who checks `warnings` sees this one
+        # even though the task-argument-level guard (#180) had nothing to
+        # object to.
+        from dw.events import RunContext, activate_context, deactivate_context
         from dw.result import AudioTrack
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -816,10 +822,58 @@ class TestSaveAudio:
                 AudioTrack(numpy.zeros((1, 4410), dtype=numpy.float32), 24000)
             )
 
-            result.save(temp_dir, "line")
+            events = []
+            token = activate_context(RunContext(on_event=events.append))
+            try:
+                result.save(temp_dir, "line")
+            finally:
+                deactivate_context(token)
 
             _, sample_rate = soundfile.read(os.path.join(temp_dir, "line-0.0.wav"))
             assert sample_rate == 44100
+
+            warnings = [e for e in events if e.get("kind") == "rate_override_mismatch"]
+            assert len(warnings) == 1
+            assert warnings[0]["file_rate"] == 24000
+            assert warnings[0]["given_rate"] == 44100
+
+    def test_a_declared_rate_matching_the_carried_rate_is_not_a_warning(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.result import AudioTrack
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav", "sample_rate": 24000})
+            result.add_result(
+                AudioTrack(numpy.zeros((1, 4410), dtype=numpy.float32), 24000)
+            )
+
+            events = []
+            token = activate_context(RunContext(on_event=events.append))
+            try:
+                result.save(temp_dir, "line")
+            finally:
+                deactivate_context(token)
+
+            assert [e for e in events if e.get("kind") == "rate_override_mismatch"] == []
+
+    def test_a_declared_rate_with_no_carried_rate_is_not_a_warning(self):
+        # A generated artifact (e.g. a modular pipeline's dict output) carries
+        # no sample_rate of its own - declaring one is how it gets one at all,
+        # not an override of anything, so there is nothing to warn about.
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav", "sample_rate": 44100})
+            result.add_result(numpy.zeros((1, 4410), dtype=numpy.float32))
+
+            events = []
+            token = activate_context(RunContext(on_event=events.append))
+            try:
+                result.save(temp_dir, "line")
+            finally:
+                deactivate_context(token)
+
+            assert [e for e in events if e.get("kind") == "rate_override_mismatch"] == []
 
     def test_a_batch_of_tracks_each_save_at_the_carried_rate(self):
         # Each item of a batched .audios is its own AudioTrack, so each is saved
