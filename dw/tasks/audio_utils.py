@@ -14,7 +14,7 @@ import numpy
 import soundfile
 import torch
 
-from ..events import emit_warning
+from ..events import emit_log, emit_warning
 from ..task_domains import as_number, check_arguments
 from ..security import (
     validate_file_extension,
@@ -974,18 +974,38 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
         if level is None:
             matched.append(waveform)
             continue
-        gain_db = target_dbfs - level
+        target_gain_db = target_dbfs - level
+        gain_db = target_gain_db
         peak = level_dbfs(waveform, "peak")
+        held = False
         if peak is not None and peak + gain_db > MATCH_CEILING_DBFS:
-            held = MATCH_CEILING_DBFS - peak
-            logger.warning(
+            gain_db = MATCH_CEILING_DBFS - peak
+            held = True
+            shortfall_db = target_gain_db - gain_db
+            # emit_warning rather than logger.warning: a clip-held shot stays
+            # off the target and the residual spread is exactly the level
+            # jump match_levels exists to remove (#214) - a caller reading
+            # the job's warnings list is the one who can act on it (#82)
+            emit_warning(
                 f"{command}: video {index + 1} would clip at the {measure} target "
-                f"({peak + gain_db:+.1f} dBFS peak) - held to {MATCH_CEILING_DBFS} dBFS"
+                f"({peak + target_gain_db:+.1f} dBFS peak) - held to "
+                f"{MATCH_CEILING_DBFS} dBFS, {shortfall_db:.1f} dB short of target",
+                kind="match_levels_held",
+                command=command,
+                index=index,
+                measure_dbfs=round(level, 1),
+                target_dbfs=target_dbfs,
+                gain_db=round(gain_db, 1),
+                shortfall_db=round(shortfall_db, 1),
+                ceiling_dbfs=MATCH_CEILING_DBFS,
             )
-            gain_db = held
-        logger.debug(
+        emit_log(
             f"{command}: video {index + 1} {measure} {level:.1f} dBFS, "
-            f"gain {gain_db:+.1f} dB"
+            f"gain {gain_db:+.1f} dB{' (held)' if held else ''}",
+            index=index,
+            measure_dbfs=round(level, 1),
+            gain_db=round(gain_db, 1),
+            held=held,
         )
         matched.append((waveform * (10 ** (gain_db / 20.0))).astype(numpy.float32))
     return matched

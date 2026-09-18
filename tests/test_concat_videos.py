@@ -506,6 +506,47 @@ class TestWarningsReachTheCaller:
         assert "resampling them all to 200 Hz" in warnings[0]["message"]
         assert "resample_audio" in warnings[0]["message"]
 
+    def test_the_clip_hold_is_emitted_as_a_warning_event(self):
+        """#214: match_levels applied silently - a shot held short of the
+        target only ever reached the server's log."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        spiky = numpy.full((2, 100), 0.02, dtype=numpy.float32)
+        spiky[:, 50] = 0.9
+        video = AudioVideo(frames(4), spiky, 100)
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([video, audio_video(4, 0.02)], match_levels="rms")
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e.get("kind") == "match_levels_held"]
+        assert len(warnings) == 1
+        assert warnings[0]["command"] == "concat_videos"
+        assert warnings[0]["index"] == 0
+        assert warnings[0]["shortfall_db"] > 0
+        assert "held to" in warnings[0]["message"]
+
+    def test_per_shot_gain_is_emitted_as_a_log_event(self):
+        """#214: neither shot's applied gain reached the caller at all."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [audio_video(4, 0.5), audio_video(4, 0.05)], match_levels="rms"
+            )
+        finally:
+            deactivate_context(token)
+
+        logs = [e for e in events if e["event"] == "log"]
+        assert len(logs) == 2
+        assert all("gain" in log["message"] for log in logs)
+        assert {log["index"] for log in logs} == {0, 1}
+
     def test_one_rate_emits_no_resample_warning(self):
         from dw.events import RunContext, activate_context, deactivate_context
 
