@@ -19,8 +19,10 @@ and the one step (0 below) that keeps the cast fixed; everything past it is
 ## Before anything
 
 1. `get_server_info` for the device and workspace.
-2. `list_workflows(shape="shot")` for the H3 templates, `list_workflows(shape="sequence")`
-   for `assemble-and-score`. Trust the listing over the names quoted here.
+2. `list_workflows(shape="sequence")` for the H3 templates and for
+   `assemble-and-score` - both `dialogue-short`/`music-video` and
+   `assemble-and-score` are shape `sequence`. Trust the listing over the
+   names quoted here.
 3. Read the `minimax-h3` skill before writing any shot - the `shots` list
    shape, the prompt format, and the hard rules (frame count, canvas,
    reference limits) all come from there and are not restated here.
@@ -90,13 +92,18 @@ One `assemble-and-score` run per episode; each episode's `total_frames` and
 
 ## Run and judge
 
-`output:` a shot straight from its generation run
-(`output:dialogue-short/<episode run id>/final/<shot>.mp4`) rather than
-downloading and re-uploading it as an asset - only the cast portraits from
-step 0 need to be assets, since they are the one thing that must outlive a
-single episode's run directory. The `final` segment there is the step's
-`subfolder`: the deliverable shot each H3 template writes, as opposed to
-`intermediate` scratch that an `output:` reference has no reason to name.
+`output:` a shot straight from its generation run rather than downloading
+and re-uploading it as an asset - only the cast portraits from step 0 need
+to be assets, since they are the one thing that must outlive a single
+episode's run directory. For `dialogue-short`/`music-video` the per-shot
+clips are the `shot` step's own files, and that step's `subfolder` is
+`intermediate` - `final` there holds only the already-concatenated episode,
+which is not a usable `shots` entry. So a recut references `output:` + the workflow's full catalog path (as
+`list_workflows` names it, prefix and all) + `/<episode run
+id>/intermediate/<workflow id>-shot@<name>.<index>-0.0.mp4` - not just the
+template's own name - read off the run's manifest (`get_job`) rather than
+guessed. Or, if the shot should outlive its run directory the way the cast
+does, `keep_output` it and reference the resulting `asset:` instead.
 
 Beyond `minimax-h3`'s own judging checklist (a character that changes
 between shots, a portrait imposing its framing, a voice without affect):
