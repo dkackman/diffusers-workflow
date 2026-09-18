@@ -3486,6 +3486,10 @@ def create_app(
         return {
             "status": "ok",
             "version": __version__,
+            # on-demand subprocess: false on an idle server that hasn't run
+            # a job yet (or after a memory clear) is normal, not a fault -
+            # it means no model process is currently resident, not that the
+            # server is unhealthy (#206)
             "worker_alive": bool(
                 worker.worker_active
                 and worker.worker_process is not None
