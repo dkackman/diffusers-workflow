@@ -1278,10 +1278,13 @@ Speak a line of text with a local text-to-speech model. The result is a waveform
 | `text` | Yes | The line to speak |
 | `model_name` | No | HuggingFace model ID (default: `suno/bark-small`) |
 | `voice_preset` | No | The speaker, for a model with presets — `v2/en_speaker_0` through `v2/en_speaker_9` for Bark. A model with no processor (a single-voice model such as `facebook/mms-tts-eng`) refuses a `voice_preset` with an error rather than ignoring it |
+| `speaker_embedding` | No | A reference audio file (typically an `asset:` reference) whose voice a SpeechT5 model should speak in. Reduced to an x-vector with speechbrain's `spkrec-xvect-voxceleb` and injected into `forward_params` as `speaker_embeddings`. A model that isn't SpeechT5 refuses it the same way a single-voice model refuses `voice_preset` |
 | `forward_params` | No | Passed to the model's forward/generate call |
 | `generate_kwargs` | No | Ad-hoc generation settings for a generative model — `temperature`, `do_sample` |
 
 The default is Bark because its voice presets give distinct speakers, which is what two characters in a scene need; `facebook/mms-tts-eng` is a quarter the size and a good override where one voice will do. `voice_preset` is a preprocessing argument — it selects the speaker before generation rather than parameterizing it — so naming it here is what makes it reach the processor. Passed through `forward_params` it would be dropped and every character would sound the same.
+
+`speaker_embedding` is the same kind of preprocessing argument for a SpeechT5 model (`microsoft/speecht5_tts`), which conditions its voice on an x-vector rather than a preset name. A VITS model's speaker is different again — a plain `speaker_id` int, passed through `forward_params` unchanged, since it was never a preprocessing argument and needs no argument of its own here.
 
 The result needs no `sample_rate`. A generated track carries the rate its model produced it at, and that beats the 44100 default; declaring one still wins over both, for a track whose rate was reported wrong. Every TTS model runs at a different rate, so a declared rate that does not match plays the speech at the wrong speed and pitch without ever failing.
 

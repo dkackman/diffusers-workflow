@@ -145,6 +145,97 @@ class TestGenerateSpeech(unittest.TestCase):
         self.assertIn("voice_preset", str(raised.exception))
         self.assertIn("facebook/mms-tts-eng", str(raised.exception))
 
+    @patch("dw.tasks.speech_generation._speaker_embedding_tensor")
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_speaker_embedding_reaches_forward_params_for_speecht5(
+        self, mock_pipeline, mock_tensor
+    ):
+        pipe = MagicMock(return_value=spoken())
+        pipe.model.config.model_type = "speecht5"
+        mock_pipeline.return_value = pipe
+        mock_tensor.return_value = "the-x-vector"
+
+        generate_speech(
+            "hi",
+            device="cpu",
+            model_name="microsoft/speecht5_tts",
+            speaker_embedding="asset:voices/iris.wav",
+        )
+
+        mock_tensor.assert_called_once_with("asset:voices/iris.wav", "cpu")
+        self.assertEqual(
+            pipe.call_args[1]["forward_params"],
+            {"speaker_embeddings": "the-x-vector"},
+        )
+
+    @patch("dw.tasks.speech_generation._speaker_embedding_tensor")
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_speaker_embedding_merges_with_other_forward_params(
+        self, mock_pipeline, mock_tensor
+    ):
+        pipe = MagicMock(return_value=spoken())
+        pipe.model.config.model_type = "speecht5"
+        mock_pipeline.return_value = pipe
+        mock_tensor.return_value = "the-x-vector"
+
+        generate_speech(
+            "hi",
+            device="cpu",
+            model_name="microsoft/speecht5_tts",
+            speaker_embedding="asset:voices/iris.wav",
+            forward_params={"do_sample": True},
+        )
+
+        self.assertEqual(
+            pipe.call_args[1]["forward_params"],
+            {"do_sample": True, "speaker_embeddings": "the-x-vector"},
+        )
+
+    @patch("dw.tasks.speech_generation._speaker_embedding_tensor")
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_speaker_embedding_on_a_non_speecht5_model_is_an_error(
+        self, mock_pipeline, mock_tensor
+    ):
+        # Only SpeechT5 conditions on an x-vector; a VITS model would drop
+        # 'speaker_embeddings' as an unrecognised forward kwarg and generate
+        # in its own voice
+        pipe = MagicMock(return_value=spoken())
+        pipe.model.config.model_type = "vits"
+        mock_pipeline.return_value = pipe
+
+        with self.assertRaises(ValueError) as raised:
+            generate_speech(
+                "hi",
+                model_name="facebook/mms-tts-vits",
+                speaker_embedding="asset:voices/iris.wav",
+            )
+
+        self.assertIn("speaker_embedding", str(raised.exception))
+        self.assertIn("facebook/mms-tts-vits", str(raised.exception))
+        mock_tensor.assert_not_called()
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_vits_speaker_id_passes_through_forward_params_unchanged(
+        self, mock_pipeline
+    ):
+        # The other half of speaker conditioning (#223): a VITS model's
+        # speaker_id is a plain int forward kwarg that already reached the
+        # model through forward_params before speaker_embedding existed, and
+        # needs no code of its own - confirmed here by never touching
+        # speaker_embedding and still seeing speaker_id pass through intact
+        pipe = MagicMock(return_value=spoken())
+        pipe.model.config.model_type = "vits"
+        mock_pipeline.return_value = pipe
+
+        generate_speech(
+            "hi",
+            device="cpu",
+            model_name="facebook/mms-tts-vits",
+            forward_params={"speaker_id": 3},
+        )
+
+        self.assertEqual(pipe.call_args[1]["forward_params"], {"speaker_id": 3})
+
 
 class TestHandleSpeechGeneration(unittest.TestCase):
     """Covers the task.py dispatch handler directly, since
