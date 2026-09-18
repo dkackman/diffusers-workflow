@@ -18,11 +18,12 @@ narration over shots where nothing has to lip-sync to it.
 
 import logging
 
+import torch
 from transformers import pipeline as hf_pipeline
 
 from .. import preferred_task_dtype
 from ..result import AudioTrack
-from .audio_utils import as_channels_samples
+from .audio_utils import as_channels_samples, load_audio, resample_waveform
 from .model_cache import cached_model, hf_pipeline_placement
 
 logger = logging.getLogger("dw")
@@ -33,6 +34,44 @@ logger = logging.getLogger("dw")
 # voice_preset) is a quarter the size and a reasonable override where only one
 # voice is needed
 _DEFAULT_MODEL = "suno/bark-small"
+
+# What SpeechT5's voice-cloning recipes are built around - trained on the same
+# corpus (VoxCeleb) the CMU ARCTIC x-vectors that ship with the model card come
+# from, so a reference clip reduces to a vector in the space the model expects
+_SPEAKER_ENCODER_MODEL = "speechbrain/spkrec-xvect-voxceleb"
+# What the encoder was trained on - resampling anything else to this rate is
+# part of extracting a voiceprint, not an approximation of one
+_SPEAKER_ENCODER_SAMPLE_RATE = 16000
+
+
+def _speaker_embedding_tensor(location, device):
+    """The x-vector speechbrain's spkrec-xvect-voxceleb extracts from a
+    reference audio file - what SpeechT5 conditions its voice on.
+
+    Args:
+        location: Path to a reference audio file (an 'asset:' reference has
+            already resolved to this by the time a task sees it).
+        device: Where to run the encoder.
+    """
+    from speechbrain.inference.speaker import EncoderClassifier
+
+    def load_encoder():
+        return EncoderClassifier.from_hparams(
+            source=_SPEAKER_ENCODER_MODEL,
+            run_opts={"device": str(device)},
+        )
+
+    encoder = cached_model(
+        ("speaker_encoder", _SPEAKER_ENCODER_MODEL, str(device)), load_encoder
+    )
+
+    waveform, sample_rate = load_audio(location)
+    waveform = resample_waveform(waveform, sample_rate, _SPEAKER_ENCODER_SAMPLE_RATE)
+    mono = waveform.mean(axis=0)
+
+    with torch.no_grad():
+        embedding = encoder.encode_batch(torch.as_tensor(mono).unsqueeze(0))
+    return embedding.squeeze()
 
 
 def generate_speech(text, device="cpu", **kwargs):
@@ -48,6 +87,14 @@ def generate_speech(text, device="cpu", **kwargs):
                 argument: it selects the speaker before generation rather than
                 parameterizing it, which is why it is named here rather than left
                 to forward_params, where it would be silently dropped.
+            speaker_embedding: Path to a reference audio file (typically an
+                'asset:' reference) whose voice a SpeechT5 model should speak
+                in. Reduced to an x-vector with speechbrain's
+                spkrec-xvect-voxceleb and injected into forward_params as
+                'speaker_embeddings' - SpeechT5 is the only pipeline here that
+                conditions on one. A VITS model's speaker instead takes a plain
+                'speaker_id' int, which already reaches the model unchanged
+                through forward_params and needs no argument of its own.
             forward_params: Passed to the model's forward/generate call.
             generate_kwargs: Ad-hoc generation settings for a generative model -
                 temperature, do_sample and so on.
@@ -61,6 +108,7 @@ def generate_speech(text, device="cpu", **kwargs):
     """
     model_name = kwargs.get("model_name", _DEFAULT_MODEL)
     voice_preset = kwargs.get("voice_preset", None)
+    speaker_embedding = kwargs.get("speaker_embedding", None)
     dtype = preferred_task_dtype(device)
 
     def load_pipe():
@@ -86,11 +134,28 @@ def generate_speech(text, device="cpu", **kwargs):
             "preset, or use a model with speaker presets such as suno/bark-small"
         )
 
+    forward_params = kwargs.get("forward_params") or {}
+    if speaker_embedding:
+        model_type = getattr(getattr(pipe.model, "config", None), "model_type", None)
+        if model_type != "speecht5":
+            # Only SpeechT5 conditions on an x-vector; a model that does not
+            # would drop 'speaker_embeddings' as an unrecognised forward kwarg
+            # and generate in its own voice, same failure mode as voice_preset
+            raise ValueError(
+                f"{model_name} takes no 'speaker_embedding' - only a SpeechT5 "
+                "model conditions on an x-vector. Drop it, or use a SpeechT5 "
+                "model such as microsoft/speecht5_tts"
+            )
+        forward_params = {
+            **forward_params,
+            "speaker_embeddings": _speaker_embedding_tensor(speaker_embedding, device),
+        }
+
     logger.info(f"Speaking: {text[:100]}{'...' if len(text) > 100 else ''}")
     output = pipe(
         text,
         preprocess_params={"voice_preset": voice_preset} if voice_preset else {},
-        forward_params=kwargs.get("forward_params") or {},
+        forward_params=forward_params,
         generate_kwargs=kwargs.get("generate_kwargs") or {},
     )
 

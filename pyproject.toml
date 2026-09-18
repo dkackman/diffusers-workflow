@@ -82,6 +82,12 @@ dependencies = [
     "av>=18.1.0",
     "soundfile>=0.14.0",
     "matplotlib>=3.11.1",
+    # speaker_embedding preprocessing arg for generate_speech: reduces a
+    # reference clip to the x-vector a SpeechT5 model conditions its voice
+    # on (spkrec-xvect-voxceleb). Imported lazily in speech_generation.py,
+    # so it's only exercised - and its model only downloaded - by a call
+    # that actually passes speaker_embedding.
+    "speechbrain>=1.0.3",
     # Utilities
     "qrcode>=8.2",
     "requests>=2.34.2",
