@@ -855,7 +855,9 @@ def build_server(client):
         )
 
     def save_workflow(
-        name: str, workflow: dict | None = None, patch: dict | None = None
+        name: str,
+        workflow: dict | str | None = None,
+        patch: dict | str | None = None,
     ) -> dict:
         """Save a workflow to the server's writable workflow directory,
         overwriting any existing workflow of that name there. Validate it
@@ -873,7 +875,10 @@ def build_server(client):
         workflow. A patch key set to `null` deletes that key from the
         stored document. A list is replaced whole, never merged - a merge
         patch has no notion of list position, so changing one `shots` entry
-        still means sending the whole `shots` list.
+        still means sending the whole `shots` list. Either may also be
+        given as a JSON-encoded string, which is parsed before saving; a
+        string that fails to parse is reported as invalid JSON rather than
+        as a type mismatch.
 
         A workflow stored for reuse should mark each saving step's
         `result.subfolder` - `final` for the step whose output the user will
