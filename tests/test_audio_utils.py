@@ -424,7 +424,6 @@ class TestBleedJoin:
         assert "tonal" not in caplog.text
         assert "speech" not in caplog.text
 
-
     def test_upsampled_speech_still_warns_when_native_rate_given(self, caplog):
         """The other half of the #198 band-limiting: the native rate tells
         _spectral_flatness where the tail's own Nyquist is, but _harmonicity
