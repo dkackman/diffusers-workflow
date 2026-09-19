@@ -58,6 +58,12 @@ watched back to back. There is no engine check for "the same character
 looks the same" across separate runs; the fixed-asset reference is the only
 guard, so it has to be a deliberate, first step rather than an implicit one.
 
+Save each portrait prompt with `save_prompt` under one folder for the series
+and reference it as `prompt:<series>/<character>` from every episode.
+`list_prompts(tag="<series>")` is then the cast list, and a character
+described the same way in episode 6 as in episode 1 is a reference rather
+than a paragraph retyped - which is the drift this skill exists to stop.
+
 ## 1-5. Per episode: generate, then recut, bed, match_levels, normalize, pair
 
 Generate the episode's shots with `templates/minimax/dialogue-short` (or

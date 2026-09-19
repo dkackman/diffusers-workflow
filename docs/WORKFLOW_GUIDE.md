@@ -291,6 +291,14 @@ for existence.
 - `prompt:` — `prompt:name` or `prompt:folder/name` is a stored prompt's
   `text`, rooted at the prompt library. That text may not itself begin with any of these
   prefixes; the engine rejects such a prompt rather than resolving twice.
+  The library is also the worked-example shelf: a template's default prompt
+  is usually a `prompt:` reference, and the text behind it is a caption
+  written to whatever spec that model was trained on. Before writing a
+  prompt for a family, read the one that is already there —
+  `list_prompts(intended_model="ltx-2.5")` for the shelf,
+  `get_prompt("ltx2/fox_dawn_choir")` for a body. The listing leaves the
+  bodies out by default and reports each one's `text_chars`; asking for all
+  of them at once is more than a client will accept.
 - `item:` — only inside a step that carries `for_each`: `item:` is the
   entry the member was made for, `item:field` one field of an object entry,
   spliced in whole whatever its type — a string, a number, a list of
