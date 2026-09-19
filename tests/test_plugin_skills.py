@@ -511,6 +511,5 @@ def test_a_skill_is_enumerated_where_the_plugin_describes_itself(path):
         with open(document) as file:
             content = file.read()
             assert f"`{name}`" in content, (
-                f"skill {name!r} is not named in "
-                f"{os.path.relpath(document, REPO_ROOT)}"
+                f"skill {name!r} is not named in {os.path.relpath(document, REPO_ROOT)}"
             )

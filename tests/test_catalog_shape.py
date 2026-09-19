@@ -676,7 +676,9 @@ def test_a_generated_audio_track_carries_has_audio():
                 "name": "generate_music",
                 "pipeline": {
                     "configuration": {"component_type": "ModularPipeline"},
-                    "from_pretrained_arguments": {"model_name": "MiniMaxAI/MiniMax-Music3"},
+                    "from_pretrained_arguments": {
+                        "model_name": "MiniMaxAI/MiniMax-Music3"
+                    },
                     "arguments": {"prompt": "variable:prompt"},
                 },
                 "result": {"content_type": "audio/mpeg"},
