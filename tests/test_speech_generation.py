@@ -167,7 +167,9 @@ class TestGenerateSpeech(unittest.TestCase):
             speaker_embedding="asset:voices/iris.wav",
         )
 
-        mock_tensor.assert_called_once_with("asset:voices/iris.wav", "cpu")
+        mock_tensor.assert_called_once_with(
+            "asset:voices/iris.wav", "cpu", torch.float32
+        )
         self.assertEqual(
             pipe.call_args[1]["forward_params"],
             {"speaker_embeddings": "the-x-vector"},
@@ -375,10 +377,12 @@ class TestSpeakerEmbeddingTensor(unittest.TestCase):
                 "speechbrain.inference.speaker": fake_module,
             },
         ):
-            embedding = _speaker_embedding_tensor("asset:voices/iris.wav", "cpu")
+            embedding = _speaker_embedding_tensor(
+                "asset:voices/iris.wav", "cpu", torch.float16
+            )
 
         self.assertEqual(tuple(embedding.shape), (1, 512))
-        self.assertEqual(embedding.dtype, torch.float32)
+        self.assertEqual(embedding.dtype, torch.float16)
 
 
 class TestHandleSpeechGeneration(unittest.TestCase):
