@@ -49,7 +49,10 @@ The stdio MCP server lives in `dw_mcp/` — see `dw_mcp/CLAUDE.md` and docs/MCP.
 
 `.claude-plugin/marketplace.json` publishes the `dw` plugin in `plugins/dw/`: one
 composition skill per model family (`minimax-h3`, `minimax-music3`, `ltx-2.5`) that
-chooses a template for a request's shape and states the family's hard rules. Model
+chooses a template for a request's shape and states the family's hard rules, plus
+`series-episodes`, which is a shape above them - several episodes over one cast,
+each cut and scored from those templates' runs. Every skill the directory holds is
+named in `plugins/dw/README.md` and here, pinned by the same test. Model
 knowledge lives there and in the catalog, never in engine code; every number a skill
 states is pinned to a diffusers symbol by `tests/test_plugin_skills.py`. `plugin.json`'s
 version is the engine's, bumped by `scripts/release.sh`. Adding or re-auditing a family

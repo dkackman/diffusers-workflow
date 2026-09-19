@@ -494,3 +494,22 @@ def test_a_skill_points_at_the_stored_exemplars(path):
         f"{path} never names the prompt library; a filesystem path is not a "
         f"call an MCP client can make"
     )
+
+
+@pytest.mark.parametrize(
+    "path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+)
+def test_a_skill_is_enumerated_where_the_plugin_describes_itself(path):
+    """A skill nobody lists is a capability nobody installs for. The four
+    documents that enumerate them drifted the moment a fourth skill shipped,
+    and the size and catalog tests glob the directory, so nothing noticed."""
+    name = os.path.basename(os.path.dirname(path))
+    for document in (
+        os.path.join(PLUGIN_DIR, "README.md"),
+        os.path.join(REPO_ROOT, "CLAUDE.md"),
+    ):
+        with open(document) as file:
+            assert name in file.read(), (
+                f"skill {name!r} is not named in "
+                f"{os.path.relpath(document, REPO_ROOT)}"
+            )

@@ -1,7 +1,7 @@
 {
     "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
     "name": "diffusers-workflow",
-    "description": "Skills for driving a diffusers-workflow server from Claude Code: one composition skill per model family.",
+    "description": "Skills for driving a diffusers-workflow server from Claude Code: a composition skill per model family, and one for cutting a series from them.",
     "owner": {
         "name": "Don Kackman"
     },
@@ -9,7 +9,7 @@
         {
             "name": "dw",
             "source": "./plugins/dw",
-            "description": "Compose MiniMax H3 video, MiniMax Music 3 and LTX-2.5 workflows over a dw MCP server: which template fits which shape, the hard rules, cost, and how to judge the output. Prompt format comes from the vendors' own guides."
+            "description": "Compose MiniMax H3 video, MiniMax Music 3 and LTX-2.5 workflows over a dw MCP server, and cut a multi-episode series from them: which template fits which shape, the hard rules, cost, and how to judge the output. Prompt format comes from the vendors' own guides."
         }
     ]
 }
