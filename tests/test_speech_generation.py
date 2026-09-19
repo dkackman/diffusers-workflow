@@ -238,9 +238,7 @@ class TestGenerateSpeech(unittest.TestCase):
     def test_both_text_and_messages_is_an_error(self, mock_pipeline):
         mock_pipeline.return_value = MagicMock(return_value=spoken())
 
-        with self.assertRaisesRegex(
-            ValueError, "exactly one of 'text' or 'messages'"
-        ):
+        with self.assertRaisesRegex(ValueError, "exactly one of 'text' or 'messages'"):
             generate_speech(
                 "hi", device="cpu", messages=[{"role": "user", "content": "hi"}]
             )
@@ -249,9 +247,7 @@ class TestGenerateSpeech(unittest.TestCase):
     def test_neither_text_nor_messages_is_an_error(self, mock_pipeline):
         mock_pipeline.return_value = MagicMock(return_value=spoken())
 
-        with self.assertRaisesRegex(
-            ValueError, "exactly one of 'text' or 'messages'"
-        ):
+        with self.assertRaisesRegex(ValueError, "exactly one of 'text' or 'messages'"):
             generate_speech(device="cpu")
 
     @patch("dw.tasks.speech_generation.hf_pipeline")
@@ -398,9 +394,7 @@ class TestHandleSpeechGeneration(unittest.TestCase):
                 return "cpu"
 
         handler = _COMMAND_REGISTRY["generate_speech"]
-        with self.assertRaisesRegex(
-            ValueError, "generate_speech needs exactly one of"
-        ):
+        with self.assertRaisesRegex(ValueError, "generate_speech needs exactly one of"):
             handler(FakeTask(), {"voice_preset": "v2/en_speaker_6"}, {})
 
     def test_generate_speech_with_both_text_and_messages_is_an_error(self):
@@ -411,9 +405,7 @@ class TestHandleSpeechGeneration(unittest.TestCase):
                 return "cpu"
 
         handler = _COMMAND_REGISTRY["generate_speech"]
-        with self.assertRaisesRegex(
-            ValueError, "generate_speech needs exactly one of"
-        ):
+        with self.assertRaisesRegex(ValueError, "generate_speech needs exactly one of"):
             handler(
                 FakeTask(),
                 {"text": "hi", "messages": [{"role": "user", "content": "hi"}]},
