@@ -1093,9 +1093,12 @@ def test_the_stated_tool_count_is_the_registered_one():
 # measured. This is not a listing an agent chooses to read - it is resident
 # for the whole session before a single call, which is why it gets a ceiling
 # at all and why the catalog listing, read once, has had one since #101.
-# Measured 2026-09-19 at 13_225: descriptions 9_013, input schemas 3_212,
-# instructions 999. Set at 13_800, which is room for a tool or two and not
-# room for a second validate_workflow.
+# Measured 2026-09-19 at 13_225 before the list_prompts rewrite that landed
+# in the same plan (descriptions 9_013, input schemas 3_212, instructions
+# 999), and at 13_421 after it (9_138 / 3_283 / 1_000) - the three filter
+# parameters and the docstring that says what the library is for. Set at
+# 13_800, which is room for a tool or two and not room for a second
+# validate_workflow.
 # Worth knowing before raising it: four tools are a quarter of the
 # descriptions (validate_workflow 872, wait_for_job 583, list_workflows 540,
 # list_gallery 501), and validate_workflow's `plan.basis` taxonomy and
