@@ -2208,7 +2208,9 @@ def create_app(
         # than no filter at all
         wanted = _matching_prompts(details, tag, intended_model)
         if wanted is not None:
-            details = {name: detail for name, detail in details.items() if name in wanted}
+            details = {
+                name: detail for name, detail in details.items() if name in wanted
+            }
         # The three parallel keys agree by construction, filter or no filter.
         # `prompt_details` drops a path whose mtime it cannot read - the file
         # went away between the walk and the read - and listing a name that

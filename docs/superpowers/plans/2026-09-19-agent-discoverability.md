@@ -87,63 +87,69 @@ MCP (which cannot afford it). Add narrowing, keep the default byte-identical.
 Add to `tests/test_server.py`, inside `class TestPromptLibrary`:
 
 ```python
-    def _store(self, client, name, prompt):
-        assert client.put(f"/api/prompts/{name}", json={"prompt": prompt}).status_code == 200
+def _store(self, client, name, prompt):
+    assert (
+        client.put(f"/api/prompts/{name}", json={"prompt": prompt}).status_code == 200
+    )
 
-    def test_the_listing_narrows_by_tag_and_model_and_can_omit_the_text(
-        self, server, tmp_path
-    ):
-        with server(success_script) as client:
-            self._store(
-                client,
-                "minimax/Song",
-                {
-                    "text": "Global Metadata\nbpm is 58.",
-                    "description": "a song",
-                    "intended_model": "minimax-music3",
-                    "tags": ["music", "score"],
-                },
-            )
-            self._store(
-                client,
-                "minimax/Fox",
-                {
-                    "text": "a red fox at dawn",
-                    "description": "a fox",
-                    "intended_model": "minimax-h3",
-                    "tags": ["wildlife"],
-                },
-            )
 
-            # A caller that passes nothing gets what it always got
-            plain = client.get("/api/prompts").json()
-            assert "minimax/Song" in plain["prompts"]
-            assert plain["details"]["minimax/Fox"]["text"] == "a red fox at dawn"
-            assert "text_chars" not in plain["details"]["minimax/Fox"]
+def test_the_listing_narrows_by_tag_and_model_and_can_omit_the_text(
+    self, server, tmp_path
+):
+    with server(success_script) as client:
+        self._store(
+            client,
+            "minimax/Song",
+            {
+                "text": "Global Metadata\nbpm is 58.",
+                "description": "a song",
+                "intended_model": "minimax-music3",
+                "tags": ["music", "score"],
+            },
+        )
+        self._store(
+            client,
+            "minimax/Fox",
+            {
+                "text": "a red fox at dawn",
+                "description": "a fox",
+                "intended_model": "minimax-h3",
+                "tags": ["wildlife"],
+            },
+        )
 
-            # include_text=false swaps the payload for its size
-            slim = client.get("/api/prompts?include_text=false").json()
-            entry = slim["details"]["minimax/Fox"]
-            assert "text" not in entry
-            assert entry["text_chars"] == len("a red fox at dawn")
-            assert entry["description"] == "a fox"
+        # A caller that passes nothing gets what it always got
+        plain = client.get("/api/prompts").json()
+        assert "minimax/Song" in plain["prompts"]
+        assert plain["details"]["minimax/Fox"]["text"] == "a red fox at dawn"
+        assert "text_chars" not in plain["details"]["minimax/Fox"]
 
-            # A filter narrows the names, the origins and the details together
-            by_model = client.get("/api/prompts?intended_model=MINIMAX-MUSIC3").json()
-            assert by_model["prompts"] == ["minimax/Song"]
-            assert list(by_model["details"]) == ["minimax/Song"]
-            assert list(by_model["origins"]) == ["minimax/Song"]
+        # include_text=false swaps the payload for its size
+        slim = client.get("/api/prompts?include_text=false").json()
+        entry = slim["details"]["minimax/Fox"]
+        assert "text" not in entry
+        assert entry["text_chars"] == len("a red fox at dawn")
+        assert entry["description"] == "a fox"
 
-            by_tag = client.get("/api/prompts?tag=Wildlife").json()
-            assert by_tag["prompts"] == ["minimax/Fox"]
+        # A filter narrows the names, the origins and the details together
+        by_model = client.get("/api/prompts?intended_model=MINIMAX-MUSIC3").json()
+        assert by_model["prompts"] == ["minimax/Song"]
+        assert list(by_model["details"]) == ["minimax/Song"]
+        assert list(by_model["origins"]) == ["minimax/Song"]
 
-            # Both at once, and a miss is an empty listing rather than a 404
-            assert client.get(
-                "/api/prompts?tag=music&intended_model=minimax-h3"
-            ).json()["prompts"] == []
+        by_tag = client.get("/api/prompts?tag=Wildlife").json()
+        assert by_tag["prompts"] == ["minimax/Fox"]
 
-            # The writable directory is reported whatever the filter
-            assert client.get("/api/prompts?tag=music").json()["prompt_dir"]
+        # Both at once, and a miss is an empty listing rather than a 404
+        assert (
+            client.get("/api/prompts?tag=music&intended_model=minimax-h3").json()[
+                "prompts"
+            ]
+            == []
+        )
+
+        # The writable directory is reported whatever the filter
+        assert client.get("/api/prompts?tag=music").json()["prompt_dir"]
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -630,7 +636,9 @@ def test_a_generated_audio_track_carries_has_audio():
                 "name": "generate_music",
                 "pipeline": {
                     "configuration": {"component_type": "ModularPipeline"},
-                    "from_pretrained_arguments": {"model_name": "MiniMaxAI/MiniMax-Music3"},
+                    "from_pretrained_arguments": {
+                        "model_name": "MiniMaxAI/MiniMax-Music3"
+                    },
                     "arguments": {"prompt": "variable:prompt"},
                 },
                 "result": {"content_type": "audio/mpeg"},
@@ -990,8 +998,7 @@ def test_a_skill_is_enumerated_where_the_plugin_describes_itself(path):
     ):
         with open(document) as file:
             assert name in file.read(), (
-                f"skill {name!r} is not named in "
-                f"{os.path.relpath(document, REPO_ROOT)}"
+                f"skill {name!r} is not named in {os.path.relpath(document, REPO_ROOT)}"
             )
 ```
 
@@ -1101,7 +1108,9 @@ def test_the_stated_tool_count_is_the_registered_one():
     with open(os.path.join(REPO_ROOT, "README.md")) as file:
         stated["README.md"] = re.search(r"The agent has (\d+) tools", file.read())
     with open(os.path.join(REPO_ROOT, "dw", "server", "guides.py")) as file:
-        stated["dw/server/guides.py"] = re.search(r"(\d+)-tool MCP surface", file.read())
+        stated["dw/server/guides.py"] = re.search(
+            r"(\d+)-tool MCP surface", file.read()
+        )
 
     for where, found in stated.items():
         assert found, f"{where} no longer states a tool count in the expected form"
@@ -1200,28 +1209,30 @@ TASKS_TEXT = (
 Then add to `class TestFetching`:
 
 ```python
-    def test_a_section_linking_an_example_says_how_to_reach_it(self, checkout):
-        """A guide's link to an example is a repo path. The reader these
-        guides exist for has no checkout - it has the MCP and nothing else -
-        so a payload holding such a path carries the translation rule, rather
-        than 114 links being rewritten in prose people read too."""
-        body = guides.get_guide("tasks", "Frame Interpolation")
+def test_a_section_linking_an_example_says_how_to_reach_it(self, checkout):
+    """A guide's link to an example is a repo path. The reader these
+    guides exist for has no checkout - it has the MCP and nothing else -
+    so a payload holding such a path carries the translation rule, rather
+    than 114 links being rewritten in prose people read too."""
+    body = guides.get_guide("tasks", "Frame Interpolation")
 
-        # The note is one fixed sentence - it states the rule, it does not
-        # name the paths it saw
-        assert body["catalog_paths"] == guides.CATALOG_PATH_NOTE
-        assert "get_workflow" in body["catalog_paths"]
+    # The note is one fixed sentence - it states the rule, it does not
+    # name the paths it saw
+    assert body["catalog_paths"] == guides.CATALOG_PATH_NOTE
+    assert "get_workflow" in body["catalog_paths"]
 
-    def test_a_section_linking_nothing_carries_no_note(self, checkout):
-        body = guides.get_guide("tasks", "Speech Generation")
 
-        assert "catalog_paths" not in body
+def test_a_section_linking_nothing_carries_no_note(self, checkout):
+    body = guides.get_guide("tasks", "Speech Generation")
 
-    def test_an_index_holding_a_path_is_noted_too(self, checkout):
-        """The index carries the guide's opening and its whole first section,
-        which is as able to link an example as any other."""
-        assert "catalog_paths" not in guides.get_guide("tasks")
-        assert "catalog_paths" in guides.get_guide("workflows")
+    assert "catalog_paths" not in body
+
+
+def test_an_index_holding_a_path_is_noted_too(self, checkout):
+    """The index carries the guide's opening and its whole first section,
+    which is as able to link an example as any other."""
+    assert "catalog_paths" not in guides.get_guide("tasks")
+    assert "catalog_paths" in guides.get_guide("workflows")
 ```
 
 The last assertion needs the fixture's `WORKFLOW_GUIDE.md` to link one. In the

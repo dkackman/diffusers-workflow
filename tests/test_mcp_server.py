@@ -1080,7 +1080,9 @@ def test_the_stated_tool_count_is_the_registered_one():
     with open(os.path.join(REPO_ROOT, "README.md")) as file:
         stated["README.md"] = re.search(r"The agent has (\d+) tools", file.read())
     with open(os.path.join(REPO_ROOT, "dw", "server", "guides.py")) as file:
-        stated["dw/server/guides.py"] = re.search(r"(\d+)-tool MCP surface", file.read())
+        stated["dw/server/guides.py"] = re.search(
+            r"(\d+)-tool MCP surface", file.read()
+        )
 
     for where, found in stated.items():
         assert found, f"{where} no longer states a tool count in the expected form"

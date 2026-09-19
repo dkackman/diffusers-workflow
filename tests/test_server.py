@@ -2977,7 +2977,10 @@ class TestPromptLibrary:
             assert not (tmp_path / "escape.json").exists()
 
     def _store(self, client, name, prompt):
-        assert client.put(f"/api/prompts/{name}", json={"prompt": prompt}).status_code == 200
+        assert (
+            client.put(f"/api/prompts/{name}", json={"prompt": prompt}).status_code
+            == 200
+        )
 
     def test_the_listing_narrows_by_tag_and_model_and_can_omit_the_text(
         self, server, tmp_path
@@ -3027,9 +3030,12 @@ class TestPromptLibrary:
             assert by_tag["prompts"] == ["minimax/Fox"]
 
             # Both at once, and a miss is an empty listing rather than a 404
-            assert client.get(
-                "/api/prompts?tag=music&intended_model=minimax-h3"
-            ).json()["prompts"] == []
+            assert (
+                client.get("/api/prompts?tag=music&intended_model=minimax-h3").json()[
+                    "prompts"
+                ]
+                == []
+            )
 
             # The writable directory is reported whatever the filter
             assert client.get("/api/prompts?tag=music").json()["prompt_dir"]
