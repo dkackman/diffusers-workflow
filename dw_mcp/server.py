@@ -6,6 +6,7 @@ this file stays a description of the surface rather than logic.
 """
 
 import functools
+import inspect
 from typing import Literal, Optional
 
 from mcp.server.mcpserver import MCPServer
@@ -151,7 +152,17 @@ def build_server(client):
     )
 
     def tool(fn, annotations):
-        server.add_tool(_anticipated(fn), name=fn.__name__, annotations=annotations)
+        # The SDK ships fn.__doc__ verbatim. Python 3.13+ strips a docstring's
+        # common indentation at compile time, 3.12 does not - so without this
+        # every continuation line reaches the agent with eight leading spaces,
+        # about 1_100 tokens of resident surface on the interpreter most
+        # servers run. cleandoc makes the description the same on both.
+        server.add_tool(
+            _anticipated(fn),
+            name=fn.__name__,
+            description=inspect.cleandoc(fn.__doc__ or ""),
+            annotations=annotations,
+        )
 
     # ------------------------------------------------------------- catalog
 
