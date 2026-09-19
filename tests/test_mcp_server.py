@@ -1087,3 +1087,36 @@ def test_the_stated_tool_count_is_the_registered_one():
         assert int(found.group(1)) == len(EXPECTED_TOOLS), (
             f"{where} says {found.group(1)} tools; {len(EXPECTED_TOOLS)} are registered"
         )
+
+
+# Chars / 4, the way COMPACT_BUDGET in tests/test_catalog_structure.py is
+# measured. This is not a listing an agent chooses to read - it is resident
+# for the whole session before a single call, which is why it gets a ceiling
+# at all and why the catalog listing, read once, has had one since #101.
+# Measured 2026-09-19 at 13_225: descriptions 9_013, input schemas 3_212,
+# instructions 999. Set at 13_800, which is room for a tool or two and not
+# room for a second validate_workflow.
+# Worth knowing before raising it: four tools are a quarter of the
+# descriptions (validate_workflow 872, wait_for_job 583, list_workflows 540,
+# list_gallery 501), and validate_workflow's `plan.basis` taxonomy and
+# wait_for_job's stall-diagnosis paragraph are both restated in
+# WORKFLOW_GUIDE's "The loop" - which an agent fetches on demand. The
+# question to ask first is whether the second copy has to be the resident one.
+SURFACE_BUDGET = 13_800
+
+
+@pytest.mark.asyncio
+async def test_the_tool_surface_fits_the_budget():
+    tools = await tools_of(server_over(ok({})))
+    server = server_over(ok({}))
+
+    descriptions = sum(len(tool.description or "") for tool in tools.values())
+    schemas = sum(len(json.dumps(tool.input_schema or {})) for tool in tools.values())
+    instructions = len(getattr(server, "instructions", "") or "")
+    total = (descriptions + schemas + instructions) / 4
+
+    assert total <= SURFACE_BUDGET, (
+        f"the surface is {total:.0f} tokens resident before any call "
+        f"(descriptions {descriptions / 4:.0f}, schemas {schemas / 4:.0f}, "
+        f"instructions {instructions / 4:.0f})"
+    )
