@@ -29,6 +29,7 @@ class FakeResult:
     def __init__(self):
         self.result_list = []
         self.saved_files = []
+        self.selected = None
 
     def save(self, output_dir, base_name):
         # Files are really written: a cache hit only counts when every file

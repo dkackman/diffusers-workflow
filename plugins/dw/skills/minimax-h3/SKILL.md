@@ -130,8 +130,8 @@ read the `workflows` guide's authoring section first.
 
 ## Prompts
 
-H3 wants Context-IR, MiniMax's own format. Do not invent it and do not
-paraphrase it from examples:
+H3 wants Context-IR, MiniMax's own format. `get_prompt` shows the shape;
+the rules come from MiniMax, not from paraphrasing one:
 
 1. If the `h3-prompt-writing` skill is installed (MiniMax ships it in
    https://github.com/MiniMax-AI/MiniMax-H3 under `skills/`), use it. If not,
@@ -141,9 +141,9 @@ paraphrase it from examples:
    without it.
 2. Else read the guides on the model card:
    https://huggingface.co/MiniMaxAI/MiniMax-H3/raw/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md
-   for text- and frame-conditioned generation, and
+   for text and frame conditioning, and
    https://huggingface.co/MiniMaxAI/MiniMax-H3/raw/main/docs/VIDEO_PROMPT_WRITING_GUIDE_ref_en.md
-   for reference-conditioned generation.
+   for reference conditioning.
 3. Else run `templates/minimax/enhance-prompt` (or `-with-image`), whose
    built-in enhancer writes the format from those guides. Its `idea` is
    framed as `Task: T2VA. Duration: 5.17 seconds. Idea: ...`.

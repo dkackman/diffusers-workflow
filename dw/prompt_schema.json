@@ -18,7 +18,7 @@
     },
     "intended_model": {
       "type": "string",
-      "description": "The model or model family the prompt was written for, such as 'minimax-h3'. Informational - the engine ignores it, but the library badges and filters by it and the enhancer uses it to preselect a preset."
+      "description": "The model or model family the prompt was written for, such as 'minimax-h3'. Informational - the engine ignores it - but one spelling per family: 'list_prompts' narrows by an exact match, so a variant hides the prompt from its own family. The repo's library is swept by tests/test_prompt_library.py. Leave it out for text written for no particular model."
     },
     "negative_prompt": {
       "type": "string",

@@ -352,10 +352,18 @@ class Result:
         self.result_list = []
         self.metadata = None
         self.saved_files = []
+        # Set when a select step's Selected wrapper flows through
+        # add_result - the winning position/score, replayable in the
+        # manifest and step_end alongside the unwrapped value (#119)
+        self.selected = None
         # Whether the file currently being written already drew a headroom
         # warning from the waveform it was handed, so the written-level
         # check does not say the same thing twice (#161)
         self._no_headroom_warned = False
+        # get_artifact_list(result) memoized by id(result) - see
+        # _artifacts_for. Keeps result_list itself untouched, so
+        # Result.retainable's attribute walk over result_list is unaffected.
+        self._artifact_cache = {}
         logger.debug(f"Initialized Result with definition: {result_definition}")
 
     def set_metadata(self, metadata):
@@ -372,6 +380,12 @@ class Result:
         Args:
             result: Single result or list of results to store
         """
+        from .tasks.select import Selected
+
+        if isinstance(result, Selected):
+            self.selected = {"position": result.position, "score": result.score}
+            result = result.value
+
         if isinstance(result, list):
             logger.debug(f"Adding {len(result)} results to result list")
             self.result_list.extend(result)
@@ -409,10 +423,26 @@ class Result:
         """
         artifacts = []
         for result in self.result_list:
-            artifacts.extend(get_artifact_list(result))
+            artifacts.extend(self._artifacts_for(result))
 
         logger.debug(f"Retrieved {len(artifacts)} artifacts from results")
         return artifacts
+
+    def _artifacts_for(self, result):
+        """get_artifact_list(result), memoized by identity of `result`.
+
+        save() extracts an in-memory pipeline output's artifacts and mutates
+        one in place to fit generated audio to the frame count (#197). A
+        later get_artifacts() call - a previous_result: consumer reading a
+        chained shot directly, bypassing any output: round trip - must see
+        that same fitted object rather than a fresh, unfitted extraction
+        from the same raw pipeline output, which get_artifact_list would
+        otherwise rebuild every time it runs.
+        """
+        key = id(result)
+        if key not in self._artifact_cache:
+            self._artifact_cache[key] = get_artifact_list(result)
+        return self._artifact_cache[key]
 
     def get_artifact_properties(self, property_name):
         """Extract specific properties from results.
@@ -535,7 +565,7 @@ class Result:
                 saved_files.append(output_path)
             else:
                 # Handle other content types
-                for j, artifact in enumerate(get_artifact_list(result)):
+                for j, artifact in enumerate(self._artifacts_for(result)):
                     saved_files.extend(
                         self.save_artifact(
                             validated_output_dir,
@@ -567,6 +597,19 @@ class Result:
         if artifact is None:
             logger.warning(f"Skipping None artifact for {file_base_name}")
             return []
+
+        if isinstance(artifact, (int, float, bool)):
+            # Static validation (dw/scalar_result_validation.py, #212) refuses
+            # a 'result' block on a command declared to return a scalar, but
+            # a command name reached only through a 'variable:' is literal
+            # only at run time and so invisible to that check - this is the
+            # same refusal for the one path that can still get here, naming
+            # the value rather than failing inside soundfile/PIL/open() with
+            # a bare TypeError after the step's own work is already done
+            raise ValueError(
+                f"'{file_base_name}' is a {type(artifact).__name__} ({artifact!r}), "
+                "not an artifact - a 'result' block cannot save it"
+            )
 
         if isinstance(artifact, dict):
             # Recursively save dictionary items
@@ -615,11 +658,24 @@ class Result:
             elif content_type.startswith("audio"):
                 waveforms = normalize_audio(artifact)
                 # Declared rate > the rate a generated track carries > default
-                sample_rate = (
-                    self.result_definition.get("sample_rate")
-                    or getattr(artifact, "sample_rate", None)
-                    or DEFAULT_AUDIO_SAMPLE_RATE
-                )
+                declared_rate = self.result_definition.get("sample_rate")
+                carried_rate = getattr(artifact, "sample_rate", None)
+                # A template's 'result.sample_rate' relabels the file at save
+                # time exactly the way a task argument's 'sample_rate' does -
+                # and #180's guard only caught the argument, not this. A
+                # caller who passed the source's own correct rate as the
+                # argument (so the argument-level check is clean) still got
+                # the wrong file with `warnings: []` when the *result* block
+                # hardcoded a different rate (#205). Same warning either way.
+                if (
+                    declared_rate is not None
+                    and carried_rate is not None
+                    and declared_rate != carried_rate
+                ):
+                    from .tasks.audio_utils import _warn_on_rate_override
+
+                    _warn_on_rate_override("save_artifact", carried_rate, declared_rate)
+                sample_rate = declared_rate or carried_rate or DEFAULT_AUDIO_SAMPLE_RATE
                 # A batched waveform holds several songs - save each one separately
                 if len(waveforms) > 1:
                     saved_files = []
@@ -752,6 +808,30 @@ class Result:
         sample_rate = self.result_definition.get(
             "audio_sample_rate", artifact.sample_rate
         )
+        audio = artifact.audio
+        # Frames generated in memory (a previous_result-chained shot, a modular
+        # pipeline's own output) never went through _decode_audio_video, so a
+        # codec-padding mismatch between the audio and the frame count survives
+        # here instead of being trimmed there (#197). Segment-backed frames are
+        # written by the chain pipeline processor, which already carries its own
+        # fps and does its own segment-length accounting - left alone.
+        #
+        # Written back onto the artifact, not just the local used for muxing:
+        # this same AudioVideo instance is what a later previous_result:
+        # consumer (concat_videos, dissolve_videos) reads directly out of the
+        # result store, so a local-only fit left the artifact's own audio
+        # unfitted and a chain built from in-memory shots still drifted even
+        # though each shot's own saved file was correct (#197 reopened).
+        if (
+            audio is not None
+            and sample_rate is not None
+            and fps
+            and not hasattr(artifact.frames, "cleanup")
+        ):
+            from .tasks.video_utils import _fit_audio_to_frames
+
+            audio = _fit_audio_to_frames(audio, len(artifact.frames), fps, sample_rate)
+            artifact.audio = audio
 
         # Segment-backed frames (a chained step with save_segments) replay from
         # disk one segment at a time, so the final video is streamed instead of
@@ -790,7 +870,7 @@ class Result:
             return
 
         reason = None
-        if artifact.audio is None:
+        if audio is None:
             reason = "the pipeline returned no audio"
         elif sample_rate is None:
             reason = "the audio sample rate is unknown"
@@ -802,21 +882,20 @@ class Result:
         if reason is not None:
             # No audio at all is an expected shape - video-only chains and
             # concatenations - so it logs quietly; losing audio we do have warns
-            log = logger.debug if artifact.audio is None else logger.warning
+            log = logger.debug if audio is None else logger.warning
             log(f"Saving {output_path} without its audio because {reason}")
             export_to_video(artifact.frames, output_path, fps=fps)
             return
 
         logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")
         self._no_headroom_warned = (
-            warn_without_headroom(artifact.audio, os.path.basename(output_path))
-            is not None
+            warn_without_headroom(audio, os.path.basename(output_path)) is not None
         )
         encode_video(
             frames_for_encoding(artifact.frames),
             fps=fps,
             output_path=output_path,
-            audio=as_audio_track(artifact.audio),
+            audio=as_audio_track(audio),
             audio_sample_rate=sample_rate,
         )
 

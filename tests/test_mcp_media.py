@@ -12,7 +12,12 @@ from PIL import Image
 
 import dw_mcp.media as media
 from dw_mcp.client import DwApiError, DwClient
-from dw_mcp.media import MAX_RETURNED_BYTES, download_output, get_output_image
+from dw_mcp.media import (
+    MAX_RETURNED_BYTES,
+    download_output,
+    get_output_audio,
+    get_output_image,
+)
 
 
 def noise_png_bytes(width, height, seed=0):
@@ -118,6 +123,63 @@ def test_a_video_output_is_refused_by_name():
         get_output_image(client, "clip.mp4")
 
     assert "video/mp4" in str(caught.value)
+
+
+class TestGetOutputAudio:
+    def test_a_clip_under_budget_comes_back_as_base64(self):
+        body = b"riff-audio-bytes"
+        client = serving(body, "audio/wav")
+
+        result = get_output_audio(client, "voice.wav")
+
+        assert base64.b64decode(result["data"]) == body
+        assert result["mime_type"] == "audio/wav"
+        assert result["bytes"] == len(body)
+        assert result["name"] == "voice.wav"
+
+    def test_an_image_output_is_refused_by_content_type(self):
+        client = serving(png_bytes(10, 10), "image/png")
+
+        with pytest.raises(DwApiError) as caught:
+            get_output_audio(client, "still.png")
+
+        assert "image/png" in str(caught.value)
+
+    def test_a_response_with_no_content_type_is_refused(self):
+        def handler(request):
+            return httpx.Response(200, content=b"???")
+
+        client = DwClient(transport=httpx.MockTransport(handler))
+
+        with pytest.raises(DwApiError):
+            get_output_audio(client, "mystery")
+
+    def test_a_clip_over_the_byte_ceiling_is_refused(self, monkeypatch):
+        monkeypatch.setattr(media, "MAX_RETURNED_BYTES", 16)
+        client = serving(b"x" * 32, "audio/wav")
+
+        with pytest.raises(DwApiError, match="byte limit"):
+            get_output_audio(client, "long.wav")
+
+    def test_the_budget_is_checked_against_the_base64_size_not_the_raw_bytes(
+        self, monkeypatch
+    ):
+        # 12 raw bytes base64-encode to 16 - set the cap between the two so a
+        # raw-bytes-only comparison would wrongly accept it.
+        monkeypatch.setattr(media, "MAX_RETURNED_BYTES", 13)
+        client = serving(b"x" * 12, "audio/wav")
+
+        with pytest.raises(DwApiError, match="byte limit"):
+            get_output_audio(client, "clip.wav")
+
+    def test_a_missing_file_propagates_the_api_error(self):
+        def handler(request):
+            return httpx.Response(404, json={"detail": "Unknown file"})
+
+        client = DwClient(transport=httpx.MockTransport(handler))
+
+        with pytest.raises(DwApiError, match="Unknown file"):
+            get_output_audio(client, "ghost.wav")
 
 
 def test_a_non_image_output_is_refused_without_reading_the_body():

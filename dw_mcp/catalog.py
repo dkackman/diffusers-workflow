@@ -153,9 +153,20 @@ def get_memory(client):
     return client.get_json("/api/memory")
 
 
+def clear_memory(client):
+    """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
+    immediately rather than waiting for the next job to evict one model
+    for another. Refused with a 409 while a job is running or queued -
+    the queue is FIFO, so retry once it finishes rather than expecting
+    this call to wait for it."""
+    return client.post_json("/api/memory/clear")
+
+
 def get_health(client):
-    """Server liveness, plus what answered: version, device, worker
-    liveness, the job running now and how many are queued."""
+    """Server liveness, plus what answered: version, device, whether a
+    model process is currently resident, the job running now and how many
+    are queued. `worker_alive: false` is the normal idle state on a server
+    that hasn't run a job yet - not a degraded server."""
     return client.get_json("/api/health")
 
 
@@ -214,7 +225,12 @@ def list_gallery(client, limit=50, subfolder=None, only_orphans=False, workspace
     one that failed before writing anything. A run that wrote any file at
     all, a text-shape prompt or a utility's side output included, is not
     listed. `subfolder` does not apply in this mode. `name` is exactly what
-    `delete_output` accepts, so clearing one is list, then delete (#170)."""
+    `delete_output` accepts, so clearing one is list, then delete (#170).
+
+    Each file entry also carries `label`, a bare display basename for a UI
+    grid - it is not a valid reference on its own (two runs can write the
+    same basename) and is not accepted by `get_gallery_metadata` or
+    `delete_output`. Pass `name` to those, not `label`."""
     params = {"limit": limit}
     if subfolder is not None:
         params["subfolder"] = subfolder
@@ -229,9 +245,10 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
     audio and video what the file holds - duration, sample rate, channels,
     fps, size, peak and mean level in dBFS.
 
-    `name` is a gallery name, or an 'asset:' reference to read an input
-    asset the same way (#127) - the same numbers, `job` null, and `source`
-    saying which of the two answered.
+    `name` is a gallery name - the `name` field `list_gallery` reports, not
+    its `label` (a display-only basename that is not a valid reference) -
+    or an 'asset:' reference to read an input asset the same way (#127); the
+    same numbers, `job` null, and `source` saying which of the two answered.
 
     With envelope=True the soundtrack's level is reported second by second
     as well, which is what locates something in a track rather than only

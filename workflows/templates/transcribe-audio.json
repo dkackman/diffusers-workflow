@@ -1,0 +1,23 @@
+{
+  "id": "TranscribeAudio",
+  "description": "Transcribes spoken audio to text with a local Whisper-class model. Useful for checking a TTS deliverable's word correctness directly against the text it was supposed to speak, rather than inferring a dropped line or a mid-sentence truncation from duration and timing.",
+  "variables": {
+    "input_audio": "https://example.com/speech.mp3",
+    "model_name": "openai/whisper-base"
+  },
+  "steps": [
+    {
+      "name": "transcribe",
+      "task": {
+        "command": "transcribe_audio",
+        "arguments": {
+          "audio": "variable:input_audio",
+          "model_name": "variable:model_name"
+        }
+      },
+      "result": {
+        "content_type": "text/plain"
+      }
+    }
+  ]
+}

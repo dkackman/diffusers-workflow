@@ -1358,3 +1358,34 @@ class JobManager:
                 "age_seconds": 0.0,
             }
         return self._cached_memory("worker_unreachable")
+
+    def clear_memory(self, timeout=30):
+        """Drop every loaded pipeline and the step cache, then report the
+        memory reading taken right after. Callers must check `is_busy()`
+        first - this does not itself refuse a running/queued job, and racing
+        one would clear state a queued run still expects resident. The
+        30s timeout (vs. `memory_status`'s 5s) matches the REPL's `memory
+        clear` (`repl_commands.py`): actually freeing CUDA memory takes
+        longer than reading a counter does.
+
+        Returns the reading taken after the clear, or None when there was no
+        worker to clear - nothing was resident in that case."""
+        if not self.worker_manager.worker_active:
+            # Nothing to clear, and not a fault: the pipelines and the step
+            # cache both live in the worker process, so no worker running
+            # means both are already gone. An on-demand worker is legitimately
+            # absent on an idle server (#206), which this used to answer with
+            # a 503 saying the worker was unavailable. None is "no reading
+            # was taken", not a failure
+            return None
+        if not self._worker_lock.acquire(timeout=2):
+            raise RuntimeError("worker busy")
+        try:
+            self.worker_manager.send_command({"type": "clear_memory"})
+            result = self.worker_manager.get_result(timeout=timeout)
+        finally:
+            self._worker_lock.release()
+        if result.get("type") != "memory_cleared":
+            raise RuntimeError(f"unexpected worker reply: {result.get('type')}")
+        self._record_memory(result.get("info"))
+        return self.last_memory

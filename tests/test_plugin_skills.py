@@ -478,3 +478,38 @@ def test_the_h3_skill_names_each_cut_templates_final_step():
         assert f"`{finals[0]}`" in text, (
             f"the skill does not name {name}'s final step {finals[0]}"
         )
+
+
+@pytest.mark.parametrize(
+    "path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+)
+def test_a_skill_points_at_the_stored_exemplars(path):
+    """Every family's hardest input is its prompt format, and the library
+    already holds captions written to it. A skill that names the vendor's
+    spec and not the worked example leaves an agent inventing prose it
+    could have read - and `prompts/ltx2/` as a directory is unreachable
+    from a client that has the MCP and no checkout."""
+    text = skill_text(path)
+    assert "`list_prompts" in text or "`get_prompt`" in text, (
+        f"{path} never names the prompt library; a filesystem path is not a "
+        f"call an MCP client can make"
+    )
+
+
+@pytest.mark.parametrize(
+    "path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+)
+def test_a_skill_is_enumerated_where_the_plugin_describes_itself(path):
+    """A skill nobody lists is a capability nobody installs for. The four
+    documents that enumerate them drifted the moment a fourth skill shipped,
+    and the size and catalog tests glob the directory, so nothing noticed."""
+    name = os.path.basename(os.path.dirname(path))
+    for document in (
+        os.path.join(PLUGIN_DIR, "README.md"),
+        os.path.join(REPO_ROOT, "CLAUDE.md"),
+    ):
+        with open(document) as file:
+            content = file.read()
+            assert f"`{name}`" in content, (
+                f"skill {name!r} is not named in {os.path.relpath(document, REPO_ROOT)}"
+            )

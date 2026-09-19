@@ -39,6 +39,79 @@ def test_replace_variables_missing():
     assert "other" in message
 
 
+def test_replace_variables_drops_a_top_level_argument_that_resolves_to_null():
+    # An optional argument (select's threshold/index) left at its unset
+    # default via a variable should vanish, not survive as a literal None -
+    # a None entry would read as "present" to a downstream `in arguments` check.
+    data = {"arguments": {"rule": "argmax", "threshold": "variable:threshold"}}
+    variables = {"threshold": None}
+
+    result = replace_variables(data, variables)
+    assert "threshold" not in result["arguments"]
+    assert result["arguments"]["rule"] == "argmax"
+
+
+def test_replace_variables_drops_a_null_variable_inside_a_for_each_entry():
+    # The same drop applies however deeply nested the dict is - a for_each
+    # step's entries are dicts sitting inside a list, walked recursively.
+    data = {
+        "for_each": [
+            {"name": "a", "threshold": "variable:threshold"},
+            {"name": "b", "threshold": 0.5},
+        ]
+    }
+    variables = {"threshold": None}
+
+    result = replace_variables(data, variables)
+    assert "threshold" not in result["for_each"][0]
+    assert result["for_each"][1]["threshold"] == 0.5
+
+
+def test_replace_variables_leaves_a_literal_null_untouched():
+    # A literal null written directly in the workflow JSON never goes through
+    # the variable-reference branch, so it keeps its existing meaning.
+    data = {"arguments": {"rule": "argmax", "threshold": None}}
+    variables = {}
+
+    result = replace_variables(data, variables)
+    assert "threshold" in result["arguments"]
+    assert result["arguments"]["threshold"] is None
+
+
+def test_replace_variables_keeps_a_null_media_source_key_present():
+    # The one place a null has to survive as a null: realize_object reads a
+    # present-and-null 'from_file' on a dict that names a type as OMITTED - an
+    # optional reference this run was given nothing for. Dropping the key
+    # would turn that into a media-less stub that reaches the pipeline.
+    data = {
+        "arguments": {
+            "reference": {
+                "reference_type": "some.module.AudioReference",
+                "from_file": "variable:voice",
+            }
+        }
+    }
+
+    result = replace_variables(data, {"voice": None})
+    reference = result["arguments"]["reference"]
+    assert "from_file" in reference
+    assert reference["from_file"] is None
+
+
+def test_a_null_media_source_key_realizes_as_omitted():
+    # The consumer end of the same rule, so a change to either side fails here
+    # rather than reaching a pipeline as a reference holding no media.
+    from dw.arguments import OMITTED, realize_object
+
+    data = {
+        "reference_type": "some.module.AudioReference",
+        "from_file": "variable:voice",
+    }
+
+    resolved = replace_variables(data, {"voice": None})
+    assert realize_object(resolved) is OMITTED
+
+
 def test_replace_variables_does_not_mutate_input():
     data = {"key1": "variable:test", "key2": ["variable:test", "static"]}
     original = {"key1": "variable:test", "key2": ["variable:test", "static"]}

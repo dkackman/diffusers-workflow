@@ -821,6 +821,24 @@ def test_memory_says_why_a_reading_is_not_the_worker_s(tmp_path):
     assert busy["info"] == {"gpu_memory_allocated_mb": 8.125}
 
 
+def test_clearing_memory_with_no_worker_resident_is_a_no_op_not_a_fault(server):
+    """The worker is on-demand, so `worker_alive: false` is the ordinary idle
+    state of a server that has not run a job yet (#206) - and both the loaded
+    pipelines and the step cache live in that process, so its absence means
+    there is nothing left to clear. This used to raise into a 503 saying the
+    worker was unavailable, contradicting the health route beside it."""
+    with server(success_script) as client:
+        assert client.get("/api/health").json()["worker_alive"] is False
+
+        response = client.post("/api/memory/clear")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["cleared"] is True
+        # nothing was measured, because there was nothing to measure
+        assert body["info"] is None
+
+
 def test_health_and_memory(server):
     import socket
 
@@ -2958,6 +2976,70 @@ class TestPromptLibrary:
                 assert response.status_code in (400, 404, 405), evasion
             assert not (tmp_path / "escape.json").exists()
 
+    def _store(self, client, name, prompt):
+        assert (
+            client.put(f"/api/prompts/{name}", json={"prompt": prompt}).status_code
+            == 200
+        )
+
+    def test_the_listing_narrows_by_tag_and_model_and_can_omit_the_text(
+        self, server, tmp_path
+    ):
+        with server(success_script) as client:
+            self._store(
+                client,
+                "minimax/Song",
+                {
+                    "text": "Global Metadata\nbpm is 58.",
+                    "description": "a song",
+                    "intended_model": "minimax-music3",
+                    "tags": ["music", "score"],
+                },
+            )
+            self._store(
+                client,
+                "minimax/Fox",
+                {
+                    "text": "a red fox at dawn",
+                    "description": "a fox",
+                    "intended_model": "minimax-h3",
+                    "tags": ["wildlife"],
+                },
+            )
+
+            # A caller that passes nothing gets what it always got
+            plain = client.get("/api/prompts").json()
+            assert "minimax/Song" in plain["prompts"]
+            assert plain["details"]["minimax/Fox"]["text"] == "a red fox at dawn"
+            assert "text_chars" not in plain["details"]["minimax/Fox"]
+
+            # include_text=false swaps the payload for its size
+            slim = client.get("/api/prompts?include_text=false").json()
+            entry = slim["details"]["minimax/Fox"]
+            assert "text" not in entry
+            assert entry["text_chars"] == len("a red fox at dawn")
+            assert entry["description"] == "a fox"
+
+            # A filter narrows the names, the origins and the details together
+            by_model = client.get("/api/prompts?intended_model=MINIMAX-MUSIC3").json()
+            assert by_model["prompts"] == ["minimax/Song"]
+            assert list(by_model["details"]) == ["minimax/Song"]
+            assert list(by_model["origins"]) == ["minimax/Song"]
+
+            by_tag = client.get("/api/prompts?tag=Wildlife").json()
+            assert by_tag["prompts"] == ["minimax/Fox"]
+
+            # Both at once, and a miss is an empty listing rather than a 404
+            assert (
+                client.get("/api/prompts?tag=music&intended_model=minimax-h3").json()[
+                    "prompts"
+                ]
+                == []
+            )
+
+            # The writable directory is reported whatever the filter
+            assert client.get("/api/prompts?tag=music").json()["prompt_dir"]
+
     def test_unreferenceable_names_are_refused(self, server, tmp_path):
         # A save the API accepted but no 'prompt:' reference could ever
         # load would be a trap - the name rule is enforced here too
@@ -3793,6 +3875,9 @@ EMPTY_PLAN = {
     "downloads_required": [],
     "estimate": None,
 }
+# The route adds these to whatever build_plan() returns - the workspace the
+# plan (and any cache probe inside it) actually ran against (#184)
+PLAN_ROUTE_KEYS = {"workspace", "output_dir"}
 
 
 class TestValidatePlan:
@@ -3813,11 +3898,42 @@ class TestValidatePlan:
             ).json()
         assert result["valid"] is True
         plan = result["plan"]
-        assert set(plan) == set(EMPTY_PLAN)
+        assert set(plan) == set(EMPTY_PLAN) | PLAN_ROUTE_KEYS
+        assert plan["workspace"] == "default"
         assert plan["steps"] == 1
         assert plan["estimate"]["basis"] in {"catalog", "other_device"}
         assert plan["estimate"]["minutes"] == 2.0
-        assert plan["downloads_required"] == [{"repo": "m", "gb": None}]
+        assert plan["downloads_required"] == [
+            {"repo": "m", "gb": None, "gated": None, "access_blocked": None}
+        ]
+
+    def test_a_blocked_gate_surfaces_as_a_warning(self, server, monkeypatch):
+        """#186: a repo this box's token cannot access is a 403 partway into
+        a run unless the pre-flight says so first."""
+        import httpx
+        import dw.plan
+        from huggingface_hub.utils import GatedRepoError
+
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+
+        response = httpx.Response(403, request=httpx.Request("GET", "https://hf.co/x"))
+
+        def boom(*a, **k):
+            raise GatedRepoError("no access", response=response)
+
+        monkeypatch.setattr(dw.plan, "model_info", boom)
+        with server(success_script) as client:
+            result = client.post(
+                "/api/validate",
+                json={"workflow": video_workflow("gated", with_cost=True)},
+            ).json()
+        assert result["plan"]["downloads_required"] == [
+            {"repo": "m", "gb": None, "gated": True, "access_blocked": True}
+        ]
+        gate_warnings = [w for w in result["warnings"] if "huggingface.co/m" in w]
+        assert len(gate_warnings) == 1
 
     def test_the_estimate_quotes_this_box_s_own_history(self, server, monkeypatch):
         """#154: `basis: unknown` has to mean nobody has a number. A stored

@@ -230,15 +230,23 @@ def _derive_shape(steps, kind):
 def _derive_traits(steps):
     """The independent facts about how the output is made or what it needs.
 
-    `has-audio` says the workflow emits a generated audio track - a speech
-    task, a video pipeline asked for audio, or one carrying a component that
-    exists only to synthesise a waveform. Not specifically dialogue.
+    `has-audio` says the workflow emits a generated audio track - a step
+    whose own result is a waveform, a speech task, a video pipeline asked
+    for audio, or one carrying a component that exists only to synthesise
+    one. Not specifically dialogue, and not a track the workflow was handed.
     """
     traits = set()
     for step in steps:
         key, body = _block(step)
         arguments = _arguments(step)
         if key == "task" and body.get("command") == "generate_speech":
+            traits.add("has-audio")
+        # A pipeline whose own result is a waveform generates one. The three
+        # checks below it all ask about a *video* step that also carries
+        # audio, which left Music 3's template - the one entry in the catalog
+        # whose whole output is a track - answering a `has-audio` filter with
+        # nothing.
+        if _generates(step) and _kind(step) == "audio":
             traits.add("has-audio")
         output = arguments.get("output")
         if _kind(step) == "video" and isinstance(output, list) and "audio" in output:

@@ -19,7 +19,8 @@ import logging
 import os
 
 from huggingface_hub import model_info
-from huggingface_hub.utils import HFValidationError, validate_repo_id
+from huggingface_hub import get_hf_file_metadata, hf_hub_url
+from huggingface_hub.utils import GatedRepoError, HFValidationError, validate_repo_id
 
 from .elision import elide_definition
 from .hub_cache import scan_models
@@ -182,8 +183,13 @@ def unseeded_cache_warnings(definition, arguments=None):
     there, and the difference is the one that matters: without a `seed` the
     cache is off, so nothing is ever reused however many times the same
     workflow runs (#107).
+
+    Silent for a workflow with no `pipeline`/`pipeline_reference`/`workflow`
+    step: a task-only utility has no generative randomness a `seed` would
+    pin down in the first place, and each of its steps is a pure function of
+    its inputs - a repeat run is already free without one (#247)
     """
-    if _is_seeded(definition, arguments):
+    if _is_seeded(definition, arguments) or not _has_seedable_step(definition):
         return []
     return [
         "This workflow sets no 'seed', so the step cache is disabled and "
@@ -191,6 +197,18 @@ def unseeded_cache_warnings(definition, arguments=None):
         "on every run. Set a top-level 'seed' to make a repeat run reuse "
         "what it already produced"
     ]
+
+
+def _has_seedable_step(definition):
+    """Whether any step could consume a seed: a pipeline (inline or
+    referenced) or a sub-workflow, which may hold one in turn. A workflow
+    built entirely of `task` steps has nothing a seed would affect."""
+    for step in definition.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        if "pipeline" in step or "pipeline_reference" in step or "workflow" in step:
+            return True
+    return False
 
 
 def _is_seeded(definition, arguments):
@@ -459,9 +477,20 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
         # body, and a free pre-flight must not be a directory-existence oracle
         if name in present or not _is_repo_id(name):
             continue
-        required.append({"repo": name, "gb": _size_gb(name) if lookup_sizes else None})
+        entry = {"repo": name, "gb": None, "gated": None, "access_blocked": None}
+        if lookup_sizes:
+            entry["gb"], entry["gated"], entry["access_blocked"] = _model_info(name)
+        required.append(entry)
     for url in urls:
-        required.append({"repo": None, "url": url, "gb": None})
+        required.append(
+            {
+                "repo": None,
+                "url": url,
+                "gb": None,
+                "gated": None,
+                "access_blocked": None,
+            }
+        )
     return required
 
 
@@ -495,6 +524,20 @@ def _collect_sources(tree, names, urls):
             _collect_sources(value, names, urls)
 
 
+def gate_warnings(downloads_required):
+    """One line per required download this box's token is blocked from -
+    the pre-flight signal #186 asked for, so a gated repo is a
+    `validate_workflow`-visible condition rather than a 403 the run only
+    discovers after it has loaded everything ahead of that step."""
+    return [
+        f"{entry['repo']} is gated and not accessible with this box's "
+        "Hugging Face token - accept its license at "
+        f"https://huggingface.co/{entry['repo']} before running this workflow"
+        for entry in downloads_required
+        if entry.get("access_blocked")
+    ]
+
+
 def _is_repo_id(name):
     try:
         validate_repo_id(name)
@@ -513,13 +556,57 @@ def _is_url(value):
         return False
 
 
-def _size_gb(name):
-    """A repo's size in GiB to one decimal, or None when the hub does not
-    say - unreachable, gated without a token, or a file with no size."""
+def _model_info(name):
+    """A repo's size in GiB, gate status, and whether this box's token is
+    blocked from it - a `(gb, gated, access_blocked)` triple.
+
+    `gated` is `model_info`'s own field (`False` / `"auto"` / `"manual"`),
+    readable only when the call succeeds - and the hub answers `model_info`
+    for a gated repo regardless of whether this token has been granted
+    access, since that call serves metadata rather than file bytes (found
+    verifying #186: `access_blocked` came back `false` for repos this box's
+    token was actually refused on). A `GatedRepoError` straight out of
+    `model_info` is still a real signal - some other endpoint behind it
+    checked and refused - but its absence proves nothing, so a `gated` repo
+    that got this far is checked for real with a HEAD request against one of
+    its own files (`_probe_gate_blocked`), the same request class a run's
+    actual load would make and the one place the hub's 403 for "gated, token
+    not accepted" actually appears.
+    """
     try:
         info = model_info(name, files_metadata=True, timeout=SIZE_LOOKUP_TIMEOUT)
-        total = sum(s.size for s in (info.siblings or []) if getattr(s, "size", None))
+    except GatedRepoError as e:
+        logger.debug(f"Gate not accepted for {name}: {e}")
+        return None, True, True
     except Exception as e:
         logger.debug(f"No size for {name}: {e}")
+        return None, None, None
+    total = sum(s.size for s in (info.siblings or []) if getattr(s, "size", None))
+    gb = round(total / GIB, 1) if total else None
+    gated = getattr(info, "gated", False) or False
+    access_blocked = False
+    if gated:
+        access_blocked = _probe_gate_blocked(name, info.siblings or [])
+    return gb, gated, access_blocked
+
+
+def _probe_gate_blocked(name, siblings):
+    """HEAD one real file of a gated repo to see whether this box's token is
+    actually accepted - `model_info` succeeding says nothing either way
+    (#186). `None` when there is no file to probe or the probe fails for a
+    reason other than the gate, since that is "unknown", not "not blocked".
+    """
+    filename = next(
+        (s.rfilename for s in siblings if getattr(s, "rfilename", None)), None
+    )
+    if filename is None:
         return None
-    return round(total / GIB, 1) if total else None
+    try:
+        get_hf_file_metadata(hf_hub_url(name, filename), timeout=SIZE_LOOKUP_TIMEOUT)
+        return False
+    except GatedRepoError as e:
+        logger.debug(f"Gate not accepted for {name}: {e}")
+        return True
+    except Exception as e:
+        logger.debug(f"Gate probe inconclusive for {name}: {e}")
+        return None

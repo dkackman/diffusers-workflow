@@ -3,6 +3,7 @@ Unit tests for the concat_videos task - the standalone counterpart of the
 chained pipeline step's stitching.
 """
 
+import tempfile
 from unittest.mock import patch
 
 import numpy
@@ -10,7 +11,7 @@ import pytest
 import torch
 from PIL import Image
 
-from dw.result import AudioVideo, get_artifact_list
+from dw.result import AudioVideo, Result, get_artifact_list
 from dw.tasks.concat_videos import concat_videos
 from dw.tasks.task import Task
 
@@ -145,6 +146,45 @@ class TestConcatVideos:
         result = concat_videos([frames(3), frames(3)])
 
         assert len(get_artifact_list(result)) == 1
+
+
+class TestPreviousResultChainAudioFit:
+    """#197 reopened: a per-shot artifact's own saved file could be correct
+    while the artifact object still held unfitted audio, because the fit in
+    save_audio_video only ever adjusted a local variable used for muxing. A
+    later previous_result: consumer such as concat_videos reads the artifact
+    straight out of the result store, bypassing save() entirely - so the
+    regression has to be proven at the concat output, not the per-shot file.
+    """
+
+    def shot(self, num_frames, sample_count, fps=24, sample_rate=1000):
+        # Mirrors what a codec mux leaves behind: audio slightly off the
+        # exact frame-derived length, the drift save_audio_video is meant
+        # to absorb before the artifact is handed to a later step.
+        audio = torch.zeros((2, sample_count))
+        artifact = AudioVideo(frames(num_frames), audio, sample_rate)
+        result = Result({"content_type": "video/mp4", "fps": fps})
+        result.add_result(artifact)
+        with (
+            patch("dw.result.encode_video"),
+            patch("dw.result.export_to_video"),
+            patch("dw.result.is_av_available", return_value=True),
+        ):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                result.save(temp_dir, "test")
+        # What a previous_result: reference resolves to: the same artifact
+        # object save() just mutated, not a copy.
+        return artifact
+
+    def test_concat_output_reflects_the_fit_not_the_raw_shots(self):
+        # 48 frames @ 24fps @ 1000Hz -> 2000 samples exactly, each shot
+        # generated with codec-padding drift on either side of that.
+        first = self.shot(48, 1900)  # padded up to 2000
+        second = self.shot(48, 2100)  # trimmed down to 2000
+
+        result = concat_videos([first, second], fps=24)
+
+        assert result.audio.shape == (2, 4000)
 
 
 class TestTaskDispatch:
@@ -505,6 +545,47 @@ class TestWarningsReachTheCaller:
         assert warnings[0]["sample_rates"] == {"first.mp4": 100, "video 2": 200}
         assert "resampling them all to 200 Hz" in warnings[0]["message"]
         assert "resample_audio" in warnings[0]["message"]
+
+    def test_the_clip_hold_is_emitted_as_a_warning_event(self):
+        """#214: match_levels applied silently - a shot held short of the
+        target only ever reached the server's log."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        spiky = numpy.full((2, 100), 0.02, dtype=numpy.float32)
+        spiky[:, 50] = 0.9
+        video = AudioVideo(frames(4), spiky, 100)
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([video, audio_video(4, 0.02)], match_levels="rms")
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e.get("kind") == "match_levels_held"]
+        assert len(warnings) == 1
+        assert warnings[0]["command"] == "concat_videos"
+        assert warnings[0]["index"] == 0
+        assert warnings[0]["shortfall_db"] > 0
+        assert "held to" in warnings[0]["message"]
+
+    def test_per_shot_gain_is_emitted_as_a_log_event(self):
+        """#214: neither shot's applied gain reached the caller at all."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [audio_video(4, 0.5), audio_video(4, 0.05)], match_levels="rms"
+            )
+        finally:
+            deactivate_context(token)
+
+        logs = [e for e in events if e["event"] == "log"]
+        assert len(logs) == 2
+        assert all("gain" in log["message"] for log in logs)
+        assert {log["index"] for log in logs} == {0, 1}
 
     def test_one_rate_emits_no_resample_warning(self):
         from dw.events import RunContext, activate_context, deactivate_context

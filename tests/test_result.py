@@ -8,6 +8,7 @@ import os
 import tempfile
 import json
 import logging
+import types
 from dataclasses import dataclass
 
 import numpy
@@ -44,6 +45,15 @@ class TestResult:
         result = Result({})
         result.add_result('"test_string"  ')
         assert result.result_list == ["test_string"]
+
+    def test_add_selected_unwraps_value_and_records_metadata(self):
+        from dw.tasks.select import Selected
+
+        result = Result({})
+        result.add_result(Selected(value="b", position=1, score=0.9))
+
+        assert result.result_list == ["b"]
+        assert result.selected == {"position": 1, "score": 0.9}
 
     def test_get_artifacts_from_simple_list(self):
         result = Result({})
@@ -490,8 +500,11 @@ class TestModularOutputs:
         assert get_artifact_list(outputs) == [outputs]
 
     def test_generated_audio_is_muxed_into_the_video(self):
+        # A frame count far longer than the audio keeps the mismatch outside
+        # _fit_audio_to_frames's codec-padding tolerance, so the audio passes
+        # through unchanged and this test stays about muxing, not fitting.
         outputs = {
-            "videos": ["frames"],
+            "videos": [["frame"] * 1000],
             "audio": torch.zeros((1, 2, 100)),
             "sampling_rate": 16000,
         }
@@ -606,6 +619,80 @@ class TestSaveAudioVideo:
         assert arguments["fps"] == 24
         assert arguments["audio_sample_rate"] == 48000
         assert arguments["output_path"].endswith(".mp4")
+
+    def test_audio_is_trimmed_to_frame_count_for_in_memory_generation(self):
+        # #197: a shot generated in memory via previous_result: chaining never
+        # passes through _decode_audio_video, so codec-padding drift between
+        # the audio and the frame count has to be trimmed here instead.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 2100))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        artifact = AudioVideo(frames, audio, 1000)
+
+        encode, _ = self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+
+        assert encode.call_args.kwargs["audio"].shape == (2, 2000)
+
+    def test_audio_is_padded_to_frame_count_for_in_memory_generation(self):
+        # #197 reopened: the trim path above happened to work on a torch
+        # tensor because slicing is type-agnostic, but the pad path used
+        # numpy.pad unconditionally and crashed on a real (GPU) torch tensor
+        # - so every in-memory audio+video save that came up short failed
+        # outright rather than being fit. A CPU tensor reproduces the same
+        # numpy.pad TypeError, since the bug was the type, not the device.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        artifact = AudioVideo(frames, audio, 1000)
+
+        encode, _ = self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+
+        assert encode.call_args.kwargs["audio"].shape == (2, 2000)
+
+    def test_fit_is_written_back_onto_the_artifact(self):
+        # #197 reopened again: the fit above only ever adjusted the local
+        # `audio` used for muxing, so the AudioVideo instance kept in the
+        # result store - the same object a later previous_result: consumer
+        # like concat_videos reads directly, without going through save() -
+        # still carried the unfitted waveform. A chain built from in-memory
+        # shots drifted even though each shot's own saved file was correct.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        artifact = AudioVideo(frames, audio, 1000)
+
+        self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+
+        assert artifact.audio.shape == (2, 2000)
+
+    def test_fit_survives_a_second_extraction_of_a_raw_pipeline_output(self):
+        # #197, 4th round: write-back (above) lands the fit on the AudioVideo
+        # save() itself extracted - but a raw pipeline output (an object
+        # with .frames/.audio, not a pre-built AudioVideo, the shape LTX-2
+        # actually returns) is re-extracted from scratch by every call to
+        # get_artifact_list, including a later get_artifacts() call from a
+        # previous_result: consumer tapping the in-memory shot directly
+        # (e.g. a per-shot gain_audio step, bypassing any output: decode).
+        # That rebuilt a brand new, unfitted AudioVideo from the same raw
+        # .frames/.audio attributes, discarding the fit every time.
+        frames = ["frame"] * 48
+        # .frames/.audio are batched - one entry per generation - so a
+        # single video's frames/audio must each be wrapped in a length-1 list
+        audio = [torch.zeros((2, 1900))]  # 48 frames @ 24fps @ 1000Hz -> 2000
+        pipeline_output = types.SimpleNamespace(
+            frames=[frames], audio=audio, audio_sample_rate=1000
+        )
+
+        result = Result({"content_type": "video/mp4", "fps": 24})
+        result.add_result(pipeline_output)
+        with (
+            patch("dw.result.encode_video"),
+            patch("dw.result.export_to_video"),
+            patch("dw.result.is_av_available", return_value=True),
+        ):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                result.save(temp_dir, "test")
+
+        artifacts = result.get_artifacts()
+        assert len(artifacts) == 1
+        assert artifacts[0].audio.shape == (2, 2000)
 
     def test_result_definition_overrides_the_sample_rate(self):
         artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
@@ -769,6 +856,12 @@ class TestSaveAudio:
                 assert sample_rate == 22050
 
     def test_a_declared_rate_wins_over_the_one_the_track_carries(self):
+        # #205: the declared rate still wins - relabeling rather than
+        # resampling is what a template asked for - but unlike before, it no
+        # longer wins silently. A caller who checks `warnings` sees this one
+        # even though the task-argument-level guard (#180) had nothing to
+        # object to.
+        from dw.events import RunContext, activate_context, deactivate_context
         from dw.result import AudioTrack
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -777,10 +870,62 @@ class TestSaveAudio:
                 AudioTrack(numpy.zeros((1, 4410), dtype=numpy.float32), 24000)
             )
 
-            result.save(temp_dir, "line")
+            events = []
+            token = activate_context(RunContext(on_event=events.append))
+            try:
+                result.save(temp_dir, "line")
+            finally:
+                deactivate_context(token)
 
             _, sample_rate = soundfile.read(os.path.join(temp_dir, "line-0.0.wav"))
             assert sample_rate == 44100
+
+            warnings = [e for e in events if e.get("kind") == "rate_override_mismatch"]
+            assert len(warnings) == 1
+            assert warnings[0]["file_rate"] == 24000
+            assert warnings[0]["given_rate"] == 44100
+
+    def test_a_declared_rate_matching_the_carried_rate_is_not_a_warning(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.result import AudioTrack
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav", "sample_rate": 24000})
+            result.add_result(
+                AudioTrack(numpy.zeros((1, 4410), dtype=numpy.float32), 24000)
+            )
+
+            events = []
+            token = activate_context(RunContext(on_event=events.append))
+            try:
+                result.save(temp_dir, "line")
+            finally:
+                deactivate_context(token)
+
+            assert [
+                e for e in events if e.get("kind") == "rate_override_mismatch"
+            ] == []
+
+    def test_a_declared_rate_with_no_carried_rate_is_not_a_warning(self):
+        # A generated artifact (e.g. a modular pipeline's dict output) carries
+        # no sample_rate of its own - declaring one is how it gets one at all,
+        # not an override of anything, so there is nothing to warn about.
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "audio/wav", "sample_rate": 44100})
+            result.add_result(numpy.zeros((1, 4410), dtype=numpy.float32))
+
+            events = []
+            token = activate_context(RunContext(on_event=events.append))
+            try:
+                result.save(temp_dir, "line")
+            finally:
+                deactivate_context(token)
+
+            assert [
+                e for e in events if e.get("kind") == "rate_override_mismatch"
+            ] == []
 
     def test_a_batch_of_tracks_each_save_at_the_carried_rate(self):
         # Each item of a batched .audios is its own AudioTrack, so each is saved

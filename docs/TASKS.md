@@ -15,7 +15,9 @@ Tasks are utility operations that run outside of pipeline inference. Use them fo
 
 Any task that runs a model accepts a `"device"` argument to pin where it runs -
 useful for keeping a helper model (a captioner, an upscaler) off the accelerator a
-loaded pipeline is using, or on a second one.
+loaded pipeline is using, or on a second one. `"device"` is listed on every task's
+schema, since it is always safe to pass: a task that runs no model - `slice_audio`,
+`compose_text`, and the like - just ignores it.
 
 Task argument schemas are discoverable: `GET /api/tasks/{command}` on the
 [server](SERVER.md) returns each command's arguments read from its registered
@@ -214,16 +216,19 @@ video generation" in the workflow guide):
 | `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
 | `crossfade_ms` | No | Equal-power crossfade at each audio seam, drawn from the trimmed material - no effect when `trim_frames` is 0, and validation warns when one is written there (default: 75) |
 | `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
+| `audio_bleed_gain_db` | No | Gain applied to the bled tail before it is added, in dB - negative ducks a tail that would otherwise push the seam over 0 dBFS (default: 0, unchanged) |
 | `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed - for tonal material, not for a continuous bed (default: 3, just enough not to click) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming, and the rate the joined file is written at unless `result.fps` overrides it |
 | `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample. Off by default |
-| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`) |
+| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -0.5 dBFS peak instead, reported as a `match_levels_held` warning with a per-shot log event |
 
 A video may also be named by path or URL, which is how shots an earlier run
 already wrote are joined without regenerating them - the file is read with the
 audio muxed into it, and its track is fitted to the frames' own duration so the
 codec's block padding does not walk the sound off the picture over a dozen
-seams:
+seams. A shot generated in memory through a `previous_result:` chain gets the
+same fit, applied where the file is written rather than where it is decoded,
+so per-shot drift does not accumulate across a cut the way it once did:
 
 ```json
 {
@@ -279,7 +284,10 @@ a five-shot H3 sitcom cut, 700 ms still left a 44 dB hole at the worst seam;
 
 A bleed works because it copies ambience, which has no pitch and no attacks to
 give the copy away. It is the wrong tool for anything tonal - a copied musical
-phrase or half-spoken word reads as a stutter whichever direction it runs. When a
+phrase or half-spoken word reads as a stutter whichever direction it runs.
+`bleed_join` checks the outgoing tail's spectral flatness and warns when it
+looks tonal or speech-like rather than noise-like, so this failure mode
+surfaces in the job's `warnings` list instead of only in the mix. When a
 shot ends on something tonal, either give the cut a continuous bed with
 `slice_audio` + `loop_audio` + `mix_audio` + `pair_audio`, which leaves no seam
 to treat at all, or fade the
@@ -342,7 +350,7 @@ montage cut to a score wants:
 | `fade_color` | No | The RGB colour the fades come from and go to (default: black) |
 | `fps` | No | Frame rate of the videos - required to crossfade audio at a dissolve, and the rate the dissolved file is written at unless `result.fps` overrides it |
 | `match_levels` | No | Even the shots' loudness out before joining - `"rms"` or `"peak"`, as with [`concat_videos`](#concat_videos). Off by default |
-| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`) |
+| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -0.5 dBFS peak instead, reported as a `match_levels_held` warning with a per-shot log event |
 
 Every seam shortens the result by one overlap, so eight 124-frame shots joined
 with 12-frame dissolves run 908 frames, not 992 - size a soundtrack slice to
@@ -481,6 +489,49 @@ a length still passes the whole track along:
 | `start_seconds` / `duration_seconds` | One pair | The slice in seconds; either may be omitted |
 | `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames; `fps` is required, start and count may be omitted |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+### gain_audio
+
+Apply a gain, in decibels, to a region of an audio track - the rest of the
+track passes through unchanged. The region is addressed the same way
+`slice_audio`'s is, in seconds or in video frames, so ducking a scene under
+another (lowering a dialogue track between two timestamps) is one step
+instead of the `slice_audio` → `gain` (a whole-track `normalize_audio` on the
+slice) → `mix_audio` → `rejoin` → `pair_audio` chain that used to be the only
+way to gain part of a track rather than all of it. Unlike `slice_audio`, a
+region reaching past the end of the track is clipped to it rather than
+zero-padded - there is no silence there to gain, only the end of the real
+material:
+
+```json
+{
+    "task": {
+        "command": "gain_audio",
+        "arguments": {
+            "audio": "./dialogue.wav",
+            "gain_db": -12,
+            "start_frame": 124,
+            "num_frames": 48,
+            "fps": 24
+        }
+    },
+    "result": { "content_type": "audio/wav", "sample_rate": 44100 }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
+| `gain_db` | Yes | Gain to apply within the region, in decibels - negative ducks it, positive boosts it |
+| `start_seconds` / `duration_seconds` | One pair | The region in seconds; either may be omitted |
+| `start_frame` / `num_frames` / `fps` | One pair | The region in video frames; `fps` is required, start and count may be omitted |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+One pair is required — there is no separate "whole track" mode — but the
+whole track is still one step: give just `start_seconds: 0` and leave
+`duration_seconds` unset (or `start_frame: 0` + `fps` and leave `num_frames`
+unset), which runs to the end of the track without needing to already know
+how long that is.
 
 ### crossfade_audio
 
@@ -625,10 +676,13 @@ scene so the edits stop being audible:
 | `sample_rate` | With a waveform | Sample rate of a waveform passed directly; given for a file or a video it overrides the rate they carry |
 
 Laps are joined with an equal-power crossfade rather than butted together, so
-the loop point is not a click and a tone with movement in it does not tick once
-a second. The source is used whole every lap and only the last one is trimmed,
-so the bed lands exactly on the requested length; a source longer than the
-request is trimmed to it.
+the loop point itself is not a click. That only smooths the seam: a transient
+in the source (a hit, a swell) still recurs once per lap at full strength, so
+the loop still reads as a level pulse at the lap rate — measured at 9.3 dB on
+a source with one such transient. Pick a source with even internal level to
+avoid the pulse; the crossfade does not remove it. The source is used whole
+every lap and only the last one is trimmed, so the bed lands exactly on the
+requested length; a source longer than the request is trimmed to it.
 
 The bed is laid under the cut with `mix_audio` and attached to the picture with
 `pair_audio`:
@@ -686,6 +740,100 @@ into the next without the rate being restated: a `resample_audio` fed
 `result` still decides what is written to disk.
 
 **Example:** [assemble-and-score.json](../workflows/templates/assemble-and-score.json)
+
+### compress_audio
+
+Shape a track's dynamics with an envelope-follower - a compressor, a limiter
+and a gate are the same algorithm with different knob settings, so one task
+covers all three through `mode`:
+
+```json
+{
+    "task": {
+        "command": "compress_audio",
+        "arguments": {
+            "audio": "previous_result:mixed",
+            "threshold_dbfs": -18.0,
+            "ratio": 4.0,
+            "attack_ms": 10,
+            "release_ms": 100,
+            "sample_rate": 44100
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
+| `threshold_dbfs` | Yes | The level the envelope is measured against, in dB below full scale. Cannot be above 0 |
+| `ratio` | No | How hard the reduction is above the threshold, in `compress`/`gate` mode (default: 4.0). Ignored in `limit` mode, which always holds the signal at the threshold |
+| `attack_ms` | No | How fast the envelope rises to a louder signal (default: 10.0). 0 means instantly |
+| `release_ms` | No | How fast the envelope falls back after a louder signal ends (default: 100.0). 0 means instantly |
+| `mode` | No | `compress` (turn down what's above the threshold), `limit` (hold the signal at the threshold), or `gate` (turn down what's below the threshold) (default: `compress`) |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+A silent track is returned unchanged.
+
+### filter_audio
+
+Run a track through a single biquad filter stage - trimming the frequencies a
+mix doesn't need, or carving out room for another element:
+
+```json
+{
+    "task": {
+        "command": "filter_audio",
+        "arguments": {
+            "audio": "previous_result:world",
+            "cutoff_hz": 120,
+            "kind": "highpass",
+            "sample_rate": 44100
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
+| `cutoff_hz` | Yes | The filter's corner frequency. Must be below the Nyquist frequency (half the sample rate) |
+| `kind` | No | `lowpass`, `highpass`, `bandpass`, or `notch` (default: `lowpass`) |
+| `q` | No | The filter's resonance/bandwidth (default: 0.707, a Butterworth response) |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+A silent track is returned unchanged.
+
+### analyze_audio
+
+Measure a track without changing it - peak and RMS level, crest factor, and a
+rough low/mid/high spectral balance, the numbers a `compress_audio` or
+`filter_audio` step downstream is tuned against rather than guessed at:
+
+```json
+{
+    "task": {
+        "command": "analyze_audio",
+        "arguments": {
+            "audio": "previous_result:mixed",
+            "sample_rate": 44100
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+Returns a dict, not a track: `peak_dbfs`, `rms_dbfs`, `crest_factor_db`,
+`low_dbfs` (20-250 Hz), `mid_dbfs` (250-4000 Hz), `high_dbfs` (4000-20000 Hz).
+The three bands are each a share of the track's total power on the same
+scale as `rms_dbfs` (their powers sum to it), so the loudest band sits near
+`rms_dbfs` rather than tens of dB under it - comparable to `compress_audio`'s
+`threshold_dbfs`. A silent track, or a band with no content at the track's
+sample rate, reads as `null` rather than `-inf`.
 
 ## Data Gathering
 
@@ -1127,13 +1275,17 @@ Speak a line of text with a local text-to-speech model. The result is a waveform
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `text` | Yes | The line to speak |
+| `text` | One of `text`/`messages` | The line to speak |
+| `messages` | One of `text`/`messages` | Chat-templated input for a model such as VibeVoice that takes a conversation rather than a bare string — a list of `{"role": ..., "content": ...}` dicts, passed straight through as the pipeline's `text_inputs` so the model's own chat template applies. A model with no chat template configured (Bark and friends) raises when handed this instead of `text` |
 | `model_name` | No | HuggingFace model ID (default: `suno/bark-small`) |
 | `voice_preset` | No | The speaker, for a model with presets — `v2/en_speaker_0` through `v2/en_speaker_9` for Bark. A model with no processor (a single-voice model such as `facebook/mms-tts-eng`) refuses a `voice_preset` with an error rather than ignoring it |
+| `speaker_embedding` | No | A reference audio file (typically an `asset:` reference) whose voice a SpeechT5 model should speak in. Reduced to an x-vector with speechbrain's `spkrec-xvect-voxceleb` and injected into `forward_params` as `speaker_embeddings`. A model that isn't SpeechT5 refuses it the same way a single-voice model refuses `voice_preset` |
 | `forward_params` | No | Passed to the model's forward/generate call |
 | `generate_kwargs` | No | Ad-hoc generation settings for a generative model — `temperature`, `do_sample` |
 
-The default is Bark because its voice presets give distinct speakers, which is what two characters in a scene need; `facebook/mms-tts-eng` is a quarter the size and a good override where one voice will do. `voice_preset` is a preprocessing argument — it selects the speaker before generation rather than parameterizing it — so naming it here is what makes it reach the processor. Passed through `forward_params` it would be dropped and every character would sound the same.
+The command's own default is Bark because its voice presets give distinct speakers, which is what two characters in a scene need; `facebook/mms-tts-eng` is a quarter the size and a good override where one voice will do. [`generate-speech.json`](../workflows/templates/generate-speech.json) ships with `facebook/mms-tts-eng` as its own default instead, since a template is usually a single voice. `voice_preset` is a preprocessing argument — it selects the speaker before generation rather than parameterizing it — so naming it here is what makes it reach the processor. Passed through `forward_params` it would be dropped and every character would sound the same.
+
+`speaker_embedding` is the same kind of preprocessing argument for a SpeechT5 model (`microsoft/speecht5_tts`), which conditions its voice on an x-vector rather than a preset name. A VITS model's speaker is different again — a plain `speaker_id` int, passed through `forward_params` unchanged, since it was never a preprocessing argument and needs no argument of its own here.
 
 The result needs no `sample_rate`. A generated track carries the rate its model produced it at, and that beats the 44100 default; declaring one still wins over both, for a track whose rate was reported wrong. Every TTS model runs at a different rate, so a declared rate that does not match plays the speech at the wrong speed and pitch without ever failing.
 
@@ -1158,6 +1310,32 @@ A speech model is worth releasing before a video model loads — set `release_mo
 
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line and save it as a `.wav`
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice, then condition H3's `<Audio 1>` on it
+
+## Speech Transcription
+
+Transcribe spoken audio to text with a local Whisper-class model. The word-correctness of a TTS deliverable — a dropped line, a mid-sentence truncation — can only be inferred from duration and timing arithmetic without this; `transcribe_audio` checks it directly against the text the deliverable was supposed to speak.
+
+```json
+{
+    "task": {
+        "command": "transcribe_audio",
+        "arguments": {
+            "audio": "previous_result:speak"
+        }
+    },
+    "result": { "content_type": "text/plain" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a video with a soundtrack, or a waveform — usually a `previous_result:` reference |
+| `sample_rate` | No | Sample rate of a waveform passed directly |
+| `model_name` | No | HuggingFace model ID of a Whisper-class ASR model (default: `openai/whisper-base`) |
+
+Multi-channel audio is downmixed to mono and resampled to 16 kHz before transcription, since that is what a Whisper-class model is trained on; the source audio itself is untouched. The result is plain text, read with MCP's `get_output_text`.
+
+**Example:** [transcribe-audio.json](../workflows/templates/transcribe-audio.json) — Transcribe an audio file to text.
 
 ## Frame Interpolation
 

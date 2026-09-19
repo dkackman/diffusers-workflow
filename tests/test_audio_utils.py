@@ -3,6 +3,9 @@ Unit tests for waveform utilities - shape normalization, frame-aligned
 slicing, and seam joining.
 """
 
+import builtins
+from unittest import mock
+
 import numpy
 import pytest
 import torch
@@ -15,6 +18,7 @@ from dw.tasks.audio_utils import (
     frames_to_samples,
     load_audio,
     resample_audio,
+    resample_waveform,
     slice_samples,
 )
 
@@ -323,6 +327,137 @@ class TestBleedJoin:
         following = numpy.zeros((2, 100), dtype=numpy.float32)
 
         assert bleed_join(previous, following, 100, 500).shape == (2, 200)
+
+    def test_gain_db_scales_the_bled_tail(self):
+        previous = numpy.full((1, 100), 0.5, dtype=numpy.float32)
+        following = numpy.zeros((1, 100), dtype=numpy.float32)
+
+        full = bleed_join(previous, following, 100, 500, gain_db=0.0)
+        ducked = bleed_join(previous, following, 100, 500, gain_db=-6.0)
+
+        assert ducked[0, 100] == pytest.approx(
+            full[0, 100] * 10 ** (-6.0 / 20.0), abs=1e-3
+        )
+
+    def test_tonal_material_warns(self, caplog):
+        # a pure tone concentrates its spectrum in one bin - low flatness
+        t = numpy.arange(400) / 100.0
+        previous = numpy.sin(2 * numpy.pi * 5 * t).astype(numpy.float32)[None, :]
+        following = numpy.zeros((1, 400), dtype=numpy.float32)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(previous, following, 100, 500)
+
+        assert "tonal" in caplog.text or "speech" in caplog.text
+
+    def test_noise_like_material_does_not_warn(self, caplog):
+        rng = numpy.random.default_rng(0)
+        previous = rng.normal(0, 0.2, (1, 400)).astype(numpy.float32)
+        following = numpy.zeros((1, 400), dtype=numpy.float32)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(previous, following, 100, 500)
+
+        assert "tonal" not in caplog.text
+
+    def test_native_rate_speech_like_material_warns_via_harmonicity(self, caplog):
+        # broadband formants keep flatness high (noise-like), so only a
+        # periodicity measure catches this as voiced speech (#198)
+        sample_rate = 24000
+        n = int(sample_rate * 0.3)
+        t = numpy.arange(n) / sample_rate
+        rng = numpy.random.default_rng(1)
+        f0 = 150.0
+        harmonics = [1.0, 0.6, 0.45, 0.3, 0.2, 0.12]
+        speech_like = sum(
+            amp
+            * numpy.sin(2 * numpy.pi * f0 * (k + 1) * t + rng.uniform(0, 2 * numpy.pi))
+            for k, amp in enumerate(harmonics)
+        )
+        speech_like = speech_like + rng.normal(0, 0.25, n)
+        speech_like = (speech_like / numpy.abs(speech_like).max()).astype(numpy.float32)
+        previous = speech_like[None, :]
+        following = numpy.zeros((1, n), dtype=numpy.float32)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(previous, following, sample_rate, 300)
+
+        assert "tonal" in caplog.text or "speech" in caplog.text
+
+    def test_native_rate_noise_does_not_warn_at_speech_rate(self, caplog):
+        # regression guard: harmonicity must not itself become a false
+        # positive source for genuine noise at a realistic sample rate
+        sample_rate = 24000
+        n = int(sample_rate * 0.3)
+        rng = numpy.random.default_rng(1)
+        previous = rng.normal(0, 0.2, (1, n)).astype(numpy.float32)
+        following = numpy.zeros((1, n), dtype=numpy.float32)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(previous, following, sample_rate, 300)
+
+        assert "tonal" not in caplog.text
+        assert "speech" not in caplog.text
+
+    def test_upsampled_noise_does_not_falsely_warn_when_native_rate_given(self, caplog):
+        # band-limited interpolation leaves near-silence above the tail's own
+        # Nyquist, which used to depress flatness and read as spuriously
+        # tonal purely because of the resample - not because of the content
+        # (#198)
+        native_rate = 16000
+        target_rate = 48000
+        n = int(native_rate * 0.3)
+        rng = numpy.random.default_rng(2)
+        noise = rng.normal(0, 0.2, (1, n)).astype(numpy.float32)
+        upsampled = resample_waveform(noise, native_rate, target_rate)
+        following = numpy.zeros_like(upsampled)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(
+                upsampled,
+                following,
+                target_rate,
+                300,
+                native_sample_rate=native_rate,
+            )
+
+        assert "tonal" not in caplog.text
+        assert "speech" not in caplog.text
+
+    def test_upsampled_speech_still_warns_when_native_rate_given(self, caplog):
+        """The other half of the #198 band-limiting: the native rate tells
+        _spectral_flatness where the tail's own Nyquist is, but _harmonicity
+        turns a rate into lag bounds in samples of the waveform it is handed -
+        which is at the target rate. Passing the native rate there searched
+        180-1500 Hz on a 48 kHz track instead of 60-500, missing the voiced
+        speech the check exists to catch."""
+        native_rate = 16000
+        target_rate = 48000
+        n = int(native_rate * 0.3)
+        t = numpy.arange(n) / native_rate
+        rng = numpy.random.default_rng(3)
+        f0 = 150.0
+        harmonics = [1.0, 0.6, 0.45, 0.3, 0.2, 0.12]
+        speech_like = sum(
+            amp
+            * numpy.sin(2 * numpy.pi * f0 * (k + 1) * t + rng.uniform(0, 2 * numpy.pi))
+            for k, amp in enumerate(harmonics)
+        )
+        speech_like = speech_like + rng.normal(0, 0.25, n)
+        speech_like = (speech_like / numpy.abs(speech_like).max()).astype(numpy.float32)
+        upsampled = resample_waveform(speech_like[None, :], native_rate, target_rate)
+        following = numpy.zeros_like(upsampled)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(
+                upsampled,
+                following,
+                target_rate,
+                300,
+                native_sample_rate=native_rate,
+            )
+
+        assert "tonal" in caplog.text or "speech" in caplog.text
 
 
 class TestResampleAudio:
@@ -853,3 +988,293 @@ class TestRateOverrideMismatch:
         assert len(warnings) == 1
         assert warnings[0]["file_rate"] == 8000
         assert warnings[0]["given_rate"] == 16000
+
+
+class TestCompressAudio:
+    """attack_ms=0/release_ms=0 makes the envelope track the signal
+    instantly, so the gain each sample lands at is exact rather than a
+    settling curve."""
+
+    def test_a_loud_signal_is_compressed_toward_the_threshold(self):
+        from dw.tasks.audio_utils import compress_audio
+
+        track = numpy.ones((1, 10), dtype=numpy.float32)
+
+        compressed = samples(
+            compress_audio(
+                track,
+                threshold_dbfs=-6.0,
+                ratio=4.0,
+                attack_ms=0,
+                release_ms=0,
+                sample_rate=100,
+            )
+        )
+
+        expected_gain = 10 ** (-(6.0 * (1 - 1 / 4.0)) / 20)
+        assert numpy.all(compressed == pytest.approx(expected_gain, abs=1e-5))
+
+    def test_limit_mode_holds_the_signal_at_the_threshold(self):
+        from dw.tasks.audio_utils import compress_audio
+
+        track = numpy.ones((1, 10), dtype=numpy.float32)
+
+        limited = samples(
+            compress_audio(
+                track,
+                threshold_dbfs=-6.0,
+                mode="limit",
+                attack_ms=0,
+                release_ms=0,
+                sample_rate=100,
+            )
+        )
+
+        assert numpy.all(limited == pytest.approx(10 ** (-6.0 / 20), abs=1e-5))
+
+    def test_gate_mode_attenuates_a_signal_below_the_threshold(self):
+        from dw.tasks.audio_utils import compress_audio
+
+        track = numpy.full((1, 10), 0.1, dtype=numpy.float32)
+
+        gated = samples(
+            compress_audio(
+                track,
+                threshold_dbfs=-6.0,
+                ratio=4.0,
+                mode="gate",
+                attack_ms=0,
+                release_ms=0,
+                sample_rate=100,
+            )
+        )
+
+        assert numpy.all(numpy.abs(gated) < 0.1)
+
+    def test_a_signal_under_the_threshold_passes_through_unchanged_in_compress_mode(
+        self,
+    ):
+        from dw.tasks.audio_utils import compress_audio
+
+        track = numpy.full((1, 10), 0.1, dtype=numpy.float32)
+
+        compressed = samples(
+            compress_audio(
+                track,
+                threshold_dbfs=-6.0,
+                attack_ms=0,
+                release_ms=0,
+                sample_rate=100,
+            )
+        )
+
+        assert numpy.all(compressed == pytest.approx(0.1, abs=1e-6))
+
+    def test_silence_is_left_alone(self):
+        from dw.tasks.audio_utils import compress_audio
+
+        assert numpy.all(
+            samples(
+                compress_audio(
+                    numpy.zeros((1, 10)), threshold_dbfs=-6.0, sample_rate=100
+                )
+            )
+            == 0
+        )
+
+    def test_the_input_is_not_modified(self):
+        from dw.tasks.audio_utils import compress_audio
+
+        track = numpy.ones((1, 10), dtype=numpy.float32)
+        compress_audio(track, threshold_dbfs=-6.0, sample_rate=100)
+
+        assert numpy.all(track == 1.0)
+
+    def test_an_unknown_mode_is_refused(self):
+        from dw.tasks.audio_utils import compress_audio
+
+        with pytest.raises(ValueError, match="mode"):
+            compress_audio(
+                numpy.ones((1, 10)), threshold_dbfs=-6.0, mode="squash", sample_rate=100
+            )
+
+    def test_a_threshold_above_full_scale_is_refused(self):
+        from dw.tasks.audio_utils import compress_audio
+
+        with pytest.raises(ValueError, match="full scale"):
+            compress_audio(numpy.ones((1, 10)), threshold_dbfs=1.0, sample_rate=100)
+
+    def test_a_waveform_needs_a_sample_rate(self):
+        from dw.tasks.audio_utils import compress_audio
+
+        with pytest.raises(ValueError, match="sample_rate"):
+            compress_audio(numpy.ones((1, 10)), threshold_dbfs=-6.0)
+
+
+class TestFilterAudio:
+    def tone(self, frequency, samples=2000, rate=8000, level=1.0):
+        t = numpy.arange(samples) / rate
+        return (
+            numpy.sin(2 * numpy.pi * frequency * t).astype(numpy.float32)[
+                numpy.newaxis, :
+            ]
+            * level
+        )
+
+    def rms(self, waveform):
+        # skip the filter's brief settling transient
+        return float(numpy.sqrt(numpy.mean(numpy.square(waveform[:, 200:]))))
+
+    def test_the_scipy_path_and_the_python_fallback_agree(self):
+        """_apply_biquad runs the recursion through scipy's lfilter, which is
+        in every install, and keeps the per-sample Python form for an
+        environment without it. Two implementations of one filter, so they are
+        pinned to each other rather than each to its own expectations."""
+        from dw.tasks import audio_utils
+
+        rng = numpy.random.default_rng(0)
+        channel = rng.standard_normal(4000).astype(numpy.float32)
+        b, a = audio_utils._biquad_coefficients("lowpass", 1000.0, 0.707, 8000)
+
+        through_scipy = audio_utils._apply_biquad(channel, b, a)
+        real_import = builtins.__import__
+
+        def without_scipy(name, *args, **kwargs):
+            if name.startswith("scipy"):
+                raise ImportError("no scipy")
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch.object(builtins, "__import__", without_scipy):
+            in_python = audio_utils._apply_biquad(channel, b, a)
+
+        assert numpy.abs(through_scipy - in_python).max() < 1e-9
+
+    def test_lowpass_passes_low_frequencies_and_attenuates_high_ones(self):
+        from dw.tasks.audio_utils import filter_audio
+
+        low = self.tone(frequency=100)
+        high = self.tone(frequency=3500)
+
+        low_out = samples(
+            filter_audio(low, cutoff_hz=500, kind="lowpass", sample_rate=8000)
+        ).T
+        high_out = samples(
+            filter_audio(high, cutoff_hz=500, kind="lowpass", sample_rate=8000)
+        ).T
+
+        assert self.rms(low_out) > 0.6
+        assert self.rms(high_out) < 0.1
+
+    def test_highpass_passes_high_frequencies_and_attenuates_low_ones(self):
+        from dw.tasks.audio_utils import filter_audio
+
+        low = self.tone(frequency=100)
+        high = self.tone(frequency=3500)
+
+        low_out = samples(
+            filter_audio(low, cutoff_hz=1000, kind="highpass", sample_rate=8000)
+        ).T
+        high_out = samples(
+            filter_audio(high, cutoff_hz=1000, kind="highpass", sample_rate=8000)
+        ).T
+
+        assert self.rms(low_out) < 0.1
+        assert self.rms(high_out) > 0.6
+
+    def test_the_input_is_not_modified(self):
+        from dw.tasks.audio_utils import filter_audio
+
+        track = self.tone(frequency=440)
+        original = track.copy()
+        filter_audio(track, cutoff_hz=1000, sample_rate=8000)
+
+        assert numpy.array_equal(track, original)
+
+    def test_an_unknown_kind_is_refused(self):
+        from dw.tasks.audio_utils import filter_audio
+
+        with pytest.raises(ValueError, match="kind"):
+            filter_audio(
+                numpy.ones((1, 100)), cutoff_hz=100, kind="allpass", sample_rate=8000
+            )
+
+    def test_a_non_positive_q_is_refused(self):
+        from dw.tasks.audio_utils import filter_audio
+
+        with pytest.raises(ValueError, match="q"):
+            filter_audio(numpy.ones((1, 100)), cutoff_hz=100, q=0, sample_rate=8000)
+
+    def test_a_cutoff_at_or_above_nyquist_is_refused(self):
+        from dw.tasks.audio_utils import filter_audio
+
+        with pytest.raises(ValueError, match="Nyquist"):
+            filter_audio(numpy.ones((1, 100)), cutoff_hz=4000, sample_rate=8000)
+
+    def test_a_waveform_needs_a_sample_rate(self):
+        from dw.tasks.audio_utils import filter_audio
+
+        with pytest.raises(ValueError, match="sample_rate"):
+            filter_audio(numpy.ones((1, 10)), cutoff_hz=100)
+
+
+class TestAnalyzeAudio:
+    def tone(self, samples=8000, rate=8000, frequency=100, level=1.0):
+        t = numpy.arange(samples) / rate
+        return (
+            numpy.sin(2 * numpy.pi * frequency * t).astype(numpy.float32)[
+                numpy.newaxis, :
+            ]
+            * level
+        )
+
+    def test_a_full_scale_tone_reads_its_own_peak_rms_and_crest_factor(self):
+        from dw.tasks.audio_utils import analyze_audio
+
+        result = analyze_audio(self.tone(), sample_rate=8000)
+
+        assert result["peak_dbfs"] == pytest.approx(0.0, abs=0.05)
+        assert result["rms_dbfs"] == pytest.approx(-3.01, abs=0.05)
+        assert result["crest_factor_db"] == pytest.approx(3.01, abs=0.05)
+
+    def test_a_low_tone_reads_louder_in_the_low_band_than_the_high_band(self):
+        from dw.tasks.audio_utils import analyze_audio
+
+        result = analyze_audio(
+            self.tone(samples=16000, rate=16000, frequency=100), sample_rate=16000
+        )
+
+        assert result["low_dbfs"] > result["high_dbfs"]
+
+    def test_a_tones_only_band_sits_on_the_same_scale_as_rms(self):
+        # #211: bands are shares of the same power that gives rms_dbfs, so
+        # a tone with all its energy in one band should read that band at
+        # (not tens of dB under) rms_dbfs.
+        from dw.tasks.audio_utils import analyze_audio
+
+        result = analyze_audio(self.tone(), sample_rate=8000)
+
+        assert result["low_dbfs"] == pytest.approx(result["rms_dbfs"], abs=0.05)
+
+    def test_silence_reads_none_throughout(self):
+        from dw.tasks.audio_utils import analyze_audio
+
+        result = analyze_audio(numpy.zeros((1, 8000)), sample_rate=8000)
+
+        assert result["peak_dbfs"] is None
+        assert result["rms_dbfs"] is None
+        assert result["crest_factor_db"] is None
+
+    def test_the_input_is_not_modified(self):
+        from dw.tasks.audio_utils import analyze_audio
+
+        track = self.tone()
+        original = track.copy()
+        analyze_audio(track, sample_rate=8000)
+
+        assert numpy.array_equal(track, original)
+
+    def test_a_waveform_needs_a_sample_rate(self):
+        from dw.tasks.audio_utils import analyze_audio
+
+        with pytest.raises(ValueError, match="sample_rate"):
+            analyze_audio(numpy.ones((1, 10)))

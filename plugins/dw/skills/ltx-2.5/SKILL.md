@@ -94,8 +94,8 @@ present progressive, opening on the action, stating for every shot a shot
 type, a camera motion (say static when there is none) and a viewpoint, the
 soundscape interleaved with the action rather than appended, in plain
 observable words. For an image-conditioned clip describe only what changes
-from the image; restating it invites a scene cut. The stored prompts under
-`prompts/ltx2/` are written to it. The spec, from
+from the image; restating it invites a scene cut. The `ltx2/`
+stored prompts (`list_prompts`) follow it. The spec, from
 `diffusers.pipelines.ltx2.utils.LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT` (the
 image-to-video variant, `LTX2_5_I2V_DEFAULT_SYSTEM_PROMPT`, adds the
 describe-only-changes rule):

@@ -797,6 +797,47 @@ def test_run_expands_for_each_and_names_the_members(tmp_path):
     assert names == ["shot@a", "shot@b", "edit"]
 
 
+def test_run_records_the_selected_field_on_manifest_and_step_end(tmp_path):
+    definition = _for_each_workflow()
+    definition["steps"][1]["task"] = {
+        "command": "select",
+        "arguments": {
+            "candidates": "gather:shot",
+            "scores": [0.1, 0.9],
+            "rule": "argmax",
+        },
+    }
+    workflow = _workflow_from(definition, tmp_path)
+
+    workflow.run({})
+
+    entry = next(e for e in workflow.manifest if e["step"] == "edit")
+    assert entry["selected"] == {"position": 1, "entry": "shot@b", "score": 0.9}
+
+
+def test_validation_allows_a_variable_sourced_null_threshold_and_index(tmp_path):
+    """#209: a stored-workflow pattern where `rule` is variable-driven and
+    `threshold`/`index` are left at their unset default (null) for rules that
+    don't use them used to fail validation, because select_errors saw the
+    keys present (with a None value) once replace_variables substituted them."""
+    definition = _for_each_workflow()
+    definition["variables"]["rule"] = "argmax"
+    definition["variables"]["threshold"] = None
+    definition["variables"]["index"] = None
+    definition["steps"][1]["task"] = {
+        "command": "select",
+        "arguments": {
+            "candidates": "gather:shot",
+            "scores": [0.1, 0.9],
+            "rule": "variable:rule",
+            "threshold": "variable:threshold",
+            "index": "variable:index",
+        },
+    }
+    workflow = _workflow_from(definition, tmp_path)
+    assert workflow.validation_errors() == []
+
+
 def test_run_substitutes_the_callers_list(tmp_path):
     workflow = _workflow_from(_for_each_workflow(seed=1), tmp_path)
     workflow.run({"shots": [{"name": "only", "text": "X"}]})

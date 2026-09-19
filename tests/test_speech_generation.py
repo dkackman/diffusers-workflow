@@ -4,8 +4,13 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 import numpy
+import torch
 
-from dw.tasks.speech_generation import generate_speech, _DEFAULT_MODEL
+from dw.tasks.speech_generation import (
+    generate_speech,
+    _DEFAULT_MODEL,
+    _speaker_embedding_tensor,
+)
 
 
 def spoken(sample_rate=24000, samples=480):
@@ -145,6 +150,236 @@ class TestGenerateSpeech(unittest.TestCase):
         self.assertIn("voice_preset", str(raised.exception))
         self.assertIn("facebook/mms-tts-eng", str(raised.exception))
 
+    @patch("dw.tasks.speech_generation._speaker_embedding_tensor")
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_speaker_embedding_reaches_forward_params_for_speecht5(
+        self, mock_pipeline, mock_tensor
+    ):
+        pipe = MagicMock(return_value=spoken())
+        pipe.model.config.model_type = "speecht5"
+        mock_pipeline.return_value = pipe
+        mock_tensor.return_value = "the-x-vector"
+
+        generate_speech(
+            "hi",
+            device="cpu",
+            model_name="microsoft/speecht5_tts",
+            speaker_embedding="asset:voices/iris.wav",
+        )
+
+        mock_tensor.assert_called_once_with(
+            "asset:voices/iris.wav", "cpu", torch.float32
+        )
+        self.assertEqual(
+            pipe.call_args[1]["forward_params"],
+            {"speaker_embeddings": "the-x-vector"},
+        )
+
+    @patch("dw.tasks.speech_generation._speaker_embedding_tensor")
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_speaker_embedding_merges_with_other_forward_params(
+        self, mock_pipeline, mock_tensor
+    ):
+        pipe = MagicMock(return_value=spoken())
+        pipe.model.config.model_type = "speecht5"
+        mock_pipeline.return_value = pipe
+        mock_tensor.return_value = "the-x-vector"
+
+        generate_speech(
+            "hi",
+            device="cpu",
+            model_name="microsoft/speecht5_tts",
+            speaker_embedding="asset:voices/iris.wav",
+            forward_params={"do_sample": True},
+        )
+
+        self.assertEqual(
+            pipe.call_args[1]["forward_params"],
+            {"do_sample": True, "speaker_embeddings": "the-x-vector"},
+        )
+
+    @patch("dw.tasks.speech_generation._speaker_embedding_tensor")
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_speaker_embedding_on_a_non_speecht5_model_is_an_error(
+        self, mock_pipeline, mock_tensor
+    ):
+        # Only SpeechT5 conditions on an x-vector; a VITS model would drop
+        # 'speaker_embeddings' as an unrecognised forward kwarg and generate
+        # in its own voice
+        pipe = MagicMock(return_value=spoken())
+        pipe.model.config.model_type = "vits"
+        mock_pipeline.return_value = pipe
+
+        with self.assertRaises(ValueError) as raised:
+            generate_speech(
+                "hi",
+                model_name="facebook/mms-tts-vits",
+                speaker_embedding="asset:voices/iris.wav",
+            )
+
+        self.assertIn("speaker_embedding", str(raised.exception))
+        self.assertIn("facebook/mms-tts-vits", str(raised.exception))
+        mock_tensor.assert_not_called()
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_messages_are_passed_as_text_inputs_instead_of_text(self, mock_pipeline):
+        # VibeVoice and other chat-templated models take a conversation rather
+        # than a bare string; transformers applies the model's chat template
+        # when text_inputs is a list of {role, content} dicts
+        pipe = MagicMock(return_value=spoken())
+        mock_pipeline.return_value = pipe
+        messages = [{"role": "user", "content": "Say hello."}]
+
+        generate_speech(device="cpu", messages=messages)
+
+        self.assertEqual(pipe.call_args[0][0], messages)
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_both_text_and_messages_is_an_error(self, mock_pipeline):
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(ValueError, "exactly one of 'text' or 'messages'"):
+            generate_speech(
+                "hi", device="cpu", messages=[{"role": "user", "content": "hi"}]
+            )
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_neither_text_nor_messages_is_an_error(self, mock_pipeline):
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(ValueError, "exactly one of 'text' or 'messages'"):
+            generate_speech(device="cpu")
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_a_bare_string_messages_is_an_error(self, mock_pipeline):
+        # A bare string is itself a valid iterable of characters and would
+        # otherwise sail through the exactly-one check as "messages given"
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(ValueError, "non-empty list"):
+            generate_speech(device="cpu", messages="hello")
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_an_empty_messages_list_is_an_error(self, mock_pipeline):
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(ValueError, "non-empty list"):
+            generate_speech(device="cpu", messages=[])
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_a_wrong_keyed_message_dict_is_an_error(self, mock_pipeline):
+        # Caught here rather than left to the tokenizer, whose error for this
+        # shape names neither 'messages' nor what it expected instead
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(ValueError, "non-empty list"):
+            generate_speech(device="cpu", messages=[{"speaker": "user", "text": "hi"}])
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_a_non_dict_message_item_is_an_error(self, mock_pipeline):
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(ValueError, "non-empty list"):
+            generate_speech(device="cpu", messages=["hello"])
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_messages_that_pass_the_shape_guard_still_reach_the_pipeline(
+        self, mock_pipeline
+    ):
+        # #233 only guards shape (role/content present and strings) - a role
+        # value the guard cannot judge (not a recognised chat role) is left
+        # to transformers' own Chat wrapper, and its error surfaces unchanged
+        pipe = MagicMock(
+            side_effect=ValueError(
+                "Chat role 'narrator' is not one of 'system', 'user', 'assistant'"
+            )
+        )
+        mock_pipeline.return_value = pipe
+
+        with self.assertRaisesRegex(ValueError, "Chat role 'narrator'"):
+            generate_speech(
+                device="cpu", messages=[{"role": "narrator", "content": "hi"}]
+            )
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_messages_on_a_model_with_no_chat_template_propagates_the_error(
+        self, mock_pipeline
+    ):
+        # Bark and other non-chat-templated models have no apply_chat_template
+        # to call; transformers' own failure surfaces rather than dw silently
+        # falling back to treating messages as text
+        pipe = MagicMock(side_effect=ValueError("no chat template is set"))
+        mock_pipeline.return_value = pipe
+
+        with self.assertRaisesRegex(ValueError, "no chat template is set"):
+            generate_speech(
+                device="cpu",
+                model_name=_DEFAULT_MODEL,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_vits_speaker_id_passes_through_forward_params_unchanged(
+        self, mock_pipeline
+    ):
+        # The other half of speaker conditioning (#223): a VITS model's
+        # speaker_id is a plain int forward kwarg that already reached the
+        # model through forward_params before speaker_embedding existed, and
+        # needs no code of its own - confirmed here by never touching
+        # speaker_embedding and still seeing speaker_id pass through intact
+        pipe = MagicMock(return_value=spoken())
+        pipe.model.config.model_type = "vits"
+        mock_pipeline.return_value = pipe
+
+        generate_speech(
+            "hi",
+            device="cpu",
+            model_name="facebook/mms-tts-vits",
+            forward_params={"speaker_id": 3},
+        )
+
+        self.assertEqual(pipe.call_args[1]["forward_params"], {"speaker_id": 3})
+
+
+class TestSpeakerEmbeddingTensor(unittest.TestCase):
+    """#223 regression: SpeechT5's generate() rejects a bare (512,) vector -
+    it wants (batch, 512). These exercise the real squeeze/unsqueeze logic
+    rather than mocking it away, unlike the forward_params tests above."""
+
+    @patch("dw.tasks.speech_generation.load_audio")
+    @patch("dw.tasks.speech_generation.cached_model")
+    def test_output_shape_is_batch_of_one_by_512(
+        self, mock_cached_model, mock_load_audio
+    ):
+        mock_load_audio.return_value = (
+            numpy.zeros((1, 16000), dtype=numpy.float32),
+            16000,
+        )
+        encoder = MagicMock()
+        # speechbrain's raw encode_batch output: (1, 1, 512)
+        encoder.encode_batch.return_value = torch.zeros((1, 1, 512))
+        mock_cached_model.return_value = encoder
+
+        # speechbrain isn't a hard dependency of the test env; the helper
+        # imports it lazily, so stand in a fake module rather than requiring
+        # the real package just to exercise the tensor-shape logic
+        fake_module = MagicMock()
+        fake_module.EncoderClassifier = MagicMock()
+        with patch.dict(
+            "sys.modules",
+            {
+                "speechbrain": MagicMock(),
+                "speechbrain.inference": MagicMock(),
+                "speechbrain.inference.speaker": fake_module,
+            },
+        ):
+            embedding = _speaker_embedding_tensor(
+                "asset:voices/iris.wav", "cpu", torch.float16
+            )
+
+        self.assertEqual(tuple(embedding.shape), (1, 512))
+        self.assertEqual(embedding.dtype, torch.float16)
+
 
 class TestHandleSpeechGeneration(unittest.TestCase):
     """Covers the task.py dispatch handler directly, since
@@ -159,5 +394,39 @@ class TestHandleSpeechGeneration(unittest.TestCase):
                 return "cpu"
 
         handler = _COMMAND_REGISTRY["generate_speech"]
-        with self.assertRaisesRegex(ValueError, "generate_speech needs 'text'"):
+        with self.assertRaisesRegex(ValueError, "generate_speech needs exactly one of"):
             handler(FakeTask(), {"voice_preset": "v2/en_speaker_6"}, {})
+
+    def test_generate_speech_with_both_text_and_messages_is_an_error(self):
+        from dw.tasks.task import _COMMAND_REGISTRY
+
+        class FakeTask:
+            def device_for(self, arguments):
+                return "cpu"
+
+        handler = _COMMAND_REGISTRY["generate_speech"]
+        with self.assertRaisesRegex(ValueError, "generate_speech needs exactly one of"):
+            handler(
+                FakeTask(),
+                {"text": "hi", "messages": [{"role": "user", "content": "hi"}]},
+                {},
+            )
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_messages_dispatched_through_the_handler_reach_the_pipeline(
+        self, mock_pipeline
+    ):
+        from dw.tasks.task import _COMMAND_REGISTRY
+
+        class FakeTask:
+            def device_for(self, arguments):
+                return "cpu"
+
+        pipe = MagicMock(return_value=spoken())
+        mock_pipeline.return_value = pipe
+
+        handler = _COMMAND_REGISTRY["generate_speech"]
+        messages = [{"role": "user", "content": "hi"}]
+        handler(FakeTask(), {"messages": messages}, {})
+
+        self.assertEqual(pipe.call_args[0][0], messages)

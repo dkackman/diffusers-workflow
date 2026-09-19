@@ -73,7 +73,7 @@ from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..hub_cache import scan_models, delete_model, DownloadManager
-from ..plan import build_plan, unseeded_cache_warnings
+from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
 from ..runs import (
     MANIFEST_FILE_NAME,
     REALIZED_FILE_NAME,
@@ -123,6 +123,7 @@ from .jobs import (
 )
 from .netinfo import local_addresses
 from .updater import DiffusersUpdater
+from .sysinfo import runtime_info
 from .catalog_shape import derive_catalog_metadata, project_listing
 from . import guides
 from .guides import GuideError
@@ -517,6 +518,33 @@ def prompt_details(paths):
     # were not shadowed
     _prune_missing(_prompt_detail_cache)
     return details
+
+
+def _matching_prompts(details, tag, intended_model):
+    """The prompt names matching the filters, or None when no filter was given.
+
+    Case-insensitive and exact per value: a `tags` entry or the whole
+    `intended_model`, never a substring - `minimax-music` must not match
+    `minimax-music3`, which is the confusion the one-spelling-per-family
+    rule exists to prevent.
+    """
+    if tag is None and intended_model is None:
+        return None
+    wanted_tag = tag.lower() if tag is not None else None
+    wanted_model = intended_model.lower() if intended_model is not None else None
+    matches = set()
+    for name, detail in details.items():
+        if wanted_tag is not None and wanted_tag not in {
+            str(each).lower() for each in detail.get("tags") or []
+        }:
+            continue
+        if (
+            wanted_model is not None
+            and str(detail.get("intended_model") or "").lower() != wanted_model
+        ):
+            continue
+        matches.add(name)
+    return matches
 
 
 def resolve_prompt_name(prompt_dir, name, allow_create=False):
@@ -948,6 +976,8 @@ def create_app(
                 "unplannable",
                 None,
             )
+        current["workspace"] = workspace.name
+        current["output_dir"] = workspace.outputs
         if current["fingerprint"] != acknowledged.fingerprint:
             refuse(
                 "The run's shape changed since it was acknowledged: the "
@@ -1748,6 +1778,14 @@ def create_app(
         except Exception:
             logger.exception("Plan could not be built")
             answer["plan"] = None
+        if answer["plan"]:
+            # cached_steps is 0 both when nothing hit and when the probe ran
+            # against the wrong workspace's output root (#184) - echoing
+            # what it was actually probed against turns the second case
+            # from a silent miss into something a caller can read
+            answer["plan"]["workspace"] = workspace.name
+            answer["plan"]["output_dir"] = workspace.outputs
+            answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
         return answer
 
     # ------------------------------------------------------------ workspaces
@@ -1927,7 +1965,10 @@ def create_app(
         and shadows it from then on.
         """
         if request.workflow is None:
-            raise HTTPException(status_code=400, detail="Provide an inline workflow")
+            raise HTTPException(
+                status_code=400,
+                detail='Provide the definition as {"workflow": {...}}',
+            )
         path, _source = resolve_writable_workflow(_sources_for(ws), name)
         candidate = Workflow(
             copy.deepcopy(request.workflow),
@@ -2144,7 +2185,11 @@ def create_app(
         raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
 
     @app.get("/api/prompts")
-    def list_prompts():
+    def list_prompts(
+        tag: str | None = None,
+        intended_model: str | None = None,
+        include_text: bool = True,
+    ):
         # A stray file too deep or oddly named can sit in the directory, but
         # no workflow could reference it - listing it would only invite that
         paths = {}
@@ -2155,15 +2200,44 @@ def create_app(
                 if referenceable(name) and name not in paths:
                     paths[name] = os.path.join(root, f"{name}.json")
                     origins[name] = WORKSPACE_ORIGIN if index == 0 else EXAMPLES_ORIGIN
-        names = sorted(paths)
+        details = prompt_details(paths)
+
+        # Narrowing happens after the details are read, since that is where a
+        # prompt says what it is for, and it narrows every parallel key at
+        # once: a `prompts` list and a `details` map that disagree is worse
+        # than no filter at all
+        wanted = _matching_prompts(details, tag, intended_model)
+        if wanted is not None:
+            details = {
+                name: detail for name, detail in details.items() if name in wanted
+            }
+        # The three parallel keys agree by construction, filter or no filter.
+        # `prompt_details` drops a path whose mtime it cannot read - the file
+        # went away between the walk and the read - and listing a name that
+        # carries no detail only tells a caller to go and get a 404.
+        origins = {name: origin for name, origin in origins.items() if name in details}
+
+        # The MCP listing cannot carry 44 prompt bodies - it exceeds a client's
+        # result cap and the listing becomes uncallable - but the editors read
+        # `text` as the card fallback, so the omission is opt-in and the size
+        # is reported in its place
+        if not include_text:
+            details = {
+                name: {
+                    **{key: value for key, value in detail.items() if key != "text"},
+                    "text_chars": len(detail.get("text") or ""),
+                }
+                for name, detail in details.items()
+            }
+
         return {
             # The writable library, unchanged: what a save is written to,
             # and what a client that predates the search path expects
             "prompt_dir": app.state.prompt_dir,
             "prompt_dirs": roots,
-            "prompts": names,
+            "prompts": sorted(details),
             "origins": origins,
-            "details": prompt_details(paths),
+            "details": details,
         }
 
     @app.put("/api/prompts/{name:path}")
@@ -2315,8 +2389,11 @@ def create_app(
                 root,
                 allow_create=False,
             )
-        except SecurityError as e:
-            raise HTTPException(status_code=404, detail=f"Unknown file: {e}")
+        except SecurityError:
+            # SecurityError's own message embeds the resolved *absolute*
+            # server path (dw/security.py validate_path) - useful in a log,
+            # not in a response a remote caller reads
+            raise HTTPException(status_code=404, detail=f"Unknown file: {name}")
         if not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="Unknown file")
         return path
@@ -3474,6 +3551,30 @@ def create_app(
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Worker unavailable: {e}")
 
+    @app.post("/api/memory/clear")
+    def clear_memory():
+        """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
+        without waiting for the next job to evict one model for another.
+
+        Refused while a job is running or queued (409) rather than blocked -
+        the queue is FIFO, so the caller should wait for the job to finish
+        and retry instead of this call stalling until it does.
+
+        A server with no worker process resident answers `cleared` with a
+        null `info` rather than a 503: the worker is on-demand, so its
+        absence means there was nothing loaded to clear."""
+        if manager.is_busy():
+            raise HTTPException(
+                status_code=409,
+                detail="A job is running or queued - clearing memory out "
+                "from under it would corrupt the run. Wait for it to finish.",
+            )
+        try:
+            info = manager.clear_memory()
+        except RuntimeError as e:
+            raise HTTPException(status_code=503, detail=f"Worker unavailable: {e}")
+        return {"cleared": True, "info": info}
+
     @app.get("/api/health")
     def health():
         import socket
@@ -3484,6 +3585,10 @@ def create_app(
         return {
             "status": "ok",
             "version": __version__,
+            # on-demand subprocess: false on an idle server that hasn't run
+            # a job yet (or after a memory clear) is normal, not a fault -
+            # it means no model process is currently resident, not that the
+            # server is unhealthy (#206)
             "worker_alive": bool(
                 worker.worker_active
                 and worker.worker_process is not None
@@ -3535,6 +3640,10 @@ def create_app(
             "trust_workflows": workflows_are_trusted(),
             "mcp": {"mounted": bool(app.state.mcp_mounted), "path": MCP_PATH},
             "addresses": addresses,
+            # Python/torch/CUDA-driver/other-package versions - the detail
+            # neither this route's own `version` field nor `get_health`
+            # answers, e.g. whether bitsandbytes is even installed (#222)
+            "runtime": runtime_info(),
             "directories": {
                 # The workspace the three below default to folders of; an
                 # individually overridden folder still reports its own path

@@ -45,6 +45,7 @@ def concat_videos(
     trim_frames=0,
     crossfade_ms=75,
     audio_bleed_ms=0,
+    audio_bleed_gain_db=0,
     seam_fade_ms=None,
     fps=None,
     match_levels=None,
@@ -72,6 +73,11 @@ def concat_videos(
             cut-based workflows, where every shot is generated independently and
             a running laugh track would otherwise butt-join into silence.
             0 (the default) leaves the seam as a plain declicked join
+        audio_bleed_gain_db: Gain applied to the bled tail before it is added,
+            in dB. 0 (the default) is unchanged, full-scale, matching the
+            outgoing material exactly; negative ducks a tail that would
+            otherwise push the seam over 0 dBFS, or that reads as too present
+            against the incoming shot. Has no effect when audio_bleed_ms is 0
         seam_fade_ms: Fade applied on each side of a seam that gets neither a
             crossfade nor a bleed. Defaults to the few milliseconds that keep a
             butt-join from clicking; raise it to a hundred or so for a graceful
@@ -91,8 +97,9 @@ def concat_videos(
             enough to hear is logged as a warning
         match_levels_dbfs: The level match_levels moves every shot to -
             defaults to -1 dBFS for "peak" and -20 dBFS for "rms". A shot
-            that would clip at the target is held just below full scale
-            instead
+            that would clip at the target is held at -0.5 dBFS peak instead,
+            reported as a match_levels_held warning, with a per-shot log
+            event naming the hold
         sample_rate: The rate the joined soundtrack is at. Shots that come
             from different sources routinely carry different rates - a 24 kHz
             voice clip paired onto a 32 kHz generation - and unlike a level
@@ -176,6 +183,7 @@ def concat_videos(
 
     frames = []
     audio = None
+    audio_native_rate = None
 
     for index, (video, clip) in enumerate(zip(videos, clips)):
         head_trim = trim_frames if index > 0 else 0
@@ -187,6 +195,7 @@ def concat_videos(
         waveform = waveforms[index]
         if audio is None:
             audio = waveform
+            audio_native_rate = video.sample_rate
             continue
 
         if head_trim > 0 and fps is None:
@@ -199,7 +208,13 @@ def concat_videos(
         )
         if trim_samples == 0 and audio_bleed_ms:
             audio = bleed_join(
-                audio, waveform, sample_rate, audio_bleed_ms, seam_fade_ms
+                audio,
+                waveform,
+                sample_rate,
+                audio_bleed_ms,
+                seam_fade_ms,
+                audio_bleed_gain_db,
+                native_sample_rate=audio_native_rate,
             )
         else:
             audio = equal_power_crossfade_join(
@@ -210,6 +225,7 @@ def concat_videos(
                 crossfade_ms,
                 seam_fade_ms,
             )
+        audio_native_rate = video.sample_rate
 
     logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
     # The rate the caller declared, else the rate the first input carries -

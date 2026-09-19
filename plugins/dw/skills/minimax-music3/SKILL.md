@@ -118,7 +118,11 @@ from the templates' examples:
 3. The concise one-paragraph form the templates' stored prompts use (genre,
    BPM, key, emotional progression, listening scenario, production profile,
    vocals, arrangement) is the model card's own example and works; the
-   three-heading form is for precise control.
+   three-heading form is for precise control. Both are on the shelf:
+   `list_prompts(intended_model="minimax-music3")` names them and
+   `get_prompt` reads one. Read the exemplar before writing a caption - it
+   is what the format looks like when it is right, which is not the same as
+   a source to paraphrase the rules from.
 
 Lyrics carry the structure: tags for the sections, the words to sing under
 them, and nothing else. The tag list is the model card's "Fine-Grained Music

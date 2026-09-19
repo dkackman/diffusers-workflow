@@ -149,7 +149,7 @@ from another machine:
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan}}` with the current plan, so the caller re-quotes from it. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
 | `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. No parameters means every job, which is what the web UI polls |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked |
-| `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is |
+| `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is. The equivalent MCP tool is `get_job_workflow` (see [MCP.md](MCP.md#diagnose)) |
 | `POST /api/jobs/{id}/export?workspace=&overwrite=` | Gather one finished job into `<workspace>/exports/<job id>/`: `workflow.json`, `manifest.json`, `job.json`, `README.md`, `assets/`, `inputs/`, `outputs/`. 201 with the file list, total bytes, anything it could not find, a `zip_url`, and the three JSON files inline. 404 unknown job, 409 for a job still running or an existing export without `overwrite` |
 | `GET /exports/{id}.zip?workspace=` | The same tree as one archive, built on request rather than kept as a second copy. Entries are named `<job id>/<relative path>`. Ungated exactly as `/outputs` is |
 | `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless. Every event carries `seq` and `at` - seconds since the job started (since it was queued, for the events before that) - so a step's cost is a subtraction: `step_start` to `generating` is what a reused pipeline still pays before it runs, `generating` to the first `pipeline_step` is the prompt and reference encoding |
@@ -303,9 +303,26 @@ The editor's forms come from these; they are just as usable from scripts:
   also gets a warning saying so, since `0` alone does not distinguish a
   disabled cache from an empty one);
   `downloads_required`, each `model_name` the hub cache does not hold as
-  `{repo, gb}` (`gb` from the hub, `null` when it could not be asked -
-  `?sizes=false` skips the hub) and each `from_single_file` URL as
-  `{repo: null, url, gb: null}`; and `estimate`, `{minutes, basis,
+  `{repo, gb, gated, access_blocked}` (`gb` from the hub, `null` when it
+  could not be asked - `?sizes=false` skips the hub, and then `gated` and
+  `access_blocked` are `null` too); `gated` is the hub's own field for the
+  repo (`false`, `"auto"` or `"manual"`) or `null` when the lookup itself
+  failed for a reason other than the gate; `access_blocked` is `true`
+  when this box's Hugging Face token specifically has not been granted
+  access to a gated repo, `false` when the repo isn't gated or the token is
+  accepted, and `null` when it could not be determined either way. A gated
+  repo's own metadata is served by the hub regardless of this token's
+  access, so `model_info` succeeding proves nothing about the gate; a
+  gated entry gets a second, real check - a HEAD request against one of the
+  repo's own files - and it is *that* request's `GatedRepoError` that sets
+  `access_blocked: true` (the pre-flight signal for what would otherwise be
+  a 403 partway into a run, #186). `access_blocked` is `null` when there is
+  no file to probe or the probe itself fails for an unrelated reason (e.g.
+  offline) - "unknown" is not "not blocked". `validate_workflow`'s
+  `warnings` carries one line per entry with `access_blocked: true`. Each
+  `from_single_file` URL is `{repo: null, url, gb: null, gated: null,
+  access_blocked: null}`, since a direct file URL is never gated; and
+  `estimate`, `{minutes, basis,
   device, measured_on, partial, runs}` from this box's own history when it
   has one and otherwise from the workflow's `cost` block -
   `basis` is `observed` (the cold median of this server's own finished runs
@@ -517,12 +534,22 @@ The editor's forms come from these; they are just as usable from scripts:
   measured because nothing is resident. health also reports `hostname`,
   `device` and whether `mcp` is mounted, so a remote client can tell which
   machine answered
+- `POST /api/memory/clear` (#221) — drops every loaded pipeline and the step
+  cache, the same mechanism as the REPL's `memory clear`, and returns the
+  memory reading taken right after. Refused with 409 while a job is running
+  or queued - the queue is FIFO, so the caller retries once it finishes
+  rather than this call blocking until it does
 - `GET /api/server` — connection details for the Server page: `hostname`,
   `version`, `device`, the `bind_host`/`port`/`wildcard_bind` the server was
   started with, `auth_required` (whether a token is configured - never the
-  token itself), `mcp` (`mounted` plus its `path`), the machine's
-  non-loopback `addresses`, and the `directories` in use; a client composes
-  its URLs from an address, the port and the MCP path
+  token itself), `mcp` (`mounted` plus its `path`), the `directories` in use,
+  and `runtime` (#222) - Python version, torch version and the CUDA version
+  torch was built against, the NVIDIA driver version (via `nvidia-smi`, when
+  it's on PATH), and the installed versions of diffusers, transformers,
+  accelerate, bitsandbytes, peft, safetensors and sentencepiece (`null` for
+  one not installed) - for diagnosing an environment mismatch between boxes
+  without shelling in; the machine's non-loopback `addresses`; a client
+  composes its URLs from an address, the port and the MCP path
 
 ## Security model
 

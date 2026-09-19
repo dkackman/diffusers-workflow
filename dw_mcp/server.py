@@ -10,7 +10,7 @@ from typing import Literal, Optional
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import ImageContent, TextContent, ToolAnnotations
+from mcp.types import AudioContent, ImageContent, TextContent, ToolAnnotations
 
 from dw_mcp import (
     assets,
@@ -314,10 +314,29 @@ def build_server(client):
         server is idle rather than comparing it against a live figure."""
         return catalog.get_memory(client)
 
+    def clear_memory() -> dict:
+        """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
+        immediately instead of waiting for the next job to evict one model
+        for another. Also drops the step cache, so a seeded workflow that
+        would otherwise reuse cached results regenerates on its next run.
+
+        Refused with a 409 while a job is running or queued - the queue is
+        FIFO, so wait for it to finish and retry rather than expecting this
+        call to block until it does. On an idle server with no model process
+        resident there is nothing loaded to clear, so it succeeds with a null
+        `info` rather than failing."""
+        return catalog.clear_memory(client)
+
     def get_health() -> dict:
         """Check that the server is alive, and see what answered: its
-        version and accelerator, whether the worker process is up, the job
-        running now and how many are queued."""
+        version and accelerator, whether a model process is currently
+        resident, the job running now and how many are queued.
+
+        `worker_alive: false` on an otherwise healthy server (`status: ok`)
+        is the normal idle state, not a fault - the worker is an on-demand
+        subprocess that has not started yet because no job has run since
+        the server started or the last memory clear, and it starts with the
+        next job."""
         return catalog.get_health(client)
 
     def get_server_info() -> dict:
@@ -479,6 +498,7 @@ def build_server(client):
         get_gallery_metadata,
     ):
         tool(fn, READ_ONLY)
+    tool(clear_memory, WRITES)
 
     # --------------------------------------------------------------- media
 
@@ -488,9 +508,9 @@ def build_server(client):
         """Look at a generated image, named as `list_gallery` or a job's
         manifest reports it. Use this to judge output quality - it is the
         only way to see what a workflow actually produced, and a run that
-        succeeded can still have made the wrong picture. Images only: a
-        video or audio output is refused, so inspect those with
-        `get_gallery_metadata` or hand the user the file. The image is
+        succeeded can still have made the wrong picture. Images only: audio
+        is `get_output_audio`'s and video is refused, so inspect a video
+        with `get_gallery_metadata` or hand the user the file. The image is
         downscaled to `max_dimension` on its longest side; the second part
         of the result reports the size it went in and came out at, so a
         downscale is never silent.
@@ -515,6 +535,32 @@ def build_server(client):
             ),
         )
         return [image, telemetry]
+
+    def get_output_audio(
+        name: str, workspace: str | None = None
+    ) -> list[AudioContent | TextContent]:
+        """Listen to a generated audio output, named as `list_gallery` or a
+        job's manifest reports it - the audio analogue of `get_output_image`.
+        Audio only: an image is `get_output_image`'s and video is refused,
+        so inspect a video with `get_gallery_metadata` or hand the user the
+        file. There is no downscale for audio the way there is for an
+        image's dimensions, so a clip too large to fit inline is refused
+        rather than cut or transcoded - use `download_output` or the `url`
+        list_gallery reports for one that long.
+
+        `workspace` names the workspace for this one call without
+        switching the session to it - the same pin `run_workflow`
+        takes, so a job run into another workspace is reachable from
+        here without leaving this one (#99)."""
+        result = media.get_output_audio(client, name, workspace=workspace)
+        audio = AudioContent(
+            type="audio", data=result["data"], mime_type=result["mime_type"]
+        )
+        telemetry = TextContent(
+            type="text",
+            text=f"name: {result['name']}\nbytes: {result['bytes']}",
+        )
+        return [audio, telemetry]
 
     def get_output_text(
         name: str, max_characters: int = 20000, workspace: str | None = None
@@ -588,6 +634,7 @@ def build_server(client):
         )
 
     tool(get_output_image, READ_ONLY)
+    tool(get_output_audio, READ_ONLY)
     tool(get_output_text, READ_ONLY)
     tool(download_output, OVERWRITES)
     tool(delete_output, DELETES)
@@ -604,26 +651,47 @@ def build_server(client):
         return assets.list_assets(client)
 
     def upload_asset(
-        file_path: str, asset_name: str | None = None, shared: bool = False
+        file_path: str | None = None,
+        content: str | None = None,
+        asset_name: str | None = None,
+        shared: bool = False,
     ) -> dict:
-        """Put a local image, video or audio file into the server's asset
+        """Put an image, video or audio file into the server's asset
         library and get back the "asset:" reference to use in a workflow.
-        The file is read from the machine this MCP server runs on and
+        Pass exactly one of `file_path` or `content`.
+
+        `file_path` is read from the machine this MCP server runs on and
         pushed to the engine, so it is how an input reaches a dw.serve
-        running somewhere else. Accepts the usual image, video and audio
-        extensions, up to 200MB. Reference the result rather than a path: a
-        path on this machine means nothing to the server. Pass `asset_name`
-        to store it under a readable name ("cast/priya-voice.wav", folders
-        allowed, the file's extension assumed) - without one the stored
-        name is random, and a set of related inputs cannot be told apart in
-        the workflows that carry them. Pass `shared=true` to put it in the
-        library every workspace shares rather than this session's own -
-        where a recurring cast belongs, since a workspace's own assets are
-        invisible from the next workspace. When this MCP surface is served
-        by dw.serve itself, "this machine" is the engine's own box, so
-        `file_path` is confined to the directories it works in."""
+        running somewhere else. When this MCP surface is served by
+        dw.serve itself, "this machine" is the engine's own box, so
+        `file_path` is confined to the directories it works in - a file
+        that exists only on your own machine cannot be named this way.
+
+        `content` is for exactly that case: the file's bytes, base64-encoded,
+        sent inline in the call rather than read off any disk. Use it for a
+        voice sample or small image that lives only on the machine you are
+        running on, against a remote `dw.serve --mcp` endpoint with no
+        filesystem in common with you. Capped at 4MB, well under
+        `file_path`'s 200MB, because these bytes ride in the call itself.
+        `asset_name` is required with `content`, since there is no file to
+        take a name or extension from.
+
+        Accepts the usual image, video and audio extensions. Reference the
+        result rather than a path: a path on this machine means nothing to
+        the server. Pass `asset_name` to store it under a readable name
+        ("cast/priya-voice.wav", folders allowed) - without one (when using
+        `file_path`) the stored name is random, and a set of related inputs
+        cannot be told apart in the workflows that carry them. Pass
+        `shared=true` to put it in the library every workspace shares
+        rather than this session's own - where a recurring cast belongs,
+        since a workspace's own assets are invisible from the next
+        workspace."""
         return assets.upload_asset(
-            client, file_path, asset_name=asset_name, shared=shared
+            client,
+            file_path=file_path,
+            content=content,
+            asset_name=asset_name,
+            shared=shared,
         )
 
     def keep_output(
@@ -786,7 +854,11 @@ def build_server(client):
             arguments=arguments,
         )
 
-    def save_workflow(name: str, workflow: dict) -> dict:
+    def save_workflow(
+        name: str,
+        workflow: dict | str | None = None,
+        patch: dict | str | None = None,
+    ) -> dict:
         """Save a workflow to the server's writable workflow directory,
         overwriting any existing workflow of that name there. Validate it
         first. A name that currently resolves to a read-only source (an
@@ -795,11 +867,24 @@ def build_server(client):
         example gets adapted without being damaged. `name` may include
         folders.
 
+        Give exactly one of `workflow` (the full document) or `patch` for a
+        small, targeted edit: a JSON Merge Patch (RFC 7396) merged onto the
+        currently stored definition, so bumping one argument means sending
+        just that argument rather than the whole document -
+        `{"variables": {"num_images_per_prompt": 4}}` rather than the whole
+        workflow. A patch key set to `null` deletes that key from the
+        stored document. A list is replaced whole, never merged - a merge
+        patch has no notion of list position, so changing one `shots` entry
+        still means sending the whole `shots` list. Either may also be
+        given as a JSON-encoded string, which is parsed before saving; a
+        string that fails to parse is reported as invalid JSON rather than
+        as a type mismatch.
+
         A workflow stored for reuse should mark each saving step's
         `result.subfolder` - `final` for the step whose output the user will
         be shown, `intermediate` for the rest - so a later consumer can tell
         the deliverable from the scratch files without knowing the workflow."""
-        return authoring.save_workflow(client, name, workflow)
+        return authoring.save_workflow(client, name, workflow=workflow, patch=patch)
 
     def delete_workflow(name: str) -> dict:
         """Permanently delete a stored workflow from this workspace. A
@@ -814,11 +899,27 @@ def build_server(client):
 
     # ------------------------------------------------------------- prompts
 
-    def list_prompts() -> dict:
-        """List the stored prompts, with their text and descriptions. A
-        workflow argument reaches one of these by writing
-        "prompt:name" or "prompt:folder/name"."""
-        return prompts.list_prompts(client)
+    def list_prompts(
+        tag: Optional[str] = None,
+        intended_model: Optional[str] = None,
+        include_text: bool = False,
+    ) -> dict:
+        """List the stored prompts - the worked examples a workflow reaches
+        by writing "prompt:name" or "prompt:folder/name". Each entry carries
+        its `description`, `intended_model`, `tags` and the size of its text;
+        `get_prompt` returns the text itself. This is where the caption a
+        model was trained on is already written out, so read the exemplar
+        for the family you are about to run rather than inventing the
+        format: `intended_model` narrows to one family (`minimax-h3`,
+        `minimax-music3`, `ltx-2.5`, `z-image`, `flux`) and `tag` to one
+        label. `include_text=true` returns every body, which for the whole
+        library is more than a client will accept - filter first."""
+        return prompts.list_prompts(
+            client,
+            tag=tag,
+            intended_model=intended_model,
+            include_text=include_text,
+        )
 
     def get_prompt(name: str) -> dict:
         """Get one stored prompt's full definition - its text, description,

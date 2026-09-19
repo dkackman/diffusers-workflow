@@ -300,6 +300,26 @@ def test_unretained_entry_stores_a_result_with_an_empty_result_list():
     assert result.result_list == ["a decoded frame"]
 
 
+def test_unretained_entry_does_not_keep_the_artifacts_save_extracted():
+    """The same rule, one layer down: Result memoizes get_artifact_list in
+    _artifact_cache, which save() has already filled with the decoded frames
+    and waveform - possibly still on the GPU. A shallow copy shares that dict,
+    so emptying result_list released nothing at all for a step that saved."""
+    cache = StepCache()
+    step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
+    result = FakeResult("first")
+    result.result_list = ["a decoded frame"]
+    frames = ["a decoded frame"]
+    result._artifact_cache = {id(result.result_list): frames}
+    cache.put("w", step_data, 42, result, "/out", False)
+
+    hit = cache.get("w", step_data, 42, set(), "/out", False)
+
+    assert hit._artifact_cache == {}
+    # the original keeps its own - only the cached copy starts empty
+    assert result._artifact_cache == {id(result.result_list): frames}
+
+
 def test_retain_result_true_but_not_retainable_stores_without_result_list():
     """A chain step's save_segments cleans up its segment files during
     save(), before put() runs - Result.retainable turns False, and the entry

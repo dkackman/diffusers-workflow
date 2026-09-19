@@ -14,6 +14,7 @@ from PIL import Image
 from dw.result import AudioVideo
 from dw.tasks.task import _VIDEO_PROCESSOR_COMMANDS, Task
 from dw.tasks.video_utils import (
+    _fit_audio_to_frames,
     extract_frame,
     frame_count,
     get_frame,
@@ -468,3 +469,72 @@ class TestLoopFrames:
     def test_a_numeric_string_is_taken(self):
         """A count that arrived through a `variable:` may still be a string."""
         assert len(loop_frames(Image.new("RGB", (2, 2)), "121")) == 121
+
+
+class TestFitAudioToFrames:
+    """Codec padding trimmed off a generated track, in whatever layout the
+    waveform arrived in.
+
+    It used to index shape[1] outright, which is only the sample axis for a
+    (channels, samples) track: a mono waveform written (samples,) raised
+    IndexError on the way to writing a video, and (samples, 1) - a layout
+    _as_stereo explicitly supports - measured one channel against a sample
+    count and silently fitted nothing.
+    """
+
+    # 24 frames at 24 fps of 48 kHz audio is 48000 samples
+    FRAMES, FPS, RATE, EXPECTED = 24, 24.0, 48000, 48000
+
+    def fit(self, audio):
+        return _fit_audio_to_frames(audio, self.FRAMES, self.FPS, self.RATE)
+
+    @pytest.mark.parametrize(
+        "shape, axis",
+        [
+            ((2, 48100), 1),
+            ((48100, 2), 0),
+            ((48100,), 0),
+            ((48100, 1), 0),
+            ((1, 48100), 1),
+        ],
+    )
+    def test_every_layout_is_trimmed_on_its_own_sample_axis(self, shape, axis):
+        for audio in (numpy.zeros(shape, numpy.float32), torch.zeros(shape)):
+            assert self.fit(audio).shape[axis] == self.EXPECTED
+
+    @pytest.mark.parametrize(
+        "shape, axis",
+        [
+            ((2, 47900), 1),
+            ((47900, 2), 0),
+            ((47900,), 0),
+            ((47900, 1), 0),
+            ((1, 47900), 1),
+        ],
+    )
+    def test_every_layout_is_padded_on_its_own_sample_axis(self, shape, axis):
+        for audio in (numpy.zeros(shape, numpy.float32), torch.zeros(shape)):
+            fitted = self.fit(audio)
+            assert fitted.shape[axis] == self.EXPECTED
+            # Padding lands on the sample axis only - the channel axis, where
+            # there is one, comes back the size it went in
+            if len(shape) == 2:
+                assert fitted.shape[1 - axis] == shape[1 - axis]
+
+    def test_a_track_of_its_own_length_is_left_alone(self):
+        audio = numpy.zeros((2, self.EXPECTED), numpy.float32)
+
+        assert self.fit(audio) is audio
+
+    def test_a_genuinely_different_length_is_left_alone(self):
+        # A song laid over a short clip, not codec padding
+        audio = numpy.zeros((2, self.EXPECTED * 3), numpy.float32)
+
+        assert self.fit(audio) is audio
+
+    def test_the_samples_are_carried_over_not_just_the_shape(self):
+        audio = numpy.arange(48100, dtype=numpy.float32)
+
+        fitted = self.fit(audio)
+
+        assert fitted[0] == 0.0 and fitted[-1] == 47999.0

@@ -28,12 +28,14 @@ EXPECTED_TOOLS = {
     "get_task",
     "list_models",
     "get_memory",
+    "clear_memory",
     "get_health",
     "get_server_info",
     "list_jobs",
     "list_gallery",
     "get_gallery_metadata",
     "get_output_image",
+    "get_output_audio",
     "validate_workflow",
     "save_workflow",
     "delete_workflow",
@@ -73,6 +75,7 @@ EXPECTED_TOOLS = {
 }
 
 READ_ONLY_TOOLS = EXPECTED_TOOLS - {
+    "clear_memory",
     "save_workflow",
     "delete_workflow",
     "run_workflow",
@@ -323,6 +326,7 @@ TOOL_WIRING = [
     ("get_task", {"command": "resize"}, "GET", "/api/tasks/resize"),
     ("list_models", {}, "GET", "/api/models"),
     ("get_memory", {}, "GET", "/api/memory"),
+    ("clear_memory", {}, "POST", "/api/memory/clear"),
     ("get_health", {}, "GET", "/api/health"),
     ("get_server_info", {}, "GET", "/api/server"),
     ("list_jobs", {}, "GET", "/api/jobs"),
@@ -334,6 +338,7 @@ TOOL_WIRING = [
         "/api/gallery/out.png/metadata",
     ),
     ("get_output_image", {"name": "out.png"}, "GET", "/outputs/out.png"),
+    ("get_output_audio", {"name": "out.wav"}, "GET", "/outputs/out.wav"),
     ("validate_workflow", {"workflow": {"id": "w"}}, "POST", "/api/validate"),
     (
         "save_workflow",
@@ -465,6 +470,10 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
         if request.url.path.endswith(".txt"):
             return httpx.Response(
                 200, content=b"a duke", headers={"content-type": "text/plain"}
+            )
+        if request.url.path.endswith(".wav"):
+            return httpx.Response(
+                200, content=b"riff", headers={"content-type": "audio/wav"}
             )
         if request.url.path.startswith("/outputs/"):
             return httpx.Response(
@@ -863,6 +872,7 @@ WRAPPER_HANDLER_MAP = {
     "get_job_events": (diagnose, "get_job_events"),
     "wait_for_job": (diagnose, "wait_for_job"),
     "get_output_image": (media, "get_output_image"),
+    "get_output_audio": (media, "get_output_audio"),
     "get_class": (catalog, "get_class"),
     "list_gallery": (catalog, "list_gallery"),
     "list_jobs": (catalog, "list_jobs"),
@@ -870,6 +880,7 @@ WRAPPER_HANDLER_MAP = {
     "delete_model": (models, "delete_model"),
     "update_diffusers": (models, "update_diffusers"),
     "validate_workflow": (authoring, "validate_workflow"),
+    "save_workflow": (authoring, "save_workflow"),
     "run_workflow": (diagnose, "run_workflow"),
     "rerun_job": (diagnose, "rerun_job"),
     "get_output_text": (media, "get_output_text"),
@@ -879,6 +890,7 @@ WRAPPER_HANDLER_MAP = {
     "get_workflow": (catalog, "get_workflow"),
     "get_schema": (catalog, "get_schema"),
     "delete_output": (media, "delete_output"),
+    "list_prompts": (prompts, "list_prompts"),
 }
 
 
@@ -1053,3 +1065,63 @@ async def test_validate_workflow_teaches_quoting_from_the_plan():
     assert "downloads_required" in doc
     assert "estimate" in doc
     assert "basis" in doc
+
+
+def test_the_stated_tool_count_is_the_registered_one():
+    """Two documents state the size of the surface: the README, where it is
+    the first claim made about it, and get_guide's docstring, where it carries
+    the argument that a whole guide costs more than connecting does. Both said
+    55 while 57 were registered, and nothing was checking either."""
+    import re
+
+    from tests.test_examples import REPO_ROOT
+
+    stated = {}
+    with open(os.path.join(REPO_ROOT, "README.md")) as file:
+        stated["README.md"] = re.search(r"The agent has (\d+) tools", file.read())
+    with open(os.path.join(REPO_ROOT, "dw", "server", "guides.py")) as file:
+        stated["dw/server/guides.py"] = re.search(
+            r"(\d+)-tool MCP surface", file.read()
+        )
+
+    for where, found in stated.items():
+        assert found, f"{where} no longer states a tool count in the expected form"
+        assert int(found.group(1)) == len(EXPECTED_TOOLS), (
+            f"{where} says {found.group(1)} tools; {len(EXPECTED_TOOLS)} are registered"
+        )
+
+
+# Chars / 4, the way COMPACT_BUDGET in tests/test_catalog_structure.py is
+# measured. This is not a listing an agent chooses to read - it is resident
+# for the whole session before a single call, which is why it gets a ceiling
+# at all and why the catalog listing, read once, has had one since #101.
+# Measured 2026-09-19 at 13_225 before the list_prompts rewrite that landed
+# in the same plan (descriptions 9_013, input schemas 3_212, instructions
+# 999), and at 13_421 after it (9_138 / 3_283 / 1_000) - the three filter
+# parameters and the docstring that says what the library is for. Set at
+# 13_800, which is room for a tool or two and not room for a second
+# validate_workflow.
+# Worth knowing before raising it: four tools are a quarter of the
+# descriptions (validate_workflow 774, wait_for_job 518, list_workflows 482,
+# list_gallery 445), and validate_workflow's `plan.basis` taxonomy and
+# wait_for_job's stall-diagnosis paragraph are both restated in
+# WORKFLOW_GUIDE's "The loop" - which an agent fetches on demand. The
+# question to ask first is whether the second copy has to be the resident one.
+SURFACE_BUDGET = 13_800
+
+
+@pytest.mark.asyncio
+async def test_the_tool_surface_fits_the_budget():
+    server = server_over(ok({}))
+    tools = await tools_of(server)
+
+    descriptions = sum(len(tool.description or "") for tool in tools.values())
+    schemas = sum(len(json.dumps(tool.input_schema or {})) for tool in tools.values())
+    instructions = len(getattr(server, "instructions", "") or "")
+    total = (descriptions + schemas + instructions) / 4
+
+    assert total <= SURFACE_BUDGET, (
+        f"the surface is {total:.0f} tokens resident before any call "
+        f"(descriptions {descriptions / 4:.0f}, schemas {schemas / 4:.0f}, "
+        f"instructions {instructions / 4:.0f})"
+    )

@@ -116,6 +116,7 @@ UTILITIES = {
     "workflows/templates/image-processors.json",
     "workflows/templates/recenter-crop.json",
     "workflows/templates/segment.json",
+    "workflows/templates/transcribe-audio.json",
     "workflows/templates/upscale-spandrel.json",
 }
 

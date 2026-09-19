@@ -11,7 +11,16 @@ It covers the REST surface except the SSE event stream (whose polling twin
 assets), and the SPA's static mount. `POST /api/uploads` *is* covered, by `upload_asset`: an
 agent that can only name assets already on the box authors workflows it
 cannot supply inputs for, so the tool reads a file on this machine and pushes
-its bytes, returning the `asset:` reference rather than a path (`assets.py`). A session works in one of the server's workspaces: `--workspace` /
+its bytes, returning the `asset:` reference rather than a path (`assets.py`).
+`upload_asset` also takes `content` (base64) instead of `file_path`, for an
+agent with no filesystem in common with a remote `dw.serve --mcp` endpoint -
+the bytes travel inline in the call, capped at 4MB rather than `file_path`'s
+200MB since they compete with the caller's own context budget (#203).
+`get_output_audio` is `get_output_image`'s sibling for audio (`media.py`,
+#204): no downscale exists for a waveform, so a clip over the same 4MB
+budget is refused outright rather than cut short; video has neither, since
+the installed MCP SDK has no `VideoContent` type to return it as. A session
+works in one of the server's workspaces: `--workspace` /
 `DW_MCP_WORKSPACE` (a *name* on the server, not a directory - `DW_WORKSPACE`
 means something else to the engine), `use_workspace` to switch, and
 `DwClient._scoped` adds the selector to every request's query string so no
@@ -22,6 +31,14 @@ listing spilled 176 entries past a client's tool-result limit and could not
 be called at all, so the tool asks the API for `limit`/`status`, reverses the
 oldest-first list the web UI polls, and reports `total` so a cut answer says
 it was cut, and it takes a `workspace` of its own to narrow by.
+`list_prompts` had the same disease and the same cure: the library's 44
+prompts are 87 KB of prompt bodies, which no client will accept, so the
+listing asks for `include_text=false` and carries each prompt's
+`description`, `intended_model`, `tags` and `text_chars` instead - the
+routing table, with `get_prompt` for the one body that was chosen. It also
+forwards `tag` and `intended_model`, because the library is where the
+trained caption format for a family is already written out and the reason to
+read it is to find that one.
 `run_workflow` and `validate_workflow` are the other two handlers that carry
 one: each takes an
 optional per-call `workspace` that `_scoped`'s `setdefault` lets win over the
