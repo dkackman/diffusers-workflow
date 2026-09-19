@@ -253,6 +253,12 @@ class StepCache:
         """A shallow copy of the Result with its realized media dropped."""
         stripped = copy.copy(result)
         stripped.result_list = []
+        # A fresh cache, not the shallow copy's shared one: save() fills
+        # _artifact_cache with the artifacts it extracted - decoded frames, a
+        # waveform, possibly still on the GPU - so carrying it over would pin
+        # exactly what dropping result_list exists to release. The original
+        # Result keeps its own cache; only this entry's copy starts empty.
+        stripped._artifact_cache = {}
         return stripped
 
     @staticmethod

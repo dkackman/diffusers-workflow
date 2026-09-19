@@ -1366,9 +1366,18 @@ class JobManager:
         one would clear state a queued run still expects resident. The
         30s timeout (vs. `memory_status`'s 5s) matches the REPL's `memory
         clear` (`repl_commands.py`): actually freeing CUDA memory takes
-        longer than reading a counter does."""
+        longer than reading a counter does.
+
+        Returns the reading taken after the clear, or None when there was no
+        worker to clear - nothing was resident in that case."""
         if not self.worker_manager.worker_active:
-            raise RuntimeError("worker not active")
+            # Nothing to clear, and not a fault: the pipelines and the step
+            # cache both live in the worker process, so no worker running
+            # means both are already gone. An on-demand worker is legitimately
+            # absent on an idle server (#206), which this used to answer with
+            # a 503 saying the worker was unavailable. None is "no reading
+            # was taken", not a failure
+            return None
         if not self._worker_lock.acquire(timeout=2):
             raise RuntimeError("worker busy")
         try:

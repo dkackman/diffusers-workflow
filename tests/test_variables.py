@@ -78,6 +78,40 @@ def test_replace_variables_leaves_a_literal_null_untouched():
     assert result["arguments"]["threshold"] is None
 
 
+def test_replace_variables_keeps_a_null_media_source_key_present():
+    # The one place a null has to survive as a null: realize_object reads a
+    # present-and-null 'from_file' on a dict that names a type as OMITTED - an
+    # optional reference this run was given nothing for. Dropping the key
+    # would turn that into a media-less stub that reaches the pipeline.
+    data = {
+        "arguments": {
+            "reference": {
+                "reference_type": "some.module.AudioReference",
+                "from_file": "variable:voice",
+            }
+        }
+    }
+
+    result = replace_variables(data, {"voice": None})
+    reference = result["arguments"]["reference"]
+    assert "from_file" in reference
+    assert reference["from_file"] is None
+
+
+def test_a_null_media_source_key_realizes_as_omitted():
+    # The consumer end of the same rule, so a change to either side fails here
+    # rather than reaching a pipeline as a reference holding no media.
+    from dw.arguments import OMITTED, realize_object
+
+    data = {
+        "reference_type": "some.module.AudioReference",
+        "from_file": "variable:voice",
+    }
+
+    resolved = replace_variables(data, {"voice": None})
+    assert realize_object(resolved) is OMITTED
+
+
 def test_replace_variables_does_not_mutate_input():
     data = {"key1": "variable:test", "key2": ["variable:test", "static"]}
     original = {"key1": "variable:test", "key2": ["variable:test", "static"]}

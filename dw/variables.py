@@ -1,6 +1,11 @@
 import copy
 import logging
 import PIL
+from .arguments import (
+    FROM_ARGUMENTS_KEY,
+    FROM_FILE_KEY,
+    FROM_PREVIOUS_RESULT_KEY,
+)
 from .security import (
     validate_variable_name,
     validate_string_input,
@@ -9,6 +14,11 @@ from .security import (
 )
 
 logger = logging.getLogger("dw")
+
+# The keys an object description names its media with. A "variable:" under one
+# of these that resolves to null has to stay present-and-null for
+# realize_object to read it as an omitted optional reference
+MEDIA_SOURCE_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, FROM_ARGUMENTS_KEY)
 
 
 class VariableNotFoundError(ValueError):
@@ -86,7 +96,15 @@ def replace_variables(data, variables):
                 # it. A literal null written inline in the workflow JSON
                 # never goes through this branch, so its meaning elsewhere
                 # (a declared-but-unset default) is untouched.
-                if resolved is None:
+                #
+                # Except where the key itself is how an object description
+                # names its media: realize_object reads a present-and-null
+                # 'from_file'/'from_previous_result'/'from_arguments' as
+                # OMITTED - an optional reference this run was given nothing
+                # for (_names_no_media in arguments.py). Dropping the key
+                # there turns that into a media-less stub that reaches the
+                # pipeline instead.
+                if resolved is None and k not in MEDIA_SOURCE_KEYS:
                     continue
                 result[k] = resolved
             else:

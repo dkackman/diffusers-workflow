@@ -821,6 +821,24 @@ def test_memory_says_why_a_reading_is_not_the_worker_s(tmp_path):
     assert busy["info"] == {"gpu_memory_allocated_mb": 8.125}
 
 
+def test_clearing_memory_with_no_worker_resident_is_a_no_op_not_a_fault(server):
+    """The worker is on-demand, so `worker_alive: false` is the ordinary idle
+    state of a server that has not run a job yet (#206) - and both the loaded
+    pipelines and the step cache live in that process, so its absence means
+    there is nothing left to clear. This used to raise into a 503 saying the
+    worker was unavailable, contradicting the health route beside it."""
+    with server(success_script) as client:
+        assert client.get("/api/health").json()["worker_alive"] is False
+
+        response = client.post("/api/memory/clear")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["cleared"] is True
+        # nothing was measured, because there was nothing to measure
+        assert body["info"] is None
+
+
 def test_health_and_memory(server):
     import socket
 

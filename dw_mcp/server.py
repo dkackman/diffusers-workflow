@@ -322,7 +322,9 @@ def build_server(client):
 
         Refused with a 409 while a job is running or queued - the queue is
         FIFO, so wait for it to finish and retry rather than expecting this
-        call to block until it does."""
+        call to block until it does. On an idle server with no model process
+        resident there is nothing loaded to clear, so it succeeds with a null
+        `info` rather than failing."""
         return catalog.clear_memory(client)
 
     def get_health() -> dict:

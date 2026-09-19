@@ -251,7 +251,13 @@ def bleed_join(
 
     tail_source = previous[:, -window:]
     flatness = _spectral_flatness(tail_source, sample_rate, native_sample_rate)
-    harmonicity = _harmonicity(tail_source, native_sample_rate or sample_rate)
+    # sample_rate, not native_sample_rate: _harmonicity turns a rate into lag
+    # bounds in samples of the waveform it is handed, and that waveform is at
+    # sample_rate however it got there. Passing the native rate of an upsampled
+    # tail searched the wrong lag range (16k against a 48k track: 180-1500 Hz
+    # rather than 60-500) and could miss the voiced speech #198 added it for.
+    # Only _spectral_flatness wants the native rate, to band-limit its window.
+    harmonicity = _harmonicity(tail_source, sample_rate)
     if flatness < TONAL_FLATNESS_THRESHOLD or harmonicity > HARMONICITY_THRESHOLD:
         emit_warning(
             f"bleed_join: the tail being reversed onto the seam looks tonal or "
@@ -1308,14 +1314,19 @@ def _follow_envelope(waveform, sample_rate, attack_ms, release_ms):
     rectified = numpy.abs(waveform).max(axis=0)
     attack_coef = _time_constant_coef(attack_ms, sample_rate)
     release_coef = _time_constant_coef(release_ms, sample_rate)
-    envelope = numpy.empty_like(rectified)
+    # The branch on the running level is what makes this a loop rather than a
+    # filter, but the per-sample numpy indexing was the expensive half of it:
+    # a 3-minute track is ~8M samples, and this runs on the single FIFO
+    # worker. tolist() hands the loop plain Python floats, which is the same
+    # arithmetic on the same values, several times faster
+    samples = rectified.tolist()
+    envelope = []
     level = 0.0
-    for i in range(rectified.shape[0]):
-        sample = float(rectified[i])
+    for sample in samples:
         coef = attack_coef if sample > level else release_coef
         level = coef * level + (1.0 - coef) * sample
-        envelope[i] = level
-    return envelope
+        envelope.append(level)
+    return numpy.asarray(envelope, dtype=rectified.dtype)
 
 
 def _time_constant_coef(time_ms, sample_rate):
@@ -1404,11 +1415,28 @@ def _biquad_coefficients(kind, cutoff_hz, q, sample_rate):
 
 
 def _apply_biquad(channel, b, a):
-    """Direct Form I second-order section, sample by sample - the feedback
-    a biquad needs cannot be vectorized away."""
-    out = numpy.empty_like(channel, dtype=numpy.float64)
+    """One second-order section, run over a channel.
+
+    The feedback cannot be vectorized away, but it does not have to be run in
+    Python either: scipy's lfilter is this exact recursion in C, and scipy is
+    already in every install (controlnet-aux brings it). The Python Direct
+    Form I below is the fallback for an environment without it - same
+    recursion, same zero initial conditions, ~50x slower on a full track.
+    """
     b0, b1, b2 = b
     a1, a2 = a
+    try:
+        from scipy.signal import lfilter
+    except ImportError:
+        pass
+    else:
+        return lfilter(
+            numpy.array([b0, b1, b2], dtype=numpy.float64),
+            numpy.array([1.0, a1, a2], dtype=numpy.float64),
+            numpy.asarray(channel, dtype=numpy.float64),
+        )
+
+    out = numpy.empty_like(channel, dtype=numpy.float64)
     x1 = x2 = y1 = y2 = 0.0
     for i in range(channel.shape[0]):
         x0 = float(channel[i])

@@ -3,6 +3,9 @@ Unit tests for waveform utilities - shape normalization, frame-aligned
 slicing, and seam joining.
 """
 
+import builtins
+from unittest import mock
+
 import numpy
 import pytest
 import torch
@@ -420,6 +423,42 @@ class TestBleedJoin:
 
         assert "tonal" not in caplog.text
         assert "speech" not in caplog.text
+
+
+    def test_upsampled_speech_still_warns_when_native_rate_given(self, caplog):
+        """The other half of the #198 band-limiting: the native rate tells
+        _spectral_flatness where the tail's own Nyquist is, but _harmonicity
+        turns a rate into lag bounds in samples of the waveform it is handed -
+        which is at the target rate. Passing the native rate there searched
+        180-1500 Hz on a 48 kHz track instead of 60-500, missing the voiced
+        speech the check exists to catch."""
+        native_rate = 16000
+        target_rate = 48000
+        n = int(native_rate * 0.3)
+        t = numpy.arange(n) / native_rate
+        rng = numpy.random.default_rng(3)
+        f0 = 150.0
+        harmonics = [1.0, 0.6, 0.45, 0.3, 0.2, 0.12]
+        speech_like = sum(
+            amp
+            * numpy.sin(2 * numpy.pi * f0 * (k + 1) * t + rng.uniform(0, 2 * numpy.pi))
+            for k, amp in enumerate(harmonics)
+        )
+        speech_like = speech_like + rng.normal(0, 0.25, n)
+        speech_like = (speech_like / numpy.abs(speech_like).max()).astype(numpy.float32)
+        upsampled = resample_waveform(speech_like[None, :], native_rate, target_rate)
+        following = numpy.zeros_like(upsampled)
+
+        with caplog.at_level("WARNING"):
+            bleed_join(
+                upsampled,
+                following,
+                target_rate,
+                300,
+                native_sample_rate=native_rate,
+            )
+
+        assert "tonal" in caplog.text or "speech" in caplog.text
 
 
 class TestResampleAudio:
@@ -1086,6 +1125,30 @@ class TestFilterAudio:
     def rms(self, waveform):
         # skip the filter's brief settling transient
         return float(numpy.sqrt(numpy.mean(numpy.square(waveform[:, 200:]))))
+
+    def test_the_scipy_path_and_the_python_fallback_agree(self):
+        """_apply_biquad runs the recursion through scipy's lfilter, which is
+        in every install, and keeps the per-sample Python form for an
+        environment without it. Two implementations of one filter, so they are
+        pinned to each other rather than each to its own expectations."""
+        from dw.tasks import audio_utils
+
+        rng = numpy.random.default_rng(0)
+        channel = rng.standard_normal(4000).astype(numpy.float32)
+        b, a = audio_utils._biquad_coefficients("lowpass", 1000.0, 0.707, 8000)
+
+        through_scipy = audio_utils._apply_biquad(channel, b, a)
+        real_import = builtins.__import__
+
+        def without_scipy(name, *args, **kwargs):
+            if name.startswith("scipy"):
+                raise ImportError("no scipy")
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch.object(builtins, "__import__", without_scipy):
+            in_python = audio_utils._apply_biquad(channel, b, a)
+
+        assert numpy.abs(through_scipy - in_python).max() < 1e-9
 
     def test_lowpass_passes_low_frequencies_and_attenuates_high_ones(self):
         from dw.tasks.audio_utils import filter_audio

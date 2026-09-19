@@ -3495,7 +3495,11 @@ def create_app(
 
         Refused while a job is running or queued (409) rather than blocked -
         the queue is FIFO, so the caller should wait for the job to finish
-        and retry instead of this call stalling until it does."""
+        and retry instead of this call stalling until it does.
+
+        A server with no worker process resident answers `cleared` with a
+        null `info` rather than a 503: the worker is on-demand, so its
+        absence means there was nothing loaded to clear."""
         if manager.is_busy():
             raise HTTPException(
                 status_code=409,

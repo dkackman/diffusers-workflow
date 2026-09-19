@@ -399,8 +399,12 @@ def _fit_audio_to_frames(audio, frame_count, frame_rate, sample_rate):
     trim below keep whichever type and device it arrived with rather than
     forcing a host round trip the caller may not want yet.
     """
+    axis = _sample_axis(audio)
+    if axis is None:
+        return audio
+
     expected = round(frame_count / frame_rate * sample_rate)
-    difference = audio.shape[1] - expected
+    difference = audio.shape[axis] - expected
     if difference == 0 or abs(difference) > AUDIO_FIT_TOLERANCE_SECONDS * sample_rate:
         return audio
 
@@ -408,7 +412,31 @@ def _fit_audio_to_frames(audio, frame_count, frame_rate, sample_rate):
         f"Fitting decoded audio to {frame_count} frames ({difference:+} samples)"
     )
     if difference > 0:
-        return audio[:, :expected]
+        trim = [slice(None)] * audio.ndim
+        trim[axis] = slice(None, expected)
+        return audio[tuple(trim)]
     if isinstance(audio, torch.Tensor):
-        return torch.nn.functional.pad(audio, (0, -difference))
-    return numpy.pad(audio, ((0, 0), (0, -difference)))
+        # torch.nn.functional.pad takes its pairs from the last axis backwards
+        padding = [0, 0] * audio.ndim
+        padding[2 * (audio.ndim - 1 - axis) + 1] = -difference
+        return torch.nn.functional.pad(audio, padding)
+    widths = [(0, 0)] * audio.ndim
+    widths[axis] = (0, -difference)
+    return numpy.pad(audio, widths)
+
+
+def _sample_axis(audio):
+    """The axis a waveform's samples run along, or None if it has no such axis.
+
+    Not a fixed index: a generated track arrives in any of the layouts
+    _as_stereo reads - (channels, samples), (samples, channels), or a bare
+    (samples,) - and a mono one written (samples,) or (samples, 1) used to
+    reach shape[1] here and either raise IndexError or fit the wrong axis
+    into a silent no-op. Channels are few and samples are many, so the
+    longer axis is the sample axis.
+    """
+    if audio.ndim == 1:
+        return 0
+    if audio.ndim != 2:
+        return None
+    return 0 if audio.shape[0] > audio.shape[1] else 1
