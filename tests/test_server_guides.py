@@ -19,7 +19,8 @@ from tests.test_server import ScriptedWorkerManager, success_script
 
 TASKS_TEXT = (
     "# Tasks\n\n## Speech Generation\n\ngenerate_speech\n\n"
-    "## Frame Interpolation\n\ninterpolate_frames\n"
+    "## Frame Interpolation\n\n"
+    "interpolate_frames - see [it](../workflows/templates/interpolate-frames.json)\n"
 )
 
 
@@ -30,7 +31,9 @@ def checkout(tmp_path, monkeypatch):
     root = tmp_path / "checkout"
     (root / "docs").mkdir(parents=True)
     (root / "docs" / "TASKS.md").write_text(TASKS_TEXT)
-    (root / "docs" / "WORKFLOW_GUIDE.md").write_text("## Structure\n\nsteps\n")
+    (root / "docs" / "WORKFLOW_GUIDE.md").write_text(
+        "## Structure\n\nsteps - as in workflows/templates/text-to-image.json\n"
+    )
     monkeypatch.setattr(guides, "__file__", str(root / "dw" / "server" / "guides.py"))
     monkeypatch.setattr(
         guides,
@@ -131,7 +134,10 @@ class TestFetching:
     def test_the_last_section_runs_to_the_end_of_the_file(self, checkout):
         guide = guides.get_guide("tasks", section="Frame Interpolation")
 
-        assert guide["content"] == "## Frame Interpolation\n\ninterpolate_frames\n"
+        assert guide["content"] == (
+            "## Frame Interpolation\n\n"
+            "interpolate_frames - see [it](../workflows/templates/interpolate-frames.json)\n"
+        )
 
     def test_a_section_name_need_not_match_case_or_spacing(self, checkout):
         # An agent reproduces a heading from the listing loosely -
@@ -140,6 +146,29 @@ class TestFetching:
         guide = guides.get_guide("tasks", section="speech-generation")
 
         assert guide["section"] == "Speech Generation"
+
+    def test_a_section_linking_an_example_says_how_to_reach_it(self, checkout):
+        """A guide's link to an example is a repo path. The reader these
+        guides exist for has no checkout - it has the MCP and nothing else -
+        so a payload holding such a path carries the translation rule, rather
+        than 114 links being rewritten in prose people read too."""
+        body = guides.get_guide("tasks", "Frame Interpolation")
+
+        # The note is one fixed sentence - it states the rule, it does not
+        # name the paths it saw
+        assert body["catalog_paths"] == guides.CATALOG_PATH_NOTE
+        assert "get_workflow" in body["catalog_paths"]
+
+    def test_a_section_linking_nothing_carries_no_note(self, checkout):
+        body = guides.get_guide("tasks", "Speech Generation")
+
+        assert "catalog_paths" not in body
+
+    def test_an_index_holding_a_path_is_noted_too(self, checkout):
+        """The index carries the guide's opening and its whole first section,
+        which is as able to link an example as any other."""
+        assert "catalog_paths" not in guides.get_guide("tasks")
+        assert "catalog_paths" in guides.get_guide("workflows")
 
 
 class TestErrors:
@@ -209,6 +238,13 @@ class TestTheRealDocs:
             "utility",
         ):
             assert f"`{shape}`" in content, shape
+
+    def test_the_tasks_guide_carries_the_catalog_path_note(self):
+        """TASKS.md links 48 example workflows by repo path - the most of any
+        served guide."""
+        body = guides.get_guide("tasks", "Examples")
+
+        assert "catalog_paths" in body
 
 
 @pytest.fixture

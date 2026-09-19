@@ -80,6 +80,26 @@ GUIDES = {
 # better reached by reading the section they sit in
 SECTION_PATTERN = re.compile(r"^## (.+)$", re.M)
 
+# A doc's link to an example is a repo-relative path, which resolves for a
+# reader with a checkout and dead-ends for the one these guides are served
+# to: an agent holding the MCP and nothing else. Said once, on a payload
+# that contains such a path, rather than rewritten into 114 links in prose
+# that people read too.
+CATALOG_PATH_NOTE = (
+    "Paths like `workflows/templates/minimax/image-to-video.json` in this "
+    "text are repo-relative and are not served by this machine. The catalog "
+    "name is the part after `workflows/` with `.json` dropped - "
+    "`templates/minimax/image-to-video` - which is what `get_workflow`, "
+    "`validate_workflow`, `run_workflow` and a sub-workflow step's `path` "
+    "all take. Paths under `dw/workflows/` are the packaged built-ins a "
+    "sub-workflow names as `builtin:<file>.json`."
+)
+
+# The same shape tests/test_docs_links.py checks the targets of: the
+# lookbehind keeps `workflows/` as the start of the path, so `dw/workflows/`
+# and `tests/test_data/workflows/` do not match.
+_EXAMPLE_PATH = re.compile(r"(?<![\w/-])(?:\.\./)?workflows/[A-Za-z0-9_.\-/]+\.json")
+
 
 class GuideError(LookupError):
     """A guide or section that does not exist. The message names what does,
@@ -148,6 +168,17 @@ def _extract_section(text, section):
     return None
 
 
+def _noted(body):
+    """The payload, with the repo-path rule attached when it holds one.
+
+    Attached to the body rather than woven into the guides because the same
+    markdown is read on GitHub and in an editor, where the links resolve.
+    """
+    if _EXAMPLE_PATH.search(body.get("content") or ""):
+        body["catalog_paths"] = CATALOG_PATH_NOTE
+    return body
+
+
 def list_guides():
     """Every guide, with what it covers and the sections it holds."""
     listed = []
@@ -176,7 +207,7 @@ def get_guide(name, section=None):
     """
     text = read_guide(name)
     if section is None:
-        return _index(name, text)
+        return _noted(_index(name, text))
 
     found = _extract_section(text, section)
     if found is None:
@@ -185,7 +216,7 @@ def get_guide(name, section=None):
             f"{', '.join(_sections(text))}."
         )
     heading, content = found
-    return {"name": name, "section": heading, "content": content}
+    return _noted({"name": name, "section": heading, "content": content})
 
 
 def _index(name, text):
