@@ -44,7 +44,7 @@ _SPEAKER_ENCODER_MODEL = "speechbrain/spkrec-xvect-voxceleb"
 _SPEAKER_ENCODER_SAMPLE_RATE = 16000
 
 
-def _speaker_embedding_tensor(location, device):
+def _speaker_embedding_tensor(location, device, dtype):
     """The x-vector speechbrain's spkrec-xvect-voxceleb extracts from a
     reference audio file - what SpeechT5 conditions its voice on.
 
@@ -52,6 +52,10 @@ def _speaker_embedding_tensor(location, device):
         location: Path to a reference audio file (an 'asset:' reference has
             already resolved to this by the time a task sees it).
         device: Where to run the encoder.
+        dtype: The speech pipeline's own dtype - the embedding is concatenated
+            with the pipe's hidden states inside the decoder prenet, so it must
+            match the pipe's precision (fp16 on CUDA) or the linear layer there
+            refuses a Float x Half product.
     """
     from speechbrain.inference.speaker import EncoderClassifier
 
@@ -75,7 +79,7 @@ def _speaker_embedding_tensor(location, device):
     # SpeechT5's generate() wants (batch, 512); the encoder's raw output is
     # (1, 1, 512), so squeeze collapses it back to (512,) before restoring
     # the batch dimension the model actually requires
-    return embedding.squeeze().unsqueeze(0).to(device=device, dtype=torch.float32)
+    return embedding.squeeze().unsqueeze(0).to(device=device, dtype=dtype)
 
 
 def generate_speech(text=None, device="cpu", **kwargs):
@@ -103,9 +107,12 @@ def generate_speech(text=None, device="cpu", **kwargs):
                 in. Reduced to an x-vector with speechbrain's
                 spkrec-xvect-voxceleb and injected into forward_params as
                 'speaker_embeddings' - SpeechT5 is the only pipeline here that
-                conditions on one. A VITS model's speaker instead takes a plain
-                'speaker_id' int, which already reaches the model unchanged
-                through forward_params and needs no argument of its own.
+                conditions on one, and it is not optional for SpeechT5: the
+                model refuses to generate without a speaker embedding, so this
+                is required whenever model_name is a SpeechT5 checkpoint. A
+                VITS model's speaker instead takes a plain 'speaker_id' int,
+                which already reaches the model unchanged through
+                forward_params and needs no argument of its own.
             forward_params: Passed to the model's forward/generate call.
             generate_kwargs: Ad-hoc generation settings for a generative model -
                 temperature, do_sample and so on.
@@ -186,7 +193,9 @@ def generate_speech(text=None, device="cpu", **kwargs):
             )
         forward_params = {
             **forward_params,
-            "speaker_embeddings": _speaker_embedding_tensor(speaker_embedding, device),
+            "speaker_embeddings": _speaker_embedding_tensor(
+                speaker_embedding, device, dtype
+            ),
         }
 
     if messages is not None:
