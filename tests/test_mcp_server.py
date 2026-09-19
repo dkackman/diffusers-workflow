@@ -890,6 +890,7 @@ WRAPPER_HANDLER_MAP = {
     "get_workflow": (catalog, "get_workflow"),
     "get_schema": (catalog, "get_schema"),
     "delete_output": (media, "delete_output"),
+    "list_prompts": (prompts, "list_prompts"),
 }
 
 

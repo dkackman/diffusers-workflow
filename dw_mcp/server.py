@@ -894,11 +894,27 @@ def build_server(client):
 
     # ------------------------------------------------------------- prompts
 
-    def list_prompts() -> dict:
-        """List the stored prompts, with their text and descriptions. A
-        workflow argument reaches one of these by writing
-        "prompt:name" or "prompt:folder/name"."""
-        return prompts.list_prompts(client)
+    def list_prompts(
+        tag: Optional[str] = None,
+        intended_model: Optional[str] = None,
+        include_text: bool = False,
+    ) -> dict:
+        """List the stored prompts - the worked examples a workflow reaches
+        by writing "prompt:name" or "prompt:folder/name". Each entry carries
+        its `description`, `intended_model`, `tags` and the size of its text;
+        `get_prompt` returns the text itself. This is where the caption a
+        model was trained on is already written out, so read the exemplar
+        for the family you are about to run rather than inventing the
+        format: `intended_model` narrows to one family (`minimax-h3`,
+        `minimax-music3`, `ltx-2.5`, `z-image`, `flux`) and `tag` to one
+        label. `include_text=true` returns every body, which for the whole
+        library is more than a client will accept - filter first."""
+        return prompts.list_prompts(
+            client,
+            tag=tag,
+            intended_model=intended_model,
+            include_text=include_text,
+        )
 
     def get_prompt(name: str) -> dict:
         """Get one stored prompt's full definition - its text, description,

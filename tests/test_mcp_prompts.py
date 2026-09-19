@@ -61,6 +61,51 @@ def test_list_prompts_returns_the_library():
     assert seen == [("GET", "/api/prompts")]
 
 
+def scripted_with_params(routes):
+    """`scripted`, keeping each request's query parameters."""
+    seen = []
+
+    def handler(request):
+        key = (request.method, request.url.path)
+        seen.append((key, dict(request.url.params)))
+        if key not in routes:
+            return httpx.Response(404, json={"detail": f"unrouted {key}"})
+        status, body = routes[key]
+        return httpx.Response(status, json=body)
+
+    return DwClient(transport=httpx.MockTransport(handler)), seen
+
+
+def test_list_prompts_asks_the_server_to_leave_the_bodies_out():
+    client, seen = scripted_with_params(
+        {("GET", "/api/prompts"): (200, {"prompts": [], "details": {}})}
+    )
+
+    prompts.list_prompts(client)
+
+    # The default is the cheap listing: a prompt body belongs in get_prompt,
+    # and 44 of them do not fit a client's result cap
+    assert seen[0][1]["include_text"] == "false"
+    assert "tag" not in seen[0][1]
+    assert "intended_model" not in seen[0][1]
+
+
+def test_list_prompts_forwards_the_filters_and_can_ask_for_the_text():
+    client, seen = scripted_with_params(
+        {("GET", "/api/prompts"): (200, {"prompts": [], "details": {}})}
+    )
+
+    prompts.list_prompts(
+        client, tag="ic-lora", intended_model="ltx-2.5", include_text=True
+    )
+
+    assert seen[0][1] == {
+        "tag": "ic-lora",
+        "intended_model": "ltx-2.5",
+        "include_text": "true",
+    }
+
+
 def test_get_prompt_reads_one_by_name():
     client, seen = scripted({("GET", "/api/prompts/duke"): (200, PROMPT)})
 

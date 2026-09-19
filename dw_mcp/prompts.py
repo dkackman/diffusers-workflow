@@ -21,9 +21,21 @@ ENHANCE_COST_REFUSAL = (
 )
 
 
-def list_prompts(client):
-    """Every prompt in the library, with the directory it lives in."""
-    return client.get_json("/api/prompts")
+def list_prompts(client, tag=None, intended_model=None, include_text=False):
+    """The library as a routing table: what each prompt is for, not what it
+    says.
+
+    The bodies are left out by default, which is the same lesson `list_jobs`
+    learned - the whole library is 44 prompts and 87 KB, past a client's
+    result cap, so a listing that carried them could not be called at all.
+    `get_prompt` is where a body comes from once one has been chosen.
+    """
+    params = {"include_text": "true" if include_text else "false"}
+    if tag is not None:
+        params["tag"] = tag
+    if intended_model is not None:
+        params["intended_model"] = intended_model
+    return client.get_json("/api/prompts", params=params)
 
 
 def get_prompt(client, name):

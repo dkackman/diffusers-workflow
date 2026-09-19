@@ -31,6 +31,14 @@ listing spilled 176 entries past a client's tool-result limit and could not
 be called at all, so the tool asks the API for `limit`/`status`, reverses the
 oldest-first list the web UI polls, and reports `total` so a cut answer says
 it was cut, and it takes a `workspace` of its own to narrow by.
+`list_prompts` had the same disease and the same cure: the library's 44
+prompts are 87 KB of prompt bodies, which no client will accept, so the
+listing asks for `include_text=false` and carries each prompt's
+`description`, `intended_model`, `tags` and `text_chars` instead - the
+routing table, with `get_prompt` for the one body that was chosen. It also
+forwards `tag` and `intended_model`, because the library is where the
+trained caption format for a family is already written out and the reason to
+read it is to find that one.
 `run_workflow` and `validate_workflow` are the other two handlers that carry
 one: each takes an
 optional per-call `workspace` that `_scoped`'s `setdefault` lets win over the
