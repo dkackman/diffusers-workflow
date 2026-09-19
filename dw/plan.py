@@ -183,8 +183,13 @@ def unseeded_cache_warnings(definition, arguments=None):
     there, and the difference is the one that matters: without a `seed` the
     cache is off, so nothing is ever reused however many times the same
     workflow runs (#107).
+
+    Silent for a workflow with no `pipeline`/`pipeline_reference`/`workflow`
+    step: a task-only utility has no generative randomness a `seed` would
+    pin down in the first place, and each of its steps is a pure function of
+    its inputs - a repeat run is already free without one (#247)
     """
-    if _is_seeded(definition, arguments):
+    if _is_seeded(definition, arguments) or not _has_seedable_step(definition):
         return []
     return [
         "This workflow sets no 'seed', so the step cache is disabled and "
@@ -192,6 +197,18 @@ def unseeded_cache_warnings(definition, arguments=None):
         "on every run. Set a top-level 'seed' to make a repeat run reuse "
         "what it already produced"
     ]
+
+
+def _has_seedable_step(definition):
+    """Whether any step could consume a seed: a pipeline (inline or
+    referenced) or a sub-workflow, which may hold one in turn. A workflow
+    built entirely of `task` steps has nothing a seed would affect."""
+    for step in definition.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        if "pipeline" in step or "pipeline_reference" in step or "workflow" in step:
+            return True
+    return False
 
 
 def _is_seeded(definition, arguments):

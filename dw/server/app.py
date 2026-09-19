@@ -2389,8 +2389,11 @@ def create_app(
                 root,
                 allow_create=False,
             )
-        except SecurityError as e:
-            raise HTTPException(status_code=404, detail=f"Unknown file: {e}")
+        except SecurityError:
+            # SecurityError's own message embeds the resolved *absolute*
+            # server path (dw/security.py validate_path) - useful in a log,
+            # not in a response a remote caller reads
+            raise HTTPException(status_code=404, detail=f"Unknown file: {name}")
         if not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="Unknown file")
         return path
