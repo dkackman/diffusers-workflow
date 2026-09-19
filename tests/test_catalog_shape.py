@@ -664,6 +664,55 @@ def test_an_image_pipeline_carrying_a_vocoder_does_not():
     assert "has-audio" not in derive_catalog_metadata(definition(step))["traits"]
 
 
+def test_a_generated_audio_track_carries_has_audio():
+    """A pipeline whose result is audio generates audio, whether or not a
+    video step is anywhere near it. The checks used to gate on video, so
+    Music 3's own template answered a `traits=has-audio` filter with
+    nothing - the one filter that names the thing it makes."""
+    definition = {
+        "id": "Song",
+        "steps": [
+            {
+                "name": "generate_music",
+                "pipeline": {
+                    "configuration": {"component_type": "ModularPipeline"},
+                    "from_pretrained_arguments": {"model_name": "MiniMaxAI/MiniMax-Music3"},
+                    "arguments": {"prompt": "variable:prompt"},
+                },
+                "result": {"content_type": "audio/mpeg"},
+            }
+        ],
+    }
+
+    metadata = derive_catalog_metadata(definition)
+
+    assert metadata["shape"] == "audio"
+    assert "has-audio" in metadata["traits"]
+
+
+def test_processing_a_supplied_track_does_not_claim_to_generate_one():
+    """`has-audio` says the workflow *makes* a track. Trimming one it was
+    handed is what `needs-input-media` is for."""
+    definition = {
+        "id": "Level",
+        "steps": [
+            {
+                "name": "balanced",
+                "task": {
+                    "command": "normalize_audio",
+                    "arguments": {"audio": "asset:song.mp3"},
+                },
+                "result": {"content_type": "audio/mpeg"},
+            }
+        ],
+    }
+
+    metadata = derive_catalog_metadata(definition)
+
+    assert "has-audio" not in metadata["traits"]
+    assert "needs-input-media" in metadata["traits"]
+
+
 def for_each_step(name, variable, arguments):
     return {
         "name": name,
