@@ -39,12 +39,14 @@ dependencies = [
     # PyPI release; the newest pipelines may need git HEAD on top, which
     # install.sh layers on (and the web UI's Models page can install)
     "diffusers>=0.40.0",
-    # VibeVoice first shipped in 5.17.0, and the repo no longer needs to keep
-    # the 5.17.0 exclusion just to protect Bark's default TTS path. Bark's
-    # generate_speech regression is accepted here (#169, with the default TTS
-    # being replaced by the follow-up ticket), so the floor moves to the first
-    # release that includes the VibeVoice support path.
-    "transformers>=5.17.0",
+    # 5.17.0's TextToAudioPipeline.preprocess calls BatchEncoding.to(dtype=...),
+    # a kwarg BatchEncoding.to() has never accepted in this line - breaks every
+    # generate_speech call outright (#169, #232 - not Bark-only, every TTS model
+    # through this pipeline class). Drop the exclusion once a later release
+    # either restores the kwarg or stops passing it - check both
+    # huggingface/transformers#42758 (VibeVoice config, the reason for the
+    # 5.17.0 bump in the first place) and this preprocess bug before re-bumping.
+    "transformers>=5.16.1,!=5.17.0",
     "accelerate>=1.14.0",
     "peft>=0.20.0",
     "safetensors>=0.8.0",
