@@ -125,6 +125,23 @@ def generate_speech(text=None, device="cpu", **kwargs):
             "a plain line to speak, or chat-templated input for a model "
             "such as VibeVoice"
         )
+    if messages is not None:
+        valid = isinstance(messages, list) and len(messages) > 0
+        if valid:
+            for message in messages:
+                if (
+                    not isinstance(message, dict)
+                    or not isinstance(message.get("role"), str)
+                    or not isinstance(message.get("content"), str)
+                ):
+                    valid = False
+                    break
+        if not valid:
+            raise ValueError(
+                "generate_speech's 'messages' needs a non-empty list of "
+                "{'role': ..., 'content': ...} dicts, both strings - a bare "
+                "string or a wrong-keyed dict is not chat-templated input"
+            )
     text_inputs = messages if messages is not None else text
 
     model_name = kwargs.get("model_name", _DEFAULT_MODEL)

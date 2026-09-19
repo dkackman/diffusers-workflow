@@ -253,21 +253,55 @@ class TestGenerateSpeech(unittest.TestCase):
             generate_speech(device="cpu")
 
     @patch("dw.tasks.speech_generation.hf_pipeline")
-    def test_malformed_messages_propagate_the_pipelines_own_error(
+    def test_a_bare_string_messages_is_an_error(self, mock_pipeline):
+        # A bare string is itself a valid iterable of characters and would
+        # otherwise sail through the exactly-one check as "messages given"
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(ValueError, "non-empty list"):
+            generate_speech(device="cpu", messages="hello")
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_an_empty_messages_list_is_an_error(self, mock_pipeline):
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(ValueError, "non-empty list"):
+            generate_speech(device="cpu", messages=[])
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_a_wrong_keyed_message_dict_is_an_error(self, mock_pipeline):
+        # Caught here rather than left to the tokenizer, whose error for this
+        # shape names neither 'messages' nor what it expected instead
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(ValueError, "non-empty list"):
+            generate_speech(device="cpu", messages=[{"speaker": "user", "text": "hi"}])
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_a_non_dict_message_item_is_an_error(self, mock_pipeline):
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with self.assertRaisesRegex(ValueError, "non-empty list"):
+            generate_speech(device="cpu", messages=["hello"])
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_messages_that_pass_the_shape_guard_still_reach_the_pipeline(
         self, mock_pipeline
     ):
-        # dw does not itself validate role/content shape - transformers'
-        # Chat wrapper does, and its error is specific enough to act on
+        # #233 only guards shape (role/content present and strings) - a role
+        # value the guard cannot judge (not a recognised chat role) is left
+        # to transformers' own Chat wrapper, and its error surfaces unchanged
         pipe = MagicMock(
             side_effect=ValueError(
-                "When passing chat dicts as input, each dict must have a "
-                "'role' and 'content' key."
+                "Chat role 'narrator' is not one of 'system', 'user', 'assistant'"
             )
         )
         mock_pipeline.return_value = pipe
 
-        with self.assertRaisesRegex(ValueError, "'role' and 'content' key"):
-            generate_speech(device="cpu", messages=[{"role": "user"}])
+        with self.assertRaisesRegex(ValueError, "Chat role 'narrator'"):
+            generate_speech(
+                device="cpu", messages=[{"role": "narrator", "content": "hi"}]
+            )
 
     @patch("dw.tasks.speech_generation.hf_pipeline")
     def test_messages_on_a_model_with_no_chat_template_propagates_the_error(
