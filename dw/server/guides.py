@@ -169,7 +169,7 @@ def get_guide(name, section=None):
     Without a `section` the answer is the *index*: the guide's preamble,
     its first section, and the headings of the rest - not the whole file.
     A full WORKFLOW_GUIDE.md is ~19.6k tokens and TASKS.md ~16k, which is
-    more in one call than the entire 55-tool MCP surface costs to connect,
+    more in one call than the entire 57-tool MCP surface costs to connect,
     and an agent can make that call twice before noticing (#101). Every
     withheld section is named in `sections` and fetched by name, so
     nothing is unreachable - only unspent by accident.

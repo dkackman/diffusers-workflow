@@ -1065,3 +1065,25 @@ async def test_validate_workflow_teaches_quoting_from_the_plan():
     assert "downloads_required" in doc
     assert "estimate" in doc
     assert "basis" in doc
+
+
+def test_the_stated_tool_count_is_the_registered_one():
+    """Two documents state the size of the surface: the README, where it is
+    the first claim made about it, and get_guide's docstring, where it carries
+    the argument that a whole guide costs more than connecting does. Both said
+    55 while 57 were registered, and nothing was checking either."""
+    import re
+
+    from tests.test_examples import REPO_ROOT
+
+    stated = {}
+    with open(os.path.join(REPO_ROOT, "README.md")) as file:
+        stated["README.md"] = re.search(r"The agent has (\d+) tools", file.read())
+    with open(os.path.join(REPO_ROOT, "dw", "server", "guides.py")) as file:
+        stated["dw/server/guides.py"] = re.search(r"(\d+)-tool MCP surface", file.read())
+
+    for where, found in stated.items():
+        assert found, f"{where} no longer states a tool count in the expected form"
+        assert int(found.group(1)) == len(EXPECTED_TOOLS), (
+            f"{where} says {found.group(1)} tools; {len(EXPECTED_TOOLS)} are registered"
+        )
