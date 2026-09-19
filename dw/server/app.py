@@ -521,7 +521,7 @@ def prompt_details(paths):
 
 
 def _matching_prompts(details, tag, intended_model):
-    """The prompt names matching the filters, or None when there are none.
+    """The prompt names matching the filters, or None when no filter was given.
 
     Case-insensitive and exact per value: a `tags` entry or the whole
     `intended_model`, never a substring - `minimax-music` must not match

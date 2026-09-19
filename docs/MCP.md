@@ -271,7 +271,7 @@ references written in the same session.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `list_prompts()` | — | List the stored prompts with their text and descriptions |
+| `list_prompts(tag=None, intended_model=None, include_text=False)` | optional `tag`, `intended_model`, `include_text` | List the stored prompts - description, intended model, tags and `text_chars`, bodies left out; `get_prompt` for one body |
 | `get_prompt(name)` | `name` | Get one stored prompt's full definition |
 | `get_prompt_schema()` | — | Get the JSON schema every stored prompt must satisfy. Its own route rather than a name under `/api/prompts`, so a prompt called `schema` cannot shadow it |
 | `save_prompt(name, prompt)` | `name`, `prompt` | Save a prompt, overwriting any prompt of that name. The server validates first, and refuses a `text` that itself begins with a reference prefix (`variable:`, `previous_result:`, `constant:`, `asset:`, `output:`, `prompt:`) |

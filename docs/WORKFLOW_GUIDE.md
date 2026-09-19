@@ -1534,7 +1534,10 @@ A prompt file holds the text plus the metadata the server's Prompts page shows:
 
 Only `text` is required, and it is what the reference resolves to. `intended_model` is
 informational - the engine ignores it, but the library badges and filters by it, and
-the server's prompt enhancer uses it to preselect a preset.
+the server's prompt enhancer uses it to preselect a preset. One spelling per family:
+`list_prompts(intended_model=...)` matches the whole value exactly, so `minimax-music`
+beside `minimax-music3` hides half a shelf, and `tests/test_prompt_library.py` sweeps
+the repo's library for a variant.
 
 The library's location is resolved in order: the `DW_PROMPT_DIR` environment
 variable (which `--prompt-dir` on both `dw.run` and `dw.serve` sets), then

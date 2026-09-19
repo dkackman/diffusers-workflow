@@ -1100,8 +1100,8 @@ def test_the_stated_tool_count_is_the_registered_one():
 # 13_800, which is room for a tool or two and not room for a second
 # validate_workflow.
 # Worth knowing before raising it: four tools are a quarter of the
-# descriptions (validate_workflow 872, wait_for_job 583, list_workflows 540,
-# list_gallery 501), and validate_workflow's `plan.basis` taxonomy and
+# descriptions (validate_workflow 774, wait_for_job 518, list_workflows 482,
+# list_gallery 445), and validate_workflow's `plan.basis` taxonomy and
 # wait_for_job's stall-diagnosis paragraph are both restated in
 # WORKFLOW_GUIDE's "The loop" - which an agent fetches on demand. The
 # question to ask first is whether the second copy has to be the resident one.
@@ -1110,8 +1110,8 @@ SURFACE_BUDGET = 13_800
 
 @pytest.mark.asyncio
 async def test_the_tool_surface_fits_the_budget():
-    tools = await tools_of(server_over(ok({})))
     server = server_over(ok({}))
+    tools = await tools_of(server)
 
     descriptions = sum(len(tool.description or "") for tool in tools.values())
     schemas = sum(len(json.dumps(tool.input_schema or {})) for tool in tools.values())
