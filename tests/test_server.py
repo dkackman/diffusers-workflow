@@ -2976,6 +2976,64 @@ class TestPromptLibrary:
                 assert response.status_code in (400, 404, 405), evasion
             assert not (tmp_path / "escape.json").exists()
 
+    def _store(self, client, name, prompt):
+        assert client.put(f"/api/prompts/{name}", json={"prompt": prompt}).status_code == 200
+
+    def test_the_listing_narrows_by_tag_and_model_and_can_omit_the_text(
+        self, server, tmp_path
+    ):
+        with server(success_script) as client:
+            self._store(
+                client,
+                "minimax/Song",
+                {
+                    "text": "Global Metadata\nbpm is 58.",
+                    "description": "a song",
+                    "intended_model": "minimax-music3",
+                    "tags": ["music", "score"],
+                },
+            )
+            self._store(
+                client,
+                "minimax/Fox",
+                {
+                    "text": "a red fox at dawn",
+                    "description": "a fox",
+                    "intended_model": "minimax-h3",
+                    "tags": ["wildlife"],
+                },
+            )
+
+            # A caller that passes nothing gets what it always got
+            plain = client.get("/api/prompts").json()
+            assert "minimax/Song" in plain["prompts"]
+            assert plain["details"]["minimax/Fox"]["text"] == "a red fox at dawn"
+            assert "text_chars" not in plain["details"]["minimax/Fox"]
+
+            # include_text=false swaps the payload for its size
+            slim = client.get("/api/prompts?include_text=false").json()
+            entry = slim["details"]["minimax/Fox"]
+            assert "text" not in entry
+            assert entry["text_chars"] == len("a red fox at dawn")
+            assert entry["description"] == "a fox"
+
+            # A filter narrows the names, the origins and the details together
+            by_model = client.get("/api/prompts?intended_model=MINIMAX-MUSIC3").json()
+            assert by_model["prompts"] == ["minimax/Song"]
+            assert list(by_model["details"]) == ["minimax/Song"]
+            assert list(by_model["origins"]) == ["minimax/Song"]
+
+            by_tag = client.get("/api/prompts?tag=Wildlife").json()
+            assert by_tag["prompts"] == ["minimax/Fox"]
+
+            # Both at once, and a miss is an empty listing rather than a 404
+            assert client.get(
+                "/api/prompts?tag=music&intended_model=minimax-h3"
+            ).json()["prompts"] == []
+
+            # The writable directory is reported whatever the filter
+            assert client.get("/api/prompts?tag=music").json()["prompt_dir"]
+
     def test_unreferenceable_names_are_refused(self, server, tmp_path):
         # A save the API accepted but no 'prompt:' reference could ever
         # load would be a trap - the name rule is enforced here too

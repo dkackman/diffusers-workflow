@@ -520,6 +520,33 @@ def prompt_details(paths):
     return details
 
 
+def _matching_prompts(details, tag, intended_model):
+    """The prompt names matching the filters, or None when there are none.
+
+    Case-insensitive and exact per value: a `tags` entry or the whole
+    `intended_model`, never a substring - `minimax-music` must not match
+    `minimax-music3`, which is the confusion the one-spelling-per-family
+    rule exists to prevent.
+    """
+    if tag is None and intended_model is None:
+        return None
+    wanted_tag = tag.lower() if tag is not None else None
+    wanted_model = intended_model.lower() if intended_model is not None else None
+    matches = set()
+    for name, detail in details.items():
+        if wanted_tag is not None and wanted_tag not in {
+            str(each).lower() for each in detail.get("tags") or []
+        }:
+            continue
+        if (
+            wanted_model is not None
+            and str(detail.get("intended_model") or "").lower() != wanted_model
+        ):
+            continue
+        matches.add(name)
+    return matches
+
+
 def resolve_prompt_name(prompt_dir, name, allow_create=False):
     """The on-disk path for a prompt name, confined to prompt_dir.
 
@@ -2158,7 +2185,11 @@ def create_app(
         raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
 
     @app.get("/api/prompts")
-    def list_prompts():
+    def list_prompts(
+        tag: str | None = None,
+        intended_model: str | None = None,
+        include_text: bool = True,
+    ):
         # A stray file too deep or oddly named can sit in the directory, but
         # no workflow could reference it - listing it would only invite that
         paths = {}
@@ -2169,15 +2200,42 @@ def create_app(
                 if referenceable(name) and name not in paths:
                     paths[name] = os.path.join(root, f"{name}.json")
                     origins[name] = WORKSPACE_ORIGIN if index == 0 else EXAMPLES_ORIGIN
-        names = sorted(paths)
+        details = prompt_details(paths)
+
+        # Narrowing happens after the details are read, since that is where a
+        # prompt says what it is for, and it narrows every parallel key at
+        # once: a `prompts` list and a `details` map that disagree is worse
+        # than no filter at all
+        wanted = _matching_prompts(details, tag, intended_model)
+        if wanted is not None:
+            details = {name: detail for name, detail in details.items() if name in wanted}
+        # The three parallel keys agree by construction, filter or no filter.
+        # `prompt_details` drops a path whose mtime it cannot read - the file
+        # went away between the walk and the read - and listing a name that
+        # carries no detail only tells a caller to go and get a 404.
+        origins = {name: origin for name, origin in origins.items() if name in details}
+
+        # The MCP listing cannot carry 44 prompt bodies - it exceeds a client's
+        # result cap and the listing becomes uncallable - but the editors read
+        # `text` as the card fallback, so the omission is opt-in and the size
+        # is reported in its place
+        if not include_text:
+            details = {
+                name: {
+                    **{key: value for key, value in detail.items() if key != "text"},
+                    "text_chars": len(detail.get("text") or ""),
+                }
+                for name, detail in details.items()
+            }
+
         return {
             # The writable library, unchanged: what a save is written to,
             # and what a client that predates the search path expects
             "prompt_dir": app.state.prompt_dir,
             "prompt_dirs": roots,
-            "prompts": names,
+            "prompts": sorted(details),
             "origins": origins,
-            "details": prompt_details(paths),
+            "details": details,
         }
 
     @app.put("/api/prompts/{name:path}")
