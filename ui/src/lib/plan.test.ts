@@ -15,6 +15,7 @@ const base: Plan = {
     device: 'cuda',
     measured_on: 'RTX 3090',
     partial: false,
+    unpriced: [],
   },
 }
 
@@ -76,6 +77,7 @@ describe('describePlan', () => {
         device: 'cuda',
         measured_on: null,
         partial: false,
+        unpriced: [],
       },
     })
     expect(figure.text).toBe('no measured cost')
@@ -85,9 +87,9 @@ describe('describePlan', () => {
   it('a partial figure names what it is missing', () => {
     const [, figure] = describePlan({
       ...base,
-      estimate: { ...base.estimate, partial: true },
+      estimate: { ...base.estimate, partial: true, unpriced: ['child.json'] },
     })
-    expect(figure.text).toContain('plus a composed workflow with no cost')
+    expect(figure.text).toContain('plus unpriced: child.json')
   })
 
   it('an unknown cache answer and a single step read naturally', () => {

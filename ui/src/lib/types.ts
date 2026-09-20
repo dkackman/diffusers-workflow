@@ -249,6 +249,10 @@ export interface Plan {
     device: string
     measured_on: string | null
     partial: boolean
+    /** What contributed nothing to `minutes` when `partial` is true - the
+     * workflow's own id when its own steps went unpriced, else the path of
+     * each composed child with no cost block. Empty when `partial` is false. */
+    unpriced: string[]
   }
 }
 
