@@ -182,7 +182,10 @@ def build_server(client):
         figures a maintainer measured once on the devices named and wrote
         into the workflow, never derived from this server's job history -
         so null means nobody wrote one down, not that the run is cheap;
-        the answer's `cost_basis` says as much. `observed_minutes` and
+        the answer's `cost_basis` says as much. It is also the mark of an
+        entry that has been run through on a real device: one without a
+        `cost` has only been authored, and its first run is the one that
+        finds what the description could not verify. `observed_minutes` and
         `observed_runs`, when present, are this box's *own* finished runs
         of that workflow - the cold median, model load included, and how
         many runs are behind it. Prefer it when quoting a price for this
@@ -514,7 +517,10 @@ def build_server(client):
     # --------------------------------------------------------------- media
 
     def get_output_image(
-        name: str, max_dimension: int = 768, workspace: str | None = None
+        name: str,
+        max_dimension: int = 768,
+        workspace: str | None = None,
+        crop: list[int] | None = None,
     ) -> list[ImageContent | TextContent]:
         """Look at a generated image, named as `list_gallery` or a job's
         manifest reports it. Use this to judge output quality - it is the
@@ -524,14 +530,17 @@ def build_server(client):
         with `get_gallery_metadata` or hand the user the file. The image is
         downscaled to `max_dimension` on its longest side; the second part
         of the result reports the size it went in and came out at, so a
-        downscale is never silent.
+        downscale is never silent. `crop` is `[x, y, width, height]` in the
+        original's pixels, cut before the downscale - the way to see a
+        region of a 2K still at 100%, where the whole would be shrunk past
+        what a small element or a tiling seam can be judged at.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
         here without leaving this one (#99)."""
         result = media.get_output_image(
-            client, name, max_dimension=max_dimension, workspace=workspace
+            client, name, max_dimension=max_dimension, workspace=workspace, crop=crop
         )
         image = ImageContent(
             type="image", data=result["data"], mime_type=result["mime_type"]
@@ -541,7 +550,8 @@ def build_server(client):
             text=(
                 f"name: {result['name']}\n"
                 f"original_size: {result['original_size']}\n"
-                f"returned_size: {result['returned_size']}\n"
+                + (f"crop: {result['crop']}\n" if result["crop"] else "")
+                + f"returned_size: {result['returned_size']}\n"
                 f"bytes: {result['bytes']}"
             ),
         )

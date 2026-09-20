@@ -1,5 +1,18 @@
 {
-    "cost_drivers": ["num_images_per_prompt", "num_inference_steps", "width", "height"],
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 4.3
+        }
+    ],
+    "cost_drivers": [
+        "num_images_per_prompt",
+        "num_inference_steps",
+        "width",
+        "height"
+    ],
     "variables": {
         "prompt": "A realistic photograph of a mouse wearing a skirt playing volleyball against a team of professional volleyball players.",
         "num_images_per_prompt": 1,
@@ -8,7 +21,7 @@
         "height": 2048
     },
     "id": "QwenImage2.1",
-    "description": "Text-to-image with Qwen-Image-2.1: a unified 7B model (32 single-stream DiT layers, Qwen3-VL 8B text encoder) that also does instruction editing and native RGBA output, though this template only exercises plain text-to-image. No guidance_scale - the pipeline takes only true_cfg_scale, which the vendor recommends leaving at its default of 1.0 (off). width/height are set explicitly because the pipeline falls back to a 1024x1024 output_resolution default otherwise, well under the model's native 2K. Qwen Research License: non-commercial use only, unlike every other model in this catalog, which are Apache-2.0 - see https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE. VRAM at 2048x2048 under model offload has not been measured on a 24GB card - weight residency alone is 17.5GB, leaving headroom for activations that is unverified at this resolution; drop width/height to 1024 if it does not fit. No cost has been measured yet.",
+    "description": "Text-to-image with Qwen-Image-2.1: a unified 7B model (32 single-stream DiT layers, Qwen3-VL 8B text encoder) that also does instruction editing and native RGBA output; this entry exercises plain text-to-image and models/qwen-image-2.1-edit exercises editing. No guidance_scale - the pipeline takes only true_cfg_scale, which the vendor recommends leaving at its default of 1.0 (off). width/height are set explicitly because the pipeline falls back to a 1024x1024 output_resolution default otherwise, well under the model's native 2K. The result is image/png because the pipeline returns RGBA: a jpeg result would flatten the alpha over white (and warn). The VAE is tiled and sliced because at 2048x2048 on a 24GB card the decode - not the denoise - runs out of memory, with all 40 steps already done. Offload is a property of the mode, not the model: 'model' offload fits plain text-to-image at 2048x2048, but an edit prepends the condition image's latents to the sequence and needs 'sequential' at half those pixels - which is why the edit entry differs. Qwen Research License: non-commercial use only, unlike every other model in this catalog, which are Apache-2.0 - see https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE.",
     "configures": "templates/text-to-image",
     "variable_constraints": {
         "width": {
@@ -28,7 +41,11 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "QwenImage21Pipeline",
-                    "offload": "model"
+                    "offload": "model",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "Qwen/Qwen-Image-2.1",
@@ -43,7 +60,7 @@
                 }
             },
             "result": {
-                "content_type": "image/jpeg",
+                "content_type": "image/png",
                 "embed_metadata": true
             }
         }

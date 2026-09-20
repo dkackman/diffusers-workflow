@@ -116,7 +116,7 @@ def realize_args(arg, base_dir=None):
             # library, and does it first: what it stands for is a path, so
             # everything below - the media conventions, an object's
             # 'from_file' - then handles it as the path it always was
-            if is_path_reference(v) or isinstance(v, list):
+            if is_path_reference(v) or isinstance(v, (list, dict)):
                 v = arg[k] = resolve_path_references(v, base_dir)
             # A constant resolves under any argument name, and before the
             # conventions below - what it holds is the value, not a file to load
@@ -212,7 +212,12 @@ def resolve_path_references(value, base_dir=None):
     A list is walked in place, because an 'image' argument may be a list of
     references and the key conventions hand the whole list to the loader at
     once - by then it is too late for a reference to be recognized.
-    Dictionaries are left alone: realize_args recurses into those itself,
+    A {"location": ...} dict is walked the same way, for the same reason: the
+    media conventions hand the whole dict to the loader, which reads the
+    location out of it and joins it onto the workflow directory - so
+    {"location": "asset:x.png"} passed validation (which sees every string)
+    and then failed the run on a path that was never resolved. Other
+    dictionaries are left alone: realize_args recurses into those itself,
     and each of their values reaches this on the way through.
     """
     if is_asset_reference(value):
@@ -222,6 +227,8 @@ def resolve_path_references(value, base_dir=None):
     if isinstance(value, list):
         for index, item in enumerate(value):
             value[index] = resolve_path_references(item, base_dir)
+    elif isinstance(value, dict) and is_path_reference(value.get("location")):
+        value["location"] = resolve_path_references(value["location"], base_dir)
     return value
 
 

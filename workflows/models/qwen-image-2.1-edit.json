@@ -1,0 +1,69 @@
+{
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 4.7
+        }
+    ],
+    "cost_drivers": ["num_inference_steps", "width", "height"],
+    "variables": {
+        "prompt": "recolor this person's hair blonde",
+        "input_image": {
+            "location": "https://pbs.twimg.com/media/HNi-N_eWIAAJfTZ?format=jpg&name=900x900"
+        },
+        "seed": 20260921,
+        "width": 2048,
+        "height": 1024,
+        "output_resolution": 2048,
+        "num_inference_steps": 40
+    },
+    "seed": "variable:seed",
+    "id": "QwenImage21Edit",
+    "description": "Instruction editing with Qwen-Image-2.1: re-renders a supplied picture toward a written instruction, the editing path the unified model advertises and models/qwen-image-2.1 does not exercise. Offload is a property of the mode, not the model: the condition image's latents are prepended to the noise, so an edit at 2048x1024 carries a longer sequence than plain text-to-image at 2048x2048, and under 'model' offload it runs out of memory by 582 MiB on a clean 24GB card - measured, and shape-determined rather than leakage from an earlier job - so this entry runs 'sequential' where the text-to-image entry runs 'model'. output_resolution is set to 2048 so the condition image is not resized down to the pipeline's 1024 default; width/height name the canvas the edit lands on. The VAE is tiled and sliced because the decode at this size does not otherwise fit, and the result is image/png because the pipeline returns RGBA. true_cfg_scale is left at its default of 1.0, so negative_prompt is ignored and the instruction has to be written positively. input_image takes a URL, a path, or an asset: reference - keep_output turns an earlier run's picture into one. Qwen Research License: non-commercial use only - see https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE.",
+    "configures": "templates/image-edit",
+    "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "Qwen-Image-2.1 rounds width/height down to a multiple of 32 (vae_scale_factor * 2), so an off-grid value is not refused by the pipeline but silently shrunk - refused here instead, with no 'snap', since rounding the other way would be a second silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "Qwen-Image-2.1 rounds width/height down to a multiple of 32 (vae_scale_factor * 2), so an off-grid value is not refused by the pipeline but silently shrunk - refused here instead, with no 'snap', since rounding the other way would be a second silent change to the size asked for"
+        }
+    },
+    "steps": [
+        {
+            "name": "edit",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "QwenImage21Pipeline",
+                    "offload": "sequential",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Qwen/Qwen-Image-2.1",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "image": "variable:input_image",
+                    "output_resolution": "variable:output_resolution",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps"
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "embed_metadata": true
+            }
+        }
+    ]
+}

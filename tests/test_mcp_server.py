@@ -280,6 +280,29 @@ async def test_an_unreachable_server_reports_how_to_start_it():
 
 
 @pytest.mark.asyncio
+async def test_a_crop_is_cut_and_reported():
+    import io
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (2048, 1024), (1, 2, 3)).save(buffer, format="PNG")
+    body = buffer.getvalue()
+
+    def serving_png(request):
+        return httpx.Response(200, content=body, headers={"content-type": "image/png"})
+
+    server = server_over(serving_png)
+
+    result = await server.call_tool(
+        "get_output_image", {"name": "out.png", "crop": [1000, 500, 300, 200]}
+    )
+
+    text = result.content[1].text
+    assert "crop: [1000, 500, 300, 200]" in text
+    assert "returned_size: [300, 200]" in text
+
+
+@pytest.mark.asyncio
 async def test_an_image_comes_back_as_an_image_block():
     def serving_png(request):
         return httpx.Response(

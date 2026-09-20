@@ -74,6 +74,44 @@ def _peak_dbfs(waveform):
     return 20.0 * float(numpy.log10(peak))
 
 
+# Image formats that carry an alpha channel; every other image content type
+# takes the picture flattened over white
+ALPHA_CONTENT_TYPES = {"image/png", "image/webp", "image/gif", "image/tiff"}
+
+
+def flatten_alpha_for(image, content_type, file_name):
+    """The image as the content type can carry it: unchanged when it has no
+    alpha channel or the format keeps one, otherwise composited over white
+    and said out loud.
+
+    Pillow refuses to write mode RGBA as JPEG, and it refused after the whole
+    generation had run - Qwen-Image-2.1 decodes an alpha channel natively,
+    and every image template in the catalog asked for image/jpeg. A warning
+    rather than an error, because the run did what was asked and the file
+    is usable; the warning names the format that would have kept the alpha.
+    """
+    mode = getattr(image, "mode", None)
+    if mode not in ("RGBA", "LA", "PA") or content_type in ALPHA_CONTENT_TYPES:
+        return image
+    from PIL import Image as PILImage
+
+    rgba = image.convert("RGBA")
+    flattened = PILImage.new("RGB", rgba.size, (255, 255, 255))
+    flattened.paste(rgba, mask=rgba.getchannel("A"))
+    if getattr(image, "info", None):
+        flattened.info.update(image.info)
+    emit_warning(
+        f"The image written to {file_name} had an alpha channel that "
+        f"{content_type} cannot carry - it was flattened over white. Set "
+        f"the step's result 'content_type' to 'image/png' to keep the "
+        f"transparency.",
+        kind="alpha_discarded",
+        file=file_name,
+        content_type=content_type,
+    )
+    return flattened
+
+
 def warn_without_headroom(waveform, file_name):
     """Say when the soundtrack about to be written is at or over full scale.
 
@@ -715,6 +753,10 @@ class Result:
                 with open(output_path, "w") as file:
                     file.write(artifact)
             elif hasattr(artifact, "save"):
+                if content_type.startswith("image/"):
+                    artifact = flatten_alpha_for(
+                        artifact, content_type, os.path.basename(output_path)
+                    )
                 if (
                     self.metadata is not None
                     and self.result_definition.get("embed_metadata", False)
