@@ -556,14 +556,15 @@ def build_server(client):
     ) -> list[AudioContent | TextContent]:
         """Listen to a generated soundtrack, named as `list_gallery` or a
         job's manifest reports it - an audio output, or the track muxed
-        into a video (the audio analogue of `get_output_image`). There is
-        no downscale for audio, so a whole clip too large to fit inline is
-        refused rather than cut; hear part of a long one by asking for the
-        part - `start` and `duration` in seconds, around a seam or a
-        moment `get_gallery_metadata`'s envelope located. The text part
-        reports the whole track's length and, for an excerpt, exactly what
-        was cut, so a slice is never mistaken for the whole. To *see* a
-        video, `get_output_frames`.
+        into a video (the audio analogue of `get_output_image`): in its
+        own encoding when an audio file is served whole, WAV when
+        extracted or excerpted. No downscale exists for audio, so a whole
+        clip too large to fit inline is refused rather than cut; hear part
+        of a long one by asking for the part - `start` and `duration` in
+        seconds, around a seam or a moment `get_gallery_metadata`'s
+        envelope located. The text part reports the track's length and,
+        for an excerpt, exactly what was cut, so a slice is never mistaken
+        for the whole. To *see* a video, `get_output_frames`.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
@@ -597,7 +598,7 @@ def build_server(client):
         type over MCP. One selector per call: `count` for a contact sheet,
         `at` for moments (seconds, or "frame:N"), or `seams` (true, or seam
         numbers from 1) for the frame pair either side of each join - needs
-        `boundaries` (each shot's start frame) and `names`. Tiles fit
+        `boundaries` (start frame of each shot after the first) and `names`. Tiles fit
         `max_dimension`; over budget they shrink together, never drop.
 
         `workspace` pins this call to another workspace (#99)."""
@@ -620,11 +621,18 @@ def build_server(client):
             f"name: {result['name']}",
             f"frame_count: {result['frame_count']}  fps: {result['fps']}",
         ]
+        fps = result["fps"]
         for tile in result["tiles"]:
-            lines.append(
-                f"- {tile['label']}  frame {tile['frame']} @ {tile['seconds']:.2f}s"
-                f"  [{tile['width']}x{tile['height']}]"
-            )
+            if tile.get("frames"):
+                # a contact sheet: every cell, so each one can be located
+                cells = ", ".join(
+                    f"{frame} ({frame / fps:.2f}s)" if fps else str(frame)
+                    for frame in tile["frames"]
+                )
+                where = f"frames: {cells}"
+            else:
+                where = f"frame {tile['frame']} @ {tile['seconds']:.2f}s"
+            lines.append(f"- {tile['label']}  {where}  [{tile['width']}x{tile['height']}]")
         if result["downscaled_to"]:
             lines.append(
                 f"downscaled_to: {result['downscaled_to']} (every tile, to fit the inline budget)"

@@ -1310,6 +1310,9 @@ def test_gallery_audio_serves_an_audio_file_as_itself_when_asked_whole(server, t
         assert response.status_code == 200
         assert response.content == raw
         assert float(response.headers["x-dw-duration"]) == pytest.approx(1.0, abs=0.05)
+        # mimetypes says audio/x-wav on macOS and audio/wav elsewhere; an
+        # extract says audio/wav, and the whole file must say the same
+        assert response.headers["content-type"] == "audio/wav"
 
 
 def test_gallery_audio_serving_a_whole_file_does_not_decode_it(server, tmp_path):

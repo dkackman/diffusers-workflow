@@ -106,9 +106,11 @@ def _fit(image, limit):
 
 
 def get_output_audio(client, name, start=None, duration=None, workspace=None):
-    """One soundtrack from the gallery as base64 WAV - an audio output, or
-    the track muxed into a video (#193) - for a clip short enough to fit
-    MAX_RETURNED_BYTES whole, or an excerpt of one that is not.
+    """One soundtrack from the gallery as base64 - an audio output, or the
+    track muxed into a video (#193) - for a clip short enough to fit
+    MAX_RETURNED_BYTES whole, or an excerpt of one that is not. In its own
+    encoding when an audio file is served whole, WAV when extracted from a
+    video or excerpted; `mime_type` says which.
 
     Audio is not resized the way an image is - there is no downscale of a
     waveform that keeps it meaningful to listen to - so a whole clip over

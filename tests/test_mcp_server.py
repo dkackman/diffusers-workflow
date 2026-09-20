@@ -348,6 +348,61 @@ async def test_a_seam_tile_text_part_names_its_frame_and_time():
     assert "1.00s" in text_block.text
 
 
+@pytest.mark.asyncio
+async def test_a_contact_sheet_text_part_locates_every_cell():
+    """A contact sheet's tile carries `frames` - the index of every cell -
+    but the text part printed only the first ("frame 0 @ 0.00s"), so an
+    agent could not name the moment a cell showed. Each cell is listed
+    with its frame and its time from the clip's fps (#193 review)."""
+
+    def serving_sheet(request):
+        return httpx.Response(
+            200,
+            json={
+                "name": "shot.mp4",
+                "frame_count": 48,
+                "fps": 6.0,
+                "width": 64,
+                "height": 32,
+                "tiles": [
+                    {
+                        "label": "contact sheet, 3 frames",
+                        "frame": 0,
+                        "seconds": 0.0,
+                        "frames": [0, 23, 47],
+                        "data": base64.b64encode(PNG_1X1).decode("ascii"),
+                        "mime_type": "image/png",
+                        "width": 64,
+                        "height": 32,
+                    }
+                ],
+            },
+        )
+
+    server = server_over(serving_sheet)
+
+    result = await server.call_tool("get_output_frames", {"name": "shot.mp4", "count": 3})
+
+    text = result.content[-1].text
+    assert "contact sheet, 3 frames" in text
+    assert "frames: 0 (0.00s), 23 (3.83s), 47 (7.83s)" in text
+
+
+@pytest.mark.asyncio
+async def test_the_media_tool_descriptions_say_what_they_hand_back():
+    """`boundaries` is the start frame of each shot *after the first* - the
+    route refuses 0 - and audio arrives in its own encoding only when an
+    audio file is served whole, WAV otherwise."""
+    server = server_over(ok({}))
+    tools = await tools_of(server)
+
+    frames = tools["get_output_frames"].description
+    assert "after the first" in frames
+    assert "each shot's start frame" not in frames
+    audio = tools["get_output_audio"].description
+    assert "WAV" in audio and "own encoding" in audio
+
+
 # Every tool, the arguments a client would send, and the one API call it is
 # expected to make. This is the wiring: a tool bound to the wrong handler or
 # handed its arguments in the wrong order shows up here and nowhere else.

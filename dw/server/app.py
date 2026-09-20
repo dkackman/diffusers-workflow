@@ -2855,6 +2855,10 @@ def create_app(
             if duration_seconds is not None:
                 headers["X-DW-Duration"] = str(duration_seconds)
             media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+            if media_type == "audio/x-wav":
+                # macOS's mimetypes table says x-wav; an extract says
+                # audio/wav, and a whole WAV must not read as a different kind
+                media_type = "audio/wav"
             return FileResponse(path, media_type=media_type, headers=headers)
 
         if not excerpt:
