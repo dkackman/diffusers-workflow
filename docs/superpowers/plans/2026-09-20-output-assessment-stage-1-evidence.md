@@ -1096,7 +1096,7 @@ git commit -m "feat(server): #193 - media_frames seeks out moments, a contact sh
 
 **Interfaces:**
 - Consumes: Task 4's `frames_at`, `contact_sheet`, `seam_tiles`, `video_shape`.
-- Produces: the route. Query: exactly one of `at` (repeatable: `?at=1.5&at=frame:12`), `count` (int), `seams` (`true` or a comma list of 1-based seam numbers); `boundaries` (comma list of frame indexes - required with `seams` in this stage; stage 2 fills it from the manifest when absent); `names` (comma list); `max_dimension` (int, default 512, the longest side of each returned tile). Answer:
+- Produces: the route. Query: exactly one of `at` (a comma list: `?at=1.5,frame:12` - one string, not a repeated key, because `DwClient._scoped` rebuilds `params` as a dict and would collapse a repeated key), `count` (int), `seams` (`true` or a comma list of 1-based seam numbers); `boundaries` (comma list of frame indexes - required with `seams` in this stage; stage 2 fills it from the manifest when absent); `names` (comma list); `max_dimension` (int, default 512, the longest side of each returned tile). Answer:
 
 ```json
 {"name": "...", "frame_count": 120, "fps": 24.0, "width": 960, "height": 544,
@@ -1130,7 +1130,7 @@ def test_gallery_frames_returns_the_moments_asked_for(server, tmp_path):
 
         response = client.get(
             "/api/gallery/shot-gen.0-0.0.mp4/frames",
-            params=[("at", "0.0"), ("at", "frame:12"), ("max_dimension", "32")],
+            params={"at": "0.0,frame:12", "max_dimension": "32"},
         )
 
         assert response.status_code == 200
@@ -1157,7 +1157,7 @@ def test_gallery_frames_makes_a_contact_sheet(server, tmp_path):
         tiles = response.json()["tiles"]
         assert len(tiles) == 1
         assert tiles[0]["label"] == "contact sheet, 4 frames"
-        assert tiles[0]["frames"] == [0, 7, 15, 23]
+        assert tiles[0]["frames"] == [0, 8, 15, 23]
 
 
 def test_gallery_frames_pairs_the_frames_at_each_seam(server, tmp_path):
@@ -1250,7 +1250,7 @@ Add after `gallery_audio`:
     @app.get("/api/gallery/{name:path}/frames")
     def gallery_frames(
         name: str,
-        at: Optional[List[str]] = Query(None),
+        at: Optional[str] = None,
         count: Optional[int] = None,
         seams: Optional[str] = None,
         boundaries: Optional[str] = None,
@@ -1260,7 +1260,7 @@ Add after `gallery_audio`:
     ):
         """Frames of a video output or asset, as PNG tiles - the way an
         agent with no video content type sees what a run made (#193).
-        Exactly one selector: `at` (repeatable; seconds, or "frame:N"),
+        Exactly one selector: `at` (a comma list of seconds or "frame:N"),
         `count` (an evenly spaced contact sheet, `frame_grid` without a
         workflow), or `seams` ("true", or a comma list of 1-based seam
         numbers) for the last frame before and first frame after each
@@ -1287,7 +1287,11 @@ Add after `gallery_audio`:
 
         try:
             if at:
-                moments = [m if m.startswith("frame:") else float(m) for m in at]
+                moments = [
+                    m.strip() if m.strip().startswith("frame:") else float(m)
+                    for m in at.split(",")
+                    if m.strip()
+                ]
                 tiles = frames_at(path, moments)
             elif count:
                 tiles = [contact_sheet(path, count, tile_width=limit)]
@@ -1405,7 +1409,7 @@ def test_frames_are_asked_for_by_moment_and_come_back_labelled():
     result = get_output_frames(client, "run/x.mp4", at=[0.0, "frame:12"])
 
     assert seen[0][0] == "/api/gallery/run%2Fx.mp4/frames"
-    assert ("at", "0.0") in seen[0][1] and ("at", "frame:12") in seen[0][1]
+    assert dict(seen[0][1])["at"] == "0.0,frame:12"
     assert [t["label"] for t in result["tiles"]] == ["00:00.0 (frame 0)", "00:02.0 (frame 12)"]
     assert result["downscaled_to"] is None
 
@@ -1514,8 +1518,9 @@ def get_output_frames(
             + (f" - got {', '.join(chosen)}" if chosen else "")
         )
     params = [("max_dimension", str(max(MIN_DIMENSION, int(max_dimension))))]
+    # a list of pairs, turned into a dict by the client - so no key repeats
     if at:
-        params += [("at", str(moment)) for moment in at]
+        params.append(("at", ",".join(str(moment) for moment in at)))
     elif count:
         params.append(("count", str(int(count))))
     else:
@@ -1563,7 +1568,7 @@ def _fit_tiles_within_budget(tiles):
         images = [Image.open(io.BytesIO(base64.b64decode(t["data"]))) for t in shrunk]
 ```
 
-Check `client.get_json` accepts `params` (read `dw_mcp/client.py`'s `get_json`); it does for `get_gallery_metadata` (`params={"envelope": "true"}`), and a list of pairs is what httpx wants for a repeated `at` - confirm httpx accepts a list of tuples for `params` (it does).
+Check `client.get_json` accepts `params` (read `dw_mcp/client.py`'s `get_json`); it does for `get_gallery_metadata` (`params={"envelope": "true"}`), `DwClient._scoped` turns `params` into a dict for a named workspace, which is why `at` travels as one comma-joined value and no key repeats.
 
 - [ ] **Step 4: Register the tool**
 
