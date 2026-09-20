@@ -524,22 +524,15 @@ def build_server(client):
         crop: list[int] | None = None,
     ) -> list[ImageContent | TextContent]:
         """Look at a generated image, named as `list_gallery` or a job's
-        manifest reports it. Use this to judge output quality - it is the
-        only way to see what a workflow actually produced, and a run that
-        succeeded can still have made the wrong picture. Images only: a soundtrack
-        is `get_output_audio`'s and a video's frames are
-        `get_output_frames`'s. The image is
+        manifest reports it. Use this to judge output quality - a run that
+        succeeded can still have made the wrong picture. The image is
         downscaled to `max_dimension` on its longest side; the second part
-        of the result reports the size it went in and came out at, so a
-        downscale is never silent. `crop` is `[x, y, width, height]` in the
+        reports the before/after size, so a downscale is never silent.
+        `crop` is `[x, y, width, height]` in the
         original's pixels, cut before the downscale - the way to see a
-        region of a 2K still at 100%, where the whole would be shrunk past
-        what a small element or a tiling seam can be judged at.
+        region of a 2K still at 100%, past what a downscale would blur.
 
-        `workspace` names the workspace for this one call without
-        switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        `workspace` pins this call to another workspace (#99)."""
         result = media.get_output_image(
             client, name, max_dimension=max_dimension, workspace=workspace, crop=crop
         )
@@ -568,16 +561,12 @@ def build_server(client):
         job's manifest reports it - an audio output, or the track muxed
         into a video (the audio analogue of `get_output_image`): in its
         own encoding when an audio file is served whole, WAV when
-        extracted or excerpted. No downscale exists for audio, so a whole
-        clip too large to fit inline is refused rather than cut; hear part
-        of a long one by asking for the part - `start` and `duration` in
-        seconds, around a seam or a moment `get_gallery_metadata`'s
-        envelope located. The text part says what was cut. To *see* a
-        video, `get_output_frames`.
+        extracted or excerpted. No downscale exists for audio - a whole
+        clip too large is refused; ask for a part with `start`/`duration`
+        in seconds, around what `get_gallery_metadata`'s envelope locates.
+        The text part says what was cut. To *see* a video, `get_output_frames`.
 
-        `workspace` names the workspace for this one call without
-        switching the session to it - the same pin `run_workflow`
-        takes (#99)."""
+        `workspace` pins this call to another workspace (#99)."""
         result = media.get_output_audio(
             client, name, start=start, duration=duration, workspace=workspace
         )

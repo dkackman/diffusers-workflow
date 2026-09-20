@@ -1348,6 +1348,20 @@ def test_the_stated_tool_count_is_the_registered_one():
 # mistaken for the whole." shortened to "The text part says what was cut."
 # 0.5 tokens of headroom left; the next docstring change here should
 # measure again rather than assume it still fits.
+# Merging feat/193-evidence into develop combined this branch's tightened
+# get_output_audio/get_output_frames text with develop's own independent
+# `crop` addition to get_output_image - two branches each under budget on
+# their own pushed the merged surface to 13_937, since neither could see
+# the other's growth. Paid for by cutting get_output_image's redundant
+# "Images only: ..." cross-reference sentence (the other two tools already
+# say where images live), shortening get_output_image's and
+# get_output_audio's `workspace` sentence to the terse form
+# get_output_frames already used ("pins this call to another workspace"),
+# and trimming a few more words from get_output_image's crop/downscale
+# sentences. Measured 2026-09-20 at 13_796.2 (9_110.8 / 3_671.5 / 1_014.0)
+# post-merge. 3.8 tokens of headroom left; a merge that touches tool
+# docstrings on both sides needs to measure again, not just each side's
+# own pre-merge figure.
 SURFACE_BUDGET = 13_800
 
 
