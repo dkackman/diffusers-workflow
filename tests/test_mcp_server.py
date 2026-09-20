@@ -1098,10 +1098,12 @@ async def test_validate_workflow_teaches_quoting_from_the_plan():
 
 
 def test_the_stated_tool_count_is_the_registered_one():
-    """Two documents state the size of the surface: the README, where it is
-    the first claim made about it, and get_guide's docstring, where it carries
-    the argument that a whole guide costs more than connecting does. Both said
-    55 while 57 were registered, and nothing was checking either."""
+    """Three documents state the size of the surface: the README, where it is
+    the first claim made about it, get_guide's docstring, where it carries
+    the argument that a whole guide costs more than connecting does, and
+    docs/MCP.md's tool reference. README and get_guide both said 55 while 57
+    were registered, and nothing was checking either; docs/MCP.md drifted to
+    55 on its own and nothing was checking it either (#193)."""
     import re
 
     from tests.test_examples import REPO_ROOT
@@ -1113,6 +1115,8 @@ def test_the_stated_tool_count_is_the_registered_one():
         stated["dw/server/guides.py"] = re.search(
             r"(\d+)-tool MCP surface", file.read()
         )
+    with open(os.path.join(REPO_ROOT, "docs", "MCP.md")) as file:
+        stated["docs/MCP.md"] = re.search(r"(\d+) tools in six groups", file.read())
 
     for where, found in stated.items():
         assert found, f"{where} no longer states a tool count in the expected form"
@@ -1142,11 +1146,15 @@ def test_the_stated_tool_count_is_the_registered_one():
 # WORKFLOW_GUIDE's "The loop" - which an agent fetches on demand. The
 # question to ask first is whether the second copy has to be the resident one.
 # Measured 2026-09-20 at 14_017 (9_386 / 3_618 / 1_014) after
-# get_output_frames (#193, #210) - a `seams`/`boundaries`/`names` shape with
-# no smaller honest schema, so its 971-char input schema alone is most of
-# the room a "tool or two" bought. Raised to 14_200, the same amount of
-# slack as before rather than none.
-SURFACE_BUDGET = 14_200
+# get_output_frames (#193, #210) - a `seams`/`boundaries`/`names` shape whose
+# 971-char input schema alone is most of what a "tool or two" bought. Paid
+# for, per the paragraph above, by actually cutting the two restated copies
+# rather than raising the ceiling: wait_for_job's stall-diagnosis paragraph
+# and validate_workflow's `plan.basis` taxonomy moved to WORKFLOW_GUIDE's
+# "The loop" (steps 4 and 5), leaving a pointer plus the pinned words other
+# tests still check for. Landed at 13_741 (9_110 / 3_618 / 1_014) - back
+# under the original ceiling with room to spare.
+SURFACE_BUDGET = 13_800
 
 
 @pytest.mark.asyncio

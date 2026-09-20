@@ -906,19 +906,13 @@ def build_server(client):
         warning.
 
         A valid answer carries `plan`: what will execute for these
-        arguments. Quote `plan.estimate.minutes` with its `basis` -
-        `observed` is this box's own finished runs of this shape (the cold
-        median over `runs` of them, preferred over any curated figure),
-        `per_entry` is a measured per-entry rate re-priced for your list,
-        `catalog` a measured total for a run whose lists are the ones it
-        was measured with, `derived` that total extrapolated over a list
-        you changed the length of (an estimate - say so), `other_device` a
-        figure from another accelerator (say so), `unknown` no figure at
-        all - and name each `downloads_required`
-        entry as its own line item ("and 41 GB of weights this box does not
-        have"); `gb` is null when the hub could not be asked. `steps` and
-        `list_entries` say how many members the list actually produced.
-        `plan` is null when it could not be built; the verdict stands."""
+        arguments - `estimate.minutes` and its `basis` (`observed`,
+        `per_entry`, `catalog`, `derived`, `other_device` or `unknown` -
+        what each means and how to quote it is WORKFLOW_GUIDE's "The loop",
+        step 4), each `downloads_required` entry as its own cost line, and
+        `steps`/`list_entries` for how many members the list actually
+        produced. `plan` is null when it could not be built; the verdict
+        stands."""
         return authoring.validate_workflow(
             client,
             workflow=workflow,
@@ -1154,26 +1148,15 @@ def build_server(client):
 
         Returns a slim job - status, warnings, error, and the manifest once
         finished - without the arguments; get_job has those. A running job
-        also carries `progress`: the step it is on, the phase (`loading`,
-        `generating`, `decoding`, `saving`) with the model named in
-        `phase_detail`, `seconds_in_phase`, `seconds_since_event`, and
+        also carries `progress`: the step, phase, and
         `denoise_step`/`denoise_total_steps`, null until the denoise loop
-        starts - which is how a slow run and a stuck one tell apart between
-        two otherwise identical polls. A null `denoise_step` under
-        `generating` is the pipeline's lead-in - encoding the prompt and
-        every reference - which emits nothing and can run for many minutes
-        when a video reference is among them; gaps between denoise steps
-        are uneven too where a transformer block cache is configured. Both
-        are normal, and the model family's own skill carries the measured
-        figures. The signal is whether `denoise_step` has moved since a
-        poll minutes ago, not silence past a fixed threshold.
-
-        `denoise_total_steps` is the schedule the pipeline actually runs,
-        which is not always the `num_inference_steps` that was asked for:
-        MiniMax H3's scheduler counts sigma grid points including the
-        terminal zero, so it runs N-1 model evaluations for N (9 reports 8,
-        20 reports 19). That is the vendor's convention, not a dropped step -
-        raising the number still buys the steps it looks like it does."""
+        starts. Judge a slow run against a stuck one by whether
+        `denoise_step` has moved since a poll minutes ago, not by silence
+        past a fixed threshold - a video reference's lead-in can run many
+        minutes emitting nothing, and denoise gaps are uneven under a
+        transformer block cache; both are normal. The full diagnosis, and
+        why `denoise_total_steps` sometimes reads one less than what was
+        asked for, are in WORKFLOW_GUIDE's "The loop", step 5."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states
