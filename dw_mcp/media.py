@@ -209,7 +209,14 @@ def get_output_frames(
     same dimension for all, halved until they fit - rather than any being
     dropped, and `downscaled_to` says what they were shrunk to. A seam
     pair at half size is still a seam pair; a seam pair missing is a
-    different answer."""
+    different answer.
+
+    `hear`'s excerpts are capped the same way in aggregate: each one is
+    already under `get_output_audio`'s own per-clip budget, but with up to
+    MAX_FRAME_MOMENTS tiles the excerpts summed could still dwarf
+    MAX_RETURNED_BYTES, so fetching stops once the running total would push
+    past it - the remaining tiles keep their frame but carry an
+    `audio_error` saying so, and `audio_truncated` is true."""
     chosen = [key for key, value in (("at", at), ("count", count), ("seams", seams)) if value]
     if len(chosen) != 1:
         raise DwApiError(
@@ -238,9 +245,18 @@ def get_output_frames(
         api_path("api", "gallery", name, "frames"), params=params, workspace=workspace
     )
     tiles, downscaled_to = _fit_tiles_within_budget(body.get("tiles", []))
+    audio_truncated = False
     if hear is not None:
         span = float(hear)
+        audio_bytes_so_far = 0
+        budget_exceeded = False
         for tile in tiles:
+            if budget_exceeded:
+                tile["audio_error"] = (
+                    "skipped - would exceed the response size budget"
+                )
+                audio_truncated = True
+                continue
             start = max(0.0, float(tile["seconds"]) - span / 2)
             try:
                 audio = get_output_audio(
@@ -249,6 +265,19 @@ def get_output_frames(
             except DwApiError as e:
                 tile["audio_error"] = str(e)
                 continue
+            # A per-tile cap (get_output_audio's own MAX_RETURNED_BYTES check)
+            # bounds one excerpt; nothing summed the excerpts against the
+            # overall response budget, so up to MAX_FRAME_MOMENTS tiles times
+            # `hear` seconds each could dwarf it. This is that aggregate cap,
+            # on top of - not instead of - the per-tile one.
+            if audio_bytes_so_far + len(audio["data"]) > MAX_RETURNED_BYTES:
+                tile["audio_error"] = (
+                    "skipped - would exceed the response size budget"
+                )
+                audio_truncated = True
+                budget_exceeded = True
+                continue
+            audio_bytes_so_far += len(audio["data"])
             tile["audio"] = {
                 "data": audio["data"],
                 "mime_type": audio["mime_type"],
@@ -261,6 +290,7 @@ def get_output_frames(
         "tiles": tiles,
         "downscaled_to": downscaled_to,
         "hear": hear,
+        "audio_truncated": audio_truncated,
     }
 
 

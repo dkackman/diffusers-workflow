@@ -996,3 +996,48 @@ def test_hear_is_refused_without_at():
 
     with pytest.raises(DwApiError, match="hear"):
         get_output_frames(client, "x.mp4", count=4, hear=1.0)
+
+
+def test_hear_stops_fetching_once_the_aggregate_budget_is_spent(monkeypatch):
+    """Each excerpt is well under get_output_audio's own per-clip cap, but
+    three of them together are not under the response's overall budget:
+    fetching must stop rather than blow the aggregate, and the tiles it
+    stopped on say so rather than silently losing their audio (#193 review,
+    finding 1)."""
+    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", 20)
+
+    def handler(request):
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(
+                200,
+                json={
+                    "frame_count": 72,
+                    "fps": 24.0,
+                    "tiles": [
+                        tile_json(64, 32, "00:00.0 (frame 0)", 0, 0.0),
+                        tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
+                        tile_json(64, 32, "00:02.0 (frame 48)", 48, 2.0),
+                    ],
+                },
+            )
+        return httpx.Response(
+            200,
+            content=b"x" * 8,  # base64-encodes to 12 bytes: under the cap alone
+            headers={"content-type": "audio/wav", "x-dw-duration": "2.0"},
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    result = get_output_frames(client, "x.mp4", at=[0.0, 1.0, 2.0], hear=1.0)
+
+    assert "audio" in result["tiles"][0]
+    assert "audio_error" not in result["tiles"][0]
+    assert result["tiles"][1]["audio_error"] == (
+        "skipped - would exceed the response size budget"
+    )
+    assert result["tiles"][2]["audio_error"] == (
+        "skipped - would exceed the response size budget"
+    )
+    assert "audio" not in result["tiles"][1]
+    assert "audio" not in result["tiles"][2]
+    assert result["audio_truncated"] is True

@@ -655,6 +655,11 @@ def build_server(client):
             )
         if result.get("hear"):
             lines.append(f"hear: {result['hear']}s around each moment")
+        if result.get("audio_truncated"):
+            lines.append(
+                "audio_truncated: some tiles' audio was skipped to stay within "
+                "the response size budget"
+            )
         parts.append(TextContent(type="text", text="\n".join(lines)))
         return parts
 
