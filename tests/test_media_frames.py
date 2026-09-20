@@ -27,6 +27,34 @@ def write_ramp_mp4(path, frames=24, fps=6, width=32, height=16):
     container.close()
 
 
+def write_shifted_ramp_mp4(path, frames=60, fps=6, width=32, height=16, offset=5):
+    """Like `write_ramp_mp4`, but every packet's pts is shifted by `offset`
+    frames - the edit-list / non-zero-start shape a real muxer can write,
+    which PyAV surfaces as a non-zero `stream.start_time`. Frame N is grey
+    `(N % 25) * 10`, wrapping so the values stay in a byte at 60 frames."""
+    import av
+
+    container = av.open(str(path), "w")
+    stream = container.add_stream("libx264", rate=fps)
+    stream.width, stream.height, stream.pix_fmt = width, height, "yuv420p"
+    stream.options = {"crf": "0", "preset": "ultrafast", "g": "10"}
+
+    def shifted(packets):
+        for packet in packets:
+            if packet.pts is not None:
+                packet.pts += offset
+            if packet.dts is not None:
+                packet.dts += offset
+            container.mux(packet)
+
+    for index in range(frames):
+        pixels = numpy.full((height, width, 3), (index % 25) * 10, numpy.uint8)
+        frame = av.VideoFrame.from_ndarray(pixels, format="rgb24")
+        shifted(stream.encode(frame))
+    shifted(stream.encode())
+    container.close()
+
+
 def grey_of(image):
     return int(numpy.asarray(image.convert("L")).mean().round())
 
@@ -48,6 +76,24 @@ def test_frames_at_seeks_to_seconds_and_frame_indexes(tmp_path):
     assert [t["seconds"] for t in tiles] == pytest.approx([0.0, 2.0, 23 / 6])
     assert [grey_of(t["image"]) for t in tiles] == pytest.approx([0, 120, 230], abs=6)
     assert tiles[1]["label"] == "00:02.0 (frame 12)"
+
+
+def test_frames_at_is_correct_when_the_stream_has_a_non_zero_start(tmp_path):
+    path = tmp_path / "shifted.mp4"
+    write_shifted_ramp_mp4(path, frames=60, fps=6, offset=5)
+
+    import av
+
+    with av.open(str(path)) as container:
+        start_time = container.streams.video[0].start_time
+    assert start_time not in (None, 0), "fixture didn't actually shift pts"
+
+    tiles = frames_at(str(path), ["frame:20", "frame:40", "frame:55"])
+
+    assert [t["frame"] for t in tiles] == [20, 40, 55]
+    assert [grey_of(t["image"]) for t in tiles] == pytest.approx(
+        [(n % 25) * 10 for n in (20, 40, 55)], abs=6
+    )
 
 
 def test_a_moment_past_the_end_is_refused(tmp_path):

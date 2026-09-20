@@ -151,33 +151,48 @@ def _read_frames(path, indexes):
     `backward=True` seek lands on the keyframe at or before the target
     timestamp, and `frame.pts * stream.time_base` converts that keyframe's
     own presentation time back to an exact frame index (`round(seconds *
-    fps)`) - verified against PyAV 18.1's actual seek landings (both a
-    single-keyframe short clip, where every seek lands on frame 0, and a
-    `g=10` multi-keyframe clip, where a seek to frame 95 lands exactly on
-    frame 90) before trusting the arithmetic here. `position` is then a
-    plain frame counter from that landing, decoding forward to the target
-    and dropping what is skipped past.
+    fps)`) - verified against PyAV 18.1's actual seek landings (a
+    single-keyframe short clip, where every seek lands on frame 0; a `g=10`
+    multi-keyframe clip, where a seek to frame 95 lands exactly on frame 90;
+    and a clip whose packets carry a 5-frame pts offset - an edit list or a
+    non-zero start, which real muxers write - where the raw pts arithmetic
+    landed 5 frames off until it was anchored on `stream.start_time`).
+    `start_pts` is that anchor: pts is a timestamp against the *container's*
+    clock, not a frame count from this stream's first frame, so it has to be
+    zeroed against wherever this stream actually starts before it means a
+    frame index. `position` is then a plain frame counter from that
+    landing, decoding forward to the target and dropping what is skipped
+    past.
     """
     wanted = sorted(set(int(i) for i in indexes))
     found = {}
     with av.open(path) as container:
         stream = container.streams.video[0]
         fps = float(stream.average_rate) if stream.average_rate else None
+        start_pts = stream.start_time if stream.start_time is not None else 0
         position = 0  # index of the next frame decode() will yield
         for target in wanted:
             if target < position or target - position > 2 * (int(fps) if fps else 24):
                 # seek back or a long way forward: land on the keyframe at
-                # or before the target, then read up to it
+                # or before the target, then read up to it. The seek target
+                # is a container timestamp too, so it needs the same anchor.
                 seconds = target / fps if fps else 0.0
                 container.seek(
-                    int(seconds / stream.time_base), stream=stream, backward=True
+                    int(seconds / stream.time_base) + start_pts,
+                    stream=stream,
+                    backward=True,
                 )
                 position = None
             for frame in container.decode(stream):
                 if position is None:
                     # first frame after a seek says where we landed
                     position = (
-                        int(round(float(frame.pts * stream.time_base) * fps))
+                        int(
+                            round(
+                                float((frame.pts - start_pts) * stream.time_base)
+                                * fps
+                            )
+                        )
                         if fps and frame.pts is not None
                         else 0
                     )
