@@ -2363,6 +2363,11 @@ def create_app(
         **{ext: "image" for ext in ALLOWED_IMAGE_EXTENSIONS},
         **{ext: "video" for ext in ALLOWED_VIDEO_EXTENSIONS},
         **{ext: "audio" for ext in ALLOWED_AUDIO_EXTENSIONS},
+        # Not in the security allowlists above (nothing loads a .txt back
+        # into a pipeline, so it is not a path a run reads), but a
+        # text-shape run's deliverable is a real output and belongs in the
+        # gallery like any other kind (#238)
+        ".txt": "text",
     }
 
     # The allowlist members that are not already-compressed containers -
@@ -2863,9 +2868,14 @@ def create_app(
                         # temp file is complete), so it is stored instead.
                         # Everything else - .json, .md, .txt, .bmp, .wav, an
                         # unrecognized extension - deflates, including the
-                        # export zip's text files
+                        # export zip's text files. ".txt" is in MEDIA_KINDS
+                        # (kind "text", #238) but is plain text, not an
+                        # already-compressed container, so it stays out of
+                        # this policy the same way .json and .md do
+                        kind = MEDIA_KINDS.get(extension)
                         stored = (
-                            extension in MEDIA_KINDS
+                            kind is not None
+                            and kind != "text"
                             and extension not in RAW_MEDIA_EXTENSIONS
                         )
                         archive.write(

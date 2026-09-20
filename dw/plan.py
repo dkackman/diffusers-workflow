@@ -316,7 +316,12 @@ def estimate(
         return measured
     own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
     minutes = own["minutes"]
-    partial = False
+    # An unpriced parent (own["minutes"] is None) whose total ends up coming
+    # only from a priced child is not a complete figure - the parent's own
+    # steps (a for_each step with no cost block, say) contributed nothing to
+    # it, so the sum understates the run rather than merely omitting a piece
+    # of it (#242)
+    partial = minutes is None
     for path in _sub_workflow_paths(expanded):
         # A builtin is the parent's to price; a local child prices itself
         raw = read_sub_workflow(path, base_dir, workflow_dir)
@@ -333,6 +338,8 @@ def estimate(
             minutes += child["minutes"]
         else:
             minutes = child["minutes"]
+    if minutes is None:
+        partial = False
     return {
         "minutes": round(minutes, 1) if minutes is not None else None,
         "basis": own["basis"],

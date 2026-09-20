@@ -479,6 +479,31 @@ class TestSubWorkflowEstimate:
         answer = plan(composing("builtin:text-to-image.json"))["estimate"]
         assert (answer["minutes"], answer["partial"]) == (2.0, False)
 
+    def test_an_unpriced_parent_with_a_priced_child_is_partial(self, plan, tmp_path):
+        """A for_each step with no cost block contributes nothing to the
+        total; a composed child's own figure should not be reported as
+        though it were the whole run's (#242)."""
+        child = {"id": "child", "cost": [cost("cuda", 5)], "steps": []}
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "own", "task": {"command": "x", "arguments": {}}},
+                {
+                    "name": "child",
+                    "workflow": {"path": "child.json", "arguments": {}},
+                },
+            ],
+        }
+        answer = plan(parent)["estimate"]
+        assert (answer["minutes"], answer["partial"]) == (5.0, True)
+
+    def test_a_fully_unpriced_workflow_is_unknown_not_partial(self, plan):
+        """No cost block anywhere - 'unknown' already says nobody has a
+        number; 'partial' would wrongly imply some of it is known."""
+        answer = plan({"id": "parent", "steps": []})["estimate"]
+        assert (answer["minutes"], answer["partial"]) == (None, False)
+
     def test_a_child_measured_on_another_device_is_still_added(self, plan, tmp_path):
         child = {"id": "child", "cost": [cost("mps", 5)], "steps": []}
         (tmp_path / "child.json").write_text(json.dumps(child))

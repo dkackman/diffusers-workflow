@@ -70,6 +70,15 @@ class TestFitToTheVideo:
         assert samples(result) == round(744 / FPS * SAMPLE_RATE)
         assert any("padded" in w for w in warnings_emitted)
 
+    def test_trimming_the_track_warns_with_the_seconds_cut(self, warnings_emitted):
+        """The pad direction cannot lose content; the trim direction always
+        can, so it is the one that most needs saying out loud (#246)."""
+        result = pair_audio(cut(248), song(30), sample_rate=SAMPLE_RATE, fit="video")
+        assert samples(result) == round(248 / FPS * SAMPLE_RATE)
+        trimmed = [w for w in warnings_emitted if "trimmed" in w]
+        assert len(trimmed) == 1
+        assert "19.67 s" in trimmed[0]
+
     def test_a_track_that_already_matches_is_left_alone(self, warnings_emitted):
         exact = song(248 / FPS)
         result = pair_audio(cut(248), exact, sample_rate=SAMPLE_RATE, fit="video")
