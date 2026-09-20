@@ -312,3 +312,48 @@ def test_a_contact_sheet_never_holds_a_full_size_frame(tmp_path, monkeypatch):
     contact_sheet(str(tmp_path / "ramp.mp4"), 4, tile_width=16)
 
     assert sizes and all(size == (16, 8) for size in sizes)
+
+
+def test_a_seek_that_lands_past_its_target_recovers_from_the_top(tmp_path):
+    """A VFR or off-rate file can make the seek land *after* the wanted
+    frame. The reader must then read from the top rather than scan to EOF
+    and report the frame as undecodable."""
+    import av
+    from unittest import mock
+
+    write_shifted_ramp_mp4(tmp_path / "gop.mp4", frames=60, fps=6, offset=0)
+    real_open = av.open
+
+    class Overshooting:
+        def __init__(self, inner):
+            self._inner = inner
+            self.seeks = []
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def __enter__(self):
+            self._inner.__enter__()
+            return self
+
+        def __exit__(self, *exc):
+            return self._inner.__exit__(*exc)
+
+        def seek(self, offset, **kwargs):
+            self.seeks.append(offset)
+            stream = kwargs["stream"]
+            # first seek lands two keyframes late; a later seek is honest
+            late = int(20 / 6 / stream.time_base) if len(self.seeks) == 1 else 0
+            return self._inner.seek(offset + late, **kwargs)
+
+    proxies = []
+
+    def opening(*args, **kwargs):
+        proxies.append(Overshooting(real_open(*args, **kwargs)))
+        return proxies[-1]
+
+    with mock.patch("dw.media_frames.av.open", side_effect=opening):
+        tiles = frames_at(str(tmp_path / "gop.mp4"), ["frame:35"])
+
+    assert grey_of(tiles[0]["image"]) == pytest.approx((35 % 25) * 10, abs=6)
+    assert len(proxies[-1].seeks) == 2  # the overshoot, then the recovery

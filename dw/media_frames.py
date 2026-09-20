@@ -241,6 +241,7 @@ def _read_frames(path, indexes, fit=None):
                     backward=True,
                 )
                 position = None
+            recovered = False
             for frame in container.decode(stream):
                 if position is None:
                     # first frame after a seek says where we landed
@@ -254,6 +255,15 @@ def _read_frames(path, indexes, fit=None):
                         if fps and frame.pts is not None
                         else 0
                     )
+                    if position > target and not recovered:
+                        # Landed past the target: the keyframe estimate was
+                        # wrong for this file (off-rate or VFR). Reading on
+                        # would scan to EOF and blame the caller; read from
+                        # the top once instead, which is always correct.
+                        container.seek(start_pts, stream=stream, backward=True)
+                        position = None
+                        recovered = True
+                        continue
                 if position == target:
                     image = frame.to_image()
                     found[target] = fit(image, target) if fit is not None else image
