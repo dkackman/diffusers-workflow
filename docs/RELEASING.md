@@ -1,5 +1,18 @@
 # Releasing
 
+## Unreleased
+
+This project has no standing release-notes file - GitHub auto-generates
+notes from commits at tag time (see below). This section is a scratch pad
+for items a branch's author wants the next release note to name; clear it
+when a release ships.
+
+- `get_output_audio` now reads `GET /api/gallery/{name}/audio`, extracts a
+  video's soundtrack, and takes `start`/`duration` (moved off the
+  `/outputs` mount, which used to refuse `video/mp4`).
+- New tool `get_output_frames` (route `GET /api/gallery/{name}/frames`):
+  a video seen as moments, a contact sheet, or seam pairs.
+
 Releases are cut by pushing a `v<semver>` tag. CI does the rest.
 
 ```bash
