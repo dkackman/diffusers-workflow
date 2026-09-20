@@ -1274,6 +1274,102 @@ def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
         assert still["media"] is None
 
 
+def test_gallery_audio_extracts_a_videos_soundtrack(server, tmp_path):
+    """get_output_audio refused video/mp4 outright, so a generated clip's
+    soundtrack could only be heard by fetching the file and demuxing it by
+    hand (#193). The route hands the track back as WAV."""
+    import io
+    import wave
+    from tests.test_media_info import write_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_mp4(outputs / "shot-gen.0-0.0.mp4", frames=12, fps=6)
+
+        response = client.get("/api/gallery/shot-gen.0-0.0.mp4/audio")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "audio/wav"
+        assert float(response.headers["x-dw-duration"]) == pytest.approx(2.0, abs=0.1)
+        assert "x-dw-excerpt-start" not in response.headers
+        with wave.open(io.BytesIO(response.content)) as handle:
+            assert handle.getframerate() == 8000
+            assert handle.getnchannels() == 2
+
+
+def test_gallery_audio_serves_an_audio_file_as_itself_when_asked_whole(server, tmp_path):
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=1.0)
+        raw = (outputs / "score-gen.0-0.0.wav").read_bytes()
+
+        response = client.get("/api/gallery/score-gen.0-0.0.wav/audio")
+
+        assert response.status_code == 200
+        assert response.content == raw
+        assert float(response.headers["x-dw-duration"]) == pytest.approx(1.0, abs=0.05)
+
+
+def test_gallery_audio_cuts_an_excerpt_and_names_it(server, tmp_path):
+    import io
+    import wave
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=4.0)
+
+        response = client.get(
+            "/api/gallery/score-gen.0-0.0.wav/audio", params={"start": 1.0, "duration": 0.5}
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "audio/wav"
+        assert response.headers["x-dw-excerpt-start"] == "1.0"
+        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(0.5, abs=0.02)
+        assert float(response.headers["x-dw-duration"]) == pytest.approx(4.0, abs=0.05)
+        with wave.open(io.BytesIO(response.content)) as handle:
+            assert handle.getnframes() == pytest.approx(4000, abs=100)
+
+
+def test_gallery_audio_refuses_a_bad_excerpt_and_a_mute_file(server, tmp_path):
+    from tests.test_media_info import write_mp4, write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=2.0)
+        write_mp4(outputs / "mute-gen.0-0.0.mp4", frames=6, fps=6, with_audio=False)
+
+        past = client.get(
+            "/api/gallery/score-gen.0-0.0.wav/audio", params={"start": 5.0, "duration": 1.0}
+        )
+        assert past.status_code == 400
+        assert "past the end" in past.json()["detail"]
+
+        mute = client.get("/api/gallery/mute-gen.0-0.0.mp4/audio")
+        assert mute.status_code == 404
+        assert "soundtrack" in mute.json()["detail"]
+
+        still = client.get("/api/gallery/missing.png/audio")
+        assert still.status_code == 404
+
+
+def test_gallery_audio_reads_an_asset_reference(asset_server, tmp_path):
+    from tests.test_media_info import write_wav
+
+    with asset_server(success_script) as client:
+        write_wav(tmp_path / "assets" / "bed.wav", seconds=1.0)
+
+        response = client.get(
+            "/api/gallery/asset:bed.wav/audio", params={"start": 0.0, "duration": 0.25}
+        )
+
+        assert response.status_code == 200
+        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(0.25, abs=0.02)
+
+
 def test_workflow_variables_answer_without_the_whole_definition(server, tmp_path):
     """Confirming what a variable defaults to meant fetching the entire
     workflow - quantization blocks and all - to read one integer."""

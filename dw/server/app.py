@@ -6,6 +6,7 @@ Interactive API docs are served at /docs (OpenAPI at /openapi.json).
 """
 
 import os
+import mimetypes
 import shutil
 import io
 import zipfile
@@ -72,6 +73,7 @@ from .enhancers import build_enhance_workflow, preset_descriptions
 from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
+from ..media_audio import NoSoundtrack, extract_audio
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
@@ -2806,6 +2808,51 @@ def create_app(
             "job": job,
             "media": media,
         }
+
+    @app.get("/api/gallery/{name:path}/audio")
+    def gallery_audio(
+        name: str,
+        start: Optional[float] = None,
+        duration: Optional[float] = None,
+        ws: Workspace = Depends(selected_workspace),
+    ):
+        """The soundtrack of an output or asset, as WAV - a muxed video's
+        track, which `get_output_audio` used to refuse outright, or an
+        excerpt (`start` + `duration`, seconds) of a track too long to send
+        whole (#193). An excerpt names itself in the response headers
+        (`X-DW-Excerpt-Start`, `X-DW-Excerpt-Duration`) beside the whole
+        track's `X-DW-Duration`, so a cut is never silent (#204).
+
+        An audio-only file asked for whole is served as its own bytes in its
+        own encoding - there is nothing to extract, and a transcode would
+        change what the agent hears."""
+        if is_asset_reference(name):
+            path = _asset_file(name, ws)
+        else:
+            path = _output_file(name, ws.outputs)
+        extension = os.path.splitext(path)[1].lower()
+        kind = MEDIA_KINDS.get(extension)
+        if kind not in ("audio", "video"):
+            raise HTTPException(status_code=404, detail=f"{name} carries no soundtrack")
+
+        excerpt = start is not None or duration is not None
+        if kind == "audio" and not excerpt:
+            media = probe_media(path) or {}
+            headers = {"X-DW-Duration": str(media.get("duration_seconds", ""))}
+            media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+            return FileResponse(path, media_type=media_type, headers=headers)
+
+        try:
+            data, info = extract_audio(path, start=start, duration=duration)
+        except NoSoundtrack:
+            raise HTTPException(status_code=404, detail=f"{name} carries no soundtrack")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        headers = {"X-DW-Duration": str(info["of_seconds"])}
+        if info["excerpt"]:
+            headers["X-DW-Excerpt-Start"] = str(info["start"])
+            headers["X-DW-Excerpt-Duration"] = str(info["duration_seconds"])
+        return Response(content=data, media_type="audio/wav", headers=headers)
 
     @app.get("/api/gallery/{name:path}/thumbnail")
     @query_token_ok
