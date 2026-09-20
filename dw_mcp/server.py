@@ -548,29 +548,38 @@ def build_server(client):
         return [image, telemetry]
 
     def get_output_audio(
-        name: str, workspace: str | None = None
+        name: str,
+        start: float | None = None,
+        duration: float | None = None,
+        workspace: str | None = None,
     ) -> list[AudioContent | TextContent]:
-        """Listen to a generated audio output, named as `list_gallery` or a
-        job's manifest reports it - the audio analogue of `get_output_image`.
-        Audio only: an image is `get_output_image`'s and video is refused,
-        so inspect a video with `get_gallery_metadata` or hand the user the
-        file. There is no downscale for audio the way there is for an
-        image's dimensions, so a clip too large to fit inline is refused
-        rather than cut or transcoded - use `download_output` or the `url`
-        list_gallery reports for one that long.
+        """Listen to a generated soundtrack, named as `list_gallery` or a
+        job's manifest reports it - an audio output, or the track muxed
+        into a video (the audio analogue of `get_output_image`). There is
+        no downscale for audio, so a whole clip too large to fit inline is
+        refused rather than cut; hear part of a long one by asking for the
+        part - `start` and `duration` in seconds, around a seam or a
+        moment `get_gallery_metadata`'s envelope located. The text part
+        reports the whole track's length and, for an excerpt, exactly what
+        was cut, so a slice is never mistaken for the whole. To *see* a
+        video, `get_output_frames`.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
-        result = media.get_output_audio(client, name, workspace=workspace)
+        takes (#99)."""
+        result = media.get_output_audio(
+            client, name, start=start, duration=duration, workspace=workspace
+        )
         audio = AudioContent(
             type="audio", data=result["data"], mime_type=result["mime_type"]
         )
-        telemetry = TextContent(
-            type="text",
-            text=f"name: {result['name']}\nbytes: {result['bytes']}",
-        )
+        lines = [f"name: {result['name']}", f"bytes: {result['bytes']}"]
+        if result["duration_seconds"] is not None:
+            lines.append(f"duration_seconds: {result['duration_seconds']}")
+        if result["excerpt"]:
+            e = result["excerpt"]
+            lines.append(f"excerpt: {e['duration']}s from {e['start']}s of {e['of']}s")
+        telemetry = TextContent(type="text", text="\n".join(lines))
         return [audio, telemetry]
 
     def get_output_text(

@@ -234,7 +234,7 @@ when no single workflow covers it.
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `get_output_image(name, max_dimension=768, workspace=None)` | `name`, `max_dimension`, `workspace` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
-| `get_output_audio(name, workspace=None)` | `name`, `workspace` | Listen to a generated audio output, as base64. Unlike `get_output_image` there is no downscale - a clip whose base64 size would exceed the same 4MB budget is refused outright rather than cut or transcoded, since a truncated clip is a different, misleading answer rather than a smaller correct one (#204). Use `download_output` or the gallery `url` for a longer file, and `get_gallery_metadata` for its duration and sample rate without fetching the bytes at all. `workspace` names the workspace for this one call without switching the session to it |
+| `get_output_audio(name, start=None, duration=None, workspace=None)` | `name`, `start`, `duration`, `workspace` | Listen to a generated soundtrack as base64 WAV - an audio output, or the track muxed into a video (#193). No downscale exists for audio, so a whole clip over the 4MB budget is refused rather than cut (#204); ask for the part instead with `start` and `duration` in seconds, and the text part names what was cut (`excerpt: 2.0s from 10.0s of 240.0s`) so a slice is never mistaken for the whole. `get_gallery_metadata`'s envelope says where in a track to look. `workspace` names the workspace for this one call without switching the session to it |
 | `get_output_text(name, max_characters=20000, workspace=None)` | `name`, `max_characters`, `workspace` | Read a text output — a prompt enhancement, or any step whose result is `text/plain` or JSON. Reports the file's real length and whether it was truncated. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
 | `download_output(name, destination=None, overwrite=False, workspace=None)` | `name`, `destination`, `overwrite`, `workspace` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Over a `dw.serve --mcp` endpoint the file lands on the server, so the destination is confined to that workspace and a relative one is joined onto it. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context. Writes on the machine running the MCP server - over `dw.serve --mcp` that is the GPU box. A write that fails there (a path that exists only on the client, for instance) comes back as an error naming the server-side write and the client-side alternatives, not as an anonymous tool failure. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
 | `delete_output(name, workspace=None)` | `name`, `workspace` | Permanently remove one generated file from the output directory. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
@@ -453,13 +453,13 @@ default) for any server an MCP client can reach.
   events of a finished job (`MAX_PERSISTED_EVENTS` in the job history store).
   A job that ran before this feature existed returns an empty event list
   with a `note` explaining why.
-- **Images and audio only.** `get_output_image` decodes and returns images,
-  `get_output_audio` audio; both refuse video. Use `get_gallery_metadata` to
-  inspect other media kinds. `get_output_audio` also refuses a clip whose
-  base64 size would exceed its 4MB budget rather than truncating or
-  transcoding it (#204) - there is no `VideoContent` type in the MCP SDK to
-  extend this pattern to video, so a `get_output_video` is a harder,
-  unresolved design question rather than a mechanical port.
+- **Images, sound and frames.** `get_output_image` returns an image,
+  `get_output_audio` a soundtrack (an audio file's, or the one muxed into a
+  video) whole or as a named excerpt, and `get_output_frames` frames of a
+  video as images - there is no video content type over MCP, so a video is
+  seen as frames and heard as its track. `get_output_audio` refuses a whole
+  clip whose base64 size would exceed the same 4MB budget; ask for an
+  excerpt instead.
 - **Uploads read the MCP server's disk, unless sent inline.**
   `upload_asset(file_path)` pushes a local file into the asset library, but
   "local" means the machine `dw-mcp` runs on. Over `dw.serve --mcp` that is

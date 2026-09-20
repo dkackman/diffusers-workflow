@@ -174,27 +174,38 @@ class DwClient:
         self._raise_for_status(response, path)
         return response.content, response.headers.get("content-type", "")
 
-    def get_bytes_if(self, path, accept_content_type, workspace=None):
+    def get_media_if(self, path, accept_content_type, workspace=None, params=None):
         """Like `get_bytes`, but the body is only downloaded when
-        `accept_content_type(content_type)` is true.
+        `accept_content_type(content_type)` is true, and the response
+        headers come back with it - a media route says what it cut in
+        them.
 
         Headers arrive before the body over HTTP, so a rejection closes the
         connection having read nothing past them - useful for `/outputs`,
         where a rejected file (a video, say) can be arbitrarily large.
-        Returns `(None, content_type)` on rejection, `(body, content_type)`
-        on acceptance. An error status is still raised either way, since the
-        body has to be read to report it.
+        Returns `(None, content_type, headers)` on rejection, `(body,
+        content_type, headers)` on acceptance. An error status is still
+        raised either way, since the body has to be read to report it.
         """
-        response = self._stream_request("GET", path, workspace=workspace)
+        kwargs = {"params": params} if params else {}
+        response = self._stream_request("GET", path, workspace=workspace, **kwargs)
         try:
             content_type = response.headers.get("content-type", "")
             if response.status_code < 400 and not accept_content_type(content_type):
-                return None, content_type
+                return None, content_type, response.headers
             self._call_httpx(response.read, path)
             self._raise_for_status(response, path)
-            return response.content, content_type
+            return response.content, content_type, response.headers
         finally:
             response.close()
+
+    def get_bytes_if(self, path, accept_content_type, workspace=None):
+        """`get_media_if` without the headers, for the callers that only
+        want the body."""
+        body, content_type, _headers = self.get_media_if(
+            path, accept_content_type, workspace=workspace
+        )
+        return body, content_type
 
     def stream_to_file(self, path, destination, workspace=None):
         """Stream `path`'s body straight to `destination` on disk, in

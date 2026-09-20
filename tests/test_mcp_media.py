@@ -49,6 +49,15 @@ def serving(content, content_type):
     return DwClient(transport=httpx.MockTransport(handler))
 
 
+def serving_with_headers(content, content_type, headers):
+    def handler(request):
+        return httpx.Response(
+            200, content=content, headers={"content-type": content_type, **headers}
+        )
+
+    return DwClient(transport=httpx.MockTransport(handler))
+
+
 def decoded(result):
     return Image.open(io.BytesIO(base64.b64decode(result["data"])))
 
@@ -180,6 +189,70 @@ class TestGetOutputAudio:
 
         with pytest.raises(DwApiError, match="Unknown file"):
             get_output_audio(client, "ghost.wav")
+
+
+def test_audio_is_fetched_from_the_gallery_audio_route():
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.path, dict(request.url.params)))
+        return httpx.Response(
+            200,
+            content=b"riff",
+            headers={"content-type": "audio/wav", "x-dw-duration": "2.0"},
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    result = get_output_audio(client, "run/shot.mp4")
+
+    # request.url.path decodes percent-escapes back for display (see the
+    # comment in test_the_name_is_url_quoted_in_the_request above); the
+    # encoding itself is api_path's job and is covered by
+    # tests/test_mcp_client.py.
+    assert seen == [("/api/gallery/run/shot.mp4/audio", {})]
+    assert result["mime_type"] == "audio/wav"
+    assert result["duration_seconds"] == 2.0
+    assert result["excerpt"] is None
+
+
+def test_an_excerpt_is_asked_for_and_reported():
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            content=b"riff",
+            headers={
+                "content-type": "audio/wav",
+                "x-dw-duration": "240.0",
+                "x-dw-excerpt-start": "10.0",
+                "x-dw-excerpt-duration": "2.0",
+            },
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    result = get_output_audio(client, "cut.mp4", start=10.0, duration=2.0)
+
+    assert seen == [{"start": "10.0", "duration": "2.0"}]
+    assert result["excerpt"] == {"start": 10.0, "duration": 2.0, "of": 240.0}
+
+
+def test_a_whole_track_over_budget_is_refused_and_told_to_excerpt():
+    big = b"\0" * (MAX_RETURNED_BYTES * 3 // 4 + 1024)
+    client = serving_with_headers(big, "audio/wav", {"x-dw-duration": "240.0"})
+
+    with pytest.raises(DwApiError) as caught:
+        get_output_audio(client, "cut.mp4")
+
+    assert "start" in str(caught.value) and "duration" in str(caught.value)
+
+
+def test_a_non_audio_answer_is_refused():
+    client = serving(b"{}", "application/json")
+
+    with pytest.raises(DwApiError, match="not audio"):
+        get_output_audio(client, "thing.json")
 
 
 def test_a_non_image_output_is_refused_without_reading_the_body():

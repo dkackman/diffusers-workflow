@@ -16,10 +16,13 @@ its bytes, returning the `asset:` reference rather than a path (`assets.py`).
 agent with no filesystem in common with a remote `dw.serve --mcp` endpoint -
 the bytes travel inline in the call, capped at 4MB rather than `file_path`'s
 200MB since they compete with the caller's own context budget (#203).
-`get_output_audio` is `get_output_image`'s sibling for audio (`media.py`,
-#204): no downscale exists for a waveform, so a clip over the same 4MB
-budget is refused outright rather than cut short; video has neither, since
-the installed MCP SDK has no `VideoContent` type to return it as. A session
+`get_output_audio` is `get_output_image`'s sibling for sound (`media.py`,
+#204, #193): it reads `GET /api/gallery/{name}/audio`, which extracts a
+video's muxed track as WAV and cuts an excerpt on `start`/`duration`; a
+whole clip over the same 4MB budget is still refused rather than cut short,
+and the refusal says to ask for an excerpt. Video has no MCP content type,
+so `get_output_frames` returns frames of one as `ImageContent` - specific
+moments, a contact sheet, or the frame pair either side of each seam. A session
 works in one of the server's workspaces: `--workspace` /
 `DW_MCP_WORKSPACE` (a *name* on the server, not a directory - `DW_WORKSPACE`
 means something else to the engine), `use_workspace` to switch, and

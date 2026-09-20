@@ -1,8 +1,10 @@
 """The output directory: hand a generated file back to the agent, or remove
 one.
 
-Output media is served from the /outputs static mount rather than an /api
-route, so these are the tools that reach outside /api. Everything returned
+Most output media is served from the /outputs static mount rather than an
+/api route, so these are the tools that reach outside /api - audio is the
+exception, served from the gallery's own `/audio` route so it can answer an
+excerpt (#193). Everything returned
 is downscaled or truncated first, and says so: a full-resolution render or
 an unbounded text file would cost more context than the answer it is meant
 to support.
@@ -103,29 +105,37 @@ def _fit(image, limit):
     )
 
 
-def get_output_audio(client, name, workspace=None):
-    """One audio output from the output directory, as base64, for a clip
-    short enough to fit MAX_RETURNED_BYTES whole.
+def get_output_audio(client, name, start=None, duration=None, workspace=None):
+    """One soundtrack from the gallery as base64 WAV - an audio output, or
+    the track muxed into a video (#193) - for a clip short enough to fit
+    MAX_RETURNED_BYTES whole, or an excerpt of one that is not.
 
-    Unlike an image, audio is not resized here - there is no equivalent of
-    downscaling a waveform that keeps it meaningful to listen to. A clip
-    over budget is refused rather than truncated or transcoded, since a cut
-    clip is a different, misleading answer rather than a smaller correct
-    one (#204). Use `download_output` or the gallery `url` for a longer
-    file, and `get_gallery_metadata` for its duration and sample rate
-    without fetching the bytes at all."""
+    Audio is not resized the way an image is - there is no downscale of a
+    waveform that keeps it meaningful to listen to - so a whole clip over
+    budget is refused rather than truncated (#204). The way to hear part of
+    a long track is to *ask* for the part: `start` and `duration` in
+    seconds, and the answer names what it cut in `excerpt`, so a slice is
+    never mistaken for the whole."""
 
     def is_audio(content_type):
         return bool(content_type) and content_type.startswith("audio/")
 
-    body, content_type = client.get_bytes_if(
-        api_path("outputs", name), is_audio, workspace=workspace
+    params = {}
+    if start is not None:
+        params["start"] = start
+    if duration is not None:
+        params["duration"] = duration
+    body, content_type, headers = client.get_media_if(
+        api_path("api", "gallery", name, "audio"),
+        is_audio,
+        workspace=workspace,
+        params=params,
     )
     if body is None:
         raise DwApiError(
-            f"{name} is {content_type or 'of no declared type'}, not audio - "
-            "this tool returns audio only. Use get_output_image for an "
-            "image, or get_gallery_metadata for other media."
+            f"{name} answered {content_type or 'no declared type'}, not audio - "
+            "this tool returns a soundtrack only. Use get_output_image for "
+            "an image, or get_gallery_metadata for other media."
         )
 
     base64_size = 4 * math.ceil(len(body) / 3)
@@ -133,16 +143,34 @@ def get_output_audio(client, name, workspace=None):
         raise DwApiError(
             f"{name} is {len(body)} bytes, which would be {base64_size} "
             f"bytes base64-encoded - over the {MAX_RETURNED_BYTES} byte "
-            "limit for an inline clip. Use download_output, or the `url` "
-            "list_gallery reports, for a file this size."
+            "limit for an inline clip. Ask for an excerpt with `start` and "
+            "`duration` (seconds) - get_gallery_metadata's envelope says "
+            "where to look - or use download_output for the whole file."
         )
 
+    excerpt = None
+    if "x-dw-excerpt-start" in headers:
+        excerpt = {
+            "start": float(headers["x-dw-excerpt-start"]),
+            "duration": float(headers["x-dw-excerpt-duration"]),
+            "of": _float_header(headers, "x-dw-duration"),
+        }
     return {
         "name": name,
         "data": base64.b64encode(body).decode("ascii"),
         "mime_type": content_type,
         "bytes": len(body),
+        "duration_seconds": _float_header(headers, "x-dw-duration"),
+        "excerpt": excerpt,
     }
+
+
+def _float_header(headers, key):
+    value = headers.get(key)
+    try:
+        return float(value) if value not in (None, "") else None
+    except ValueError:
+        return None
 
 
 def get_output_text(

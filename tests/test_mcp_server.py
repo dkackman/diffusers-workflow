@@ -356,7 +356,7 @@ TOOL_WIRING = [
         "/api/gallery/out.png/metadata",
     ),
     ("get_output_image", {"name": "out.png"}, "GET", "/outputs/out.png"),
-    ("get_output_audio", {"name": "out.wav"}, "GET", "/outputs/out.wav"),
+    ("get_output_audio", {"name": "out.wav"}, "GET", "/api/gallery/out.wav/audio"),
     ("validate_workflow", {"workflow": {"id": "w"}}, "POST", "/api/validate"),
     (
         "save_workflow",
@@ -489,7 +489,7 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
             return httpx.Response(
                 200, content=b"a duke", headers={"content-type": "text/plain"}
             )
-        if request.url.path.endswith(".wav"):
+        if request.url.path.endswith("/audio"):
             return httpx.Response(
                 200, content=b"riff", headers={"content-type": "audio/wav"}
             )
