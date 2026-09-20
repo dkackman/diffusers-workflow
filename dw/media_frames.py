@@ -39,21 +39,27 @@ def video_shape(path):
         }
 
 
-def frames_at(path, moments):
+def frames_at(path, moments, shape=None):
     """One tile per moment - a float in seconds or "frame:N" - in the order
-    asked for. Each tile is {label, frame, seconds, image}."""
-    shape = video_shape(path)
+    asked for. Each tile is {label, frame, seconds, image}.
+
+    `shape` reuses an already-computed `video_shape(path)` - a caller such
+    as the gallery route that also reports the clip's own frame_count/fps
+    would otherwise pay for `video_shape`'s container open (and, lacking a
+    header frame count, a full decode) a second time for the same answer."""
+    shape = shape if shape is not None else video_shape(path)
     indexes = [_moment_to_index(moment, shape) for moment in moments]
     images = _read_frames(path, indexes)
     return [_tile(index, images[index], shape) for index in indexes]
 
 
-def contact_sheet(path, count, tile_width=320):
+def contact_sheet(path, count, tile_width=320, shape=None):
     """N evenly spaced frames (first and last included) tiled into one
-    image - frame_grid without a workflow."""
+    image - frame_grid without a workflow. `shape` reuses an
+    already-computed `video_shape(path)`; see `frames_at`."""
     if int(count) < 1:
         raise ValueError("count must be at least 1")
-    shape = video_shape(path)
+    shape = shape if shape is not None else video_shape(path)
     count = min(int(count), shape["frame_count"])
     indexes = _evenly_spaced_indices(shape["frame_count"], count)
     images = _read_frames(path, indexes)
@@ -68,12 +74,20 @@ def contact_sheet(path, count, tile_width=320):
     }
 
 
-def seam_tiles(path, boundaries, names=None, tile_width=320):
+def seam_tiles(path, boundaries, names=None, tile_width=320, shape=None, wanted=None):
     """For each boundary (the frame index a shot *starts* at), the last
     frame before it and the first frame at it, side by side - the seam and
     continuity evidence in one image. Seam i sits between shot i and shot
-    i+1; `names` names the shots, "shot 1".. by default."""
-    shape = video_shape(path)
+    i+1; `names` names the shots, "shot 1".. by default.
+
+    `boundaries` and `names` are validated in full regardless of `wanted` -
+    they describe the whole cut, and a seam's label names the shots either
+    side of it by position in that full list. `wanted` (a set of 1-based
+    seam numbers, or None for all) then limits which seams are actually
+    decoded and composed: a caller after seam 2 of twelve should not pay to
+    decode and tile the other eleven. `shape` reuses an already-computed
+    `video_shape(path)`; see `frames_at`."""
+    shape = shape if shape is not None else video_shape(path)
     total = shape["frame_count"]
     for boundary in boundaries:
         if not 1 <= int(boundary) <= total - 1:
@@ -87,16 +101,21 @@ def seam_tiles(path, boundaries, names=None, tile_width=320):
             f"{len(boundaries)} boundaries make {len(boundaries) + 1} shots, "
             f"but {len(names)} names were given"
         )
-    wanted = sorted({b - 1 for b in boundaries} | set(boundaries))
-    images = _read_frames(path, wanted)
+    chosen = [
+        (seam, boundary)
+        for seam, boundary in enumerate(boundaries, start=1)
+        if wanted is None or seam in wanted
+    ]
+    frame_indexes = sorted({b - 1 for _, b in chosen} | {b for _, b in chosen})
+    images = _read_frames(path, frame_indexes)
     tiles = []
-    for seam, boundary in enumerate(boundaries):
+    for seam, boundary in chosen:
         before = _fit_width(images[boundary - 1], tile_width)
         after = _fit_width(images[boundary], tile_width)
         pair = _compose_grid([before, after], 2)
         tiles.append(
             {
-                "label": f"seam {seam + 1}: {names[seam]} | {names[seam + 1]}",
+                "label": f"seam {seam}: {names[seam - 1]} | {names[seam]}",
                 "frame": boundary,
                 "seconds": _seconds(boundary, shape),
                 "image": pair,

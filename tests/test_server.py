@@ -1518,6 +1518,34 @@ def test_gallery_frames_reads_an_asset_reference(asset_server, tmp_path):
         assert response.json()["tiles"][0]["frames"] == [0, 5]
 
 
+def test_gallery_frames_computes_video_shape_only_once(server, tmp_path, monkeypatch):
+    """The route answers frame_count/fps/width/height itself and hands the
+    same shape to the selector function - it must not call video_shape a
+    second time just to build the answer (#193 follow-up)."""
+    from tests.test_media_frames import write_ramp_mp4
+    import dw.server.app as app_module
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6)
+
+        calls = [0]
+        original = app_module.video_shape
+
+        def counting_shape(path):
+            calls[0] += 1
+            return original(path)
+
+        monkeypatch.setattr(app_module, "video_shape", counting_shape)
+
+        response = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"count": 2}
+        )
+
+        assert response.status_code == 200
+        assert calls[0] == 1
+
+
 def test_workflow_variables_answer_without_the_whole_definition(server, tmp_path):
     """Confirming what a variable defaults to meant fetching the entire
     workflow - quantization blocks and all - to read one integer."""

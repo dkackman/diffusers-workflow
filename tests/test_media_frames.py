@@ -145,3 +145,76 @@ def test_a_boundary_outside_the_clip_is_refused(tmp_path):
         seam_tiles(str(tmp_path / "ramp.mp4"), boundaries=[0])
     with pytest.raises(ValueError, match="boundary"):
         seam_tiles(str(tmp_path / "ramp.mp4"), boundaries=[6])
+
+
+def test_seam_tiles_wanted_skips_decoding_the_other_seams(tmp_path):
+    """A caller after seam 2 of a three-shot cut should not pay to decode
+    and compose the other seam too - `wanted` still validates and labels
+    against the full boundaries/names, but only builds the seam asked
+    for (#193 follow-up: seam_tiles used to build every seam regardless).
+
+    Needs more than one keyframe to show the saving - write_ramp_mp4's
+    default GOP has a single keyframe at frame 0, so every seek lands
+    there anyway and decode work is identical either way; a multi-keyframe
+    clip (write_shifted_ramp_mp4's g=10) is what lets `wanted` actually
+    skip the decode work between the seam it wasn't asked for and the one
+    it was."""
+    import av
+    from unittest import mock
+
+    write_shifted_ramp_mp4(tmp_path / "ramp.mp4", frames=60, fps=6, offset=0)
+    path = str(tmp_path / "ramp.mp4")
+
+    tiles = seam_tiles(path, boundaries=[10, 50], names=["a", "b", "c"], wanted={2})
+
+    assert [t["label"] for t in tiles] == ["seam 2: b | c"]
+    assert [t["frame"] for t in tiles] == [50]
+
+    original_decode = av.container.InputContainer.decode
+
+    def counting(counter):
+        def decode(self, *args, **kwargs):
+            for frame in original_decode(self, *args, **kwargs):
+                counter[0] += 1
+                yield frame
+
+        return decode
+
+    full_count = [0]
+    with mock.patch.object(av.container.InputContainer, "decode", counting(full_count)):
+        seam_tiles(path, boundaries=[10, 50], names=["a", "b", "c"])
+
+    filtered_count = [0]
+    with mock.patch.object(
+        av.container.InputContainer, "decode", counting(filtered_count)
+    ):
+        seam_tiles(path, boundaries=[10, 50], names=["a", "b", "c"], wanted={2})
+
+    assert filtered_count[0] < full_count[0]
+
+
+def test_frames_at_reuses_a_given_shape(tmp_path, monkeypatch):
+    """The gallery route computes `video_shape` once and hands it to
+    frames_at/contact_sheet/seam_tiles - a `shape` already in hand must not
+    trigger another container open (and, lacking a header frame count,
+    another full decode to count) inside the selector function."""
+    import dw.media_frames as media_frames
+
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6)
+    path = str(tmp_path / "ramp.mp4")
+
+    calls = [0]
+    original = media_frames.video_shape
+
+    def counting_shape(p):
+        calls[0] += 1
+        return original(p)
+
+    monkeypatch.setattr(media_frames, "video_shape", counting_shape)
+
+    shape = media_frames.video_shape(path)
+    assert calls[0] == 1
+
+    media_frames.frames_at(path, [0.0, "frame:12"], shape=shape)
+
+    assert calls[0] == 1

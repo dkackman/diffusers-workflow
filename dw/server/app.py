@@ -2907,15 +2907,21 @@ def create_app(
         limit = max(1, int(max_dimension))
 
         try:
+            # Computed once and threaded through every selector below: each
+            # of frames_at/contact_sheet/seam_tiles would otherwise call
+            # video_shape itself, opening the container (and, lacking a
+            # header frame count, decoding it whole to count) a second time
+            # just to answer the same frame_count/fps/width/height (#193).
+            shape = video_shape(path)
             if at:
                 moments = [
                     m.strip() if m.strip().startswith("frame:") else float(m)
                     for m in at.split(",")
                     if m.strip()
                 ]
-                tiles = frames_at(path, moments)
+                tiles = frames_at(path, moments, shape=shape)
             elif count:
-                tiles = [contact_sheet(path, count, tile_width=sub_tile_width)]
+                tiles = [contact_sheet(path, count, tile_width=sub_tile_width, shape=shape)]
             else:
                 if not boundaries:
                     raise HTTPException(
@@ -2926,14 +2932,22 @@ def create_app(
                     )
                 starts = [int(b) for b in boundaries.split(",") if b.strip()]
                 shot_names = [n.strip() for n in names.split(",")] if names else None
-                tiles = seam_tiles(path, starts, names=shot_names, tile_width=sub_tile_width)
-                if seams.lower() != "true":
-                    wanted = {int(s) for s in seams.split(",") if s.strip()}
-                    tiles = [t for i, t in enumerate(tiles, start=1) if i in wanted]
+                wanted = (
+                    None
+                    if seams.lower() == "true"
+                    else {int(s) for s in seams.split(",") if s.strip()}
+                )
+                tiles = seam_tiles(
+                    path,
+                    starts,
+                    names=shot_names,
+                    tile_width=sub_tile_width,
+                    shape=shape,
+                    wanted=wanted,
+                )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        shape = video_shape(path)
         return {
             "name": name,
             **shape,
