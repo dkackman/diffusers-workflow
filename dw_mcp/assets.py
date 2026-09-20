@@ -114,7 +114,20 @@ def _confine_source(path, roots, named):
     )
 
 
-def list_assets(client):
+# What a compact asset entry keeps: enough to name and choose one, nothing
+# that only opening or previewing it needs
+ASSET_SUMMARY_FIELDS = ("name", "reference", "kind", "size", "origin")
+
+
+def _summarised_asset_entries(entries):
+    return [
+        {key: entry.get(key) for key in ASSET_SUMMARY_FIELDS if key in entry}
+        for entry in entries
+        if isinstance(entry, dict)
+    ]
+
+
+def list_assets(client, detail=False):
     """The input media on the server, each with the 'asset:' reference a
     workflow argument carries.
 
@@ -126,8 +139,32 @@ def list_assets(client):
     nearer library hides - present in a farther root but not resolvable by
     'asset:', since the nearer file wins; a shadowed entry carries no 'url'
     because that URL would serve the file that shadows it.
+
+    Compact by default - each `assets`/`shadowed` entry cut to
+    `name`/`reference`/`kind`/`size`/`origin` - because a library that has
+    accumulated months of episode and regression assets answers in the tens
+    of KB otherwise for a question that is usually "what's available and
+    under what name" (#249). Pass `detail=True` for each entry's `folder`,
+    `mtime` and `url` too.
     """
-    return client.get_json("/api/assets")
+    result = client.get_json("/api/assets")
+    if detail:
+        return result
+    assets = result.get("assets")
+    shadowed = result.get("shadowed")
+    if not isinstance(assets, list):
+        return result
+    return {
+        **result,
+        "assets": _summarised_asset_entries(assets),
+        "shadowed": _summarised_asset_entries(shadowed)
+        if isinstance(shadowed, list)
+        else shadowed,
+        "note": (
+            "Compact: each entry is name/reference/kind/size/origin only. "
+            "Call list_assets(detail=True) for folder, mtime and url too."
+        ),
+    }
 
 
 def delete_asset(client, name):

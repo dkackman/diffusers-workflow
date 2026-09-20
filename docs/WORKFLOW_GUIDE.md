@@ -283,6 +283,10 @@ for existence.
 - `asset:` — `asset:name` is a file in the asset library. Rooted at the
   library and confined to it, never resolved relative to the workflow file; a path that
   escapes the library is rejected. `upload_asset` returns one of these names.
+  One name, three places it can sit: a bare string (`"image": "asset:x.png"`),
+  an element of a list, or the `location` of a media dict
+  (`{"location": "asset:x.png"}`, with or without `media_type`) - all resolve
+  to the same file.
 - `output:` — `output:<workflow identity>/<run id>/<file>` is a file an earlier
   run wrote, under the output root and confined to it. `latest` in the run-id position
   picks the newest run that holds that file. A run id is not stable against
@@ -727,7 +731,12 @@ longer than that is truncated with an ellipsis in every listing.
 Declare `shape`, `traits` or `summary` at the top level only when derivation
 gets it wrong; a declaration that merely repeats the derivation is noise that
 rots when the rules change, and the repo's catalog tests refuse it. `cost` is
-never derived — leave it absent until a run has been measured.
+never derived — leave it absent until a run has been measured. That makes it
+the catalog's verified marker as well: an entry carrying `cost` has been run
+to completion on the device it names, and one without has only been authored
+— its description may still say what it has not been able to check (VRAM at
+a size, whether a format carries what the pipeline returns), and the first
+run is the one that finds out.
 
 `cost_drivers` is the other half of saying what a workflow costs, and it *is*
 for derivation: the variables that move the wall clock — a frame count, a

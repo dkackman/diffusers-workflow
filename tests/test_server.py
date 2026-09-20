@@ -1202,7 +1202,7 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
     with server(success_script) as client:
         outputs = tmp_path / "outputs"
 
-        # a plain image, a video stand-in, and a non-media file
+        # a plain image, a video stand-in, and a text deliverable (#238)
         Image.new("RGB", (4, 4)).save(outputs / "plain-gen.0-0.0.png")
         (outputs / "clip-gen.0-0.0.mp4").write_bytes(b"\x00" * 10)
         (outputs / "notes.txt").write_text("not media")
@@ -1222,9 +1222,11 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
             "plain-gen.0-0.0.png",
             "clip-gen.0-0.0.mp4",
             "meta-gen.0-0.0.png",
+            "notes.txt",
         }
         kinds = {f["name"]: f["kind"] for f in listing["files"]}
         assert kinds["clip-gen.0-0.0.mp4"] == "video"
+        assert kinds["notes.txt"] == "text"
 
         # metadata endpoint: full workflow comes back for the editor
         response = client.get("/api/gallery/meta-gen.0-0.0.png/metadata").json()
@@ -1869,15 +1871,16 @@ def test_the_asset_library_lists_what_it_holds(asset_server, tmp_path):
     (library / "gyre").mkdir(parents=True)
     (library / "iris.png").write_bytes(b"png")
     (library / "gyre" / "voice.wav").write_bytes(b"riff")
-    (library / "notes.txt").write_text("not media")
+    (library / "notes.txt").write_text("a caption, a script - a real asset (#238)")
 
     with asset_server(success_script) as client:
         body = client.get("/api/assets").json()
 
     names = {entry["name"]: entry for entry in body["assets"]}
-    assert set(names) == {"iris.png", "gyre/voice.wav"}
+    assert set(names) == {"iris.png", "gyre/voice.wav", "notes.txt"}
     assert names["iris.png"]["reference"] == "asset:iris.png"
     assert names["gyre/voice.wav"]["kind"] == "audio"
+    assert names["notes.txt"]["kind"] == "text"
     assert body["folders"] == ["", "gyre"]
 
 
@@ -3973,6 +3976,7 @@ class TestValidatePlan:
             "device": serving,
             "measured_on": "RTX 3090",
             "partial": False,
+            "unpriced": [],
             "runs": 11,
         }
         assert asked == [("Basic", {"prompt": "x"})]

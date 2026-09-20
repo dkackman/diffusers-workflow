@@ -73,6 +73,7 @@ from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..hub_cache import scan_models, delete_model, DownloadManager
+from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
 from ..runs import (
     MANIFEST_FILE_NAME,
@@ -1786,7 +1787,28 @@ def create_app(
             answer["plan"]["workspace"] = workspace.name
             answer["plan"]["output_dir"] = workspace.outputs
             answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
+            if catalog_name:
+                answer["warnings"] += _host_memory_warnings(
+                    catalog_name, definition, answer["plan"]["list_entries"]
+                )
         return answer
+
+    def _host_memory_warnings(name, definition, list_entries):
+        """Whether this box's own history says the requested list is
+        projected to exceed host RAM (#243) - best effort, since a warning
+        that 500s the free pre-flight would be worse than skipping it."""
+        costs = getattr(app.state, "observed_costs", None)
+        if costs is None:
+            return []
+        try:
+            from ..host_memory import host_memory_stats
+
+            rows = costs.rows_for(name)
+            ceiling_mb = (host_memory_stats().get("total_mb") or 0) * CEILING_FRACTION
+            return host_memory_warnings(definition, list_entries, rows, ceiling_mb)
+        except Exception:
+            logger.debug("host memory projection failed for %s", name, exc_info=True)
+            return []
 
     # ------------------------------------------------------------ workspaces
 
@@ -2363,6 +2385,11 @@ def create_app(
         **{ext: "image" for ext in ALLOWED_IMAGE_EXTENSIONS},
         **{ext: "video" for ext in ALLOWED_VIDEO_EXTENSIONS},
         **{ext: "audio" for ext in ALLOWED_AUDIO_EXTENSIONS},
+        # Not in the security allowlists above (nothing loads a .txt back
+        # into a pipeline, so it is not a path a run reads), but a
+        # text-shape run's deliverable is a real output and belongs in the
+        # gallery like any other kind (#238)
+        ".txt": "text",
     }
 
     # The allowlist members that are not already-compressed containers -
@@ -2863,9 +2890,14 @@ def create_app(
                         # temp file is complete), so it is stored instead.
                         # Everything else - .json, .md, .txt, .bmp, .wav, an
                         # unrecognized extension - deflates, including the
-                        # export zip's text files
+                        # export zip's text files. ".txt" is in MEDIA_KINDS
+                        # (kind "text", #238) but is plain text, not an
+                        # already-compressed container, so it stays out of
+                        # this policy the same way .json and .md do
+                        kind = MEDIA_KINDS.get(extension)
                         stored = (
-                            extension in MEDIA_KINDS
+                            kind is not None
+                            and kind != "text"
                             and extension not in RAW_MEDIA_EXTENSIONS
                         )
                         archive.write(

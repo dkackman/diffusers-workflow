@@ -118,6 +118,19 @@ class TestRealizedArguments:
         realize_args(args)
         assert [image.size for image in args["image"]] == [(8, 8), (8, 8)]
 
+    def test_a_location_dict_under_an_image_key_resolves(self, asset_dir):
+        # The form templates/image-edit writes. The dict reaches fetch_image
+        # whole through the key convention, so the reference inside it has to
+        # be resolved before that, not on the recursion that never happens
+        args = {"image": {"location": "asset:iris.png"}}
+        realize_args(args)
+        assert args["image"].size == (8, 8)
+
+    def test_a_location_dict_in_a_media_reference_resolves(self, asset_dir):
+        args = {"anything": {"media_type": "image", "location": "asset:iris.png"}}
+        realize_args(args)
+        assert args["anything"].size == (8, 8)
+
     def test_an_object_built_from_an_asset_resolves(self, asset_dir):
         args = {"reference": {"from_file": "asset:iris.png"}}
         realize_args(args)

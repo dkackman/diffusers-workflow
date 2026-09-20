@@ -171,6 +171,24 @@ async def test_every_tool_has_a_description():
 
 
 @pytest.mark.asyncio
+async def test_descriptions_carry_no_docstring_indentation():
+    """The SDK ships `fn.__doc__` verbatim. Python 3.13+ strips a docstring's
+    common indentation at compile time; 3.12 keeps it, so every continuation
+    line reached the agent with eight leading spaces - about 1_100 tokens of
+    the resident surface on the interpreter most servers run, invisible to a
+    test run on a newer one."""
+    tools = await tools_of(server_over(ok({})))
+
+    indented = {
+        name: line
+        for name, tool in tools.items()
+        for line in (tool.description or "").splitlines()
+        if line[:1].isspace()
+    }
+    assert indented == {}
+
+
+@pytest.mark.asyncio
 async def test_read_only_tools_are_annotated_read_only():
     tools = await tools_of(server_over(ok({})))
 
@@ -259,6 +277,29 @@ async def test_an_unreachable_server_reports_how_to_start_it():
         await server.call_tool("get_health", {})
 
     assert "dw-serve" in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_a_crop_is_cut_and_reported():
+    import io
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (2048, 1024), (1, 2, 3)).save(buffer, format="PNG")
+    body = buffer.getvalue()
+
+    def serving_png(request):
+        return httpx.Response(200, content=body, headers={"content-type": "image/png"})
+
+    server = server_over(serving_png)
+
+    result = await server.call_tool(
+        "get_output_image", {"name": "out.png", "crop": [1000, 500, 300, 200]}
+    )
+
+    text = result.content[1].text
+    assert "crop: [1000, 500, 300, 200]" in text
+    assert "returned_size: [300, 200]" in text
 
 
 @pytest.mark.asyncio
@@ -1100,7 +1141,11 @@ def test_the_stated_tool_count_is_the_registered_one():
 # 999), and at 13_421 after it (9_138 / 3_283 / 1_000) - the three filter
 # parameters and the docstring that says what the library is for. Set at
 # 13_800, which is room for a tool or two and not room for a second
-# validate_workflow.
+# validate_workflow. Those figures were taken on Python 3.14, which dedents
+# docstrings at compile time; on 3.12 the same surface measured 14_574
+# (descriptions 10_281) until `tool()` began passing the cleandoc'd
+# docstring as the description, since then 13_474 (9_181 / 3_293 / 1_000)
+# on either interpreter. Measure on the interpreter CI runs, or on both.
 # Worth knowing before raising it: four tools are a quarter of the
 # descriptions (validate_workflow 774, wait_for_job 518, list_workflows 482,
 # list_gallery 445), and validate_workflow's `plan.basis` taxonomy and

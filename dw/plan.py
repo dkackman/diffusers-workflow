@@ -316,7 +316,15 @@ def estimate(
         return measured
     own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
     minutes = own["minutes"]
-    partial = False
+    # An unpriced parent (own["minutes"] is None) whose total ends up coming
+    # only from a priced child is not a complete figure - the parent's own
+    # steps (a for_each step with no cost block, say) contributed nothing to
+    # it, so the sum understates the run rather than merely omitting a piece
+    # of it (#242). `unpriced` names each contributor that landed here, so a
+    # caller can tell a trivial utility step from an unpriced 12-shot loop
+    # apart rather than just seeing `partial: true` (#252)
+    partial = minutes is None
+    unpriced = [definition.get("id", "workflow")] if partial else []
     for path in _sub_workflow_paths(expanded):
         # A builtin is the parent's to price; a local child prices itself
         raw = read_sub_workflow(path, base_dir, workflow_dir)
@@ -329,16 +337,21 @@ def estimate(
         child = _price(child_cost, device, {}, {})
         if child["minutes"] is None:
             partial = True
+            unpriced.append(path)
         elif minutes is not None:
             minutes += child["minutes"]
         else:
             minutes = child["minutes"]
+    if minutes is None:
+        partial = False
+        unpriced = []
     return {
         "minutes": round(minutes, 1) if minutes is not None else None,
         "basis": own["basis"],
         "device": device,
         "measured_on": own["measured_on"],
         "partial": partial,
+        "unpriced": unpriced,
         "runs": None,
     }
 
@@ -367,6 +380,7 @@ def _observed(observed, device):
         "device": device,
         "measured_on": observed.get("name"),
         "partial": False,
+        "unpriced": [],
         "runs": runs,
     }
 

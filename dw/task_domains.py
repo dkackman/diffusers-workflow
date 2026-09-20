@@ -96,6 +96,7 @@ TASK_ARGUMENT_DOMAINS = {
         "sample_rate": POSITIVE,
     },
     "loop_frames": {"num_frames": POSITIVE},
+    "frame_grid": {"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
     "dissolve_videos": {
         "dissolve_frames": NON_NEGATIVE,
         "fade_in_frames": NON_NEGATIVE,

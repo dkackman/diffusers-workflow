@@ -30,9 +30,14 @@ MIN_DIMENSION = 64
 MAX_RETURNED_CHARACTERS = 20000
 
 
-def get_output_image(client, name, max_dimension=768, workspace=None):
+def get_output_image(client, name, max_dimension=768, workspace=None, crop=None):
     """One image from the output directory, downscaled, as base64 plus the
-    sizes it went in and came out at."""
+    sizes it went in and came out at.
+
+    `crop` is `[x, y, width, height]` in the original's pixels, cut before
+    the downscale, so a region of a 2K still comes back at 100% where the
+    whole would be shrunk past what a seam or a small element can be read
+    at. Clamped to the image; the box actually cut is reported."""
 
     def is_image(content_type):
         return not content_type or content_type.startswith("image/")
@@ -52,6 +57,10 @@ def get_output_image(client, name, max_dimension=768, workspace=None):
         raise DwApiError(f"{name} could not be decoded as an image.")
 
     original_size = [image.width, image.height]
+    if crop is not None:
+        box = _crop_box(crop, image.width, image.height)
+        crop = [box[0], box[1], box[2] - box[0], box[3] - box[1]]
+        image = image.crop(box)
     fmt = "JPEG" if (image.format or "").upper() == "JPEG" else "PNG"
     if image.mode not in ("RGB", "L") and fmt == "JPEG":
         image = image.convert("RGB")
@@ -63,9 +72,29 @@ def get_output_image(client, name, max_dimension=768, workspace=None):
         "data": base64.b64encode(encoded).decode("ascii"),
         "mime_type": "image/jpeg" if fmt == "JPEG" else "image/png",
         "original_size": original_size,
+        "crop": crop,
         "returned_size": [sized.width, sized.height],
         "bytes": len(encoded),
     }
+
+
+def _crop_box(crop, width, height):
+    """`[x, y, w, h]` as Pillow's `(left, upper, right, lower)`, clamped to
+    the image. Refused when it is not four non-negative integers, starts
+    outside the image, or has nothing in it."""
+    try:
+        x, y, w, h = (int(v) for v in crop)
+    except (TypeError, ValueError):
+        raise DwApiError(f"crop must be [x, y, width, height] in pixels, got {crop!r}.")
+    if x < 0 or y < 0 or w <= 0 or h <= 0:
+        raise DwApiError(
+            f"crop must have a non-negative origin and a positive size, got {crop!r}."
+        )
+    if x >= width or y >= height:
+        raise DwApiError(
+            f"crop origin ({x}, {y}) lies outside the {width}x{height} image."
+        )
+    return (x, y, min(x + w, width), min(y + h, height))
 
 
 def _encode_within_budget(image, limit, fmt):

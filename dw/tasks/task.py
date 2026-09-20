@@ -231,6 +231,15 @@ def _handle_loop_frames(task, arguments, previous_pipelines):
     return loop_frames(**arguments)
 
 
+@register_command("frame_grid", implementation="dw.tasks.video_utils.frame_grid")
+def _handle_frame_grid(task, arguments, previous_pipelines):
+    """Tile evenly sampled frames of a video into one contact-sheet image"""
+    logger.debug("Building frame grid")
+    from .video_utils import frame_grid
+
+    return frame_grid(**arguments)
+
+
 @register_command("pair_audio", implementation="dw.tasks.pair_audio.pair_audio")
 def _handle_pair_audio(task, arguments, previous_pipelines):
     """Pair a video's frames with an audio track generated beside them"""

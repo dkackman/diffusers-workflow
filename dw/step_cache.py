@@ -45,10 +45,15 @@ turn a long list-driven run into one that thrashes its own cache.
 """
 
 import copy
+import dataclasses
 import itertools
 import logging
 import os
 from collections import OrderedDict
+
+import numpy as np
+import torch
+from PIL import Image
 
 logger = logging.getLogger("dw")
 
@@ -98,7 +103,22 @@ def referenced_result_names(steps):
 
 
 def deep_equal(a, b):
-    """Value equality across the JSON-ish types a resolved step definition holds."""
+    """Value equality across the JSON-ish types a resolved step definition holds.
+
+    realize_args runs before the step loop (and before for_each expansion's
+    per-member `from_file` construction), so a resolved argument can be a
+    diffusers reference dataclass wrapping in-memory media - a
+    MiniMaxH3ImageReference, an LTX2ReferenceCondition - built fresh by
+    `from_file()` on every run from the same source file. Two such instances
+    hold identical media but are never `==`: PIL.Image has no value equality
+    (falls back to identity), and comparing torch.Tensor/np.ndarray fields
+    with `==` yields an array rather than a bool, which the dataclass's
+    generated `__eq__` cannot resolve to True/False and which the fallback
+    below (correctly) treats as "cannot tell, so unequal". Left unhandled,
+    that made every for_each member carrying an image/audio/video reference
+    an unconditional cache miss - identical inputs included (#253). These
+    checks give those types real value equality before the generic fallback.
+    """
     if a is b:
         return True
     if type(a) is not type(b):
@@ -107,13 +127,27 @@ def deep_equal(a, b):
         return a.keys() == b.keys() and all(deep_equal(a[k], b[k]) for k in a)
     if isinstance(a, (list, tuple)):
         return len(a) == len(b) and all(deep_equal(x, y) for x, y in zip(a, b))
+    if isinstance(a, Image.Image):
+        return a.mode == b.mode and a.size == b.size and a.tobytes() == b.tobytes()
+    if isinstance(a, np.ndarray):
+        return a.shape == b.shape and a.dtype == b.dtype and bool(np.array_equal(a, b))
+    if isinstance(a, torch.Tensor):
+        return (
+            a.shape == b.shape
+            and a.dtype == b.dtype
+            and bool(torch.equal(a.cpu(), b.cpu()))
+        )
+    if dataclasses.is_dataclass(a) and not isinstance(a, type):
+        return all(
+            deep_equal(getattr(a, f.name), getattr(b, f.name))
+            for f in dataclasses.fields(a)
+        )
     try:
-        # realize_args runs before the step loop, so a resolved argument can
-        # hold a numpy array or a tensor, whose == yields an array rather
-        # than a bool (and an exotic object's == can raise outright). A value
-        # that cannot answer "are these equal" cleanly is treated as unequal:
-        # a cache miss just re-runs the step, where a raised exception would
-        # abort the whole run
+        # An exotic object's == can still raise, or (for a type not caught
+        # above) return something other than a bool. A value that cannot
+        # answer "are these equal" cleanly is treated as unequal: a cache
+        # miss just re-runs the step, where a raised exception would abort
+        # the whole run
         return bool(a == b)
     except (ValueError, TypeError, RuntimeError):
         return False
@@ -160,17 +194,30 @@ class StepCache:
         key = (workflow_id, name)
         entry = self._entries.get(key)
         if entry is None:
+            logger.debug(f"No cache entry for step '{name}' - treating as a miss")
             return None
         if entry["step_seed"] != step_seed:
+            logger.debug(
+                f"Cached result for step '{name}' used a different seed - treating as a miss"
+            )
             return None
         # The output *root* a run was told to write to. A run directory is
         # new every execution and would defeat the cache; the root changing
         # means the caller asked for output somewhere the cached files are not
         if entry["output_dir"] != output_dir:
+            logger.debug(
+                f"Cached result for step '{name}' used a different output_dir - treating as a miss"
+            )
             return None
         if needs_result and not entry["retained"]:
+            logger.debug(
+                f"Cached result for step '{name}' did not retain its Result, and this run needs one - treating as a miss"
+            )
             return None
         if not deep_equal(entry["step_data"], step_data):
+            logger.debug(
+                f"Cached result for step '{name}' has different resolved arguments - treating as a miss"
+            )
             return None
 
         upstream = referenced_result_names([step_data])

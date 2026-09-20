@@ -471,6 +471,108 @@ class TestLoopFrames:
         assert len(loop_frames(Image.new("RGB", (2, 2)), "121")) == 121
 
 
+class TestFrameGrid:
+    """#245. A contact sheet for previewing a clip's shape without authoring
+    a frames-extraction workflow."""
+
+    @pytest.fixture
+    def clip(self):
+        from dw.tasks.video_utils import FrameList
+
+        frames = FrameList(
+            Image.new("RGB", (64, 32), (index, 0, 0)) for index in range(30)
+        )
+        frames.fps = 24
+        return frames
+
+    def test_default_tiling(self, clip):
+        from dw.tasks.video_utils import frame_grid
+
+        grid = frame_grid(clip)
+
+        # count=12 -> rows=isqrt(12)=3, columns=ceil(12/3)=4, tile 320 wide
+        # (source 64x32 halved-aspect at width 320 -> height 160)
+        assert grid.size == (4 * 320, 3 * 160)
+
+    def test_custom_columns(self, clip):
+        from dw.tasks.video_utils import frame_grid
+
+        grid = frame_grid(clip, count=5, columns=2, tile_width=100)
+
+        # 5 tiles over 2 columns is 3 rows, last row left-justified
+        assert grid.size == (2 * 100, 3 * 50)
+
+    def test_count_is_clamped_to_the_available_frames(self, clip):
+        from dw.tasks.video_utils import frame_grid
+
+        grid = frame_grid(clip, count=100, tile_width=64)
+
+        # clamped to 30 -> rows=isqrt(30)=5, columns=ceil(30/5)=6
+        assert grid.size == (6 * 64, 5 * 32)
+
+    def test_a_single_tile(self, clip):
+        from dw.tasks.video_utils import frame_grid
+
+        assert frame_grid(clip, count=1, tile_width=160).size == (160, 80)
+
+    def test_label_true_burns_in_a_timestamp(self, clip):
+        from dw.tasks.video_utils import frame_grid
+
+        labeled = frame_grid(clip, count=4, tile_width=64, label=True)
+        unlabeled = frame_grid(clip, count=4, tile_width=64, label=False)
+
+        assert numpy.asarray(labeled).tobytes() != numpy.asarray(unlabeled).tobytes()
+
+    def test_label_falls_back_to_frame_index_without_fps(self):
+        from dw.tasks.video_utils import frame_grid
+
+        frames = [Image.new("RGB", (64, 32), (index, 0, 0)) for index in range(10)]
+
+        # No .fps attribute on a bare list - must not raise
+        assert frame_grid(frames, count=4, tile_width=32).size == (2 * 32, 2 * 16)
+
+    def test_a_count_below_one_is_refused(self, clip):
+        from dw.tasks.video_utils import frame_grid
+
+        with pytest.raises(ValueError, match="count"):
+            frame_grid(clip, count=0)
+
+    def test_a_negative_count_is_refused(self, clip):
+        from dw.tasks.video_utils import frame_grid
+
+        with pytest.raises(ValueError, match="count"):
+            frame_grid(clip, count=-1)
+
+    def test_a_non_integer_columns_is_refused(self, clip):
+        from dw.tasks.video_utils import frame_grid
+
+        with pytest.raises(ValueError, match="columns"):
+            frame_grid(clip, columns="many")
+
+    def test_a_non_integer_tile_width_is_refused(self, clip):
+        from dw.tasks.video_utils import frame_grid
+
+        with pytest.raises(ValueError, match="tile_width"):
+            frame_grid(clip, tile_width=0)
+
+    def test_a_non_bool_label_is_refused(self, clip):
+        from dw.tasks.video_utils import frame_grid
+
+        with pytest.raises(ValueError, match="label"):
+            frame_grid(clip, label="yes")
+
+    def test_registered_as_a_task_command(self):
+        from dw.tasks.task import _COMMAND_REGISTRY
+
+        assert "frame_grid" in _COMMAND_REGISTRY
+
+    def test_a_numeric_string_count_is_taken(self, clip):
+        """A count that arrived through a `variable:` may still be a string."""
+        from dw.tasks.video_utils import frame_grid
+
+        assert frame_grid(clip, count="4", tile_width=32).size == (2 * 32, 2 * 16)
+
+
 class TestFitAudioToFrames:
     """Codec padding trimmed off a generated track, in whatever layout the
     waveform arrived in.

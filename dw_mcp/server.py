@@ -6,6 +6,7 @@ this file stays a description of the surface rather than logic.
 """
 
 import functools
+import inspect
 from typing import Literal, Optional
 
 from mcp.server.mcpserver import MCPServer
@@ -151,7 +152,17 @@ def build_server(client):
     )
 
     def tool(fn, annotations):
-        server.add_tool(_anticipated(fn), name=fn.__name__, annotations=annotations)
+        # The SDK ships fn.__doc__ verbatim. Python 3.13+ strips a docstring's
+        # common indentation at compile time, 3.12 does not - so without this
+        # every continuation line reaches the agent with eight leading spaces,
+        # about 1_100 tokens of resident surface on the interpreter most
+        # servers run. cleandoc makes the description the same on both.
+        server.add_tool(
+            _anticipated(fn),
+            name=fn.__name__,
+            description=inspect.cleandoc(fn.__doc__ or ""),
+            annotations=annotations,
+        )
 
     # ------------------------------------------------------------- catalog
 
@@ -171,7 +182,10 @@ def build_server(client):
         figures a maintainer measured once on the devices named and wrote
         into the workflow, never derived from this server's job history -
         so null means nobody wrote one down, not that the run is cheap;
-        the answer's `cost_basis` says as much. `observed_minutes` and
+        the answer's `cost_basis` says as much. It is also the mark of an
+        entry that has been run through on a real device: one without a
+        `cost` has only been authored, and its first run is the one that
+        finds what the description could not verify. `observed_minutes` and
         `observed_runs`, when present, are this box's *own* finished runs
         of that workflow - the cold median, model load included, and how
         many runs are behind it. Prefer it when quoting a price for this
@@ -503,7 +517,10 @@ def build_server(client):
     # --------------------------------------------------------------- media
 
     def get_output_image(
-        name: str, max_dimension: int = 768, workspace: str | None = None
+        name: str,
+        max_dimension: int = 768,
+        workspace: str | None = None,
+        crop: list[int] | None = None,
     ) -> list[ImageContent | TextContent]:
         """Look at a generated image, named as `list_gallery` or a job's
         manifest reports it. Use this to judge output quality - it is the
@@ -513,14 +530,17 @@ def build_server(client):
         with `get_gallery_metadata` or hand the user the file. The image is
         downscaled to `max_dimension` on its longest side; the second part
         of the result reports the size it went in and came out at, so a
-        downscale is never silent.
+        downscale is never silent. `crop` is `[x, y, width, height]` in the
+        original's pixels, cut before the downscale - the way to see a
+        region of a 2K still at 100%, where the whole would be shrunk past
+        what a small element or a tiling seam can be judged at.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
         here without leaving this one (#99)."""
         result = media.get_output_image(
-            client, name, max_dimension=max_dimension, workspace=workspace
+            client, name, max_dimension=max_dimension, workspace=workspace, crop=crop
         )
         image = ImageContent(
             type="image", data=result["data"], mime_type=result["mime_type"]
@@ -530,7 +550,8 @@ def build_server(client):
             text=(
                 f"name: {result['name']}\n"
                 f"original_size: {result['original_size']}\n"
-                f"returned_size: {result['returned_size']}\n"
+                + (f"crop: {result['crop']}\n" if result["crop"] else "")
+                + f"returned_size: {result['returned_size']}\n"
                 f"bytes: {result['bytes']}"
             ),
         )
@@ -641,14 +662,17 @@ def build_server(client):
 
     # ---------------------------------------------------------------- assets
 
-    def list_assets() -> dict:
+    def list_assets(detail: bool = False) -> dict:
         """List the input media on the server, each with the "asset:"
         reference a workflow argument carries. Look here before asking for
         a file: what a workflow needs may already be there. Entries carry
-        name, kind, size and origin only - for one asset's duration, frame
-        count, fps, sample rate or channels, pass its reference to
-        `get_gallery_metadata`, which reads inputs as well as outputs."""
-        return assets.list_assets(client)
+        name, reference, kind, size and origin only - for one asset's
+        duration, frame count, fps, sample rate or channels, pass its
+        reference to `get_gallery_metadata`, which reads inputs as well as
+        outputs. Pass detail=true for each entry's folder, mtime and url
+        too, needed before naming a shared library's writable/read-only
+        roots or opening the file's preview URL."""
+        return assets.list_assets(client, detail=detail)
 
     def upload_asset(
         file_path: str | None = None,
@@ -741,15 +765,17 @@ def build_server(client):
 
     # ------------------------------------------------------------ workspaces
 
-    def list_workspaces() -> dict:
+    def list_workspaces(detail: bool = False) -> dict:
         """List the server's workspaces and say which one this session is
         working in. Each has its own workflows, assets and outputs; the
         stored prompt library is shared by all of them, and so is the
         shared asset library that `upload_asset(shared=true)` and
         `keep_output(shared=true)` write into - which is how a recurring
         cast stays reachable from the workspace the next piece is made
-        in."""
-        return workspaces.list_workspaces(client)
+        in. Entries carry name, default and usage (files/bytes) only; pass
+        detail=true for each entry's full folder paths (workflows, assets,
+        outputs, prompts, common_assets)."""
+        return workspaces.list_workspaces(client, detail=detail)
 
     def use_workspace(name: str) -> dict:
         """Work in a different workspace for the rest of this session - every
@@ -1069,10 +1095,11 @@ def build_server(client):
         can call again. Does not queue anything, so no acknowledged_cost.
 
         One call blocks for at most {cap} seconds, no matter what
-        timeout_seconds asks for - an MCP client will not hold a tool call
-        open for a generation's real runtime, which is minutes. A larger
-        value is not honoured, it is clamped, so budget roughly one call per
-        {cap}s of the job. Every reply says which happened: waited_seconds,
+        timeout_seconds asks for - this deployment's cap, set for the tool
+        call budget the MCP client actually holds open. A larger value is
+        not honoured, it is clamped, so budget roughly one call per {cap}s
+        of the job - if {cap} covers the job's whole runtime, one call is
+        enough. Every reply says which happened: waited_seconds,
         timeout_requested_seconds, timeout_applied_seconds and
         timeout_capped.
 

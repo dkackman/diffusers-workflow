@@ -62,9 +62,12 @@ export function describePlan(plan: Plan): PlanLine[] {
 }
 
 function figure(plan: Plan): PlanLine {
-  const { minutes, basis, device, measured_on, partial } = plan.estimate
+  const { minutes, basis, device, measured_on, partial, unpriced } =
+    plan.estimate
   const card = measured_on ? `measured on ${measured_on}` : 'measured'
-  const missing = partial ? ', plus a composed workflow with no cost' : ''
+  const missing = partial
+    ? `, plus unpriced: ${(unpriced ?? []).join(', ')}`
+    : ''
   if (basis === 'unknown' || minutes === null) {
     return { text: 'no measured cost', tone: 'warn' }
   }

@@ -102,9 +102,17 @@ def _fit_to_video(waveform, rate, frames, fps, fit):
             video_seconds=video_seconds,
         )
     else:
-        logger.info(
-            f"pair_audio: trimmed the track from {audio_seconds:.2f} s to the "
-            f"{video_seconds:.2f} s of video it is laid over"
+        emit_warning(
+            f"pair_audio: 'fit' trimmed {(have - wanted) / float(rate):.2f} s "
+            f"off the {audio_seconds:.2f} s track to reach the "
+            f"{video_seconds:.2f} s of video it is laid over - that part of "
+            f"the track, whatever it held, is gone from the deliverable. A "
+            f"shorter track, or more frames, is what keeps it.",
+            kind="audio_trimmed_to_video",
+            command="pair_audio",
+            audio_seconds=audio_seconds,
+            video_seconds=video_seconds,
+            trimmed_seconds=(have - wanted) / float(rate),
         )
     return fitted
 

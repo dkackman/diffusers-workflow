@@ -1483,6 +1483,65 @@ class TestMonoAudioForMuxing:
         assert warnings and "mono" in warnings[0].lower()
 
 
+class TestAlphaIntoJpeg:
+    """An RGBA image handed to a JPEG (or WebP-with-metadata) result used to
+    fail the save with Pillow's 'cannot write mode RGBA as JPEG' - after a
+    full generation, on every card, for any pipeline that decodes an alpha
+    channel (Qwen-Image-2.1 does natively). The file is written flattened
+    over white instead, and the flattening is said out loud, since the
+    workflow asked for a format that cannot carry what the pipeline made."""
+
+    def _save(self, monkeypatch, temp_dir, result_def):
+        import dw.result as result_module
+
+        warnings = []
+        monkeypatch.setattr(
+            result_module,
+            "emit_warning",
+            lambda message, **data: warnings.append((message, data)),
+        )
+        result = Result(result_def)
+        result.add_result(Image.new("RGBA", (4, 4), (255, 0, 0, 0)))
+        result.save(temp_dir, "wf-step.0")
+        return warnings
+
+    def test_an_rgba_image_is_flattened_into_the_jpeg(self, monkeypatch):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            warnings = self._save(
+                monkeypatch, temp_dir, {"content_type": "image/jpeg", "save": True}
+            )
+            (name,) = os.listdir(temp_dir)
+            with Image.open(os.path.join(temp_dir, name)) as written:
+                assert written.mode == "RGB"
+                # transparent red over white is white
+                assert written.getpixel((0, 0)) == (255, 255, 255)
+            assert len(warnings) == 1
+            assert warnings[0][1]["kind"] == "alpha_discarded"
+            assert "image/png" in warnings[0][0]
+
+    def test_the_flattening_also_happens_on_the_metadata_path(self, monkeypatch):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            warnings = self._save(
+                monkeypatch,
+                temp_dir,
+                {"content_type": "image/jpeg", "save": True, "embed_metadata": True},
+            )
+            (name,) = os.listdir(temp_dir)
+            with Image.open(os.path.join(temp_dir, name)) as written:
+                assert written.mode == "RGB"
+            assert [data["kind"] for _, data in warnings] == ["alpha_discarded"]
+
+    def test_a_png_keeps_its_alpha_and_says_nothing(self, monkeypatch):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            warnings = self._save(
+                monkeypatch, temp_dir, {"content_type": "image/png", "save": True}
+            )
+            (name,) = os.listdir(temp_dir)
+            with Image.open(os.path.join(temp_dir, name)) as written:
+                assert written.mode == "RGBA"
+            assert warnings == []
+
+
 class TestNoHeadroom:
     """#158: `music-video`'s deliverable came back at +3.26 dBFS and the job
     warned about a 6.4 dB level jump between shots, which is the lesser

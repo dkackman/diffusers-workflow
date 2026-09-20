@@ -80,6 +80,54 @@ def test_a_small_image_is_returned_at_its_own_size():
     assert result["returned_size"] == [64, 48]
 
 
+class TestCrop:
+    """A 2K still cannot be checked for whether a small element reads, or
+    for a decode-tiling seam, through a 768-pixel downscale. `crop` is a
+    box in the original's pixels, cut before the downscale, so a region
+    of the full-resolution file comes back at 100%."""
+
+    def two_tone(self):
+        # left half red, right half blue, 2048 wide
+        image = Image.new("RGB", (2048, 1024), (255, 0, 0))
+        image.paste((0, 0, 255), (1024, 0, 2048, 1024))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return serving(buffer.getvalue(), "image/png")
+
+    def test_a_crop_returns_that_region_at_full_resolution(self):
+        result = get_output_image(
+            self.two_tone(), "big.png", max_dimension=768, crop=[1000, 0, 400, 300]
+        )
+        image = decoded(result)
+        assert image.size == (400, 300)
+        assert image.getpixel((0, 0)) == (255, 0, 0)
+        assert image.getpixel((399, 0)) == (0, 0, 255)
+        assert result["original_size"] == [2048, 1024]
+        assert result["crop"] == [1000, 0, 400, 300]
+        assert result["returned_size"] == [400, 300]
+
+    def test_a_crop_wider_than_max_dimension_is_still_downscaled(self):
+        result = get_output_image(
+            self.two_tone(), "big.png", max_dimension=256, crop=[0, 0, 1024, 512]
+        )
+        assert decoded(result).size == (256, 128)
+        assert result["crop"] == [0, 0, 1024, 512]
+
+    def test_a_crop_is_clamped_to_the_image(self):
+        result = get_output_image(
+            self.two_tone(), "big.png", max_dimension=768, crop=[1900, 900, 500, 500]
+        )
+        assert decoded(result).size == (148, 124)
+        assert result["crop"] == [1900, 900, 148, 124]
+
+    @pytest.mark.parametrize(
+        "crop", [[0, 0, 0, 10], [-1, 0, 10, 10], [2048, 0, 10, 10], [0, 0, 10], "x"]
+    )
+    def test_an_empty_or_malformed_crop_is_refused(self, crop):
+        with pytest.raises(DwApiError, match="crop"):
+            get_output_image(self.two_tone(), "big.png", crop=crop)
+
+
 def test_a_jpeg_source_comes_back_as_jpeg():
     client = serving(jpeg_bytes(300, 300), "image/jpeg")
 
