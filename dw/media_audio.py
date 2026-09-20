@@ -71,7 +71,10 @@ def extract_audio(path, start=None, duration=None):
         pieces = []
         seen = 0  # samples of the track before the current frame
         started = False
+        done = False  # Break outer loop when stop time is reached
         for frame in container.decode(stream):
+            if done:
+                break
             frame_start = (
                 float(frame.pts * stream.time_base) if frame.pts is not None else seen / rate
             )
@@ -91,6 +94,7 @@ def extract_audio(path, start=None, duration=None):
                     samples = samples[: max(0, int((stop - chunk_start) * rate))]
                 pieces.append(samples)
                 if stop is not None and chunk_end >= stop:
+                    done = True
                     break
         # flush the resampler
         if stop is None:

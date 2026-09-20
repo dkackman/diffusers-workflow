@@ -4,6 +4,7 @@ send whole."""
 
 import io
 import wave
+from unittest import mock
 
 import numpy
 import pytest
@@ -78,3 +79,38 @@ def test_a_silent_video_has_no_soundtrack(tmp_path):
 
     with pytest.raises(NoSoundtrack):
         extract_audio(str(tmp_path / "mute.mp4"))
+
+
+def test_an_excerpt_does_not_decode_unnecessary_frames(tmp_path):
+    """Extracting a short excerpt from a long track must not decode the
+    entire file: only frames up to the excerpt end should be yielded by
+    container.decode(). This pins the bug where break only exits the inner
+    chunk loop, leaving the outer frame loop running to EOF."""
+    import av
+
+    # Create a 20-second WAV file - long enough to see the difference
+    write_wav(tmp_path / "long.wav", seconds=20.0)
+
+    # Count frames decoded by wrapping the decode method
+    frame_count = [0]  # Use list to capture in nested function
+
+    original_decode = av.container.InputContainer.decode
+
+    def counting_decode(self, *args, **kwargs):
+        for frame in original_decode(self, *args, **kwargs):
+            frame_count[0] += 1
+            yield frame
+
+    # Patch and extract a 0.5s excerpt starting at 1.0s
+    with mock.patch.object(
+        av.container.InputContainer, "decode", counting_decode
+    ):
+        extract_audio(str(tmp_path / "long.wav"), start=1.0, duration=0.5)
+
+    # With 8 kHz sample rate and ~1024-sample chunks, 0.5s is ~4 chunks
+    # from one frame. The full file has 20s = 160000 samples = ~156 frames.
+    # If the bug exists, frame_count would be 150+; if fixed, should be ~5-10.
+    assert frame_count[0] < 50, (
+        f"Decoded {frame_count[0]} frames for a 0.5s excerpt from a 20s file; "
+        "expected < 50 (likely bug: outer loop not breaking at stop)"
+    )
