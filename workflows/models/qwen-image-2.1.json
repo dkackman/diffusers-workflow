@@ -1,0 +1,51 @@
+{
+    "cost_drivers": ["num_images_per_prompt", "num_inference_steps", "width", "height"],
+    "variables": {
+        "prompt": "A realistic photograph of a mouse wearing a skirt playing volleyball against a team of professional volleyball players.",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 40,
+        "width": 2048,
+        "height": 2048
+    },
+    "id": "QwenImage2.1",
+    "description": "Text-to-image with Qwen-Image-2.1: a unified 7B model (32 single-stream DiT layers, Qwen3-VL 8B text encoder) that also does instruction editing and native RGBA output, though this template only exercises plain text-to-image. No guidance_scale - the pipeline takes only true_cfg_scale, which the vendor recommends leaving at its default of 1.0 (off). width/height are set explicitly because the pipeline falls back to a 1024x1024 output_resolution default otherwise, well under the model's native 2K. Qwen Research License: non-commercial use only, unlike every other model in this catalog, which are Apache-2.0 - see https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE. VRAM at 2048x2048 under model offload has not been measured on a 24GB card - weight residency alone is 17.5GB, leaving headroom for activations that is unverified at this resolution; drop width/height to 1024 if it does not fit. No cost has been measured yet.",
+    "configures": "templates/text-to-image",
+    "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "Qwen-Image-2.1 rounds width/height down to a multiple of 32 (vae_scale_factor * 2), so an off-grid value is not refused by the pipeline but silently shrunk - refused here instead, with no 'snap', since rounding the other way would be a second silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "Qwen-Image-2.1 rounds width/height down to a multiple of 32 (vae_scale_factor * 2), so an off-grid value is not refused by the pipeline but silently shrunk - refused here instead, with no 'snap', since rounding the other way would be a second silent change to the size asked for"
+        }
+    },
+    "steps": [
+        {
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "QwenImage21Pipeline",
+                    "offload": "model"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Qwen/Qwen-Image-2.1",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true
+            }
+        }
+    ]
+}
