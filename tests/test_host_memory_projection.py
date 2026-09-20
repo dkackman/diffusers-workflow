@@ -94,3 +94,18 @@ class TestProjection:
         rows = [row(9000 * MB, {"shots": [1, 2, 3]})]
         warnings = host_memory_warnings(definition, {}, rows, 100 * MB)
         assert warnings == []
+
+    def test_identical_shape_that_already_succeeded_warns_nothing(self):
+        # #254: a 2-entry run that just succeeded at ~62 GB shouldn't warn
+        # about a repeat request for the same 2 entries, even though 62 GB
+        # is itself above the ceiling - it already happened without incident.
+        definition = for_each_workflow(release=False)
+        rows = [row(62197 * MB, {"shots": [1, 2]})]
+        warnings = host_memory_warnings(definition, {"shots": 2}, rows, 57788 * MB)
+        assert warnings == []
+
+    def test_larger_request_than_any_survived_shape_still_warns(self):
+        definition = for_each_workflow(release=False)
+        rows = [row(62197 * MB, {"shots": [1, 2]})]
+        warnings = host_memory_warnings(definition, {"shots": 4}, rows, 57788 * MB)
+        assert len(warnings) == 1
