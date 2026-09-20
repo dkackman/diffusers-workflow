@@ -2877,7 +2877,11 @@ def create_app(
                 span = max(0.0, min(float(duration), span - float(start or 0.0)))
             projected = projected_wav_base64_size({**shape, "duration_seconds": span})
             if projected > MAX_INLINE_AUDIO_BYTES:
-                what = f"a {span:.1f}s excerpt of {name}" if excerpt else f"{name}'s whole soundtrack"
+                what = (
+                    f"a {span:.1f}s excerpt of {name}"
+                    if excerpt
+                    else f"{name}'s whole soundtrack"
+                )
                 advice = (
                     "Ask for a shorter `duration`"
                     if excerpt
@@ -2939,7 +2943,11 @@ def create_app(
         if MEDIA_KINDS.get(os.path.splitext(path)[1].lower()) != "video":
             raise HTTPException(status_code=404, detail=f"{name} is not a video")
 
-        chosen = [key for key, value in (("at", at), ("count", count), ("seams", seams)) if value]
+        chosen = [
+            key
+            for key, value in (("at", at), ("count", count), ("seams", seams))
+            if value
+        ]
         if len(chosen) != 1:
             raise HTTPException(
                 status_code=400,
@@ -2974,7 +2982,9 @@ def create_app(
                     )
                 tiles = frames_at(path, moments, shape=shape)
             elif count:
-                tiles = [contact_sheet(path, count, tile_width=sub_tile_width, shape=shape)]
+                tiles = [
+                    contact_sheet(path, count, tile_width=sub_tile_width, shape=shape)
+                ]
             else:
                 if not boundaries:
                     raise HTTPException(
@@ -3019,13 +3029,14 @@ def create_app(
         if longest > limit:
             scale = limit / longest
             image = image.resize(
-                (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+                (
+                    max(1, round(image.width * scale)),
+                    max(1, round(image.height * scale)),
+                )
             )
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
-        encoded = {
-            key: value for key, value in tile.items() if key != "image"
-        }
+        encoded = {key: value for key, value in tile.items() if key != "image"}
         encoded.update(
             {
                 "data": base64.b64encode(buffer.getvalue()).decode("ascii"),

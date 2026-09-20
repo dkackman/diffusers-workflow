@@ -1297,7 +1297,9 @@ def test_gallery_audio_extracts_a_videos_soundtrack(server, tmp_path):
             assert handle.getnchannels() == 2
 
 
-def test_gallery_audio_serves_an_audio_file_as_itself_when_asked_whole(server, tmp_path):
+def test_gallery_audio_serves_an_audio_file_as_itself_when_asked_whole(
+    server, tmp_path
+):
     from tests.test_media_info import write_wav
 
     with server(success_script) as client:
@@ -1347,7 +1349,9 @@ def test_gallery_audio_serving_a_whole_file_does_not_decode_it(server, tmp_path)
         assert called == [], "serving a whole audio file decoded it"
 
 
-def test_gallery_audio_refuses_to_extract_a_whole_track_over_the_inline_cap(server, tmp_path):
+def test_gallery_audio_refuses_to_extract_a_whole_track_over_the_inline_cap(
+    server, tmp_path
+):
     """A whole-track request on a long video used to decode and ship the
     entire WAV before the MCP side refused it. The route projects the WAV
     size from the container's headers first and answers 413 - naming
@@ -1395,13 +1399,16 @@ def test_gallery_audio_cuts_an_excerpt_and_names_it(server, tmp_path):
         write_wav(outputs / "score-gen.0-0.0.wav", seconds=4.0)
 
         response = client.get(
-            "/api/gallery/score-gen.0-0.0.wav/audio", params={"start": 1.0, "duration": 0.5}
+            "/api/gallery/score-gen.0-0.0.wav/audio",
+            params={"start": 1.0, "duration": 0.5},
         )
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "audio/wav"
         assert response.headers["x-dw-excerpt-start"] == "1.0"
-        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(0.5, abs=0.02)
+        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(
+            0.5, abs=0.02
+        )
         assert float(response.headers["x-dw-duration"]) == pytest.approx(4.0, abs=0.05)
         with wave.open(io.BytesIO(response.content)) as handle:
             assert handle.getnframes() == pytest.approx(4000, abs=100)
@@ -1416,7 +1423,8 @@ def test_gallery_audio_refuses_a_bad_excerpt_and_a_mute_file(server, tmp_path):
         write_mp4(outputs / "mute-gen.0-0.0.mp4", frames=6, fps=6, with_audio=False)
 
         past = client.get(
-            "/api/gallery/score-gen.0-0.0.wav/audio", params={"start": 5.0, "duration": 1.0}
+            "/api/gallery/score-gen.0-0.0.wav/audio",
+            params={"start": 5.0, "duration": 1.0},
         )
         assert past.status_code == 400
         assert "past the end" in past.json()["detail"]
@@ -1440,7 +1448,9 @@ def test_gallery_audio_reads_an_asset_reference(asset_server, tmp_path):
         )
 
         assert response.status_code == 200
-        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(0.25, abs=0.02)
+        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(
+            0.25, abs=0.02
+        )
 
 
 def _png_of(tile):
@@ -1458,7 +1468,9 @@ def test_gallery_frames_returns_the_moments_asked_for(server, tmp_path):
 
     with server(success_script) as client:
         outputs = tmp_path / "outputs"
-        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6, width=64, height=32)
+        write_ramp_mp4(
+            outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6, width=64, height=32
+        )
 
         response = client.get(
             "/api/gallery/shot-gen.0-0.0.mp4/frames",
@@ -1512,7 +1524,9 @@ def test_gallery_frames_pairs_the_frames_at_each_seam(server, tmp_path):
             "/api/gallery/cut-gen.0-0.0.mp4/frames",
             params={"seams": "2", "boundaries": "8,16"},
         )
-        assert [t["label"] for t in second.json()["tiles"]] == ["seam 2: shot 2 | shot 3"]
+        assert [t["label"] for t in second.json()["tiles"]] == [
+            "seam 2: shot 2 | shot 3"
+        ]
 
 
 def test_gallery_frames_refuses_bad_selectors(server, tmp_path):
@@ -1543,7 +1557,9 @@ def test_gallery_frames_refuses_bad_selectors(server, tmp_path):
         )
         assert past.status_code == 400 and "past the end" in past.json()["detail"]
 
-        audio = client.get("/api/gallery/score-gen.0-0.0.wav/frames", params={"count": 1})
+        audio = client.get(
+            "/api/gallery/score-gen.0-0.0.wav/frames", params={"count": 1}
+        )
         assert audio.status_code == 404
 
 
@@ -1596,14 +1612,17 @@ def test_gallery_frames_caps_the_contact_sheet(server, tmp_path):
         write_ramp_mp4(outputs / "long.mp4", frames=MAX_CONTACT_SHEET_FRAMES + 2, fps=6)
 
         response = client.get(
-            "/api/gallery/long.mp4/frames", params={"count": MAX_CONTACT_SHEET_FRAMES + 1}
+            "/api/gallery/long.mp4/frames",
+            params={"count": MAX_CONTACT_SHEET_FRAMES + 1},
         )
 
         assert response.status_code == 400
         assert str(MAX_CONTACT_SHEET_FRAMES) in response.json()["detail"]
 
 
-def test_gallery_frames_refuses_a_non_finite_moment_and_a_seam_off_the_cut(server, tmp_path):
+def test_gallery_frames_refuses_a_non_finite_moment_and_a_seam_off_the_cut(
+    server, tmp_path
+):
     from tests.test_media_frames import write_ramp_mp4
 
     with server(success_script) as client:
@@ -5194,7 +5213,9 @@ def test_gallery_frames_seam_tiles_carry_their_difference(server, tmp_path):
         assert response.json()["tiles"][0]["difference"] == pytest.approx(10.0, abs=6)
 
 
-def test_gallery_audio_refuses_an_excerpt_over_the_inline_cap_before_decoding(server, tmp_path):
+def test_gallery_audio_refuses_an_excerpt_over_the_inline_cap_before_decoding(
+    server, tmp_path
+):
     """The whole-track 413 gate projects the WAV size from the headers; an
     excerpt whose own length projects over the cap has to be refused the
     same way, not decoded and encoded server-side for the client to refuse

@@ -131,7 +131,10 @@ def test_seam_tiles_pair_the_frames_either_side_of_each_boundary(tmp_path):
         tile_width=32,
     )
 
-    assert [t["label"] for t in tiles] == ["seam 1: shot@a | shot@b", "seam 2: shot@b | shot@c"]
+    assert [t["label"] for t in tiles] == [
+        "seam 1: shot@a | shot@b",
+        "seam 2: shot@b | shot@c",
+    ]
     assert [t["frame"] for t in tiles] == [8, 16]
     image = tiles[0]["image"]
     assert image.width == 64 and image.height == 16
@@ -308,7 +311,11 @@ def test_read_frames_fits_each_frame_as_it_is_decoded(tmp_path):
 
     found = _read_frames(str(tmp_path / "ramp.mp4"), [0, 5, 23], fit=fit)
 
-    assert seen == [((32, 16), 0), ((32, 16), 5), ((32, 16), 23)]  # ran per frame, at source size
+    assert seen == [
+        ((32, 16), 0),
+        ((32, 16), 5),
+        ((32, 16), 23),
+    ]  # ran per frame, at source size
     assert all(image.size == (8, 4) for image in found.values())
 
 
@@ -390,7 +397,9 @@ def test_contact_sheet_cells_are_stamped_with_their_timestamp(tmp_path):
     for cell in range(4):
         row, col = divmod(cell, columns)
         corner = sheet["image"].crop((col * 64, row * 32, col * 64 + 32, row * 32 + 16))
-        assert numpy.asarray(corner.convert("L")).std() > 5, f"cell {cell} carries no stamp"
+        assert numpy.asarray(corner.convert("L")).std() > 5, (
+            f"cell {cell} carries no stamp"
+        )
     # the stamp sits in a corner: the opposite corner is still the flat grey
     cell = sheet["image"].crop((32, 16, 64, 32))
     assert numpy.asarray(cell.convert("L")).std() < 2

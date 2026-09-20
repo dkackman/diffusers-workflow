@@ -246,7 +246,9 @@ def get_output_frames(
     MAX_RETURNED_BYTES, so fetching stops once the running total would push
     past it - the remaining tiles keep their frame but carry an
     `audio_error` saying so, and `audio_truncated` is true."""
-    chosen = [key for key, value in (("at", at), ("count", count), ("seams", seams)) if value]
+    chosen = [
+        key for key, value in (("at", at), ("count", count), ("seams", seams)) if value
+    ]
     if len(chosen) != 1:
         raise DwApiError(
             "Pass exactly one of `at`, `count` or `seams`"
@@ -254,7 +256,9 @@ def get_output_frames(
         )
     if hear is not None:
         if not at:
-            raise DwApiError("`hear` takes seconds of soundtrack around each `at` moment - pass `at`")
+            raise DwApiError(
+                "`hear` takes seconds of soundtrack around each `at` moment - pass `at`"
+            )
         if float(hear) <= 0:
             raise DwApiError("`hear` is a positive number of seconds")
     params = [("max_dimension", str(max(MIN_DIMENSION, int(max_dimension))))]
@@ -264,7 +268,9 @@ def get_output_frames(
     elif count:
         params.append(("count", str(int(count))))
     else:
-        params.append(("seams", "true" if seams is True else ",".join(str(s) for s in seams)))
+        params.append(
+            ("seams", "true" if seams is True else ",".join(str(s) for s in seams))
+        )
         if boundaries:
             params.append(("boundaries", ",".join(str(int(b)) for b in boundaries)))
         if names:
@@ -281,9 +287,7 @@ def get_output_frames(
         budget_exceeded = False
         for tile in tiles:
             if budget_exceeded:
-                tile["audio_error"] = (
-                    "skipped - would exceed the response size budget"
-                )
+                tile["audio_error"] = "skipped - would exceed the response size budget"
                 audio_truncated = True
                 continue
             start = max(0.0, float(tile["seconds"]) - span / 2)
@@ -300,9 +304,7 @@ def get_output_frames(
             # `hear` seconds each could dwarf it. This is that aggregate cap,
             # on top of - not instead of - the per-tile one.
             if audio_bytes_so_far + len(audio["data"]) > MAX_RETURNED_BYTES:
-                tile["audio_error"] = (
-                    "skipped - would exceed the response size budget"
-                )
+                tile["audio_error"] = "skipped - would exceed the response size budget"
                 audio_truncated = True
                 budget_exceeded = True
                 continue
@@ -342,8 +344,13 @@ def _fit_tiles_within_budget(tiles):
             buffer = io.BytesIO()
             sized.save(buffer, format="PNG")
             encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-            shrunk.append({**tile, "data": encoded, "width": sized.width, "height": sized.height})
-        if sum(len(t["data"]) for t in shrunk) <= MAX_RETURNED_BYTES or limit <= MIN_DIMENSION:
+            shrunk.append(
+                {**tile, "data": encoded, "width": sized.width, "height": sized.height}
+            )
+        if (
+            sum(len(t["data"]) for t in shrunk) <= MAX_RETURNED_BYTES
+            or limit <= MIN_DIMENSION
+        ):
             return shrunk, limit
         images = [Image.open(io.BytesIO(base64.b64decode(t["data"]))) for t in shrunk]
 

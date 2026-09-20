@@ -23,7 +23,9 @@ from tests.test_media_info import write_mp4, write_wav
 def read_wav(data):
     with wave.open(io.BytesIO(data)) as handle:
         frames = handle.readframes(handle.getnframes())
-        samples = numpy.frombuffer(frames, dtype="<i2").reshape(-1, handle.getnchannels())
+        samples = numpy.frombuffer(frames, dtype="<i2").reshape(
+            -1, handle.getnchannels()
+        )
         return handle.getframerate(), samples
 
 
@@ -118,9 +120,7 @@ def test_an_excerpt_does_not_decode_unnecessary_frames(tmp_path):
             yield frame
 
     # Patch and extract a 0.5s excerpt starting at 1.0s
-    with mock.patch.object(
-        av.container.InputContainer, "decode", counting_decode
-    ):
+    with mock.patch.object(av.container.InputContainer, "decode", counting_decode):
         extract_audio(str(tmp_path / "long.wav"), start=1.0, duration=0.5)
 
     # With 8 kHz sample rate and ~1024-sample chunks, 0.5s is ~4 chunks

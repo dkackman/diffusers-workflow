@@ -875,7 +875,15 @@ def frames_server(tiles, seen=None):
         if seen is not None:
             seen.append((request.url.path, list(request.url.params.multi_items())))
         return httpx.Response(
-            200, json={"name": "x.mp4", "frame_count": 24, "fps": 6.0, "width": 64, "height": 32, "tiles": tiles}
+            200,
+            json={
+                "name": "x.mp4",
+                "frame_count": 24,
+                "fps": 6.0,
+                "width": 64,
+                "height": 32,
+                "tiles": tiles,
+            },
         )
 
     return DwClient(transport=httpx.MockTransport(handler))
@@ -883,7 +891,9 @@ def frames_server(tiles, seen=None):
 
 def test_frames_are_asked_for_by_moment_and_come_back_labelled():
     seen = []
-    client = frames_server([tile_json(64, 32), tile_json(64, 32, "00:02.0 (frame 12)", 12, 2.0)], seen)
+    client = frames_server(
+        [tile_json(64, 32), tile_json(64, 32, "00:02.0 (frame 12)", 12, 2.0)], seen
+    )
 
     result = get_output_frames(client, "run/x.mp4", at=[0.0, "frame:12"])
 
@@ -892,7 +902,10 @@ def test_frames_are_asked_for_by_moment_and_come_back_labelled():
     # the encoding itself is api_path's job, covered by tests/test_mcp_client.py.
     assert seen[0][0] == "/api/gallery/run/x.mp4/frames"
     assert dict(seen[0][1])["at"] == "0.0,frame:12"
-    assert [t["label"] for t in result["tiles"]] == ["00:00.0 (frame 0)", "00:02.0 (frame 12)"]
+    assert [t["label"] for t in result["tiles"]] == [
+        "00:00.0 (frame 0)",
+        "00:02.0 (frame 12)",
+    ]
     assert result["downscaled_to"] is None
 
 
@@ -900,7 +913,9 @@ def test_seams_send_boundaries_and_names():
     seen = []
     client = frames_server([tile_json(128, 32, "seam 1: a | b", 8, 1.33)], seen)
 
-    get_output_frames(client, "cut.mp4", seams=[1], boundaries=[8, 16], names=["a", "b", "c"])
+    get_output_frames(
+        client, "cut.mp4", seams=[1], boundaries=[8, 16], names=["a", "b", "c"]
+    )
 
     params = dict(seen[0][1])
     assert params["seams"] == "1"
@@ -922,7 +937,9 @@ def test_tiles_over_budget_are_shrunk_together_and_say_so():
         tiles.append(
             {
                 **tile_json(2048, 1024, frame=n, seconds=float(n)),
-                "data": base64.b64encode(noise_png_bytes(2048, 1024, seed=n)).decode("ascii"),
+                "data": base64.b64encode(noise_png_bytes(2048, 1024, seed=n)).decode(
+                    "ascii"
+                ),
             }
         )
     client = frames_server(tiles)
@@ -1005,13 +1022,27 @@ def test_hear_fetches_an_excerpt_around_each_moment():
     def handler(request):
         calls.append((request.url.path, dict(request.url.params)))
         if request.url.path.endswith("/frames"):
-            return httpx.Response(200, json={"frame_count": 48, "fps": 24.0,
-                                             "tiles": [tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
-                                                       tile_json(64, 32, "00:00.2 (frame 5)", 5, 0.2)]})
-        return httpx.Response(200, content=b"RIFF" + b"\0" * 64,
-                              headers={"content-type": "audio/wav", "x-dw-duration": "2.0",
-                                       "x-dw-excerpt-start": request.url.params["start"],
-                                       "x-dw-excerpt-duration": request.url.params["duration"]})
+            return httpx.Response(
+                200,
+                json={
+                    "frame_count": 48,
+                    "fps": 24.0,
+                    "tiles": [
+                        tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
+                        tile_json(64, 32, "00:00.2 (frame 5)", 5, 0.2),
+                    ],
+                },
+            )
+        return httpx.Response(
+            200,
+            content=b"RIFF" + b"\0" * 64,
+            headers={
+                "content-type": "audio/wav",
+                "x-dw-duration": "2.0",
+                "x-dw-excerpt-start": request.url.params["start"],
+                "x-dw-excerpt-duration": request.url.params["duration"],
+            },
+        )
 
     client = DwClient(transport=httpx.MockTransport(handler))
 
@@ -1027,8 +1058,14 @@ def test_hear_fetches_an_excerpt_around_each_moment():
 def test_hear_on_a_mute_clip_keeps_the_frames_and_says_so():
     def handler(request):
         if request.url.path.endswith("/frames"):
-            return httpx.Response(200, json={"frame_count": 48, "fps": 24.0,
-                                             "tiles": [tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0)]})
+            return httpx.Response(
+                200,
+                json={
+                    "frame_count": 48,
+                    "fps": 24.0,
+                    "tiles": [tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0)],
+                },
+            )
         return httpx.Response(404, json={"detail": "x.mp4 carries no soundtrack"})
 
     client = DwClient(transport=httpx.MockTransport(handler))

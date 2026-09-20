@@ -406,7 +406,9 @@ async def test_a_contact_sheet_text_part_locates_every_cell():
 
     server = server_over(serving_sheet)
 
-    result = await server.call_tool("get_output_frames", {"name": "shot.mp4", "count": 3})
+    result = await server.call_tool(
+        "get_output_frames", {"name": "shot.mp4", "count": 3}
+    )
 
     text = result.content[-1].text
     assert "contact sheet, 3 frames" in text
@@ -538,7 +540,12 @@ TOOL_WIRING = [
     ),
     ("get_output_image", {"name": "out.png"}, "GET", "/outputs/out.png"),
     ("get_output_audio", {"name": "out.wav"}, "GET", "/api/gallery/out.wav/audio"),
-    ("get_output_frames", {"name": "out.mp4", "count": 2}, "GET", "/api/gallery/out.mp4/frames"),
+    (
+        "get_output_frames",
+        {"name": "out.mp4", "count": 2},
+        "GET",
+        "/api/gallery/out.mp4/frames",
+    ),
     ("validate_workflow", {"workflow": {"id": "w"}}, "POST", "/api/validate"),
     (
         "save_workflow",
@@ -678,10 +685,24 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
         if request.url.path.endswith("/frames"):
             return httpx.Response(
                 200,
-                json={"name": "out.mp4", "frame_count": 2, "fps": 6.0, "width": 1, "height": 1,
-                      "tiles": [{"label": "contact sheet, 2 frames", "frame": 0, "seconds": 0.0,
-                                 "data": base64.b64encode(PNG_1X1).decode("ascii"),
-                                 "mime_type": "image/png", "width": 1, "height": 1}]},
+                json={
+                    "name": "out.mp4",
+                    "frame_count": 2,
+                    "fps": 6.0,
+                    "width": 1,
+                    "height": 1,
+                    "tiles": [
+                        {
+                            "label": "contact sheet, 2 frames",
+                            "frame": 0,
+                            "seconds": 0.0,
+                            "data": base64.b64encode(PNG_1X1).decode("ascii"),
+                            "mime_type": "image/png",
+                            "width": 1,
+                            "height": 1,
+                        }
+                    ],
+                },
             )
         if request.url.path.startswith("/outputs/"):
             return httpx.Response(

@@ -152,7 +152,8 @@ def seam_tiles(path, boundaries, names=None, tile_width=320, shape=None, wanted=
         pair = _compose_grid([before, after], 2)
         difference = float(
             numpy.abs(
-                numpy.asarray(before, dtype=numpy.int16) - numpy.asarray(after, dtype=numpy.int16)
+                numpy.asarray(before, dtype=numpy.int16)
+                - numpy.asarray(after, dtype=numpy.int16)
             ).mean()
         )
         tiles.append(
@@ -268,8 +269,7 @@ def _read_frames(path, indexes, fit=None):
                     position = (
                         int(
                             round(
-                                float((frame.pts - start_pts) * stream.time_base)
-                                * fps
+                                float((frame.pts - start_pts) * stream.time_base) * fps
                             )
                         )
                         if fps and frame.pts is not None

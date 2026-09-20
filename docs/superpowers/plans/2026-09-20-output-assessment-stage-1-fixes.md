@@ -72,7 +72,11 @@ def test_read_frames_fits_each_frame_as_it_is_decoded(tmp_path):
 
     found = _read_frames(str(tmp_path / "ramp.mp4"), [0, 5, 23], fit=fit)
 
-    assert seen == [((32, 16), 0), ((32, 16), 5), ((32, 16), 23)]  # ran per frame, at source size
+    assert seen == [
+        ((32, 16), 0),
+        ((32, 16), 5),
+        ((32, 16), 23),
+    ]  # ran per frame, at source size
     assert all(image.size == (8, 4) for image in found.values())
 
 
@@ -109,7 +113,8 @@ def test_gallery_frames_caps_the_contact_sheet(server, tmp_path):
         write_ramp_mp4(outputs / "long.mp4", frames=MAX_CONTACT_SHEET_FRAMES + 2, fps=6)
 
         response = client.get(
-            "/api/gallery/long.mp4/frames", params={"count": MAX_CONTACT_SHEET_FRAMES + 1}
+            "/api/gallery/long.mp4/frames",
+            params={"count": MAX_CONTACT_SHEET_FRAMES + 1},
         )
 
         assert response.status_code == 400
@@ -289,48 +294,50 @@ Expected: FAIL - the first returns ~4.0 s of samples instead of 0.5; the second 
 In `dw/media_audio.py`, replace the decode loop (from `pieces = []` through the inner `for chunk` loop's end) with:
 
 ```python
-        pieces = []
-        seen = 0  # samples decoded so far - the clock for a frame with no pts
-        started = False
-        done = False  # Break outer loop when stop time is reached
-        sought = start > 0
-        restarted = False
-        for frame in container.decode(stream):
-            if done:
-                break
-            if frame.pts is None and sought and not restarted:
-                # No pts means the seek's landing cannot be known, so the
-                # sample count is the only clock there is - and it has to
-                # count from the top. Start over once and read to `start`.
-                container.seek(0, stream=stream, backward=True)
-                resampler = AudioResampler(format="s16", layout=layout, rate=rate)
-                restarted = True
-                seen = 0
-                continue
-            frame_start = (
-                float((frame.pts - anchor) * stream.time_base)
-                if frame.pts is not None
-                else seen / rate
-            )
-            for chunk in resampler.resample(frame):
-                samples = chunk.to_ndarray()  # (1, samples * channels) packed s16
-                samples = samples.reshape(-1, channels)
-                chunk_start = frame_start
-                chunk_end = chunk_start + samples.shape[0] / rate
-                seen += samples.shape[0]
-                frame_start = chunk_end  # a frame yielding two chunks: the second follows the first
-                if chunk_end <= start:
-                    continue
-                if not started and chunk_start < start:
-                    samples = samples[int((start - chunk_start) * rate) :]
-                    chunk_start = start
-                started = True
-                if stop is not None and chunk_end > stop:
-                    samples = samples[: max(0, int((stop - chunk_start) * rate))]
-                pieces.append(samples)
-                if stop is not None and chunk_end >= stop:
-                    done = True
-                    break
+pieces = []
+seen = 0  # samples decoded so far - the clock for a frame with no pts
+started = False
+done = False  # Break outer loop when stop time is reached
+sought = start > 0
+restarted = False
+for frame in container.decode(stream):
+    if done:
+        break
+    if frame.pts is None and sought and not restarted:
+        # No pts means the seek's landing cannot be known, so the
+        # sample count is the only clock there is - and it has to
+        # count from the top. Start over once and read to `start`.
+        container.seek(0, stream=stream, backward=True)
+        resampler = AudioResampler(format="s16", layout=layout, rate=rate)
+        restarted = True
+        seen = 0
+        continue
+    frame_start = (
+        float((frame.pts - anchor) * stream.time_base)
+        if frame.pts is not None
+        else seen / rate
+    )
+    for chunk in resampler.resample(frame):
+        samples = chunk.to_ndarray()  # (1, samples * channels) packed s16
+        samples = samples.reshape(-1, channels)
+        chunk_start = frame_start
+        chunk_end = chunk_start + samples.shape[0] / rate
+        seen += samples.shape[0]
+        frame_start = (
+            chunk_end  # a frame yielding two chunks: the second follows the first
+        )
+        if chunk_end <= start:
+            continue
+        if not started and chunk_start < start:
+            samples = samples[int((start - chunk_start) * rate) :]
+            chunk_start = start
+        started = True
+        if stop is not None and chunk_end > stop:
+            samples = samples[: max(0, int((stop - chunk_start) * rate))]
+        pieces.append(samples)
+        if stop is not None and chunk_end >= stop:
+            done = True
+            break
 ```
 
 (`continue` inside the `if frame.pts is None ...` branch skips the frame decoded from the seek landing; the seek to 0 re-primes `container.decode`, which in PyAV continues from the new position on the next iteration of the same generator.)
@@ -630,7 +637,9 @@ def test_contact_sheet_cells_are_stamped_with_their_timestamp(tmp_path):
     for cell in range(4):
         row, col = divmod(cell, columns)
         corner = sheet["image"].crop((col * 64, row * 32, col * 64 + 32, row * 32 + 16))
-        assert numpy.asarray(corner.convert("L")).std() > 5, f"cell {cell} carries no stamp"
+        assert numpy.asarray(corner.convert("L")).std() > 5, (
+            f"cell {cell} carries no stamp"
+        )
     # the stamp sits in a corner: the opposite corner is still the flat grey
     cell = sheet["image"].crop((32, 16, 64, 32))
     assert numpy.asarray(cell.convert("L")).std() < 2
@@ -733,11 +742,12 @@ Expected: `KeyError: 'difference'` ×2, and the text assertion fails.
 In `seam_tiles`, inside the `for seam, boundary in chosen:` loop after `before`/`after`:
 
 ```python
-        difference = float(
-            numpy.abs(
-                numpy.asarray(before, dtype=numpy.int16) - numpy.asarray(after, dtype=numpy.int16)
-            ).mean()
-        )
+difference = float(
+    numpy.abs(
+        numpy.asarray(before, dtype=numpy.int16)
+        - numpy.asarray(after, dtype=numpy.int16)
+    ).mean()
+)
 ```
 
 (add `import numpy` at the top) and `"difference": round(difference, 2)` to the tile dict. In `dw_mcp/server.py`'s `get_output_frames`, in the per-tile loop:
@@ -785,13 +795,27 @@ def test_hear_fetches_an_excerpt_around_each_moment():
     def handler(request):
         calls.append((request.url.path, dict(request.url.params)))
         if request.url.path.endswith("/frames"):
-            return httpx.Response(200, json={"frame_count": 48, "fps": 24.0,
-                                             "tiles": [tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
-                                                       tile_json(64, 32, "00:00.2 (frame 5)", 5, 0.2)]})
-        return httpx.Response(200, content=b"RIFF" + b"\0" * 64,
-                              headers={"content-type": "audio/wav", "x-dw-duration": "2.0",
-                                       "x-dw-excerpt-start": request.url.params["start"],
-                                       "x-dw-excerpt-duration": request.url.params["duration"]})
+            return httpx.Response(
+                200,
+                json={
+                    "frame_count": 48,
+                    "fps": 24.0,
+                    "tiles": [
+                        tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
+                        tile_json(64, 32, "00:00.2 (frame 5)", 5, 0.2),
+                    ],
+                },
+            )
+        return httpx.Response(
+            200,
+            content=b"RIFF" + b"\0" * 64,
+            headers={
+                "content-type": "audio/wav",
+                "x-dw-duration": "2.0",
+                "x-dw-excerpt-start": request.url.params["start"],
+                "x-dw-excerpt-duration": request.url.params["duration"],
+            },
+        )
 
     client = DwClient(transport=httpx.MockTransport(handler))
 
@@ -807,8 +831,14 @@ def test_hear_fetches_an_excerpt_around_each_moment():
 def test_hear_on_a_mute_clip_keeps_the_frames_and_says_so():
     def handler(request):
         if request.url.path.endswith("/frames"):
-            return httpx.Response(200, json={"frame_count": 48, "fps": 24.0,
-                                             "tiles": [tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0)]})
+            return httpx.Response(
+                200,
+                json={
+                    "frame_count": 48,
+                    "fps": 24.0,
+                    "tiles": [tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0)],
+                },
+            )
         return httpx.Response(404, json={"detail": "x.mp4 carries no soundtrack"})
 
     client = DwClient(transport=httpx.MockTransport(handler))
@@ -838,11 +868,13 @@ Expected: `TypeError: get_output_frames() got an unexpected keyword argument 'he
 In `dw_mcp/media.py`, add `hear=None` to `get_output_frames`'s signature (after `max_dimension`), and after the selector check:
 
 ```python
-    if hear is not None:
-        if not at:
-            raise DwApiError("`hear` takes seconds of soundtrack around each `at` moment - pass `at`")
-        if float(hear) <= 0:
-            raise DwApiError("`hear` is a positive number of seconds")
+if hear is not None:
+    if not at:
+        raise DwApiError(
+            "`hear` takes seconds of soundtrack around each `at` moment - pass `at`"
+        )
+    if float(hear) <= 0:
+        raise DwApiError("`hear` is a positive number of seconds")
 ```
 
 After `tiles, downscaled_to = _fit_tiles_within_budget(...)`:
@@ -915,7 +947,7 @@ def test_a_video_skill_maps_its_failure_modes_to_the_tool_that_shows_them(path):
     leaves the agent to guess which shows which; the step has to say
     `seams=true` is for a join and `at` is for a moment."""
     text = skill_text(path)
-    judge = text[text.index("## Run and judge"):]
+    judge = text[text.index("## Run and judge") :]
     assert "`seams=true`" in judge
     assert "`at`" in judge
 ```

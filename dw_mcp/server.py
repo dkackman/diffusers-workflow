@@ -618,7 +618,9 @@ def build_server(client):
         parts = []
         for tile in result["tiles"]:
             parts.append(
-                ImageContent(type="image", data=tile["data"], mime_type=tile["mime_type"])
+                ImageContent(
+                    type="image", data=tile["data"], mime_type=tile["mime_type"]
+                )
             )
             if "audio" in tile:
                 parts.append(
@@ -647,7 +649,9 @@ def build_server(client):
                 where += f"  difference: {tile['difference']}"
             if tile.get("audio_error"):
                 where += f"  hear: {tile['audio_error']}"
-            lines.append(f"- {tile['label']}  {where}  [{tile['width']}x{tile['height']}]")
+            lines.append(
+                f"- {tile['label']}  {where}  [{tile['width']}x{tile['height']}]"
+            )
         if result["downscaled_to"]:
             lines.append(
                 f"downscaled_to: {result['downscaled_to']} (every tile, to fit the inline budget)"

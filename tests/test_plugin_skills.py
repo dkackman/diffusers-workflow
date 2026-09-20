@@ -469,7 +469,7 @@ def test_a_video_skill_names_the_tools_that_see_and_hear_a_clip(path):
     assert "`get_output_frames(count=12)`" in text
     assert "`get_output_audio`" in text
     assert "gallery `url`" in text
-    judge = text[text.index("## Run and judge"):]
+    judge = text[text.index("## Run and judge") :]
     assert "get_output_frames" in judge
 
 
@@ -536,6 +536,6 @@ def test_a_video_skill_maps_its_failure_modes_to_the_tool_that_shows_them(path):
     leaves the agent to guess which shows which; the step has to say
     `seams=true` is for a join and `at` is for a moment."""
     text = skill_text(path)
-    judge = text[text.index("## Run and judge"):]
+    judge = text[text.index("## Run and judge") :]
     assert "`seams=true`" in judge
     assert "`at`" in judge

@@ -111,7 +111,11 @@ def extract_audio(path, start=None, duration=None):
 
         rate = int(stream.rate)
         channels = int(stream.channels)
-        layout = "stereo" if channels == 2 else ("mono" if channels == 1 else stream.layout.name)
+        layout = (
+            "stereo"
+            if channels == 2
+            else ("mono" if channels == 1 else stream.layout.name)
+        )
         resampler = AudioResampler(format="s16", layout=layout, rate=rate)
 
         # pts is a timestamp on the container's clock, not an offset from
