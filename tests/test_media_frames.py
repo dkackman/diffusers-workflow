@@ -259,10 +259,28 @@ def test_a_non_finite_moment_is_refused(tmp_path):
 def test_a_contact_sheet_over_the_frame_cap_is_refused(tmp_path):
     from dw.media_frames import MAX_CONTACT_SHEET_FRAMES
 
-    write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6)
+    # The clip must hold more frames than the cap itself, else the
+    # clip-length clamp would bring the requested count under the cap
+    # before it is ever checked (see the next test).
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=MAX_CONTACT_SHEET_FRAMES + 24, fps=6)
 
     with pytest.raises(ValueError, match=f"{MAX_CONTACT_SHEET_FRAMES}"):
         contact_sheet(str(tmp_path / "ramp.mp4"), MAX_CONTACT_SHEET_FRAMES + 1)
+
+
+def test_a_contact_sheet_count_clamped_under_the_cap_is_not_refused(tmp_path):
+    """count=100 on a clip with fewer frames than the cap clamps down to the
+    clip's own frame_count first, and that clamped number is well under
+    MAX_CONTACT_SHEET_FRAMES - so it must succeed rather than 400 on the
+    caller's raw, pre-clamp number (#193 review, finding 3)."""
+    from dw.media_frames import MAX_CONTACT_SHEET_FRAMES
+
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6)
+    assert 24 < MAX_CONTACT_SHEET_FRAMES
+
+    result = contact_sheet(str(tmp_path / "ramp.mp4"), 100)
+
+    assert len(result["frames"]) == 24
 
 
 def test_more_seams_than_the_cap_are_refused(tmp_path):

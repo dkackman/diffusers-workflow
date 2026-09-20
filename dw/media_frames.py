@@ -70,13 +70,16 @@ def contact_sheet(path, count, tile_width=320, shape=None):
     already-computed `video_shape(path)`; see `frames_at`."""
     if int(count) < 1:
         raise ValueError("count must be at least 1")
-    if int(count) > MAX_CONTACT_SHEET_FRAMES:
+    shape = shape if shape is not None else video_shape(path)
+    # Clamp to the clip's own length before checking the cap: a count that
+    # would only ever produce a handful of cells (a short clip) should not
+    # be refused for the raw number the caller asked for.
+    count = min(int(count), shape["frame_count"])
+    if count > MAX_CONTACT_SHEET_FRAMES:
         raise ValueError(
             f"count {count} is more than a contact sheet holds "
             f"({MAX_CONTACT_SHEET_FRAMES}); ask for a smaller one, or `at` for moments"
         )
-    shape = shape if shape is not None else video_shape(path)
-    count = min(int(count), shape["frame_count"])
     indexes = _evenly_spaced_indices(shape["frame_count"], count)
     images = _read_frames(
         path,
