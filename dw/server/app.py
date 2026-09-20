@@ -74,7 +74,14 @@ from .enhancers import build_enhance_workflow, preset_descriptions
 from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
-from ..media_audio import NoSoundtrack, extract_audio, media_duration
+from ..media_audio import (
+    MAX_INLINE_AUDIO_BYTES,
+    NoSoundtrack,
+    audio_shape,
+    extract_audio,
+    media_duration,
+    projected_wav_base64_size,
+)
 from ..media_frames import contact_sheet, frames_at, seam_tiles, video_shape
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
@@ -2849,6 +2856,22 @@ def create_app(
                 headers["X-DW-Duration"] = str(duration_seconds)
             media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
             return FileResponse(path, media_type=media_type, headers=headers)
+
+        if not excerpt:
+            # A whole track is refused at the header, not after it has been
+            # decoded and shipped: the MCP side would refuse the same bytes
+            # for the same reason, having paid for all of them.
+            projected = projected_wav_base64_size(audio_shape(path))
+            if projected is not None and projected > MAX_INLINE_AUDIO_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"{name}'s whole soundtrack would be {projected} bytes "
+                        f"base64-encoded as WAV - over the {MAX_INLINE_AUDIO_BYTES} "
+                        "byte limit for an inline clip. Ask for an excerpt with "
+                        "`start` and `duration` (seconds), or download the file."
+                    ),
+                )
 
         try:
             data, info = extract_audio(path, start=start, duration=duration)

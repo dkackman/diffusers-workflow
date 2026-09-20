@@ -130,18 +130,25 @@ def get_output_audio(client, name, start=None, duration=None, workspace=None):
         is_audio,
         workspace=workspace,
         params=params,
+        max_bytes=MAX_RETURNED_BYTES,
     )
-    if body is None:
+    if body is None and not is_audio(content_type):
         raise DwApiError(
             f"{name} answered {content_type or 'no declared type'}, not audio - "
             "this tool returns a soundtrack only. Use get_output_image for "
             "an image, or get_gallery_metadata for other media."
         )
 
-    base64_size = 4 * math.ceil(len(body) / 3)
+    # Sized from the declared content-length when the client refused to
+    # read the body on it, else from the body it read (an answer that
+    # declared no length). The server refuses a whole track it can size
+    # from the file's headers with a 413 before either, and the client
+    # surfaces that detail as is; this is the same advice for the rest.
+    raw_size = len(body) if body is not None else int(headers["content-length"])
+    base64_size = 4 * math.ceil(raw_size / 3)
     if base64_size > MAX_RETURNED_BYTES:
         raise DwApiError(
-            f"{name} is {len(body)} bytes, which would be {base64_size} "
+            f"{name} is {raw_size} bytes, which would be {base64_size} "
             f"bytes base64-encoded - over the {MAX_RETURNED_BYTES} byte "
             "limit for an inline clip. Ask for an excerpt with `start` and "
             "`duration` (seconds) - get_gallery_metadata's envelope says "

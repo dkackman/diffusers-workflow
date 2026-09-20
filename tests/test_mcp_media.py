@@ -886,3 +886,66 @@ def test_tiles_over_budget_are_shrunk_together_and_say_so():
     assert len(result["tiles"]) == 3  # shrunk, not dropped
     assert result["downscaled_to"] is not None and result["downscaled_to"] < 2048
     assert all(decoded(t).width == result["tiles"][0]["width"] for t in result["tiles"])
+
+
+def test_a_whole_track_over_budget_is_refused_from_its_content_length():
+    """The refusal above must not have downloaded the track to make it:
+    the server declares the body's length, and the tool refuses on that
+    header without reading past it (#193 review)."""
+    length = MAX_RETURNED_BYTES * 3 // 4 + 1024
+
+    class Unread(httpx.SyncByteStream):
+        iterated = False
+
+        def __iter__(self):
+            Unread.iterated = True
+            yield b"\0" * 1024
+
+        def close(self):
+            pass
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "audio/wav",
+                "content-length": str(length),
+                "x-dw-duration": "240.0",
+            },
+            stream=Unread(),
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(DwApiError) as caught:
+        get_output_audio(client, "cut.mp4")
+
+    assert "start" in str(caught.value) and "duration" in str(caught.value)
+    assert str(length) in str(caught.value)
+    assert Unread.iterated is False
+
+
+def test_a_413_from_the_server_reads_as_the_same_excerpt_advice():
+    """The gallery route refuses a long video's whole track with a 413
+    before decoding it; the tool must surface that as the excerpt advice,
+    not as an opaque HTTP failure."""
+
+    def handler(request):
+        return httpx.Response(
+            413,
+            json={
+                "detail": "cut.mp4's whole soundtrack would be 5000000 bytes "
+                "base64-encoded as WAV - over the 4194304 byte limit for an "
+                "inline clip. Ask for an excerpt with `start` and `duration` "
+                "(seconds), or download the file."
+            },
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(DwApiError) as caught:
+        get_output_audio(client, "cut.mp4")
+
+    message = str(caught.value)
+    assert "start" in message and "duration" in message
+    assert "HTTP 413" not in message

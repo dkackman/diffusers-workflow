@@ -3,13 +3,20 @@ what get_output_audio needs for a muxed video and for a track too long to
 send whole."""
 
 import io
+import math
 import wave
 from unittest import mock
 
 import numpy
 import pytest
 
-from dw.media_audio import NoSoundtrack, extract_audio, media_duration
+from dw.media_audio import (
+    NoSoundtrack,
+    audio_shape,
+    extract_audio,
+    media_duration,
+    projected_wav_base64_size,
+)
 from tests.test_media_info import write_mp4, write_wav
 
 
@@ -228,3 +235,32 @@ def test_the_resampler_is_flushed_for_an_excerpt_too(tmp_path):
     assert flushed == [True]
     rate, samples = read_wav(data)
     assert samples.shape[0] == pytest.approx(0.5 * rate, abs=rate * 0.02)
+
+
+def test_audio_shape_projects_a_whole_track_wav_without_decoding(tmp_path):
+    """The gallery route sizes a whole-track answer from the headers before
+    deciding to extract it: 2 s at 8 kHz stereo 16-bit is 64000 PCM bytes,
+    which base64 makes 4 * ceil(64000 / 3)."""
+    import av
+
+    write_mp4(tmp_path / "shot.mp4", frames=12, fps=6)
+    write_mp4(tmp_path / "mute.mp4", frames=12, fps=6, with_audio=False)
+
+    called = []
+    original_decode = av.container.InputContainer.decode
+
+    def counting_decode(self, *args, **kwargs):
+        called.append(True)
+        yield from original_decode(self, *args, **kwargs)
+
+    with mock.patch.object(av.container.InputContainer, "decode", counting_decode):
+        shape = audio_shape(str(tmp_path / "shot.mp4"))
+        assert audio_shape(str(tmp_path / "mute.mp4")) is None
+
+    assert called == []
+    assert shape["sample_rate"] == 8000 and shape["channels"] == 2
+    assert shape["duration_seconds"] == pytest.approx(2.0, abs=0.1)
+    projected = projected_wav_base64_size(shape)
+    assert projected == pytest.approx(4 * math.ceil(64000 / 3), rel=0.06)
+    assert projected_wav_base64_size(None) is None
+    assert projected_wav_base64_size({**shape, "duration_seconds": None}) is None

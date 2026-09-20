@@ -1344,6 +1344,44 @@ def test_gallery_audio_serving_a_whole_file_does_not_decode_it(server, tmp_path)
         assert called == [], "serving a whole audio file decoded it"
 
 
+def test_gallery_audio_refuses_to_extract_a_whole_track_over_the_inline_cap(server, tmp_path):
+    """A whole-track request on a long video used to decode and ship the
+    entire WAV before the MCP side refused it. The route projects the WAV
+    size from the container's headers first and answers 413 - naming
+    `start`/`duration` - without decoding a frame (#193 review)."""
+    import av
+    from unittest import mock
+    from tests.test_media_info import write_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        # 100 s at 8 kHz stereo 16-bit is 3.2 MB of PCM, 4.27 MB as base64
+        write_mp4(outputs / "long-gen.0-0.0.mp4", frames=100, fps=1)
+
+        called = []
+        original_decode = av.container.InputContainer.decode
+
+        def counting_decode(self, *args, **kwargs):
+            called.append(True)
+            yield from original_decode(self, *args, **kwargs)
+
+        with mock.patch.object(av.container.InputContainer, "decode", counting_decode):
+            response = client.get("/api/gallery/long-gen.0-0.0.mp4/audio")
+
+        assert response.status_code == 413
+        detail = response.json()["detail"]
+        assert "start" in detail and "duration" in detail
+        assert called == [], "a refused whole-track request decoded the file"
+
+        # an excerpt of the same file is still served
+        with mock.patch.object(av.container.InputContainer, "decode", counting_decode):
+            excerpt = client.get(
+                "/api/gallery/long-gen.0-0.0.mp4/audio",
+                params={"start": 10, "duration": 1},
+            )
+        assert excerpt.status_code == 200
+
+
 def test_gallery_audio_cuts_an_excerpt_and_names_it(server, tmp_path):
     import io
     import wave

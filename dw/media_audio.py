@@ -8,6 +8,7 @@ request must not pull in torch or materialise frames.
 
 import io
 import logging
+import math
 import wave
 
 import av
@@ -15,6 +16,14 @@ import numpy
 from av.audio.resampler import AudioResampler
 
 logger = logging.getLogger("dw")
+
+# The most a soundtrack may be as base64 before the gallery route refuses to
+# extract it whole - the twin of dw_mcp/media.py's MAX_RETURNED_BYTES (the
+# MCP package's cap on any inline payload). Two constants because the two
+# packages do not import each other; a whole track over this is cut off at
+# the header, before a frame is decoded, rather than decoded, shipped and
+# then refused by the client.
+MAX_INLINE_AUDIO_BYTES = 4 * 1024 * 1024
 
 
 class NoSoundtrack(ValueError):
@@ -39,6 +48,32 @@ def media_duration(path):
     extract" case (serving an audio file whole - #193)."""
     with av.open(path) as container:
         return _container_duration(container)
+
+
+def audio_shape(path):
+    """The soundtrack's duration (seconds), sample rate and channel count
+    from the container's headers alone - what projecting the size of a
+    whole-track WAV needs, and nothing decoded to get it. `None` when the
+    file has no audio stream."""
+    with av.open(path) as container:
+        if not container.streams.audio:
+            return None
+        stream = container.streams.audio[0]
+        return {
+            "duration_seconds": _container_duration(container),
+            "sample_rate": int(stream.rate),
+            "channels": int(stream.channels),
+        }
+
+
+def projected_wav_base64_size(shape):
+    """How many bytes the whole track would be as base64 16-bit PCM WAV -
+    `extract_audio`'s output for the same file, sized from `audio_shape`
+    without producing it. `None` when the container states no duration."""
+    if shape is None or shape["duration_seconds"] is None:
+        return None
+    pcm = int(shape["duration_seconds"] * shape["sample_rate"] * shape["channels"] * 2)
+    return 4 * math.ceil(pcm / 3)
 
 
 def extract_audio(path, start=None, duration=None):
