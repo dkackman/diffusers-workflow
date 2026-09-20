@@ -949,3 +949,50 @@ def test_a_413_from_the_server_reads_as_the_same_excerpt_advice():
     message = str(caught.value)
     assert "start" in message and "duration" in message
     assert "HTTP 413" not in message
+
+
+def test_hear_fetches_an_excerpt_around_each_moment():
+    calls = []
+
+    def handler(request):
+        calls.append((request.url.path, dict(request.url.params)))
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(200, json={"frame_count": 48, "fps": 24.0,
+                                             "tiles": [tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
+                                                       tile_json(64, 32, "00:00.2 (frame 5)", 5, 0.2)]})
+        return httpx.Response(200, content=b"RIFF" + b"\0" * 64,
+                              headers={"content-type": "audio/wav", "x-dw-duration": "2.0",
+                                       "x-dw-excerpt-start": request.url.params["start"],
+                                       "x-dw-excerpt-duration": request.url.params["duration"]})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    result = get_output_frames(client, "x.mp4", at=[1.0, 0.2], hear=1.0)
+
+    audio_calls = [c for c in calls if c[0].endswith("/audio")]
+    assert [c[1]["start"] for c in audio_calls] == ["0.5", "0.0"]  # never before 0
+    assert [c[1]["duration"] for c in audio_calls] == ["1.0", "1.0"]
+    assert all(t["audio"]["mime_type"] == "audio/wav" for t in result["tiles"])
+    assert result["tiles"][0]["audio"]["excerpt"]["start"] == 0.5
+
+
+def test_hear_on_a_mute_clip_keeps_the_frames_and_says_so():
+    def handler(request):
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(200, json={"frame_count": 48, "fps": 24.0,
+                                             "tiles": [tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0)]})
+        return httpx.Response(404, json={"detail": "x.mp4 carries no soundtrack"})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    result = get_output_frames(client, "x.mp4", at=[1.0], hear=1.0)
+
+    assert "audio" not in result["tiles"][0]
+    assert "no soundtrack" in result["tiles"][0]["audio_error"]
+
+
+def test_hear_is_refused_without_at():
+    client = frames_server([])
+
+    with pytest.raises(DwApiError, match="hear"):
+        get_output_frames(client, "x.mp4", count=4, hear=1.0)

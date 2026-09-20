@@ -191,6 +191,7 @@ def get_output_frames(
     boundaries=None,
     names=None,
     max_dimension=512,
+    hear=None,
     workspace=None,
 ):
     """Frames of a generated video as images - the way to *see* a clip when
@@ -215,6 +216,11 @@ def get_output_frames(
             "Pass exactly one of `at`, `count` or `seams`"
             + (f" - got {', '.join(chosen)}" if chosen else "")
         )
+    if hear is not None:
+        if not at:
+            raise DwApiError("`hear` takes seconds of soundtrack around each `at` moment - pass `at`")
+        if float(hear) <= 0:
+            raise DwApiError("`hear` is a positive number of seconds")
     params = [("max_dimension", str(max(MIN_DIMENSION, int(max_dimension))))]
     # a list of pairs, turned into a dict by the client - so no key repeats
     if at:
@@ -232,12 +238,29 @@ def get_output_frames(
         api_path("api", "gallery", name, "frames"), params=params, workspace=workspace
     )
     tiles, downscaled_to = _fit_tiles_within_budget(body.get("tiles", []))
+    if hear is not None:
+        span = float(hear)
+        for tile in tiles:
+            start = max(0.0, float(tile["seconds"]) - span / 2)
+            try:
+                audio = get_output_audio(
+                    client, name, start=start, duration=span, workspace=workspace
+                )
+            except DwApiError as e:
+                tile["audio_error"] = str(e)
+                continue
+            tile["audio"] = {
+                "data": audio["data"],
+                "mime_type": audio["mime_type"],
+                "excerpt": audio["excerpt"],
+            }
     return {
         "name": name,
         "frame_count": body.get("frame_count"),
         "fps": body.get("fps"),
         "tiles": tiles,
         "downscaled_to": downscaled_to,
+        "hear": hear,
     }
 
 

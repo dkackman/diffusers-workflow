@@ -562,9 +562,8 @@ def build_server(client):
         clip too large to fit inline is refused rather than cut; hear part
         of a long one by asking for the part - `start` and `duration` in
         seconds, around a seam or a moment `get_gallery_metadata`'s
-        envelope located. The text part reports the track's length and,
-        for an excerpt, exactly what was cut, so a slice is never mistaken
-        for the whole. To *see* a video, `get_output_frames`.
+        envelope located. The text part says what was cut. To *see* a
+        video, `get_output_frames`.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
@@ -592,16 +591,17 @@ def build_server(client):
         boundaries: list[int] | None = None,
         names: list[str] | None = None,
         max_dimension: int = 512,
+        hear: float | None = None,
         workspace: str | None = None,
-    ) -> list[ImageContent | TextContent]:
+    ) -> list[ImageContent | AudioContent | TextContent]:
         """See a generated video as frames - there is no video content
         type over MCP. One selector per call: `count` for a contact sheet,
-        `at` for moments (seconds, or "frame:N"), or `seams` (true, or seam
+        `at` for moments (seconds or "frame:N"), or `seams` (true, or seam
         numbers from 1) for the frame pair either side of each join. `seams`
         needs `boundaries`: each later shot's first frame, the running sum of
         the shots' `frame_count` from `get_gallery_metadata` on their own
         files; `names` names the shots. Over budget, tiles shrink together,
-        never drop.
+        never drop. `hear=N` adds N seconds of soundtrack around each `at` moment.
 
         `workspace` pins this call to another workspace (#99)."""
         result = media.get_output_frames(
@@ -613,12 +613,22 @@ def build_server(client):
             boundaries=boundaries,
             names=names,
             max_dimension=max_dimension,
+            hear=hear,
             workspace=workspace,
         )
-        parts = [
-            ImageContent(type="image", data=tile["data"], mime_type=tile["mime_type"])
-            for tile in result["tiles"]
-        ]
+        parts = []
+        for tile in result["tiles"]:
+            parts.append(
+                ImageContent(type="image", data=tile["data"], mime_type=tile["mime_type"])
+            )
+            if "audio" in tile:
+                parts.append(
+                    AudioContent(
+                        type="audio",
+                        data=tile["audio"]["data"],
+                        mime_type=tile["audio"]["mime_type"],
+                    )
+                )
         lines = [
             f"name: {result['name']}",
             f"frame_count: {result['frame_count']}  fps: {result['fps']}",
@@ -636,11 +646,15 @@ def build_server(client):
                 where = f"frame {tile['frame']} @ {tile['seconds']:.2f}s"
             if tile.get("difference") is not None:
                 where += f"  difference: {tile['difference']}"
+            if tile.get("audio_error"):
+                where += f"  hear: {tile['audio_error']}"
             lines.append(f"- {tile['label']}  {where}  [{tile['width']}x{tile['height']}]")
         if result["downscaled_to"]:
             lines.append(
                 f"downscaled_to: {result['downscaled_to']} (every tile, to fit the inline budget)"
             )
+        if result.get("hear"):
+            lines.append(f"hear: {result['hear']}s around each moment")
         parts.append(TextContent(type="text", text="\n".join(lines)))
         return parts
 

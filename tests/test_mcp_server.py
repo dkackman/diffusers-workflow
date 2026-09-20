@@ -391,6 +391,50 @@ async def test_a_contact_sheet_text_part_locates_every_cell():
 
 
 @pytest.mark.asyncio
+async def test_hear_adds_audio_content_after_each_tiles_image():
+    def handler(request):
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(
+                200,
+                json={
+                    "name": "shot.mp4",
+                    "frame_count": 48,
+                    "fps": 24.0,
+                    "tiles": [
+                        {
+                            "label": "00:01.0 (frame 24)",
+                            "frame": 24,
+                            "seconds": 1.0,
+                            "data": base64.b64encode(PNG_1X1).decode("ascii"),
+                            "mime_type": "image/png",
+                            "width": 64,
+                            "height": 32,
+                        }
+                    ],
+                },
+            )
+        return httpx.Response(
+            200,
+            content=b"RIFF" + b"\0" * 64,
+            headers={
+                "content-type": "audio/wav",
+                "x-dw-duration": "2.0",
+                "x-dw-excerpt-start": "0.0",
+                "x-dw-excerpt-duration": "2.0",
+            },
+        )
+
+    server = server_over(handler)
+
+    result = await server.call_tool(
+        "get_output_frames", {"name": "shot.mp4", "at": [1.0], "hear": 2.0}
+    )
+
+    assert [part.type for part in result.content] == ["image", "audio", "text"]
+    assert "hear: 2.0s around each moment" in result.content[-1].text
+
+
+@pytest.mark.asyncio
 async def test_the_media_tool_descriptions_say_what_they_hand_back():
     """`boundaries` is each later shot's start frame - the route refuses 0 -
     and audio arrives in its own encoding only when an audio file is served
@@ -1272,6 +1316,15 @@ def test_the_stated_tool_count_is_the_registered_one():
 # sum of `get_gallery_metadata`'s `frame_count` for each shot. 16 tokens of
 # headroom left; the next docstring change here should measure again rather
 # than assume it still fits.
+# Measured 2026-09-20 at 13_799.5 (9_144.5 / 3_641 / 1_014) after
+# get_output_frames gained `hear` (soundtrack around each `at` moment, one
+# AudioContent per tile that has one). Paid for by tightening two
+# sentences: `get_output_frames`'s "(seconds, or "frame:N")" lost its
+# comma, and `get_output_audio`'s "The text part reports the track's
+# length and, for an excerpt, exactly what was cut, so a slice is never
+# mistaken for the whole." shortened to "The text part says what was cut."
+# 0.5 tokens of headroom left; the next docstring change here should
+# measure again rather than assume it still fits.
 SURFACE_BUDGET = 13_800
 
 

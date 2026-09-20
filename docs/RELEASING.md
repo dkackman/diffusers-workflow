@@ -12,6 +12,8 @@ when a release ships.
   `/outputs` mount, which used to refuse `video/mp4`).
 - New tool `get_output_frames` (route `GET /api/gallery/{name}/frames`):
   a video seen as moments, a contact sheet, or seam pairs.
+- `get_output_frames` takes `hear` (soundtrack around each `at` moment) and
+  reports `difference` per seam pair.
 
 Releases are cut by pushing a `v<semver>` tag. CI does the rest.
 
