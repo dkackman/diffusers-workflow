@@ -1711,3 +1711,18 @@ Append to whatever release-note draft is open (or open `docs/RELEASING.md`'s "un
 **Placeholder scan:** none - every step has its code or its exact edit.
 
 **Type consistency:** `extract_audio -> (bytes, dict)` used by Task 2 as `data, info`; header names `X-DW-Duration` / `X-DW-Excerpt-Start` / `X-DW-Excerpt-Duration` match between Task 2 (set) and Task 3 (read, lower-cased by httpx); `get_media_if` returns a 3-tuple in Task 3 and `get_bytes_if` keeps its 2-tuple for `get_output_image`/`get_output_text`; `Tile` dict keys `label/frame/seconds/image` in Task 4 become `label/frame/seconds/data/mime_type/width/height` in Task 5 (`_encoded_tile` strips `image`, keeps `frames` on a contact sheet), and Task 6 reads exactly those; `boundaries` is a frame-index list everywhere.
+
+## Review fixes (this plan)
+
+**Pre-merge fixes:**
+- Task 1: cap contact-sheet cells and seams / fit-as-decoded
+- Task 2: extract_audio sample-clock fix for pts-less frames
+- Task 3: seek-overshoot recovery in _read_frames
+- Task 4: empty seams list is a 400
+
+**Improvements for stage 2:**
+- Task 5: get_output_frames docstring says where seam boundaries come from
+- Task 6: contact-sheet cells carry a burned-in timestamp
+- Task 7: seam tiles carry a `difference` number
+- Task 8: get_output_frames `hear=` returns soundtrack around each `at` moment
+- Task 9: the two video skills map failure modes to the evidence tool that shows them
