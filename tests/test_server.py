@@ -1312,6 +1312,28 @@ def test_gallery_audio_serves_an_audio_file_as_itself_when_asked_whole(server, t
         assert float(response.headers["x-dw-duration"]) == pytest.approx(1.0, abs=0.05)
 
 
+def test_gallery_audio_serving_a_whole_file_does_not_decode_it(server, tmp_path):
+    """The "nothing to extract" fast path used to call probe_media for one
+    header, which decodes the whole track to measure its level (#193 review).
+    A four-minute mp3 must not pay for that decode just to answer duration."""
+    import av
+    from tests.test_media_info import write_wav
+    from unittest import mock
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=1.0)
+
+        def failing_decode(self, *args, **kwargs):
+            raise AssertionError("serving a whole audio file decoded it")
+
+        with mock.patch.object(av.container.InputContainer, "decode", failing_decode):
+            response = client.get("/api/gallery/score-gen.0-0.0.wav/audio")
+
+        assert response.status_code == 200
+        assert float(response.headers["x-dw-duration"]) == pytest.approx(1.0, abs=0.05)
+
+
 def test_gallery_audio_cuts_an_excerpt_and_names_it(server, tmp_path):
     import io
     import wave

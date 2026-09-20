@@ -73,7 +73,7 @@ from .enhancers import build_enhance_workflow, preset_descriptions
 from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
-from ..media_audio import NoSoundtrack, extract_audio
+from ..media_audio import NoSoundtrack, extract_audio, media_duration
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
@@ -2821,7 +2821,8 @@ def create_app(
         excerpt (`start` + `duration`, seconds) of a track too long to send
         whole (#193). An excerpt names itself in the response headers
         (`X-DW-Excerpt-Start`, `X-DW-Excerpt-Duration`) beside the whole
-        track's `X-DW-Duration`, so a cut is never silent (#204).
+        track's `X-DW-Duration` - omitted only when a container carries no
+        duration in its own header - so a cut is never silent (#204).
 
         An audio-only file asked for whole is served as its own bytes in its
         own encoding - there is nothing to extract, and a transcode would
@@ -2837,8 +2838,13 @@ def create_app(
 
         excerpt = start is not None or duration is not None
         if kind == "audio" and not excerpt:
-            media = probe_media(path) or {}
-            headers = {"X-DW-Duration": str(media.get("duration_seconds", ""))}
+            # The container's own header has the duration - reading it does
+            # not decode a single frame, unlike probe_media (which measures
+            # level and would pay for a full decode just for one number).
+            headers = {}
+            duration_seconds = media_duration(path)
+            if duration_seconds is not None:
+                headers["X-DW-Duration"] = str(duration_seconds)
             media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
             return FileResponse(path, media_type=media_type, headers=headers)
 

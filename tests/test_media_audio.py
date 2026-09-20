@@ -9,7 +9,7 @@ from unittest import mock
 import numpy
 import pytest
 
-from dw.media_audio import NoSoundtrack, extract_audio
+from dw.media_audio import NoSoundtrack, extract_audio, media_duration
 from tests.test_media_info import write_mp4, write_wav
 
 
@@ -79,6 +79,15 @@ def test_a_silent_video_has_no_soundtrack(tmp_path):
 
     with pytest.raises(NoSoundtrack):
         extract_audio(str(tmp_path / "mute.mp4"))
+
+
+def test_media_duration_reads_the_header_without_decoding(tmp_path):
+    """The route's "serve an audio file whole" fast path wants only the
+    length, not a level measurement - media_duration is the container's own
+    header figure, the same number extract_audio calls `total`."""
+    write_wav(tmp_path / "score.wav", seconds=2.0)
+
+    assert media_duration(str(tmp_path / "score.wav")) == pytest.approx(2.0, abs=0.01)
 
 
 def test_an_excerpt_does_not_decode_unnecessary_frames(tmp_path):

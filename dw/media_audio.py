@@ -21,6 +21,26 @@ class NoSoundtrack(ValueError):
     """The file has no audio stream to extract."""
 
 
+def _container_duration(container):
+    """The container's own duration (seconds) from its header alone - no
+    stream is decoded to produce this number."""
+    return (
+        float(container.duration / av.time_base)
+        if container.duration is not None
+        else None
+    )
+
+
+def media_duration(path):
+    """The container's duration (seconds), read from its header alone - no
+    stream is decoded. `extract_audio` needs the same figure as `total`;
+    this is that computation, exposed for a caller that wants only the
+    length, since decoding to get one number defeats the "nothing to
+    extract" case (serving an audio file whole - #193)."""
+    with av.open(path) as container:
+        return _container_duration(container)
+
+
 def extract_audio(path, start=None, duration=None):
     """The soundtrack of `path` as 16-bit PCM WAV bytes, plus what was cut.
 
@@ -45,11 +65,7 @@ def extract_audio(path, start=None, duration=None):
         if not container.streams.audio:
             raise NoSoundtrack(f"{path} has no soundtrack")
         stream = container.streams.audio[0]
-        total = (
-            float(container.duration / av.time_base)
-            if container.duration is not None
-            else None
-        )
+        total = _container_duration(container)
         if total is not None and start >= total:
             raise ValueError(
                 f"start {start:.2f}s is past the end of a {total:.2f}s track"
