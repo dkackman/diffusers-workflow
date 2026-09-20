@@ -240,6 +240,7 @@ class TestEstimate:
             "device": "cuda",
             "measured_on": None,
             "partial": False,
+            "unpriced": [],
             "runs": None,
         }
 
@@ -257,6 +258,7 @@ class TestEstimate:
             "device": "cuda",
             "measured_on": "4090",
             "partial": False,
+            "unpriced": [],
             "runs": None,
         }
 
@@ -269,6 +271,7 @@ class TestEstimate:
             "device": "cuda",
             "measured_on": "M2",
             "partial": False,
+            "unpriced": [],
             "runs": None,
         }
 
@@ -397,6 +400,7 @@ class TestObservedEstimate:
             "device": "cuda",
             "measured_on": "RTX 3090",
             "partial": False,
+            "unpriced": [],
             "runs": 11,
         }
 
@@ -446,6 +450,7 @@ class TestObservedEstimate:
         answer = plan(composing("child.json"), observed=observed(minutes=6))["estimate"]
         assert answer["minutes"] == 6.0
         assert answer["partial"] is False
+        assert answer["unpriced"] == []
 
 
 def composing(child_path):
@@ -465,19 +470,23 @@ class TestSubWorkflowEstimate:
         (tmp_path / "child.json").write_text(json.dumps(child))
         answer = plan(composing("child.json"))["estimate"]
         assert (answer["minutes"], answer["partial"]) == (7.0, False)
+        assert answer["unpriced"] == []
 
     def test_a_child_without_a_cost_makes_the_estimate_partial(self, plan, tmp_path):
         (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))
         answer = plan(composing("child.json"))["estimate"]
         assert (answer["minutes"], answer["partial"]) == (2.0, True)
+        assert answer["unpriced"] == ["child.json"]
 
     def test_an_unreadable_child_makes_the_estimate_partial(self, plan):
         answer = plan(composing("missing.json"))["estimate"]
         assert (answer["minutes"], answer["partial"]) == (2.0, True)
+        assert answer["unpriced"] == ["missing.json"]
 
     def test_a_builtin_adds_nothing_and_is_not_partial(self, plan):
         answer = plan(composing("builtin:text-to-image.json"))["estimate"]
         assert (answer["minutes"], answer["partial"]) == (2.0, False)
+        assert answer["unpriced"] == []
 
     def test_an_unpriced_parent_with_a_priced_child_is_partial(self, plan, tmp_path):
         """A for_each step with no cost block contributes nothing to the
@@ -497,12 +506,14 @@ class TestSubWorkflowEstimate:
         }
         answer = plan(parent)["estimate"]
         assert (answer["minutes"], answer["partial"]) == (5.0, True)
+        assert answer["unpriced"] == ["parent"]
 
     def test_a_fully_unpriced_workflow_is_unknown_not_partial(self, plan):
         """No cost block anywhere - 'unknown' already says nobody has a
         number; 'partial' would wrongly imply some of it is known."""
         answer = plan({"id": "parent", "steps": []})["estimate"]
         assert (answer["minutes"], answer["partial"]) == (None, False)
+        assert answer["unpriced"] == []
 
     def test_a_child_measured_on_another_device_is_still_added(self, plan, tmp_path):
         child = {"id": "child", "cost": [cost("mps", 5)], "steps": []}

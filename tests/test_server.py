@@ -3976,6 +3976,7 @@ class TestValidatePlan:
             "device": serving,
             "measured_on": "RTX 3090",
             "partial": False,
+            "unpriced": [],
             "runs": 11,
         }
         assert asked == [("Basic", {"prompt": "x"})]
