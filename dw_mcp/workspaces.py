@@ -12,9 +12,43 @@ from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, api_path
 from dw_mcp import catalog
 
 
-def list_workspaces(client):
-    """The workspaces on the server, and which one this session is using."""
+# What a compact workspace entry keeps: enough to choose one or judge its
+# size, nothing that only naming its folders needs
+WORKSPACE_SUMMARY_FIELDS = ("name", "default", "usage")
+
+
+def list_workspaces(client, detail=False):
+    """The workspaces on the server, and which one this session is using.
+
+    Compact by default - each entry cut to `name`, `default` and `usage`
+    (files/bytes) - because a server that has accumulated dozens of
+    workspaces across episodes and regression runs answers in the tens of
+    KB otherwise for a question that is usually "which workspaces exist and
+    how big are they" (#249). Pass `detail=True` for each entry's full
+    folder paths (`root`, `workflows`, `assets`, `outputs`, `prompts`,
+    `common_assets`), needed before naming one to `use_workspace` or a
+    remote read.
+    """
     result = client.get_json("/api/workspaces")
+    if not detail:
+        entries = result.get("workspaces")
+        if isinstance(entries, list):
+            result = {
+                **result,
+                "workspaces": [
+                    {
+                        key: entry.get(key)
+                        for key in WORKSPACE_SUMMARY_FIELDS
+                        if key in entry
+                    }
+                    for entry in entries
+                    if isinstance(entry, dict)
+                ],
+                "note": (
+                    "Compact: each entry is name/default/usage only. Call "
+                    "list_workspaces(detail=True) for full folder paths."
+                ),
+            }
     return {**result, "current": client.workspace}
 
 
