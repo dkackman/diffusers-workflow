@@ -149,7 +149,16 @@ class JobHistory:
                 )
 
     def _connect(self):
-        return sqlite3.connect(self.db_path, timeout=5)
+        # WAL mode lets a reader (the web UI polling job status, an MCP
+        # get_job call) proceed without blocking behind whatever write the
+        # worker is mid-transaction on, and vice versa - the default
+        # rollback-journal mode takes a database-wide lock for the
+        # duration of a write. journal_mode is a property of the database
+        # file, not the connection, but PRAGMA is cheap and idempotent, so
+        # it is set on every connect rather than assumed to have stuck.
+        connection = sqlite3.connect(self.db_path, timeout=5)
+        connection.execute("PRAGMA journal_mode=WAL")
+        return connection
 
     def record(self, job):
         # The spec's workflow_name/warnings are derived; keep what rerun needs
