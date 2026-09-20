@@ -390,17 +390,29 @@ async def test_a_contact_sheet_text_part_locates_every_cell():
 
 @pytest.mark.asyncio
 async def test_the_media_tool_descriptions_say_what_they_hand_back():
-    """`boundaries` is the start frame of each shot *after the first* - the
-    route refuses 0 - and audio arrives in its own encoding only when an
-    audio file is served whole, WAV otherwise."""
+    """`boundaries` is each later shot's start frame - the route refuses 0 -
+    and audio arrives in its own encoding only when an audio file is served
+    whole, WAV otherwise."""
     server = server_over(ok({}))
     tools = await tools_of(server)
 
     frames = tools["get_output_frames"].description
-    assert "after the first" in frames
+    assert "later shot" in frames
     assert "each shot's start frame" not in frames
     audio = tools["get_output_audio"].description
     assert "WAV" in audio and "own encoding" in audio
+
+
+@pytest.mark.asyncio
+async def test_the_frames_tool_says_where_boundaries_come_from():
+    """Until a joined file carries its own shots (stage 2), the agent has to
+    derive seam boundaries; the tool has to say from what, or `seams` is a
+    parameter nobody can fill in."""
+    server = server_over(ok({}))
+    tools = await tools_of(server)
+    text = tools["get_output_frames"].description
+    assert "get_gallery_metadata" in text
+    assert "frame_count" in text
 
 
 # Every tool, the arguments a client would send, and the one API call it is
@@ -1252,6 +1264,12 @@ def test_the_stated_tool_count_is_the_registered_one():
 # "The loop" (steps 4 and 5), leaving a pointer plus the pinned words other
 # tests still check for. Landed at 13_741 (9_110 / 3_618 / 1_014) - back
 # under the original ceiling with room to spare.
+# Measured 2026-09-20 at 13_784 (9_153 / 3_618 / 1_014) after
+# get_output_frames's docstring grew a sentence saying where `boundaries`
+# comes from before stage 2 (`shots` on the artifact) exists - the running
+# sum of `get_gallery_metadata`'s `frame_count` for each shot. 16 tokens of
+# headroom left; the next docstring change here should measure again rather
+# than assume it still fits.
 SURFACE_BUDGET = 13_800
 
 

@@ -199,8 +199,9 @@ def get_output_frames(
     evenly spaced contact sheet) or `seams` (True, or seam numbers from 1:
     the last frame before and the first frame after each boundary, side by
     side). `boundaries` is the list of frame indexes each shot after the
-    first starts at, `names` the shots' names - both needed with `seams`
-    until a joined file carries its own.
+    first starts at - the running sum of the shots' `frame_count` from
+    `get_gallery_metadata` on their own files - `names` the shots' names -
+    both needed with `seams` until a joined file carries its own.
 
     Every tile is fitted to `max_dimension`; when the whole answer would
     still exceed MAX_RETURNED_BYTES the tiles are shrunk *together* - the

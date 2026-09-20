@@ -597,9 +597,11 @@ def build_server(client):
         """See a generated video as frames - there is no video content
         type over MCP. One selector per call: `count` for a contact sheet,
         `at` for moments (seconds, or "frame:N"), or `seams` (true, or seam
-        numbers from 1) for the frame pair either side of each join - needs
-        `boundaries` (start frame of each shot after the first) and `names`. Tiles fit
-        `max_dimension`; over budget they shrink together, never drop.
+        numbers from 1) for the frame pair either side of each join. `seams`
+        needs `boundaries`: each later shot's first frame, the running sum of
+        the shots' `frame_count` from `get_gallery_metadata` on their own
+        files; `names` names the shots. Over budget, tiles shrink together,
+        never drop.
 
         `workspace` pins this call to another workspace (#99)."""
         result = media.get_output_frames(
