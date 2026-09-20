@@ -174,18 +174,18 @@ portrait's composition.
    `subfolder`: `final` is the deliverable (`episode`, `music_video`,
    `voyage`), `intermediate` the scratch; keep that split in anything you
    compose.
-4. See a clip's shape with `get_output_frames(count=12)` and hear its track
-   with `get_output_audio`. Hand the user the gallery `url` (`list_gallery`, or
-   the manifest's file name), and check the rest - `get_job` for the manifest and
-   its warnings, `get_gallery_metadata` for duration, size and whether audio
-   is present. `get_output_image` works only on image steps - in this family
-   the Z-Image portraits and boards of `dialogue-short`, `storyboard`,
-   `generated-subject-reference` and `music-video`. Look for the family's
-   failure modes: a character that changes between shots (reference
-   the same portraits everywhere), a portrait imposing its framing on every
-   shot, a storyboard skipped, drift sharpening into noise late in a chain, a
-   voice-over without affect (the reference's delivery came through), every
-   shot the same length, one look word on every board softening all of them.
+4. Judge it yourself: `get_output_frames(count=12)` for a clip's shape,
+   `seams=true` (with each shot's start frame) for a cut's joins - a character
+   that changes between shots (reference the same portraits everywhere), a
+   portrait imposing its framing on every shot - `at` late in a chain for drift
+   sharpening into noise, and `get_output_audio` for a voice-over without
+   affect (the reference's delivery came through). Then `get_job` for the
+   manifest and its warnings, `get_gallery_metadata` for duration and whether
+   audio is present, and hand the user the gallery `url` (`list_gallery`).
+   `get_output_image` works only on image steps - the Z-Image portraits and
+   boards of `dialogue-short`, `storyboard`, `generated-subject-reference` and
+   `music-video`. Also look for a storyboard skipped, every shot the same
+   length, one look word on every board softening all of them.
 5. After an inline run worth keeping, `get_job_workflow` and `save_workflow`
    it, so the next run is by name rather than pasted JSON; `export_job` bundles
    the run — workflow, manifest, job row and media — for git. It is on the

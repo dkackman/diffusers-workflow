@@ -528,3 +528,14 @@ def test_a_skill_is_enumerated_where_the_plugin_describes_itself(path):
             assert f"`{name}`" in content, (
                 f"skill {name!r} is not named in {os.path.relpath(document, REPO_ROOT)}"
             )
+
+
+@pytest.mark.parametrize("path", [H3_SKILL, LTX_SKILL], ids=["minimax-h3", "ltx-2.5"])
+def test_a_video_skill_maps_its_failure_modes_to_the_tool_that_shows_them(path):
+    """Naming the tools and naming the failure modes in separate sentences
+    leaves the agent to guess which shows which; the step has to say
+    `seams=true` is for a join and `at` is for a moment."""
+    text = skill_text(path)
+    judge = text[text.index("## Run and judge"):]
+    assert "`seams=true`" in judge
+    assert "`at`" in judge
