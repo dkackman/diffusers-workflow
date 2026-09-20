@@ -613,7 +613,12 @@ the entry an item needs.
    `still_running: true`. One call blocks for at most 55 seconds whatever
    `timeout_seconds` says, so a minutes-long render takes several - the
    reply's `timeout_capped` and `waited_seconds` say which happened. A
-   running job's `progress` carries `denoise_step`/`denoise_total_steps`,
+   running job's `progress` carries the step being run; the phase
+   (`loading`, `generating`, `decoding`, `saving`) with the model it names in
+   `phase_detail`; `seconds_in_phase`, time spent in that phase; and
+   `seconds_since_event`, time since the last progress event - a number that
+   climbs while `denoise_step` stays put is the "nothing is happening" read.
+   It also carries `denoise_step`/`denoise_total_steps`,
    null until the denoise loop starts; judge a slow run against a stuck one
    by whether `denoise_step` has moved since a poll minutes ago, not by
    silence past a fixed threshold. A null `denoise_step` under `generating`

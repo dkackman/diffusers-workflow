@@ -622,7 +622,8 @@ def build_server(client):
         ]
         for tile in result["tiles"]:
             lines.append(
-                f"- {tile['label']}  [{tile['width']}x{tile['height']}]"
+                f"- {tile['label']}  frame {tile['frame']} @ {tile['seconds']:.2f}s"
+                f"  [{tile['width']}x{tile['height']}]"
             )
         if result["downscaled_to"]:
             lines.append(

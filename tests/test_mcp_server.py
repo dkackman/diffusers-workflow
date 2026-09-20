@@ -305,6 +305,49 @@ async def test_an_image_comes_back_as_an_image_block():
     assert "bytes" in text_block.text
 
 
+@pytest.mark.asyncio
+async def test_a_seam_tile_text_part_names_its_frame_and_time():
+    """A seam tile's label ("seam 1: a | b") carries no frame or time on its
+    own - unlike an `at`/`count` tile, whose label embeds them - so the text
+    part has to add them itself or an agent reading it cannot tell which
+    frames it is looking at (#193)."""
+
+    def serving_seam(request):
+        return httpx.Response(
+            200,
+            json={
+                "name": "cut.mp4",
+                "frame_count": 48,
+                "fps": 24.0,
+                "width": 64,
+                "height": 32,
+                "tiles": [
+                    {
+                        "label": "seam 1: a | b",
+                        "frame": 24,
+                        "seconds": 1.0,
+                        "data": base64.b64encode(PNG_1X1).decode("ascii"),
+                        "mime_type": "image/png",
+                        "width": 64,
+                        "height": 32,
+                    }
+                ],
+            },
+        )
+
+    server = server_over(serving_seam)
+
+    result = await server.call_tool(
+        "get_output_frames", {"name": "cut.mp4", "seams": [1]}
+    )
+
+    text_block = result.content[-1]
+    assert text_block.type == "text"
+    assert "seam 1: a | b" in text_block.text
+    assert "frame 24" in text_block.text
+    assert "1.00s" in text_block.text
+
+
 # Every tool, the arguments a client would send, and the one API call it is
 # expected to make. This is the wiring: a tool bound to the wrong handler or
 # handed its arguments in the wrong order shows up here and nowhere else.
