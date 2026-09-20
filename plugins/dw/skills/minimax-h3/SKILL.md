@@ -175,7 +175,7 @@ portrait's composition.
    `voyage`), `intermediate` the scratch; keep that split in anything you
    compose.
 4. Judge it yourself: `get_output_frames(count=12)` for a clip's shape,
-   `seams=true` (with each shot's start frame) for a cut's joins - a character
+   `seams=true` (with each later shot's start frame) for a cut's joins - a character
    that changes between shots (reference the same portraits everywhere), a
    portrait imposing its framing on every shot - `at` late in a chain for drift
    sharpening into noise, and `get_output_audio` for a voice-over without
