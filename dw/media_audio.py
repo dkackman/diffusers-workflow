@@ -79,10 +79,21 @@ def extract_audio(path, start=None, duration=None):
         layout = "stereo" if channels == 2 else ("mono" if channels == 1 else stream.layout.name)
         resampler = AudioResampler(format="s16", layout=layout, rate=rate)
 
+        # pts is a timestamp on the container's clock, not an offset from
+        # this stream's first sample: a stream with an edit list or a
+        # non-zero start (which real muxers write) carries a `start_time`,
+        # and both the seek target and each frame's clock have to be
+        # zeroed against it before they mean seconds into the track -
+        # the same anchor `_read_frames` in media_frames uses. Unanchored,
+        # `start=2.5` on a track shifted by one second came back from
+        # about 1.5 s: the wrong audio, silently.
+        anchor = stream.start_time if stream.start_time is not None else 0
         if start > 0:
             # Seek to the keyframe at or before `start`; the frames decoded
             # before `start` are then dropped sample-accurately below
-            container.seek(int(start / stream.time_base), stream=stream, backward=True)
+            container.seek(
+                int(start / stream.time_base) + anchor, stream=stream, backward=True
+            )
 
         pieces = []
         seen = 0  # samples of the track before the current frame
@@ -92,7 +103,9 @@ def extract_audio(path, start=None, duration=None):
             if done:
                 break
             frame_start = (
-                float(frame.pts * stream.time_base) if frame.pts is not None else seen / rate
+                float((frame.pts - anchor) * stream.time_base)
+                if frame.pts is not None
+                else seen / rate
             )
             for chunk in resampler.resample(frame):
                 samples = chunk.to_ndarray()  # (1, samples * channels) packed s16
@@ -112,10 +125,17 @@ def extract_audio(path, start=None, duration=None):
                 if stop is not None and chunk_end >= stop:
                     done = True
                     break
-        # flush the resampler
-        if stop is None:
-            for chunk in resampler.resample(None):
-                pieces.append(chunk.to_ndarray().reshape(-1, channels))
+        # Flush the resampler whatever ended the loop: it may still hold
+        # samples that belong before `stop`. Anything past `stop` is cut.
+        held = sum(p.shape[0] for p in pieces)
+        for chunk in resampler.resample(None):
+            samples = chunk.to_ndarray().reshape(-1, channels)
+            if stop is not None:
+                room = max(0, int(round((stop - start) * rate)) - held)
+                samples = samples[:room]
+            if samples.shape[0]:
+                pieces.append(samples)
+                held += samples.shape[0]
 
     pcm = numpy.concatenate(pieces) if pieces else numpy.zeros((0, channels), "<i2")
     buffer = io.BytesIO()
